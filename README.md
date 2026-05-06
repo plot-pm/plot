@@ -44,6 +44,9 @@ New to Plot? Read [Intro to Using Plot](skills/plot/intro-to-using-plot.md) for 
 
 ```
 /plugin marketplace add eins78/plot
+```
+
+```
 /plugin install plot@plot-marketplace
 ```
 
