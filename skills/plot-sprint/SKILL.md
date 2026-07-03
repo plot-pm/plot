@@ -8,7 +8,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.0.0-beta.4
+  version: 1.0.1
 compatibility: Designed for Claude Code and Cursor. Requires git. Sprint skeletons commit directly to main; planning refinement may optionally go through a draft PR (see "Refine via PR").
 ---
 
