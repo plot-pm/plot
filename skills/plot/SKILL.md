@@ -216,7 +216,7 @@ The board is a script (`skills/plot/scripts/board/server.mjs`), not a skill step
 
 ## Sibling Skills
 
-Plot works with standalone development strategy skills. These are not plot spokes — they have their own workflows and can be used independently. Plot references them at appropriate moments.
+Plot works with standalone development strategy skills. These are not plot spokes — they have their own workflows and can be used independently, but they ship with this plugin. Plot references them at appropriate moments.
 
 ### tracer-bullets
 

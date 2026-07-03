@@ -37,6 +37,7 @@ New to Plot? Read [Intro to Using Plot](skills/plot/intro-to-using-plot.md) for 
 | [plot-release](skills/plot-release/) | Create versioned release from delivered plans |
 | [plot-sprint](skills/plot-sprint/) | Time-boxed sprint coordination with MoSCoW prioritization |
 | [ralph-plot-sprint](skills/ralph-plot-sprint/) | Automated sprint runner (extension) |
+| [tracer-bullets](skills/tracer-bullets/) | Thin vertical slice strategy (companion — usable standalone, referenced by `/plot-approve`) |
 
 ## Installation
 
@@ -82,7 +83,7 @@ Plot discovers and adapts to whatever conventions your project provides. No hard
 
 ## Companion skills
 
-- **[tracer-bullets](https://github.com/eins78/skills)** — Thin vertical slice strategy. Referenced by `/plot-approve` heuristics for work with technical uncertainty. Install separately from [eins78/skills](https://github.com/eins78/skills).
+- **[tracer-bullets](skills/tracer-bullets/)** — Thin vertical slice strategy. Referenced by `/plot-approve` heuristics for work with technical uncertainty. Bundled with the plugin; usable standalone — it is a companion, not a lifecycle phase.
 
 ## Design
 
