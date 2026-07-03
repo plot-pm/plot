@@ -17,6 +17,7 @@ Plot is a hub-and-spoke skill system:
 | Command | `plot-release/` | Cut versioned release with changelog |
 | Coordination | `plot-sprint/` | Time-boxed sprint with MoSCoW priorities |
 | Automation | `ralph-plot-sprint/` | Automated sprint runner (shell loop wrapper) |
+| Companion | `story-tracking/` | Multi-session work tracking (stories = umbrella around plans) — usable standalone, not a plot spoke |
 | Companion | `tracer-bullets/` | Thin vertical slice strategy — usable standalone, not a plot spoke |
 
 Spoke commands reference helper scripts via relative path: `../plot/scripts/plot-pr-state.sh`.
