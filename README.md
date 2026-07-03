@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="Plot logo" width="160">
+</p>
+
 # Plot
 
 Git-native planning workflow for software development.
