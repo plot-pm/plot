@@ -444,7 +444,8 @@ Flag any problems found:
 
 - **Orphan impl branches**: branches with `feature/`, `bug/`, `docs/`, `infra/` prefix that have no corresponding plan in `docs/plans/`
 - **Phase mismatches**: plan says Draft but PR is non-draft, or plan says Approved but PR is still open
-- **Stale drafts**: impl PRs that have been in draft state for more than 7 days
+- **Completed drafts**: impl PRs still in `isDraft: true` state whose branch has commits beyond the initial branch cut (real implementation work has been pushed) — suggest `gh pr ready <n>`; reviewers filter by PR state, so a draft with completed work is invisible to them
+- **Abandoned drafts**: impl PRs in draft state with no new commits for >7 days — surface for cleanup
 - **Overlapping plans**: Draft/Approved plans with titles sharing 3+ significant words — flag in the status summary as informational (no blocking)
 - **Sprints past end date**: active sprints where end date has passed — flag as informational
 - **Multiple active sprints**: more than one active sprint — flag as informational

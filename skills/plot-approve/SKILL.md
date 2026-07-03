@@ -218,10 +218,10 @@ EOF
 
 (Replace `YYYY-MM-DD` with the actual date prefix from the plan filename.)
 
-If `## Plot Config` includes a project board (`owner/number`), add the new impl PR and set status to "Ready":
+If `## Plot Config` includes a project board (`owner/number`), add the new impl PR and set status to "In Progress" — approved work is actively being implemented:
 
 ```bash
-../plot/scripts/plot-update-board.sh <impl-pr-url> "Ready" <owner> <number>
+../plot/scripts/plot-update-board.sh <impl-pr-url> "In Progress" <owner> <number>
 ```
 
 Collect all created PR numbers and URLs.
@@ -295,4 +295,5 @@ Print:
 - Progress: `[ ] Draft > [x] Approved > [ ] Delivered > [ ] Released`
 - Suggested next actions:
   1. Start implementing on a branch (use a worktree for parallel work: `claude --worktree`)
-  2. When implementation is done: `/plot-deliver <slug>`
+  2. When implementation on a branch is complete, **mark its PR ready for review:** `gh pr ready <number>`. Impl PRs are created as drafts; reviewers filter by PR state, so a draft is invisible to them. Reporting "ready for visual review" in chat is not the same as marking the PR ready. Neither `/plot-deliver` nor the dispatcher will do this silently — it is the agent's responsibility.
+  3. Run `/plot-deliver <slug>` once all impl PRs for the plan are merged
