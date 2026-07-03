@@ -1,0 +1,11 @@
+version: 2
+updates:
+  # Keep SHA-pinned actions fresh (org policy requires full-SHA pins,
+  # which go stale silently without this).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
