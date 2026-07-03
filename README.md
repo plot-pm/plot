@@ -43,7 +43,7 @@ New to Plot? Read [Intro to Using Plot](skills/plot/intro-to-using-plot.md) for 
 ### As a Claude Code plugin (recommended — auto-updates)
 
 ```
-/plugin marketplace add eins78/plot
+/plugin marketplace add plot-pm/plot
 ```
 
 ```
@@ -55,7 +55,7 @@ Skills auto-update when you run `/plugin update`.
 ### Via skills CLI
 
 ```bash
-pnpx skills add https://github.com/eins78/plot.git --global --agent claude-code --all --yes
+pnpx skills add https://github.com/plot-pm/plot.git --global --agent claude-code --all --yes
 ```
 
 ### Manual (single skill)

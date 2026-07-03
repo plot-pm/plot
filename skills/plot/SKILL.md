@@ -8,7 +8,7 @@ globs: []
 license: MIT
 metadata:
   author: eins78
-  repo: https://github.com/eins78/plot
+  repo: https://github.com/plot-pm/plot
   version: 1.2.0
 compatibility: Designed for Claude Code and Cursor. Requires git. Currently uses gh CLI for forge operations, but the workflow works with any git host that supports pull request review.
 ---
@@ -467,7 +467,7 @@ Print a clear summary:
 
 If you encounter a workflow gap, a broken convention, or missing guidance in any Plot skill (plot, plot-idea, plot-approve, plot-deliver, plot-release, plot-sprint), don't just work around it — fix the skill:
 
-1. **Create a PR** from a fresh worktree of `https://github.com/eins78/plot` on a new branch, fixing the issue directly
-2. **Or file an issue** on `https://github.com/eins78/plot` with: what failed, the actual behavior, and the suggested fix
+1. **Create a PR** from a fresh worktree of `https://github.com/plot-pm/plot` on a new branch, fixing the issue directly
+2. **Or file an issue** on `https://github.com/plot-pm/plot` with: what failed, the actual behavior, and the suggested fix
 
 Never silently work around a skill gap. The fix benefits all future sessions.

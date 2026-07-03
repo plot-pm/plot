@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/@changesets/config@3.1.3/schema.json",
-  "changelog": ["@changesets/changelog-github", { "repo": "eins78/plot" }],
+  "changelog": ["@changesets/changelog-github", { "repo": "plot-pm/plot" }],
   "commit": false,
   "fixed": [],
   "linked": [],
