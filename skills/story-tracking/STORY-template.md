@@ -4,6 +4,7 @@ jira: {JIRA_TICKET_URL}  # Optional — link to tracking ticket
 status: draft | active | paused | done
 created: {YYYY-MM-DD}
 updated: {YYYY-MM-DD}
+# archived: {YYYY-MM-DD}  # Add when done + moved to docs/stories/archived/ (see Archiving a Story)
 ---
 
 # {TITLE}
