@@ -4,10 +4,10 @@
   "description": "Git-native planning workflow for software development",
   "author": "Max Albrecht",
   "license": "MIT",
-  "homepage": "https://github.com/eins78/plot#readme",
+  "homepage": "https://github.com/plot-pm/plot#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/eins78/plot.git"
+    "url": "https://github.com/plot-pm/plot.git"
   },
   "scripts": {
     "test": "skills add . --list",

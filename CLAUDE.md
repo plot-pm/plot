@@ -81,7 +81,7 @@ pnpm test        # validates all skills parse correctly
 
 ## Contributing
 
-- **Issues:** https://github.com/eins78/plot/issues
+- **Issues:** https://github.com/plot-pm/plot/issues
 - **Decision criteria:** Does the change pass the [manifesto's 8-question checklist](skills/plot/MANIFESTO.md#making-decisions)?
 - **Known gaps & improvements:** tracked in `skills/plot/README.md`
 - **Evolution history:** `skills/plot/changelog.md`

@@ -7,7 +7,7 @@ globs: []
 license: MIT
 metadata:
   author: eins78
-  repo: https://github.com/eins78/plot
+  repo: https://github.com/plot-pm/plot
   version: 1.0.0-beta.3
 compatibility: Designed for Claude Code and Cursor. Requires git. Currently uses gh CLI for forge operations, but the workflow works with any git host that supports pull request review.
 ---

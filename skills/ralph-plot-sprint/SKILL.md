@@ -8,7 +8,7 @@ globs: []
 license: MIT
 metadata:
   author: eins78
-  repo: https://github.com/eins78/plot
+  repo: https://github.com/plot-pm/plot
   version: 0.1.0
 compatibility: Designed for Claude Code. Requires git and gh CLI.
 ---

@@ -29,7 +29,7 @@ You don't have to memorise this. The hub command — `/plot` — reads the curre
 The simplest install is via Claude Code's plugin system:
 
 ```
-/plugin marketplace add eins78/plot
+/plugin marketplace add plot-pm/plot
 /plugin install plot@plot-marketplace
 ```
 
