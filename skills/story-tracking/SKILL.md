@@ -24,10 +24,13 @@ Standard CommonMark only, no GFM extensions (task lists, strikethrough) — some
 ## Structure
 
 ```
-docs/stories/{slug}/
-├── STORY-{slug}.md      # Main file (required)
-├── analysis-*.md        # Auxiliary files (optional)
-└── assets/              # Screenshots, diagrams
+docs/stories/
+├── {slug}/              # Active story
+│   ├── STORY-{slug}.md  # Main file (required)
+│   ├── analysis-*.md    # Auxiliary files (optional)
+│   └── assets/          # Screenshots, diagrams
+└── archived/            # Completed stories (see Archiving a Story)
+    └── {slug}/
 ```
 
 **Naming:** `{slug}/` or `{JIRA-ID}-{slug}/` (e.g., `wcag-audit/`, `FOOBAR-1234-wcag-audit/`)
@@ -46,6 +49,29 @@ docs/stories/{slug}/
 3. Fill frontmatter and objective, remove unneeded sections
 4. Add entry to "Active Stories" in `README.md`
 5. Commit and push
+
+### Archiving a Story
+
+When a story's work is fully done (and any resulting PRs/tickets are closed),
+archive it so `docs/stories/` shows only live work:
+
+1. **Settle the story file** — all phases marked ✅, final decisions and a
+   closing session-log entry recorded.
+2. **Set frontmatter** — `status: done` and add `archived: {YYYY-MM-DD}`.
+3. **Move the folder by location** (status is self-evident from where it lives):
+
+   ```bash
+   git mv docs/stories/{slug} docs/stories/archived/{slug}
+   ```
+
+4. **Repoint inbound links** — sessionlogs, plans, or rules that link the story
+   now point to `docs/stories/archived/{slug}/`. Grep for the old path to catch
+   them all.
+5. **Update the index** — move the entry out of "Active Stories" in `README.md`
+   (to an "Archived" list, or remove it).
+6. **Commit and push** — a single `git mv` keeps history intact.
+
+Reverse by moving the folder back and clearing `archived:` if a story reopens.
 
 ### Template Sections
 
