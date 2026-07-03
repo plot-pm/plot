@@ -8,7 +8,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.0.0-beta.3
+  version: 1.0.1
 compatibility: Designed for Claude Code. Requires git and gh CLI.
 ---
 
