@@ -37,6 +37,7 @@ New to Plot? Read [Intro to Using Plot](skills/plot/intro-to-using-plot.md) for 
 | [plot-release](skills/plot-release/) | Create versioned release from delivered plans |
 | [plot-sprint](skills/plot-sprint/) | Time-boxed sprint coordination with MoSCoW prioritization |
 | [ralph-plot-sprint](skills/ralph-plot-sprint/) | Automated sprint runner (extension) |
+| [story-tracking](skills/story-tracking/) | Multi-session work tracking in markdown folders (companion — stories are the long-running umbrella around plans) |
 | [tracer-bullets](skills/tracer-bullets/) | Thin vertical slice strategy (companion — usable standalone, referenced by `/plot-approve`) |
 
 ## Installation
@@ -83,6 +84,7 @@ Plot discovers and adapts to whatever conventions your project provides. No hard
 
 ## Companion skills
 
+- **[story-tracking](skills/story-tracking/)** — Multi-session work tracking in markdown folders (`docs/stories/`). Stories are the long-running umbrella (research, decisions, session narrative); plans are the approved, actionable units — they reference each other. Usable standalone; adopted from [quatico-solutions/agent-skills](https://github.com/quatico-solutions/agent-skills).
 - **[tracer-bullets](skills/tracer-bullets/)** — Thin vertical slice strategy. Referenced by `/plot-approve` heuristics for work with technical uncertainty. Bundled with the plugin; usable standalone — it is a companion, not a lifecycle phase.
 
 ## Design

@@ -218,6 +218,10 @@ The board is a script (`skills/plot/scripts/board/server.mjs`), not a skill step
 
 Plot works with standalone development strategy skills. These are not plot spokes — they have their own workflows and can be used independently, but they ship with this plugin. Plot references them at appropriate moments.
 
+### story-tracking
+
+Stories (`docs/stories/{slug}/`) are the long-running umbrella around plans: research, decisions, and session narrative that span multiple plans and sessions. Plans stay the approved, actionable units. A story references its plans; a plan's `## Context` may link back to the story. Neither requires the other — see the `story-tracking` skill.
+
 ### tracer-bullets
 
 Plans can define a `### Tracer` subsection in `## Branches` (see plan template). When using `### Tracer`, wrap remaining branches in a `### Implementation` subsection — `/plot-approve` parses only `### Implementation` and skips tracer branches. Format:
