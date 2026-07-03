@@ -218,6 +218,10 @@ The board is a script (`skills/plot/scripts/board/server.mjs`), not a skill step
 
 Plot works with standalone development strategy skills. These are not plot spokes — they have their own workflows and can be used independently, but they ship with this plugin. Plot references them at appropriate moments.
 
+### challenge-the-plan
+
+Interrogates a plan through adaptive interviews (technical, domain, UX, non-functional) before approval. Natural slot in the lifecycle: after `/plot-idea` refinement, before `gh pr ready` / `/plot-approve` — wrong directions get caught while they still cost markdown edits, not code. Works on any PLAN/SPEC/STORY file; no plot conventions required.
+
 ### story-tracking
 
 Stories (`docs/stories/{slug}/`) are the long-running umbrella around plans: research, decisions, and session narrative that span multiple plans and sessions. Plans stay the approved, actionable units. A story references its plans; a plan's `## Context` may link back to the story. Neither requires the other — see the `story-tracking` skill.

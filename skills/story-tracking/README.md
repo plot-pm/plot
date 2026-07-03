@@ -35,9 +35,10 @@ Depends on `markdown` (syntax rules) and `bye` (session wrap-up with changelog a
 
 ## Related Skills
 
+- `challenge-the-plan` (this plugin) — auto-searches for STORY files
+
 These live in [quatico-solutions/agent-skills](https://github.com/quatico-solutions/agent-skills);
 the SKILL.md references them softly (works without them):
 
 - `markdown` — syntax rules for all story documents
 - `bye` — session wrap-up, changelog entry, final commit
-- `challenge-the-plan` — auto-searches for STORY files

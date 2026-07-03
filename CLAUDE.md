@@ -17,6 +17,7 @@ Plot is a hub-and-spoke skill system:
 | Command | `plot-release/` | Cut versioned release with changelog |
 | Coordination | `plot-sprint/` | Time-boxed sprint with MoSCoW priorities |
 | Automation | `ralph-plot-sprint/` | Automated sprint runner (shell loop wrapper) |
+| Companion | `challenge-the-plan/` | Deep plan interrogation (design-phase: idea → challenge → approve) — usable standalone, not a plot spoke |
 | Companion | `story-tracking/` | Multi-session work tracking (stories = umbrella around plans) — usable standalone, not a plot spoke |
 | Companion | `tracer-bullets/` | Thin vertical slice strategy — usable standalone, not a plot spoke |
 
