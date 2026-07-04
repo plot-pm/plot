@@ -9,7 +9,7 @@
     {
       "name": "plot",
       "description": "Git-native planning workflow for software development: idea, approve, deliver, release",
-      "version": "1.4.0",
+      "version": "1.5.0",
       "source": "./",
       "author": {
         "name": "Max Albrecht",
