@@ -3,7 +3,7 @@ name: plot
 description: >-
   Git-native planning dispatcher. Analyzes current git state and suggests the next action.
   Activates on /plot or when managing planned work through git branches and PRs.
-  Spoke commands: /plot-idea, /plot-approve, /plot-deliver, /plot-reject, /plot-release, /plot-sprint.
+  Spoke commands: /plot-idea, /plot-approve, /plot-deliver, /plot-reject, /plot-reconcile, /plot-release, /plot-sprint.
 globs: []
 license: MIT
 metadata:
