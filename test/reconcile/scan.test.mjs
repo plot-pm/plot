@@ -161,6 +161,16 @@ test('scan: read-only — the sweep leaves the repo untouched', () => {
   assert.equal(git(repo, 'status', '--porcelain'), '');
 });
 
+test('scan: summary footer carries machine-countable finding counts', () => {
+  // The one line consumers (the /plot hygiene hook, Automation Output) parse.
+  // drift: alpha. merged_not_delivered: beta. stale: feature/beta (merged) +
+  // bug/gamma (orphan). attention: legacy + omega. concurrent: beta + gamma
+  // branches of active plans.
+  const last = report.trim().split('\n').at(-1);
+  assert.equal(last,
+    'summary: drift=1 merged_not_delivered=1 stale=2 attention=2 concurrent=2 pr_source=degraded main=main');
+});
+
 test('scan: refuses to run outside a git repository', () => {
   const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-nogit-'));
   try {

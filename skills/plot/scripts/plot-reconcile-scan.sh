@@ -2,7 +2,11 @@
 # Plot helper: reconciliation sweep — deterministic extractor for plan/branch drift.
 # Usage: plot-reconcile-scan.sh [--no-fetch]
 # Output: five-section text report on stdout (each finding carries its exact
-#         remediating command as copy-paste text — nothing is executed).
+#         remediating command as copy-paste text — nothing is executed),
+#         terminated by a machine-countable summary line:
+#             summary: drift=0 merged_not_delivered=0 stale=0 attention=0 concurrent=0 pr_source=gh main=main
+#         Consumers that only need counts (the /plot dispatcher's hygiene
+#         line, /plot-reconcile's Automation Output) read that one line.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
 #
 # Reads the repo's plan files, symlink indexes, and git/forge ref state and
@@ -29,15 +33,17 @@
 # Configuration is read via plot-config.sh from the adopting project's
 # `## Plot Config` (Plan directory, Active index, Delivered index, Branch
 # prefixes). Plan files are parsed via plot-plan-meta.sh — the shared plan
-# parser; this script never greps plan files itself.
+# parser — in ONE invocation for all plans (single awk pass), so the sweep
+# stays cheap enough for ambient use on every /plot even at ~100 plans.
 #
 # The main branch is auto-detected from origin/HEAD (self-healing via
 # `git remote set-head origin -a` during the fetch) and can be overridden
 # with a `## Plot Config` line:
 #     - **Main branch:** develop
 #
-# Open-PR enumeration tries `gh`, then `bb` (Bitbucket), then degrades to git
-# merge-state alone (the report header states which source was used).
+# Open-PR enumeration binds to the forge of ORIGIN's host — gh on GitHub,
+# bb on Bitbucket — and degrades to git merge-state alone otherwise (the
+# report header states which source was used).
 #
 # Exit 0 on a completed sweep (an empty section is a valid, healthy result);
 # exit 1 only when the sweep cannot run at all (not a git repo).
@@ -55,7 +61,6 @@ cd "$repo_root" || exit 1
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
-meta() { "$script_dir/plot-plan-meta.sh" "$1" --prefixes "$PREFIX_RE"; }
 
 do_fetch=1
 [ "${1:-}" = "--no-fetch" ] && do_fetch=0
@@ -148,8 +153,30 @@ fi
 echo
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Parse ALL plans once (single parser invocation, single awk pass), then
+# flatten to delimited rows:
+#   file | phase | phase_raw | phase_alt | phase_alt_raw
+#        | branches(space-joined) | prs(comma-joined)
+# joined by the ASCII unit separator (0x1f) — NOT tab: tab is IFS whitespace,
+# so bash `read` collapses runs of it and empty fields (phase_alt_raw is
+# usually empty) would shift every later field left. A non-whitespace IFS
+# preserves empty fields. Sections 1, 2, 4, and 5 all read from these rows —
+# no re-parsing.
 # ---------------------------------------------------------------------------
+
+US=$'\x1f'
+plan_rows=""
+set -- "$PLAN_DIR"/[0-9]*.md
+if [ -f "${1:-}" ]; then
+  plan_rows=$("$script_dir/plot-plan-meta.sh" "$@" --prefixes "$PREFIX_RE" 2>/dev/null \
+    | jq -r '[.file, .phase, .phase_raw, .phase_alt, .phase_alt_raw,
+              (.branches | join(" ")), (.prs | map(tostring) | join(","))] | join("\u001f")')
+fi
+
+# Branches (space-joined) recorded for a plan file, from the parsed rows.
+plan_branches() { # $1=plan file path
+  printf '%s\n' "$plan_rows" | awk -F"$US" -v f="$1" '$1 == f { print $6; exit }'
+}
 
 # Does a dated plan file have a symlink pointing at it from a given index dir?
 symlinked_from() { # $1=index_dir $2=dated_basename
@@ -162,6 +189,8 @@ symlinked_from() { # $1=index_dir $2=dated_basename
   return 1
 }
 
+n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0
+
 # ---------------------------------------------------------------------------
 # 1. Phase <-> symlink drift  (plot-managed plans only)
 # 5. Needs attention          (collected here in the same pass)
@@ -170,14 +199,9 @@ symlinked_from() { # $1=index_dir $2=dated_basename
 drift_out=""
 attention_out=""
 
-for f in "$PLAN_DIR"/[0-9]*.md; do
-  [ -f "$f" ] || continue
+while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs; do
+  [ -n "$f" ] || continue
   base=$(basename "$f")
-  m=$(meta "$f")
-  st=$(printf '%s' "$m" | jq -r .phase)
-  raw_phase=$(printf '%s' "$m" | jq -r .phase_raw)
-  alt=$(printf '%s' "$m" | jq -r .phase_alt)
-  alt_raw=$(printf '%s' "$m" | jq -r .phase_alt_raw)
 
   in_active=""; in_delivered=""
   in_active=$(symlinked_from "$ACTIVE_DIR" "$base" || true)
@@ -186,16 +210,20 @@ for f in "$PLAN_DIR"/[0-9]*.md; do
   # --- Needs attention: non-conforming plans ---
   if [ "$st" = NONE ]; then
     attention_out+="  $base — no phase field (pre-plot / legacy plan)\n"
+    n_att=$((n_att + 1))
     continue   # legacy plans are not subject to drift rules
   fi
   if [ "$st" = UNKNOWN ]; then
     attention_out+="  $base — unrecognized phase: '$raw_phase'\n"
+    n_att=$((n_att + 1))
   fi
   if [ -n "$alt_raw" ] && [ "$alt" != NONE ] && [ "$alt" != "$st" ]; then
     attention_out+="  $base — status: '$raw_phase' disagrees with phase: '$alt_raw' (phase is machine-read)\n"
+    n_att=$((n_att + 1))
   fi
   if [ -z "$in_active" ] && [ -z "$in_delivered" ]; then
     attention_out+="  $base — phase '$raw_phase' but NO symlink in $ACTIVE_DIR/ or $DELIVERED_DIR/ (orphaned)\n"
+    n_att=$((n_att + 1))
     if [ "$st" = delivered ] || [ "$st" = released ]; then
       _idx="$DELIVERED_DIR"
     else
@@ -214,6 +242,7 @@ for f in "$PLAN_DIR"/[0-9]*.md; do
         slug=$(basename "$in_active")
         drift_out+="  $base — phase '$raw_phase' but symlink still in $ACTIVE_DIR/ (half-delivery failure mode)\n"
         drift_out+="    fix: git rm $in_active && ln -s ../$base $DELIVERED_DIR/$slug && git add -A\n"
+        n_drift=$((n_drift + 1))
       fi
       ;;
     draft|approved)
@@ -221,10 +250,11 @@ for f in "$PLAN_DIR"/[0-9]*.md; do
         slug=$(basename "$in_delivered")
         drift_out+="  $base — phase '$raw_phase' but symlink in $DELIVERED_DIR/\n"
         drift_out+="    fix: git rm $in_delivered && ln -s ../$base $ACTIVE_DIR/$slug && git add -A\n"
+        n_drift=$((n_drift + 1))
       fi
       ;;
   esac
-done
+done <<< "$plan_rows"
 
 echo "== 1. Phase<->symlink drift =="
 if [ -n "$drift_out" ]; then printf '%b' "$drift_out"; else echo "  (none — all plot-managed plans consistent)"; fi
@@ -236,14 +266,10 @@ echo
 
 echo "== 2. Merged-but-not-delivered (candidate /plot-deliver) =="
 mnd_out=""
-for f in "$PLAN_DIR"/[0-9]*.md; do
-  [ -f "$f" ] || continue
-  base=$(basename "$f")
-  m=$(meta "$f")
-  st=$(printf '%s' "$m" | jq -r .phase)
+while IFS="$US" read -r f st _raw _alt _alt_raw branches prs; do
+  [ -n "$f" ] || continue
   [ "$st" = approved ] || continue
-  prs=$(printf '%s' "$m" | jq -r '.prs | join(",")')
-  branches=$(printf '%s' "$m" | jq -r '.branches[]')
+  base=$(basename "$f")
   merged_any=0
   for b in $branches; do
     if printf '%s\n' "$merged_branches" | grep -qx "$b"; then merged_any=1; fi
@@ -252,8 +278,9 @@ for f in "$PLAN_DIR"/[0-9]*.md; do
     slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
     mnd_out+="  $base — impl branch merged to $MAIN, plan still Approved (PRs: ${prs:-none-linked})\n"
     mnd_out+="    consider: /plot-deliver ${slug%.md}\n"
+    n_mnd=$((n_mnd + 1))
   fi
-done
+done <<< "$plan_rows"
 if [ -n "$mnd_out" ]; then printf '%b' "$mnd_out"; else echo "  (none)"; fi
 echo
 
@@ -283,6 +310,7 @@ while IFS= read -r b; do
     stale_out+="  origin/$b — ahead of $MAIN, no open PR → orphan (needs judgment)\n"
     stale_out+="    inspect: git log --oneline origin/$MAIN..origin/$b\n"
   fi
+  n_stale=$((n_stale + 1))
 done <<< "$all_branches"
 if [ -n "$stale_out" ]; then printf '%b' "$stale_out"; else echo "  (none)"; fi
 echo
@@ -298,13 +326,14 @@ for l in "$ACTIVE_DIR"/*.md; do
   target=$(readlink "$l" 2>/dev/null | sed 's|.*/||')
   df="$PLAN_DIR/$target"
   [ -f "$df" ] || continue
-  branches=$(meta "$df" | jq -r '.branches[]')
+  branches=$(plan_branches "$df")
   for b in $branches; do
     git rev-parse --verify --quiet "origin/$b" >/dev/null 2>&1 || continue
     counts=$(git rev-list --left-right --count "origin/$MAIN...origin/$b" 2>/dev/null)
     behind=$(printf '%s' "$counts" | awk '{print $1}')
     ahead=$(printf '%s' "$counts" | awk '{print $2}')
     cd_out+="  $b — ${ahead:-?} ahead / ${behind:-?} behind origin/$MAIN\n"
+    n_conc=$((n_conc + 1))
   done
 done
 if [ -n "$cd_out" ]; then printf '%b' "$cd_out"; else echo "  (no active plans with resolvable impl branches)"; fi
@@ -319,4 +348,5 @@ if [ -n "$attention_out" ]; then printf '%b' "$attention_out"; else echo "  (non
 echo
 
 echo "Sweep complete. This report is advisory — nothing was changed."
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale attention=$n_att concurrent=$n_conc pr_source=$PR_SOURCE main=$MAIN"
 exit 0
