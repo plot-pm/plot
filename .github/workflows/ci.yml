@@ -27,6 +27,9 @@ jobs:
       - name: Validate skill frontmatter
         run: pnpm run validate
 
+      - name: Reconcile contract tests
+        run: pnpm run test:reconcile
+
       - name: Check for changeset
         if: github.event_name == 'pull_request'
         run: |

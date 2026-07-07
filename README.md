@@ -38,6 +38,7 @@ New to Plot? Read [Intro to Using Plot](skills/plot/intro-to-using-plot.md) for 
 | [plot-idea](skills/plot-idea/) | Create a plan: idea branch, plan file, and draft PR |
 | [plot-approve](skills/plot-approve/) | Merge approved plan, fan out into implementation branches |
 | [plot-deliver](skills/plot-deliver/) | Verify implementation complete, archive the plan |
+| [plot-reconcile](skills/plot-reconcile/) | Read-only hygiene sweep — surface plan/symlink/branch drift with remediating commands |
 | [plot-release](skills/plot-release/) | Create versioned release from delivered plans |
 | [plot-sprint](skills/plot-sprint/) | Time-boxed sprint coordination with MoSCoW prioritization |
 | [ralph-plot-sprint](skills/ralph-plot-sprint/) | Automated sprint runner (extension) |
