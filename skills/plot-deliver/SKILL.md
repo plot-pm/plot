@@ -43,6 +43,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 5. Verify Completeness | Frontier (orchestrator) + Small (subagents) | Orchestrator extracts deliverables and consolidates; small subagents gather PR diffs in parallel |
 | 6. Release Note Check | Small | File existence checks |
 | 7-8. Deliver and Board Status | Small | File ops, git commands, board sync |
+| 7b. Verify Delivery Landed | Small | Run the reconcile scan, grep for the delivered plan |
 | 9. Summary | Small | Template formatting |
 
 Step 5 is the prime example of subagent delegation: a frontier orchestrator handles the judgment (extracting deliverables, consolidating Done/Partial/Missing), while small subagents handle the data collection (running `gh pr diff`, reading PR metadata) in parallel. Without subagents, the frontier model does everything sequentially.
@@ -203,6 +204,21 @@ git push origin plot/deliver-<slug>:main
 
 (Replace `YYYY-MM-DD-<slug>.md` with the actual date-prefixed filename from the resolved symlink.)
 
+### 7b. Verify the Delivery Landed
+
+Delivery is a multi-step write (flip phase, move symlink, commit, push) — the biggest drift source in practice is a delivery that half-lands. Verify your own write before declaring success: re-run the reconcile scan and grep its report for the plan you just delivered.
+
+```bash
+../plot/scripts/plot-reconcile-scan.sh 2>/dev/null | grep "YYYY-MM-DD-<slug>.md"
+```
+
+(The scan fetches first, so it sees the delivery push. The dated basename appears only in plan-finding lines — sections 1, 2, and 5 — so **any hit means the delivery half-landed**: show the finding and its printed `fix:` command immediately and apply it (with confirmation) before the summary. No hit = delivery verified.)
+
+Two expected non-failures:
+
+- The just-merged **impl branches** may now show in section 3 as deletion candidates — that is normal post-delivery housekeeping, not a failed delivery. Mention it in the summary as optional cleanup (the printed `git push origin --delete <branch>` commands), don't act unasked.
+- If the scan is unavailable (older plot install), skip this step with a one-line note — the delivery itself is unaffected.
+
 ### 8. Update Board Status
 
 If `## Plot Config` includes a project board (`owner/number`), update all implementation PRs to "Done":
@@ -222,6 +238,7 @@ Print:
 - Plan file: `docs/plans/YYYY-MM-DD-<slug>.md` (unchanged location)
 - Index: moved from `active/` to `delivered/`
 - All implementation PRs: merged
+- Verified: reconcile scan clean for `<slug>` (step 7b) — plus any optional branch-cleanup commands it suggested
 - If the plan has a Sprint field: show sprint progress ("N/M sprint items delivered")
 - Progress: `[ ] Draft > [ ] Approved > [x] Delivered > [ ] Released`
 - Type reminder:

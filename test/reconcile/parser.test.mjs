@@ -72,3 +72,15 @@ test('plan-meta: missing file reports error JSON, exit 0', () => {
   assert.equal(actual.error, 'file not found');
   assert.equal(actual.phase, 'NONE');
 });
+
+test('plan-meta: multi-file mode emits one JSON line per file, in input order', () => {
+  const out = execFileSync('bash',
+    [parser, fixture('canonical-draft.md'), fixture('frontmatter-approved.md'), fixture('legacy-no-phase.md')],
+    { encoding: 'utf8' });
+  const lines = out.trim().split('\n').map((l) => JSON.parse(l));
+  assert.equal(lines.length, 3);
+  assert.equal(lines[0].phase, 'draft');
+  assert.equal(lines[1].format, 'frontmatter');
+  assert.deepEqual(lines[1].branches, ['feature/api-layer']);
+  assert.equal(lines[2].format, 'none');
+});

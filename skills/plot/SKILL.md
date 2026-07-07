@@ -45,6 +45,7 @@ use it instead of grepping `CLAUDE.md`.
 | 2. Detect Context | Small | Branch name pattern matching |
 | 3. Detect Issues | Small (most), Mid (overlap) | Overlapping plans (3+ shared words) needs mid-tier |
 | 4. Status Summary | Small | Template formatting |
+| Hygiene summary | Small | Run the reconcile scan, read its one summary line |
 | Sprint listing | Small | File listing, date arithmetic |
 | Sprint countdown | Small | Date comparison, checkbox counting |
 
@@ -419,8 +420,17 @@ Also run the bash helpers if a specific slug is in context:
 - `./scripts/plot-impl-status.sh <slug>` — impl PR states
 
 Shared helpers (use these instead of hand-parsing):
-- `./scripts/plot-plan-meta.sh <plan-file>` — plan metadata as JSON (phase, type, branches, PRs); the plan-format contract
+- `./scripts/plot-plan-meta.sh <plan-file>...` — plan metadata as JSON (phase, type, branches, PRs); the plan-format contract
 - `./scripts/plot-config.sh get <key> [default]` — `## Plot Config` reader
+
+**Hygiene summary** (drift made ambient): run the reconcile scan and read only its final summary line —
+
+```bash
+./scripts/plot-reconcile-scan.sh --no-fetch 2>/dev/null | tail -1
+# summary: drift=0 merged_not_delivered=0 stale=0 attention=0 concurrent=0 pr_source=gh main=main
+```
+
+(prefix with `timeout 10` where available). If `drift`, `merged_not_delivered`, `stale`, or `attention` is non-zero, feed the counts into the Status Summary's hygiene line (step 4); `concurrent` is informational and never counts. If the scan is missing, fails, or times out, skip silently — the hygiene line is ambient awareness, never a blocker.
 
 ### 2. Detect Current Context
 
@@ -480,6 +490,14 @@ Print a clear summary:
 ### Suggested Next Step
 > <specific command or action>
 ```
+
+When the hygiene summary (step 1) reported findings, append one line after the Issues section:
+
+```
+⚠ <N> hygiene findings (drift <d> / undelivered <m> / stale branches <s> / attention <a>) — run /plot-reconcile for the full report
+```
+
+Omit the line entirely when all four counts are zero — no "all clean" noise.
 
 ## Self-Improvement
 
