@@ -171,6 +171,31 @@ test('scan: summary footer carries machine-countable finding counts', () => {
     'summary: drift=1 merged_not_delivered=1 stale=2 attention=2 concurrent=2 pr_source=degraded main=main');
 });
 
+test('scan: refuses to run (exit 1) when jq is missing — never a silent false-clean', () => {
+  // Build a PATH that resolves every tool the scan needs EXCEPT jq, so
+  // `command -v jq` fails. A missing jq must abort loudly, not report drift=0.
+  const cleanBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-nojq-'));
+  try {
+    for (const tool of ['git', 'dirname', 'basename', 'sed', 'grep', 'awk',
+                        'readlink', 'cat', 'env', 'tr', 'bash']) {
+      let resolved;
+      try {
+        resolved = execFileSync('/usr/bin/env', ['which', tool], { encoding: 'utf8' }).trim();
+      } catch { continue; }
+      if (resolved) fs.symlinkSync(resolved, path.join(cleanBin, tool));
+    }
+    let err;
+    try {
+      execFileSync('bash', [scan, '--no-fetch'],
+        { encoding: 'utf8', cwd: repo, stdio: 'pipe', env: { ...process.env, PATH: cleanBin } });
+    } catch (e) { err = e; }
+    assert.ok(err, 'scan should exit non-zero when jq is absent');
+    assert.match(String(err.stderr), /jq is required/);
+  } finally {
+    fs.rmSync(cleanBin, { recursive: true, force: true });
+  }
+});
+
 test('scan: refuses to run outside a git repository', () => {
   const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-nogit-'));
   try {

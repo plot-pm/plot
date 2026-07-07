@@ -62,6 +62,13 @@ cd "$repo_root" || exit 1
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 
+# jq is required: the plan-metadata rows are read through a jq pipe below.
+# Without it that pipe yields nothing and every plan-derived section (1, 2,
+# 4, 5) would silently report empty — a false "drift=0" clean. Fail loudly
+# instead, so a missing jq can never masquerade as a healthy sweep.
+command -v jq >/dev/null 2>&1 \
+  || { echo "plot-reconcile: jq is required but not found on PATH." >&2; exit 1; }
+
 do_fetch=1
 [ "${1:-}" = "--no-fetch" ] && do_fetch=0
 
