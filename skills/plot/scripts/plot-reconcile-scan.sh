@@ -121,7 +121,11 @@ load_open_pr_branches() {
       fi
       ;;
     *bitbucket*)
-      if out=$(bb pr list --state open --json 2>/dev/null | jq -r '.[].source.branch.name' 2>/dev/null); then
+      # bb >=3.1 (agent-skills#18) is gh-symmetric for this call; older bb
+      # rejects the field argument and falls back to the full-object form.
+      if out=$(bb pr list --state open --json headRefName --jq '.[].headRefName' 2>/dev/null); then
+        PR_SOURCE="bb"; open_prs="$out"
+      elif out=$(bb pr list --state open --json 2>/dev/null | jq -r '.[].source.branch.name' 2>/dev/null); then
         PR_SOURCE="bb"; open_prs="$out"
       fi
       ;;

@@ -27,7 +27,7 @@ Follows Manifesto Principle 3 (skills interpret and adapt; scripts collect and r
 
 Open-PR enumeration binds to the forge of the **`origin` remote's host**: `gh` on GitHub (pinned to origin's repo via `-R`), `bb` on Bitbucket. A repo can carry extra remotes on other forges; letting a CLI resolve the "current repo" itself would silently enumerate the wrong repo's PRs, so the scan never does. Unknown host or missing CLI → `PR state: DEGRADED`, falling back to git merge-state alone (the stale-branch section may then over-list branches with an open PR, so each is confirmed before deletion).
 
-gh and bb are call-compatible for this use case; [quatico-solutions/agent-skills#18](https://github.com/quatico-solutions/agent-skills/issues/18) tracks making `bb pr list` gh-symmetric (`--json <fields>` + `--jq`), after which the two arms collapse further.
+Since bb 3.1 ([quatico-solutions/agent-skills#18](https://github.com/quatico-solutions/agent-skills/issues/18)) the two arms are call-symmetric: `bb pr list --state open --json headRefName --jq '.[].headRefName'` matches the `gh` invocation exactly. Older bb versions reject the field argument and fall back to the full-object `--json` form; pre-`--json` versions degrade to git merge-state.
 
 ## Testing
 
