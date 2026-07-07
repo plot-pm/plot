@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Plot helper: reconciliation sweep — deterministic extractor for plan/branch drift.
-# Usage: plot-reconcile-scan.sh [--no-fetch]
+# Usage: plot-reconcile-scan.sh [--no-fetch] [--no-pr] [--offline]
+#   --no-fetch  skip `git fetch`   --no-pr  skip forge pr list
+#   --offline   both (no network)  — used by the ambient /plot hygiene line
 # Output: five-section text report on stdout (each finding carries its exact
 #         remediating command as copy-paste text — nothing is executed),
 #         terminated by a machine-countable summary line:
@@ -62,8 +64,30 @@ cd "$repo_root" || exit 1
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 
+# jq is required: the plan-metadata rows are read through a jq pipe below.
+# Without it that pipe yields nothing and every plan-derived section (1, 2,
+# 4, 5) would silently report empty — a false "drift=0" clean. Fail loudly
+# instead, so a missing jq can never masquerade as a healthy sweep.
+command -v jq >/dev/null 2>&1 \
+  || { echo "plot-reconcile: jq is required but not found on PATH." >&2; exit 1; }
+
+# Flags (any order, any combination):
+#   --no-fetch  skip `git fetch` (offline, or when you just fetched)
+#   --no-pr     skip forge PR enumeration (no `gh/bb pr list` network call) —
+#               falls back to git merge-state, same as an absent forge CLI
+#   --offline   both of the above: a fully network-free sweep. Used by the
+#               ambient /plot hygiene line so /plot never blocks on the network.
 do_fetch=1
-[ "${1:-}" = "--no-fetch" ] && do_fetch=0
+do_pr=1
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-fetch) do_fetch=0 ;;
+    --no-pr)    do_pr=0 ;;
+    --offline)  do_fetch=0; do_pr=0 ;;
+    *) ;;   # ignore unknown args (keeps $ARGUMENTS pass-through forgiving)
+  esac
+  shift
+done
 
 # ---------------------------------------------------------------------------
 # Configuration (## Plot Config, with plot's defaults)
@@ -136,15 +160,28 @@ load_open_pr_branches() {
       ;;
   esac
 }
-load_open_pr_branches
+if [ "$do_pr" = 1 ]; then
+  load_open_pr_branches
+else
+  PR_SOURCE="off"   # deliberately skipped (--no-pr/--offline), not a failure
+fi
+
+# Open-PR info is trustworthy only from a real forge listing. When it isn't
+# (degraded = no CLI, or off = deliberately skipped), the stale-branch section
+# leans on git merge-state alone and may over-list — so it warns to confirm.
+case "$PR_SOURCE" in gh|bb) pr_reliable=1 ;; *) pr_reliable=0 ;; esac
 
 echo "plot-reconcile sweep — $(git rev-parse --short "origin/$MAIN" 2>/dev/null) on origin/$MAIN"
-if [ "$PR_SOURCE" = degraded ]; then
+if [ "$pr_reliable" = 1 ]; then
+  echo "PR state: $PR_SOURCE pr list (open PRs enumerated)"
+elif [ "$PR_SOURCE" = off ]; then
+  echo "PR state: skipped (--no-pr) — git merge-state only; no forge network call."
+  echo "          (stale-branch section may over-list branches with an open PR;"
+  echo "           run /plot-reconcile without --offline for the precise list.)"
+else
   echo "PR state: DEGRADED — no forge CLI (gh/bb) available; using git merge-state only."
   echo "          (stale-branch section may over-list branches with an open PR;"
   echo "           confirm each before deleting.)"
-else
-  echo "PR state: $PR_SOURCE pr list (open PRs enumerated)"
 fi
 if [ ! -d "$PLAN_DIR" ]; then
   echo "warning: plan directory '$PLAN_DIR' not found — no plans scanned."
@@ -224,11 +261,14 @@ while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs; do
   if [ -z "$in_active" ] && [ -z "$in_delivered" ]; then
     attention_out+="  $base — phase '$raw_phase' but NO symlink in $ACTIVE_DIR/ or $DELIVERED_DIR/ (orphaned)\n"
     n_att=$((n_att + 1))
-    if [ "$st" = delivered ] || [ "$st" = released ]; then
-      _idx="$DELIVERED_DIR"
-    else
-      _idx="$ACTIVE_DIR"
-    fi
+    # Terminal phases (delivered/released AND superseded/rejected) belong in the
+    # delivered/ terminal index — not active/. Suggesting active/ for a
+    # Superseded plan is the exact wrong-default a downstream operator had to
+    # override (issue #33); route it correctly here.
+    case "$st" in
+      delivered|released|superseded|rejected) _idx="$DELIVERED_DIR" ;;
+      *)                                       _idx="$ACTIVE_DIR" ;;
+    esac
     printf -v _cmd '    fix: ln -s ../%s %s/%s' "$base" "$_idx" \
       "$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')"
     attention_out+="$_cmd\n"
@@ -241,6 +281,17 @@ while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs; do
       if [ -n "$in_active" ] && [ -z "$in_delivered" ]; then
         slug=$(basename "$in_active")
         drift_out+="  $base — phase '$raw_phase' but symlink still in $ACTIVE_DIR/ (half-delivery failure mode)\n"
+        drift_out+="    fix: git rm $in_active && ln -s ../$base $DELIVERED_DIR/$slug && git add -A\n"
+        n_drift=$((n_drift + 1))
+      fi
+      ;;
+    superseded|rejected)
+      # Terminal, non-delivery phases: the symlink belongs in delivered/ too.
+      # Previously uncaught — a Superseded/Rejected plan lingering in active/
+      # kept showing up as an "active" plan it no longer is.
+      if [ -n "$in_active" ] && [ -z "$in_delivered" ]; then
+        slug=$(basename "$in_active")
+        drift_out+="  $base — phase '$raw_phase' (terminal) but symlink still in $ACTIVE_DIR/\n"
         drift_out+="    fix: git rm $in_active && ln -s ../$base $DELIVERED_DIR/$slug && git add -A\n"
         n_drift=$((n_drift + 1))
       fi
@@ -296,7 +347,7 @@ while IFS= read -r b; do
     "$MAIN"|release/*) continue ;;   # protected set (main + release/*)
   esac
   has_open_pr=0
-  if [ "$PR_SOURCE" != degraded ] && printf '%s\n' "$open_prs" | grep -qx "$b"; then has_open_pr=1; fi
+  if [ "$pr_reliable" = 1 ] && printf '%s\n' "$open_prs" | grep -qx "$b"; then has_open_pr=1; fi
   is_merged=0
   if printf '%s\n' "$merged_branches" | grep -qx "$b"; then is_merged=1; fi
 

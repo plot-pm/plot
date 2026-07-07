@@ -22,7 +22,7 @@ The periodic reconciliation pass for the plot workflow. It closes the loop that 
 
 Run it on a cadence (weekly fits), and especially **after a delivery batch**, when drift is freshest — a `/plot-deliver` that half-lands (symlink moved, phase not flipped) is exactly what this catches. It is **read-only**: it prints the exact remediating command for every finding but never runs it. The judgment — is this branch still relevant, should this plan be delivered or rejected — stays yours.
 
-**Input:** `$ARGUMENTS` is optional. Pass `--no-fetch` to skip the `git fetch` (offline, or when you just fetched).
+**Input:** `$ARGUMENTS` is optional. `--no-fetch` skips the `git fetch` (offline, or when you just fetched); `--no-pr` skips the forge `pr list` call; `--offline` skips both (a fully network-free sweep — what the `/plot` hygiene line uses). Flags combine in any order. For the explicit `/plot-reconcile` command, run the **full** sweep (no flags) so the stale-branch section is forge-accurate.
 
 <!-- keep in sync with plot/SKILL.md Setup -->
 ## Setup
@@ -69,6 +69,7 @@ Run the scanner (it lives in the plot skill's `scripts/` directory, next to the 
 ```bash
 ../plot/scripts/plot-reconcile-scan.sh            # full sweep (fetches origin first)
 ../plot/scripts/plot-reconcile-scan.sh --no-fetch # skip the fetch (offline / just-fetched)
+../plot/scripts/plot-reconcile-scan.sh --offline  # no network at all (skips fetch + forge pr list)
 ```
 
 It reads `origin/*` refs plus the configured plan directory and emits five sections, each finding carrying its exact remediating command as copy-paste text:
@@ -137,4 +138,4 @@ When the conversation context indicates automation (see `/plot` for detection ru
 }
 ```
 
-`pr_source` is `gh`, `bb`, or `degraded`. Section 4 (concurrent-delivery) is informational — divergence counts, not defects — so it reports under `info`, not `findings`. Fill every count from the scan's `summary:` footer line — do not re-count section bodies.
+`pr_source` is `gh`, `bb`, `degraded` (no forge CLI), or `off` (PR enumeration deliberately skipped via `--no-pr`/`--offline`). Section 4 (concurrent-delivery) is informational — divergence counts, not defects — so it reports under `info`, not `findings`. Fill every count from the scan's `summary:` footer line — do not re-count section bodies.

@@ -89,12 +89,31 @@ type: feature
 - **Phase:** Approved
 - **Type:** docs
 `);
+  // Section 1 (terminal-state coverage): a Superseded plan whose symlink is
+  // still in active/ — must be flagged as drift, fix routing to delivered/.
+  write('plans/2026-01-06-sigma.md', `# Sigma
+
+## Status
+
+- **Phase:** Superseded
+- **Type:** feature
+`);
+  // Section 5 (terminal orphan routing): a Superseded plan with NO symlink —
+  // its suggested fix must target delivered/ (the terminal index), not active/.
+  write('plans/2026-01-07-tau.md', `# Tau
+
+## Status
+
+- **Phase:** Superseded
+- **Type:** feature
+`);
 
   fs.mkdirSync(path.join(repo, 'plans', 'active'), { recursive: true });
   fs.mkdirSync(path.join(repo, 'plans', 'delivered'), { recursive: true });
   fs.symlinkSync('../2026-01-01-alpha.md', path.join(repo, 'plans', 'active', 'alpha.md'));
   fs.symlinkSync('../2026-01-02-beta.md', path.join(repo, 'plans', 'active', 'beta.md'));
   fs.symlinkSync('../2026-01-03-gamma.md', path.join(repo, 'plans', 'active', 'gamma.md'));
+  fs.symlinkSync('../2026-01-06-sigma.md', path.join(repo, 'plans', 'active', 'sigma.md'));
 
   git(repo, 'add', '-A');
   git(repo, 'commit', '-q', '-m', 'plans');
@@ -151,6 +170,18 @@ test('scan: section 5 reports legacy and orphaned plans, with symlink fix', () =
   assert.match(report, /fix: ln -s \.\.\/2026-01-05-omega\.md plans\/active\/omega\.md/);
 });
 
+test('scan: section 1 flags a Superseded plan still symlinked in active/ (terminal drift)', () => {
+  assert.match(report, /2026-01-06-sigma\.md — phase 'Superseded' \(terminal\) but symlink still in plans\/active\//);
+  assert.match(report, /fix: git rm plans\/active\/sigma\.md && ln -s \.\.\/2026-01-06-sigma\.md plans\/delivered\/sigma\.md && git add -A/);
+});
+
+test('scan: section 5 routes a Superseded orphan fix to delivered/, not active/', () => {
+  assert.match(report, /2026-01-07-tau\.md — phase 'Superseded' but NO symlink/);
+  assert.match(report, /fix: ln -s \.\.\/2026-01-07-tau\.md plans\/delivered\/tau\.md/);
+  // Guard against regression to the old wrong default (active/).
+  assert.doesNotMatch(report, /fix: ln -s \.\.\/2026-01-07-tau\.md plans\/active\/tau\.md/);
+});
+
 test('scan: healthy plans produce no false findings', () => {
   // gamma is Approved with an unmerged branch and a correct symlink — it must
   // not appear in sections 1, 2, or 5.
@@ -163,12 +194,48 @@ test('scan: read-only — the sweep leaves the repo untouched', () => {
 
 test('scan: summary footer carries machine-countable finding counts', () => {
   // The one line consumers (the /plot hygiene hook, Automation Output) parse.
-  // drift: alpha. merged_not_delivered: beta. stale: feature/beta (merged) +
-  // bug/gamma (orphan). attention: legacy + omega. concurrent: beta + gamma
-  // branches of active plans.
+  // drift: alpha (delivered-in-active) + sigma (superseded-in-active).
+  // merged_not_delivered: beta. stale: feature/beta (merged) + bug/gamma
+  // (orphan). attention: legacy + omega + tau (superseded orphan). concurrent:
+  // beta + gamma branches of active plans (sigma has no branch).
   const last = report.trim().split('\n').at(-1);
   assert.equal(last,
-    'summary: drift=1 merged_not_delivered=1 stale=2 attention=2 concurrent=2 pr_source=degraded main=main');
+    'summary: drift=2 merged_not_delivered=1 stale=2 attention=3 concurrent=2 pr_source=degraded main=main');
+});
+
+test('scan: --offline skips forge PR enumeration and reports pr_source=off', () => {
+  // A separate run with --offline. The fixture origin is a local path (no
+  // forge), so a plain run is already `degraded`; --offline must instead
+  // report the deliberate-skip state `off` and the "skipped (--no-pr)" banner.
+  const offline = execFileSync('bash', [scan, '--offline'], { encoding: 'utf8', cwd: repo });
+  assert.match(offline, /PR state: skipped \(--no-pr\)/);
+  const last = offline.trim().split('\n').at(-1);
+  assert.match(last, /\bpr_source=off\b/);
+});
+
+test('scan: refuses to run (exit 1) when jq is missing — never a silent false-clean', () => {
+  // Build a PATH that resolves every tool the scan needs EXCEPT jq, so
+  // `command -v jq` fails. A missing jq must abort loudly, not report drift=0.
+  const cleanBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-nojq-'));
+  try {
+    for (const tool of ['git', 'dirname', 'basename', 'sed', 'grep', 'awk',
+                        'readlink', 'cat', 'env', 'tr', 'bash']) {
+      let resolved;
+      try {
+        resolved = execFileSync('/usr/bin/env', ['which', tool], { encoding: 'utf8' }).trim();
+      } catch { continue; }
+      if (resolved) fs.symlinkSync(resolved, path.join(cleanBin, tool));
+    }
+    let err;
+    try {
+      execFileSync('bash', [scan, '--no-fetch'],
+        { encoding: 'utf8', cwd: repo, stdio: 'pipe', env: { ...process.env, PATH: cleanBin } });
+    } catch (e) { err = e; }
+    assert.ok(err, 'scan should exit non-zero when jq is absent');
+    assert.match(String(err.stderr), /jq is required/);
+  } finally {
+    fs.rmSync(cleanBin, { recursive: true, force: true });
+  }
 });
 
 test('scan: refuses to run outside a git repository', () => {
