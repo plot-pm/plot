@@ -231,11 +231,14 @@ while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs; do
   if [ -z "$in_active" ] && [ -z "$in_delivered" ]; then
     attention_out+="  $base — phase '$raw_phase' but NO symlink in $ACTIVE_DIR/ or $DELIVERED_DIR/ (orphaned)\n"
     n_att=$((n_att + 1))
-    if [ "$st" = delivered ] || [ "$st" = released ]; then
-      _idx="$DELIVERED_DIR"
-    else
-      _idx="$ACTIVE_DIR"
-    fi
+    # Terminal phases (delivered/released AND superseded/rejected) belong in the
+    # delivered/ terminal index — not active/. Suggesting active/ for a
+    # Superseded plan is the exact wrong-default a downstream operator had to
+    # override (issue #33); route it correctly here.
+    case "$st" in
+      delivered|released|superseded|rejected) _idx="$DELIVERED_DIR" ;;
+      *)                                       _idx="$ACTIVE_DIR" ;;
+    esac
     printf -v _cmd '    fix: ln -s ../%s %s/%s' "$base" "$_idx" \
       "$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')"
     attention_out+="$_cmd\n"
@@ -248,6 +251,17 @@ while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs; do
       if [ -n "$in_active" ] && [ -z "$in_delivered" ]; then
         slug=$(basename "$in_active")
         drift_out+="  $base — phase '$raw_phase' but symlink still in $ACTIVE_DIR/ (half-delivery failure mode)\n"
+        drift_out+="    fix: git rm $in_active && ln -s ../$base $DELIVERED_DIR/$slug && git add -A\n"
+        n_drift=$((n_drift + 1))
+      fi
+      ;;
+    superseded|rejected)
+      # Terminal, non-delivery phases: the symlink belongs in delivered/ too.
+      # Previously uncaught — a Superseded/Rejected plan lingering in active/
+      # kept showing up as an "active" plan it no longer is.
+      if [ -n "$in_active" ] && [ -z "$in_delivered" ]; then
+        slug=$(basename "$in_active")
+        drift_out+="  $base — phase '$raw_phase' (terminal) but symlink still in $ACTIVE_DIR/\n"
         drift_out+="    fix: git rm $in_active && ln -s ../$base $DELIVERED_DIR/$slug && git add -A\n"
         n_drift=$((n_drift + 1))
       fi
