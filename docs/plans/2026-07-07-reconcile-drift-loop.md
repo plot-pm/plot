@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 
@@ -39,10 +39,15 @@ Both branches build on `plot-reconcile-scan.sh` and the shared helpers from #34 
 
 ## Branches
 
-- `feature/reconcile-plot-hook` — one-line drift summary in the `/plot` dispatcher status output
-- `feature/reconcile-deliver-gate` — post-delivery verification in `/plot-deliver` (re-scan, assert the delivered slug is clean)
+<!-- Workflow compressed by maintainer decision (Max, 2026-07-08): both
+     features are implemented directly on this plan's idea branch and land
+     with the plan in one PR (#35), instead of fanning out. No separate
+     impl branches exist. -->
+
+- `idea/reconcile-drift-loop` — plan + both features (dispatcher hygiene line; deliver step 7b gate; scan summary footer; multi-file parser) → #35
 
 ## Notes
 
-- Depends on #34 (plot-reconcile) being merged; implementation starts after.
+- Built on #34 (plot-reconcile); this PR's branch merges #34's branch in, so it is self-contained — the overlap collapses from the diff once #34 merges. Merge order: #34 first, then #35.
+- **Workflow note:** plan approval and implementation were deliberately compressed into this single PR (maintainer decision, 2026-07-08) — the plan file, its resolution of both open questions, and the implementation are reviewed together. After merge, run `/plot-deliver reconcile-drift-loop` to flip the phase and move the symlink — which now exercises the very gate this plan adds.
 - Origin: review discussion on #34 / issue #33 design question 2 (the opt-in nudge proposal, superseded here by the scoped gate).

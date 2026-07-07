@@ -83,6 +83,12 @@ Plan files are parsed by the shared `plot-plan-meta.sh` parser, which understand
 
 **PR state, bound to origin's forge.** The scan enumerates open-PR branches with the CLI matching the `origin` remote's host — `gh` on GitHub, `bb` on Bitbucket — never a CLI's own idea of the "current repo" (a second remote on another forge must not win). Without a matching CLI it prints `PR state: DEGRADED` and falls back to git merge-state alone; in that mode the stale-branch section may list a branch that still has an open PR, so confirm each before deleting.
 
+**Summary footer.** The report's final line is machine-countable — consumers that only need counts (the `/plot` hygiene line, the Automation Output below) read it instead of parsing section bodies:
+
+```
+summary: drift=1 merged_not_delivered=1 stale=3 attention=0 concurrent=1 pr_source=gh main=main
+```
+
 ### Stage 2 — Act (your judgment)
 
 For each finding, decide whether to run the printed command. The scan never runs them; you do, deliberately.
@@ -131,4 +137,4 @@ When the conversation context indicates automation (see `/plot` for detection ru
 }
 ```
 
-`pr_source` is `gh`, `bb`, or `degraded`. Section 4 (concurrent-delivery) is informational — divergence counts, not defects — so it reports under `info`, not `findings`.
+`pr_source` is `gh`, `bb`, or `degraded`. Section 4 (concurrent-delivery) is informational — divergence counts, not defects — so it reports under `info`, not `findings`. Fill every count from the scan's `summary:` footer line — do not re-count section bodies.
