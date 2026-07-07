@@ -31,6 +31,11 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
     - **Active index:** docs/plans/active/
     - **Delivered index:** docs/plans/delivered/
     - **Sprint directory:** docs/sprints/
+    <!-- Optional: only when origin/HEAD detection picks the wrong branch -->
+    <!-- - **Main branch:** develop -->
+
+Helpers read these keys via `scripts/plot-config.sh get <key> [default]` —
+use it instead of grepping `CLAUDE.md`.
 
 ## Model Guidance
 
@@ -412,6 +417,10 @@ gh pr list --json number,title,headRefName,isDraft,state --jq '.[] | select(.hea
 Also run the bash helpers if a specific slug is in context:
 - `./scripts/plot-pr-state.sh <slug>` — plan PR state
 - `./scripts/plot-impl-status.sh <slug>` — impl PR states
+
+Shared helpers (use these instead of hand-parsing):
+- `./scripts/plot-plan-meta.sh <plan-file>` — plan metadata as JSON (phase, type, branches, PRs); the plan-format contract
+- `./scripts/plot-config.sh get <key> [default]` — `## Plot Config` reader
 
 ### 2. Detect Current Context
 
