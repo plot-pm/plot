@@ -36,8 +36,12 @@
 # read-only sweep. Keep unset-var and pipe-failure safety.
 set -uo pipefail
 
-repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
-cd "$repo_root" || exit 0
+# Operate on the repo the caller is in (like every plot helper) — NOT the
+# script's own checkout: for marketplace installs that would be the plugin
+# cache, silently sweeping plot's own repo instead of the adopting project.
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
+  || { echo "plot-reconcile: not inside a git repository." >&2; exit 1; }
+cd "$repo_root" || exit 1
 
 # Integration branch: read from `## Plot Config` in CLAUDE.md, default `main`.
 # Matches lines like "- **Integration branch:** develop" (case-insensitive key).
