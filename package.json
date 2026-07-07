@@ -14,6 +14,7 @@
     "board": "node skills/plot/scripts/board/server.mjs",
     "typecheck": "tsc --noEmit -p skills/plot/scripts/board",
     "test:board": "node --test 'test/board/**/*.test.mjs'",
+    "test:reconcile": "node --test test/reconcile/*.test.mjs",
     "changeset": "cp .changeset/_template \".changeset/$(date +%Y%m%d-%H%M%S).md\" && echo 'Created changeset — edit it now'",
     "version": "bash .dev/scripts/bump-skill-versions.sh && changeset version && bash .dev/scripts/sync-versions.sh",
     "validate": "bash .dev/scripts/validate-skills.sh",
