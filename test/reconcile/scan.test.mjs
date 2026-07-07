@@ -203,6 +203,16 @@ test('scan: summary footer carries machine-countable finding counts', () => {
     'summary: drift=2 merged_not_delivered=1 stale=2 attention=3 concurrent=2 pr_source=degraded main=main');
 });
 
+test('scan: --offline skips forge PR enumeration and reports pr_source=off', () => {
+  // A separate run with --offline. The fixture origin is a local path (no
+  // forge), so a plain run is already `degraded`; --offline must instead
+  // report the deliberate-skip state `off` and the "skipped (--no-pr)" banner.
+  const offline = execFileSync('bash', [scan, '--offline'], { encoding: 'utf8', cwd: repo });
+  assert.match(offline, /PR state: skipped \(--no-pr\)/);
+  const last = offline.trim().split('\n').at(-1);
+  assert.match(last, /\bpr_source=off\b/);
+});
+
 test('scan: refuses to run (exit 1) when jq is missing — never a silent false-clean', () => {
   // Build a PATH that resolves every tool the scan needs EXCEPT jq, so
   // `command -v jq` fails. A missing jq must abort loudly, not report drift=0.

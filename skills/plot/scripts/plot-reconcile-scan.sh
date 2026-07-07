@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Plot helper: reconciliation sweep — deterministic extractor for plan/branch drift.
-# Usage: plot-reconcile-scan.sh [--no-fetch]
+# Usage: plot-reconcile-scan.sh [--no-fetch] [--no-pr] [--offline]
+#   --no-fetch  skip `git fetch`   --no-pr  skip forge pr list
+#   --offline   both (no network)  — used by the ambient /plot hygiene line
 # Output: five-section text report on stdout (each finding carries its exact
 #         remediating command as copy-paste text — nothing is executed),
 #         terminated by a machine-countable summary line:
@@ -69,8 +71,23 @@ cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 command -v jq >/dev/null 2>&1 \
   || { echo "plot-reconcile: jq is required but not found on PATH." >&2; exit 1; }
 
+# Flags (any order, any combination):
+#   --no-fetch  skip `git fetch` (offline, or when you just fetched)
+#   --no-pr     skip forge PR enumeration (no `gh/bb pr list` network call) —
+#               falls back to git merge-state, same as an absent forge CLI
+#   --offline   both of the above: a fully network-free sweep. Used by the
+#               ambient /plot hygiene line so /plot never blocks on the network.
 do_fetch=1
-[ "${1:-}" = "--no-fetch" ] && do_fetch=0
+do_pr=1
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-fetch) do_fetch=0 ;;
+    --no-pr)    do_pr=0 ;;
+    --offline)  do_fetch=0; do_pr=0 ;;
+    *) ;;   # ignore unknown args (keeps $ARGUMENTS pass-through forgiving)
+  esac
+  shift
+done
 
 # ---------------------------------------------------------------------------
 # Configuration (## Plot Config, with plot's defaults)
@@ -143,15 +160,28 @@ load_open_pr_branches() {
       ;;
   esac
 }
-load_open_pr_branches
+if [ "$do_pr" = 1 ]; then
+  load_open_pr_branches
+else
+  PR_SOURCE="off"   # deliberately skipped (--no-pr/--offline), not a failure
+fi
+
+# Open-PR info is trustworthy only from a real forge listing. When it isn't
+# (degraded = no CLI, or off = deliberately skipped), the stale-branch section
+# leans on git merge-state alone and may over-list — so it warns to confirm.
+case "$PR_SOURCE" in gh|bb) pr_reliable=1 ;; *) pr_reliable=0 ;; esac
 
 echo "plot-reconcile sweep — $(git rev-parse --short "origin/$MAIN" 2>/dev/null) on origin/$MAIN"
-if [ "$PR_SOURCE" = degraded ]; then
+if [ "$pr_reliable" = 1 ]; then
+  echo "PR state: $PR_SOURCE pr list (open PRs enumerated)"
+elif [ "$PR_SOURCE" = off ]; then
+  echo "PR state: skipped (--no-pr) — git merge-state only; no forge network call."
+  echo "          (stale-branch section may over-list branches with an open PR;"
+  echo "           run /plot-reconcile without --offline for the precise list.)"
+else
   echo "PR state: DEGRADED — no forge CLI (gh/bb) available; using git merge-state only."
   echo "          (stale-branch section may over-list branches with an open PR;"
   echo "           confirm each before deleting.)"
-else
-  echo "PR state: $PR_SOURCE pr list (open PRs enumerated)"
 fi
 if [ ! -d "$PLAN_DIR" ]; then
   echo "warning: plan directory '$PLAN_DIR' not found — no plans scanned."
@@ -317,7 +347,7 @@ while IFS= read -r b; do
     "$MAIN"|release/*) continue ;;   # protected set (main + release/*)
   esac
   has_open_pr=0
-  if [ "$PR_SOURCE" != degraded ] && printf '%s\n' "$open_prs" | grep -qx "$b"; then has_open_pr=1; fi
+  if [ "$pr_reliable" = 1 ] && printf '%s\n' "$open_prs" | grep -qx "$b"; then has_open_pr=1; fi
   is_merged=0
   if printf '%s\n' "$merged_branches" | grep -qx "$b"; then is_merged=1; fi
 
