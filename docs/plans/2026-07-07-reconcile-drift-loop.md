@@ -28,13 +28,14 @@ The periodic sweep stays valuable for what no gate can catch (manual edits, lega
 
 Both branches build on `plot-reconcile-scan.sh` and the shared helpers from #34 (`plot-plan-meta.sh`, `plot-config.sh`) — no new scanning logic.
 
-- **`/plot` hook:** dispatcher runs the scan (`--no-fetch`, reusing its own fetch) in step 1 (Read State), counts findings in sections 1/2/3/5, and appends one advisory line to the status summary when the count is non-zero. Small-tier per the dispatcher's Model Guidance — mechanical count, no judgment; the pointer to `/plot-reconcile` is where judgment happens.
-- **`/plot-deliver` gate:** after the delivery commit, re-run the scan and check the just-delivered slug appears in no finding section (grep the report for the plan's dated basename). If it does, the delivery half-landed — surface the finding and its printed fix immediately, before declaring success. Add a scoped mode to the scan if grep-the-report proves too coarse (`--plan <file>`), but start without it.
+- **`/plot` hook:** dispatcher runs the scan (`--no-fetch`, reusing its own fetch) in step 1 (Read State) and appends one advisory line to the status summary when anything was found. To make that count mechanical and small-model-proof, the hook branch also adds a machine-countable **summary footer** to the scan report (e.g. `summary: drift=1 merged_not_delivered=1 stale=3 attention=0 concurrent=1 pr_source=gh main=main`) — the hook greps that single line instead of parsing section bodies, and `/plot-reconcile`'s Automation Output fills from it. Small-tier per the dispatcher's Model Guidance; the pointer to `/plot-reconcile` is where judgment happens.
+- **Scan performance (prerequisite for ambient use):** measured 3.4s for 12 plans (`--no-fetch`) — the scan spawns a parser+jq subprocess chain per plan, twice; extrapolated ~15s at 90 plans, too slow for a hook on every `/plot`. The hook branch therefore (a) gives `plot-plan-meta.sh` a multi-file mode (all plans parsed in one invocation, JSON-lines out), (b) makes the scan parse each plan once and reuse the result across sections 1/2/5, and (c) wraps the hook's scan call in a `timeout 10` with a graceful "sweep skipped — run /plot-reconcile" line when exceeded. Contract tests extend to the multi-file mode and the summary footer.
+- **`/plot-deliver` gate:** after the delivery commit, re-run the scan and grep the report for the delivered plan's **dated basename** — it appears only in plan-finding lines (sections 1, 2, 5; branch lines can't contain it), so a hit means the delivery half-landed: surface the finding and its printed fix immediately, before declaring success. The just-merged impl branch will often legitimately appear in section 3 as a deletion candidate — the gate surfaces that as optional housekeeping, not as a failure. No `--plan` scoping needed for v1.
 
 ### Open Questions
 
-- [ ] Should the `/plot` hook be skippable (env/config) for very large repos where the scan adds noticeable latency, or is `--no-fetch` cheap enough everywhere?
-- [ ] Does the gate need `--plan <file>` scoping in the scan, or is report-grep sufficient?
+- [x] ~~Should the `/plot` hook be skippable for very large repos?~~ Resolved by measurement (2026-07-08): not config — make the scan cheap (multi-file parser mode, single parse pass) and bound the hook with `timeout 10` + graceful skip line. No config key in v1.
+- [x] ~~Does the gate need `--plan <file>` scoping, or is report-grep sufficient?~~ Resolved: report-grep on the dated basename is precise (basename occurs only in plan-finding lines); section-3 hits for the just-merged branch are expected and reported as optional housekeeping.
 
 ## Branches
 
