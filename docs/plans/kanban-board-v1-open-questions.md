@@ -1,32 +1,46 @@
-# kanban-board-v1 — open questions for Max
+# kanban-board-v1 — open questions → decision log
 
-> Output of `/challenge-the-plan` (2026-07-12) on [`2026-07-12-kanban-board-v1.md`](2026-07-12-kanban-board-v1.md). Everything the brief, manifesto, or codebase could decide has been resolved and woven into the plan. These five genuinely need you — pick a letter per question (annotate here, in the PR, or in chat).
+> Output of `/challenge-the-plan` (2026-07-12) on [`2026-07-12-kanban-board-v1.md`](2026-07-12-kanban-board-v1.md). Max decided all five on 2026-07-12; decisions are woven into the plan. This file remains as the decision log.
 
-## Q1 — Publish `@…/board` to npm with this release?
+## Q1 — Publish to npm with this release? → **Deferred; first release is a release candidate**
 
-Today's release pipeline never touches npm (tags + GitHub Release only); publishing adds an npm token to CI and a publish step in `release.yml`, but enables `npx <board>` in any repo.
-**A:** publish 1.0.0 now · **B:** defer — ship the git artifact only, wire npm up later when there's a proven need. *(A = more release surface now; B = no `npx` story yet.)*
+Decision: do **not** publish 1.0.0. First release is `1.0.0-rc.1`, shipped as the in-repo bundled artifact only. The npm path stays **open** (org `plot-pm` exists) but **deferred** until size/usage justify it. Data-driven recommendation below.
 
-## Q2 — Package name?
+### Q1.1 — Expected artifact size
 
-**A:** `@plot-pm/board` — clear provenance, matches the GitHub org, but requires the `plot-pm` npm org to exist/be claimed · **B:** unscoped `plot-board` — no org needed, generic-name/squat territory.
-*(Name goes into `package.json` now even if publishing is deferred; A is the default if you own or will claim the org.)*
+Single-file esbuild bundle, deps inlined, client served from memory. From published bundle stats of the runtime pieces:
 
-## Q3 — Sprint filter: upgrade to multi-select for parity with the story filter?
+| Piece | minified |
+|---|---|
+| react + react-dom (client) | ~140–180 KB |
+| radix select/popover/checkbox + cmdk (multi-select) | ~60–90 KB |
+| zod | ~15–60 KB (v4 core vs v3) |
+| tailwind output (purged) | ~15–30 KB |
+| app + server code | ~30–50 KB |
 
-**A:** yes — one shared component, consistent UX, URL becomes `?sprint=a,b` (old single-value links keep working) · **B:** no — keep single-select, zero behavior change to the existing filter.
+**Estimate: ~400–600 KB minified single file; ~120–160 KB gzipped.** Well under 1 MB. Each release *replaces* the file; git history grows ~100–150 KB (delta-compressed) per release. For scale: today's vendored lit-html is ~7 KB — a real increase, but flat per release and trivial against clone size.
 
-## Q4 — "Board impact considered in every plan": rule or gate?
+### Q1.2 — Install+run recommendation: **(a) ship the bundled file in-repo**
 
-**A:** prose — DoD entry + a `Board impact:` prompt-comment in the plan template; relies on authors/agents honoring it · **B:** gate — CI plan-lint fails PRs whose new/changed plan files lack a `Board impact:` line. *(B follows the repo's Gates-over-Rules doctrine but adds a hard requirement to every future plan, plot-wide.)*
+Run story after skill install (Node guaranteed): `node skills/plot/scripts/board/board-server.mjs` — or `pnpm board` in this repo. **No install step, no network, no registry.**
 
-## Q5 — Plan Type: confirm `feature`?
+Option (b) "ship package.json + lockfile, install on the fly" was examined and rejected on a structural point: the React client must be **built** no matter what — a browser cannot `npm install` — and the server is dependency-free `node:http` by design, so there is *nothing to install at runtime*. (b) doesn't avoid bundling; it only relocates the built code from git to the npm registry — i.e., it silently re-decides the npm question. It would also add first-run network dependence and a node_modules footprint for zero functional gain. If the artifact ever outgrows git comfort (say ≫1 MB) or non-plot repos want the board standalone, that is the trigger to flip on npm publishing — the packaging already supports it.
 
-**A:** keep `feature` — the board UI/filters are the center of gravity · **B:** `infra` — monorepo/build/release work dominates. *(Affects release-notes grouping, nothing structural.)*
+### Q1.3 — Version scheme
+
+Confirmed pre-release-first, with one amendment: **`1.0.0-rc.1`** rather than `0.1.0-rc.1`. Rationale: it sorts below 1.0.0, names the target explicitly, and graduation is just dropping the tag (`rc.1 → rc.2 → 1.0.0` via changesets pre-release mode, `changeset pre enter rc`). `0.1.0-rc.1` double-gates (0.x *and* rc) and leaves an awkward 0.1.0 → 1.0.0 hop. npm publishing stays open-but-deferred; if enabled later, RCs publish under `--tag rc` so `latest` never points at a candidate.
+
+## Q2 — Package name → **`@plot-pm/board`** (npm org `plot-pm` exists)
+
+## Q3 — Sprint filter → **multi-select** (A): shared component with the story filter, `?sprint=a,b`; old single-value links keep working.
+
+## Q4 — "Board impact in every plan" → **prose** (A): DoD entry + `Board impact:` prompt-comment in the plan template; not a CI gate. The mechanical "board must work" half is still CI-gated.
+
+## Q5 — Plan type → **`feature`** confirmed (A).
 
 ---
 
-### Settled during the challenge (for visibility, no action needed)
+### Settled during the challenge (unchanged, for reference)
 
 - Artifact stays at `skills/plot/scripts/board/`; built + committed by the changesets version step; CI rebuild-and-diff freshness gate; deterministic single-file esbuild bundle, assets served from memory (no fs static serving → no traversal surface).
 - Board discovers `docs/plans/` / `docs/sprints/` / stories dir via `plot-config.sh` instead of hardcoding (manifesto Q2).

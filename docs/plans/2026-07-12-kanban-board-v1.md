@@ -10,7 +10,7 @@
 
 ## Changelog
 
-- Local Kanban board graduates from 🧪 beta to a first-class plot component, released as `@plot-pm/board` 1.0.0
+- Local Kanban board graduates from 🧪 beta to a first-class plot component, released as `@plot-pm/board` `1.0.0-rc.1` (release candidate; `1.0.0` follows once the RC has baked)
 - Board is now its own TypeScript package (`packages/board`) built with vite + react + shadcn/ui + zod; the plot skill ships a prebuilt, dependency-free server artifact — `pnpm board` works with zero install steps beyond the repo itself
 - Board no longer parses plan files itself: it consumes `plot-plan-meta.sh` (the plan-format contract), so frontmatter plans, canonical plans, and future format changes are handled in exactly one place
 - New **story filter** (multi-select) alongside the sprint filter: show only plans belonging to selected stories; plans declare story membership via a new optional `Story:` field
@@ -39,7 +39,7 @@ Introduce pnpm workspaces with the smallest possible footprint:
 pnpm-workspace.yaml          # packages: ["packages/*"]
 packages/
   board/                     # @plot-pm/board — the one package (for now)
-    package.json             # version 1.0.0, type: module
+    package.json             # version 1.0.0-rc.1, type: module
     src/
       server/                # node server: /api/board + static serving
       app/                   # react + shadcn UI
@@ -55,7 +55,7 @@ skills/plot/scripts/board/
 - **Build/bundle:** vite builds the client; the server (node, no framework — keep `node:http`) is bundled by **esbuild** with the client assets **inlined as modules** into one self-contained `board-server.mjs`, served from memory. No filesystem static serving remains, which deletes the path-traversal surface outright. The build is deterministic (no timestamps, no content hashes in a single-file bundle) so the CI freshness diff is byte-stable. Node ≥ 20 is the only runtime requirement, same as today.
 - **Artifact policy:** the built `board-server.mjs` is checked into `skills/plot/scripts/board/` **by the release pipeline only**, never edited by hand. Concretely: `pnpm run version` (the changesets version step) gains a board build + artifact copy, so the `release: X.Y.Z` PR carries fresh artifact alongside version bumps; CI rebuilds and diffs the artifact on any PR touching `packages/board`, so a stale check-in fails loudly. The changeset-check CI step learns package-level changesets (`"@plot-pm/board": minor` beside `"plot": minor`). Rationale: the plot *plugin* is distributed as a git checkout of skills/ — adopters must get a working board without a build step (manifesto Q1/Q6: no new external dependency at use time).
 - **Root scripts stay stable:** `pnpm board` now runs the built artifact (or `pnpm --filter @plot-pm/board dev` for HMR development). `pnpm test:board` and `pnpm typecheck` move to the package but keep root aliases.
-- **npm publish:** the package is *publishable* (changesets `access: public` is already configured), which would enable `npx` usage in any plot-adopting repo. But today's release pipeline publishes nothing to npm — `create-release.sh` only tags and creates a GitHub Release — so publishing means new surface: an npm token in CI and a publish step in `release.yml`. **Whether to publish with this release, and the package's name, are open decisions** (see `kanban-board-v1-open-questions.md`). Either way the board versions independently from the plot plugin, starting at **1.0.0**.
+- **Distribution & versioning (decided 2026-07-12):** the package is `@plot-pm/board` (npm org exists). It is distributed **in-repo as the bundled artifact only** — npm publishing stays *open but deferred* until size or usage justify it. The install+run story after skill install, with Node guaranteed present, is: none — `node skills/plot/scripts/board/board-server.mjs` (or `pnpm board`), no install step, no network, no registry. The "ship package.json + install-on-the-fly" alternative was examined and rejected: the React client must be *built* regardless (a browser can't `npm install`), and the server is zero-dep `node:http` — so there is nothing to install; that option only relocates built code from git to the registry, which is precisely the deferred decision. Expected artifact size, from published bundle stats (react+react-dom ~140–180 KB min, radix select/popover/checkbox + cmdk ~60–90 KB, zod ~15–60 KB, purged tailwind ~15–30 KB, app+server ~30–50 KB): **~400–600 KB minified single file (~120–160 KB gzip)** — well under 1 MB, ~100–150 KB delta-compressed per release in git history. Versions start at **`1.0.0-rc.1`** (changesets pre-release mode, `changeset pre enter rc`): it sorts below 1.0.0, names the target, and graduating is dropping the tag — preferred over `0.1.0-rc.1`, which double-gates (0.x *and* rc) and leaves an awkward hop to 1.0.0. If publishing is later enabled, RCs go out under `--tag rc` so npm's `latest` never points at a candidate. The board versions independently from the plot plugin.
 - **Old files** (`app.mjs`, `parser.mjs`, `index.html`, `styles.css`, `vendor/`, `tsconfig.json`) are removed from `skills/plot/scripts/board/`; `test/board/` moves into `packages/board/test/`.
 
 #### 2. Architecture rework: one format contract
@@ -74,7 +74,7 @@ This inverts the current dependency: today the board *duplicates* the contract; 
 
 - **Plan side:** new optional `- **Story:** <story-slug>` line in the plan template's `## Status` (and `story:` in frontmatter), mirroring the existing `Sprint:` field. One plan belongs to at most one story (same cardinality as sprint).
 - **Board side:** the server walks `docs/stories/*/STORY-*.md` (story-tracking skill convention), reading `title` and `status` from story frontmatter, and emits a `stories` array beside `sprints`.
-- **UI:** a **multi-select** story filter (shadcn multi-select/combobox) next to the sprint select: show plans belonging to *any* selected story, plus a "No story" option — the multi-select analogue of the sprint filter's `__no_sprint__` sentinel. URL state: `?story=a,b` (comma-separated), validated against known slugs like the sprint param. Sprint and story filters **intersect** when both are set. The story filter is hidden entirely when the project has no stories directory. Only active stories populate the filter list; a plan referencing an unknown/archived story slug still shows its story badge.
+- **UI (updated per Q3, 2026-07-12):** one shared **multi-select** filter component (shadcn combobox) instantiated twice — stories *and* sprints. Story filter: show plans belonging to *any* selected story, plus a "No story" option; the sprint filter gains the same semantics (its `__no_sprint__` sentinel becomes the "No sprint" option). URL state: `?story=a,b` / `?sprint=a,b` (comma-separated), validated against known slugs; existing single-value `?sprint=x` links keep working unchanged (a one-element list). Sprint and story filters **intersect** when both are set. The story filter is hidden entirely when the project has no stories directory. Only active stories populate the filter list; a plan referencing an unknown/archived story slug still shows its story badge.
 - Story badges on cards when no story filter is active (mirrors sprint badge behavior).
 - Quality-of-life while we're in the UI: the client polls `/api/board` every 30s and re-renders on change (plain `setInterval` + fetch — no SSE/websocket machinery), replacing today's manual browser refresh.
 
@@ -82,7 +82,7 @@ This inverts the current dependency: today the board *duplicates* the contract; 
 
 - New `docs/definition-of-done.md` (the exact path `ralph-plot-sprint` already reads), including:
   - **Board must work:** `pnpm test:board`, `pnpm typecheck`, and a successful board build/artifact check are part of done for every change.
-  - **Board impact is a planning item:** any plan touching plan format, templates, helper scripts, or `docs/plans` layout must state its board impact (a one-line "Board impact: none" is fine).
+  - **Board impact is a planning item:** any plan touching plan format, templates, helper scripts, or `docs/plans` layout must state its board impact (a one-line "Board impact: none" is fine). Decided as **prose, not a CI gate** (Q4, 2026-07-12): the DoD entry plus a `Board impact:` prompt-comment in the plan template. The *mechanical* half ("board must work") is CI-gated; the *judgment* half stays a rule by choice — a lint can check a line exists, not that impact was considered, and the friction lands on every future plan plot-wide.
 - CLAUDE.md: Testing section references the DoD; helper-scripts table and architecture notes updated; the board's row loses nothing but gains "first-class".
 - `skills/plot/SKILL.md` + `skills/plot/README.md`: remove the 🧪 beta marker, document the story filter and the package/artifact split.
 - Plugin version bump (minor) across `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` per the versioning rules, with a changeset.
@@ -96,16 +96,17 @@ This inverts the current dependency: today the board *duplicates* the contract; 
 
 ### Open Questions
 
-Challenged 2026-07-12 (`/challenge-the-plan`, autonomous pass). Resolved here; the rest await Max in [`kanban-board-v1-open-questions.md`](kanban-board-v1-open-questions.md).
+Challenged 2026-07-12 (`/challenge-the-plan`, autonomous pass); the five escalated decisions came back from Max the same day — **all questions are now resolved** (decision log: [`kanban-board-v1-open-questions.md`](kanban-board-v1-open-questions.md)).
 
 - [x] ~~Artifact location?~~ Keep `skills/plot/scripts/board/` — stable `pnpm board` path, plugin ships it automatically; moving buys nothing (manifesto Q5).
 - [x] ~~Is shadcn/tailwind pulling its weight for ~3 components?~~ Adopt as directed — it is build-time-only weight, the runtime artifact stays zero-dep, and the follow-up ambitions (editing UI, public board) are exactly where a component system pays off.
 - [x] ~~`title` precedence in `plot-plan-meta.sh`?~~ Frontmatter `title:` wins, H1 fallback — same rule as `status:`/`phase:`.
 - [x] ~~Path discovery?~~ Via `plot-config.sh` with current defaults (was: hardcoded `docs/plans/`).
-- [ ] Package name (`@plot-pm/board` vs `plot-board`) — **Max, Q2**
-- [ ] Publish to npm with this release, or defer — **Max, Q1**
-- [ ] Sprint filter multi-select for parity — **Max, Q3**
-- [ ] "Board impact" as prose rule or CI gate — **Max, Q4**
+- [x] ~~Package name?~~ **`@plot-pm/board`** — npm org `plot-pm` exists (Q2, 2026-07-12).
+- [x] ~~Publish to npm with this release?~~ **Deferred** — first release is `1.0.0-rc.1`, in-repo bundled artifact only (~400–600 KB min single file); npm path stays open until size/usage justify it (Q1, 2026-07-12).
+- [x] ~~Sprint filter multi-select?~~ **Yes** — shared component with the story filter, `?sprint=a,b`, old single-value links keep working (Q3, 2026-07-12).
+- [x] ~~"Board impact" rule or gate?~~ **Prose** — DoD entry + plan-template prompt; not a CI gate (Q4, 2026-07-12).
+- [x] ~~Plan type?~~ **`feature`** confirmed (Q5, 2026-07-12).
 
 ## Branches
 
@@ -121,4 +122,4 @@ Challenged 2026-07-12 (`/challenge-the-plan`, autonomous pass). Resolved here; t
   Nothing in this plan depends on either; the package split and contract rework keep both options open.
 - Type chosen as `feature` (user-facing board functionality is the center of gravity; the monorepo work is enabling infra). Flag during review if `infra` fits better.
 - The board remains **read-only and local-only** in v1.0 — editing is R1 territory.
-- 2026-07-12: `/challenge-the-plan` run (autonomous — findings self-resolved where the brief/manifesto/codebase decide, woven into Design above). Five decisions genuinely need Max: `kanban-board-v1-open-questions.md`. Known implementation risk recorded: the release chain (`bump-skill-versions.sh → changeset version → sync-versions.sh`, changeset-check CI grep) assumes a single versioned package and needs teaching about `packages/*` — covered in workstream 1's artifact-policy and changeset-check notes.
+- 2026-07-12: `/challenge-the-plan` run (autonomous — findings self-resolved where the brief/manifesto/codebase decide, woven into Design above). Five decisions escalated to Max; all five decided same day and recorded in `kanban-board-v1-open-questions.md` (Q1 defer npm + `1.0.0-rc.1`, Q2 `@plot-pm/board`, Q3 sprint multi-select, Q4 prose, Q5 feature). Known implementation risk recorded: the release chain (`bump-skill-versions.sh → changeset version → sync-versions.sh`, changeset-check CI grep) assumes a single versioned package and needs teaching about `packages/*` — covered in workstream 1's artifact-policy and changeset-check notes.
