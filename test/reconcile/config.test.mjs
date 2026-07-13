@@ -80,3 +80,33 @@ test('config: missing CLAUDE.md falls back to default', () => {
     fs.rmSync(bare, { recursive: true, force: true });
   }
 });
+
+// Real-world config style found in an adopting repo (cpq-cds): values written
+// as backtick-quoted markdown with trailing prose notes, and a branch-prefix
+// list whose first item is both backticked and annotated. Backticks (markdown
+// decoration) and `(...)` (prose) are stripped; multi-value lists are kept
+// whole rather than truncated to the first backtick span.
+test('config: real-world backtick + prose values (cpq-cds style)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-config-cpq-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), `# cpq-cds
+
+## Plot Config
+
+- **Plan directory:** \`docs/plans/\` (date-prefixed \`YYYY-MM-DD-<slug>.md\`, never moved once created)
+- **Sprint directory:** \`docs/sprints/\` (ISO week-prefixed \`YYYY-Www-<slug>.md\`, committed directly to main)
+- **Branch prefixes:** \`idea/\` (plans), \`feature/\`, \`bug/\`, \`docs/\`, \`infra/\` (implementation)
+`);
+    const g = (k, d = '') =>
+      execFileSync('bash', [accessor, 'get', k, d], { encoding: 'utf8', cwd: dir }).trimEnd();
+    // Backtick-quoted value with trailing prose that itself contains a
+    // backticked token — the prose and all backticks are stripped.
+    assert.equal(g('Plan directory'), 'docs/plans/');
+    assert.equal(g('Sprint directory'), 'docs/sprints/');
+    // Multi-value list, first item backticked AND annotated with prose: must
+    // yield the whole list, never truncate to the first span (`idea/`).
+    assert.equal(g('Branch prefixes'), 'idea/, feature/, bug/, docs/, infra/');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

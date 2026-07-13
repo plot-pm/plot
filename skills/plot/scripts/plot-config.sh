@@ -14,8 +14,12 @@
 # Grammar accepted inside the section (case-insensitive key, bold optional):
 #     - **Plan directory:** docs/plans/
 #     - Plan directory: docs/plans/
-# Lines outside the `## Plot Config` section never match (no prose false
-# positives), and neither do HTML-commented example lines.
+#     - **Plan directory:** `docs/plans/` (with a backticked value + prose note)
+#     - **Branch prefixes:** `idea/` (plans), `feature/`, `bug/`   (list + prose)
+# Backticks (markdown decoration) and `(...)` (human prose) are stripped from
+# the value; no documented key's value legitimately contains either. Lines
+# outside the `## Plot Config` section never match (no prose false positives),
+# and neither do HTML-commented example lines.
 #
 # Known keys (see the plot skill's Setup section):
 #   Project board | Branch prefixes | Plan directory | Active index |
@@ -42,9 +46,23 @@ if [ -f "$config_file" ]; then
     /^##[[:space:]]/ { in_section = (tolower($0) ~ /^##[[:space:]]+plot config[[:space:]]*$/) ; next }
     in_section { print }
   ' "$config_file")
+  # Value extraction. A documented key's value is a path, a prefix list, or an
+  # owner/number — none of which legitimately contain backticks or parentheses.
+  # So we can uniformly treat backticks as markdown decoration and `(...)` as
+  # human prose, stripping both. This tolerates real-world config written like
+  #     - **Plan directory:** `docs/plans/` (date-prefixed, never moved)
+  #     - **Branch prefixes:** `idea/` (plans), `feature/`, `bug/`, `docs/`
+  # without truncating multi-value lists to their first backtick span.
   value=$(printf '%s\n' "$section" \
     | grep -m1 -iE "^[[:space:]]*[-*]?[[:space:]]*\**${key}[:*]" \
-    | sed -E 's/^[^:]*:[[:space:]]*//; s/^\**[[:space:]]*//; s/[[:space:]`]*$//; s/^[[:space:]`]*//')
+    | sed -E '
+        s/^[^:]*:[[:space:]]*//;               # drop list marker, bold, "key:"
+        s/^\**[[:space:]]*//;                   # drop leading bold before value
+        s/\([^)]*\)//g;                         # drop parenthetical prose
+        s/`//g;                                 # drop markdown backticks
+        s/[[:space:]]*,[[:space:]]*/, /g;       # normalize list separators
+        s/[[:space:]]+/ /g;                     # collapse internal whitespace
+        s/^[[:space:]]+//; s/[[:space:]]+$//')  # trim ends
 fi
 
 if [ -n "$value" ]; then
