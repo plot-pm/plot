@@ -28,7 +28,7 @@
     "build:server": "node build.mjs",
     "build": "pnpm run build:client && pnpm run build:server",
     "typecheck": "tsc --noEmit",
-    "test": "node --test \"test/**/*.test.mjs\""
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "zod": "^4.4.0"
