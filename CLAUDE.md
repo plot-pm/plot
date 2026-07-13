@@ -33,10 +33,10 @@ Scripts in `skills/plot/scripts/` that any model tier can use:
 | `plot-impl-status.sh` | Query all implementation PR states for a slug |
 | `plot-review-status.sh` | Check review freshness for sprint items |
 | `plot-update-board.sh` | Update GitHub Projects board status for a PR |
-| `plot-plan-meta.sh` | Parse plan files → JSON (phase, type, branches, PRs); the plan-format contract |
+| `plot-plan-meta.sh` | Parse plan files → JSON (phase, type, title, sprint, story, assignee, branches, PRs); the plan-format contract |
 | `plot-config.sh` | Read a `## Plot Config` key with a default (`get <key> [default]`) |
 | `plot-reconcile-scan.sh` | Read-only plan/branch drift sweep (five sections + machine-countable footer) |
-| `board/server.mjs` | Local Kanban status board (run via `pnpm board`) |
+| `board/board-server.mjs` | Local Kanban status board — built artifact of `@plot-pm/board` (`packages/board`); run via `pnpm board`, rebuild via `pnpm build:board` |
 
 Design split (Manifesto Principle 3): **skills interpret and adapt; scripts collect and report.**
 
@@ -91,14 +91,22 @@ When writing skills that include critical workflows (phase guardrails, branch cr
 
 ## Testing
 
+Plot is a pnpm workspace: the skills live at the repo root, and the board is a
+package under `packages/`.
+
 ```bash
-pnpm install     # install dependencies first if node_modules is missing
-pnpm test        # validates all skills parse correctly
+pnpm install         # install dependencies first if node_modules is missing
+pnpm test            # validates all skills parse correctly
+pnpm run test:reconcile   # plan-format contract tests (plot-plan-meta.sh)
+pnpm run test:board       # rebuilds the board artifact + runs its tests
+pnpm run typecheck        # typechecks @plot-pm/board
 ```
 
 **Always install dependencies and run tests.** If `pnpm test` fails due to missing `node_modules`, install them and retry — never skip tests or dismiss the failure.
 
-**Behavioral testing is manual.** Plot has no unit tests — validation is via end-to-end lifecycle testing (full workflow from `/plot-idea` through `/plot-release`). Any change to a spoke command or helper script should be tested with a full lifecycle walkthrough. See `skills/plot/README.md` for documented test runs.
+**The board is first-class.** Keeping it working — and considering board impact when planning changes to the plan format, template, helper scripts, or `docs/plans` layout — is part of the [Definition of Done](docs/definition-of-done.md), gated in CI.
+
+**Behavioral testing is manual.** The skills have no unit tests — validation is via end-to-end lifecycle testing (full workflow from `/plot-idea` through `/plot-release`). Any change to a spoke command or helper script should be tested with a full lifecycle walkthrough. See `skills/plot/README.md` for documented test runs. (The board, being real code, does have automated tests.)
 
 ## Contributing
 

@@ -208,17 +208,15 @@ See `skills/plot/templates/claude-md-snippet.md` for a ready-to-paste template.
 
 ## Local Status Board
 
-> **🧪 Beta** — functional but rough edges remain (look-and-feel, live reload, click targets). Feedback welcome.
-
 Plot ships a local Kanban board for maintainers who want a glanceable view of plan phases without GitHub auth or latency. Start it with:
 
 ```bash
 pnpm board   # serves http://localhost:7777 (override: PORT=8080 pnpm board)
 ```
 
-The board reads `docs/plans/` and `docs/sprints/` from the repo root, renders 4 columns (Draft / Approved / Delivered / Released), and supports sprint filtering via the URL `?sprint=<slug>`. It is a read-only, local-only tool — no writes, no external dependencies at runtime.
+The board renders 4 columns (Draft / Approved / Delivered / Released) from the project's plans, and offers **multi-select sprint and story filters** (URL state: `?sprint=a,b` and `?story=c,d`; the two intersect). It reads plans through `plot-plan-meta.sh` — the same plan-format contract the rest of Plot uses — so canonical and front-matter plans both render, and directory locations come from `## Plot Config` (`Plan directory`, `Sprint directory`, `Story directory`). It is a read-only, local-only tool with no external dependencies at runtime.
 
-The board is a script (`skills/plot/scripts/board/server.mjs`), not a skill step, so it has no row in the Model Guidance table.
+The board is a TypeScript package, `@plot-pm/board` (`packages/board`, vite + react + shadcn + zod). The plugin ships a single prebuilt artifact, `skills/plot/scripts/board/board-server.mjs`, so `pnpm board` works with no install step; the source is only needed to rebuild it (`pnpm build:board`). Because it is a built binary rather than a skill step, it has no row in the Model Guidance table — but keeping it working is part of the [Definition of Done](../../docs/definition-of-done.md).
 
 ## Sibling Skills
 
