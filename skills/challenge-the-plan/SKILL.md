@@ -36,7 +36,7 @@ compatibility: Designed for Claude Code and Cursor.
 1. Resolve plan file (from argument or auto-detect)
 2. Read plan content
 3. Parse structure to identify sections, decisions, and assumptions
-4. Check for an existing "Open Questions" section (indicates a previous session)
+4. Check for an existing "Open Points" section (indicates a previous session)
 
 ### Phase 2: Initial Analysis (first run only)
 
@@ -116,7 +116,7 @@ Use the structured question tool to present 4 questions per round:
 - "Let's discuss with the team"
 - "Leave question for [name]" (e.g., "Leave question for a colleague")
 
-Collect deferred responses for the Open Questions section.
+Collect deferred responses for the Open Points section.
 
 ### Phase 5: Plan Refinement
 
@@ -154,16 +154,16 @@ Exit when:
 
 If not complete, return to Phase 3 with adaptive depth.
 
-### Phase 7: Open Questions Review (before completion)
+### Phase 7: Open Points Review (before completion)
 
-Re-ask all deferred questions for final validation. Remove resolved items from the Open Questions section.
+Re-ask all deferred questions for final validation. Remove resolved items from the Open Points section.
 
-## Open Questions Tracking
+## Open Points Tracking
 
 Deferred questions are tracked as a plain text section appended to the plan file:
 
 ```markdown
-## Open Questions
+## Open Points
 
 - [ ] [Technical] How to handle token refresh race conditions? — *deferred: discuss with the team*
 - [ ] [Domain] What authorization rules apply to admin users? — *deferred: leave question for Egemen*
@@ -172,9 +172,9 @@ Deferred questions are tracked as a plain text section appended to the plan file
 ```
 
 **Tracking rules:**
-1. After each round, append new deferred items to Open Questions
+1. After each round, append new deferred items to Open Points
 2. When a deferred item gets answered in a later round, mark it `[x]` with the answer
-3. If no Open Questions section exists, create it at the end of the plan file
+3. If no Open Points section exists, create it at the end of the plan file
 4. On completion, remove fully-resolved items (keep only genuinely open ones)
 
 ## Adaptive Depth Strategy
@@ -274,7 +274,7 @@ Original plan file updated with:
 - UX flows expanded with edge case handling
 - Non-functional considerations integrated
 - Trade-off analysis for major decisions
-- Open Questions section for unresolved items
+- Open Points section for unresolved items
 
 No separate interview report — plan refinement is self-documenting.
 
