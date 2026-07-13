@@ -51,10 +51,23 @@
 #                  status: AND phase:), else ""
 #   phase_alt      normalized phase_alt_raw (NONE when absent)
 #   type           normalized plan type (feature|bug|docs|infra or "")
+#   title          plan title: front matter `title:` wins, else the first H1
+#                  (`# ...`) line, else "" (board-facing display field)
+#   sprint         sprint slug the plan belongs to (`## Status` `Sprint:` or
+#                  front matter `sprint:`); "" if absent or an HTML-comment
+#                  placeholder
+#   story          story slug the plan belongs to (`## Status` `Story:` or
+#                  front matter `story:`); "" if absent or a placeholder
+#   assignee       github handle from the `## Approval` `Assignee:` line or
+#                  front matter `assignee:`; "" if absent
 #   branches       branch names from the `## Branches` section (backtick-
 #                  quoted, matching the known prefixes; sorted, unique)
 #   prs            PR numbers from `→ #NNN` links in the `## Branches`
 #                  section (sorted, unique)
+#
+# title/sprint/story/assignee are the board-facing surface (`@plot-pm/board`
+# consumes this script instead of parsing plans itself). Front matter wins over
+# the canonical body for every field, matching the `status:`/`phase:` rule.
 
 set -uo pipefail
 
@@ -77,7 +90,7 @@ if [ ${#files[@]} -eq 0 ] && [ ${#missing[@]} -eq 0 ]; then
 fi
 
 for f in ${missing[@]+"${missing[@]}"}; do
-  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","branches":[],"prs":[]}\n' \
+  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[]}\n' \
     "$(printf '%s' "$f" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 done
 
@@ -95,6 +108,8 @@ function val_after_colon(s) {
   sub(/^"/, "", s); sub(/"$/, "", s)
   return trim(s)
 }
+# Template placeholders like "<!-- optional -->" mean "field absent".
+function strip_placeholder(s) { return (s ~ /^<!--/) ? "" : s }
 # First known phase token wins; NONE if empty; UNKNOWN otherwise.
 function norm_phase(raw,   lower, toks, n, i, t) {
   if (raw == "") return "NONE"
@@ -121,12 +136,15 @@ function norm_type(raw,   lower, toks, n, i, t) {
 }
 function reset_state() {
   fm_status = ""; fm_phase = ""; fm_type = ""
+  fm_title = ""; fm_sprint = ""; fm_story = ""; fm_assignee = ""
   canon_phase = ""; canon_type = ""
+  canon_sprint = ""; canon_story = ""; canon_assignee = ""
+  h1_title = ""
   in_fm = 0; section = ""
   delete branches; n_branches = 0
   delete prs; n_prs = 0
 }
-function emit_record(   fmt, praw, palt_raw, traw, i, j, out, sorted_b, sorted_p, nb, np) {
+function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, i, j, out, sorted_b, sorted_p, nb, np) {
   if (fm_status != "" || fm_phase != "") {
     fmt = "frontmatter"
     praw = (fm_status != "") ? fm_status : fm_phase
@@ -137,6 +155,12 @@ function emit_record(   fmt, praw, palt_raw, traw, i, j, out, sorted_b, sorted_p
   } else {
     fmt = "none"; praw = ""; palt_raw = ""; traw = ""
   }
+  # Board-facing fields: front matter wins over the canonical body; H1 is the
+  # title fallback. Placeholders ("<!-- ... -->") count as absent.
+  title    = strip_placeholder((fm_title    != "") ? fm_title    : h1_title)
+  sprint   = strip_placeholder((fm_sprint   != "") ? fm_sprint   : canon_sprint)
+  story    = strip_placeholder((fm_story    != "") ? fm_story    : canon_story)
+  assignee = strip_placeholder((fm_assignee != "") ? fm_assignee : canon_assignee)
   # Insertion sort + dedupe (portable: no gawk asort).
   nb = 0
   for (i = 1; i <= n_branches; i++) {
@@ -155,7 +179,10 @@ function emit_record(   fmt, praw, palt_raw, traw, i, j, out, sorted_b, sorted_p
   out = "{\"file\":\"" jesc(cur_file) "\",\"format\":\"" fmt "\""
   out = out ",\"phase_raw\":\"" jesc(praw) "\",\"phase\":\"" norm_phase(praw) "\""
   out = out ",\"phase_alt_raw\":\"" jesc(palt_raw) "\",\"phase_alt\":\"" norm_phase(palt_raw) "\""
-  out = out ",\"type\":\"" norm_type(traw) "\",\"branches\":["
+  out = out ",\"type\":\"" norm_type(traw) "\""
+  out = out ",\"title\":\"" jesc(title) "\",\"sprint\":\"" jesc(sprint) "\""
+  out = out ",\"story\":\"" jesc(story) "\",\"assignee\":\"" jesc(assignee) "\""
+  out = out ",\"branches\":["
   for (i = 1; i <= nb; i++) out = out (i > 1 ? "," : "") "\"" jesc(sorted_b[i]) "\""
   out = out "],\"prs\":["
   for (i = 1; i <= np; i++) out = out (i > 1 ? "," : "") sorted_p[i]
@@ -175,11 +202,18 @@ in_fm {
   if (lower ~ /^status:/ && fm_status == "") fm_status = val_after_colon($0)
   else if (lower ~ /^phase:/ && fm_phase == "") fm_phase = val_after_colon($0)
   else if (lower ~ /^type:/ && fm_type == "") fm_type = val_after_colon($0)
+  else if (lower ~ /^title:/ && fm_title == "") fm_title = val_after_colon($0)
+  else if (lower ~ /^sprint:/ && fm_sprint == "") fm_sprint = val_after_colon($0)
+  else if (lower ~ /^story:/ && fm_story == "") fm_story = val_after_colon($0)
+  else if (lower ~ /^assignee:/ && fm_assignee == "") fm_assignee = val_after_colon($0)
   next
 }
+# First H1 is the title fallback (front matter title: still wins in emit).
+/^#[ \t]/ && h1_title == "" { h1_title = trim(substr($0, 2)) }
 /^## / {
   if ($0 ~ /^## Status/) section = "status"
   else if ($0 ~ /^## Branches/) section = "branches"
+  else if ($0 ~ /^## Approval/) section = "approval"
   else section = ""
   next
 }
@@ -187,6 +221,13 @@ section == "status" {
   lower = tolower($0)
   if (lower ~ /^[ \t]*[-*]?[ \t]*\**phase[:*]/ && canon_phase == "") canon_phase = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**type[:*]/ && canon_type == "") canon_type = val_after_colon($0)
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**sprint[:*]/ && canon_sprint == "") canon_sprint = val_after_colon($0)
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**story[:*]/ && canon_story == "") canon_story = val_after_colon($0)
+  next
+}
+section == "approval" {
+  lower = tolower($0)
+  if (lower ~ /^[ \t]*[-*]?[ \t]*\**assignee[:*]/ && canon_assignee == "") canon_assignee = val_after_colon($0)
   next
 }
 section == "branches" {
