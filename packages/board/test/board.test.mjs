@@ -5,6 +5,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
 import { findFreePort, startServer, fetchBoard, makeRepo } from './helpers.mjs';
 
 // ── Plan / sprint / story fixtures ───────────────────────────────────────────
@@ -183,5 +184,28 @@ describe('board: symlink dedup + broken symlink tolerance', () => {
     assert.equal(all.length, 1, 'plan counted once despite the active/ symlink');
     assert.equal(all[0].slug, 'board-sync');
     assert.equal(all[0].path, 'docs/plans/2026-03-15-board-sync.md', 'reported under canonical path');
+  });
+});
+
+describe('board: a directory named *.md is ignored, not fed to the parser', () => {
+  let tmp, server;
+  before(async () => {
+    tmp = makeRepo({ plans: [{ name: '2026-03-15-board-sync.md', content: APPROVED }] });
+    // A directory whose name ends in .md would pass the extension check; the
+    // walker must skip it (isFile guard) rather than hand plot-plan-meta.sh a
+    // directory (awk: "Is a directory") and 500 the whole board.
+    fs.mkdirSync(path.join(tmp, 'docs/plans', '2026-04-01-not-a-plan.md'));
+    server = await startServer(tmp, await findFreePort());
+  });
+  after(() => {
+    server?.kill();
+    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('still serves the real plan and does not error on the .md directory', async () => {
+    const board = await fetchBoard(server.port);
+    const all = board.columns.flatMap((c) => c.cards);
+    assert.equal(all.length, 1, 'the real plan is served; the .md directory is skipped');
+    assert.equal(all[0].slug, 'board-sync');
   });
 });

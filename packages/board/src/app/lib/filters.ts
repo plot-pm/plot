@@ -59,6 +59,21 @@ export function sprintFilterOptions(board: Board | null): FilterOption[] {
     .map(([value, label]) => ({ value, label }));
 }
 
+/**
+ * Keep only selections that correspond to a currently-valid option. URL filter
+ * state (`?sprint=a,b`) is arbitrary user input: a stale or mistyped slug that
+ * matches no option would otherwise make `passesFilter` hide every card,
+ * leaving a mysteriously empty board. Dropping unknown values means an
+ * all-invalid selection collapses to "no filter" (show all) — the plan's
+ * promised "validated against known slugs" behavior, done by pure derivation
+ * so there is no state/URL churn on every render or poll. Sentinels
+ * (`__no_sprint__`, `__no_story__`) are themselves options, so they survive.
+ */
+export function sanitizeSelection(selected: string[], options: FilterOption[]): string[] {
+  const valid = new Set(options.map((o) => o.value));
+  return selected.filter((v) => valid.has(v));
+}
+
 /** Read a comma-separated multi-value filter from the URL query. */
 export function readList(param: string): string[] {
   const raw = new URLSearchParams(window.location.search).get(param);

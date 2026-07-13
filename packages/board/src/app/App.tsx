@@ -7,6 +7,7 @@ import {
   NO_SPRINT,
   NO_STORY,
   readList,
+  sanitizeSelection,
   sprintFilterOptions,
   withCounts,
   writeList,
@@ -72,6 +73,14 @@ export function App() {
     NO_STORY,
   );
 
+  // The plan promises URL filter values are "validated against known slugs".
+  // A stale/typo slug in ?sprint=/?story= matches no option, so an unchecked
+  // selection would hide every card (empty board). Drop unknown values here —
+  // an all-invalid selection becomes "no filter" (show all). Pure derivation,
+  // so no render/poll churn; the URL heals on the next filter change.
+  const validSprintSel = sanitizeSelection(sprintSel, sprintOptions);
+  const validStorySel = sanitizeSelection(storySel, storyOptions);
+
   const hasSprints = sprintChoices.length > 0;
   const hasStories = (board?.stories.length ?? 0) > 0;
 
@@ -80,10 +89,10 @@ export function App() {
       <header className="mb-4 flex flex-wrap items-center gap-3">
         <h1 className="mr-auto text-lg font-bold tracking-tight">Plot</h1>
         {hasSprints && (
-          <MultiSelect label="All sprints" options={sprintOptions} selected={sprintSel} onChange={onSprint} />
+          <MultiSelect label="All sprints" options={sprintOptions} selected={validSprintSel} onChange={onSprint} />
         )}
         {hasStories && (
-          <MultiSelect label="All stories" options={storyOptions} selected={storySel} onChange={onStory} />
+          <MultiSelect label="All stories" options={storyOptions} selected={validStorySel} onChange={onStory} />
         )}
       </header>
       <main>
@@ -94,8 +103,8 @@ export function App() {
         ) : board ? (
           <BoardView
             board={board}
-            sprintSel={sprintSel}
-            storySel={storySel}
+            sprintSel={validSprintSel}
+            storySel={validStorySel}
             onOpenPlan={setOpenPlan}
           />
         ) : (

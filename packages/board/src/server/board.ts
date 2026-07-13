@@ -69,6 +69,9 @@ function collectPlanFiles(repoRoot: string, planDir: string): string[] {
       let resolved: string;
       try {
         resolved = fs.realpathSync(path.join(dir, entry));
+        // A directory named "foo.md" passes the extension check; skip it so
+        // plot-plan-meta.sh is never handed a directory (awk: "Is a directory").
+        if (!fs.statSync(resolved).isFile()) continue;
       } catch {
         continue; // broken symlink or unreadable
       }

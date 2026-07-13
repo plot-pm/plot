@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { NO_SPRINT, sprintFilterOptions, withCounts } from '../../src/app/lib/filters';
+import {
+  NO_SPRINT,
+  passesFilter,
+  sanitizeSelection,
+  sprintFilterOptions,
+  withCounts,
+} from '../../src/app/lib/filters';
 import type { Board, Card } from '../../src/contract/schema';
 
 /** Minimal Board with the given cards (one Draft column) and sprint directory. */
@@ -84,5 +90,38 @@ describe('withCounts', () => {
   it('yields zero counts against an empty card set', () => {
     const opts = withCounts([{ value: NO_SPRINT, label: 'No sprint' }], [], 'sprint', NO_SPRINT);
     expect(opts).toEqual([{ value: NO_SPRINT, label: 'No sprint', count: 0 }]);
+  });
+});
+
+describe('sanitizeSelection', () => {
+  const options = [
+    { value: NO_SPRINT, label: 'No sprint' },
+    { value: 'alpha', label: 'alpha' },
+    { value: 'beta', label: 'beta' },
+  ];
+
+  it('keeps known slugs and the none sentinel, drops unknown ones', () => {
+    expect(sanitizeSelection(['alpha', 'typo', NO_SPRINT], options)).toEqual(['alpha', NO_SPRINT]);
+  });
+
+  it('collapses an all-unknown selection to empty (→ no filter)', () => {
+    expect(sanitizeSelection(['typo', 'stale'], options)).toEqual([]);
+  });
+
+  it('is a no-op when every selection is valid', () => {
+    expect(sanitizeSelection(['beta', 'alpha'], options)).toEqual(['beta', 'alpha']);
+  });
+
+  // The regression this guards (council c006 / plan "validated against known
+  // slugs"): a URL like ?sprint=typo must NOT blank the board. Sanitizing to []
+  // makes passesFilter treat it as "no filter" and every card shows.
+  it('an unknown URL slug no longer hides every card', () => {
+    const cards = mkBoard(['alpha', 'beta', undefined]).columns[0].cards;
+    const raw = ['typo']; // what readList would return for ?sprint=typo
+    // Without sanitizing, nothing passes:
+    expect(cards.filter((c) => passesFilter(c, raw, 'sprint', NO_SPRINT))).toHaveLength(0);
+    // After sanitizing, the invalid filter falls away and all cards pass:
+    const clean = sanitizeSelection(raw, options);
+    expect(cards.filter((c) => passesFilter(c, clean, 'sprint', NO_SPRINT))).toHaveLength(3);
   });
 });
