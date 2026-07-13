@@ -4,9 +4,16 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
+
+## Approval
+
+- **Approved:** 2026-07-13T13:32:40Z
+- **Approved by:** eins78
+- **Assignee:** eins78
+- **Mode:** Single-PR — implementation lands on `idea/kanban-board-v1` (PR #40); no fan-out, no pre-implementation plan merge.
 
 ## Changelog
 
