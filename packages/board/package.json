@@ -1,6 +1,6 @@
 {
   "name": "@plot-pm/board",
-  "version": "1.0.0-rc.1",
+  "version": "0.2.0",
   "description": "Local Kanban board for Plot — a glanceable view of plan phases from docs/plans, with sprint and story filters",
   "type": "module",
   "license": "MIT",
