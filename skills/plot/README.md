@@ -20,7 +20,7 @@ Plot replaces issue trackers with git-native planning: markdown plan files on br
 | `plot/scripts/plot-impl-status.sh` | Helper: query all impl PR states for a slug from plan on main |
 | `plot/scripts/plot-review-status.sh` | Helper: check review freshness for sprint items |
 | `plot/scripts/plot-update-board.sh` | Helper: update GitHub Projects board status for a PR |
-| `plot/scripts/board/server.mjs` | Local Kanban status board — **🧪 beta** (run via `pnpm board`) |
+| `plot/scripts/board/board-server.mjs` | Local Kanban status board — built artifact of `@plot-pm/board` (run via `pnpm board`; rebuild via `pnpm build:board`) |
 | `plot/changelog.md` | Complete evolution history across 5 development sessions |
 | **Sibling skills** | |
 | `tracer-bullets/SKILL.md` | Thin vertical slice strategy — referenced by `/plot-approve` heuristics and plan template |

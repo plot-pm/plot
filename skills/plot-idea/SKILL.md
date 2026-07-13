@@ -39,7 +39,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 |-------|-----------|-------|
 | 1. Parse Input | Small | String parsing |
 | 2. Pre-flight Checks | Small (hard gate), Mid (soft warning) | Slug collision is mechanical; title similarity needs mid-tier |
-| 3-7. Create Branch through Board Status | Small | Git/gh commands, templates, file ops |
+| 3-7. Create Branch through Board Status | Small | Git/gh commands, template resolution (`plot-config.sh get "Plan template"`), file ops |
 | 8. Summary | Small | Template formatting |
 
 The entire skill is small-model capable except the soft duplicate warning (title similarity in step 2).
@@ -97,9 +97,10 @@ git checkout -b idea/<slug> origin/main
 
 ```bash
 CREATE_DATE=$(date -u +%Y-%m-%d)
+TEMPLATE=$(../plot/scripts/plot-config.sh get "Plan template" skills/plot/templates/plan.md)
 ```
 
-Write `docs/plans/${CREATE_DATE}-<slug>.md` using the template from `skills/plot/templates/plan.md`, substituting `<title>` and `<slug>`.
+Resolve the plan template via the `Plan template` config key: if the adopting project sets `Plan template` in its `## Plot Config` (a repo-root-relative path), that file is used; otherwise it falls back to the shipped `skills/plot/templates/plan.md`. Read `$TEMPLATE` and write `docs/plans/${CREATE_DATE}-<slug>.md` from it, substituting `<title>` and `<slug>`. A project's own template wins — but as an explicit opt-in via the config key, not by hardcoding a path here.
 
 Ask the user what **Type** to use, presenting this reference:
 

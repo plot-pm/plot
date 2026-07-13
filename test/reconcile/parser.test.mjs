@@ -50,6 +50,26 @@ const SPEC = [
   ['legacy-no-phase.md', {
     format: 'none', phase_raw: '', phase: 'NONE',
   }],
+  // Board-facing fields (title/sprint/story/assignee) — @plot-pm/board's contract.
+  ['canonical-story-fields.md', {
+    format: 'canonical', phase: 'approved', type: 'feature',
+    title: 'Canonical plan with sprint, story, and assignee',
+    sprint: 'alpha-week', story: 'kanban-board', assignee: 'octocat',
+  }],
+  ['frontmatter-title-story.md', {
+    // Front matter title: wins over the H1; sprint/story/assignee from front matter.
+    format: 'frontmatter', phase: 'draft', type: 'docs',
+    title: 'Front matter title wins over the H1',
+    sprint: 'beta-week', story: 'docs-overhaul', assignee: 'hubot',
+  }],
+  ['canonical-placeholder-fields.md', {
+    // Unfilled "<!-- ... -->" placeholders count as absent, not literal strings.
+    format: 'canonical', phase: 'draft', sprint: '', story: '',
+  }],
+  ['canonical-draft.md', {
+    // H1 is the title fallback when there is no front matter title.
+    title: 'Canonical draft plan', sprint: '', story: '', assignee: '',
+  }],
 ];
 
 for (const [name, expected] of SPEC) {

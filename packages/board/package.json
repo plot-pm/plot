@@ -1,0 +1,59 @@
+{
+  "name": "@plot-pm/board",
+  "version": "0.2.0",
+  "description": "Local Kanban board for Plot — a glanceable view of plan phases from docs/plans, with sprint and story filters",
+  "type": "module",
+  "license": "MIT",
+  "author": "Max Albrecht",
+  "homepage": "https://github.com/plot-pm/plot/tree/main/packages/board#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/plot-pm/plot.git",
+    "directory": "packages/board"
+  },
+  "exports": {
+    ".": "./dist/board-server.mjs",
+    "./contract": "./src/contract/index.ts"
+  },
+  "bin": {
+    "plot-board": "./dist/board-server.mjs"
+  },
+  "files": [
+    "dist",
+    "src/contract"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build:client": "vite build",
+    "build:server": "node build.mjs",
+    "build": "pnpm run build:client && pnpm run build:server",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.mjs",
+    "test:integration": "pnpm build && vitest run"
+  },
+  "dependencies": {
+    "zod": "^4.4.0"
+  },
+  "devDependencies": {
+    "@radix-ui/react-checkbox": "^1.3.0",
+    "@radix-ui/react-popover": "^1.1.0",
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.0.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "esbuild": "^0.28.0",
+    "marked": "^16.0.0",
+    "playwright": "^1.61.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^5.9.0",
+    "vite": "^8.1.0",
+    "vite-plugin-singlefile": "^2.3.0",
+    "vitest": "^4.1.10"
+  }
+}
