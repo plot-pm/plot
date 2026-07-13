@@ -1,0 +1,87 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium, type Browser, type Page } from 'playwright';
+import { findFreePort, startServer } from '../helpers.mjs';
+
+// UI layer: drive a REAL browser against the shipped artifact's served page, so
+// pixel-level assertions (bug a: no horizontal page scroll) and inline-sprint
+// filter behaviour (bug b) are validated on exactly what plot ships — not on
+// recompiled components. Requires a freshly built artifact; `test:integration`
+// rebuilds first so these bytes are never stale.
+const here = path.dirname(fileURLToPath(import.meta.url));
+const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
+
+// A small phone viewport — the reported bug was horizontal scroll on mobile.
+const MOBILE = { width: 390, height: 844 };
+const LONG_SPRINT = 'the-great-heirloom-tomato-and-zucchini-overplanting-recovery-initiative';
+
+describe('tiny-garden: UI layer (real browser renders the shipped artifact)', () => {
+  let server: { port: number; kill: () => void };
+  let browser: Browser;
+  let baseURL: string;
+
+  beforeAll(async () => {
+    server = await startServer(FIXTURE, await findFreePort());
+    baseURL = `http://localhost:${server.port}/`;
+    browser = await chromium.launch();
+  });
+  afterAll(async () => {
+    await browser?.close();
+    server?.kill();
+  });
+
+  /** Open the board at mobile width and wait for cards to render. */
+  async function openBoard(): Promise<Page> {
+    const page = await browser.newPage({ viewport: MOBILE });
+    await page.goto(baseURL);
+    await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
+    return page;
+  }
+
+  it('bug (a): a very long badge value does not force horizontal page scroll on mobile', async () => {
+    const page = await openBoard();
+    try {
+      // The long sprint slug is present…
+      await expect.poll(() => page.getByText(LONG_SPRINT).count()).toBeGreaterThan(0);
+      // …yet the document is not wider than the viewport (no sideways scroll).
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expect(overflow).toBeLessThanOrEqual(0);
+      // And the badge itself stays within the viewport (it wraps, not overflows).
+      const box = await page.getByText(LONG_SPRINT).boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x + box!.width).toBeLessThanOrEqual(MOBILE.width + 1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('bug (b): the sprint filter appears from inline values despite no sprint directory', async () => {
+    const page = await openBoard();
+    try {
+      // The trigger carries aria-label="All sprints" (MultiSelect).
+      expect(await page.getByLabel('All sprints').isVisible()).toBe(true);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('bug (b): selecting an inline sprint filters the board', async () => {
+    const page = await openBoard();
+    try {
+      expect(await page.locator('article').count()).toBe(8);
+
+      await page.getByLabel('All sprints').click();
+      // Options are Radix checkboxes named by their wrapping label — distinct
+      // from the identically-worded sprint badges on cards.
+      await page.getByRole('checkbox', { name: 'spring-planting' }).click();
+
+      // Only plant-tomatoes (Draft) + fix-leaky-hose (Approved) carry it.
+      await expect.poll(() => page.locator('article').count()).toBe(2);
+    } finally {
+      await page.close();
+    }
+  });
+});

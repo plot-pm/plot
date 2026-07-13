@@ -48,6 +48,15 @@ jobs:
       - name: Board tests
         run: pnpm --filter @plot-pm/board test
 
+      # ── Board integration tests: a real browser (Playwright) renders the just-
+      #    built artifact against the tiny-garden fixture, asserting the mobile
+      #    no-horizontal-scroll fix and the inline-sprint filter. ───────────────
+      - name: Install Playwright browser
+        run: pnpm --filter @plot-pm/board exec playwright install --with-deps chromium
+
+      - name: Board integration tests (vitest + Playwright)
+        run: pnpm --filter @plot-pm/board exec vitest run
+
       - name: Check for changeset
         if: github.event_name == 'pull_request'
         run: |

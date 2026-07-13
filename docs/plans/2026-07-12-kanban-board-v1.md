@@ -22,6 +22,41 @@
 - Board no longer parses plan files itself: it consumes `plot-plan-meta.sh` (the plan-format contract), so frontmatter plans, canonical plans, and future format changes are handled in exactly one place
 - New **story filter** (multi-select) alongside the sprint filter: show only plans belonging to selected stories; plans declare story membership via a new optional `Story:` field
 - New `docs/definition-of-done.md`: every change must keep the board working (`pnpm test:board`, typecheck, build), and board impact is a standing item when planning changes
+- **Round-2 fixes (from live-preview dogfooding against real adopter repos):** long sprint/story badges now wrap instead of forcing horizontal page scroll on mobile; the sprint filter now appears whenever plans carry inline `Sprint:` values, even when the repo has no `docs/sprints/` directory; `plot-config.sh` tolerates backtick-quoted config values with trailing prose (folded in from the separate #42, which is closed as redundant); a `tiny-garden` integration-test fixture plus a real-browser (Playwright) test layer lock all three in
+
+## Follow-up: round-2 board fixes
+
+A live preview of this board against two real Quatico adopter repos surfaced two
+UX bugs and one config-parsing bug. All are fixed **in this same PR** (keeping
+the work in one place rather than spinning separate PRs):
+
+1. **Bug (a) — mobile horizontal scroll.** Badges were `whitespace-nowrap` with
+   no max width, so a long sprint/story slug propped the card (and the whole
+   page) open on a phone. Fix: badges wrap (`[overflow-wrap:anywhere]`,
+   `max-w-full`), collapsing an unbroken slug's min-content so grid/flex
+   ancestors can shrink. Verified by a real-browser pixel assertion
+   (`scrollWidth <= clientWidth` at a 390px viewport).
+2. **Bug (b) — sprint filter hidden despite inline sprints.** The filter only
+   appeared when the sprint *directory* was non-empty; plans carrying an inline
+   `Sprint:` value could not be filtered. Fix: a pure `sprintFilterOptions(board)`
+   seam unions the sprint directory with the distinct `card.sprint` values found
+   on plans. Client-side only — **no `/api/board` schema change** (the API
+   already carries `card.sprint`; the client composes the filter).
+3. **Config prose tolerance** (folded from #42): `plot-config.sh` now strips
+   parenthetical prose and markdown backticks from a value, so real-world config
+   lines like `` **Plan directory:** `docs/plans/` (date-prefixed …) `` parse
+   correctly — without truncating multi-value lists (branch prefixes).
+
+**Test strategy.** A reduced `tiny-garden` fixture (`packages/board/test/fixtures/`)
+mirrors a real adopter: prose config, mixed frontmatter/`## Status` plans across
+all four phases, inline sprints with no sprint directory, unknown-type plans, and
+a deliberately long sprint slug. Two new layers run alongside the existing
+`node:test` artifact suite (kept as-is): a **vitest data layer** (spawns the built
+artifact, asserts counts / config-parse / sprint data) and a **vitest UI layer
+that drives a real browser (Playwright) against the shipped artifact** — the only
+way a pixel-overflow assertion reflects what actually ships. (Vitest *browser
+mode* renders recompiled components, not the shipped bundle, so the UI layer uses
+the Playwright node API to `goto` the served page instead.)
 
 ## Motivation
 

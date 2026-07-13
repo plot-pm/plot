@@ -3,7 +3,10 @@ import type { ReactNode } from 'react';
 import { cn } from '../../lib/utils.js';
 
 const badgeVariants = cva(
-  'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap',
+  // No whitespace-nowrap: long sprint/story values must wrap instead of
+  // propping the card (and the whole page) open on mobile. overflow-wrap:anywhere
+  // collapses an unbroken slug's min-content so grid/flex ancestors can shrink.
+  'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium max-w-full [overflow-wrap:anywhere]',
   {
     variants: {
       variant: {

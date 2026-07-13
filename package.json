@@ -15,7 +15,7 @@
     "board:dev": "pnpm --filter @plot-pm/board dev",
     "build:board": "pnpm --filter @plot-pm/board build",
     "typecheck": "pnpm --filter @plot-pm/board typecheck",
-    "test:board": "pnpm --filter @plot-pm/board build && pnpm --filter @plot-pm/board test",
+    "test:board": "pnpm --filter @plot-pm/board build && pnpm --filter @plot-pm/board test && pnpm --filter @plot-pm/board exec vitest run",
     "test:reconcile": "node --test test/reconcile/*.test.mjs",
     "changeset": "cp .changeset/_template \".changeset/$(date +%Y%m%d-%H%M%S).md\" && echo 'Created changeset — edit it now'",
     "version": "bash .dev/scripts/bump-skill-versions.sh && changeset version && bash .dev/scripts/sync-versions.sh && pnpm run build:board",

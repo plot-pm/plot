@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Board } from '../contract/schema.js';
 import { BoardView } from './components/Board.js';
 import { MultiSelect } from './components/ui/MultiSelect.js';
-import { NO_SPRINT, NO_STORY, readList, writeList } from './lib/filters.js';
+import { NO_SPRINT, NO_STORY, readList, sprintFilterOptions, writeList } from './lib/filters.js';
 
 const POLL_MS = 30_000;
 
@@ -41,16 +41,17 @@ export function App() {
     writeList('story', values);
   };
 
-  const sprintOptions = [
-    { value: NO_SPRINT, label: 'No sprint' },
-    ...(board?.sprints ?? []).map((s) => ({ value: s.slug, label: s.title })),
-  ];
+  // Sprint options come from the directory AND from inline plan values, so the
+  // filter appears whenever any plan carries a sprint — even with no sprint
+  // directory. Stories still derive from the directory only.
+  const sprintChoices = sprintFilterOptions(board);
+  const sprintOptions = [{ value: NO_SPRINT, label: 'No sprint' }, ...sprintChoices];
   const storyOptions = [
     { value: NO_STORY, label: 'No story' },
     ...(board?.stories ?? []).map((s) => ({ value: s.slug, label: s.title })),
   ];
 
-  const hasSprints = (board?.sprints.length ?? 0) > 0;
+  const hasSprints = sprintChoices.length > 0;
   const hasStories = (board?.stories.length ?? 0) > 0;
 
   return (

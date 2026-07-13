@@ -28,7 +28,8 @@
     "build:server": "node build.mjs",
     "build": "pnpm run build:client && pnpm run build:server",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "test:integration": "pnpm build && vitest run"
   },
   "dependencies": {
     "zod": "^4.4.0"
@@ -44,12 +45,14 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "esbuild": "^0.28.0",
+    "playwright": "^1.61.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.0",
     "typescript": "^5.9.0",
     "vite": "^8.1.0",
-    "vite-plugin-singlefile": "^2.3.0"
+    "vite-plugin-singlefile": "^2.3.0",
+    "vitest": "^4.1.10"
   }
 }
