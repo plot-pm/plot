@@ -190,7 +190,16 @@ export function buildBoard(opts: BuildBoardOptions): Board {
   const sprintDir = readConfig(opts, 'Sprint directory', 'docs/sprints/');
   const storyDir = readConfig(opts, 'Story directory', 'docs/stories/');
 
-  const files = collectPlanFiles(opts.repoRoot, planDir);
+  // Plan files are reported as real paths (symlinks resolved), so the repo root
+  // must be resolved the same way for card.path to come out repo-relative.
+  let repoRoot = opts.repoRoot;
+  try {
+    repoRoot = fs.realpathSync(opts.repoRoot);
+  } catch {
+    /* keep as given */
+  }
+
+  const files = collectPlanFiles(repoRoot, planDir);
   const cards: Card[] = [];
   for (const meta of readPlanMeta(opts.scriptsDir, files)) {
     const phase = toBoardPhase(meta.phase);
@@ -201,7 +210,7 @@ export function buildBoard(opts: BuildBoardOptions): Board {
       title: meta.title || slug,
       type: meta.type || 'unknown',
       phase,
-      path: path.relative(opts.repoRoot, meta.file),
+      path: path.relative(repoRoot, meta.file),
     };
     if (meta.sprint) card.sprint = meta.sprint;
     if (meta.story) card.story = meta.story;
@@ -217,7 +226,7 @@ export function buildBoard(opts: BuildBoardOptions): Board {
   return {
     generatedAt: new Date().toISOString(),
     columns,
-    sprints: collectSprints(opts.repoRoot, sprintDir),
-    stories: collectStories(opts.repoRoot, storyDir),
+    sprints: collectSprints(repoRoot, sprintDir),
+    stories: collectStories(repoRoot, storyDir),
   };
 }

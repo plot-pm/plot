@@ -11,12 +11,14 @@
   },
   "scripts": {
     "test": "skills add . --list",
-    "board": "node skills/plot/scripts/board/server.mjs",
-    "typecheck": "tsc --noEmit -p skills/plot/scripts/board",
-    "test:board": "node --test 'test/board/**/*.test.mjs'",
+    "board": "node skills/plot/scripts/board/board-server.mjs",
+    "board:dev": "pnpm --filter @plot-pm/board dev",
+    "build:board": "pnpm --filter @plot-pm/board build",
+    "typecheck": "pnpm --filter @plot-pm/board typecheck",
+    "test:board": "pnpm --filter @plot-pm/board build && pnpm --filter @plot-pm/board test",
     "test:reconcile": "node --test test/reconcile/*.test.mjs",
     "changeset": "cp .changeset/_template \".changeset/$(date +%Y%m%d-%H%M%S).md\" && echo 'Created changeset — edit it now'",
-    "version": "bash .dev/scripts/bump-skill-versions.sh && changeset version && bash .dev/scripts/sync-versions.sh",
+    "version": "bash .dev/scripts/bump-skill-versions.sh && changeset version && bash .dev/scripts/sync-versions.sh && pnpm run build:board",
     "validate": "bash .dev/scripts/validate-skills.sh",
     "release": "pnpm run version && git add -A && git commit -m \"chore: release v$(jq -r .version package.json)\" && git tag \"v$(jq -r .version package.json)\" && echo 'Release committed and tagged. Run: git push --follow-tags'"
   },

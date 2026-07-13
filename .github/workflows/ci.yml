@@ -30,6 +30,24 @@ jobs:
       - name: Reconcile contract tests
         run: pnpm run test:reconcile
 
+      # ── Board (first-class): the Definition of Done requires the board to keep
+      #    working. Typecheck, tests, and a fresh build are gated here. ──────────
+      - name: Board typecheck
+        run: pnpm run typecheck
+
+      - name: Board build + artifact freshness
+        run: |
+          pnpm run build:board
+          if ! git diff --quiet -- skills/plot/scripts/board/board-server.mjs; then
+            echo "::error::skills/plot/scripts/board/board-server.mjs is stale — run 'pnpm build:board' and commit the result."
+            git --no-pager diff --stat -- skills/plot/scripts/board/board-server.mjs
+            exit 1
+          fi
+          echo "Board artifact is fresh."
+
+      - name: Board tests
+        run: pnpm --filter @plot-pm/board test
+
       - name: Check for changeset
         if: github.event_name == 'pull_request'
         run: |
