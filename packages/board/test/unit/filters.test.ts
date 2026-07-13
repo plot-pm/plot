@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sprintFilterOptions } from '../../src/app/lib/filters';
+import { NO_SPRINT, sprintFilterOptions, withCounts } from '../../src/app/lib/filters';
 import type { Board, Card } from '../../src/contract/schema';
 
 /** Minimal Board with the given cards (one Draft column) and sprint directory. */
@@ -58,5 +58,31 @@ describe('sprintFilterOptions', () => {
   it('returns [] for a null board and a board with no sprints anywhere', () => {
     expect(sprintFilterOptions(null)).toEqual([]);
     expect(sprintFilterOptions(mkBoard([undefined, undefined]))).toEqual([]);
+  });
+});
+
+describe('withCounts', () => {
+  it('counts cards per bucket, including the none sentinel', () => {
+    const cards = mkBoard(['a', 'a', 'b', undefined]).columns[0].cards;
+    const opts = withCounts(
+      [
+        { value: NO_SPRINT, label: 'No sprint' },
+        { value: 'a', label: 'a' },
+        { value: 'b', label: 'b' },
+      ],
+      cards,
+      'sprint',
+      NO_SPRINT,
+    );
+    expect(opts).toEqual([
+      { value: NO_SPRINT, label: 'No sprint', count: 1 },
+      { value: 'a', label: 'a', count: 2 },
+      { value: 'b', label: 'b', count: 1 },
+    ]);
+  });
+
+  it('yields zero counts against an empty card set', () => {
+    const opts = withCounts([{ value: NO_SPRINT, label: 'No sprint' }], [], 'sprint', NO_SPRINT);
+    expect(opts).toEqual([{ value: NO_SPRINT, label: 'No sprint', count: 0 }]);
   });
 });

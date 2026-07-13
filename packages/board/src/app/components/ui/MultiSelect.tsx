@@ -5,6 +5,8 @@ import { cn } from '../../lib/utils.js';
 export interface MultiSelectOption {
   value: string;
   label: string;
+  /** Optional result count shown, muted, at the end of the option row. */
+  count?: number;
 }
 
 export interface MultiSelectProps {
@@ -70,7 +72,15 @@ export function MultiSelect({ label, options, selected, onChange }: MultiSelectP
                     >
                       <Checkbox.Indicator className="text-xs leading-none text-white">✓</Checkbox.Indicator>
                     </Checkbox.Root>
-                    <span className="truncate">{opt.label}</span>
+                    <span className="min-w-0 flex-1 truncate">{opt.label}</span>
+                    {opt.count !== undefined && (
+                      <span
+                        aria-hidden
+                        className="shrink-0 tabular-nums text-xs text-slate-400 dark:text-slate-500"
+                      >
+                        {opt.count}
+                      </span>
+                    )}
                   </label>
                 </li>
               );

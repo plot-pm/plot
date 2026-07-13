@@ -68,6 +68,21 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
     }
   });
 
+  it('shows per-option result counts in the sprint dropdown', async () => {
+    const page = await openBoard();
+    try {
+      await page.getByLabel('All sprints').click();
+      // Each option row ends with an aria-hidden count span. spring-planting is
+      // on 2 plans (Draft + Approved); 3 plans carry no sprint at all.
+      const countIn = (label: string) =>
+        page.locator('label', { hasText: label }).locator('span[aria-hidden]').textContent();
+      await expect.poll(() => countIn('spring-planting')).toBe('2');
+      expect(await countIn('No sprint')).toBe('3');
+    } finally {
+      await page.close();
+    }
+  });
+
   it('bug (b): selecting an inline sprint filters the board', async () => {
     const page = await openBoard();
     try {

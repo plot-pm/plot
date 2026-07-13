@@ -88,6 +88,23 @@ the real artifact. Max's intent — real browser, real pixels, real artifact —
 exactly met; only the specific vitest feature differs, and this is strictly more
 faithful.
 
+## Filter result counts
+
+Each filter dropdown option now shows how many plans fall in its bucket — every
+sprint/story option plus the "No sprint"/"No story" option. Same shape as the
+sprint-filter derivation: a pure, unit-tested `withCounts(options, cards, key,
+noneSentinel)` seam annotates options with a count over the whole board
+(independent of the current selection — a stable facet, not a live cross-filter),
+and `MultiSelect` renders it as a muted, `tabular-nums`, right-aligned number.
+
+The count span is `aria-hidden`, so it stays decorative: the Radix checkboxes'
+accessible names remain the bare option label (`spring-planting`, not
+`spring-planting 2`), which keeps the filter-selection tests stable. Counts are a
+render-layer concern (derived from `card.sprint` / `card.story` the API already
+carries) — no `/api/board` change. Asserted by a new unit test (`withCounts`) and
+a browser test that opens the sprint dropdown and reads the rendered counts
+(spring-planting → 2, No sprint → 3 in tiny-garden).
+
 ## Wiring
 
 - `packages/board`: `test:integration` = `pnpm build && vitest run` (build first
@@ -99,7 +116,7 @@ faithful.
 ## Verification
 
 - `pnpm test:reconcile` **37/37** (includes the folded #42 config case).
-- Board `node:test` **8/8**; vitest **13/13** (5 unit + 5 data + 3 browser).
+- Board `node:test` **8/8**; vitest **16/16** (7 unit + 5 data + 4 browser).
 - `pnpm typecheck` clean; artifact rebuilt and committed (CI freshness gate).
 - Both live preview servers restarted on the fresh artifact so the fixes are
   visible on real adopter data.

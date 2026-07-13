@@ -10,6 +10,30 @@ export interface FilterOption {
   label: string;
 }
 
+/** A filter option annotated with how many plans fall in its bucket. */
+export interface CountedFilterOption extends FilterOption {
+  count: number;
+}
+
+/**
+ * Annotate each option with the number of cards in its bucket. The "none"
+ * sentinel counts cards missing the field; every other option counts cards
+ * whose field equals its value. Counts are over the whole board (all columns),
+ * independent of the current selection — a stable "how many plans carry this?"
+ * facet, not a live cross-filter.
+ */
+export function withCounts(
+  options: FilterOption[],
+  cards: Card[],
+  key: 'sprint' | 'story',
+  noneSentinel: string,
+): CountedFilterOption[] {
+  return options.map((o) => ({
+    ...o,
+    count: cards.filter((c) => (o.value === noneSentinel ? !c[key] : c[key] === o.value)).length,
+  }));
+}
+
 /**
  * Sprint filter options, unioned from two sources:
  *  1. the sprint *directory* (`board.sprints`) — these carry human titles;
