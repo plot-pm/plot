@@ -31,6 +31,25 @@ describe('tiny-garden: plan viewer (built artifact renders /plan/<file>)', () =>
     expect(body).toMatch(/<pre>[\s\S]*20 minutes[\s\S]*<\/pre>/);
   });
 
+  it('shows a back-to-board titlebar on the full-page view', async () => {
+    const { body } = await fetchRaw(server.port, PLAN);
+    // The titlebar element (not just the CSS rule, which is always present).
+    expect(body).toContain('<header class="plan-titlebar">');
+    // A working link back to the board root.
+    expect(body).toMatch(/<a[^>]*class="plan-back"[^>]*href="\/"/);
+    expect(body).toContain('Board');
+  });
+
+  it('omits the titlebar when embedded (?embed=1)', async () => {
+    const { status, body } = await fetchRaw(server.port, `${PLAN}?embed=1`);
+    expect(status).toBe(200);
+    // The element is gone (the shared CSS rule stays); no back link either.
+    expect(body).not.toContain('<header class="plan-titlebar">');
+    expect(body).not.toContain('class="plan-back"');
+    // …but still renders the plan itself.
+    expect(body).toContain('<h1>Plant heirloom tomatoes</h1>');
+  });
+
   it('strips YAML front matter before rendering', async () => {
     // zucchini-glut leads with a --- front-matter block; it must not appear.
     const { status, body } = await fetchRaw(server.port, '/plan/2026-05-15-zucchini-glut.md');

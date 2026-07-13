@@ -52,8 +52,11 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     // `<filename>` is a plan basename; renderPlanPage resolves it against the
     // board's own plan allowlist, so traversal (../) can't escape the plan dir.
     const filename = decodeURIComponent(url.pathname.slice('/plan/'.length));
+    // The modal embeds the plan with ?embed=1 to drop the back-to-board
+    // titlebar; the plain new-tab / direct-URL view keeps it.
+    const embed = url.searchParams.get('embed') === '1';
     try {
-      const html = renderPlanPage(opts, filename);
+      const html = renderPlanPage(opts, filename, { embed });
       if (html === null) {
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
         res.end('Plan not found');

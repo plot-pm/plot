@@ -124,6 +124,9 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
       const dialog = page.getByRole('dialog');
       await dialog.waitFor({ state: 'visible', timeout: 5_000 });
 
+      // Modal chrome shows a static "Plan" label, not the plan's title.
+      expect(await dialog.locator('header h2').textContent()).toBe('Plan');
+
       // "opens" = the iframe is present and its srcdoc was populated by the
       // fetch with the server-rendered plan HTML (no frame traversal needed).
       const iframe = page.locator('iframe[title="Plan: plant-tomatoes"]');
@@ -131,6 +134,11 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
       await expect
         .poll(async () => ((await iframe.getAttribute('srcdoc')) ?? '').includes('<h2>Approach</h2>'))
         .toBe(true);
+      // The embedded view is chrome-free: the modal fetched it with ?embed=1, so
+      // no back-to-board titlebar element (that only belongs on the full page).
+      expect((await iframe.getAttribute('srcdoc')) ?? '').not.toContain(
+        '<header class="plan-titlebar">',
+      );
 
       await dialog.getByRole('button', { name: 'Close' }).click();
       await expect.poll(() => page.getByRole('dialog').count()).toBe(0);
@@ -154,7 +162,7 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
     }
   });
 
-  it('"Open in new tab" navigates a new page to the plan route', async () => {
+  it('"Open in new tab" opens the full plan page with a working back-to-board link', async () => {
     const page = await openBoard();
     try {
       await tomatoCard(page).getByRole('link', { name: 'Open' }).click();
@@ -165,9 +173,15 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
         page.getByRole('link', { name: 'Open in new tab' }).click(),
       ]);
       await popup.waitForLoadState('domcontentloaded');
+      // Plain URL (no ?embed) — so the full page, with titlebar.
       expect(popup.url().endsWith(PLAN_PATH)).toBe(true);
-      // The new tab is the full standalone plan page.
       expect(await popup.locator('h1').textContent()).toBe('Plant heirloom tomatoes');
+
+      // The titlebar's back link points at the board and actually navigates there.
+      const back = popup.locator('a.plan-back');
+      expect(await back.getAttribute('href')).toBe('/');
+      await back.click();
+      await popup.getByRole('heading', { name: 'Plot' }).waitFor({ timeout: 10_000 });
       await popup.close();
     } finally {
       await page.close();

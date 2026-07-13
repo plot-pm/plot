@@ -15,6 +15,9 @@ export interface PlanModalProps {
  */
 export function PlanModal({ card, onClose }: PlanModalProps) {
   const href = planHref(card);
+  // The embedded view drops the back-to-board titlebar (that navigation only
+  // makes sense on the full page). "Open in new tab" uses the plain href.
+  const embedSrc = `${href}?embed=1`;
   const [srcDoc, setSrcDoc] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,7 +25,7 @@ export function PlanModal({ card, onClose }: PlanModalProps) {
     let cancelled = false;
     setSrcDoc(null);
     setError(null);
-    fetch(href)
+    fetch(embedSrc)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.text();
@@ -36,7 +39,7 @@ export function PlanModal({ card, onClose }: PlanModalProps) {
     return () => {
       cancelled = true;
     };
-  }, [href]);
+  }, [embedSrc]);
 
   // Escape closes the modal.
   useEffect(() => {
@@ -62,7 +65,7 @@ export function PlanModal({ card, onClose }: PlanModalProps) {
       >
         <header className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
           <h2 className="mr-auto truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
-            {card.title}
+            Plan
           </h2>
           <a
             href={href}

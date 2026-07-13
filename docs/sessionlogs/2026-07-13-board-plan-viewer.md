@@ -97,9 +97,33 @@ aren't available — assertions use locator methods (`getAttribute`, `waitFor`) 
 genuine conversion rather than "the response contains some text." The `## Status`
 block is unchanged, so plan-meta parsing and the board counts are unaffected.
 
+## Refinements: modal chrome vs. full-page titlebar
+
+A follow-up pass separated the two views' chrome:
+
+- **Modal header** shows a static **"Plan"** label, not the plan's title. (The
+  dialog's `aria-label` still carries the title for screen readers.)
+- **Full-page view** (`/plan/<file>` opened in a new tab or hit directly) gains a
+  sticky **titlebar with a "← Board" link (`href="/"`)** so you can navigate back.
+- **The titlebar is suppressed in the modal** via a server-side query param: the
+  modal's iframe fetches `/plan/<file>?embed=1`, and `renderPlanPage({ embed })`
+  omits the titlebar element for that request. The *normal* links — the card's
+  "Open" anchor and the modal's "Open in new tab" button — point at plain
+  `/plan/<file>` (no param), so those full-page views keep the titlebar. The
+  suppression is controlled purely by the param the modal injects; nothing else
+  changes between the two renders.
+
+**Test note.** The negative "no titlebar" assertions target the `<header
+class="plan-titlebar">` *element*, not the string `plan-titlebar` — the `.plan-
+titlebar` CSS rule lives in the always-present `<style>` block, so asserting on the
+class name alone would false-fail. Data tests cover titlebar-present (plain) /
+absent (`?embed=1`); the browser test asserts the modal header reads "Plan", the
+embedded srcdoc has no titlebar element, and the new-tab full page's back link
+`href="/"` actually navigates to the board.
+
 ## Verification
 
-- Board `node:test` **8/8**; vitest **28/28** (10 unit + 10 data + 8 browser).
+- Board `node:test` **8/8**; vitest **30/30** (10 unit + 12 data + 8 browser).
 - `pnpm typecheck` clean; `pnpm test:reconcile` **37/37**.
 - Artifact rebuilt (672.0 KB) and committed (CI freshness gate).
 - CI needs no change: the new tests match the vitest `test/{unit,integration}`

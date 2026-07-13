@@ -274,11 +274,18 @@ const PLAN_PAGE_STYLE = `
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 2rem 1rem;
+    margin: 0; padding: 0;
     font: 15px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     color: #1e293b; background: #ffffff;
   }
-  main { max-width: 52rem; margin: 0 auto; }
+  .plan-titlebar {
+    position: sticky; top: 0; z-index: 1;
+    padding: 0.7rem 1rem; border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+  }
+  .plan-back { color: #2563eb; text-decoration: none; font-weight: 500; font-size: 0.9rem; }
+  .plan-back:hover { text-decoration: underline; }
+  main { max-width: 52rem; margin: 0 auto; padding: 2rem 1rem; }
   h1, h2, h3 { line-height: 1.25; margin: 1.6em 0 0.5em; }
   h1 { font-size: 1.7rem; } h2 { font-size: 1.3rem; } h3 { font-size: 1.1rem; }
   a { color: #2563eb; }
@@ -291,25 +298,43 @@ const PLAN_PAGE_STYLE = `
   img { max-width: 100%; }
   @media (prefers-color-scheme: dark) {
     body { color: #e2e8f0; background: #0f172a; }
-    a { color: #60a5fa; }
+    a, .plan-back { color: #60a5fa; }
     code, pre { background: #1e293b; }
     blockquote { border-left-color: #475569; color: #94a3b8; }
     th, td { border-color: #334155; }
+    .plan-titlebar { border-bottom-color: #1e293b; background: #0b1220; }
   }
 `;
+
+export interface RenderPlanOptions {
+  /**
+   * When true, omit the "back to board" titlebar. The in-board modal injects
+   * `?embed=1` so its embedded view is chrome-free; the standalone new-tab /
+   * direct-URL view (no param) keeps the titlebar for navigation.
+   */
+  embed?: boolean;
+}
 
 /**
  * Render a plan file to a standalone, theme-aware HTML page — or null if the
  * name doesn't resolve to a board plan (→ 404). One response serves both the
- * new-tab route and the modal's fetched srcdoc.
+ * new-tab route (with a back-to-board titlebar) and the modal's fetched srcdoc
+ * (embed=1, no titlebar).
  */
-export function renderPlanPage(opts: BuildBoardOptions, filename: string): string | null {
+export function renderPlanPage(
+  opts: BuildBoardOptions,
+  filename: string,
+  { embed = false }: RenderPlanOptions = {},
+): string | null {
   const file = resolvePlanFile(opts, filename);
   if (!file) return null;
   const md = fs.readFileSync(file, 'utf8');
   const body = marked.parse(stripFrontMatter(md), { async: false });
   const heading = md.match(/^#\s+(.+)$/m);
   const title = heading ? heading[1].trim() : filename;
+  const titlebar = embed
+    ? ''
+    : '<header class="plan-titlebar"><a class="plan-back" href="/">← Board</a></header>';
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -318,6 +343,6 @@ export function renderPlanPage(opts: BuildBoardOptions, filename: string): strin
 <title>${escapeHtml(title)}</title>
 <style>${PLAN_PAGE_STYLE}</style>
 </head>
-<body><main>${body}</main></body>
+<body>${titlebar}<main>${body}</main></body>
 </html>`;
 }
