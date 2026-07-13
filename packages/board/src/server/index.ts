@@ -49,22 +49,37 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   }
 
   if (url.pathname.startsWith('/plan/')) {
-    // `<filename>` is a plan basename; renderPlanPage resolves it against the
-    // board's own plan allowlist, so traversal (../) can't escape the plan dir.
-    const filename = decodeURIComponent(url.pathname.slice('/plan/'.length));
     // The modal embeds the plan with ?embed=1 to drop the back-to-board
     // titlebar; the plain new-tab / direct-URL view keeps it.
     const embed = url.searchParams.get('embed') === '1';
     try {
+      // decodeURIComponent throws URIError on a malformed % escape (e.g.
+      // /plan/%E0%A4%A). Decode INSIDE the try so a bad request is a 400 — not
+      // an uncaught throw in the request listener that crashes the process (DoS).
+      // `<filename>` is a plan basename; renderPlanPage resolves it against the
+      // board's own plan allowlist, so traversal (../) can't escape the plan dir.
+      const filename = decodeURIComponent(url.pathname.slice('/plan/'.length));
       const html = renderPlanPage(opts, filename, { embed });
       if (html === null) {
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
         res.end('Plan not found');
         return;
       }
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      // Rendered markdown is static — no script should ever run. `marked` does
+      // not sanitize raw HTML, so a plan carrying <script> or inline handlers
+      // would otherwise execute in the full-page view (the modal iframe is
+      // sandboxed, but the direct /plan page is not). CSP blocks that.
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Security-Policy': "script-src 'none'",
+      });
       res.end(html);
     } catch (err) {
+      if (err instanceof URIError) {
+        res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Bad request');
+        return;
+      }
       console.error('Error rendering plan:', err);
       res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Error rendering plan');

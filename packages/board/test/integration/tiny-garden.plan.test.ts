@@ -22,6 +22,9 @@ describe('tiny-garden: plan viewer (built artifact renders /plan/<file>)', () =>
     const { status, headers, body } = await fetchRaw(server.port, PLAN);
     expect(status).toBe(200);
     expect(headers['content-type']).toContain('text/html');
+    // marked does not sanitize raw HTML; the CSP neuters any <script>/inline
+    // handler a plan might carry on the un-sandboxed full-page view.
+    expect(headers['content-security-policy']).toContain("script-src 'none'");
     // Real conversion, not "contains some text": each markdown construct in the
     // enriched fixture plan comes back as its HTML element.
     expect(body).toContain('<h1>Plant heirloom tomatoes</h1>');
@@ -75,5 +78,16 @@ describe('tiny-garden: plan viewer (built artifact renders /plan/<file>)', () =>
   it('404s a plan name that does not exist', async () => {
     const { status } = await fetchRaw(server.port, '/plan/2099-01-01-nope.md');
     expect(status).toBe(404);
+  });
+
+  it('400s a malformed percent-escape instead of crashing the server', async () => {
+    // decodeURIComponent throws URIError on an incomplete escape. If that throw
+    // escaped the request listener it would crash the single-process server
+    // (DoS); the handler must turn it into a 400 and keep serving.
+    const { status } = await fetchRaw(server.port, '/plan/%E0%A4%A');
+    expect(status).toBe(400);
+    // Server is still alive: a normal request right after still works.
+    const after = await fetchRaw(server.port, PLAN);
+    expect(after.status).toBe(200);
   });
 });
