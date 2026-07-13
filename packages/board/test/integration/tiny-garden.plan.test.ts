@@ -1,0 +1,60 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+// Data layer: spawn the built artifact and hit GET /plan/<file> directly, so
+// the markdown→HTML render and the path-traversal guard are exercised on
+// exactly what plot ships (real server, real allowlist).
+import { findFreePort, startServer, fetchRaw } from '../helpers.mjs';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
+const PLAN = '/plan/2026-03-01-plant-tomatoes.md';
+
+describe('tiny-garden: plan viewer (built artifact renders /plan/<file>)', () => {
+  let server: { port: number; kill: () => void };
+
+  beforeAll(async () => {
+    server = await startServer(FIXTURE, await findFreePort());
+  });
+  afterAll(() => server?.kill());
+
+  it('renders the plan markdown to HTML (headings, lists, links, code)', async () => {
+    const { status, headers, body } = await fetchRaw(server.port, PLAN);
+    expect(status).toBe(200);
+    expect(headers['content-type']).toContain('text/html');
+    // Real conversion, not "contains some text": each markdown construct in the
+    // enriched fixture plan comes back as its HTML element.
+    expect(body).toContain('<h1>Plant heirloom tomatoes</h1>');
+    expect(body).toContain('<h2>Approach</h2>');
+    expect(body).toContain('<li>Brandywine</li>');
+    expect(body).toContain('href="../stories/raised-beds/STORY-raised-beds.md"');
+    expect(body).toMatch(/<pre>[\s\S]*20 minutes[\s\S]*<\/pre>/);
+  });
+
+  it('strips YAML front matter before rendering', async () => {
+    // zucchini-glut leads with a --- front-matter block; it must not appear.
+    const { status, body } = await fetchRaw(server.port, '/plan/2026-05-15-zucchini-glut.md');
+    expect(status).toBe(200);
+    expect(body).toContain('<h1>Deal with the zucchini glut</h1>');
+    expect(body).not.toContain('assignee: mgardener');
+  });
+
+  it('404s a file that exists under the repo but is not a board plan', async () => {
+    // CLAUDE.md is real and readable in the fixture root — a naive "read any
+    // file under repoRoot" would serve it. The allowlist rejects it.
+    const { status } = await fetchRaw(server.port, '/plan/CLAUDE.md');
+    expect(status).toBe(404);
+  });
+
+  it('404s an encoded path-traversal attempt', async () => {
+    // %2F survives URL parsing, so the handler decodes "../../CLAUDE.md" and the
+    // basename guard rejects it before any file is touched.
+    const { status } = await fetchRaw(server.port, '/plan/..%2F..%2FCLAUDE.md');
+    expect(status).toBe(404);
+  });
+
+  it('404s a plan name that does not exist', async () => {
+    const { status } = await fetchRaw(server.port, '/plan/2099-01-01-nope.md');
+    expect(status).toBe(404);
+  });
+});

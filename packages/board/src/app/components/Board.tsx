@@ -1,4 +1,4 @@
-import type { Board } from '../../contract/schema.js';
+import type { Board, Card } from '../../contract/schema.js';
 import { NO_SPRINT, NO_STORY, passesFilter } from '../lib/filters.js';
 import { PlanCard } from './PlanCard.js';
 
@@ -6,9 +6,11 @@ export interface BoardViewProps {
   board: Board;
   sprintSel: string[];
   storySel: string[];
+  /** Open a plan in the in-board modal. */
+  onOpenPlan: (card: Card) => void;
 }
 
-export function BoardView({ board, sprintSel, storySel }: BoardViewProps) {
+export function BoardView({ board, sprintSel, storySel, onOpenPlan }: BoardViewProps) {
   const showSprint = sprintSel.length === 0;
   const showStory = storySel.length === 0;
 
@@ -37,7 +39,13 @@ export function BoardView({ board, sprintSel, storySel }: BoardViewProps) {
             <div className="flex flex-col gap-3">
               {cards.length > 0 ? (
                 cards.map((card) => (
-                  <PlanCard key={card.path} card={card} showSprint={showSprint} showStory={showStory} />
+                  <PlanCard
+                    key={card.path}
+                    card={card}
+                    showSprint={showSprint}
+                    showStory={showStory}
+                    onOpen={onOpenPlan}
+                  />
                 ))
               ) : (
                 <p className="px-1 py-4 text-center text-xs text-slate-400 dark:text-slate-600">

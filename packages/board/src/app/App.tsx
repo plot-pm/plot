@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { Board } from '../contract/schema.js';
+import type { Board, Card } from '../contract/schema.js';
 import { BoardView } from './components/Board.js';
+import { PlanModal } from './components/PlanModal.js';
 import { MultiSelect } from './components/ui/MultiSelect.js';
 import {
   NO_SPRINT,
@@ -18,6 +19,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [sprintSel, setSprintSel] = useState<string[]>(() => readList('sprint'));
   const [storySel, setStorySel] = useState<string[]>(() => readList('story'));
+  const [openPlan, setOpenPlan] = useState<Card | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -90,11 +92,17 @@ export function App() {
             Failed to load board: {error}
           </p>
         ) : board ? (
-          <BoardView board={board} sprintSel={sprintSel} storySel={storySel} />
+          <BoardView
+            board={board}
+            sprintSel={sprintSel}
+            storySel={storySel}
+            onOpenPlan={setOpenPlan}
+          />
         ) : (
           <p className="text-sm text-slate-500">Loading…</p>
         )}
       </main>
+      {openPlan && <PlanModal card={openPlan} onClose={() => setOpenPlan(null)} />}
     </div>
   );
 }

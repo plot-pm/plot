@@ -58,6 +58,35 @@ way a pixel-overflow assertion reflects what actually ships. (Vitest *browser
 mode* renders recompiled components, not the shipped bundle, so the UI layer uses
 the Playwright node API to `goto` the served page instead.)
 
+## Follow-up: round-3 plan viewer
+
+Cards were read-only pointers — you could see a plan's path but not its content
+without leaving the board. This round adds an in-board plan viewer, **in this same
+PR**:
+
+- **Server route `GET /plan/<filename>`** renders a plan's markdown to a
+  standalone, theme-aware HTML page (via `marked`, bundled into the artifact like
+  react/zod — runtime stays dependency-free). `<filename>` is a plan *basename*,
+  resolved against the board's own `collectPlanFiles` allowlist, so path traversal
+  is blocked **structurally** (a request can't name a file the walker didn't
+  collect) rather than by string sanitizing. A file that exists under the repo but
+  isn't a board plan (e.g. `CLAUDE.md`) 404s.
+- **Card "Open" control** is a real anchor (`href="/plan/<filename>"`), so
+  cmd/ctrl/shift/middle-click open the plan natively in a new tab. Only a plain
+  left-click is intercepted (`preventDefault`) to open an in-board **modal**; the
+  modal *fetches* `/plan/<filename>` and embeds the HTML in a sandboxed `<iframe
+  srcdoc>` (isolated document, no style bleed, scripts disabled). The modal has
+  "Open in new tab" (same route) and "Close" (also Esc / backdrop).
+
+**Tests** extend the same layered fixture approach: a data layer asserting the
+route renders real HTML (`## Approach` → `<h2>`, list → `<li>`, link → `<a>`,
+fenced block → `<pre>`) and that the traversal guard 404s (encoded `../`,
+off-allowlist `CLAUDE.md`, missing plan); and a real-browser layer asserting the
+Open anchor's href, that a plain click opens the modal (iframe `srcdoc`
+populated) and Close closes it, that a **meta-click does not** open the modal, and
+that "Open in new tab" navigates a new page to the plan route. One `tiny-garden`
+plan gained rich markdown so the render assertions prove real conversion.
+
 ## Motivation
 
 The board earned its keep as a beta script (glanceable phase view, no GitHub auth or latency), but it is stuck in an awkward adolescence:

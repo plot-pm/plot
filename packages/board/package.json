@@ -45,6 +45,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "esbuild": "^0.28.0",
+    "marked": "^16.0.0",
     "playwright": "^1.61.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

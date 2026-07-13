@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { marked } from 'marked';
 import {
   PlanMetaSchema,
   toBoardPhase,
@@ -22,6 +23,19 @@ import {
 export interface BuildBoardOptions {
   repoRoot: string;
   scriptsDir: string;
+}
+
+/**
+ * Resolve `repoRoot` through symlinks. Plan files are reported as real paths, so
+ * the root must be resolved the same way for `path.relative` to come out
+ * repo-relative (and for the /plan allowlist basenames to match card.path).
+ */
+function resolvedRepoRoot(opts: BuildBoardOptions): string {
+  try {
+    return fs.realpathSync(opts.repoRoot);
+  } catch {
+    return opts.repoRoot;
+  }
 }
 
 /** Read one `## Plot Config` key via the shared helper (with a default). */
@@ -190,15 +204,7 @@ export function buildBoard(opts: BuildBoardOptions): Board {
   const sprintDir = readConfig(opts, 'Sprint directory', 'docs/sprints/');
   const storyDir = readConfig(opts, 'Story directory', 'docs/stories/');
 
-  // Plan files are reported as real paths (symlinks resolved), so the repo root
-  // must be resolved the same way for card.path to come out repo-relative.
-  let repoRoot = opts.repoRoot;
-  try {
-    repoRoot = fs.realpathSync(opts.repoRoot);
-  } catch {
-    /* keep as given */
-  }
-
+  const repoRoot = resolvedRepoRoot(opts);
   const files = collectPlanFiles(repoRoot, planDir);
   const cards: Card[] = [];
   for (const meta of readPlanMeta(opts.scriptsDir, files)) {
@@ -229,4 +235,89 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     sprints: collectSprints(repoRoot, sprintDir),
     stories: collectStories(repoRoot, storyDir),
   };
+}
+
+// ─── Plan viewer: render a single plan file to HTML ──────────────────────────
+
+/** Strip a leading YAML front-matter block so it isn't rendered as markdown. */
+function stripFrontMatter(md: string): string {
+  return md.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
+}
+
+/** Escape text interpolated into the page shell (the `<title>`). */
+function escapeHtml(s: string): string {
+  return s.replace(
+    /[&<>"]/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string,
+  );
+}
+
+/**
+ * Resolve a plan file *basename* to its absolute path, restricted to the plans
+ * the board itself collects. The candidates come from `collectPlanFiles`, which
+ * only walks the configured plan dir — so a request can never name a file
+ * outside it. Path traversal is blocked structurally, not by string sanitizing;
+ * the leading basename check just rejects any separators up front. Returns null
+ * for anything not in the allowlist (→ 404).
+ */
+function resolvePlanFile(opts: BuildBoardOptions, filename: string): string | null {
+  if (!filename || filename !== path.basename(filename) || !filename.endsWith('.md')) return null;
+  const planDir = readConfig(opts, 'Plan directory', 'docs/plans/');
+  for (const file of collectPlanFiles(resolvedRepoRoot(opts), planDir)) {
+    if (path.basename(file) === filename) return file;
+  }
+  return null;
+}
+
+/** Minimal, theme-aware page CSS — readable plan prose, no external assets. */
+const PLAN_PAGE_STYLE = `
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2rem 1rem;
+    font: 15px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #1e293b; background: #ffffff;
+  }
+  main { max-width: 52rem; margin: 0 auto; }
+  h1, h2, h3 { line-height: 1.25; margin: 1.6em 0 0.5em; }
+  h1 { font-size: 1.7rem; } h2 { font-size: 1.3rem; } h3 { font-size: 1.1rem; }
+  a { color: #2563eb; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em;
+    background: #f1f5f9; padding: 0.1em 0.35em; border-radius: 4px; }
+  pre { background: #f1f5f9; padding: 0.9rem 1rem; border-radius: 8px; overflow-x: auto; }
+  pre code { background: none; padding: 0; }
+  blockquote { margin: 1em 0; padding-left: 1rem; border-left: 3px solid #cbd5e1; color: #475569; }
+  table { border-collapse: collapse; } th, td { border: 1px solid #cbd5e1; padding: 0.4rem 0.7rem; }
+  img { max-width: 100%; }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e2e8f0; background: #0f172a; }
+    a { color: #60a5fa; }
+    code, pre { background: #1e293b; }
+    blockquote { border-left-color: #475569; color: #94a3b8; }
+    th, td { border-color: #334155; }
+  }
+`;
+
+/**
+ * Render a plan file to a standalone, theme-aware HTML page — or null if the
+ * name doesn't resolve to a board plan (→ 404). One response serves both the
+ * new-tab route and the modal's fetched srcdoc.
+ */
+export function renderPlanPage(opts: BuildBoardOptions, filename: string): string | null {
+  const file = resolvePlanFile(opts, filename);
+  if (!file) return null;
+  const md = fs.readFileSync(file, 'utf8');
+  const body = marked.parse(stripFrontMatter(md), { async: false });
+  const heading = md.match(/^#\s+(.+)$/m);
+  const title = heading ? heading[1].trim() : filename;
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(title)}</title>
+<style>${PLAN_PAGE_STYLE}</style>
+</head>
+<body><main>${body}</main></body>
+</html>`;
 }

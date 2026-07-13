@@ -2,7 +2,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { buildBoard, type BuildBoardOptions } from './board.js';
+import { buildBoard, renderPlanPage, type BuildBoardOptions } from './board.js';
 // Inlined at build time by esbuild's text loader — the artifact is a single
 // self-contained file, served from memory (no filesystem static serving, so no
 // path-traversal surface).
@@ -44,6 +44,27 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       console.error('Error building board:', err);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+    }
+    return;
+  }
+
+  if (url.pathname.startsWith('/plan/')) {
+    // `<filename>` is a plan basename; renderPlanPage resolves it against the
+    // board's own plan allowlist, so traversal (../) can't escape the plan dir.
+    const filename = decodeURIComponent(url.pathname.slice('/plan/'.length));
+    try {
+      const html = renderPlanPage(opts, filename);
+      if (html === null) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Plan not found');
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html);
+    } catch (err) {
+      console.error('Error rendering plan:', err);
+      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Error rendering plan');
     }
     return;
   }

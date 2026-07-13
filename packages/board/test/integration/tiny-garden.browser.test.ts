@@ -99,4 +99,78 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
       await page.close();
     }
   });
+
+  // ── Plan viewer ───────────────────────────────────────────────────────────
+  const PLAN_PATH = '/plan/2026-03-01-plant-tomatoes.md';
+  const tomatoCard = (page: Page) =>
+    page.locator('article', { hasText: 'Plant heirloom tomatoes' });
+
+  it('the Open control is a real anchor to the plan route', async () => {
+    const page = await openBoard();
+    try {
+      const open = tomatoCard(page).getByRole('link', { name: 'Open' });
+      // A real href is what makes native cmd/ctrl/middle-click open a new tab.
+      expect(await open.getAttribute('href')).toBe(PLAN_PATH);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('a plain click opens the modal with the embedded plan, and Close closes it', async () => {
+    const page = await openBoard();
+    try {
+      await tomatoCard(page).getByRole('link', { name: 'Open' }).click();
+
+      const dialog = page.getByRole('dialog');
+      await dialog.waitFor({ state: 'visible', timeout: 5_000 });
+
+      // "opens" = the iframe is present and its srcdoc was populated by the
+      // fetch with the server-rendered plan HTML (no frame traversal needed).
+      const iframe = page.locator('iframe[title="Plan: plant-tomatoes"]');
+      await iframe.waitFor({ state: 'visible', timeout: 5_000 });
+      await expect
+        .poll(async () => ((await iframe.getAttribute('srcdoc')) ?? '').includes('<h2>Approach</h2>'))
+        .toBe(true);
+
+      await dialog.getByRole('button', { name: 'Close' }).click();
+      await expect.poll(() => page.getByRole('dialog').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('a meta-click does NOT open the modal (native new-tab is left alone)', async () => {
+    const page = await openBoard();
+    try {
+      // A modified click may open a background tab; whatever the browser does,
+      // our handler must not intercept it — so no modal appears.
+      const popup = page.context().waitForEvent('page', { timeout: 2000 }).catch(() => null);
+      await tomatoCard(page).getByRole('link', { name: 'Open' }).click({ modifiers: ['Meta'] });
+      expect(await page.getByRole('dialog').count()).toBe(0);
+      const p = await popup;
+      if (p) await p.close();
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('"Open in new tab" navigates a new page to the plan route', async () => {
+    const page = await openBoard();
+    try {
+      await tomatoCard(page).getByRole('link', { name: 'Open' }).click();
+      await page.getByRole('dialog').waitFor({ state: 'visible', timeout: 5_000 });
+
+      const [popup] = await Promise.all([
+        page.context().waitForEvent('page'),
+        page.getByRole('link', { name: 'Open in new tab' }).click(),
+      ]);
+      await popup.waitForLoadState('domcontentloaded');
+      expect(popup.url().endsWith(PLAN_PATH)).toBe(true);
+      // The new tab is the full standalone plan page.
+      expect(await popup.locator('h1').textContent()).toBe('Plant heirloom tomatoes');
+      await popup.close();
+    } finally {
+      await page.close();
+    }
+  });
 });

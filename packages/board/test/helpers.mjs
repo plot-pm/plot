@@ -72,6 +72,19 @@ export function startServer(cwd, port) {
   });
 }
 
+/** GET an arbitrary path; resolve { status, body, headers } without parsing. */
+export function fetchRaw(port, pathname) {
+  return new Promise((resolve, reject) => {
+    http
+      .get(`http://localhost:${port}${pathname}`, (res) => {
+        let data = '';
+        res.on('data', (c) => (data += c));
+        res.on('end', () => resolve({ status: res.statusCode, body: data, headers: res.headers }));
+      })
+      .on('error', reject);
+  });
+}
+
 /** GET /api/board and parse the JSON body. */
 export function fetchBoard(port) {
   return new Promise((resolve, reject) => {
