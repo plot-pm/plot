@@ -24,7 +24,7 @@
 
 <!-- How will this be implemented? Key architectural decisions. -->
 
-### Open Questions
+### Open Points
 
 - [ ] ...
 
