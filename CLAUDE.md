@@ -4,6 +4,17 @@ Git-native planning workflow for software development. Plans are markdown files 
 
 **Design authority:** [MANIFESTO.md](skills/plot/MANIFESTO.md) — all design decisions must pass its 8-question checklist. When in doubt, the manifesto wins.
 
+## Plot Config
+
+Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scripts/plot-config.sh get <key> [default]`.
+
+- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+- **Plan directory:** docs/plans/
+- **Active index:** docs/plans/active/
+- **Delivered index:** docs/plans/delivered/
+- **Sprint directory:** docs/sprints/
+- **Plan template:** .plot/templates/plan.md
+
 ## Architecture
 
 Plot is a hub-and-spoke skill system:
@@ -34,7 +45,7 @@ Scripts in `skills/plot/scripts/` that any model tier can use:
 | `plot-review-status.sh` | Check review freshness for sprint items |
 | `plot-update-board.sh` | Update GitHub Projects board status for a PR |
 | `plot-plan-meta.sh` | Parse plan files → JSON (phase, type, title, sprint, story, assignee, branches, PRs); the plan-format contract |
-| `plot-config.sh` | Read a `## Plot Config` key with a default (`get <key> [default]`) |
+| `plot-config.sh` | Read a `## Plot Config` key with a default (`get <key> [default]`); includes the optional `Plan template` override key |
 | `plot-reconcile-scan.sh` | Read-only plan/branch drift sweep (five sections + machine-countable footer) |
 | `board/board-server.mjs` | Local Kanban status board — built artifact of `@plot-pm/board` (`packages/board`); run via `pnpm board`, rebuild via `pnpm build:board` |
 

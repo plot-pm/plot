@@ -110,3 +110,34 @@ test('config: real-world backtick + prose values (cpq-cds style)', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// The `Plan template` key drives /plot-idea's template resolution: a project
+// that declares it uses its own template; otherwise the shipped default is used.
+// This is the whole override mechanism — no bespoke resolver.
+test('config: Plan template key present → configured path', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-config-tmpl-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), `# proj
+
+## Plot Config
+
+- **Plan template:** .plot/templates/plan.md
+`);
+    const out = execFileSync('bash', [accessor, 'get', 'Plan template', 'skills/plot/templates/plan.md'],
+      { encoding: 'utf8', cwd: dir }).trimEnd();
+    assert.equal(out, '.plot/templates/plan.md');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('config: Plan template key absent → shipped-template default', () => {
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-config-tmpl-bare-'));
+  try {
+    const out = execFileSync('bash', [accessor, 'get', 'Plan template', 'skills/plot/templates/plan.md'],
+      { encoding: 'utf8', cwd: bare }).trimEnd();
+    assert.equal(out, 'skills/plot/templates/plan.md');
+  } finally {
+    fs.rmSync(bare, { recursive: true, force: true });
+  }
+});

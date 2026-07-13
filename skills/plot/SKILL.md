@@ -31,11 +31,21 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
     - **Active index:** docs/plans/active/
     - **Delivered index:** docs/plans/delivered/
     - **Sprint directory:** docs/sprints/
+    <!-- Optional: override the shipped plan template with a project's own -->
+    <!-- - **Plan template:** .plot/templates/plan.md -->
     <!-- Optional: only when origin/HEAD detection picks the wrong branch -->
     <!-- - **Main branch:** develop -->
 
 Helpers read these keys via `scripts/plot-config.sh get <key> [default]` —
 use it instead of grepping `CLAUDE.md`.
+
+**Optional — override the plan template.** Set a `Plan template` key (a
+repo-root-relative path) to replace the shipped plan template with a project's own
+(extra Status fields, project prompts, a Definition-of-Done reminder, etc.).
+`/plot-idea` resolves it with `plot-config.sh get "Plan template"
+skills/plot/templates/plan.md`, so the configured file wins and the shipped
+template is the fallback. It is a complete template, not a fragment — keep its
+structural fields in sync with the shipped one.
 
 ## Model Guidance
 
@@ -419,7 +429,7 @@ Also run the bash helpers if a specific slug is in context:
 
 Shared helpers (use these instead of hand-parsing):
 - `./scripts/plot-plan-meta.sh <plan-file>...` — plan metadata as JSON (phase, type, branches, PRs); the plan-format contract
-- `./scripts/plot-config.sh get <key> [default]` — `## Plot Config` reader
+- `./scripts/plot-config.sh get <key> [default]` — `## Plot Config` reader (incl. the optional `Plan template` override key)
 
 **Hygiene summary** (drift made ambient): run the reconcile scan and read only its final summary line —
 

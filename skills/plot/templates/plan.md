@@ -7,17 +7,12 @@
 - **Phase:** Draft
 - **Type:** feature | bug | docs | infra
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
-- **Story:** <!-- optional, story slug this plan is part of -->
 
 ## Changelog
 
 <!-- Release note entry. Written during planning, refined during implementation. -->
 
 - <user-facing change description>
-
-<!-- Board impact: <does this touch plan format, the plan template, helper
-     scripts, or docs/plans layout? "none" is a valid answer. Part of the
-     Definition of Done — see docs/definition-of-done.md.> -->
 
 ## Motivation
 
