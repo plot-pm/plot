@@ -6,10 +6,12 @@
 #         back to the default so callers can rely on the output unconditionally.
 # Designed for small-model consumption: one value on stdout, no interpretation.
 #
-# This is the ONE place that knows where plot configuration lives (currently a
-# `## Plot Config` section in the repo-root CLAUDE.md). Helpers must call this
-# instead of grepping CLAUDE.md themselves, so the storage location/format can
-# evolve without touching every consumer.
+# This is the ONE place that knows where plot configuration lives (a
+# `## Plot Config` section in the repo-root CLAUDE.md or AGENTS.md).
+# CLAUDE.md is checked first for backwards compatibility; AGENTS.md is the
+# fallback for repos that have migrated to a hub-and-spoke agent-rules layout.
+# Helpers must call this instead of grepping either file themselves, so the
+# storage location/format can evolve without touching every consumer.
 #
 # Grammar accepted inside the section (case-insensitive key, bold optional):
 #     - **Plan directory:** docs/plans/
@@ -40,10 +42,19 @@ if [ "$cmd" != "get" ]; then
 fi
 
 root=$(git rev-parse --show-toplevel 2>/dev/null) || root="."
-config_file="$root/CLAUDE.md"
+
+# Find the first repo-root file that contains a ## Plot Config section.
+# CLAUDE.md wins for backwards compatibility; AGENTS.md is the modern fallback.
+config_file=""
+for _candidate in "$root/CLAUDE.md" "$root/AGENTS.md"; do
+  if [ -f "$_candidate" ] && grep -qi "^##[[:space:]]*plot config" "$_candidate" 2>/dev/null; then
+    config_file="$_candidate"
+    break
+  fi
+done
 
 value=""
-if [ -f "$config_file" ]; then
+if [ -n "$config_file" ]; then
   # Extract the `## Plot Config` section (case-insensitive, portable awk).
   section=$(awk '
     /^##[[:space:]]/ { in_section = (tolower($0) ~ /^##[[:space:]]+plot config[[:space:]]*$/) ; next }
