@@ -1,20 +1,36 @@
 name: Release
 
+# Single publishing workflow. npm Trusted Publishing (OIDC) allows exactly ONE
+# workflow filename per package, so BOTH publish paths live in THIS file:
+#   • push to main       → `release` job — changesets opens/updates the version
+#                          PR, or (on a changeset-free push) tags + creates the
+#                          GitHub Release + publishes the STABLE board to npm.
+#   • workflow_dispatch  → `board-rc` job — publishes @plot-pm/board at the next
+#                          literal X.Y.Z-rc.N to the npm `rc` dist-tag.
+#
+# Auth is TOKENLESS: OIDC trusted publishing (npm >= 11.5.1, Node >= 22.14,
+# id-token: write, --provenance). No NPM_TOKEN anywhere. Register the trusted
+# publisher on npmjs.com for @plot-pm/board as:
+#   GitHub Actions · plot-pm/plot · workflow: release.yml · (no environment)
+# and set "Require two-factor authentication and disallow tokens".
+
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  pull-requests: write
-
 jobs:
   release:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write # OIDC: tokenless npm publish (stable board) with provenance
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -24,10 +40,22 @@ jobs:
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: 20
+          node-version: 24 # OIDC trusted publishing requires Node >= 22.14
           cache: pnpm
+          # Points npm at the public registry; with no NODE_AUTH_TOKEN set, npm
+          # >= 11.5.1 authenticates the publish via OIDC (trusted publishing).
+          registry-url: https://registry.npmjs.org
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Pin npm for OIDC trusted publishing
+        # Node 24 bundles an older npm; trusted publishing needs npm >= 11.5.1.
+        # Echo the resolved versions so an auth failure at publish time is easy
+        # to triage (version mismatch vs. trusted-publisher config).
+        run: |
+          npm install -g npm@11.12.1
+          node --version
+          npm --version
 
       - name: Compute next release version
         id: nextver
@@ -60,3 +88,89 @@ jobs:
           PR_NUMBER: ${{ steps.changesets.outputs.pullRequestNumber }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh pr edit "$PR_NUMBER" --add-assignee eins78
+
+  board-rc:
+    # Board RC prerelease. Publishes @plot-pm/board at the next literal
+    # X.Y.Z-rc.N to the npm `rc` dist-tag — installable with
+    # `npm i @plot-pm/board@rc` for testing BEFORE the Version PR merges.
+    #
+    # Runs on every push to main AND on manual dispatch, but GATES on a pending
+    # board changeset: BASE is the changeset-PREDICTED next board version (the
+    # same `changeset status` the release job uses), so an RC is labelled for the
+    # version it actually contains (e.g. 0.2.1-rc.N), not the lagging
+    # packages/board/package.json (which stays 0.2.0 until the Version PR merges).
+    # No pending @plot-pm/board changeset -> the job self-skips (exit 0). This is
+    # the "RC only when the board has changes" gate, so firing on push is safe.
+    # rc.N is the registry-derived counter (max published <BASE>-rc.<n> + 1),
+    # which resets naturally when BASE bumps. Publishes only to the `rc` dist-tag
+    # and never re-points `latest` on an existing package; the one exception is
+    # npm's first-ever-publish rule (a package must always have a `latest`), which
+    # set `latest` at the manual debut and self-heals when the first stable ships.
+    # Never commits.
+    #
+    # Guarded to main: `on.push.branches` already limits push to main, so this
+    # ref check only tightens the workflow_dispatch path — a manual dispatch from
+    # a feature branch must not publish an RC computed from that branch's changesets.
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC: tokenless npm publish with provenance
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24 # OIDC trusted publishing requires Node >= 22.14
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Pin npm for OIDC trusted publishing
+        run: |
+          npm install -g npm@11.12.1
+          node --version
+          npm --version
+
+      - name: Publish board RC to the npm `rc` tag
+        run: |
+          set -euo pipefail
+          # BASE = the changeset-PREDICTED next board version (same mechanism the
+          # release job uses). Gate: no pending @plot-pm/board changeset -> BASE is
+          # empty/null -> skip. This is intentionally the ONLY source of BASE (no
+          # package.json fallback), so the RC always matches the code it contains.
+          npx changeset status --output=/tmp/cs.json || echo '{"releases":[]}' > /tmp/cs.json
+          BASE=$(jq -r '.releases[] | select(.name=="@plot-pm/board") | .newVersion' /tmp/cs.json | head -n1)
+          if [ -z "$BASE" ] || [ "$BASE" = "null" ]; then
+            echo "board unchanged (no pending @plot-pm/board changeset) — skipping RC"
+            exit 0
+          fi
+          BASE=${BASE%%-*} # strip any prerelease suffix -> clean X.Y.Z base
+          # Next literal rc.N = (highest published <BASE>-rc.<n>) + 1, else 0.
+          # The counter's state lives in the npm registry (the record of what is
+          # published) — no changesets pre-mode, no repo-global state, board-only.
+          # It resets naturally when BASE bumps to a version with no published rc.
+          VERSIONS=$(npm view @plot-pm/board versions --json 2>/dev/null || echo '[]')
+          N=$(printf '%s' "$VERSIONS" | jq -r --arg pre "${BASE}-rc." '
+            (if type=="array" then . else [.] end)
+            | map(select(startswith($pre)))
+            | map(.[($pre|length):])
+            | map(select(test("^[0-9]+$")))
+            | map(tonumber)
+            | (max // -1) + 1
+          ')
+          RC="${BASE}-rc.${N}"
+          echo "Publishing @plot-pm/board@${RC} to the npm 'rc' tag"
+          # Set the board version in place — no git tag/commit (runner is ephemeral).
+          tmp=$(mktemp)
+          jq --arg v "$RC" '.version=$v' packages/board/package.json > "$tmp"
+          mv "$tmp" packages/board/package.json
+          # prepack (packages/board) rebuilds the gitignored dist/ during publish.
+          cd packages/board
+          npm publish --provenance --tag rc --access public
+          echo "Published @plot-pm/board@${RC} to the npm 'rc' tag."

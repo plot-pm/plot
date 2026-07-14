@@ -75,4 +75,37 @@ else
   echo "  Run manually: gh release create v${VERSION} --title 'v${VERSION}' --notes-file CHANGELOG.md"
 fi
 
+# ── Publish @plot-pm/board to npm (stable / `latest`) ────────────────────────
+# The board is a first-class npm package; the skills package `plot` is NOT
+# published to npm (it ships via the plugin marketplace), so this publishes the
+# board only. Auth is TOKENLESS via OIDC trusted publishing (id-token: write on
+# the release job, npm >= 11.5.1); --provenance emits a public build-provenance
+# attestation. The step is:
+#   • gated       — publishes ONLY a version that changesets actually released,
+#     i.e. one with an entry in the board CHANGELOG. This prevents a plain
+#     changeset-free push (e.g. the merge of an infra PR) from publishing the
+#     hand-set debut version (0.2.0) to `latest`. The debut is published
+#     manually; the first AUTO stable publish is the first changeset-driven
+#     board bump (>= 0.2.1);
+#   • prerelease-safe — skips any -rc/prerelease version (RC ships via the
+#     board-rc job, to the `rc` tag, never `latest`);
+#   • idempotent  — skips a version already on the registry (this publish step
+#     re-runs on every changeset-free push to main), mirroring the tag guard.
+# `prepack` (packages/board/package.json) rebuilds the gitignored dist/ at pack.
+BOARD_DIR="$REPO_ROOT/packages/board"
+BOARD_VERSION=$(jq -r '.version' "$BOARD_DIR/package.json")
+BOARD_CHANGELOG="$BOARD_DIR/CHANGELOG.md"
+node --version; npm --version   # echo resolved versions for publish-auth triage
+if printf '%s' "$BOARD_VERSION" | grep -q -- '-'; then
+  echo "  npm: board version ${BOARD_VERSION} is a prerelease — 'latest' publishes only final versions; skipping (RC ships via the board-rc job)"
+elif [ ! -f "$BOARD_CHANGELOG" ] || ! grep -qxF "## ${BOARD_VERSION}" "$BOARD_CHANGELOG"; then
+  echo "  npm: @plot-pm/board@${BOARD_VERSION} has no changesets CHANGELOG entry — not a changeset-driven release; skipping (debut/hand-set versions are published manually)"
+elif npm view "@plot-pm/board@${BOARD_VERSION}" version >/dev/null 2>&1; then
+  echo "  npm: @plot-pm/board@${BOARD_VERSION} already published — skipping"
+else
+  echo "  Publishing @plot-pm/board@${BOARD_VERSION} to npm (OIDC + provenance)..."
+  ( cd "$BOARD_DIR" && npm publish --provenance --access public )
+  echo "  ✓ Published @plot-pm/board@${BOARD_VERSION}"
+fi
+
 echo "Done."
