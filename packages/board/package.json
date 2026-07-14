@@ -12,27 +12,28 @@
     "directory": "packages/board"
   },
   "exports": {
-    ".": "./dist/board-server.mjs",
-    "./contract": "./src/contract/index.ts"
+    ".": "./dist/board-server.mjs"
   },
   "bin": {
     "plot-board": "./dist/board-server.mjs"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
-    "dist",
-    "src/contract"
+    "dist/board-server.mjs",
+    "plot-config.sh",
+    "plot-plan-meta.sh"
   ],
   "scripts": {
     "dev": "vite",
     "build:client": "vite build",
     "build:server": "node build.mjs",
     "build": "pnpm run build:client && pnpm run build:server",
+    "prepack": "pnpm run build",
     "typecheck": "tsc --noEmit",
     "test": "node --test test/*.test.mjs",
     "test:integration": "pnpm build && vitest run"
-  },
-  "dependencies": {
-    "zod": "^4.4.0"
   },
   "devDependencies": {
     "@radix-ui/react-checkbox": "^1.3.0",
@@ -54,6 +55,7 @@
     "typescript": "^5.9.0",
     "vite": "^8.1.0",
     "vite-plugin-singlefile": "^2.3.0",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "zod": "^4.4.0"
   }
 }

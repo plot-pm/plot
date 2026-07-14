@@ -38,5 +38,22 @@ fs.mkdirSync(path.dirname(shippedArtifact), { recursive: true });
 fs.copyFileSync(distArtifact, shippedArtifact);
 fs.chmodSync(shippedArtifact, 0o755);
 
+// Vendor Plot's plan-format helpers so the PUBLISHED npm package is standalone.
+// board-server.mjs shells out (bash) to plot-config.sh + plot-plan-meta.sh,
+// resolved at `resolve(dirname(artifact), '..')`. In the npm layout that is the
+// package root (dist/..), where these scripts must live. Copied from their
+// canonical home (skills/plot/scripts/) on every build, so the vendored copies
+// cannot drift from source. Shipped via `files` in package.json; gitignored.
+// (In the plot checkout layout the artifact sits in skills/plot/scripts/board/,
+// so `../` already resolves to the real scripts — this copy is npm-only.)
+const vendoredScripts = ['plot-config.sh', 'plot-plan-meta.sh'];
+for (const name of vendoredScripts) {
+  const src = path.join(here, '../../skills/plot/scripts', name);
+  const dest = path.join(here, name); // package root — matches scriptsDir resolution
+  fs.copyFileSync(src, dest);
+  fs.chmodSync(dest, 0o755);
+}
+
 const kb = (fs.statSync(shippedArtifact).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
+console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

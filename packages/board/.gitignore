@@ -1,2 +1,7 @@
 node_modules/
 dist/
+
+# Vendored by build.mjs from skills/plot/scripts/ so the published npm package
+# is standalone (see build.mjs). Build output — not source; shipped via `files`.
+/plot-config.sh
+/plot-plan-meta.sh
