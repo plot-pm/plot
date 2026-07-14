@@ -1,5 +1,11 @@
 # plot
 
+## 1.7.1
+
+### Patch Changes
+
+- [#46](https://github.com/plot-pm/plot/pull/46) [`075ae62`](https://github.com/plot-pm/plot/commit/075ae62d5310e86695b6da0d1f2fb52230380713) Thanks [@eins78](https://github.com/eins78)! - `plot-config.sh` now falls back to `AGENTS.md` when the repo-root `CLAUDE.md` has no `## Plot Config` section. `CLAUDE.md` is still checked first for backwards compatibility; `AGENTS.md` is the fallback for repos that have migrated to a hub-and-spoke agent-rules layout. ([#45](https://github.com/plot-pm/plot/issues/45), thanks @damoeb)
+
 ## 1.7.0
 
 ### Minor Changes
