@@ -32,7 +32,7 @@ updated: {YYYY-MM-DD}
 - ✅ Completed item
 - ⏸️ Pending item
 
-## Open Questions
+## Open Points
 
 - ⏸️ {Questions needing resolution}
 - ✅ {Resolved question} → See Decisions

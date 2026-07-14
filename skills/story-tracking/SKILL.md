@@ -38,7 +38,7 @@ docs/stories/
 ### Resuming a Story
 
 1. Find folder in `docs/stories/` by slug or JIRA prefix
-2. Read `STORY-*.md` for: plan status, open questions, decisions, last session
+2. Read `STORY-*.md` for: plan status, open points, decisions, last session
 3. Check auxiliary files for additional context
 4. Summarize current state before proceeding
 
