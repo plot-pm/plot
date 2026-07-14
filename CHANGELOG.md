@@ -1,5 +1,56 @@
 # plot
 
+## 1.7.0
+
+### Minor Changes
+
+- [#40](https://github.com/plot-pm/plot/pull/40) [`21070f0`](https://github.com/plot-pm/plot/commit/21070f054a038f063ec4ba3b1eda329699121271) Thanks [@eins78](https://github.com/eins78)! - Graduate the local Kanban board to a first-class Plot component. The board is now its own TypeScript package (`@plot-pm/board`, vite + react + shadcn + zod) built into a single self-contained artifact the plugin ships; `pnpm board` runs it with no install step. It reads plans through `plot-plan-meta.sh` (so front-matter plans render too), adds multi-select sprint **and** story filters, and its health is part of the Definition of Done, gated in CI.
+
+  <!--
+  bumps:
+    skills:
+      plot: minor
+  -->
+
+### Patch Changes
+
+- [#40](https://github.com/plot-pm/plot/pull/40) [`5005532`](https://github.com/plot-pm/plot/commit/50055323aa811f784ddd847ac667c82790f5c456) Thanks [@eins78](https://github.com/eins78)! - Support a project-local plan-template override through the existing config
+  mechanism: a `Plan template` key in `## Plot Config`. `/plot-idea` resolves the
+  template with `plot-config.sh get "Plan template" skills/plot/templates/plan.md`
+  — a project that declares `Plan template:` (a repo-root-relative path) uses its
+  own template; otherwise the shipped template is used. Reuses `plot-config.sh`
+  (plot's one adopter-config reader) rather than adding a bespoke resolver, so the
+  shipped plan template stays generic and projects opt in explicitly.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+      plot-idea: minor
+  -->
+
+- [#40](https://github.com/plot-pm/plot/pull/40) [`8ecc02a`](https://github.com/plot-pm/plot/commit/8ecc02a570e7b42892e82be91a1f9f9da0654528) Thanks [@eins78](https://github.com/eins78)! - Fix `plot-config.sh` to tolerate real-world `## Plot Config` values written as
+  backtick-quoted markdown with trailing prose (e.g. `` **Plan directory:** `docs/plans/` (note) ``),
+  and multi-value lists whose items are backticked and annotated (e.g. branch
+  prefixes) — without truncating the list to its first backtick span. Backticks
+  and parenthetical prose are stripped from the extracted value.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#41](https://github.com/plot-pm/plot/pull/41) [`e5d8cf7`](https://github.com/plot-pm/plot/commit/e5d8cf754d816489b861c8fd3c6321aa08443d10) Thanks [@michaelaemisegger](https://github.com/michaelaemisegger)! - Rename the "Open Questions" section to "Open Points" across the planning workflow — the plan and story templates (`plan.md`, `STORY-template.md`, plus story-tracking's SKILL.md reference) and the challenge-the-plan skill, whose tracking section, phase name and container references now read "Open Points". "Open Points" reads as more decisive and action-oriented for an unresolved-items list. Individual deferred _questions_ keep their "question" wording — a deferred question is genuinely a question; it is just filed under the Open Points section.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+      story-tracking: patch
+      challenge-the-plan: patch
+  -->
+
 ## 1.6.0
 
 ### Minor Changes
