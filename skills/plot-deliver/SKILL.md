@@ -48,6 +48,8 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 
 Step 5 is the prime example of subagent delegation: a frontier orchestrator handles the judgment (extracting deliverables, consolidating Done/Partial/Missing), while small subagents handle the data collection (running `gh pr diff`, reading PR metadata) in parallel. Without subagents, the frontier model does everything sequentially.
 
+The orchestrator consolidates **cited file paths**, not subagent conclusions. A subagent's "yes, that's implemented" is an assertion; the path it names is evidence. This distinction is what keeps the delegation safe — an orchestrator that relays unverified subagent claims turns a delivery gate into a game of telephone.
+
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
 
 ### 1. Parse Input
@@ -100,6 +102,8 @@ gh pr view <number> --json state,isDraft --jq '{state: .state, isDraft: .isDraft
   - If user declines, stop and list the unfinished PRs
 - If any are `CLOSED` (not merged): warn — these need manual attention
 
+**Every branch state in this step comes from `gh`/`git` output, never from recollection or from a claim made earlier in the session that a PR was merged.** Re-query if you did not run the command in this step. A PR you merged ten minutes ago is still queried, not remembered.
+
 ### 4b. Verify All Plan Branches Accounted For
 
 Re-read the plan's branches section (heading containing "Branches"). For each branch listed (skipping branches marked with a deferred annotation):
@@ -134,13 +138,15 @@ Compare what the plan promised against what was actually delivered.
 2. **Gather PR evidence using parallel subagents.** Launch one Task agent per merged PR to review what was implemented:
    - Each agent receives the PR number and the full list of deliverables.
    - Each agent runs `gh pr diff <number>` and reads the PR body via `gh pr view <number> --json title,body,files`.
-   - Each agent returns: which deliverables (by number) are addressed by that PR, with a one-line summary of the evidence for each.
+   - Each agent returns, for each deliverable it claims is addressed, a **file path and a one-line description of the change at that path**. A deliverable asserted without a file path is not evidence and does not count.
    - Launch all PR agents in parallel since they are independent.
 
-3. **Consolidate results.** Merge the per-PR reports into a single checklist. For each deliverable, mark it:
-   - **Done** — clear evidence in one or more PRs
-   - **Partial** — some work done but not fully matching the plan
-   - **Missing** — no evidence found in any PR
+3. **Consolidate results.** Merge the per-PR reports into a single checklist. Mark each deliverable using the evidence returned, not the subagent's conclusion:
+   - **Done** — at least one cited file path, in a merged PR, plausibly implements it
+   - **Partial** — cited paths address some of the deliverable
+   - **Missing** — no cited path, *or* a claim with no path attached
+
+   A subagent asserting "deliverable 3 is implemented" with no file path is **Missing**, not Done. Relaying an unverified subagent claim as a delivery gate is the failure this step exists to prevent. If a subagent's citation looks wrong, check it with `gh pr diff <number>` before marking the deliverable.
 
 4. **Present the checklist** to the user and **ask to confirm** the plan is complete enough to deliver.
    - If all items are done: "All deliverables verified. Proceed with delivery?"
