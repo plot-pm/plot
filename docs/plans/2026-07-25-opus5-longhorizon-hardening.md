@@ -219,11 +219,16 @@ Added to the Setup block of `ralph-plot-sprint/SKILL.md` and to the repo's own
 | `Sprint wall clock` | `RALPH_SPRINT_WALL_CLOCK` | `8h` | Total elapsed time for the whole run, across all iterations. Accepts `30m`, `8h`, or bare seconds. `0` disables. |
 | `Sprint stall limit` | `RALPH_SPRINT_STALL_LIMIT` | `3` | Consecutive iterations with no observable deliverable before the run is declared stalled. `0` disables. |
 
-Defaults chosen to be non-binding for a healthy run: 8h exceeds any observed
-sprint, and 3 stalled iterations is longer than the legitimate "posted review
-comments, no commit" case (which is one iteration, by design). A bound that fires
-during normal operation would be worse than no bound — it would train the user to
-raise it.
+Defaults chosen to be **deliberately loose**. Run length varies by sprint — some
+short and attended, some long and unattended — so no default fits every case, and
+adopting projects with a consistent pattern should set their own. A bound that
+fires during normal operation is worse than no bound: it trains the user to raise
+it, and a disabled detector has zero coverage.
+
+`3` for the stall limit is the load-bearing number, because the wall clock will
+rarely fire under a loose default. Three exceeds the legitimate "posted review
+comments, no commit" case, which is one iteration by design (Step 4 posts, Step 1
+then fixes and commits).
 
 #### 1b. Deliverable checkpoint — exact text to add to `SKILL.md`
 
@@ -259,6 +264,15 @@ deliverable. An iteration that only re-verifies already-verified work must repor
 Consecutive `deliverable: none` iterations are what the runner counts against
 `Sprint stall limit`. Reporting a deliverable you did not produce defeats the only
 mechanism that can detect a stalled run.
+
+**What the runner independently verifies.** The runner checks one thing: whether
+`origin/<main>` moved. Of the deliverables above, only *a commit landed* is
+machine-detected. The other four are reported by you and not verified — which is
+why naming them accurately matters. The runner cannot catch a false
+`deliverable: posted 4 review comments`; a human reading the handover can.
+
+This asymmetry is deliberate, not an oversight. A cheap check that never
+misfires is worth more than a thorough one that flakes on a network read.
 ```
 
 **Rationale.** §2.2.6 — the failing arms "consistently got stuck in
@@ -309,7 +323,7 @@ ending rather than an accident, and makes abandonment explicit rather than silen
 | Concern | Change |
 |---------|--------|
 | Wall clock | Record `RUN_START=$(date +%s)` before the loop. Each iteration, compute elapsed; if `elapsed + RALPH_SPRINT_TIMEOUT >= WALL_CLOCK`, inject `BUDGET: final`. The reserve is deliberate — the final iteration must have room to run. |
-| Stall detection | Before each iteration capture `origin/<main>` SHA and open-PR state; after, re-capture. No change **and** the summary reports `deliverable: none` → increment stall counter; any change → reset to 0. Counter reaching `Sprint stall limit` injects `BUDGET: stalled`. |
+| Stall detection | Capture `git rev-parse origin/<main>` before the iteration and again after. Unchanged → increment the stall counter; changed → reset to 0. Counter reaching `Sprint stall limit` injects `BUDGET: stalled`. **Git SHA only — no forge query.** See below. |
 | Missing signal | **Change `:300-303` from WARNING-and-continue to a stall increment.** An iteration with no parseable signal counts as `deliverable: none` regardless of what else it did. Silence must cost something. |
 | Heartbeat | After each iteration, write `.ralph-state/heartbeat` with epoch timestamp, iteration number, deliverable line, and stall counter. Sufficient for `test $(($(date +%s) - $(cat .ralph-state/heartbeat.ts))) -gt 3600` from cron or a watchdog. No new daemon, no new dependency. |
 | Notification | On `BLOCKED` via `final`/`stalled`, the existing ntfy call sends the handover's next-action line rather than the generic summary. |
@@ -318,14 +332,39 @@ Config read at startup via `plot-config.sh get "Sprint wall clock" 8h`, env var 
 precedence. Nothing new is installed; `plot-config.sh` already exits 0 on missing
 config and returns the default.
 
-**Uncertainty, recorded rather than resolved:** stall detection compares forge
-state across iterations, which costs one `gh pr list` per iteration and is
-sensitive to a flaky network read (a failed call could look like "no change"). The
-mitigation — treat a *failed* query as "unknown", not as "no change", and do not
-increment the counter on unknown — is specified here but not designed in detail.
-If it proves fragile in practice, the fallback is to count only the git SHA, which
-is local and cannot flake. Do not expand this into a general state-diffing
-framework; that would be the §2.2.6 failure reproduced inside the fix.
+**Stall detection uses the git SHA alone, and this is a deliberate trade.**
+
+The richer alternative — diffing forge state (open PRs, review threads) across
+iterations — detects more kinds of progress, but costs one `gh pr list` per
+iteration and introduces a third state: a failed network read is neither "changed"
+nor "unchanged". Handling that correctly means distinguishing *unknown* from *no
+change* and not counting unknowns, which is machinery whose own failure modes need
+testing. `git rev-parse origin/<main>` is local, is already fetched, cannot flake,
+and has exactly two outcomes.
+
+The reasoning is the same as Change 3's: **a detector that lies gets switched off,
+and a switched-off detector has zero coverage.** A slightly blind detector that
+never produces a false alarm stays enabled. Reliability beats coverage for
+something whose whole job is to be trusted when it fires.
+
+**The cost, stated plainly.** A git-SHA-only signal cannot see:
+
+- **Step 4 iterations** (post review comments) — no commit, by design.
+- **Thread-resolution-only iterations** in Step 1's refinement path.
+- **PR state flips** — `gh pr ready` without a push.
+
+A Step 4 iteration therefore counts as a stall even though it did real work. With
+`Sprint stall limit: 3` this is safe in the normal cycle, where Step 4 (comments)
+is followed by Step 1 (fixes, which commit) — the counter resets on iteration two
+of three. **The case that would false-positive is a plan needing three or more
+consecutive review rounds with no code change between them.** That is rare and,
+arguably, itself worth interrupting a run for.
+
+If that false positive shows up in practice, the fix is to reset the counter when
+the iteration reports a `deliverable:` line naming review comments *and* the PR
+comment count is checked once — a single targeted query on the stall boundary
+rather than every iteration. **Do not** build general state-diffing; that would be
+the §2.2.6 failure reproduced inside the fix.
 
 ### Change 2 — `challenge-the-plan`: bound the interview
 
@@ -670,15 +709,21 @@ Additionally, self-imposed for this plan:
 
 ## Open Questions
 
-- [ ] Is `8h` the right wall-clock default? Chosen to be non-binding for a healthy
-      run, but no run has been timed. If real sprints run 2h, the bound never fires
-      and provides false assurance. **Measurable before implementation** — check
-      `.ralph-state/` timestamps from past runs and set the default from data.
-- [ ] Should `Sprint wall clock` and `Sprint stall limit` be one key or two? Two is
-      more configurable; one ("sprint budget") is simpler and the manifesto prefers
-      "a small set of strong conventions". Kept separate because they detect
-      different failures — a fast stall and a slow grind — but this is a judgement
-      call worth a reviewer's opinion.
+- [x] Is `8h` the right wall-clock default? **Resolved: keep 8h, loose by design.**
+      Run length varies by sprint — some short and attended, some long and
+      unattended — so no single default fits, and that is precisely what the config
+      key exists for. A loose default that never fires on a short run is the
+      correct failure direction: it costs nothing, whereas a tight default that
+      interrupts healthy runs trains the user to disable it. Projects with a
+      consistent pattern should set `Sprint wall clock` in their own Plot Config.
+      **Consequence:** because the wall clock will rarely fire, the *heartbeat* and
+      *stall counter* carry most of the detection weight in Change 1. Weight
+      implementation effort accordingly.
+- [x] Should `Sprint wall clock` and `Sprint stall limit` be one key or two?
+      **Resolved: two.** They detect different failures — a slow grind and a fast
+      stall — and with run length varying by sprint, a project may well want a
+      generous wall clock alongside a tight stall limit. Collapsing them into one
+      "sprint budget" would force those to move together.
 - [ ] `docs/model-provenance.md` needs its historical row confirmed rather than
       inferred. See Change 7's uncertainty note.
 - [x] Does the heartbeat file need to be gitignored? **Yes — checked during
@@ -701,6 +746,7 @@ Additionally, self-imposed for this plan:
 - `feature/opus5-hardening-ralph-bounds` — Wall-clock budget, deliverable checkpoint, ship-partial fallback, and heartbeat for `ralph-plot-sprint`
   Layers: `## Plot Config` → `plot-config.sh` → `ralph-sprint.sh` → `ralph-plot-sprint/SKILL.md`
   Proves: A config-driven budget can bound an unattended loop, be observed from outside the run, and ship partial work — without new tooling
+  Also lands: `.ralph-state/` added to `.gitignore` (see Open Questions)
   Status: Not started
 
 ### Implementation
@@ -737,7 +783,10 @@ Not in scope. Recorded so they are not rediscovered, and not silently folded in.
   lowering it — is plausibly higher-leverage than everything in Change 1. It is
   deferred because it is a one-line change with an unmeasured effect, and shipping
   it alongside four other loop changes would make attribution impossible. **Worth
-  a dedicated experiment.**
+  a dedicated experiment.** *Deferral confirmed during plan review: the attribution
+  argument was tested against making it a fourth config key now, and holds — if the
+  sprint improves after Change 1 ships, an effort change bundled with it would make
+  the cause unknowable. Run it as a controlled comparison instead.*
 - **Applying the material-vs-marginal filter to `/pr-review-toolkit:review-pr`.**
   `ralph-plot-sprint` Step 4 instructs "be specific and harsh"; the same
   over-weighting of marginal findings applies to code review. Out of scope — that
@@ -780,6 +829,41 @@ applying the bound — the weakest possible evidence, and precisely the kind of
 self-report Change 3 argues should not satisfy a gate. It is recorded as an
 observation, not a result. The real test is whether Change 2 helps on a plan whose
 author *wants* to keep asking questions.
+
+**Second run, with a human answering (partially retracts the above).** The plan was
+challenged again, bounded to 12 questions, this time with a human responding rather
+than the author self-assessing. Four questions were asked; four were answered; the
+budget was again not reached.
+
+The material-vs-marginal filter did the work it claims to. Candidate questions
+about heartbeat file format, `handover.md` structure, and notification wording all
+failed the *"if the answer were the opposite, would the plan change?"* test and were
+not asked. The four that passed all targeted Change 1's stall detection — the only
+part of this plan with asymmetric failure costs, since a wrong text edit is caught
+free in PR review while a wrong detector either false-positives into being disabled
+or never fires at all.
+
+**Result: three answers confirmed the plan; one changed it materially.** Stall
+detection moved from git-SHA-plus-forge-state to **git SHA only**, which deleted
+the plan's largest recorded uncertainty (the unknown-vs-no-change state machine)
+and forced an honest accounting of what the runner can no longer see — now written
+into both the runner table and the checkpoint section. The wall-clock and
+one-key-or-two questions resolved to "keep, for a stated reason", which is a real
+outcome: two Open Questions closed with rationale rather than left hanging.
+
+**What this corrects in the first observation.** The first run concluded the bound
+"redirected effort toward verifying premises rather than probing design". That was
+true of that run but is too strong as a general claim — with a human answering,
+the bound *did* produce design interrogation, and one of four answers changed the
+plan's implementation. A 25% shape-change rate on filtered questions is a
+reasonable yield. The honest summary is narrower than the first: **the filter
+raises the hit rate per question; the bound stops the tail.** Neither run reached
+12, which is itself weak evidence that 12–16 is set generously rather than tightly
+— an under-binding budget is the safe direction, but it means neither run actually
+tested the stopping rule.
+
+Still n=2, still on the same plan, still self-reported. Change 2's real test remains
+a plan whose author wants to keep going.
 
 ### Working constraints observed for this session
 
