@@ -4,10 +4,16 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
+
+## Approval
+
+- **Approved:** 2026-07-25T13:13:51Z
+- **Approved by:** jwloka
+- **Assignee:** jwloka
 
 ## Changelog
 
@@ -743,7 +749,7 @@ Additionally, self-imposed for this plan:
 
 ### Tracer
 
-- `feature/opus5-hardening-ralph-bounds` — Wall-clock budget, deliverable checkpoint, ship-partial fallback, and heartbeat for `ralph-plot-sprint`
+- `feature/opus5-hardening-ralph-bounds` — Wall-clock budget, deliverable checkpoint, ship-partial fallback, and heartbeat for `ralph-plot-sprint` → #49
   Layers: `## Plot Config` → `plot-config.sh` → `ralph-sprint.sh` → `ralph-plot-sprint/SKILL.md`
   Proves: A config-driven budget can bound an unattended loop, be observed from outside the run, and ship partial work — without new tooling
   Also lands: `.ralph-state/` added to `.gitignore` (see Open Questions)
@@ -751,11 +757,11 @@ Additionally, self-imposed for this plan:
 
 ### Implementation
 
-- `feature/opus5-hardening-challenge-budget` — Question budget, material-vs-marginal filter, and falsifiable stopping rule for `challenge-the-plan`
-- `feature/opus5-hardening-deliver-gates` — Subagent evidence citation in `plot-deliver` Step 5; re-query rule in Step 4
-- `docs/opus5-hardening-invariants` — `plot-reconcile` read-only invariant; `MANIFESTO.md` Principle 10
-- `feature/opus5-hardening-approve-tracer` — Tracer bullets as default recommendation in `plot-approve` Step 2b
-- `docs/opus5-hardening-model-provenance` — `docs/model-provenance.md` and the `intro-to-using-plot.md` section
+- `feature/opus5-hardening-challenge-budget` — Question budget, material-vs-marginal filter, and falsifiable stopping rule for `challenge-the-plan` → #51
+- `feature/opus5-hardening-deliver-gates` — Subagent evidence citation in `plot-deliver` Step 5; re-query rule in Step 4 → #52
+- `docs/opus5-hardening-invariants` — `plot-reconcile` read-only invariant; `MANIFESTO.md` Principle 10 → #53
+- `feature/opus5-hardening-approve-tracer` — Tracer bullets as default recommendation in `plot-approve` Step 2b → #54
+- `docs/opus5-hardening-model-provenance` — `docs/model-provenance.md` and the `intro-to-using-plot.md` section → #55
 
 Every branch needs a `.changeset/*.md` with a `bumps: skills:` block. Six branches,
 five of them small text edits gated behind one tracer.
