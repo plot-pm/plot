@@ -22,7 +22,7 @@
 - `plot-deliver` gate language tightened so every gate is verifiable from git/forge state rather than from the agent's own claim of completion.
 - `plot-reconcile` read-only-ness stated as a design invariant rather than a description of current behaviour.
 - New `## Plot Config` keys: `Sprint max iterations`, `Sprint deadline`, `Sprint heartbeat interval`, `Sprint stall limit`, `Sprint on budget exhausted`, `Challenge question budget`. All optional, all with documented defaults.
-- A deletion pass removes 1,616 words of canned templates, taste rules, a worked example, inline query bodies, and rules restated as warnings. Net across the touched files is **−29** (12,389 → 12,360) — the config surface and rubric add literal text, and the deletions more than cover it.
+- A deletion pass removes 1,616 words of canned templates, taste rules, a worked example, inline query bodies, and rules restated as warnings. Net across the touched files is **−33** (12,389 → 12,356) — the config surface and rubric add literal text, and the deletions more than cover it.
 - Docs record the model class the skills were authored and tuned against.
 
 <!-- Board impact: NONE. This plan touches no plan-format field, not the plan
@@ -248,12 +248,14 @@ land in a smaller file rather than a larger one.
 | **Common Mistakes rows that restate an adjacent rule** | `ralph-plot-sprint` | ~120 | The table has grown to 17 rows. Rows whose Prevention column merely repeats a CRITICAL rule stated verbatim in the step above it are noise. Keep rows describing a *non-obvious* failure; drop the echoes. |
 
 **Deletion total as implemented: 1,616 words.** Net across the touched files:
-**12,389 → 12,356 (−33).** The target is met, though narrowly.
+**12,389 → 12,356 (−33).** The target is met, though narrowly, and it held through
+three subsequent rounds of defect fixes.
 
-*(The figure moved during review: −493 estimated → +443 measured → −29 after the
-deletion pass → +4 when the defect fixes added prose → −33 after trimming that
-prose. Every step was measured, and the two upward moves were caught only because
-someone re-ran `wc -w` instead of trusting the last number written down.)*
+*(The figure moved six times: −493 estimated → +443 measured → −29 after the
+deletion pass → +4 when the defect fixes added prose → −33 after trimming it →
+−33 held through three further rounds of fixes. Every step was measured, and both
+upward moves were caught only because someone re-ran `wc -w` instead of trusting
+the last number written down. **Final: −33.**)*
 
 | File | Δ |
 |------|---|
@@ -264,7 +266,7 @@ someone re-ran `wc -w` instead of trusting the last number written down.)*
 | `plot-reconcile` | +29 |
 | `MANIFESTO.md` | +110 |
 | `deliverable-rubric.md` (new) | +237 |
-| **Total** | **−29** |
+| **Total** | **−33** (final; −29 at the time of the deletion pass) |
 
 **This took three passes, and the first two were wrong.** The initial estimate
 claimed −493 without measuring. The first measurement showed **+443**, and the
@@ -1059,7 +1061,7 @@ The direct checks, run while waiting:
 |-------|--------|
 | Enum wired to behaviour, not decorative | `ralph-sprint.sh:461,475` — both exit paths branch on it |
 | Any remaining self-assessment instruction | None. The one `deliverable:` string is the *runner* printing its own verdict (`:403,406` — set from the SHA comparison; the agent never supplies it) |
-| Net word count | `main=12389 branch=12360` → **−29**, recomputed from `origin/main` |
+| Net word count | `main=12389 branch=12356` → **−33**, recomputed from `origin/main` |
 | Dangling refs to deleted sections | 0 for all five removed headings |
 | Five original non-goals verbatim | 5/5 present |
 | Stall counter boundary | `-ge` at the top (warn) / `-gt` at the bottom (stop) is deliberate: at limit 3 the agent is told `stalled` and gets one iteration to hand over; the hard stop is at 4. Ship-partial fires before the stop, as designed. |
@@ -1070,7 +1072,7 @@ instance of the failure mode, caught by the discipline this plan is trying to
 install. Recorded rather than retried, because a second attempt would prove
 nothing about the first.
 
-### Independent verification: requirements sound, four defects found and fixed
+### Independent verification: requirements sound, seven defects found and fixed
 
 Two independent reviewers checked the branch. **Both completed and reported** —
 an earlier draft of this section recorded them as having "died silently" and cited
