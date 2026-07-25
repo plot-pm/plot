@@ -278,6 +278,15 @@ main_sha() {
   git rev-parse "origin/$MAIN_BRANCH" 2>/dev/null || echo "unknown"
 }
 
+# Rubric criterion 2: did any remote branch appear or advance? A Step 3 iteration
+# that builds and pushes a feature branch is the most common productive shape and
+# does NOT move main — without this it would count as a stall, and three in a row
+# would kill a healthy run. One local-ish call against origin, same cost class as
+# the fetch the loop already does.
+branch_refs() {
+  git ls-remote --heads origin 2>/dev/null | sort || echo "unknown"
+}
+
 write_heartbeat() {
   # $1 = iteration, $2 = deliverable (moved|none), $3 = stall count
   local now; now=$(date +%s)
@@ -369,6 +378,7 @@ for ((i=1; i<=ITERATIONS; i++)); do
 
   # --- Deliverable checkpoint (before) ---
   SHA_BEFORE=$(main_sha)
+  REFS_BEFORE=$(branch_refs)
 
   # --- Instruction injection ---
   INSTRUCTIONS_FILE="$STATE_DIR/instructions.md"
@@ -414,8 +424,14 @@ $ITER_PROMPT"
   # Objective condition: did origin/<main> move? The agent's own account of what
   # it did is not consulted here — that is the point.
   SHA_AFTER=$(git fetch -q origin "$MAIN_BRANCH" 2>/dev/null; main_sha)
+  REFS_AFTER=$(branch_refs)
+  # Rubric criteria 1 and 2. A failed ls-remote returns "unknown" on both sides,
+  # which compares equal — an unreadable remote must not read as a deliverable.
   if [ "$SHA_BEFORE" != "$SHA_AFTER" ] && [ "$SHA_AFTER" != "unknown" ]; then
-    DELIVERABLE="moved"
+    DELIVERABLE="main-advanced"
+    STALL_COUNT=0
+  elif [ "$REFS_BEFORE" != "$REFS_AFTER" ] && [ "$REFS_AFTER" != "unknown" ]; then
+    DELIVERABLE="branch-pushed"
     STALL_COUNT=0
   else
     DELIVERABLE="none"
@@ -458,6 +474,25 @@ $summary" "octagonal_sign"
     if [ "$DELIVERABLE" = "none" ]; then
       echo "  No signal AND no deliverable — counting as a stall."
     fi
+  fi
+
+  # Deadline hard stop. BUDGET: final is a *request* to the agent; an agent that
+  # keeps emitting CONTINUE would otherwise run past the deadline indefinitely,
+  # which is the failure mode this budget exists to prevent. The signal gives it
+  # one iteration to land work and hand over; this enforces the boundary
+  # regardless of what it emits. Rule -> gate.
+  if [ "$DEADLINE_SECONDS" -gt 0 ] && [ $(( $(date +%s) - RUN_START )) -ge "$DEADLINE_SECONDS" ]; then
+    HANDOVER=""
+    [ -f "$STATE_DIR/handover.md" ] && HANDOVER=$(head -20 "$STATE_DIR/handover.md")
+    notify "Sprint Deadline Reached" "Sprint '$SLUG' hit its ${RALPH_SPRINT_DEADLINE} deadline after $i iterations.
+
+$HANDOVER" "hourglass"
+    echo "Deadline ${RALPH_SPRINT_DEADLINE} (${DEADLINE_SECONDS}s) reached after $i iterations."
+    [ -n "$HANDOVER" ] && { echo "--- handover ---"; echo "$HANDOVER"; }
+    EXITING_NORMALLY=true
+    wrapup "Sprint Deadline Reached"
+    [ "$RALPH_SPRINT_ON_BUDGET_EXHAUSTED" = "ship_partial" ] && exit 0
+    exit 1
   fi
 
   # A stalled run stops here rather than burning the remaining iterations. The

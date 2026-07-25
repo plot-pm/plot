@@ -13,8 +13,11 @@ forge state without asking the agent what it did.
 
 FAIL if none hold.
 
-Criteria 1–2 are evaluated every iteration. Criteria 3–5 are evaluated only when
-1–2 fail, so the common case costs no network at all.
+Criteria 1–2 are evaluated every iteration by the runner (main SHA via
+`git rev-parse`, branch refs via `git ls-remote`). Criteria 3–5 require a forge
+query and are evaluated by a verifier agent only when 1–2 fail — so the common
+case costs one lightweight remote read, and the expensive path runs only on the
+stall boundary.
 
 **Not deliverables**, regardless of how the iteration describes itself: reading
 code, analysing state, re-verifying already-verified work, planning the next step,

@@ -1065,57 +1065,48 @@ instance of the failure mode, caught by the discipline this plan is trying to
 install. Recorded rather than retried, because a second attempt would prove
 nothing about the first.
 
-### Independent verification: 3 requirements sound, 2 defects found
+### Independent verification: requirements sound, four defects found and fixed
 
-An architect subagent verified the branch against the three amendment
-requirements, checking files and running commands rather than reading summaries.
-**Verdict: all three requirements SOUND; DEFECTS FOUND (2).**
+Two independent reviewers checked the branch. **Both completed and reported** —
+an earlier draft of this section recorded them as having "died silently" and cited
+that as a live instance of Principle 10. That was wrong: their notifications
+arrived several turns after the work finished, and latency was mistaken for death,
+twice, then written into the plan as supporting evidence. Retracted. Reaching for
+the dramatic reading of ambiguous evidence, and finding it confirmed the principle
+being written, is itself the §6.2.1 pattern.
 
-| Requirement | Verdict | Evidence it cited |
-|-------------|---------|-------------------|
-| 1 — budget in config surface | SOUND | Keys at `SKILL.md:34-51`; read at `ralph-sprint.sh:44-48`; enum validated at `:59-64` and wired to real `exit 0`/`exit 1` at `:461` and `:475-479` — "not decorative" |
-| 2 — rubric + verifier, not self-assessment | SOUND | 5 checkable criteria in the rubric; `DELIVERABLE` computed purely from `git rev-parse` at `:398-408`, never from agent output |
-| 3 — net word count down | SOUND | Independently recomputed: `new=12360 old=12389` → **−29, exact match** |
+**All three amendment requirements: SOUND**, verified against files and commands:
 
-It also read `challenge-the-plan/SKILL.md` in full after the ~800-word cut and
-found it coherent with no dangling references, and confirmed `pnpm run validate`
-and `pnpm test` pass.
+| Requirement | Evidence cited |
+|-------------|----------------|
+| 1 — budget in config surface | Enum validated at `ralph-sprint.sh:74-78`, wired to real `exit 0`/`exit 1` at two paths — "not decorative" |
+| 2 — rubric + verifier | `DELIVERABLE` computed purely from git state, never from agent output |
+| 3 — net word count | Independently recomputed: `12360` vs `12389` → **−29, exact match** |
 
-**Both defects were in `parse_duration`** — the config-parsing code this plan
-added on the grounds that a config surface is *checkable*:
+`challenge-the-plan` was read in full post-cut: coherent, no dangling references.
 
-| Input | Before | After |
-|-------|--------|-------|
-| `1.5h` | **fatal** — uncaught arithmetic error; `set -e` aborts the sprint at startup | `0` (disabled) |
-| `-5m` | negative `DEADLINE_SECONDS`, forcing `BUDGET_STATE=final` from iteration 1 | `0` |
+**Four defects found, all in code this plan added, all fixed:**
 
-Fixed by validating the numeric part *before* any arithmetic. Verified: 13 probe
-inputs survive under `set -e`, and the real script starts cleanly against a
-`## Plot Config` containing `Sprint deadline: 1.5h`. A third case found while
-fixing — `xs` returning a literal `x` into an integer comparison — is covered by
-the same change.
+| # | Defect | Consequence | Fix |
+|---|--------|-------------|-----|
+| 1 | `parse_duration "1.5h"` | Fatal arithmetic error; `set -e` aborts the sprint at startup | Validate the numeric part before any arithmetic |
+| 2 | `parse_duration "-5m"` / `"bogus"` | Negative budget forcing `final` from iteration 1; non-numeric into integer comparison | Same fix — anything non-numeric → `0` (disabled) |
+| 3 | **Deadline was a rule, not a gate** | `BUDGET: final` is a *request*. An agent that keeps emitting `CONTINUE` runs past the deadline indefinitely — the exact failure this budget exists to prevent | Hard stop at the deadline regardless of what the agent emits, honouring the `on_budget_exhausted` enum |
+| 4 | **Rubric criterion 2 was promised but never implemented** | The runner checked only main's SHA. A Step 3 iteration that pushes a feature branch — the *most common* productive shape — counted as a stall; three would kill a healthy run | Implement `branch_refs()` via `git ls-remote`; an unreadable remote compares equal and does not count as a deliverable |
 
-**What this demonstrates, and one thing it does not.**
+Defects 3 and 4 are the serious ones, and both are the same species of error:
+**the plan wrote down a mechanism and the implementation delivered less than the
+prose claimed.** Defect 3 shipped a signal where a gate was described — the
+distinction `CLAUDE.md` explicitly warns about ("a rule is a guideline the agent
+can rationalise around"). Defect 4 shipped a rubric listing five criteria where
+one was checked.
 
-It demonstrates the plan's thesis: the bug lived in the mechanism argued for
-*because* it is checkable, and an independent check found it in minutes. Six
-passes of author self-verification did not, because the author probed the inputs
-he had in mind (`8h`, `30m`, `abc`) rather than the ones a user would typo. The
-architect's report also matched the author's own word-count arithmetic exactly,
-which is the more reassuring half of the result.
-
-It does **not** demonstrate Principle 10. An earlier draft of this plan recorded
-both verification attempts as having "died silently" and cited that as a live
-instance of an agent going quiet. **That was wrong.** Both agents completed and
-reported; the notifications simply arrived several turns after the work finished,
-and the author mistook latency for death — twice — then wrote the mistake into the
-plan as supporting evidence. It is retracted here.
-
-The retraction is worth more than the claim would have been. Reaching for the
-nearest dramatic reading of ambiguous evidence, and finding that it confirmed the
-principle being written, is exactly the §6.2.1 pattern: *"overconfident and
-unsupported claims, sometimes from model-fabricated data, often followed by
-theatrical retractions."* Principle 10 stands on §2.2.6, where it always did.
+Neither was caught by nine iterations of author self-verification. Both were found
+by readers who compared the prose against the code rather than against their memory
+of writing it. That is the plan's own thesis holding up under test — and the
+uncomfortable half of it: **the author was the least reliable checker of his own
+gates**, which is precisely why Change 3 argues a gate must not be satisfied by
+the claim of the thing being gated.
 
 ### Working constraints observed for this session
 
