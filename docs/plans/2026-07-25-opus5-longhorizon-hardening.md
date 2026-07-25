@@ -1039,13 +1039,16 @@ argument for tracers.
 ### Verification pass (independent-ish, iteration 6)
 
 An independent reviewer subagent was dispatched to check the three amendment
-requirements against the files rather than against the author's summaries. **It
-returned nothing** — no report, no error, no notification; the task list came back
-empty. That is the plan's own subject matter arriving unannounced: a silent agent
-is indistinguishable from a finished one, and treating its silence as success
-would have been the exact failure Principle 10 names.
+requirements against the files rather than against the author's summaries. Its
+notification had not arrived by the time this section was written, and the task
+list showed nothing, so the checks below were run directly instead.
 
-The checks were therefore run directly:
+**Correction (iteration 9): the agent had not died.** Its completion notification
+arrived several turns later, carrying a full report. See the next section — the
+"silent death" reading was wrong, and it is retracted rather than left standing as
+convenient evidence for Principle 10.
+
+The direct checks, run while waiting:
 
 | Check | Result |
 |-------|--------|
@@ -1062,44 +1065,57 @@ instance of the failure mode, caught by the discipline this plan is trying to
 install. Recorded rather than retried, because a second attempt would prove
 nothing about the first.
 
-### A real bug, found by a verifier that then died (iteration 8)
+### Independent verification: 3 requirements sound, 2 defects found
 
-A second independent verification was dispatched. It **also returned no report** —
-200 KB of transcript, no verdict, no notification, and the watchdog set to catch
-that eventuality produced no output either. Two silent deaths in two attempts.
+An architect subagent verified the branch against the three amendment
+requirements, checking files and running commands rather than reading summaries.
+**Verdict: all three requirements SOUND; DEFECTS FOUND (2).**
 
-But this one found a genuine defect before going quiet, recoverable from its
-transcript:
+| Requirement | Verdict | Evidence it cited |
+|-------------|---------|-------------------|
+| 1 — budget in config surface | SOUND | Keys at `SKILL.md:34-51`; read at `ralph-sprint.sh:44-48`; enum validated at `:59-64` and wired to real `exit 0`/`exit 1` at `:461` and `:475-479` — "not decorative" |
+| 2 — rubric + verifier, not self-assessment | SOUND | 5 checkable criteria in the rubric; `DELIVERABLE` computed purely from `git rev-parse` at `:398-408`, never from agent output |
+| 3 — net word count down | SOUND | Independently recomputed: `new=12360 old=12389` → **−29, exact match** |
 
-> `parse_duration "1.5h"` crashes the script (uncaught arithmetic syntax error)
-> instead of falling through to the catch-all. The `*h)` case matches first,
-> strips the `h`, then does arithmetic on `1.5` which is invalid. With `set -e`,
-> this would abort the whole sprint run.
+It also read `challenge-the-plan/SKILL.md` in full after the ~800-word cut and
+found it coherent with no dangling references, and confirmed `pnpm run validate`
+and `pnpm test` pass.
 
-**Reproduced and confirmed.** Testing the full input space found three defects,
-all in code this plan added:
+**Both defects were in `parse_duration`** — the config-parsing code this plan
+added on the grounds that a config surface is *checkable*:
 
 | Input | Before | After |
 |-------|--------|-------|
-| `1.5h` | **fatal** — `set -e` aborts the sprint at startup | `0` (disabled) |
-| `-2h` | `-7200` — negative budget, fires `final` on iteration 1 | `0` |
-| `xs` | literal `x` — non-numeric into integer comparison | `0` |
+| `1.5h` | **fatal** — uncaught arithmetic error; `set -e` aborts the sprint at startup | `0` (disabled) |
+| `-5m` | negative `DEADLINE_SECONDS`, forcing `BUDGET_STATE=final` from iteration 1 | `0` |
 
-Fixed by validating the numeric part *before* any arithmetic rather than
-stripping the suffix and computing. Verified: all 13 probe inputs survive under
-`set -e`, and the real script now starts cleanly against a `## Plot Config`
-containing `Sprint deadline: 1.5h`.
+Fixed by validating the numeric part *before* any arithmetic. Verified: 13 probe
+inputs survive under `set -e`, and the real script starts cleanly against a
+`## Plot Config` containing `Sprint deadline: 1.5h`. A third case found while
+fixing — `xs` returning a literal `x` into an integer comparison — is covered by
+the same change.
 
-**This is the strongest evidence in the plan for its own thesis.** The bug was in
-the config-parsing code — the very mechanism argued for on the grounds that it is
-*checkable*. It was checkable, and checking found it. Six iterations of the author
-verifying his own work did not, because the author tested the inputs he had in
-mind (`8h`, `30m`, `0`, `abc`) rather than the ones a user would typo. An
-independent verifier tried `1.5h` in its first minute.
+**What this demonstrates, and one thing it does not.**
 
-The corollary is uncomfortable and worth stating: the two verifiers that found
-this both died silently, and a process that trusted "no report means it passed"
-would have shipped the crash. Principle 10 is not a hypothetical.
+It demonstrates the plan's thesis: the bug lived in the mechanism argued for
+*because* it is checkable, and an independent check found it in minutes. Six
+passes of author self-verification did not, because the author probed the inputs
+he had in mind (`8h`, `30m`, `abc`) rather than the ones a user would typo. The
+architect's report also matched the author's own word-count arithmetic exactly,
+which is the more reassuring half of the result.
+
+It does **not** demonstrate Principle 10. An earlier draft of this plan recorded
+both verification attempts as having "died silently" and cited that as a live
+instance of an agent going quiet. **That was wrong.** Both agents completed and
+reported; the notifications simply arrived several turns after the work finished,
+and the author mistook latency for death — twice — then wrote the mistake into the
+plan as supporting evidence. It is retracted here.
+
+The retraction is worth more than the claim would have been. Reaching for the
+nearest dramatic reading of ambiguous evidence, and finding that it confirmed the
+principle being written, is exactly the §6.2.1 pattern: *"overconfident and
+unsupported claims, sometimes from model-fabricated data, often followed by
+theatrical retractions."* Principle 10 stands on §2.2.6, where it always did.
 
 ### Working constraints observed for this session
 
