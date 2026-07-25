@@ -1115,6 +1115,18 @@ in two distinct ways (stdout-on-failure, and pipeline exit status). Nothing in
 eleven iterations of testing caught them, because every test ran against a *working*
 remote.
 
+**One reported finding was rejected after checking it.** The fourth review flagged
+`branch_refs` returning `""` rather than `"unknown"` for a reachable remote with
+zero branches (MEDIUM, "latent, not currently exploitable"). Traced through the
+consumer: empty is a *truthful* state — zero branches — where `unknown` means the
+lookup failed. Collapsing them would make the first push into a fresh repo
+undetectable, turning a non-bug into a real one. Documented in the code as
+deliberate; the reviewer's own verdict was APPROVE.
+
+Recording this because the corrective pattern runs both ways: six findings were
+accepted and fixed, one was checked and declined. A reviewer's report is evidence,
+not instruction — the same standard this plan applies to an agent's self-report.
+
 Defects 3 and 4 are the serious ones, and both are the same species of error:
 **the plan wrote down a mechanism and the implementation delivered less than the
 prose claimed.** Defect 3 shipped a signal where a gate was described — the

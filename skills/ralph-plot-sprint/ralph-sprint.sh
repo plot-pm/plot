@@ -294,8 +294,13 @@ branch_refs() {
   # failed lookup would return EMPTY. Empty differs from the previous listing,
   # so a network blip would read as "every branch vanished" and score as a
   # deliverable. Same trap as main_sha, different mechanism.
+  # `local` is on its own line: `local out=$(cmd)` would mask cmd's exit status
+  # behind local's, and the `||` below would never fire.
   local out
   out=$(git ls-remote --heads origin 2>/dev/null) || { echo "unknown"; return; }
+  # A reachable remote with zero branches returns EMPTY, deliberately distinct
+  # from "unknown": empty is a truthful state, unknown is a failed lookup.
+  # Collapsing them would make the first push into a fresh repo undetectable.
   printf '%s\n' "$out" | sort
 }
 
