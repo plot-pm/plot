@@ -32,14 +32,29 @@ plot_config_get() {
 }
 
 # Accepts `30m`, `8h`, `90s`, or bare seconds. `0` disables the bound.
+# Anything else → 0 (disabled). Failing toward "no bound" is the safe direction:
+# a typo that disables a budget is visible in the startup line, whereas a typo
+# that yields a zero or negative budget would abort every run at iteration 1.
+#
+# The numeric part is validated BEFORE any arithmetic. Suffix-stripping first and
+# computing second would let `1.5h` reach `$(( 1.5 * 3600 ))`, which is a fatal
+# syntax error under `set -e` — it would kill the sprint at startup rather than
+# fall through to the catch-all.
 parse_duration() {
-  local raw="$1"
+  local raw="$1" num unit
   case "$raw" in
-    *h) printf '%s\n' "$(( ${raw%h} * 3600 ))" ;;
-    *m) printf '%s\n' "$(( ${raw%m} * 60 ))" ;;
-    *s) printf '%s\n' "${raw%s}" ;;
-    ''|*[!0-9]*) printf '0\n' ;;   # unparseable → treat as disabled, not as 0-length
-    *) printf '%s\n' "$raw" ;;
+    *[hms]) num="${raw%[hms]}"; unit="${raw##*[!hms]}" ;;
+    *)      num="$raw";         unit="" ;;
+  esac
+  # Digits only — rejects 1.5, -2, 8H, empty, and anything non-numeric.
+  case "$num" in
+    ''|*[!0-9]*) printf '0\n'; return ;;
+  esac
+  case "$unit" in
+    h) printf '%s\n' "$(( num * 3600 ))" ;;
+    m) printf '%s\n' "$(( num * 60 ))" ;;
+    s) printf '%s\n' "$num" ;;
+    *) printf '%s\n' "$num" ;;
   esac
 }
 

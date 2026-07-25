@@ -1062,6 +1062,45 @@ instance of the failure mode, caught by the discipline this plan is trying to
 install. Recorded rather than retried, because a second attempt would prove
 nothing about the first.
 
+### A real bug, found by a verifier that then died (iteration 8)
+
+A second independent verification was dispatched. It **also returned no report** —
+200 KB of transcript, no verdict, no notification, and the watchdog set to catch
+that eventuality produced no output either. Two silent deaths in two attempts.
+
+But this one found a genuine defect before going quiet, recoverable from its
+transcript:
+
+> `parse_duration "1.5h"` crashes the script (uncaught arithmetic syntax error)
+> instead of falling through to the catch-all. The `*h)` case matches first,
+> strips the `h`, then does arithmetic on `1.5` which is invalid. With `set -e`,
+> this would abort the whole sprint run.
+
+**Reproduced and confirmed.** Testing the full input space found three defects,
+all in code this plan added:
+
+| Input | Before | After |
+|-------|--------|-------|
+| `1.5h` | **fatal** — `set -e` aborts the sprint at startup | `0` (disabled) |
+| `-2h` | `-7200` — negative budget, fires `final` on iteration 1 | `0` |
+| `xs` | literal `x` — non-numeric into integer comparison | `0` |
+
+Fixed by validating the numeric part *before* any arithmetic rather than
+stripping the suffix and computing. Verified: all 13 probe inputs survive under
+`set -e`, and the real script now starts cleanly against a `## Plot Config`
+containing `Sprint deadline: 1.5h`.
+
+**This is the strongest evidence in the plan for its own thesis.** The bug was in
+the config-parsing code — the very mechanism argued for on the grounds that it is
+*checkable*. It was checkable, and checking found it. Six iterations of the author
+verifying his own work did not, because the author tested the inputs he had in
+mind (`8h`, `30m`, `0`, `abc`) rather than the ones a user would typo. An
+independent verifier tried `1.5h` in its first minute.
+
+The corollary is uncomfortable and worth stating: the two verifiers that found
+this both died silently, and a process that trusted "no report means it passed"
+would have shipped the crash. Principle 10 is not a hypothetical.
+
 ### Working constraints observed for this session
 
 - Exploration was time-boxed; the plan was written in one pass after reading the
