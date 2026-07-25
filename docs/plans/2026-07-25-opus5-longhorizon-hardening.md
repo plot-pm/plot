@@ -260,13 +260,18 @@ the last number written down. **Final: −33.**)*
 | File | Δ |
 |------|---|
 | `challenge-the-plan` | **−242** |
-| `ralph-plot-sprint` SKILL | **−138** |
+| `ralph-plot-sprint` SKILL | **−146** |
 | `plot-approve` | −21 |
 | `plot-deliver` | −4 |
 | `plot-reconcile` | +29 |
 | `MANIFESTO.md` | +110 |
-| `deliverable-rubric.md` (new) | +237 |
+| `deliverable-rubric.md` (new) | +241 |
 | **Total** | **−33** (final; −29 at the time of the deletion pass) |
+
+*Per-file figures re-measured after the defect fixes. Two rows had drifted —
+`ralph-plot-sprint` from −138 to −146 and the rubric from +237 to +241 — and they
+offset exactly, so the −33 total stayed correct while the breakdown beneath it was
+wrong. A summary that reconciles is not evidence that its components do.*
 
 **This took three passes, and the first two were wrong.** The initial estimate
 claimed −493 without measuring. The first measurement showed **+443**, and the
