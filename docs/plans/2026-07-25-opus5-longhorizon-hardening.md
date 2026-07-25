@@ -324,6 +324,31 @@ orient block (856 words) is load-bearing state-gathering, not taste; and
 `plot-reconcile`'s "What you must NOT do" is a safety boundary, which is precisely
 what should stay explicit.
 
+**Two late additions, assessed and declined.**
+
+*`/doctor` output could not be recorded.* The request was to run `/doctor` — a
+tool that rightsizes skills and `CLAUDE.md` — and feed its findings into this
+section. **No such tool is reachable from this session.** The only `doctor`
+available is `oh-my-claudecode:omc-doctor`, which diagnoses OMC *plugin
+installation* (version drift, legacy hook scripts, stale caches); it never reads
+skill content and emits nothing a deletion pass could consume. A `/doctor` with
+the described behaviour would be a Claude Code **built-in CLI command** —
+handled by the CLI, not a file, and not invocable by an agent. **The human can
+run it; recording its output here is a follow-up, not a gap in this plan.** The
+deletion pass below therefore rests on manual judgement, and its criteria are
+stated so a `/doctor` run can later confirm or contradict them.
+
+*Automatic memories do not make the sprint sessionlog redundant.* The runner's
+`wrapup` writes a committed sessionlog summarising an automated sprint. That is
+**git-native, shared, and durable**: 20 exist in `docs/sessionlogs/`,
+`CHANGELOG.md` and `story-tracking` reference them, and they are addressed to
+teammates ("Max reviews the diff"). Automatic memories are per-user and private
+to a Claude session — a colleague reading the repo next month gets nothing from
+them. Deleting a git artifact because a non-git store now exists would contradict
+**Principle 1** directly, and no other in-scope skill prescribes session-log or
+documentation-writing behaviour at all (verified by grep across all five). **No
+deletions proposed.**
+
 **Which token count is being reduced — stated plainly, because this plan's own
 word count went up.** The six skill files this plan touches total **12,389 words on
 main**. After Change 0's deletions (−963) and Changes 1–7's additions (~470), they
