@@ -25,6 +25,29 @@ Parse `$ARGUMENTS`:
 - First word → `<slug>` (required)
 - `AUTOMERGE=true` anywhere → merge PRs after finalizing; default false
 
+## Setup
+
+Optional budget keys in the adopting project's `## Plot Config`. Both have
+documented defaults — a project that sets neither behaves as before, except that
+a run can no longer grind or go silent indefinitely.
+
+    ## Plot Config
+    - **Sprint wall clock:** 8h
+    - **Sprint stall limit:** 3
+
+| Key | Env override | Default | Meaning |
+|-----|--------------|---------|---------|
+| `Sprint wall clock` | `RALPH_SPRINT_WALL_CLOCK` | `8h` | Total elapsed time for the whole run, across all iterations. Accepts `30m`, `8h`, or bare seconds. `0` disables. |
+| `Sprint stall limit` | `RALPH_SPRINT_STALL_LIMIT` | `3` | Consecutive iterations with no commit to the main branch before the run stops. `0` disables. |
+
+Precedence: **environment variable → `## Plot Config` → default.** The env var wins
+because the runner is invoked by humans and CI who need a per-run override without
+editing a committed file.
+
+Defaults are deliberately loose. Run length varies by sprint, so no default fits
+every case; a bound that fires during normal operation is worse than no bound,
+because it trains the user to raise it and a disabled detector has zero coverage.
+
 ---
 
 ## DoD Compliance Checklist
@@ -313,6 +336,74 @@ The sprint is BLOCKED because the RC requires human testing. Do not output COMPL
 
 ---
 
+## Iteration Deliverable Checkpoint
+
+An iteration must leave an **observable trace in git or on the forge**. The
+promise signal reports what you did; it is not evidence that you did it. This
+section is a gate, not a rule: the checkable condition is that at least one of
+the following is true *after* your step, and you can name which one.
+
+| Deliverable | How it is observed |
+|-------------|--------------------|
+| A commit landed | `git rev-parse origin/<main>` differs from the value at iteration start |
+| A branch was pushed | `git ls-remote --heads origin <branch>` returns a new SHA |
+| A PR changed state | `gh pr view <n> --json state,isDraft` differs from iteration start |
+| A review comment was posted | `gh api repos/<owner>/<repo>/pulls/<n>/comments` count increased |
+| A review thread was resolved | The thread's `isResolved` flipped to `true` |
+
+Name the deliverable in your iteration summary, as the artifact — e.g.
+`deliverable: pushed feature/sse-backpressure (a1b2c3d)` or
+`deliverable: posted 4 review comments on #12`.
+
+**If no deliverable was produced,** say so explicitly:
+`deliverable: none — <one-line reason>`. Do not manufacture one, and do not
+describe analysis, reading, or verification as a deliverable. Reading the codebase
+is not a deliverable. Confirming that existing work is correct is not a
+deliverable. An iteration that only re-verifies already-verified work must report
+`deliverable: none`.
+
+Consecutive `deliverable: none` iterations are what the runner counts against
+`Sprint stall limit`. Reporting a deliverable you did not produce defeats the only
+mechanism that can detect a stalled run.
+
+**What the runner independently verifies.** The runner checks one thing: whether
+`origin/<main>` moved. Of the deliverables above, only *a commit landed* is
+machine-detected. The other four are reported by you and not verified — which is
+why naming them accurately matters. The runner cannot catch a false
+`deliverable: posted 4 review comments`; a human reading the handover can.
+
+This asymmetry is deliberate, not an oversight. A cheap check that never
+misfires is worth more than a thorough one that flakes on a network read.
+
+---
+
+## Budget Exhaustion and Ship-Partial
+
+The runner injects `BUDGET: <state>` into the iteration prompt. Three states:
+
+- **`BUDGET: ok`** — proceed normally.
+- **`BUDGET: final`** — this is the last iteration before the budget expires. Do
+  **not** start new work. Land what is already in flight: push uncommitted work on
+  the current branch, mark finished PRs ready, and write the handover (below).
+  Then emit `<promise>BLOCKED</promise>`.
+- **`BUDGET: stalled`** — `Sprint stall limit` consecutive iterations produced no
+  deliverable. Do not attempt the same step again. Write the handover, stating
+  what you were attempting and what blocked it, and emit
+  `<promise>BLOCKED</promise>`.
+
+**Handover** — write to `.ralph-state/handover.md` (overwrite; it describes the
+current stop, not a history) and include:
+
+- What was completed this run: merged PRs, pushed branches, resolved threads.
+- What is in flight: branch names and their exact state.
+- What was next, and why it did not happen.
+- The single next action a human should take.
+
+Ship-partial fires *before* the budget expires, not after. Seventeen partial
+results with a handover beat zero results and silence.
+
+---
+
 ## Promise Signals
 
 Write a one-paragraph summary of what you accomplished this iteration, then output exactly one signal on its own line:
@@ -350,4 +441,6 @@ Write a one-paragraph summary of what you accomplished this iteration, then outp
 | Skipping BDD for a non-exempt feature | DoD violation | Classify against DoD exemptions in Step 3 before implementing |
 | Review findings lost in subagent return text | Findings never posted to GitHub; next iteration sees "no comments" | Every subagent MUST post findings via `gh api` directly — never rely on return text |
 | Merging multiple PRs in one iteration | Changes are hard to review; conflicts cascade | Merge at most 1 PR per iteration — each merge deserves its own cycle |
-| No signal emitted at end of iteration | Loop cannot distinguish progress from stuck | Always emit exactly one signal: CONTINUE, COMPLETE, or BLOCKED |
+| No signal emitted at end of iteration | Loop cannot distinguish progress from stuck | Always emit exactly one signal: CONTINUE, COMPLETE, or BLOCKED. A missing signal now counts toward the stall limit — silence is a failure signal, not a continuation |
+| Reporting a deliverable that was not produced | Defeats stall detection; the run grinds to the iteration cap with nothing banked | Report `deliverable: none — <reason>` honestly. Analysis, reading, and re-verification are not deliverables |
+| Starting new work on `BUDGET: final` | Work is cut off mid-step and lost | On `final`, land in-flight work and write the handover. Do not begin a new branch or a new step |

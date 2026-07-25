@@ -11,3 +11,6 @@ Thumbs.db
 
 # Dependencies
 node_modules/
+
+# ralph-plot-sprint runner scratch (iteration logs, heartbeat, handover)
+.ralph-state/

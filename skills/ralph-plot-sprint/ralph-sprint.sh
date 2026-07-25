@@ -14,6 +14,39 @@ RALPH_SPRINT_CLAUDE="${RALPH_SPRINT_CLAUDE:-claude --dangerously-skip-permission
 RALPH_SPRINT_SKILL="${RALPH_SPRINT_SKILL:-ralph-plot-sprint}"
 RALPH_SPRINT_AUTOMERGE="${RALPH_SPRINT_AUTOMERGE:-false}"
 RALPH_SPRINT_TIMEOUT="${RALPH_SPRINT_TIMEOUT:-1800}"
+
+# Budget knobs. Precedence: environment variable > `## Plot Config` > default.
+# The env var wins because this script is invoked by humans and CI who need a
+# per-run override without editing a committed file; Plot Config wins over the
+# default so adopting projects set their own conventions (Manifesto Principle 5).
+PLOT_CONFIG="$(dirname "${BASH_SOURCE[0]}")/../plot/scripts/plot-config.sh"
+
+plot_config_get() {
+  # $1 = key, $2 = default. Falls back to the default if the helper is missing
+  # (older plot install) — never fails the run over a config read.
+  if [ -x "$PLOT_CONFIG" ]; then
+    "$PLOT_CONFIG" get "$1" "$2" 2>/dev/null || printf '%s\n' "$2"
+  else
+    printf '%s\n' "$2"
+  fi
+}
+
+# Accepts `30m`, `8h`, `90s`, or bare seconds. `0` disables the bound.
+parse_duration() {
+  local raw="$1"
+  case "$raw" in
+    *h) printf '%s\n' "$(( ${raw%h} * 3600 ))" ;;
+    *m) printf '%s\n' "$(( ${raw%m} * 60 ))" ;;
+    *s) printf '%s\n' "${raw%s}" ;;
+    ''|*[!0-9]*) printf '0\n' ;;   # unparseable → treat as disabled, not as 0-length
+    *) printf '%s\n' "$raw" ;;
+  esac
+}
+
+RALPH_SPRINT_WALL_CLOCK="${RALPH_SPRINT_WALL_CLOCK:-$(plot_config_get "Sprint wall clock" "8h")}"
+RALPH_SPRINT_STALL_LIMIT="${RALPH_SPRINT_STALL_LIMIT:-$(plot_config_get "Sprint stall limit" "3")}"
+WALL_CLOCK_SECONDS=$(parse_duration "$RALPH_SPRINT_WALL_CLOCK")
+case "$RALPH_SPRINT_STALL_LIMIT" in ''|*[!0-9]*) RALPH_SPRINT_STALL_LIMIT=3 ;; esac
 NTFY_URL="${CLAUDE_NTFY_URL:?"Set CLAUDE_NTFY_URL (e.g. https://ntfy.sh)"}"
 NTFY_TOKEN="${CLAUDE_NTFY_TOKEN:?"Set CLAUDE_NTFY_TOKEN"}"
 NTFY_TOPIC="${CLAUDE_NTFY_TOPIC:-claude-on-$(hostname -s)}"
@@ -28,6 +61,9 @@ i=0
 CHILD_PID=""
 EXITING_NORMALLY=false
 STATE_DIR=".ralph-state"
+RUN_START=$(date +%s)
+STALL_COUNT=0
+MAIN_BRANCH=""   # resolved in pre-flight; used for the deliverable check
 
 # --- Signal handling ---
 
@@ -76,11 +112,16 @@ if [ -z "$1" ] || [ -z "$2" ]; then
   echo "  RALPH_SPRINT_SKILL       Iteration skill name (default: ralph-plot-sprint)"
   echo "  RALPH_SPRINT_AUTOMERGE   Auto-merge reviewed PRs: true|false (default: false)"
   echo "  RALPH_SPRINT_TIMEOUT     Per-iteration timeout in seconds (default: 1800)"
+  echo "  RALPH_SPRINT_WALL_CLOCK  Whole-run budget, e.g. 30m/8h/3600 (default: Plot Config 'Sprint wall clock', else 8h; 0=off)"
+  echo "  RALPH_SPRINT_STALL_LIMIT Consecutive no-commit iterations before stopping (default: Plot Config 'Sprint stall limit', else 3; 0=off)"
   echo "  CLAUDE_NTFY_URL          ntfy server URL (required)"
   echo "  CLAUDE_NTFY_TOKEN        ntfy auth token (required)"
   echo "  CLAUDE_NTFY_TOPIC        ntfy topic (default: claude-on-\$(hostname -s))"
   echo ""
   echo "Monitoring:"
+  echo "  cat .ralph-state/heartbeat               # last iteration, deliverable, stall count"
+  echo "  # stale-run watchdog (older than 1h):"
+  echo "  test \$((\$(date +%s) - \$(cat .ralph-state/heartbeat.ts))) -gt 3600 && echo STALE"
   echo "  tail -f .ralph-state/iter-N.jsonl        # live stream of current iteration"
   echo "  jq 'select(.type==\"assistant\")' ...    # filter for agent responses"
   echo ""
@@ -126,6 +167,14 @@ fi
 # Ensure state directory exists
 mkdir -p "$STATE_DIR"
 
+# Resolve the main branch for the deliverable check. Mirrors plot-reconcile-scan:
+# origin/HEAD first, then the `Main branch` config key, then "main".
+MAIN_BRANCH=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')
+[ -z "$MAIN_BRANCH" ] && MAIN_BRANCH=$(plot_config_get "Main branch" "main")
+git fetch -q origin "$MAIN_BRANCH" 2>/dev/null || true
+
+echo "Budget: wall clock ${RALPH_SPRINT_WALL_CLOCK} (${WALL_CLOCK_SECONDS}s, 0=off), stall limit ${RALPH_SPRINT_STALL_LIMIT} (0=off), main branch ${MAIN_BRANCH}"
+
 # --- Worktree refresh ---
 # Remove stale worktree so claude --worktree creates a fresh one from current HEAD.
 # Without this, the agent works against an old checkout and can't see new sprint items.
@@ -169,6 +218,34 @@ parse_result() {
 parse_session_id() {
   local logfile="$1"
   jq -r 'select(.type=="result") | .session_id // empty' "$logfile" 2>/dev/null || true
+}
+
+# --- Deliverable / stall detection ---
+#
+# The deliverable signal is the main branch SHA and nothing else: it is local,
+# already fetched, cannot flake on a network read, and has exactly two outcomes.
+# A forge query would detect more kinds of progress (review comments, thread
+# resolution, draft->ready flips) but introduces a third state — a failed call is
+# neither "changed" nor "unchanged" — and a detector that misfires gets switched
+# off, at which point its coverage is zero. Reliability beats coverage here.
+#
+# Known blind spot: a Step 4 iteration (post review comments) produces no commit
+# and counts as a stall. That is safe at the default stall limit of 3, because
+# the normal cycle is Step 4 (comments) then Step 1 (fixes, which commit) — the
+# counter resets on the second iteration. Three consecutive review-only rounds
+# would false-positive; that is rare and arguably worth interrupting for.
+
+main_sha() {
+  git rev-parse "origin/$MAIN_BRANCH" 2>/dev/null || echo "unknown"
+}
+
+write_heartbeat() {
+  # $1 = iteration, $2 = deliverable (moved|none), $3 = stall count
+  local now; now=$(date +%s)
+  printf '%s\n' "$now" > "$STATE_DIR/heartbeat.ts"
+  cat > "$STATE_DIR/heartbeat" <<EOF
+{"ts":$now,"iso":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","iteration":$1,"deliverable":"$2","stall_count":$3,"stall_limit":$RALPH_SPRINT_STALL_LIMIT,"elapsed_s":$((now - RUN_START))}
+EOF
 }
 
 # --- Wrap-up session ---
@@ -233,11 +310,32 @@ $batch_text" || true
 
 for ((i=1; i<=ITERATIONS; i++)); do
   LOGFILE=$(iter_logfile "$i")
-  echo "=== Iteration $i/$ITERATIONS === (log: $LOGFILE)"
+  ELAPSED=$(( $(date +%s) - RUN_START ))
+  echo "=== Iteration $i/$ITERATIONS === (log: $LOGFILE, elapsed ${ELAPSED}s, stall ${STALL_COUNT}/${RALPH_SPRINT_STALL_LIMIT})"
+
+  # --- Budget state ---
+  # `final` fires while there is still room to run a full iteration, so the agent
+  # can land in-flight work rather than being cut off mid-step. Reserving one
+  # RALPH_SPRINT_TIMEOUT is what makes ship-partial fire BEFORE the budget
+  # expires instead of after it.
+  BUDGET_STATE="ok"
+  if [ "$WALL_CLOCK_SECONDS" -gt 0 ] && [ $(( ELAPSED + RALPH_SPRINT_TIMEOUT )) -ge "$WALL_CLOCK_SECONDS" ]; then
+    BUDGET_STATE="final"
+  elif [ "$RALPH_SPRINT_STALL_LIMIT" -gt 0 ] && [ "$STALL_COUNT" -ge "$RALPH_SPRINT_STALL_LIMIT" ]; then
+    BUDGET_STATE="stalled"
+  elif [ "$i" -eq "$ITERATIONS" ]; then
+    BUDGET_STATE="final"   # last iteration of the iteration budget
+  fi
+  [ "$BUDGET_STATE" != "ok" ] && echo "BUDGET: $BUDGET_STATE — instructing agent to land work and hand over."
+
+  # --- Deliverable checkpoint (before) ---
+  SHA_BEFORE=$(main_sha)
 
   # --- Instruction injection ---
   INSTRUCTIONS_FILE="$STATE_DIR/instructions.md"
-  ITER_PROMPT="$PROMPT"
+  ITER_PROMPT="$PROMPT
+
+BUDGET: $BUDGET_STATE"
   if [ -f "$INSTRUCTIONS_FILE" ]; then
     EXTRA_INSTRUCTIONS=$(cat "$INSTRUCTIONS_FILE")
     rm "$INSTRUCTIONS_FILE"
@@ -273,6 +371,20 @@ $ITER_PROMPT"
 
   echo "$result"
 
+  # --- Deliverable checkpoint (after) ---
+  # Objective condition: did origin/<main> move? The agent's own account of what
+  # it did is not consulted here — that is the point.
+  SHA_AFTER=$(git fetch -q origin "$MAIN_BRANCH" 2>/dev/null; main_sha)
+  if [ "$SHA_BEFORE" != "$SHA_AFTER" ] && [ "$SHA_AFTER" != "unknown" ]; then
+    DELIVERABLE="moved"
+    STALL_COUNT=0
+  else
+    DELIVERABLE="none"
+    STALL_COUNT=$(( STALL_COUNT + 1 ))
+  fi
+  write_heartbeat "$i" "$DELIVERABLE" "$STALL_COUNT"
+  echo "deliverable: $DELIVERABLE (${SHA_BEFORE:0:7} -> ${SHA_AFTER:0:7}), stall ${STALL_COUNT}/${RALPH_SPRINT_STALL_LIMIT}"
+
   # Extract summary: last ~10 lines before the promise tag
   summary=$(echo "$result" | grep -B 50 '<promise>' | grep -v '<promise>' | tail -10) || true
 
@@ -298,14 +410,42 @@ $summary" "octagonal_sign"
     echo "Iteration $i: CONTINUE — proceeding to next iteration."
 
   else
-    # No recognized signal — warn but continue for backwards compatibility.
-    echo "WARNING: Iteration $i: no signal detected (expected <promise>CONTINUE</promise>). Continuing anyway."
+    # No recognized signal. Silence is a failure signal, never a completion
+    # signal (Manifesto Principle 10): an iteration that emitted nothing counts
+    # against the stall limit regardless of what else it may have done. It is
+    # NOT fatal on its own — a single missing signal alongside a real commit is
+    # tolerated, because SHA movement already reset the counter above.
+    echo "WARNING: Iteration $i: no signal detected (expected <promise>CONTINUE</promise>)."
+    if [ "$DELIVERABLE" = "none" ]; then
+      echo "  No signal AND no deliverable — counting as a stall."
+    fi
+  fi
+
+  # A stalled run stops here rather than burning the remaining iterations. The
+  # NEXT iteration was already told BUDGET: stalled and given a chance to hand
+  # over; reaching this point means it did not produce anything either.
+  if [ "$RALPH_SPRINT_STALL_LIMIT" -gt 0 ] && [ "$STALL_COUNT" -gt "$RALPH_SPRINT_STALL_LIMIT" ]; then
+    HANDOVER=""
+    [ -f "$STATE_DIR/handover.md" ] && HANDOVER=$(head -20 "$STATE_DIR/handover.md")
+    notify "Sprint Stalled" "Sprint '$SLUG' stalled: ${STALL_COUNT} iterations with no commit to $MAIN_BRANCH.
+
+$HANDOVER" "octagonal_sign"
+    echo "Sprint stalled after $i iterations (${STALL_COUNT} with no deliverable)."
+    EXITING_NORMALLY=true
+    wrapup "Sprint Stalled"
+    exit 1
   fi
 done
 
-# Exhausted iterations without a promise signal
-notify "Sprint Iterations Exhausted" "Sprint '$SLUG' used all $ITERATIONS iterations without completing." "warning"
+# Exhausted iterations without a promise signal. The final iteration was told
+# BUDGET: final, so a handover should exist — surface it rather than just the count.
+HANDOVER=""
+[ -f "$STATE_DIR/handover.md" ] && HANDOVER=$(head -20 "$STATE_DIR/handover.md")
+notify "Sprint Iterations Exhausted" "Sprint '$SLUG' used all $ITERATIONS iterations without completing.
+
+$HANDOVER" "warning"
 echo "Exhausted $ITERATIONS iterations without completing."
+[ -n "$HANDOVER" ] && { echo "--- handover ---"; echo "$HANDOVER"; }
 EXITING_NORMALLY=true
 wrapup "Sprint Iterations Exhausted"
 exit 1
