@@ -107,7 +107,7 @@ You produce **text only** — a short summary of what the scan found and which f
 
 ## What you must NOT do
 
-- **Do not let the command mutate anything on its own.** The scan is read-only by construction; keep it that way. Symlink moves, phase flips, and branch deletions happen only when the human runs a printed command (or explicitly tells you to run a batch).
+- **Read-only is a design invariant, not a current behaviour.** This command never mutates repository state, and no future version may add that capability. A sweep that repairs what it finds cannot report independently on its own work — and `/plot-deliver` Step 7b depends on that independence. Automatic repair, if ever wanted, belongs in a separately named command. Symlink moves, phase flips, and branch deletions happen only when the human runs a printed command.
 - **Do not flag legacy plans as errors.** A plan with no phase field is pre-plot history, not a defect. Report the count; don't propose fixing all of them.
 - **Do not delete a branch the scan degraded on.** If no forge CLI was available, the "no open PR" signal is unverified — confirm before any deletion.
 - **Do not re-derive the state by hand.** Trust the scan for *what is*; spend your judgment on *what to do*.

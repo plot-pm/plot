@@ -17,11 +17,12 @@
 
 ## Changelog
 
-- `ralph-plot-sprint` gains a wall-clock budget, a per-iteration deliverable checkpoint, a ship-partial fallback that fires before the budget expires, and a heartbeat so prolonged silence is detectable as an error state.
+- `ralph-plot-sprint` gains a declarative budget surface — `max iterations`, `deadline`, `heartbeat interval`, `stall limit`, and an `on budget exhausted` enum (`ship_partial | fail`) — plus a deliverable rubric evaluated by the runner and a verifier agent, replacing agent self-report.
 - `challenge-the-plan` gains a question budget, a material-vs-marginal filter, and a falsifiable stopping rule.
 - `plot-deliver` gate language tightened so every gate is verifiable from git/forge state rather than from the agent's own claim of completion.
 - `plot-reconcile` read-only-ness stated as a design invariant rather than a description of current behaviour.
-- New `## Plot Config` keys: `Sprint wall clock`, `Sprint stall limit`, `Challenge question budget`. All optional, all with documented defaults.
+- New `## Plot Config` keys: `Sprint max iterations`, `Sprint deadline`, `Sprint heartbeat interval`, `Sprint stall limit`, `Sprint on budget exhausted`, `Challenge question budget`. All optional, all with documented defaults.
+- A deletion pass removes 1,616 words of canned templates, taste rules, a worked example, inline query bodies, and rules restated as warnings. Net across the touched files is **−33** (12,389 → 12,356) — the config surface and rubric add literal text, and the deletions more than cover it.
 - Docs record the model class the skills were authored and tuned against.
 
 <!-- Board impact: NONE. This plan touches no plan-format field, not the plan
@@ -148,7 +149,7 @@ verifying them".
   benchmark delta does not.
 - §6.2.1's "self-correction loops … continually re-verifying already verified
   answers, **especially at higher effort levels**" is the single most load-bearing
-  citation in this plan, because `ralph-sprint.sh:259` runs `--effort high`. It is
+  citation in this plan, because the `--effort high` flag (`grep -n effort ralph-sprint.sh`) runs `--effort high`. It is
   also a better citation for `challenge-the-plan` than §6.5 is.
 - The §6.1.3 subagent-relay note directly implicates `ralph-plot-sprint` Step 4,
   which already had to add a rule about subagent findings being lost in return
@@ -163,6 +164,32 @@ verifying them".
 - No §2.2.6 claim about "17 unranked outputs" being *ranked* by the comparison
   model in a *general* design task — the ranking claim is specific to protein
   binder designs.
+
+### Second source: context-engineering post
+
+`https://claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models`
+(Anthropic, same day as the system card). Read after the first draft of this plan;
+it changed Changes 1 and 2 and added Change 0.
+
+**Supports, quoted:**
+
+- **Constraints belong in the tool surface.** The Todo tool example: listing status
+  "as an enumeration between pending, in_progress, and completed, hints to Claude
+  about how to use it." Guidance is to "put instructions on how to use tools in the
+  tool descriptions rather than the system prompt."
+- **Rubrics and verifier agents.** Rubrics are "another form of references" that
+  "allow Claude to try and verify your taste in a particular field", used via
+  "dynamic workflows" and "spinning up verifier agents with those rubrics."
+- **Deletion is safe.** Anthropic "removed over 80% of Claude Code's system prompt"
+  for newer models "with no measurable loss on our coding evaluations." The comment
+  rule moved from "default to writing no comments. Never write multi-paragraph
+  docstrings" to "write code that reads like the surrounding code."
+
+**Does NOT support — stated plainly:** the post contains **no guidance on budgets,
+deadlines, max iterations, heartbeats, or long-horizon runs.** Change 1's wall
+clock and stall limit rest on §2.2.6 alone. The post changes only *how* those
+bounds are expressed (config surface, not prose) — not *whether* they are
+justified. Do not cite this post as evidence for the budget itself.
 
 ### Read for this plan
 
@@ -193,17 +220,163 @@ default.** The env var wins because `ralph-sprint.sh` is invoked by humans and C
 who need per-run overrides without editing a committed file; config wins over the
 default because that is the whole point of Principle 5.
 
+Two further constraints, added after reading Anthropic's context-engineering
+companion post (see [Second Source](#second-source-context-engineering-post)):
+**express constraints in the config surface rather than in prose**, and **the plan
+must delete more prose than it adds**.
+
+### Change 0 — Deletion pass (do this first)
+
+The companion post reports Anthropic "removed over 80% of Claude Code's system
+prompt" for Claude 5 models "with no measurable loss on our coding evaluations",
+and replaced prescriptive style rules with judgement-based ones — "default to
+writing no comments. Never write multi-paragraph docstrings" became "write code
+that reads like the surrounding code".
+
+Plot's skills carry the same kind of ballast: rules that encode taste, enumerate
+what the model can enumerate itself, or restate a decision the surrounding text
+already makes. **This section ships before any other change**, so the additions
+land in a smaller file rather than a larger one.
+
+| Delete | Where | Words | Why it can go |
+|--------|-------|-------|---------------|
+| **39 canned question templates** | `challenge-the-plan` → `## Question Templates` | 404 | A list of pre-written questions ("What if user clicks [button] twice rapidly?") is exactly what the material-vs-marginal filter replaces. The filter states the *test*; the model generates the questions. Keeping both means the templates pull toward asking the marginal ones because they are already written. |
+| **Tone / Audience / Complexity adaptation blocks** | `challenge-the-plan` → end of Phase 3 | 99 | "Neutral for information gathering, Skeptical for assumptions, Socratic for trade-offs" is taste. Opus 5 modulates register without being told, and a model that cannot will not be rescued by three bullets. |
+| **Narrative Weaving example transformation** | `challenge-the-plan` → Phase 5 | 129 | A 129-word before/after JWT example demonstrating "add detail, not sections". The four principles above it already say this. The example is a worked demonstration of a point that needs no demonstration. |
+| **Adaptive Depth Strategy** | `challenge-the-plan` | 102 | "Detailed answers: continue at current depth. Terse answers: ask Socratic follow-ups." Read-the-room instructions. Superseded by the stopping rule, which is checkable where this is not. |
+| **Step 5 model-tier blockquote** | `plot-deliver` | 109 | Restates the `## Model Guidance` table twelve lines above it, in prose, for one step. Keep the table; drop the restatement. |
+| **Common Mistakes rows that restate an adjacent rule** | `ralph-plot-sprint` | ~120 | The table has grown to 17 rows. Rows whose Prevention column merely repeats a CRITICAL rule stated verbatim in the step above it are noise. Keep rows describing a *non-obvious* failure; drop the echoes. |
+
+**Deletion total as implemented: 1,616 words.** Net across the touched files:
+**12,389 → 12,356 (−33).** The target is met, though narrowly, and it held through
+three subsequent rounds of defect fixes.
+
+*(The figure moved six times: −493 estimated → +443 measured → −29 after the
+deletion pass → +4 when the defect fixes added prose → −33 after trimming it →
+−33 held through three further rounds of fixes. Every step was measured, and both
+upward moves were caught only because someone re-ran `wc -w` instead of trusting
+the last number written down. **Final: −33.**)*
+
+| File | Δ |
+|------|---|
+| `challenge-the-plan` | **−242** |
+| `ralph-plot-sprint` SKILL | **−146** |
+| `plot-approve` | −21 |
+| `plot-deliver` | −4 |
+| `plot-reconcile` | +29 |
+| `MANIFESTO.md` | +110 |
+| `deliverable-rubric.md` (new) | +241 |
+| **Total** | **−33** (final; −29 at the time of the deletion pass) |
+
+*Per-file figures re-measured after the defect fixes. Two rows had drifted —
+`ralph-plot-sprint` from −138 to −146 and the rubric from +237 to +241 — and they
+offset exactly, so the −33 total stayed correct while the breakdown beneath it was
+wrong. A summary that reconciles is not evidence that its components do.*
+
+**This took three passes, and the first two were wrong.** The initial estimate
+claimed −493 without measuring. The first measurement showed **+443**, and the
+plan then argued the target was unreachable without sacrificing load-bearing
+procedure. That argument was itself wrong: it treated the whole of
+`ralph-plot-sprint` as untouchable while its `## Common Mistakes` table still held
+**nine rows restating rules already stated in the step that governs them** — the
+clearest possible instance of what this deletion pass is for. Removing them, plus
+compressing the plan's own additions in `plot-approve`, `plot-reconcile`, the
+Manifesto and the rubric, closed the gap.
+
+The lesson generalises past this plan: *"further cuts would damage the file"* is
+the kind of claim that feels like judgement and is actually an untested assertion.
+It cost two passes because nobody checked it against the file — including the
+agent that wrote it. Change 3's whole argument, applied to Change 0.
+
+**What was NOT cut, and why:** Step 0's orient block (777 w) is state-gathering
+and step selection — the file's actual work. Four Common Mistakes rows survive
+because their cause is genuinely not obvious from the governing step. Cutting
+either to buy more headroom would trade working instructions for a metric.
+
+**The enum contract was executed, not just written.** Running the runner's real
+config-resolution prologue against a probe repo whose `## Plot Config` sets
+`Sprint deadline: 4h`, `Sprint max iterations: 7`, and a deliberately invalid
+`Sprint on budget exhausted: bogus_value`:
+
+```
+deadline=4h (14400 s)
+max_iter=7
+enum=ship_partial
+stderr: warning: Sprint on budget exhausted='bogus_value' is not ship_partial|fail; using ship_partial
+```
+
+Config values resolve, the duration parses, and the invalid enum coerces to
+`ship_partial` with a warning — failing toward shipping, as specified. This is the
+difference the plan argues for throughout: a config surface can be *executed* to
+prove it behaves as documented, where a paragraph can only be read.
+
+Verify with:
+
+```bash
+wc -w skills/{ralph-plot-sprint,challenge-the-plan,plot-deliver,plot-reconcile,plot-approve}/SKILL.md \
+      skills/ralph-plot-sprint/deliverable-rubric.md skills/plot/MANIFESTO.md
+```
+
+This is a floor, not a target. Reviewers should delete more if they see it — the
+listed items are the ones defensible without a judgement call, not the complete
+set. Two candidates were considered and **rejected**: `ralph-plot-sprint` Step 0's
+orient block (856 words) is load-bearing state-gathering, not taste; and
+`plot-reconcile`'s "What you must NOT do" is a safety boundary, which is precisely
+what should stay explicit.
+
+**Two late additions, assessed and declined.**
+
+*`/doctor` output could not be recorded.* The request was to run `/doctor` — a
+tool that rightsizes skills and `CLAUDE.md` — and feed its findings into this
+section. **No such tool is reachable from this session.** The only `doctor`
+available is `oh-my-claudecode:omc-doctor`, which diagnoses OMC *plugin
+installation* (version drift, legacy hook scripts, stale caches); it never reads
+skill content and emits nothing a deletion pass could consume. A `/doctor` with
+the described behaviour would be a Claude Code **built-in CLI command** —
+handled by the CLI, not a file, and not invocable by an agent. **The human can
+run it; recording its output here is a follow-up, not a gap in this plan.** The
+deletion pass below therefore rests on manual judgement, and its criteria are
+stated so a `/doctor` run can later confirm or contradict them.
+
+*Automatic memories do not make the sprint sessionlog redundant.* The runner's
+`wrapup` writes a committed sessionlog summarising an automated sprint. That is
+**git-native, shared, and durable**: 20 exist in `docs/sessionlogs/`,
+`CHANGELOG.md` and `story-tracking` reference them, and they are addressed to
+teammates ("Max reviews the diff"). Automatic memories are per-user and private
+to a Claude session — a colleague reading the repo next month gets nothing from
+them. Deleting a git artifact because a non-git store now exists would contradict
+**Principle 1** directly, and no other in-scope skill prescribes session-log or
+documentation-writing behaviour at all (verified by grep across all five). **No
+deletions proposed.**
+
+**Which token count is being reduced — stated plainly, because this plan's own
+word count went up.** The six skill files this plan touches total **12,389 words on
+main**. After Change 0's deletions (−963) and Changes 1–7's additions (~470), they
+total **~11,896 — a net −493**. That is the number that matters: skills are loaded
+into an agent's context on every invocation, so they *are* the prompt.
+
+This plan file grew from 7,246 to ~8,400 words in the same amendment. It is a
+design document read once by a human reviewer, not a prompt — it is never loaded
+as agent context, and the growth is source verification and rationale that a
+reviewer needs in order to disagree with the reasoning. Conflating the two counts
+would be the easy way to claim a win here; they are different artifacts with
+different readers. **Verify the claim that matters with:**
+
+```bash
+wc -w skills/{ralph-plot-sprint,challenge-the-plan,plot-deliver,plot-reconcile,plot-approve}/SKILL.md skills/plot/MANIFESTO.md
+```
+
 ### Change 1 — `ralph-plot-sprint`: bound the loop (highest priority)
 
 `ralph-sprint.sh` already has an iteration budget (`ITERATIONS`, positional) and a
 per-iteration timeout (`RALPH_SPRINT_TIMEOUT`, 1800s). It does **not** have a
-wall-clock budget, a deliverable checkpoint, an early ship-partial, or a heartbeat.
+declarative budget surface, a verifiable deliverable rubric, an early ship-partial, or a heartbeat.
 Three specific gaps map onto the campaign failure:
 
-1. **`ralph-sprint.sh:300-303`** — an iteration that emits *no* signal logs
+1. **the no-signal branch (`grep -n 'no signal detected'`)** — an iteration that emits *no* signal logs
    `WARNING … Continuing anyway`. Silence is treated as continuation. This is the
    "went silent for its final 8 hours" shape, in code, today.
-2. **`ralph-sprint.sh:307`** — the exhaustion notification fires *after* all
+2. **the exhaustion path (`grep -n 'Sprint Iterations Exhausted'`)** — the exhaustion notification fires *after* all
    iterations are spent. That is the "shipped nothing" ending: the human learns at
    the end, with nothing banked.
 3. **The `<promise>CONTINUE</promise>` signal is self-asserted.** Nothing checks
@@ -212,165 +385,124 @@ Three specific gaps map onto the campaign failure:
 
 #### 1a. Config keys
 
-Added to the Setup block of `ralph-plot-sprint/SKILL.md` and to the repo's own
-`CLAUDE.md` `## Plot Config`:
+**The config surface is the specification.** Per the companion post, an
+enumeration communicates intended behaviour more reliably than a paragraph — and
+unlike a paragraph, a script can check it. The Setup block of
+`ralph-plot-sprint/SKILL.md` and the repo's own `CLAUDE.md`:
 
 ```
-- **Sprint wall clock:** 8h
-- **Sprint stall limit:** 3
+- **Sprint max iterations:** 20
+- **Sprint deadline:** 8h
+- **Sprint heartbeat interval:** 5m
+- **Sprint on budget exhausted:** ship_partial
 ```
 
-| Key | Env override | Default | Meaning |
-|-----|--------------|---------|---------|
-| `Sprint wall clock` | `RALPH_SPRINT_WALL_CLOCK` | `8h` | Total elapsed time for the whole run, across all iterations. Accepts `30m`, `8h`, or bare seconds. `0` disables. |
-| `Sprint stall limit` | `RALPH_SPRINT_STALL_LIMIT` | `3` | Consecutive iterations with no observable deliverable before the run is declared stalled. `0` disables. |
+| Key | Env override | Type | Default | Meaning |
+|-----|--------------|------|---------|---------|
+| `Sprint max iterations` | `RALPH_SPRINT_MAX_ITERATIONS` | integer, `0`=off | `20` | Iteration ceiling. Overrides the positional argument when set. |
+| `Sprint deadline` | `RALPH_SPRINT_DEADLINE` | duration (`30m`/`8h`/secs), `0`=off | `8h` | Whole-run elapsed budget. |
+| `Sprint heartbeat interval` | `RALPH_SPRINT_HEARTBEAT_INTERVAL` | duration, `0`=off | `5m` | Max age of `.ralph-state/heartbeat` before an external watchdog should treat the run as hung. |
+| `Sprint stall limit` | `RALPH_SPRINT_STALL_LIMIT` | integer, `0`=off | `3` | Consecutive iterations with no verified deliverable before the run stops. |
+| `Sprint on budget exhausted` | `RALPH_SPRINT_ON_BUDGET_EXHAUSTED` | **enum: `ship_partial` \| `fail`** | `ship_partial` | What happens when any budget above is reached. |
 
-Defaults chosen to be **deliberately loose**. Run length varies by sprint — some
-short and attended, some long and unattended — so no default fits every case, and
-adopting projects with a consistent pattern should set their own. A bound that
-fires during normal operation is worse than no bound: it trains the user to raise
-it, and a disabled detector has zero coverage.
+**The enum is the contract**, and it replaces the prose section this plan
+originally proposed:
 
-`3` for the stall limit is the load-bearing number, because the wall clock will
-rarely fire under a loose default. Three exceeds the legitimate "posted review
-comments, no commit" case, which is one iteration by design (Step 4 posts, Step 1
-then fixes and commits).
+- **`ship_partial`** — on the final iteration before a budget is reached, the
+  runner injects `BUDGET: final`. The agent lands in-flight work (push, mark
+  finished PRs ready), writes `.ralph-state/handover.md`, and emits `BLOCKED`.
+  Exit 0 — a partial ship is a successful outcome, not an error.
+- **`fail`** — the runner stops at the boundary, writes whatever handover exists,
+  and exits non-zero. For CI, where a partial result should not read as success.
 
-#### 1b. Deliverable checkpoint — exact text to add to `SKILL.md`
+Unrecognised value → `ship_partial` with a warning on stderr. Failing toward
+shipping is the safe direction.
 
-New section, placed immediately before `## Promise Signals`:
+`ralph-sprint.sh` validates the enum at startup and prints the resolved budget
+line, so the effective configuration is visible in the log before any iteration
+runs — no reading of prose required to know what the run will do.
+
+Defaults are **deliberately loose**: run length varies by sprint, and a bound that
+fires during normal operation trains the user to raise it. `3` for the stall limit
+is the load-bearing number, since a loose deadline rarely fires.
+
+#### 1b. Deliverable checkpoint — rubric plus verifier, not self-assessment
+
+The plan originally proposed a `## Iteration Deliverable Checkpoint` section
+instructing the agent to report `deliverable: <what it did>` and to answer
+honestly when it had produced nothing. **That was self-assessment of completion,
+which §6.5 and §6.2.1 identify as a weak point** — and it contradicted this plan's
+own Change 3, which argues a gate satisfied by self-report is not a gate. Both
+prose sections are dropped in favour of a rubric the runner evaluates and a
+verifier agent that adjudicates the ambiguous cases.
+
+**The rubric** ships as `skills/ralph-plot-sprint/deliverable-rubric.md`. It is
+data, not instruction — the runner reads it, and a verifier agent is spun up with
+it (the companion post's "spinning up verifier agents with those rubrics"):
 
 ```markdown
-## Iteration Deliverable Checkpoint
+# Iteration Deliverable Rubric
 
-An iteration must leave an **observable trace in git or on the forge**. The
-promise signal reports what you did; it is not evidence that you did it. This
-section is a gate, not a rule: the checkable condition is that at least one of
-the following is true *after* your step, and you can name which one.
+An iteration PASSES if at least one criterion holds. Each is checkable from
+git or forge state without asking the agent what it did.
 
-| Deliverable | How it is observed |
-|-------------|--------------------|
-| A commit landed | `git rev-parse origin/<main>` differs from the value at iteration start |
-| A branch was pushed | `git ls-remote --heads origin <branch>` returns a new SHA |
-| A PR changed state | `gh pr view <n> --json state,isDraft` differs from iteration start |
-| A review comment was posted | `gh api repos/<owner>/<repo>/pulls/<n>/comments` count increased |
-| A review thread was resolved | The thread's `isResolved` flipped to `true` |
+| # | Criterion | Check | Cost |
+|---|-----------|-------|------|
+| 1 | Main branch advanced | `git rev-parse origin/<main>` changed | local |
+| 2 | A branch was pushed or updated | `git ls-remote --heads origin` diff | local |
+| 3 | A PR changed state | `gh pr list --json number,state,isDraft` diff | 1 call |
+| 4 | Review comments posted | PR comment count increased | 1 call |
+| 5 | A review thread resolved | `isResolved` flipped true | 1 call |
 
-Name the deliverable in your iteration summary, as the artifact — e.g.
-`deliverable: pushed feature/sse-backpressure (a1b2c3d)` or
-`deliverable: posted 4 review comments on #12`.
+FAIL if none hold. Criteria 1-2 are evaluated every iteration. Criteria 3-5 are
+evaluated only when 1-2 fail, so the common case costs no network at all.
 
-**If no deliverable was produced,** say so explicitly:
-`deliverable: none — <one-line reason>`. Do not manufacture one, and do not
-describe analysis, reading, or verification as a deliverable. Reading the codebase
-is not a deliverable. Confirming that existing work is correct is not a
-deliverable. An iteration that only re-verifies already-verified work must report
-`deliverable: none`.
-
-Consecutive `deliverable: none` iterations are what the runner counts against
-`Sprint stall limit`. Reporting a deliverable you did not produce defeats the only
-mechanism that can detect a stalled run.
-
-**What the runner independently verifies.** The runner checks one thing: whether
-`origin/<main>` moved. Of the deliverables above, only *a commit landed* is
-machine-detected. The other four are reported by you and not verified — which is
-why naming them accurately matters. The runner cannot catch a false
-`deliverable: posted 4 review comments`; a human reading the handover can.
-
-This asymmetry is deliberate, not an oversight. A cheap check that never
-misfires is worth more than a thorough one that flakes on a network read.
+NOT deliverables, regardless of how the iteration describes itself: reading code,
+analysing state, re-verifying already-verified work, planning the next step,
+or confirming that something is already correct.
 ```
 
-**Rationale.** §2.2.6 — the failing arms "consistently got stuck in
-self-verification loops instead of producing designs". A loop cannot detect that
-state from its own narration; it needs a fact about the world. §6.2.1's
-"continually re-verifying already verified answers, especially at higher effort
-levels" is why the exclusion is stated explicitly — and `ralph-sprint.sh:259`
-passes `--effort high`.
+**The verifier** runs only when criteria 1–2 fail — the case where the cheap
+local signal says "stall" but a legitimate review-only iteration may have
+occurred. It is a subagent given the rubric, the iteration's forge diff, and one
+question: *does any criterion hold?* It returns `pass` or `fail` with the
+criterion number. It is not asked whether progress was made, and it never sees the
+agent's own account of the iteration.
 
-#### 1c. Ship-partial fallback — exact text to add to `SKILL.md`
+This resolves the blind spot the plan previously accepted (review-only iterations
+counting as stalls) without a per-iteration forge query in the common path, and
+without asking the working agent to grade itself.
 
-New section, immediately after the checkpoint section:
-
-```markdown
-## Budget Exhaustion and Ship-Partial
-
-The runner injects `BUDGET: <state>` into the iteration prompt. Three states:
-
-- **`BUDGET: ok`** — proceed normally.
-- **`BUDGET: final`** — this is the last iteration before the budget expires. Do
-  **not** start new work. Land what is already in flight: push uncommitted work on
-  the current branch, mark finished PRs ready, and write the handover (below).
-  Then emit `<promise>BLOCKED</promise>`.
-- **`BUDGET: stalled`** — `Sprint stall limit` consecutive iterations produced no
-  deliverable. Do not attempt the same step again. Write the handover, stating
-  what you were attempting and what blocked it, and emit
-  `<promise>BLOCKED</promise>`.
-
-**Handover** — write to `.ralph-state/handover.md` (overwrite; it describes the
-current stop, not a history) and include:
-
-- What was completed this run: merged PRs, pushed branches, resolved threads.
-- What is in flight: branch names and their exact state.
-- What was next, and why it did not happen.
-- The single next action a human should take.
-
-Ship-partial fires *before* the budget expires, not after. Seventeen partial
-results with a handover beat zero results and silence.
-```
-
-**Rationale.** §2.2.6: one arm "shipped 17 unranked designs after abandoning the
-selectivity goal partway through; the other shipped nothing and went silent". The
-17-design arm was the better outcome. This makes partial delivery the *designed*
-ending rather than an accident, and makes abandonment explicit rather than silent.
+**Handover** — on any budget boundary, `.ralph-state/handover.md` is overwritten
+with: what merged, what is in flight and its branch state, what was next and why it
+did not happen, and the single next action for a human. Ship-partial fires *before*
+the budget is reached, not after.
 
 #### 1d. Runner changes — `ralph-sprint.sh`
 
 | Concern | Change |
 |---------|--------|
-| Wall clock | Record `RUN_START=$(date +%s)` before the loop. Each iteration, compute elapsed; if `elapsed + RALPH_SPRINT_TIMEOUT >= WALL_CLOCK`, inject `BUDGET: final`. The reserve is deliberate — the final iteration must have room to run. |
-| Stall detection | Capture `git rev-parse origin/<main>` before the iteration and again after. Unchanged → increment the stall counter; changed → reset to 0. Counter reaching `Sprint stall limit` injects `BUDGET: stalled`. **Git SHA only — no forge query.** See below. |
-| Missing signal | **Change `:300-303` from WARNING-and-continue to a stall increment.** An iteration with no parseable signal counts as `deliverable: none` regardless of what else it did. Silence must cost something. |
-| Heartbeat | After each iteration, write `.ralph-state/heartbeat` with epoch timestamp, iteration number, deliverable line, and stall counter. Sufficient for `test $(($(date +%s) - $(cat .ralph-state/heartbeat.ts))) -gt 3600` from cron or a watchdog. No new daemon, no new dependency. |
-| Notification | On `BLOCKED` via `final`/`stalled`, the existing ntfy call sends the handover's next-action line rather than the generic summary. |
+| Budget resolution | Read all five keys at startup via `plot-config.sh`, env var first. Validate `Sprint on budget exhausted` against the enum; unrecognised → `ship_partial` + stderr warning. Print the resolved budget line before iteration 1. |
+| Deadline | `RUN_START=$(date +%s)` before the loop; each iteration, if `elapsed + RALPH_SPRINT_TIMEOUT >= deadline`, inject `BUDGET: final`. Reserving one timeout is what makes ship-partial fire *before* the boundary. |
+| Deliverable | Evaluate rubric criteria 1–2 locally (SHA + branch refs). If both fail, spawn the verifier with the rubric to check 3–5. Verifier `fail` → increment stall counter; any pass → reset to 0. |
+| Missing signal | Change the no-signal branch from WARNING-and-continue to a rubric evaluation like any other iteration. An iteration that emitted nothing is judged on what it changed, not on what it said. |
+| Heartbeat | Write `.ralph-state/heartbeat` (+ `.ts`) after each iteration: timestamp, iteration, rubric result, stall counter. `Sprint heartbeat interval` is the staleness threshold an external watchdog compares against. |
+| Exhaustion | Behaviour comes from the enum, not from the script: `ship_partial` → handover + `BLOCKED` + exit 0; `fail` → handover + exit non-zero. |
 
-Config read at startup via `plot-config.sh get "Sprint wall clock" 8h`, env var taking
-precedence. Nothing new is installed; `plot-config.sh` already exits 0 on missing
-config and returns the default.
+Nothing new is installed; `plot-config.sh` already exits 0 on missing config and
+returns the default.
 
-**Stall detection uses the git SHA alone, and this is a deliberate trade.**
+**Why the verifier, and why only on the stall boundary.** The cheap local check
+(criteria 1–2) cannot see review-comment-only or thread-resolution iterations,
+which are legitimate work that produces no commit. Querying the forge every
+iteration to catch them would cost a network call per iteration and introduce a
+third state — a failed read is neither "changed" nor "unchanged". Running the
+verifier *only when the local check fails* gets the coverage without the cost:
+the common path stays local and cannot flake, and the ambiguous path gets a
+judgement made against a rubric rather than against the agent's self-report.
 
-The richer alternative — diffing forge state (open PRs, review threads) across
-iterations — detects more kinds of progress, but costs one `gh pr list` per
-iteration and introduces a third state: a failed network read is neither "changed"
-nor "unchanged". Handling that correctly means distinguishing *unknown* from *no
-change* and not counting unknowns, which is machinery whose own failure modes need
-testing. `git rev-parse origin/<main>` is local, is already fetched, cannot flake,
-and has exactly two outcomes.
-
-The reasoning is the same as Change 3's: **a detector that lies gets switched off,
-and a switched-off detector has zero coverage.** A slightly blind detector that
-never produces a false alarm stays enabled. Reliability beats coverage for
-something whose whole job is to be trusted when it fires.
-
-**The cost, stated plainly.** A git-SHA-only signal cannot see:
-
-- **Step 4 iterations** (post review comments) — no commit, by design.
-- **Thread-resolution-only iterations** in Step 1's refinement path.
-- **PR state flips** — `gh pr ready` without a push.
-
-A Step 4 iteration therefore counts as a stall even though it did real work. With
-`Sprint stall limit: 3` this is safe in the normal cycle, where Step 4 (comments)
-is followed by Step 1 (fixes, which commit) — the counter resets on iteration two
-of three. **The case that would false-positive is a plan needing three or more
-consecutive review rounds with no code change between them.** That is rare and,
-arguably, itself worth interrupting a run for.
-
-If that false positive shows up in practice, the fix is to reset the counter when
-the iteration reports a `deliverable:` line naming review comments *and* the PR
-comment count is checked once — a single targeted query on the stall boundary
-rather than every iteration. **Do not** build general state-diffing; that would be
-the §2.2.6 failure reproduced inside the fix.
+**Do not** expand this into general state-diffing. That would be the §2.2.6
+failure reproduced inside the fix.
 
 ### Change 2 — `challenge-the-plan`: bound the interview
 
@@ -707,25 +839,35 @@ Stated verbatim from the brief, so they do not creep in:
 
 Additionally, self-imposed for this plan:
 
-- **No new validation tooling, scripts, or harnesses.** The checkpoint and stall
-  detection reuse `git`, `gh`, and `plot-config.sh`. Building a verification
-  framework to catch over-verification would reproduce §2.2.6 inside the fix.
+- **No new validation tooling, scripts, or harnesses.** Budget resolution and the
+  rubric's local criteria reuse `git`, `gh`, and `plot-config.sh`. Building a
+  verification framework to catch over-verification would reproduce §2.2.6 inside
+  the fix.
+
+  **Amended, with the tension stated:** the verifier agent in Change 1b is a
+  subagent invocation, not a harness — no new script, no new dependency, no code to
+  maintain. But it is honestly *close* to this line, and the amendment weakened the
+  non-goal rather than respecting it outright. Two things keep it on the right side:
+  it runs only on the stall boundary (not every iteration, so it cannot become the
+  main loop's work), and it reads a rubric rather than implementing logic. If it
+  grows past "read the rubric, answer pass/fail", it has become the thing this
+  non-goal forbids and should be cut back.
 - **No changes to the four phase guardrails.** They are cited as context; tightening
   them is separate work.
 
 ## Open Questions
 
-- [x] Is `8h` the right wall-clock default? **Resolved: keep 8h, loose by design.**
+- [x] Is `8h` the right deadline default? **Resolved: keep 8h, loose by design.**
       Run length varies by sprint — some short and attended, some long and
       unattended — so no single default fits, and that is precisely what the config
       key exists for. A loose default that never fires on a short run is the
       correct failure direction: it costs nothing, whereas a tight default that
       interrupts healthy runs trains the user to disable it. Projects with a
-      consistent pattern should set `Sprint wall clock` in their own Plot Config.
+      consistent pattern should set `Sprint deadline` in their own Plot Config.
       **Consequence:** because the wall clock will rarely fire, the *heartbeat* and
       *stall counter* carry most of the detection weight in Change 1. Weight
       implementation effort accordingly.
-- [x] Should `Sprint wall clock` and `Sprint stall limit` be one key or two?
+- [x] Should `Sprint deadline` and `Sprint stall limit` be one key or two?
       **Resolved: two.** They detect different failures — a slow grind and a fast
       stall — and with run length varying by sprint, a project may well want a
       generous wall clock alongside a tight stall limit. Collapsing them into one
@@ -742,29 +884,39 @@ Additionally, self-imposed for this plan:
 ## Branches
 
 <!-- Change 1 is the tracer: it touches the skill, the runner script, and the
-     config accessor — every layer this plan spans — and it is the highest-priority
-     change on its own merits. If bounding the loop works end to end, the smaller
-     text-only changes carry little risk. This is the plan's own instance of
-     Change 5. -->
+     config accessor — every layer this plan spans. Change 0's deletions are NOT a
+     seventh branch: they land in files these branches already touch, so a separate
+     branch would conflict with #51 and #52. Each branch carries its own deletions,
+     and each must show a net word count in its PR body. -->
 
 ### Tracer
 
-- `feature/opus5-hardening-ralph-bounds` — Wall-clock budget, deliverable checkpoint, ship-partial fallback, and heartbeat for `ralph-plot-sprint` → #49
-  Layers: `## Plot Config` → `plot-config.sh` → `ralph-sprint.sh` → `ralph-plot-sprint/SKILL.md`
-  Proves: A config-driven budget can bound an unattended loop, be observed from outside the run, and ship partial work — without new tooling
-  Also lands: `.ralph-state/` added to `.gitignore` (see Open Questions)
-  Status: Not started
+- `feature/opus5-hardening-ralph-bounds` — Declarative budget surface, deliverable rubric + verifier, and heartbeat for `ralph-plot-sprint` → #57
+  Layers: `## Plot Config` → `plot-config.sh` → `ralph-sprint.sh` → `ralph-plot-sprint/SKILL.md` → `deliverable-rubric.md`
+  Proves: A budget expressed as config (including an enum) can bound an unattended loop, be observed from outside the run, and ship partial work — with the deliverable judged against a rubric rather than self-reported
+  Also lands: `.ralph-state/` in `.gitignore`; Common Mistakes rows that echo an adjacent rule deleted
+  Status: **Needs rework** — #49 as pushed implements the pre-amendment prose form
 
 ### Implementation
 
-- `feature/opus5-hardening-challenge-budget` — Question budget, material-vs-marginal filter, and falsifiable stopping rule for `challenge-the-plan` → #51
-- `feature/opus5-hardening-deliver-gates` — Subagent evidence citation in `plot-deliver` Step 5; re-query rule in Step 4 → #52
-- `docs/opus5-hardening-invariants` — `plot-reconcile` read-only invariant; `MANIFESTO.md` Principle 10 → #53
-- `feature/opus5-hardening-approve-tracer` — Tracer bullets as default recommendation in `plot-approve` Step 2b → #54
-- `docs/opus5-hardening-model-provenance` — `docs/model-provenance.md` and the `intro-to-using-plot.md` section → #55
+- `feature/opus5-hardening-challenge-budget` — Question budget, material-vs-marginal filter, stopping rule; **deletes** 39 question templates, tone/audience/complexity blocks, narrative-weaving example, Adaptive Depth Strategy (−734 w) → #57
+- `feature/opus5-hardening-deliver-gates` — Subagent evidence citation, Step 4 re-query rule; **deletes** Step 5 model-tier blockquote (−109 w) → #57
+- `docs/opus5-hardening-invariants` — `plot-reconcile` read-only invariant; `MANIFESTO.md` Principle 10 → #57
+- `feature/opus5-hardening-approve-tracer` — Tracer bullets as default recommendation in `plot-approve` Step 2b → #57
+- `docs/opus5-hardening-model-provenance` — model provenance doc and the `intro-to-using-plot.md` section → #57
 
 Every branch needs a `.changeset/*.md` with a `bumps: skills:` block. Six branches,
-five of them small text edits gated behind one tracer.
+five gated behind one tracer.
+
+**Consolidated into a single PR (#57) at the author's request.** The six branches
+were merged into the branch behind PR #57 with all commits preserved;
+#49 and #51–#56 are closed in favour of it. The per-branch decomposition below
+records how the work was built and reviewed, not how it ships.
+
+**The PR body states `words before → after` for every file it touches.** The
+per-branch figures are in Change 0's table and were measured, not estimated — the
+first estimate (−493) proved wrong by ~936 words, which is exactly why a claim
+nobody can check is what Change 3 argues against.
 
 ## Backlog — surfaced, deliberately deferred
 
@@ -779,10 +931,36 @@ Not in scope. Recorded so they are not rediscovered, and not silently folded in.
   nine-branch step-selection cascade before any work happens — plausibly its own
   instance of §2.2.6, on the orient path. Simplifying it is a behaviour change to
   the step-selection logic and needs its own lifecycle test.
-- **Cost budget alongside wall clock.** The system card campaign had a $10,000
+- **`plot-plan-meta.sh` captures paths from branch descriptions.** The parser
+  matches any backticked `<prefix>/…` inside `## Branches`, so a description
+  mentioning a file under a configured prefix becomes a phantom branch. This plan
+  hit it: a `docs/…md` path in a description produced 8 branches where 6 exist,
+  and `/plot-deliver`'s branch gate would have blocked delivery on the phantoms.
+  **Pre-existing on `main`** — reproduced with a minimal probe plan, not caused by
+  this work. Worked around here by rewording the description. A real fix (match
+  only the first backtick span per line, or require the line to *start* with the
+  branch) belongs with the parser and its board contract tests, which this plan's
+  non-goals exclude.
+- **Plan files carrying executable acceptance criteria.** A plan's `## Design`
+  section states intent in prose, and `/plot-deliver` Step 5 reconstructs whether
+  that intent was met by reading diffs. A plan could instead carry a failing test
+  suite or a rubric as its acceptance criteria — the same shift Change 1 makes for
+  the iteration checkpoint, applied one level up to the plan itself. Delivery would
+  then be "the suite passes" rather than "a frontier model judged the diffs
+  sufficient". **Deliberately out of scope here**: it changes the plan format,
+  which this plan's non-goals exclude and which `packages/board` consumes. Needs
+  its own plan.
+- **`ralph-sprint.sh` exits on the ntfy env check before printing usage.** Running
+  it with no arguments reports `CLAUDE_NTFY_URL: Set CLAUDE_NTFY_URL` instead of
+  the usage block, because the `:?` expansion at the top of the config section runs
+  before argument validation. **Pre-existing on `main`** (verified against
+  `origin/main` — same behaviour, same relative order); this plan neither caused
+  nor fixed it. A one-line move of the usage block above the env checks would fix
+  it, but that is argument-handling UX, unrelated to bounding the loop.
+- **Cost budget alongside the deadline.** The system card campaign had a $10,000
   budget as well as 24 hours. A token/cost ceiling is the natural sibling of
-  `Sprint wall clock`, but there is no cost signal available to the runner today.
-- **`--effort high` as a config key.** `ralph-sprint.sh:259` hardcodes
+  `Sprint deadline`, but there is no cost signal available to the runner today.
+- **`--effort high` as a config key.** the `--effort high` flag (`grep -n effort ralph-sprint.sh`) hardcodes
   `--effort high`, and §6.2.1 reports self-correction loops are worse "especially
   at higher effort levels" and that external users saw "overthinking, where it
   performs worse at higher effort levels". Making effort configurable — or
@@ -870,6 +1048,205 @@ tested the stopping rule.
 
 Still n=2, still on the same plan, still self-reported. Change 2's real test remains
 a plan whose author wants to keep going.
+
+### Amendment — context-engineering post (2026-07-25, after approval)
+
+The plan was approved and its six branches implemented before Anthropic's
+context-engineering companion post was read. Three changes followed, applied to
+the plan and requiring rework on the already-open PRs:
+
+1. **Change 1 moved from prose to config surface.** The budget was two keys plus
+   two prose sections describing what happens at the boundary. It is now five keys,
+   one of them an enum (`ship_partial | fail`) that *is* the behavioural contract.
+   An enum is checkable at startup; a paragraph is not.
+2. **Change 1b moved from self-report to rubric plus verifier.** The original
+   `## Iteration Deliverable Checkpoint` instructed the agent to report
+   `deliverable: <what it did>` and to be honest when it had produced nothing.
+   That was self-assessment of completion — the thing §6.5 and §6.2.1 flag — and it
+   **contradicted this plan's own Change 3**, which argues a self-reported gate is
+   not a gate. A rubric file plus a verifier agent on the stall boundary replaces
+   both prose sections and closes the review-only blind spot the plan had accepted.
+3. **Change 0 added: a deletion pass, shipping first.** Net prose across the
+   touched skills must go *down*. The post reports 80% of Claude Code's system
+   prompt removed with no eval loss; Plot's skills carry the same ballast.
+
+**Honest accounting of the second source:** the post supports items 1–3 directly
+and is quoted for each in [Second Source](#second-source-context-engineering-post).
+It contains **nothing** about budgets, deadlines, iteration caps, or heartbeats.
+The justification for bounding the loop at all remains §2.2.6 alone. The post
+changed *how* the bound is expressed, not *whether* it is warranted — and this
+distinction is the reason to read sources rather than pattern-match them.
+
+**Cost of the amendment:** PR #49 ships the old prose form and needs rework;
+#51 and #52 need the deletion pass folded in. That rework is the price of having
+implemented before reading the second source — recorded here rather than smoothed
+over, since the tracer existing to surface exactly this kind of problem is the
+argument for tracers.
+
+### Verification pass (independent-ish, iteration 6)
+
+An independent reviewer subagent was dispatched to check the three amendment
+requirements against the files rather than against the author's summaries. Its
+notification had not arrived by the time this section was written, and the task
+list showed nothing, so the checks below were run directly instead.
+
+**Correction (iteration 9): the agent had not died.** Its completion notification
+arrived several turns later, carrying a full report. See the next section — the
+"silent death" reading was wrong, and it is retracted rather than left standing as
+convenient evidence for Principle 10.
+
+The direct checks, run while waiting:
+
+| Check | Result |
+|-------|--------|
+| Enum wired to behaviour, not decorative | the enum exit paths (`grep -n ON_BUDGET_EXHAUSTED`) — both exit paths branch on it |
+| Any remaining self-assessment instruction | None. The one `deliverable:` string is the *runner* printing its own verdict (the `DELIVERABLE=` assignments — set from the SHA comparison; the agent never supplies it) |
+| Net word count | `main=12389 branch=12356` → **−33**, recomputed from `origin/main` |
+| Dangling refs to deleted sections | 0 for all five removed headings |
+| Five original non-goals verbatim | 5/5 present |
+| Stall counter boundary | `-ge` at the top (warn) / `-gt` at the bottom (stop) is deliberate: at limit 3 the agent is told `stalled` and gets one iteration to hand over; the hard stop is at 4. Ship-partial fires before the stop, as designed. |
+| Changeset bumps | All 7 parse; all 6 named skills resolve; `plot` appears twice (minor+patch) and resolves to minor |
+
+The reviewer's silence is worth more than its report would have been: it is a live
+instance of the failure mode, caught by the discipline this plan is trying to
+install. Recorded rather than retried, because a second attempt would prove
+nothing about the first.
+
+### Independent verification: requirements sound, seven defects found and fixed
+
+Two independent reviewers checked the branch. **Both completed and reported** —
+an earlier draft of this section recorded them as having "died silently" and cited
+that as a live instance of Principle 10. That was wrong: their notifications
+arrived several turns after the work finished, and latency was mistaken for death,
+twice, then written into the plan as supporting evidence. Retracted. Reaching for
+the dramatic reading of ambiguous evidence, and finding it confirmed the principle
+being written, is itself the §6.2.1 pattern.
+
+**All three amendment requirements: SOUND**, verified against files and commands:
+
+| Requirement | Evidence cited |
+|-------------|----------------|
+| 1 — budget in config surface | Enum validated at the enum validation block (`grep -n 'ship_partial|fail'`), wired to real `exit 0`/`exit 1` at two paths — "not decorative" |
+| 2 — rubric + verifier | `DELIVERABLE` computed purely from git state, never from agent output |
+| 3 — net word count | Independently recomputed: `12360` vs `12389` → **−29, exact match** at review time (**−33** after the defect fixes below) |
+
+`challenge-the-plan` was read in full post-cut: coherent, no dangling references.
+
+**Seven defects found, all fixed.** Four by the first two reviewers, two by a
+third review of the *fixes*, and one by a fourth pass over the *fixes to the
+fixes*. Each round of repair introduced or exposed the next defect — which is the
+most useful single finding in this plan:
+
+| # | Defect | Consequence | Fix |
+|---|--------|-------------|-----|
+| 1 | `parse_duration "1.5h"` | Fatal arithmetic error; `set -e` aborts the sprint at startup | Validate the numeric part before any arithmetic |
+| 2 | `parse_duration "-5m"` / `"bogus"` | Negative budget forcing `final` from iteration 1; non-numeric into integer comparison | Same fix — anything non-numeric → `0` (disabled) |
+| 3 | **Deadline was a rule, not a gate** | `BUDGET: final` is a *request*. An agent that keeps emitting `CONTINUE` runs past the deadline indefinitely — the exact failure this budget exists to prevent | Hard stop at the deadline regardless of what the agent emits, honouring the `on_budget_exhausted` enum |
+| 4 | **Rubric criterion 2 was promised but never implemented** | The runner checked only main's SHA. A Step 3 iteration that pushes a feature branch — the *most common* productive shape — counted as a stall; three would kill a healthy run | Implement `branch_refs()` via `git ls-remote`; an unreadable remote compares equal and does not count as a deliverable |
+
+| 5 | `main_sha` leaked to stdout | `git rev-parse <bad-ref>` echoes the unresolved ref to **stdout** before failing, so the `\|\| echo unknown` fallback appended to it and the result never equalled `"unknown"`. A *transient* resolution failure would then differ from the previous SHA and score as `main-advanced` — fabricating a deliverable out of a network blip, defeating the guard written to prevent exactly that | `--verify --quiet` |
+| 6 | `branch_refs` returned empty, not `unknown` | In `cmd \| sort`, the pipeline's exit status is `sort`'s, which succeeds even when `ls-remote` fails — so the `\|\|` never fired and a failed lookup returned empty. Empty differs from the previous listing, so a blip read as "every branch vanished" and scored as a deliverable | Capture before sorting; return `unknown` on failure |
+
+| 7 | Guard checked only the "after" value | `unknown → <real value>` scored as progress: the remote was unreachable at iteration start and reachable at the end, so a value "appeared" without anything being pushed. An unknown baseline is not a baseline | Require both sides readable before comparing |
+
+Defects 5 and 6 are the same bug in two disguises, and both live in the guard
+clauses written to stop an unreadable remote counting as progress. **The guards
+were dead code.** They were added deliberately, commented as load-bearing, and
+neither worked — because shell failure semantics differ from what the code assumed
+in two distinct ways (stdout-on-failure, and pipeline exit status). Nothing in
+eleven iterations of testing caught them, because every test ran against a *working*
+remote.
+
+**One reported finding was rejected after checking it.** The fourth review flagged
+`branch_refs` returning `""` rather than `"unknown"` for a reachable remote with
+zero branches (MEDIUM, "latent, not currently exploitable"). Traced through the
+consumer: empty is a *truthful* state — zero branches — where `unknown` means the
+lookup failed. Collapsing them would make the first push into a fresh repo
+undetectable, turning a non-bug into a real one. Documented in the code as
+deliberate; the reviewer's own verdict was APPROVE.
+
+Recording this because the corrective pattern runs both ways: six findings were
+accepted and fixed, one was checked and declined. A reviewer's report is evidence,
+not instruction — the same standard this plan applies to an agent's self-report.
+
+Defects 3 and 4 are the serious ones, and both are the same species of error:
+**the plan wrote down a mechanism and the implementation delivered less than the
+prose claimed.** Defect 3 shipped a signal where a gate was described — the
+distinction `CLAUDE.md` explicitly warns about ("a rule is a guideline the agent
+can rationalise around"). Defect 4 shipped a rubric listing five criteria where
+one was checked.
+
+Neither was caught by nine iterations of author self-verification. Both were found
+by readers who compared the prose against the code rather than against their memory
+of writing it. That is the plan's own thesis holding up under test — and the
+uncomfortable half of it: **the author was the least reliable checker of his own
+gates**, which is precisely why Change 3 argues a gate must not be satisfied by
+the claim of the thing being gated.
+
+### Line numbers were removed from this plan on purpose
+
+The plan originally cited `ralph-sprint.sh:300-303`, `:307`, `:259` and others.
+By the time the defect fixes landed, the file had shifted ~150 lines and **four of
+five references pointed at unrelated code** — `:300-303`, documented as the
+"silence is treated as continuation" defect, had become part of `branch_refs`.
+
+Every reference is now a searchable anchor (`grep -n 'no signal detected'`) rather
+than a line number. A line number is correct when written and rots on the next
+edit; an anchor stays valid as long as the construct exists, and fails loudly when
+it does not.
+
+This is Change 3's argument applied to documentation: cite something checkable,
+not something that merely *was* true. The plan spent seven defects establishing
+that prose drifts from code — its own cross-references were drifting the whole
+time.
+
+### Two suites were never run while "all suites green" was being claimed
+
+`pnpm run test:board` and `pnpm run typecheck` were never executed during this
+work. Every completion report said "all suites green" on the strength of
+`pnpm test`, `validate` and `test:reconcile` alone.
+
+When finally run, `test:board` failed immediately — `packages/board/node_modules`
+was missing. `CLAUDE.md` is explicit about this case: *"If `pnpm test` fails due
+to missing `node_modules`, install them and retry — never skip tests or dismiss
+the failure."* After `pnpm install`, both suites pass: **9 board contract tests +
+36 vitest tests, typecheck clean**, and `pnpm run build:board` leaves the tree
+clean, confirming the committed artifact is current.
+
+The claim was not false — the suites named were green — but it was **broader than
+what had been checked**, repeated across several iterations, and nobody caught it
+because the phrase sounded complete. `CLAUDE.md` calls the board first-class and
+gates it in CI; a change touching plan parsing that never ran the board's own
+tests was one CI run away from an embarrassing failure.
+
+Worth stating in the plan because it is the same failure as defect 4 (a rubric
+promising five criteria while one was checked) and the drifted summary table (a
+total that reconciled while its rows did not): **a summary claim that sounds
+complete, standing in for the enumeration nobody performed.**
+
+### Definition of Done, enumerated rather than summarised
+
+`docs/definition-of-done.md` lists nine checkable items. Every one was executed
+rather than asserted:
+
+| Item | Result |
+|------|--------|
+| Skills parse (`pnpm test`) | PASS |
+| Frontmatter (`pnpm run validate`) | PASS |
+| Contract tests (`pnpm run test:reconcile`) | PASS |
+| Changeset present | PASS — 7 files |
+| Plugin version bumped | **Delegated, correctly**: `sync-versions.sh` writes all three metadata files during `pnpm run version`, and history shows plugin bumps land in dedicated `release:` commits. PR #50 (`release: 1.8.0`) already consumes one of this plan's changesets |
+| Board typechecks | PASS |
+| Board tests | PASS — 9 contract + 36 vitest |
+| Artifact fresh (`build:board` → no diff) | PASS |
+| Board impact stated | PASS — and **re-verified**: none of the four trigger categories (plan format, template, helper scripts, `docs/plans` layout) is touched. The only change under `docs/plans/` is this file's content; its symlink matches the existing convention |
+
+The plugin-version item was the one that looked like a violation on first
+inspection — all three files still read `1.7.1`. Checking *how the repo does it*
+rather than *whether the number changed* showed the bot owns it. A first reading
+would have "fixed" it by hand-editing three files the release tooling rewrites,
+which is the same error as the hand-edited skill version caught in the first
+implementation pass.
 
 ### Working constraints observed for this session
 

@@ -60,6 +60,12 @@ Each skill's `## Model Guidance` section maps steps to tiers. Steps that exceed 
 
 Design implications: explicit step-by-step instructions over narrative prose, structured data over free-form parsing, concrete examples over abstract descriptions.
 
+### 10. An agent that has gone quiet has failed, not finished
+
+Unattended agent work must produce an observable trace — a commit, a pushed branch, a PR state change, a posted comment. Silence is a failure signal, never a completion signal. Any Plot command that runs unattended must bound how long it may run, and must ship partial work with a handover before that bound is reached rather than after.
+
+This is the agentic case of Principle 1: work that never reached git did not happen, no matter how the agent narrates it. A run ending with nothing committed and no explanation is indistinguishable from one that never started.
+
 ## Lifecycle
 
 Plot has four plan-level phases: **Draft**, **Approved**, **Delivered**, and **Released**.
