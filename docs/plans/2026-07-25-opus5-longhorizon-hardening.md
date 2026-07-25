@@ -1175,6 +1175,30 @@ not something that merely *was* true. The plan spent seven defects establishing
 that prose drifts from code — its own cross-references were drifting the whole
 time.
 
+### Two suites were never run while "all suites green" was being claimed
+
+`pnpm run test:board` and `pnpm run typecheck` were never executed during this
+work. Every completion report said "all suites green" on the strength of
+`pnpm test`, `validate` and `test:reconcile` alone.
+
+When finally run, `test:board` failed immediately — `packages/board/node_modules`
+was missing. `CLAUDE.md` is explicit about this case: *"If `pnpm test` fails due
+to missing `node_modules`, install them and retry — never skip tests or dismiss
+the failure."* After `pnpm install`, both suites pass: **9 board contract tests +
+36 vitest tests, typecheck clean**, and `pnpm run build:board` leaves the tree
+clean, confirming the committed artifact is current.
+
+The claim was not false — the suites named were green — but it was **broader than
+what had been checked**, repeated across several iterations, and nobody caught it
+because the phrase sounded complete. `CLAUDE.md` calls the board first-class and
+gates it in CI; a change touching plan parsing that never ran the board's own
+tests was one CI run away from an embarrassing failure.
+
+Worth stating in the plan because it is the same failure as defect 4 (a rubric
+promising five criteria while one was checked) and the drifted summary table (a
+total that reconciled while its rows did not): **a summary claim that sounds
+complete, standing in for the enumeration nobody performed.**
+
 ### Working constraints observed for this session
 
 - Exploration was time-boxed; the plan was written in one pass after reading the
