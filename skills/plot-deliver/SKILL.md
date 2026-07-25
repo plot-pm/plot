@@ -46,9 +46,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 7b. Delivery-Landed Gate | Small | Run the reconcile scan, grep for the delivered plan; gate progression on the real grep result |
 | 9. Summary | Small | Template formatting |
 
-Step 5 is the prime example of subagent delegation: a frontier orchestrator handles the judgment (extracting deliverables, consolidating Done/Partial/Missing), while small subagents handle the data collection (running `gh pr diff`, reading PR metadata) in parallel. Without subagents, the frontier model does everything sequentially.
-
-The orchestrator consolidates **cited file paths**, not subagent conclusions. A subagent's "yes, that's implemented" is an assertion; the path it names is evidence. This distinction is what keeps the delegation safe — an orchestrator that relays unverified subagent claims turns a delivery gate into a game of telephone.
+Step 5 delegates: a frontier orchestrator judges, small subagents gather diffs in parallel. The orchestrator consolidates **cited file paths, not subagent conclusions** — a subagent's "yes, that's implemented" is an assertion; the path it names is evidence.
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
 
@@ -126,11 +124,6 @@ For each non-deferred branch:
 
 ### 5. Verify Plan Completeness
 
-> **Model tiers for this step:**
-> - **Frontier (e.g., Opus):** Full deliverable extraction, parallel PR diff review via subagents (small-model subagents gather diffs, frontier consolidates), Done/Partial/Missing checklist.
-> - **Mid (e.g., Sonnet):** Extract deliverables and check PR titles/descriptions (skip full diff review). Can delegate PR metadata collection to small subagents. Present a simplified checklist based on PR metadata rather than code changes. Ask user to verify.
-> - **Small (e.g., Haiku):** Skip entirely. Verify all PRs are merged (step 4), then ask: "All implementation PRs are merged. Ready to deliver this plan?" Human judgment is the final gate.
-
 Compare what the plan promised against what was actually delivered.
 
 1. **Extract deliverables** from the plan file. Look for actionable items in sections like `## Design`, `## Branches`, or bulleted lists that describe what should be built. Number each deliverable for reference.
@@ -146,7 +139,7 @@ Compare what the plan promised against what was actually delivered.
    - **Partial** — cited paths address some of the deliverable
    - **Missing** — no cited path, *or* a claim with no path attached
 
-   A subagent asserting "deliverable 3 is implemented" with no file path is **Missing**, not Done. Relaying an unverified subagent claim as a delivery gate is the failure this step exists to prevent. If a subagent's citation looks wrong, check it with `gh pr diff <number>` before marking the deliverable.
+   A claim with no path is **Missing**, not Done. If a citation looks wrong, check it with `gh pr diff <number>`.
 
 4. **Present the checklist** to the user and **ask to confirm** the plan is complete enough to deliver.
    - If all items are done: "All deliverables verified. Proceed with delivery?"
