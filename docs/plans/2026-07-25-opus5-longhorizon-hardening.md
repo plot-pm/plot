@@ -1036,6 +1036,32 @@ implemented before reading the second source — recorded here rather than smoot
 over, since the tracer existing to surface exactly this kind of problem is the
 argument for tracers.
 
+### Verification pass (independent-ish, iteration 6)
+
+An independent reviewer subagent was dispatched to check the three amendment
+requirements against the files rather than against the author's summaries. **It
+returned nothing** — no report, no error, no notification; the task list came back
+empty. That is the plan's own subject matter arriving unannounced: a silent agent
+is indistinguishable from a finished one, and treating its silence as success
+would have been the exact failure Principle 10 names.
+
+The checks were therefore run directly:
+
+| Check | Result |
+|-------|--------|
+| Enum wired to behaviour, not decorative | `ralph-sprint.sh:461,475` — both exit paths branch on it |
+| Any remaining self-assessment instruction | None. The one `deliverable:` string is the *runner* printing its own verdict (`:403,406` — set from the SHA comparison; the agent never supplies it) |
+| Net word count | `main=12389 branch=12360` → **−29**, recomputed from `origin/main` |
+| Dangling refs to deleted sections | 0 for all five removed headings |
+| Five original non-goals verbatim | 5/5 present |
+| Stall counter boundary | `-ge` at the top (warn) / `-gt` at the bottom (stop) is deliberate: at limit 3 the agent is told `stalled` and gets one iteration to hand over; the hard stop is at 4. Ship-partial fires before the stop, as designed. |
+| Changeset bumps | All 7 parse; all 6 named skills resolve; `plot` appears twice (minor+patch) and resolves to minor |
+
+The reviewer's silence is worth more than its report would have been: it is a live
+instance of the failure mode, caught by the discipline this plan is trying to
+install. Recorded rather than retried, because a second attempt would prove
+nothing about the first.
+
 ### Working constraints observed for this session
 
 - Exploration was time-boxed; the plan was written in one pass after reading the
