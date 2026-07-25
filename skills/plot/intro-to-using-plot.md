@@ -93,6 +93,14 @@ Features and bug fixes go one step further. To cut a versioned release:
 
 Plot tags an RC (release candidate), generates a verification checklist (one item per delivered feature or bug fix), and walks you through testing. Bugs found during this endgame are fixed via normal `bug/` branches and a new RC is cut. When every checklist item passes, Plot creates the final tag and writes the changelog from the delivered plans.
 
+## Skills are prompts, and prompts are model-dependent
+
+Plot's commands are markdown instructions interpreted by an AI agent, not scripts with fixed semantics. The same instruction can be followed differently by a different model — so a model upgrade can change Plot's behaviour without any commit to this repo.
+
+Each skill's `## Model Guidance` table states the *minimum* tier a step needs. This is a floor, not a target: a step marked Small works on Small and above. What the table does not record is which model the wording was actually tuned against, which is what changes when a provider ships an update.
+
+That is recorded in [`docs/model-provenance.md`](../../docs/model-provenance.md). When Plot behaves differently after a model update, read it first — the skill text may not have changed at all.
+
 ## Sprints (optional)
 
 If you want to time-box work, use sprints:
