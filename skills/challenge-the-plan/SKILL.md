@@ -15,6 +15,26 @@ compatibility: Designed for Claude Code and Cursor.
 
 > **Reads an implementation plan and interviews you systematically across all dimensions to uncover gaps, validate assumptions, and refine decisions.**
 
+## Setup
+
+Optional. In a project using Plot, the question budget can be set in the
+`## Plot Config` section of `CLAUDE.md`:
+
+    ## Plot Config
+    - **Challenge question budget:** 16
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `Challenge question budget` | `16` | Maximum questions (4 rounds × 4) before the interview must stop and write up. `0` disables the bound. |
+
+Sixteen is one question per category-progression stage plus a round of slack. A
+plan needing more than sixteen questions to reach a decision is a plan that needs
+rewriting, not more interviewing.
+
+This skill also runs standalone, outside a Plot project. If
+`../plot/scripts/plot-config.sh` is not present, use the default of 16 — a missing
+config helper is not an error and must not stop the interview.
+
 ## Input
 
 **$ARGUMENTS**: `./path/to/PLAN.md` (optional)
@@ -99,6 +119,27 @@ Generate 4 questions focused on a single category or cross-cutting theme:
 - **Technical phrasing**: Implementation details, code organization
 - **Business phrasing**: Requirements, user needs, domain rules
 
+**Material-vs-marginal filter.** Before asking a question, apply this test:
+
+> If the answer were the opposite of what I expect, would the plan change?
+
+Ask it only if the answer is yes. A question whose every plausible answer leaves
+the plan identical is marginal — it produces documentation, not decisions.
+
+| Material — ask | Marginal — do not ask |
+|----------------|----------------------|
+| Which of two approaches, where the choice changes the branch structure | Confirming a decision the plan already states with rationale |
+| An unstated constraint that would invalidate the approach | An edge case whose handling is obvious from the stated approach |
+| A dependency or integration that may not exist | Detail that can be decided during implementation without rework |
+| Scope the plan is silent on, where silence is ambiguous | Restating a known trade-off in different words |
+
+Prefer the four most material questions available over four questions that cover
+four different categories. Category coverage is a heuristic for finding material
+questions, not a goal. **Do not ask a question to complete a category.**
+
+Depth is capped by the budget, not by the supply of questions. There is always
+another question; that is precisely why a bound is needed.
+
 ### Phase 4: Interview Execution
 
 Use the structured question tool to present 4 questions per round:
@@ -146,13 +187,29 @@ Update the original plan file with refined content.
 
 ### Phase 6: Completion Check
 
-Exit when:
-1. User explicitly says "done", "complete", or "satisfied"
-2. All categories covered comprehensively AND
-3. No more gaps detected in plan AND
-4. All open questions have been answered
+Read the budget once at start:
+`../plot/scripts/plot-config.sh get "Challenge question budget" 16`
 
-If not complete, return to Phase 3 with adaptive depth.
+If that helper is not present (standalone use, outside a Plot project), use `16`.
+
+Stop when **any** of these is true — not all of them:
+
+1. The user says "done", "complete", or "satisfied".
+2. The question budget is exhausted.
+3. The last full round produced no answer that changed the plan.
+
+Rule 3 is the substantive one. Track it: after each round, ask whether any answer
+caused an edit to the plan's shape — a decision reversed, a branch added or
+removed, a constraint discovered, an approach rejected. If a whole round of four
+questions produced only elaboration of things already decided, the interview has
+reached diminishing returns. Stop there.
+
+There is deliberately no "no gaps remain" condition. You cannot verify the absence
+of gaps, and treating it as a stopping rule means never stopping. Unasked
+questions belong in Open Points, where a human can see them and decide.
+
+On stopping, report: questions asked, budget, which rule fired, and what remains in
+Open Points.
 
 ### Phase 7: Open Points Review (before completion)
 
@@ -197,6 +254,16 @@ Deferred questions are tracked as a plain text section appended to the plan file
 3. UX (Happy -> Edge -> Error -> A11y)
 4. Non-functional (Security -> Perf -> Scale)
 5. Trade-offs (Alternatives -> Rationale -> Risks)
+
+**The progression is a search order, not a checklist.** Five categories at four
+questions per round would be 20 questions — more than the default budget of 16.
+That is intentional: the budget binds first, and it should. Walk the categories
+looking for material questions, and skip any category where the material-vs-marginal
+filter finds none. A plan with no UX surface does not owe the interview four UX
+questions.
+
+Most plans will not visit every category. That is a correct outcome, not an
+incomplete interview.
 
 ## Question Templates
 
