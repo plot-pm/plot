@@ -22,7 +22,7 @@
 - `plot-deliver` gate language tightened so every gate is verifiable from git/forge state rather than from the agent's own claim of completion.
 - `plot-reconcile` read-only-ness stated as a design invariant rather than a description of current behaviour.
 - New `## Plot Config` keys: `Sprint max iterations`, `Sprint deadline`, `Sprint heartbeat interval`, `Sprint stall limit`, `Sprint on budget exhausted`, `Challenge question budget`. All optional, all with documented defaults.
-- A deletion pass removes 1,110 words of canned templates, taste rules, a worked example, inline query bodies, and restated guidance that Opus 5's judgement covers. Net across the six touched files is **+443**, concentrated in `ralph-plot-sprint`, where a config surface and rubric replace prose — more literal text, far more checkable. The net-reduction target was not met; see Change 0 for the measured figures and what meeting it would cost.
+- A deletion pass removes 1,616 words of canned templates, taste rules, a worked example, inline query bodies, and rules restated as warnings. Net across the touched files is **−29** (12,389 → 12,360) — the config surface and rubric add literal text, and the deletions more than cover it.
 - Docs record the model class the skills were authored and tuned against.
 
 <!-- Board impact: NONE. This plan touches no plan-format field, not the plan
@@ -247,40 +247,39 @@ land in a smaller file rather than a larger one.
 | **Step 5 model-tier blockquote** | `plot-deliver` | 109 | Restates the `## Model Guidance` table twelve lines above it, in prose, for one step. Keep the table; drop the restatement. |
 | **Common Mistakes rows that restate an adjacent rule** | `ralph-plot-sprint` | ~120 | The table has grown to 17 rows. Rows whose Prevention column merely repeats a CRITICAL rule stated verbatim in the step above it are noise. Keep rows describing a *non-obvious* failure; drop the echoes. |
 
-**Deletion total as implemented: 1,110 words** (more than the 963 estimated — the
-pass found further candidates in `ralph-plot-sprint`: inline GraphQL query bodies,
-the Step 0 subagent prompt block, DoD grep examples).
+**Deletion total as implemented: 1,616 words.** Net across the touched files:
+**12,389 → 12,360 (−29).** The target is met, though narrowly.
 
-**But the net is +443, not −493. The original claim was wrong.** Measured from the
-pushed branches against `main`:
+| File | Δ |
+|------|---|
+| `challenge-the-plan` | **−242** |
+| `ralph-plot-sprint` SKILL | **−138** |
+| `plot-approve` | −21 |
+| `plot-deliver` | −4 |
+| `plot-reconcile` | +29 |
+| `MANIFESTO.md` | +110 |
+| `deliverable-rubric.md` (new) | +237 |
+| **Total** | **−29** |
 
-| File | Δ | Note |
-|------|---|------|
-| `ralph-plot-sprint` SKILL + new rubric | **+349** | The one genuine adder |
-| `challenge-the-plan` | **−242** | Deletion pass exceeded additions |
-| `plot-deliver` | **−4** | Additions compressed to clear zero |
-| `plot-reconcile` | +76 | Invariant paragraph |
-| `plot-approve` | +138 | Recommendation + reasoning |
-| `MANIFESTO.md` | +126 | Principle 10 |
-| **Total** | **12,389 → 12,832 (+443)** | |
+**This took three passes, and the first two were wrong.** The initial estimate
+claimed −493 without measuring. The first measurement showed **+443**, and the
+plan then argued the target was unreachable without sacrificing load-bearing
+procedure. That argument was itself wrong: it treated the whole of
+`ralph-plot-sprint` as untouchable while its `## Common Mistakes` table still held
+**nine rows restating rules already stated in the step that governs them** — the
+clearest possible instance of what this deletion pass is for. Removing them, plus
+compressing the plan's own additions in `plot-approve`, `plot-reconcile`, the
+Manifesto and the rubric, closed the gap.
 
-The `ralph-plot-sprint` pair is where it concentrates: replacing two prose
-sections with a config table and a rubric file trades *ambiguity* for *tokens* —
-an enum plus a rubric is more literal text than the paragraphs it replaces, even
-though it is far more checkable. That is a real trade, and pretending otherwise
-by shaving unrelated content would be worse than recording it.
+The lesson generalises past this plan: *"further cuts would damage the file"* is
+the kind of claim that feels like judgement and is actually an untested assertion.
+It cost two passes because nobody checked it against the file — including the
+agent that wrote it. Change 3's whole argument, applied to Change 0.
 
-**What meeting −493 would actually require:** deleting roughly 900 further words
-from `ralph-plot-sprint`'s Step 0 orient block (856 w) or its Step 1–6 bodies.
-Those are load-bearing state-gathering and procedure, not taste — cutting them to
-hit a number would trade working instructions for a metric, which is the failure
-this constraint exists to prevent.
-
-**Recommendation for the reviewer:** accept +443 with the trade stated, or treat
-the deletion target as a separate pass over skills this plan does not otherwise
-touch (`plot-idea`, `plot-release`, `plot-sprint`, `story-tracking` — all
-currently out of scope). Do not accept a claim of −493; it is not what these
-branches deliver.
+**What was NOT cut, and why:** Step 0's orient block (777 w) is state-gathering
+and step selection — the file's actual work. Four Common Mistakes rows survive
+because their cause is genuinely not obvious from the governing step. Cutting
+either to buy more headroom would trade working instructions for a metric.
 
 Verify with:
 

@@ -22,11 +22,10 @@ or confirming that something is already correct.
 
 ## For the verifier agent
 
-You are given this rubric, the forge state before and after one iteration, and
-nothing else. Answer one question: **does any criterion hold?**
+You are given this rubric and the forge state before and after one iteration.
+Answer one question — **does any criterion hold?** — and return `pass <n>` or
+`fail`.
 
-Return `pass <n>` naming the criterion, or `fail`.
-
-Do not evaluate whether the work was good, whether progress was made in a broader
-sense, or whether the agent intended to accomplish something. You are not given
-the agent's account of the iteration and must not ask for it.
+Not whether the work was good, or whether progress was made in some broader
+sense. You are not given the agent's account of the iteration and must not ask
+for it.

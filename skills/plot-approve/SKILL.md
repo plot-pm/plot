@@ -87,23 +87,17 @@ Handle each case:
 
 ### 2b. Recommend Tracer Bullet (optional)
 
-Before merging, check whether a tracer bullet is warranted. This is a recommendation, never a hard gate.
+Check the plan for a `### Tracer` subsection under `## Branches`. A recommendation, never a gate.
 
-A thin vertical slice forces an early deliverable. That matters most for exactly the work that tends to produce nothing for a long time — unproven architecture and long-horizon plans — because a tracer either integrates or visibly fails to, early, while the plan can still change.
+- **Exists, `Status: Complete`:** proceed. Summary: "Tracer bullet validated."
+- **Exists, incomplete:** warn — finish it with the `tracer-bullets` skill, or proceed anyway?
+- **Absent:** a tracer is the **default recommendation** when either holds:
+  - **Technical uncertainty** — unfamiliar technology, experimental approach, no prior art in this codebase, or an unproven integration.
+  - **Long horizon** — 3+ branches, or nothing merged for several working sessions.
 
-Read the plan file and check for a `### Tracer` subsection under `## Branches`:
+  Then ask: "This plan has \<technical uncertainty | a long horizon\>. A tracer bullet — one thin vertical slice through every layer — would produce something integrated and merged early instead of after the whole plan. Add a `### Tracer` subsection, or proceed without one?"
 
-- **If `### Tracer` exists with `Status: Complete`:** proceed normally. Mention in summary: "Tracer bullet validated."
-- **If `### Tracer` exists but incomplete:** warn: "This plan has an incomplete tracer bullet. Consider finishing it with the `tracer-bullets` skill before approving. Proceed anyway?"
-- **If no `### Tracer` subsection:** apply the recommendation heuristics. A tracer is the **default recommendation** when either condition holds:
-  - **Technical uncertainty** — the `## Design` section describes unfamiliar technology, an experimental approach, a pattern with no established docs or prior art in this codebase, or an integration not previously proven here.
-  - **Long horizon** — the plan has 3+ branches, or describes work that will not produce anything merged for several working sessions.
-
-  When either holds, recommend rather than merely suggest: "This plan has \<technical uncertainty | a long horizon\>. A tracer bullet — one thin vertical slice through every layer — would produce something integrated and merged early instead of after the whole plan. Add a `### Tracer` subsection, or proceed without one?"
-
-  Proceeding without a tracer stays a single answer away. This is a recommendation with a stated reason, never a gate — the human decides, and a plan that does not need one should not be slowed down.
-
-  If neither condition holds: proceed silently.
+  Neither holds: proceed silently.
 
 > **Smaller models:** Skip heuristic evaluation. Only check for an existing `### Tracer` subsection. If present and incomplete, warn. Otherwise proceed silently.
 

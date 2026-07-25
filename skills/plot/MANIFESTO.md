@@ -64,7 +64,7 @@ Design implications: explicit step-by-step instructions over narrative prose, st
 
 Unattended agent work must produce an observable trace — a commit, a pushed branch, a PR state change, a posted comment. Silence is a failure signal, never a completion signal. Any Plot command that runs unattended must bound how long it may run, and must ship partial work with a handover before that bound is reached rather than after.
 
-This is the agentic case of Principle 1. Git is the database; work that never reached git did not happen, no matter how the agent narrates it. A run that ends with nothing committed and no explanation is indistinguishable from a run that never started — and must be treated as the failure it is.
+This is the agentic case of Principle 1: work that never reached git did not happen, no matter how the agent narrates it. A run ending with nothing committed and no explanation is indistinguishable from one that never started.
 
 ## Lifecycle
 

@@ -341,17 +341,10 @@ Write a one-paragraph summary of what you accomplished this iteration, then outp
 
 ## Common Mistakes
 
+Only failures whose cause is not obvious from the step that governs them. Everything else lives in its step.
+
 | Mistake | Effect | Prevention |
 |---------|--------|------------|
 | Running against a sprint in `Phase: Draft` | No items to work on; loop exhausts iterations | Check `Phase:` field in Step 0; output BLOCKED if not started |
-| Outputting BLOCKED after posting review comments | Loop exits; human must restart | BLOCKED only when truly stuck — review comments are normal iteration work |
-| Creating `feature/` branch for plan-only work | Wasted PR, confuses sprint state | Plan-only items commit directly to main |
 | Working in a stale worktree | New sprint items/merged PRs invisible to agent | ralph-sprint.sh now refreshes worktrees before the loop; if running manually, `git worktree remove` first |
-| Declaring BLOCKED with existing RC when new commits exist | RC is stale, needs re-tagging | Step 0 checks for commits after latest RC tag |
-| Checking `[x]` on a sprint item from ralph-plot-sprint | Plan branches left undelivered | NEVER check `[x]` — only `/plot-deliver` marks items complete |
-| Implementing "the whole plan" in one PR | Monolithic PR, misses plan's branch decomposition | Implement ONE branch per iteration — plans decompose for a reason |
-| Merging a PR with DoD gaps | BDD/docs permanently missing from the codebase | Step 2 gates on DoD compliance; Step 4 flags gaps as review comments |
-| Skipping BDD for a non-exempt feature | DoD violation | Classify against DoD exemptions in Step 3 before implementing |
 | Review findings lost in subagent return text | Findings never posted to GitHub; next iteration sees "no comments" | Every subagent MUST post findings via `gh api` directly — never rely on return text |
-| No signal emitted at end of iteration | Loop cannot distinguish progress from stuck | Always emit exactly one signal: CONTINUE, COMPLETE, or BLOCKED. A missing signal now counts toward the stall limit — silence is a failure signal, not a continuation |
-| Starting new work on `BUDGET: final` | Work is cut off mid-step and lost | On `final`, land in-flight work and write the handover. Do not begin a new branch or a new step |
