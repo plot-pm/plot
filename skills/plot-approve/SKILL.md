@@ -38,7 +38,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
 | 1-2. Parse and PR State | Small | Git/gh commands, helper script, state checks |
-| 2b. Suggest Tracer Bullet | Mid | Heuristic evaluation of plan design and branch structure |
+| 2b. Recommend Tracer Bullet | Mid | Heuristic evaluation of plan design and branch structure |
 | 3. Merge Plan PR | Small | Single gh command |
 | 4. Read and Parse Plan | Small | Structured markdown parsing |
 | 4b. Branch Conflicts | Mid | Cross-referencing multiple plan files |
@@ -85,19 +85,25 @@ Handle each case:
 - **Plan PR is closed (not merged)**: Error — "Plan PR is closed. Reopen it or create a new one."
 - **No PR found**: Error — "No PR found for branch `idea/<slug>`. Run `/plot-idea <slug>: <title>` first."
 
-### 2b. Suggest Tracer Bullet (optional)
+### 2b. Recommend Tracer Bullet (optional)
 
-Before merging, check if a tracer bullet might be valuable. This is a suggestion, never a hard gate.
+Before merging, check whether a tracer bullet is warranted. This is a recommendation, never a hard gate.
+
+A thin vertical slice forces an early deliverable. That matters most for exactly the work that tends to produce nothing for a long time — unproven architecture and long-horizon plans — because a tracer either integrates or visibly fails to, early, while the plan can still change.
 
 Read the plan file and check for a `### Tracer` subsection under `## Branches`:
 
 - **If `### Tracer` exists with `Status: Complete`:** proceed normally. Mention in summary: "Tracer bullet validated."
 - **If `### Tracer` exists but incomplete:** warn: "This plan has an incomplete tracer bullet. Consider finishing it with the `tracer-bullets` skill before approving. Proceed anyway?"
-- **If no `### Tracer` subsection:** apply suggestion heuristics:
-  - **Strongly suggest** when the `## Design` section describes unfamiliar technology, experimental approaches, or patterns without established docs/tutorials
-  - **Strongly suggest** when the plan has 3+ branches AND they show a natural core-plus-extras decomposition
-  - If heuristic triggers: "Consider using the `tracer-bullets` skill to validate the architecture first. Add a `### Tracer` subsection to the plan, or proceed without one?"
-  - If heuristic does not trigger: proceed silently
+- **If no `### Tracer` subsection:** apply the recommendation heuristics. A tracer is the **default recommendation** when either condition holds:
+  - **Technical uncertainty** — the `## Design` section describes unfamiliar technology, an experimental approach, a pattern with no established docs or prior art in this codebase, or an integration not previously proven here.
+  - **Long horizon** — the plan has 3+ branches, or describes work that will not produce anything merged for several working sessions.
+
+  When either holds, recommend rather than merely suggest: "This plan has \<technical uncertainty | a long horizon\>. A tracer bullet — one thin vertical slice through every layer — would produce something integrated and merged early instead of after the whole plan. Add a `### Tracer` subsection, or proceed without one?"
+
+  Proceeding without a tracer stays a single answer away. This is a recommendation with a stated reason, never a gate — the human decides, and a plan that does not need one should not be slowed down.
+
+  If neither condition holds: proceed silently.
 
 > **Smaller models:** Skip heuristic evaluation. Only check for an existing `### Tracer` subsection. If present and incomplete, warn. Otherwise proceed silently.
 
