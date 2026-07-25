@@ -427,6 +427,12 @@ $ITER_PROMPT"
   REFS_AFTER=$(branch_refs)
   # Rubric criteria 1 and 2. A failed ls-remote returns "unknown" on both sides,
   # which compares equal — an unreadable remote must not read as a deliverable.
+  #
+  # Known imprecision: any remote change counts, including a push by someone else
+  # during our iteration. That resets the stall counter on work we did not do —
+  # a false NEGATIVE for stall detection, which only ever delays a stop. Filtering
+  # to refs this agent touched would need per-iteration ref bookkeeping, i.e. the
+  # general state-diffing this design explicitly avoids. Deliberate trade.
   if [ "$SHA_BEFORE" != "$SHA_AFTER" ] && [ "$SHA_AFTER" != "unknown" ]; then
     DELIVERABLE="main-advanced"
     STALL_COUNT=0
@@ -522,11 +528,7 @@ notify "Sprint Iterations Exhausted" "Sprint '$SLUG' used all $ITERATIONS iterat
 $HANDOVER" "warning"
 echo "Exhausted $ITERATIONS iterations without completing."
 [ -n "$HANDOVER" ] && { echo "--- handover ---"; echo "$HANDOVER"; }
-if [ "$RALPH_SPRINT_ON_BUDGET_EXHAUSTED" = "ship_partial" ]; then
-  EXITING_NORMALLY=true
-  wrapup "Sprint Iterations Exhausted"
-  exit 0
-fi
 EXITING_NORMALLY=true
 wrapup "Sprint Iterations Exhausted"
+[ "$RALPH_SPRINT_ON_BUDGET_EXHAUSTED" = "ship_partial" ] && exit 0
 exit 1
