@@ -4,10 +4,16 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
+
+## Approval
+
+- **Approved:** 2026-07-25T13:13:51Z
+- **Approved by:** jwloka
+- **Assignee:** jwloka
 
 ## Changelog
 
