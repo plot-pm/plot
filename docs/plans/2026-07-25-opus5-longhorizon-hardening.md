@@ -838,7 +838,7 @@ Additionally, self-imposed for this plan:
 
 ### Tracer
 
-- `feature/opus5-hardening-ralph-bounds` — Declarative budget surface, deliverable rubric + verifier, and heartbeat for `ralph-plot-sprint` → #49
+- `feature/opus5-hardening-ralph-bounds` — Declarative budget surface, deliverable rubric + verifier, and heartbeat for `ralph-plot-sprint` → #57
   Layers: `## Plot Config` → `plot-config.sh` → `ralph-sprint.sh` → `ralph-plot-sprint/SKILL.md` → `deliverable-rubric.md`
   Proves: A budget expressed as config (including an enum) can bound an unattended loop, be observed from outside the run, and ship partial work — with the deliverable judged against a rubric rather than self-reported
   Also lands: `.ralph-state/` in `.gitignore`; Common Mistakes rows that echo an adjacent rule deleted
@@ -846,16 +846,21 @@ Additionally, self-imposed for this plan:
 
 ### Implementation
 
-- `feature/opus5-hardening-challenge-budget` — Question budget, material-vs-marginal filter, stopping rule; **deletes** 39 question templates, tone/audience/complexity blocks, narrative-weaving example, Adaptive Depth Strategy (−734 w) → #51
-- `feature/opus5-hardening-deliver-gates` — Subagent evidence citation, Step 4 re-query rule; **deletes** Step 5 model-tier blockquote (−109 w) → #52
-- `docs/opus5-hardening-invariants` — `plot-reconcile` read-only invariant; `MANIFESTO.md` Principle 10 → #53
-- `feature/opus5-hardening-approve-tracer` — Tracer bullets as default recommendation in `plot-approve` Step 2b → #54
-- `docs/opus5-hardening-model-provenance` — `docs/model-provenance.md` and the `intro-to-using-plot.md` section → #55
+- `feature/opus5-hardening-challenge-budget` — Question budget, material-vs-marginal filter, stopping rule; **deletes** 39 question templates, tone/audience/complexity blocks, narrative-weaving example, Adaptive Depth Strategy (−734 w) → #57
+- `feature/opus5-hardening-deliver-gates` — Subagent evidence citation, Step 4 re-query rule; **deletes** Step 5 model-tier blockquote (−109 w) → #57
+- `docs/opus5-hardening-invariants` — `plot-reconcile` read-only invariant; `MANIFESTO.md` Principle 10 → #57
+- `feature/opus5-hardening-approve-tracer` — Tracer bullets as default recommendation in `plot-approve` Step 2b → #57
+- `docs/opus5-hardening-model-provenance` — `docs/model-provenance.md` and the `intro-to-using-plot.md` section → #57
 
 Every branch needs a `.changeset/*.md` with a `bumps: skills:` block. Six branches,
 five gated behind one tracer.
 
-**Every PR body must state `words before → after` for each file it touches.** The
+**Consolidated into a single PR (#57) at the author's request.** The six branches
+were merged into `feature/opus5-longhorizon-hardening` with all commits preserved;
+#49 and #51–#56 are closed in favour of it. The per-branch decomposition below
+records how the work was built and reviewed, not how it ships.
+
+**The PR body states `words before → after` for every file it touches.** The
 per-branch figures are in Change 0's table and were measured, not estimated — the
 first estimate (−493) proved wrong by ~936 words, which is exactly why a claim
 nobody can check is what Change 3 argues against.
