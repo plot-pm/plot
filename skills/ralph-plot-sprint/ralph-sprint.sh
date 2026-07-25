@@ -440,7 +440,10 @@ $ITER_PROMPT"
   # --- Deliverable checkpoint (after) ---
   # Objective condition: did origin/<main> move? The agent's own account of what
   # it did is not consulted here — that is the point.
-  SHA_AFTER=$(git fetch -q origin "$MAIN_BRANCH" 2>/dev/null; main_sha)
+  # `|| true` is explicit belt-and-braces: today the `;` discards the fetch's exit
+  # status and main_sha always returns 0, but that safety is implicit and a
+  # reordering edit would silently turn a network blip into a dead sprint.
+  SHA_AFTER=$(git fetch -q origin "$MAIN_BRANCH" 2>/dev/null || true; main_sha)
   REFS_AFTER=$(branch_refs)
   # Rubric criteria 1 and 2. A failed ls-remote returns "unknown" on both sides,
   # which compares equal — an unreadable remote must not read as a deliverable.

@@ -4,7 +4,9 @@
 
 `ralph-plot-sprint` is now bounded. The runner gains a whole-run wall-clock budget, a per-iteration deliverable checkpoint verified from git rather than from the agent's own report, a ship-partial fallback that fires while there is still time to land work, and a heartbeat file so a silent run is detectable from outside.
 
-Two optional `## Plot Config` keys with documented defaults: `Sprint wall clock` (default `8h`) and `Sprint stall limit` (default `3`). Both accept an environment override (`RALPH_SPRINT_WALL_CLOCK`, `RALPH_SPRINT_STALL_LIMIT`) and `0` to disable. A project that sets neither behaves as before, except that a run can no longer grind or go silent indefinitely.
+Five optional `## Plot Config` keys with documented defaults: `Sprint max iterations` (`20`), `Sprint deadline` (`8h`), `Sprint heartbeat interval` (`5m`), `Sprint stall limit` (`3`), and `Sprint on budget exhausted` (`ship_partial | fail`). Each accepts an environment override (`RALPH_SPRINT_MAX_ITERATIONS`, `RALPH_SPRINT_DEADLINE`, `RALPH_SPRINT_HEARTBEAT_INTERVAL`, `RALPH_SPRINT_STALL_LIMIT`, `RALPH_SPRINT_ON_BUDGET_EXHAUSTED`); the four numeric ones accept `0` to disable. A project that sets none behaves as before, except that a run can no longer grind or go silent indefinitely.
+
+`Sprint on budget exhausted` is the behavioural contract: `ship_partial` lands in-flight work, writes a handover and exits 0; `fail` exits non-zero for CI. An unrecognised value coerces to `ship_partial` with a warning on stderr.
 
 An iteration that emits no promise signal now counts toward the stall limit instead of logging a warning and continuing — silence is a failure signal, not a continuation.
 
