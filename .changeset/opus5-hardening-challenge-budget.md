@@ -10,6 +10,8 @@ The category progression is now documented as a search order rather than a check
 
 Works standalone: when `plot-config.sh` is absent (use outside a Plot project), the default budget applies rather than erroring.
 
+Deletion pass, same change: removes 39 canned question templates, the tone/audience/complexity adaptation blocks, the narrative-weaving worked example, and the Adaptive Depth Strategy — 801 words of guidance that either prescribes taste or enumerates what the material-vs-marginal filter now covers. The skill goes from 1,654 to 1,412 words on main net of the additions.
+
 <!--
 bumps:
   skills:
