@@ -43,10 +43,24 @@ parse_duration() {
   esac
 }
 
-RALPH_SPRINT_WALL_CLOCK="${RALPH_SPRINT_WALL_CLOCK:-$(plot_config_get "Sprint wall clock" "8h")}"
+RALPH_SPRINT_MAX_ITERATIONS="${RALPH_SPRINT_MAX_ITERATIONS:-$(plot_config_get "Sprint max iterations" "20")}"
+RALPH_SPRINT_DEADLINE="${RALPH_SPRINT_DEADLINE:-$(plot_config_get "Sprint deadline" "8h")}"
+RALPH_SPRINT_HEARTBEAT_INTERVAL="${RALPH_SPRINT_HEARTBEAT_INTERVAL:-$(plot_config_get "Sprint heartbeat interval" "5m")}"
 RALPH_SPRINT_STALL_LIMIT="${RALPH_SPRINT_STALL_LIMIT:-$(plot_config_get "Sprint stall limit" "3")}"
-WALL_CLOCK_SECONDS=$(parse_duration "$RALPH_SPRINT_WALL_CLOCK")
+RALPH_SPRINT_ON_BUDGET_EXHAUSTED="${RALPH_SPRINT_ON_BUDGET_EXHAUSTED:-$(plot_config_get "Sprint on budget exhausted" "ship_partial")}"
+
+DEADLINE_SECONDS=$(parse_duration "$RALPH_SPRINT_DEADLINE")
+HEARTBEAT_SECONDS=$(parse_duration "$RALPH_SPRINT_HEARTBEAT_INTERVAL")
 case "$RALPH_SPRINT_STALL_LIMIT" in ''|*[!0-9]*) RALPH_SPRINT_STALL_LIMIT=3 ;; esac
+case "$RALPH_SPRINT_MAX_ITERATIONS" in ''|*[!0-9]*) RALPH_SPRINT_MAX_ITERATIONS=20 ;; esac
+
+# The enum IS the contract. Validate it here so the run cannot proceed on a
+# typo silently; fail toward shipping, which is the safe direction.
+case "$RALPH_SPRINT_ON_BUDGET_EXHAUSTED" in
+  ship_partial|fail) ;;
+  *) echo "warning: Sprint on budget exhausted='$RALPH_SPRINT_ON_BUDGET_EXHAUSTED' is not ship_partial|fail; using ship_partial" >&2
+     RALPH_SPRINT_ON_BUDGET_EXHAUSTED=ship_partial ;;
+esac
 NTFY_URL="${CLAUDE_NTFY_URL:?"Set CLAUDE_NTFY_URL (e.g. https://ntfy.sh)"}"
 NTFY_TOKEN="${CLAUDE_NTFY_TOKEN:?"Set CLAUDE_NTFY_TOKEN"}"
 NTFY_TOPIC="${CLAUDE_NTFY_TOPIC:-claude-on-$(hostname -s)}"
@@ -112,8 +126,11 @@ if [ -z "$1" ] || [ -z "$2" ]; then
   echo "  RALPH_SPRINT_SKILL       Iteration skill name (default: ralph-plot-sprint)"
   echo "  RALPH_SPRINT_AUTOMERGE   Auto-merge reviewed PRs: true|false (default: false)"
   echo "  RALPH_SPRINT_TIMEOUT     Per-iteration timeout in seconds (default: 1800)"
-  echo "  RALPH_SPRINT_WALL_CLOCK  Whole-run budget, e.g. 30m/8h/3600 (default: Plot Config 'Sprint wall clock', else 8h; 0=off)"
-  echo "  RALPH_SPRINT_STALL_LIMIT Consecutive no-commit iterations before stopping (default: Plot Config 'Sprint stall limit', else 3; 0=off)"
+  echo "  RALPH_SPRINT_MAX_ITERATIONS      Iteration ceiling (default: Plot Config 'Sprint max iterations', else 20; 0=off)"
+  echo "  RALPH_SPRINT_DEADLINE            Whole-run budget, e.g. 30m/8h/3600 (default: 'Sprint deadline', else 8h; 0=off)"
+  echo "  RALPH_SPRINT_HEARTBEAT_INTERVAL  Heartbeat staleness threshold (default: 'Sprint heartbeat interval', else 5m; 0=off)"
+  echo "  RALPH_SPRINT_STALL_LIMIT         Consecutive no-deliverable iterations before stopping (default: 3; 0=off)"
+  echo "  RALPH_SPRINT_ON_BUDGET_EXHAUSTED ship_partial|fail (default: 'Sprint on budget exhausted', else ship_partial)"
   echo "  CLAUDE_NTFY_URL          ntfy server URL (required)"
   echo "  CLAUDE_NTFY_TOKEN        ntfy auth token (required)"
   echo "  CLAUDE_NTFY_TOPIC        ntfy topic (default: claude-on-\$(hostname -s))"
@@ -146,6 +163,13 @@ fi
 ITERATIONS=$1
 SLUG=$2
 
+# The configured ceiling caps the positional argument — a budget in config
+# should not be silently exceeded by a command-line number.
+if [ "$RALPH_SPRINT_MAX_ITERATIONS" -gt 0 ] && [ "$ITERATIONS" -gt "$RALPH_SPRINT_MAX_ITERATIONS" ]; then
+  echo "Capping iterations $ITERATIONS -> $RALPH_SPRINT_MAX_ITERATIONS (Sprint max iterations)"
+  ITERATIONS=$RALPH_SPRINT_MAX_ITERATIONS
+fi
+
 # --- Pre-flight checks ---
 
 # Verify GitHub CLI is authenticated (saves burning an iteration on auth failure)
@@ -173,7 +197,7 @@ MAIN_BRANCH=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | se
 [ -z "$MAIN_BRANCH" ] && MAIN_BRANCH=$(plot_config_get "Main branch" "main")
 git fetch -q origin "$MAIN_BRANCH" 2>/dev/null || true
 
-echo "Budget: wall clock ${RALPH_SPRINT_WALL_CLOCK} (${WALL_CLOCK_SECONDS}s, 0=off), stall limit ${RALPH_SPRINT_STALL_LIMIT} (0=off), main branch ${MAIN_BRANCH}"
+echo "Budget: max_iterations=${RALPH_SPRINT_MAX_ITERATIONS} deadline=${RALPH_SPRINT_DEADLINE}(${DEADLINE_SECONDS}s) heartbeat=${RALPH_SPRINT_HEARTBEAT_INTERVAL}(${HEARTBEAT_SECONDS}s) stall_limit=${RALPH_SPRINT_STALL_LIMIT} on_budget_exhausted=${RALPH_SPRINT_ON_BUDGET_EXHAUSTED} main=${MAIN_BRANCH} (0=off)"
 
 # --- Worktree refresh ---
 # Remove stale worktree so claude --worktree creates a fresh one from current HEAD.
@@ -244,7 +268,7 @@ write_heartbeat() {
   local now; now=$(date +%s)
   printf '%s\n' "$now" > "$STATE_DIR/heartbeat.ts"
   cat > "$STATE_DIR/heartbeat" <<EOF
-{"ts":$now,"iso":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","iteration":$1,"deliverable":"$2","stall_count":$3,"stall_limit":$RALPH_SPRINT_STALL_LIMIT,"elapsed_s":$((now - RUN_START))}
+{"ts":$now,"iso":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","iteration":$1,"deliverable":"$2","stall_count":$3,"stall_limit":$RALPH_SPRINT_STALL_LIMIT,"heartbeat_interval_s":$HEARTBEAT_SECONDS,"on_budget_exhausted":"$RALPH_SPRINT_ON_BUDGET_EXHAUSTED","elapsed_s":$((now - RUN_START))}
 EOF
 }
 
@@ -319,7 +343,7 @@ for ((i=1; i<=ITERATIONS; i++)); do
   # RALPH_SPRINT_TIMEOUT is what makes ship-partial fire BEFORE the budget
   # expires instead of after it.
   BUDGET_STATE="ok"
-  if [ "$WALL_CLOCK_SECONDS" -gt 0 ] && [ $(( ELAPSED + RALPH_SPRINT_TIMEOUT )) -ge "$WALL_CLOCK_SECONDS" ]; then
+  if [ "$DEADLINE_SECONDS" -gt 0 ] && [ $(( ELAPSED + RALPH_SPRINT_TIMEOUT )) -ge "$DEADLINE_SECONDS" ]; then
     BUDGET_STATE="final"
   elif [ "$RALPH_SPRINT_STALL_LIMIT" -gt 0 ] && [ "$STALL_COUNT" -ge "$RALPH_SPRINT_STALL_LIMIT" ]; then
     BUDGET_STATE="stalled"
@@ -433,6 +457,8 @@ $HANDOVER" "octagonal_sign"
     echo "Sprint stalled after $i iterations (${STALL_COUNT} with no deliverable)."
     EXITING_NORMALLY=true
     wrapup "Sprint Stalled"
+    # Exit code comes from the enum: a partial ship is a successful outcome.
+    [ "$RALPH_SPRINT_ON_BUDGET_EXHAUSTED" = "ship_partial" ] && exit 0
     exit 1
   fi
 done
@@ -446,6 +472,11 @@ notify "Sprint Iterations Exhausted" "Sprint '$SLUG' used all $ITERATIONS iterat
 $HANDOVER" "warning"
 echo "Exhausted $ITERATIONS iterations without completing."
 [ -n "$HANDOVER" ] && { echo "--- handover ---"; echo "$HANDOVER"; }
+if [ "$RALPH_SPRINT_ON_BUDGET_EXHAUSTED" = "ship_partial" ]; then
+  EXITING_NORMALLY=true
+  wrapup "Sprint Iterations Exhausted"
+  exit 0
+fi
 EXITING_NORMALLY=true
 wrapup "Sprint Iterations Exhausted"
 exit 1

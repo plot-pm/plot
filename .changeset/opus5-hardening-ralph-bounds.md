@@ -8,6 +8,10 @@ Two optional `## Plot Config` keys with documented defaults: `Sprint wall clock`
 
 An iteration that emits no promise signal now counts toward the stall limit instead of logging a warning and continuing — silence is a failure signal, not a continuation.
 
+The budget is expressed as a config surface rather than prose: five keys, one an enum (`Sprint on budget exhausted: ship_partial | fail`) validated at startup, which decides whether a budget boundary exits 0 or non-zero. The deliverable is judged against `deliverable-rubric.md` by the runner and a verifier agent — the agent no longer self-reports completion.
+
+Deletion pass: Common Mistakes rows that echoed adjacent CRITICAL rules (one now obsolete), the Step 0 subagent prompt block, both inline GraphQL query bodies, and the DoD grep examples — 309 words. This skill still nets +349 including the new rubric file; it is the one branch in this plan that legitimately adds more than it removes.
+
 <!--
 bumps:
   skills:

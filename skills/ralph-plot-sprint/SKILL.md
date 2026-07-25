@@ -27,26 +27,32 @@ Parse `$ARGUMENTS`:
 
 ## Setup
 
-Optional budget keys in the adopting project's `## Plot Config`. Both have
-documented defaults — a project that sets neither behaves as before, except that
-a run can no longer grind or go silent indefinitely.
+Optional budget keys in the adopting project's `## Plot Config`. All have
+documented defaults — a project that sets none behaves as before, except that a
+run can no longer grind or go silent indefinitely.
 
     ## Plot Config
-    - **Sprint wall clock:** 8h
+    - **Sprint max iterations:** 20
+    - **Sprint deadline:** 8h
+    - **Sprint heartbeat interval:** 5m
     - **Sprint stall limit:** 3
+    - **Sprint on budget exhausted:** ship_partial
 
-| Key | Env override | Default | Meaning |
-|-----|--------------|---------|---------|
-| `Sprint wall clock` | `RALPH_SPRINT_WALL_CLOCK` | `8h` | Total elapsed time for the whole run, across all iterations. Accepts `30m`, `8h`, or bare seconds. `0` disables. |
-| `Sprint stall limit` | `RALPH_SPRINT_STALL_LIMIT` | `3` | Consecutive iterations with no commit to the main branch before the run stops. `0` disables. |
+| Key | Env override | Type | Default |
+|-----|--------------|------|---------|
+| `Sprint max iterations` | `RALPH_SPRINT_MAX_ITERATIONS` | integer, `0`=off | `20` |
+| `Sprint deadline` | `RALPH_SPRINT_DEADLINE` | duration (`30m`/`8h`/secs), `0`=off | `8h` |
+| `Sprint heartbeat interval` | `RALPH_SPRINT_HEARTBEAT_INTERVAL` | duration, `0`=off | `5m` |
+| `Sprint stall limit` | `RALPH_SPRINT_STALL_LIMIT` | integer, `0`=off | `3` |
+| `Sprint on budget exhausted` | `RALPH_SPRINT_ON_BUDGET_EXHAUSTED` | enum: `ship_partial` \| `fail` | `ship_partial` |
 
-Precedence: **environment variable → `## Plot Config` → default.** The env var wins
-because the runner is invoked by humans and CI who need a per-run override without
-editing a committed file.
+`ship_partial` lands in-flight work, writes the handover, and exits 0 — a partial
+ship is a successful outcome. `fail` exits non-zero, for CI where a partial result
+must not read as success. Unrecognised value → `ship_partial` with a stderr warning.
 
-Defaults are deliberately loose. Run length varies by sprint, so no default fits
-every case; a bound that fires during normal operation is worse than no bound,
-because it trains the user to raise it and a disabled detector has zero coverage.
+Precedence: **environment variable → `## Plot Config` → default.** Defaults are
+deliberately loose: run length varies by sprint, and a bound that fires during
+normal operation trains the user to raise it.
 
 ---
 
@@ -59,17 +65,8 @@ When a DoD file exists (`docs/definition-of-done.md`), use this checklist to ver
 - `needs_docs`: Yes unless internal refactoring, test-only, or CI/infra
 - `needs_changeset`: Yes unless docs, tests, infra, or refactoring
 
-**Check PR compliance** (for PRs where the classification requires it):
-```bash
-# BDD check
-gh pr diff <n> --name-only | grep -E '\.(feature)$'
-
-# Docs check
-gh pr diff <n> --name-only | grep -E '(user-guide|admin-guide)\.md$'
-
-# Changeset check
-gh pr diff <n> --name-only | grep -E '\.changeset/.*\.md$'
-```
+**Check PR compliance** for whichever artifacts the classification requires:
+`gh pr diff <n> --name-only` and look for `.feature` files (BDD), `*-guide.md` (docs), `.changeset/*.md` (changeset).
 
 A PR is **DoD-compliant** when all required artifacts are present. A PR with DoD gaps is treated the same as a PR with failing CI — it cannot be finalized.
 
@@ -82,12 +79,8 @@ If no DoD file exists, skip all DoD checks.
 Read the sprint state before deciding what to do. This step always runs.
 
 ```bash
-# Get sprint status
 /plot-sprint <slug>
-
-# Check open PRs
-gh pr list --state open --json number,title,headRefName,baseRefName,isDraft \
-  --jq '.[] | "\(.number) \(if .isDraft then "DRAFT" else "READY" end) \(.headRefName) \(.title)"'
+gh pr list --state open --json number,title,headRefName,baseRefName,isDraft
 ```
 
 **Read the project's Definition of Done** if it exists:
@@ -110,18 +103,7 @@ cat docs/definition-of-done.md 2>/dev/null || echo "(no DoD file)"
 
 **Reading plan branches:** Find the plan file via `docs/plans/active/<slug>.md` or `docs/plans/delivered/<slug>.md` (resolve symlink). Search for a heading containing "Branches" (matches `## Branches`, `## Implementation Branches`, `### Implementation Branches`). Parse branch names from lines starting with `- ` followed by a backtick-quoted branch name. For each branch, check if a PR exists and its state (MERGED/OPEN/CLOSED) via `gh pr list --state all --head <branch-name>`.
 
-**For sprints with more than 3 open PRs:** use parallel subagents to gather CI and review status. Launch one Task agent per PR with the prompt below, collect all results before proceeding:
-
-```
-Check PR #<N> in repo <owner/repo>:
-1. Run: gh pr checks <N> --repo <owner/repo>
-   Return: "CI: pass" or "CI: fail — <failing check names>"
-2. Run: gh api repos/<owner/repo>/pulls/<N>/reviews
-   and: gh api repos/<owner/repo>/pulls/<N>/comments
-   Return: "reviewed: yes" or "reviewed: no", "unresolved: <count>"
-3. Check sprint item annotation for review_sha:
-   Return: "SHA changed since review: yes/no"
-```
+**For sprints with more than 3 open PRs:** gather CI and review status with one parallel subagent per PR — CI result, whether it has been reviewed, unresolved count, and whether the SHA moved since `review_sha`. Collect all results before proceeding.
 
 **After orienting, pick ONE step for this iteration — the first match wins:**
 - If open PRs have failing CI, unresolved comments, **or DoD compliance gaps** → **Step 1 only**
@@ -153,23 +135,10 @@ For each open PR with failing CI or unresolved review comments:
 4. Reply to any related review comments explaining the fix
 
 **Unresolved comments:**
-1. Find unresolved review threads using the GraphQL API:
-   ```bash
-   gh api graphql -f query='query { repository(owner: "<owner>", name: "<repo>") {
-     pullRequest(number: <N>) { reviewThreads(first: 50) { nodes {
-       id, isResolved, comments(first: 5) { nodes { body, author { login } } }
-   } } } } }' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)'
-   ```
-2. For each unresolved thread: read the comment, fix the underlying issue in code
-3. Push the fix
-4. Reply to the comment explaining what was done: `gh api repos/<owner>/<repo>/pulls/<N>/comments --method POST -f body="Fixed in <sha>: <explanation>"`
-5. **Resolve the thread** using the GitHub "Resolve conversation" API (NOT just replying — use the actual resolve mutation):
-   ```bash
-   gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: "<thread-id>"}) {
-     thread { id, isResolved }
-   } }'
-   ```
-   The `threadId` comes from the GraphQL query in step 1. This is equivalent to clicking "Resolve conversation" in the GitHub UI.
+1. List unresolved threads: GraphQL `repository.pullRequest.reviewThreads`, selecting nodes where `isResolved == false` (you need each node's `id` and comments).
+2. For each: read the comment, fix the underlying issue in code, push.
+3. Reply naming the fix: `gh api repos/<owner>/<repo>/pulls/<N>/comments -f body="Fixed in <sha>: ..."`.
+4. **Resolve the thread** with the `resolveReviewThread` mutation using that node `id`. Replying is not resolving — the thread stays open until the mutation runs.
 
 Retry transient failures (network, flaky tests) up to 3 times before marking as blocked.
 
@@ -336,73 +305,19 @@ The sprint is BLOCKED because the RC requires human testing. Do not output COMPL
 
 ---
 
-## Iteration Deliverable Checkpoint
+## Deliverable and Budget
 
-An iteration must leave an **observable trace in git or on the forge**. The
-promise signal reports what you did; it is not evidence that you did it. This
-section is a gate, not a rule: the checkable condition is that at least one of
-the following is true *after* your step, and you can name which one.
+Each iteration is judged against `deliverable-rubric.md` (this directory). **You do
+not assess your own completion** — the runner checks the rubric's local criteria
+and a verifier agent adjudicates the rest. Your account of the iteration is not
+consulted. Consecutive failures reach `Sprint stall limit` and end the run.
 
-| Deliverable | How it is observed |
-|-------------|--------------------|
-| A commit landed | `git rev-parse origin/<main>` differs from the value at iteration start |
-| A branch was pushed | `git ls-remote --heads origin <branch>` returns a new SHA |
-| A PR changed state | `gh pr view <n> --json state,isDraft` differs from iteration start |
-| A review comment was posted | `gh api repos/<owner>/<repo>/pulls/<n>/comments` count increased |
-| A review thread was resolved | The thread's `isResolved` flipped to `true` |
+The runner injects `BUDGET: ok | final | stalled`. On **`final`** (last iteration
+before a boundary) or **`stalled`**, land in-flight work, start nothing new, write
+`.ralph-state/handover.md`, and emit `BLOCKED`.
 
-Name the deliverable in your iteration summary, as the artifact — e.g.
-`deliverable: pushed feature/sse-backpressure (a1b2c3d)` or
-`deliverable: posted 4 review comments on #12`.
-
-**If no deliverable was produced,** say so explicitly:
-`deliverable: none — <one-line reason>`. Do not manufacture one, and do not
-describe analysis, reading, or verification as a deliverable. Reading the codebase
-is not a deliverable. Confirming that existing work is correct is not a
-deliverable. An iteration that only re-verifies already-verified work must report
-`deliverable: none`.
-
-Consecutive `deliverable: none` iterations are what the runner counts against
-`Sprint stall limit`. Reporting a deliverable you did not produce defeats the only
-mechanism that can detect a stalled run.
-
-**What the runner independently verifies.** The runner checks one thing: whether
-`origin/<main>` moved. Of the deliverables above, only *a commit landed* is
-machine-detected. The other four are reported by you and not verified — which is
-why naming them accurately matters. The runner cannot catch a false
-`deliverable: posted 4 review comments`; a human reading the handover can.
-
-This asymmetry is deliberate, not an oversight. A cheap check that never
-misfires is worth more than a thorough one that flakes on a network read.
-
----
-
-## Budget Exhaustion and Ship-Partial
-
-The runner injects `BUDGET: <state>` into the iteration prompt. Three states:
-
-- **`BUDGET: ok`** — proceed normally.
-- **`BUDGET: final`** — this is the last iteration before the budget expires. Do
-  **not** start new work. Land what is already in flight: push uncommitted work on
-  the current branch, mark finished PRs ready, and write the handover (below).
-  Then emit `<promise>BLOCKED</promise>`.
-- **`BUDGET: stalled`** — `Sprint stall limit` consecutive iterations produced no
-  deliverable. Do not attempt the same step again. Write the handover, stating
-  what you were attempting and what blocked it, and emit
-  `<promise>BLOCKED</promise>`.
-
-**Handover** — write to `.ralph-state/handover.md` (overwrite; it describes the
-current stop, not a history) and include:
-
-- What was completed this run: merged PRs, pushed branches, resolved threads.
-- What is in flight: branch names and their exact state.
-- What was next, and why it did not happen.
-- The single next action a human should take.
-
-Ship-partial fires *before* the budget expires, not after. Seventeen partial
-results with a handover beat zero results and silence.
-
----
+**Handover:** what merged, what is in flight and its branch state, what was next
+and why it did not happen, the single next action for a human.
 
 ## Promise Signals
 
@@ -430,8 +345,6 @@ Write a one-paragraph summary of what you accomplished this iteration, then outp
 |---------|--------|------------|
 | Running against a sprint in `Phase: Draft` | No items to work on; loop exhausts iterations | Check `Phase:` field in Step 0; output BLOCKED if not started |
 | Outputting BLOCKED after posting review comments | Loop exits; human must restart | BLOCKED only when truly stuck — review comments are normal iteration work |
-| Doing multiple steps in one iteration | Work is unfocused, harder to review, riskier to recover from | ONE step per iteration — the first matching step wins, then exit |
-| Building a new branch when open PRs exist for same plan | Review/fix/merge debt accumulates; merge conflicts grow | Step 3 is gated: no open PRs for this plan before building next branch |
 | Creating `feature/` branch for plan-only work | Wasted PR, confuses sprint state | Plan-only items commit directly to main |
 | Working in a stale worktree | New sprint items/merged PRs invisible to agent | ralph-sprint.sh now refreshes worktrees before the loop; if running manually, `git worktree remove` first |
 | Declaring BLOCKED with existing RC when new commits exist | RC is stale, needs re-tagging | Step 0 checks for commits after latest RC tag |
@@ -440,7 +353,5 @@ Write a one-paragraph summary of what you accomplished this iteration, then outp
 | Merging a PR with DoD gaps | BDD/docs permanently missing from the codebase | Step 2 gates on DoD compliance; Step 4 flags gaps as review comments |
 | Skipping BDD for a non-exempt feature | DoD violation | Classify against DoD exemptions in Step 3 before implementing |
 | Review findings lost in subagent return text | Findings never posted to GitHub; next iteration sees "no comments" | Every subagent MUST post findings via `gh api` directly — never rely on return text |
-| Merging multiple PRs in one iteration | Changes are hard to review; conflicts cascade | Merge at most 1 PR per iteration — each merge deserves its own cycle |
 | No signal emitted at end of iteration | Loop cannot distinguish progress from stuck | Always emit exactly one signal: CONTINUE, COMPLETE, or BLOCKED. A missing signal now counts toward the stall limit — silence is a failure signal, not a continuation |
-| Reporting a deliverable that was not produced | Defeats stall detection; the run grinds to the iteration cap with nothing banked | Report `deliverable: none — <reason>` honestly. Analysis, reading, and re-verification are not deliverables |
 | Starting new work on `BUDGET: final` | Work is cut off mid-step and lost | On `final`, land in-flight work and write the handover. Do not begin a new branch or a new step |
