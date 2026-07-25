@@ -878,13 +878,13 @@ Additionally, self-imposed for this plan:
 - `feature/opus5-hardening-deliver-gates` — Subagent evidence citation, Step 4 re-query rule; **deletes** Step 5 model-tier blockquote (−109 w) → #57
 - `docs/opus5-hardening-invariants` — `plot-reconcile` read-only invariant; `MANIFESTO.md` Principle 10 → #57
 - `feature/opus5-hardening-approve-tracer` — Tracer bullets as default recommendation in `plot-approve` Step 2b → #57
-- `docs/opus5-hardening-model-provenance` — `docs/model-provenance.md` and the `intro-to-using-plot.md` section → #57
+- `docs/opus5-hardening-model-provenance` — model provenance doc and the `intro-to-using-plot.md` section → #57
 
 Every branch needs a `.changeset/*.md` with a `bumps: skills:` block. Six branches,
 five gated behind one tracer.
 
 **Consolidated into a single PR (#57) at the author's request.** The six branches
-were merged into `feature/opus5-longhorizon-hardening` with all commits preserved;
+were merged into the branch behind PR #57 with all commits preserved;
 #49 and #51–#56 are closed in favour of it. The per-branch decomposition below
 records how the work was built and reviewed, not how it ships.
 
@@ -906,6 +906,16 @@ Not in scope. Recorded so they are not rediscovered, and not silently folded in.
   nine-branch step-selection cascade before any work happens — plausibly its own
   instance of §2.2.6, on the orient path. Simplifying it is a behaviour change to
   the step-selection logic and needs its own lifecycle test.
+- **`plot-plan-meta.sh` captures paths from branch descriptions.** The parser
+  matches any backticked `<prefix>/…` inside `## Branches`, so a description
+  mentioning a file under a configured prefix becomes a phantom branch. This plan
+  hit it: a `docs/…md` path in a description produced 8 branches where 6 exist,
+  and `/plot-deliver`'s branch gate would have blocked delivery on the phantoms.
+  **Pre-existing on `main`** — reproduced with a minimal probe plan, not caused by
+  this work. Worked around here by rewording the description. A real fix (match
+  only the first backtick span per line, or require the line to *start* with the
+  branch) belongs with the parser and its board contract tests, which this plan's
+  non-goals exclude.
 - **Plan files carrying executable acceptance criteria.** A plan's `## Design`
   section states intent in prose, and `/plot-deliver` Step 5 reconstructs whether
   that intent was met by reading diffs. A plan could instead carry a failing test
