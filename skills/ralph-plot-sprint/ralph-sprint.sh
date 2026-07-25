@@ -275,7 +275,12 @@ parse_session_id() {
 # would false-positive; that is rare and arguably worth interrupting for.
 
 main_sha() {
-  git rev-parse "origin/$MAIN_BRANCH" 2>/dev/null || echo "unknown"
+  # --verify --quiet is load-bearing: plain `git rev-parse <bad-ref>` echoes the
+  # unresolved ref to STDOUT before failing, so the `||` fallback would append
+  # "unknown" to it and the result would never equal "unknown". A transient
+  # resolution failure would then differ from the previous SHA and be scored as
+  # a deliverable — fabricating progress out of a network blip.
+  git rev-parse --verify --quiet "origin/$MAIN_BRANCH" 2>/dev/null || echo "unknown"
 }
 
 # Rubric criterion 2: did any remote branch appear or advance? A Step 3 iteration
@@ -284,7 +289,14 @@ main_sha() {
 # would kill a healthy run. One local-ish call against origin, same cost class as
 # the fetch the loop already does.
 branch_refs() {
-  git ls-remote --heads origin 2>/dev/null | sort || echo "unknown"
+  # Capture before sorting: in `cmd | sort`, the pipeline's exit status is sort's,
+  # which succeeds even when ls-remote fails — the `||` would never fire and a
+  # failed lookup would return EMPTY. Empty differs from the previous listing,
+  # so a network blip would read as "every branch vanished" and score as a
+  # deliverable. Same trap as main_sha, different mechanism.
+  local out
+  out=$(git ls-remote --heads origin 2>/dev/null) || { echo "unknown"; return; }
+  printf '%s\n' "$out" | sort
 }
 
 write_heartbeat() {

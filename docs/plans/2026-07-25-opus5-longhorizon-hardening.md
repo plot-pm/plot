@@ -1090,7 +1090,9 @@ being written, is itself the §6.2.1 pattern.
 
 `challenge-the-plan` was read in full post-cut: coherent, no dangling references.
 
-**Four defects found, all in code this plan added, all fixed:**
+**Six defects found, all fixed.** Four by the first two reviewers, two more by a
+third review of the *fixes themselves* — the fixes had never been checked by
+anyone but their author:
 
 | # | Defect | Consequence | Fix |
 |---|--------|-------------|-----|
@@ -1098,6 +1100,17 @@ being written, is itself the §6.2.1 pattern.
 | 2 | `parse_duration "-5m"` / `"bogus"` | Negative budget forcing `final` from iteration 1; non-numeric into integer comparison | Same fix — anything non-numeric → `0` (disabled) |
 | 3 | **Deadline was a rule, not a gate** | `BUDGET: final` is a *request*. An agent that keeps emitting `CONTINUE` runs past the deadline indefinitely — the exact failure this budget exists to prevent | Hard stop at the deadline regardless of what the agent emits, honouring the `on_budget_exhausted` enum |
 | 4 | **Rubric criterion 2 was promised but never implemented** | The runner checked only main's SHA. A Step 3 iteration that pushes a feature branch — the *most common* productive shape — counted as a stall; three would kill a healthy run | Implement `branch_refs()` via `git ls-remote`; an unreadable remote compares equal and does not count as a deliverable |
+
+| 5 | `main_sha` leaked to stdout | `git rev-parse <bad-ref>` echoes the unresolved ref to **stdout** before failing, so the `\|\| echo unknown` fallback appended to it and the result never equalled `"unknown"`. A *transient* resolution failure would then differ from the previous SHA and score as `main-advanced` — fabricating a deliverable out of a network blip, defeating the guard written to prevent exactly that | `--verify --quiet` |
+| 6 | `branch_refs` returned empty, not `unknown` | In `cmd \| sort`, the pipeline's exit status is `sort`'s, which succeeds even when `ls-remote` fails — so the `\|\|` never fired and a failed lookup returned empty. Empty differs from the previous listing, so a blip read as "every branch vanished" and scored as a deliverable | Capture before sorting; return `unknown` on failure |
+
+Defects 5 and 6 are the same bug in two disguises, and both live in the guard
+clauses written to stop an unreadable remote counting as progress. **The guards
+were dead code.** They were added deliberately, commented as load-bearing, and
+neither worked — because shell failure semantics differ from what the code assumed
+in two distinct ways (stdout-on-failure, and pipeline exit status). Nothing in
+eleven iterations of testing caught them, because every test ran against a *working*
+remote.
 
 Defects 3 and 4 are the serious ones, and both are the same species of error:
 **the plan wrote down a mechanism and the implementation delivered less than the
