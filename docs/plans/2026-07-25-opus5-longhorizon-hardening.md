@@ -248,7 +248,12 @@ land in a smaller file rather than a larger one.
 | **Common Mistakes rows that restate an adjacent rule** | `ralph-plot-sprint` | ~120 | The table has grown to 17 rows. Rows whose Prevention column merely repeats a CRITICAL rule stated verbatim in the step above it are noise. Keep rows describing a *non-obvious* failure; drop the echoes. |
 
 **Deletion total as implemented: 1,616 words.** Net across the touched files:
-**12,389 → 12,360 (−29).** The target is met, though narrowly.
+**12,389 → 12,356 (−33).** The target is met, though narrowly.
+
+*(The figure moved during review: −493 estimated → +443 measured → −29 after the
+deletion pass → +4 when the defect fixes added prose → −33 after trimming that
+prose. Every step was measured, and the two upward moves were caught only because
+someone re-ran `wc -w` instead of trusting the last number written down.)*
 
 | File | Δ |
 |------|---|
@@ -1081,7 +1086,7 @@ being written, is itself the §6.2.1 pattern.
 |-------------|----------------|
 | 1 — budget in config surface | Enum validated at `ralph-sprint.sh:74-78`, wired to real `exit 0`/`exit 1` at two paths — "not decorative" |
 | 2 — rubric + verifier | `DELIVERABLE` computed purely from git state, never from agent output |
-| 3 — net word count | Independently recomputed: `12360` vs `12389` → **−29, exact match** |
+| 3 — net word count | Independently recomputed: `12360` vs `12389` → **−29, exact match** at review time (**−33** after the defect fixes below) |
 
 `challenge-the-plan` was read in full post-cut: coherent, no dangling references.
 

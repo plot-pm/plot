@@ -341,7 +341,7 @@ Write a one-paragraph summary of what you accomplished this iteration, then outp
 
 ## Common Mistakes
 
-Only failures whose cause is not obvious from the step that governs them. Everything else lives in its step.
+Only failures whose cause is not obvious from their governing step.
 
 | Mistake | Effect | Prevention |
 |---------|--------|------------|
