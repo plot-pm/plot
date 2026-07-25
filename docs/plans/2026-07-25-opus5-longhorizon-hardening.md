@@ -281,6 +281,23 @@ and step selection — the file's actual work. Four Common Mistakes rows survive
 because their cause is genuinely not obvious from the governing step. Cutting
 either to buy more headroom would trade working instructions for a metric.
 
+**The enum contract was executed, not just written.** Running the runner's real
+config-resolution prologue against a probe repo whose `## Plot Config` sets
+`Sprint deadline: 4h`, `Sprint max iterations: 7`, and a deliberately invalid
+`Sprint on budget exhausted: bogus_value`:
+
+```
+deadline=4h (14400 s)
+max_iter=7
+enum=ship_partial
+stderr: warning: Sprint on budget exhausted='bogus_value' is not ship_partial|fail; using ship_partial
+```
+
+Config values resolve, the duration parses, and the invalid enum coerces to
+`ship_partial` with a warning — failing toward shipping, as specified. This is the
+difference the plan argues for throughout: a config surface can be *executed* to
+prove it behaves as documented, where a paragraph can only be read.
+
 Verify with:
 
 ```bash
@@ -886,6 +903,13 @@ Not in scope. Recorded so they are not rediscovered, and not silently folded in.
   sufficient". **Deliberately out of scope here**: it changes the plan format,
   which this plan's non-goals exclude and which `packages/board` consumes. Needs
   its own plan.
+- **`ralph-sprint.sh` exits on the ntfy env check before printing usage.** Running
+  it with no arguments reports `CLAUDE_NTFY_URL: Set CLAUDE_NTFY_URL` instead of
+  the usage block, because the `:?` expansion at the top of the config section runs
+  before argument validation. **Pre-existing on `main`** (verified against
+  `origin/main` — same behaviour, same relative order); this plan neither caused
+  nor fixed it. A one-line move of the usage block above the env checks would fix
+  it, but that is argument-handling UX, unrelated to bounding the loop.
 - **Cost budget alongside the deadline.** The system card campaign had a $10,000
   budget as well as 24 hours. A token/cost ceiling is the natural sibling of
   `Sprint deadline`, but there is no cost signal available to the runner today.
