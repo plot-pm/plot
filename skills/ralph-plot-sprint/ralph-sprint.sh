@@ -445,10 +445,16 @@ $ITER_PROMPT"
   # a false NEGATIVE for stall detection, which only ever delays a stop. Filtering
   # to refs this agent touched would need per-iteration ref bookkeeping, i.e. the
   # general state-diffing this design explicitly avoids. Deliberate trade.
-  if [ "$SHA_BEFORE" != "$SHA_AFTER" ] && [ "$SHA_AFTER" != "unknown" ]; then
+  # BOTH sides must be readable. Guarding only the "after" value leaves
+  # unknown -> <real value> scoring as progress: the remote was unreachable at
+  # iteration start and reachable at the end, so a value "appeared" without
+  # anything being pushed. An unknown baseline is not a baseline.
+  if [ "$SHA_BEFORE" != "unknown" ] && [ "$SHA_AFTER" != "unknown" ] \
+     && [ "$SHA_BEFORE" != "$SHA_AFTER" ]; then
     DELIVERABLE="main-advanced"
     STALL_COUNT=0
-  elif [ "$REFS_BEFORE" != "$REFS_AFTER" ] && [ "$REFS_AFTER" != "unknown" ]; then
+  elif [ "$REFS_BEFORE" != "unknown" ] && [ "$REFS_AFTER" != "unknown" ] \
+       && [ "$REFS_BEFORE" != "$REFS_AFTER" ]; then
     DELIVERABLE="branch-pushed"
     STALL_COUNT=0
   else

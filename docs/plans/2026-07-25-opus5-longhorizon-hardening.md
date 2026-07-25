@@ -1090,9 +1090,10 @@ being written, is itself the §6.2.1 pattern.
 
 `challenge-the-plan` was read in full post-cut: coherent, no dangling references.
 
-**Six defects found, all fixed.** Four by the first two reviewers, two more by a
-third review of the *fixes themselves* — the fixes had never been checked by
-anyone but their author:
+**Seven defects found, all fixed.** Four by the first two reviewers, two by a
+third review of the *fixes*, and one by a fourth pass over the *fixes to the
+fixes*. Each round of repair introduced or exposed the next defect — which is the
+most useful single finding in this plan:
 
 | # | Defect | Consequence | Fix |
 |---|--------|-------------|-----|
@@ -1103,6 +1104,8 @@ anyone but their author:
 
 | 5 | `main_sha` leaked to stdout | `git rev-parse <bad-ref>` echoes the unresolved ref to **stdout** before failing, so the `\|\| echo unknown` fallback appended to it and the result never equalled `"unknown"`. A *transient* resolution failure would then differ from the previous SHA and score as `main-advanced` — fabricating a deliverable out of a network blip, defeating the guard written to prevent exactly that | `--verify --quiet` |
 | 6 | `branch_refs` returned empty, not `unknown` | In `cmd \| sort`, the pipeline's exit status is `sort`'s, which succeeds even when `ls-remote` fails — so the `\|\|` never fired and a failed lookup returned empty. Empty differs from the previous listing, so a blip read as "every branch vanished" and scored as a deliverable | Capture before sorting; return `unknown` on failure |
+
+| 7 | Guard checked only the "after" value | `unknown → <real value>` scored as progress: the remote was unreachable at iteration start and reachable at the end, so a value "appeared" without anything being pushed. An unknown baseline is not a baseline | Require both sides readable before comparing |
 
 Defects 5 and 6 are the same bug in two disguises, and both live in the guard
 clauses written to stop an unreadable remote counting as progress. **The guards
