@@ -149,7 +149,7 @@ verifying them".
   benchmark delta does not.
 - §6.2.1's "self-correction loops … continually re-verifying already verified
   answers, **especially at higher effort levels**" is the single most load-bearing
-  citation in this plan, because `ralph-sprint.sh:259` runs `--effort high`. It is
+  citation in this plan, because the `--effort high` flag (`grep -n effort ralph-sprint.sh`) runs `--effort high`. It is
   also a better citation for `challenge-the-plan` than §6.5 is.
 - The §6.1.3 subagent-relay note directly implicates `ralph-plot-sprint` Step 4,
   which already had to add a rule about subagent findings being lost in return
@@ -348,10 +348,10 @@ per-iteration timeout (`RALPH_SPRINT_TIMEOUT`, 1800s). It does **not** have a
 declarative budget surface, a verifiable deliverable rubric, an early ship-partial, or a heartbeat.
 Three specific gaps map onto the campaign failure:
 
-1. **`ralph-sprint.sh:300-303`** — an iteration that emits *no* signal logs
+1. **the no-signal branch (`grep -n 'no signal detected'`)** — an iteration that emits *no* signal logs
    `WARNING … Continuing anyway`. Silence is treated as continuation. This is the
    "went silent for its final 8 hours" shape, in code, today.
-2. **`ralph-sprint.sh:307`** — the exhaustion notification fires *after* all
+2. **the exhaustion path (`grep -n 'Sprint Iterations Exhausted'`)** — the exhaustion notification fires *after* all
    iterations are spent. That is the "shipped nothing" ending: the human learns at
    the end, with nothing banked.
 3. **The `<promise>CONTINUE</promise>` signal is self-asserted.** Nothing checks
@@ -460,7 +460,7 @@ the budget is reached, not after.
 | Budget resolution | Read all five keys at startup via `plot-config.sh`, env var first. Validate `Sprint on budget exhausted` against the enum; unrecognised → `ship_partial` + stderr warning. Print the resolved budget line before iteration 1. |
 | Deadline | `RUN_START=$(date +%s)` before the loop; each iteration, if `elapsed + RALPH_SPRINT_TIMEOUT >= deadline`, inject `BUDGET: final`. Reserving one timeout is what makes ship-partial fire *before* the boundary. |
 | Deliverable | Evaluate rubric criteria 1–2 locally (SHA + branch refs). If both fail, spawn the verifier with the rubric to check 3–5. Verifier `fail` → increment stall counter; any pass → reset to 0. |
-| Missing signal | Change `:300-303` from WARNING-and-continue to a rubric evaluation like any other iteration. An iteration that emitted nothing is judged on what it changed, not on what it said. |
+| Missing signal | Change the no-signal branch from WARNING-and-continue to a rubric evaluation like any other iteration. An iteration that emitted nothing is judged on what it changed, not on what it said. |
 | Heartbeat | Write `.ralph-state/heartbeat` (+ `.ts`) after each iteration: timestamp, iteration, rubric result, stall counter. `Sprint heartbeat interval` is the staleness threshold an external watchdog compares against. |
 | Exhaustion | Behaviour comes from the enum, not from the script: `ship_partial` → handover + `BLOCKED` + exit 0; `fail` → handover + exit non-zero. |
 
@@ -925,7 +925,7 @@ Not in scope. Recorded so they are not rediscovered, and not silently folded in.
 - **Cost budget alongside the deadline.** The system card campaign had a $10,000
   budget as well as 24 hours. A token/cost ceiling is the natural sibling of
   `Sprint deadline`, but there is no cost signal available to the runner today.
-- **`--effort high` as a config key.** `ralph-sprint.sh:259` hardcodes
+- **`--effort high` as a config key.** the `--effort high` flag (`grep -n effort ralph-sprint.sh`) hardcodes
   `--effort high`, and §6.2.1 reports self-correction loops are worse "especially
   at higher effort levels" and that external users saw "overthinking, where it
   performs worse at higher effort levels". Making effort configurable — or
@@ -1064,8 +1064,8 @@ The direct checks, run while waiting:
 
 | Check | Result |
 |-------|--------|
-| Enum wired to behaviour, not decorative | `ralph-sprint.sh:461,475` — both exit paths branch on it |
-| Any remaining self-assessment instruction | None. The one `deliverable:` string is the *runner* printing its own verdict (`:403,406` — set from the SHA comparison; the agent never supplies it) |
+| Enum wired to behaviour, not decorative | the enum exit paths (`grep -n ON_BUDGET_EXHAUSTED`) — both exit paths branch on it |
+| Any remaining self-assessment instruction | None. The one `deliverable:` string is the *runner* printing its own verdict (the `DELIVERABLE=` assignments — set from the SHA comparison; the agent never supplies it) |
 | Net word count | `main=12389 branch=12356` → **−33**, recomputed from `origin/main` |
 | Dangling refs to deleted sections | 0 for all five removed headings |
 | Five original non-goals verbatim | 5/5 present |
@@ -1091,7 +1091,7 @@ being written, is itself the §6.2.1 pattern.
 
 | Requirement | Evidence cited |
 |-------------|----------------|
-| 1 — budget in config surface | Enum validated at `ralph-sprint.sh:74-78`, wired to real `exit 0`/`exit 1` at two paths — "not decorative" |
+| 1 — budget in config surface | Enum validated at the enum validation block (`grep -n 'ship_partial|fail'`), wired to real `exit 0`/`exit 1` at two paths — "not decorative" |
 | 2 — rubric + verifier | `DELIVERABLE` computed purely from git state, never from agent output |
 | 3 — net word count | Independently recomputed: `12360` vs `12389` → **−29, exact match** at review time (**−33** after the defect fixes below) |
 
@@ -1147,6 +1147,23 @@ of writing it. That is the plan's own thesis holding up under test — and the
 uncomfortable half of it: **the author was the least reliable checker of his own
 gates**, which is precisely why Change 3 argues a gate must not be satisfied by
 the claim of the thing being gated.
+
+### Line numbers were removed from this plan on purpose
+
+The plan originally cited `ralph-sprint.sh:300-303`, `:307`, `:259` and others.
+By the time the defect fixes landed, the file had shifted ~150 lines and **four of
+five references pointed at unrelated code** — `:300-303`, documented as the
+"silence is treated as continuation" defect, had become part of `branch_refs`.
+
+Every reference is now a searchable anchor (`grep -n 'no signal detected'`) rather
+than a line number. A line number is correct when written and rots on the next
+edit; an anchor stays valid as long as the construct exists, and fails loudly when
+it does not.
+
+This is Change 3's argument applied to documentation: cite something checkable,
+not something that merely *was* true. The plan spent seven defects establishing
+that prose drifts from code — its own cross-references were drifting the whole
+time.
 
 ### Working constraints observed for this session
 
