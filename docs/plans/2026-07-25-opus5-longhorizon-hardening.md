@@ -1199,6 +1199,30 @@ promising five criteria while one was checked) and the drifted summary table (a
 total that reconciled while its rows did not): **a summary claim that sounds
 complete, standing in for the enumeration nobody performed.**
 
+### Definition of Done, enumerated rather than summarised
+
+`docs/definition-of-done.md` lists nine checkable items. Every one was executed
+rather than asserted:
+
+| Item | Result |
+|------|--------|
+| Skills parse (`pnpm test`) | PASS |
+| Frontmatter (`pnpm run validate`) | PASS |
+| Contract tests (`pnpm run test:reconcile`) | PASS |
+| Changeset present | PASS — 7 files |
+| Plugin version bumped | **Delegated, correctly**: `sync-versions.sh` writes all three metadata files during `pnpm run version`, and history shows plugin bumps land in dedicated `release:` commits. PR #50 (`release: 1.8.0`) already consumes one of this plan's changesets |
+| Board typechecks | PASS |
+| Board tests | PASS — 9 contract + 36 vitest |
+| Artifact fresh (`build:board` → no diff) | PASS |
+| Board impact stated | PASS — and **re-verified**: none of the four trigger categories (plan format, template, helper scripts, `docs/plans` layout) is touched. The only change under `docs/plans/` is this file's content; its symlink matches the existing convention |
+
+The plugin-version item was the one that looked like a violation on first
+inspection — all three files still read `1.7.1`. Checking *how the repo does it*
+rather than *whether the number changed* showed the bot owns it. A first reading
+would have "fixed" it by hand-editing three files the release tooling rewrites,
+which is the same error as the hand-edited skill version caught in the first
+implementation pass.
+
 ### Working constraints observed for this session
 
 - Exploration was time-boxed; the plan was written in one pass after reading the
