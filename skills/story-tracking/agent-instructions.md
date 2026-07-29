@@ -2,12 +2,27 @@
 
 Paste this section into your project's `CLAUDE.md` to enable always-on story tracking rules.
 
+**Before pasting:** replace `{story-directory}` with the repo's actual story
+directory, and make sure `## Plot Config` declares it:
+
+```markdown
+## Plot Config
+
+- **Story directory:** docs/stories/
+- **Story index:** README.md
+```
+
+Documentation-style repos that aggregate other repos conventionally use
+`stories/`; code repos `docs/stories/`. Pasting a hardcoded path is how a
+project ends up with a board and a skill that disagree.
+
 ---
 
 ```markdown
 ## Story Tracking
 
-Stories are **folders**: `docs/stories/{slug}/STORY-{slug}.md`
+Stories are **folders** in the story directory declared in `## Plot Config`:
+`{story-directory}/{slug}/STORY-{slug}.md`
 
 - Say "continue on {slug}" to resume work
 - Say "create a story for {topic}" to start new tracked work
