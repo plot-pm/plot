@@ -252,7 +252,7 @@ Interrogates a plan through adaptive interviews (technical, domain, UX, non-func
 
 ### story-tracking
 
-Stories (`docs/stories/{slug}/`) are the long-running umbrella around plans: research, decisions, and session narrative that span multiple plans and sessions. Plans stay the approved, actionable units. A story references its plans; a plan's `## Context` may link back to the story. Neither requires the other — see the `story-tracking` skill.
+Stories (`<story directory>/{slug}/`, per the `Story directory` key) are the long-running umbrella around plans: research, decisions, and session narrative that span multiple plans and sessions. Plans stay the approved, actionable units. A story references its plans; a plan's `## Context` may link back to the story. Neither requires the other — see the `story-tracking` skill.
 
 ### tracer-bullets
 
