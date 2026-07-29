@@ -1,5 +1,34 @@
 # plot
 
+## 1.8.0
+
+### Minor Changes
+
+- [#58](https://github.com/plot-pm/plot/pull/58) [`6c36ddf`](https://github.com/plot-pm/plot/commit/6c36ddfc0f6a30b177ef2299d425297f67b15924) Thanks [@eins78](https://github.com/eins78)! - story-tracking resolves its directory from `## Plot Config` instead of
+  hardcoding `docs/stories/`, and supports one story home per sub-unit in
+  aggregating repos. `Story directory` and `Story index` are now documented in
+  Setup — `Story directory` was already read by the board but never listed, so a
+  project that configured it got a board and a skill that disagreed about where
+  stories live. Story creation names its intended home and confirms before
+  creating; archiving derives the home from the story's own path so a sub-unit
+  story archives beside itself. The paste-in CLAUDE.md snippet no longer emits a
+  hardcoded path.
+
+  <!--
+  bumps:
+    skills:
+      story-tracking: minor
+      plot: patch
+  -->
+
+- [#48](https://github.com/plot-pm/plot/pull/48) [`649cd17`](https://github.com/plot-pm/plot/commit/649cd17f794d2e1b0ac9baa2937f1b2c28e80f5f) Thanks [@jwloka](https://github.com/jwloka)! - Plan: harden Plot against documented Claude Opus 5 long-horizon failure modes. Bounds the `ralph-plot-sprint` loop (wall-clock budget, per-iteration deliverable checkpoint, ship-partial fallback, heartbeat), bounds `challenge-the-plan` (question budget, material-vs-marginal filter, falsifiable stopping rule), tightens `plot-deliver` gates so subagent claims must cite file-path evidence, states `plot-reconcile` read-only-ness as a design invariant, promotes tracer bullets to the default recommendation in `plot-approve`, adds Manifesto Principle 10 ("an agent that has gone quiet has failed, not finished"), and records model provenance for the skills. Adds three optional `## Plot Config` keys with documented defaults: `Sprint wall clock`, `Sprint stall limit`, `Challenge question budget`.
+
+  <!--
+  bumps:
+    skills:
+      plot: minor
+  -->
+
 ## 1.7.1
 
 ### Patch Changes
