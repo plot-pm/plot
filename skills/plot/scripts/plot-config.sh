@@ -25,7 +25,8 @@
 #
 # Known keys (see the plot skill's Setup section):
 #   Project board | Branch prefixes | Plan directory | Active index |
-#   Delivered index | Sprint directory | Plan template | Main branch
+#   Delivered index | Sprint directory | Story directory | Story index |
+#   Plan template | Main branch
 #
 # `Plan template` is a repo-root-relative path to the plan template /plot-idea
 # instantiates; when absent, /plot-idea falls back to the shipped template.

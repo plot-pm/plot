@@ -26,6 +26,8 @@ Plan directory: not/config/prose — outside the section, must never match.
 - **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
 - Plan directory: plans/
   - **Delivered index:** \`plans/delivered/\`
+- **Story directory:** \`stories/\` (root; sub-units carry their own)
+- Story index: README.md
 <!-- - **Main branch:** develop -->
 
 ## Other Section
@@ -140,4 +142,16 @@ test('config: Plan template key absent → shipped-template default', () => {
   } finally {
     fs.rmSync(bare, { recursive: true, force: true });
   }
+});
+
+test('config: story directory', () => {
+  assert.equal(get('Story directory'), 'stories/');
+});
+
+test('config: story index', () => {
+  assert.equal(get('Story index'), 'README.md');
+});
+
+test('config: story keys fall back when unset', () => {
+  assert.equal(get('Nonexistent story key', 'docs/stories/'), 'docs/stories/');
 });

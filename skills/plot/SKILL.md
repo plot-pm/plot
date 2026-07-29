@@ -31,6 +31,8 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
     - **Active index:** docs/plans/active/
     - **Delivered index:** docs/plans/delivered/
     - **Sprint directory:** docs/sprints/
+    - **Story directory:** docs/stories/
+    - **Story index:** README.md
     <!-- Optional: override the shipped plan template with a project's own -->
     <!-- - **Plan template:** .plot/templates/plan.md -->
     <!-- Optional: only when origin/HEAD detection picks the wrong branch -->
@@ -38,6 +40,18 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 
 Helpers read these keys via `scripts/plot-config.sh get <key> [default]` —
 use it instead of grepping `CLAUDE.md`.
+
+`Story directory` and `Story index` are read by the `story-tracking` skill and
+by the board. Documentation-style repos that aggregate other repos
+conventionally set `stories/`; code repos keep `docs/stories/`, beside
+`docs/plans/`.
+
+`Story index` names **one** file — the repo's top-level README — and it indexes
+every story in the repo, including those in sub-unit homes. An index nested
+inside the story directory is too easy to miss to serve as the front door.
+Group entries by unit when the repo has several homes; length is not a reason
+to move the list, and when completed stories start crowding the active ones,
+move only those into `<story directory>/README.md`.
 
 **Optional — override the plan template.** Set a `Plan template` key (a
 repo-root-relative path) to replace the shipped plan template with a project's own
