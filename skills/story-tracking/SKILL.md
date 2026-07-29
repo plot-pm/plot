@@ -44,7 +44,7 @@ in `## Plot Config`, default `docs/stories/`. Read it, never assume it:
 directory per area, at the same relative path (`clients/acme/stories/`,
 `teams/blue/stories/`). List the ones that exist with
 
-    git ls-files '*STORY-*.md' | sed 's#/STORY-.*##' | sort -u
+    git ls-files '*STORY-*.md' | sed -E 's#/[^/]+/STORY-[^/]+$##' | sort -u
 
 Ask git rather than the filesystem: `ls-files` reports only what *this*
 repository tracks, so it never wanders into a submodule or an ignored
