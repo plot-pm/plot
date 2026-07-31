@@ -44,3 +44,23 @@ limit mid-rerun (partial valid results: activation 5/6 with the grader
 fixed — the remaining fail is finding 2, fixed after; approve 10/10
 valid calls). Rerun all suites when the key limit resets; expected
 green except possible fresh findings.
+
+## 2026-07-31 (evening) — confirmation rerun (key limit raised): 91/92
+
+All seven suites, same providers, against the fixed skills + harness:
+
+| Suite | Baseline | Confirmed | Reading |
+|---|---|---|---|
+| approve | 12/12 | 12/12 | stable |
+| sprint-gate | 12/12 | 12/12 | stable |
+| staleness | 12/12 | 12/12 | stable |
+| story-triage | 20/20 | 20/20 | stable (incl. the sharpened overflow signal) |
+| ceremony | 18/24 | **23/24** | the 6 baseline fails collapse to 1: gpt-chat-latest still answers `route-out: need brain dump first` on "Implementation home elsewhere" — same case+provider as baseline, off-grammar but a defensible reading of an under-specified scenario; documented residual, no skill change (overfit risk) |
+| orientation | 0/6 | **6/6** | confirms the baseline zero was pure grader infrastructure |
+| activation | 3/6 | **6/6** | the activation guard holds — haiku no longer injects ceremony into the trivial rename |
+
+Both real skill fixes verified by the rerun (story-triage +
+calibration-suite flips; activation green). Cost note for planning:
+a full pass of all 7 suites + the workspace calibration suite ≈ **$1.50**
+(the plan's \$0.55–0.90 estimate was ~2× low — gpt-chat-latest pricing
+and the calibration suite's context-heavy prompts).
