@@ -155,7 +155,9 @@ a merge commit merely coincides with it in the `pr` flow.
    `<channel>`: `plan-PR #<n> merged` | `in-session` | `ballot <n>/<m>`.
 4. Keep/insert the `## Approval` section with `- **Assignee:** <who>`
    (the board reads the assignee from there).
-5. Commit where the plan lives:
+5. If `.plot/hold` lists a branch for this plan/story (review hold),
+   remove that line — the approval is what releases the gate.
+6. Commit where the plan lives:
    - `pr`-merged flow: on the default branch — fetch first; do **not**
      check out the default branch locally. The exact mechanic:
 

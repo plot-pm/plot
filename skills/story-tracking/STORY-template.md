@@ -1,7 +1,8 @@
 ---
 title: {TITLE}
-jira: {JIRA_TICKET_URL}  # Optional — link to tracking ticket
-status: draft | active | paused | done
+author: {NAME}  # Who owns/drives this story — always set it; multi-author repos depend on it
+jira: {JIRA_TICKET_URL}  # Optional — link (never copy) the tracking ticket
+status: draft | ready | active | in-review | paused | done
 created: {YYYY-MM-DD}
 updated: {YYYY-MM-DD}
 # archived: {YYYY-MM-DD}  # Add when done + moved to <story directory>/archived/ (see Archiving a Story)
@@ -12,6 +13,17 @@ updated: {YYYY-MM-DD}
 ## Objective
 
 {What this work aims to achieve — 1-3 sentences}
+
+## Why Now
+
+{Optional — what makes this worth doing at this moment: the trigger, the
+window, the cost of waiting. Delete if the Objective already says it.}
+
+## Decisions Taken in Scoping
+
+{Optional — decisions made while shaping this story, before any plan
+exists (Q&A form works well). Later decisions go to the Decisions table;
+this block preserves the founding choices that are easy to lose.}
 
 ## Current Plan
 

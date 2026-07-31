@@ -23,9 +23,16 @@
 # -A/--all/.; tracked modifications for commit -a). Conservative by
 # design: a glob or directory pathspec counts as outside the plan dir.
 #
-# Not covered here (documented follow-up, lands with the story-tracking
-# triage work): review-state declared in story frontmatter — branch↔story
-# association is fuzzy and a gate must not false-block.
+#   Additionally: an explicit review hold — a line in the committed
+#   `.plot/hold` file of the form `<branch> <free-text reason>` — blocks
+#   implementation commits on exactly that branch (string equality on the
+#   first field, never a pattern: a gate must not false-block). Skills
+#   write an entry when a story/plan declares "code only after approval"
+#   for a named branch; recording the approval removes it. Plan and story
+#   edits still pass under a hold (refining the artifact under review is
+#   the point) — story homes are matched by the configured Story
+#   directory AND any directory sharing its basename (sub-unit homes,
+#   e.g. clients/*/stories/).
 
 set -uo pipefail
 
@@ -90,6 +97,35 @@ outside_plans() {
   done < <(effective_paths)
   return $found
 }
+
+STORY_DIR="$(bash "$HERE/plot-config.sh" get "Story directory" "docs/stories/")"
+STORY_DIR="${STORY_DIR%/}"
+STORY_BASE="$(basename "$STORY_DIR")"
+
+# Hold carve-out: plan + story + .plot edits pass (both are review artifacts).
+outside_plans_and_stories() {
+  local f found=1
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    case "$f" in
+      "$PLAN_DIR"/*|"$STORY_DIR"/*|.plot/*) ;;
+      */"$STORY_BASE"/*) ;;
+      *) found=0 ;;
+    esac
+  done < <(effective_paths)
+  return $found
+}
+
+# Explicit review hold: exact branch entry (string equality) in .plot/hold.
+if [ -f ".plot/hold" ]; then
+  HOLD_LINE="$(awk -v b="$BRANCH" '$1 == b { print; exit }' .plot/hold 2>/dev/null)" || HOLD_LINE=""
+  if [ -n "$HOLD_LINE" ] && outside_plans_and_stories; then
+    REASON="${HOLD_LINE#"$BRANCH"}"
+    echo "plot phase gate: branch '$BRANCH' is under an explicit review hold (.plot/hold):${REASON:- no reason recorded}" >&2
+    echo "Finish the review and record the approval (which removes the hold), or stage only plan/story files." >&2
+    exit 2
+  fi
+fi
 
 if [[ "$BRANCH" =~ ^(${PREFIX_ALT})/ ]]; then
   SLUG="${BRANCH#*/}"

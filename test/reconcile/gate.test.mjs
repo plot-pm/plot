@@ -115,6 +115,39 @@ test('gate: suffix-colliding plan slug does not false-block', () => {
   assert.equal(runGate(dir).code, 0);
 });
 
+test('gate: blocks branch under explicit .plot/hold', () => {
+  const dir = repoWith({ branch: 'TICKET-123-work', planPhase: null, stage: ['src/a.js'] });
+  mkdirSync(path.join(dir, '.plot'), { recursive: true });
+  writeFileSync(path.join(dir, '.plot', 'hold'), 'TICKET-123-work review pending\n');
+  const r = runGate(dir);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /review hold/);
+});
+
+test('gate: hold is exact string match — prefixes and regex chars never cross-match', () => {
+  // prefix entry must not match the longer branch
+  const a = repoWith({ branch: 'TICKET-123-work', planPhase: null, stage: ['src/a.js'] });
+  mkdirSync(path.join(a, '.plot'), { recursive: true });
+  writeFileSync(path.join(a, '.plot', 'hold'), 'TICKET-123 review pending\n');
+  assert.equal(runGate(a).code, 0);
+  // dot in a DIFFERENT branch's entry must not wildcard-match this branch
+  const b = repoWith({ branch: 'hotfix-1.2', planPhase: null, stage: ['src/a.js'] });
+  mkdirSync(path.join(b, '.plot'), { recursive: true });
+  writeFileSync(path.join(b, '.plot', 'hold'), 'hotfix-1x2 review pending\n');
+  assert.equal(runGate(b).code, 0);
+  // and the branch's own dotted entry must fire
+  writeFileSync(path.join(b, '.plot', 'hold'), 'hotfix-1.2 review pending\n');
+  assert.equal(runGate(b).code, 2);
+});
+
+test('gate: hold lets story/plan-only commits pass, incl. sub-unit story homes', () => {
+  const dir = repoWith({ branch: 'TICKET-9-x', planPhase: null, stage: [] });
+  mkdirSync(path.join(dir, '.plot'), { recursive: true });
+  writeFileSync(path.join(dir, '.plot', 'hold'), 'TICKET-9-x plan in review\n');
+  const r = runGate(dir, 'git add docs/stories/s/STORY-s.md clients/acme/stories/s/STORY-s.md && git commit -m x');
+  assert.equal(r.code, 0);
+});
+
 test('gate: fails open on malformed input', () => {
   const dir = repoWith({ branch: 'feature/x', planPhase: 'Draft', stage: ['src/a.js'] });
   const r = (() => {

@@ -255,6 +255,10 @@ If no project board is configured, skip this step.
 
 ### 9. Summary
 
+**Orient, don't enumerate** (Manifesto Principle 11): open the summary
+with where the work now stands, what falls out next, and why — the
+mechanical details follow.
+
 Print:
 - Delivered: `<slug>`
 - Plan file: `docs/plans/YYYY-MM-DD-<slug>.md` (unchanged location)

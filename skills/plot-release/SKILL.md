@@ -211,6 +211,10 @@ If RC tags exist for this version, they remain in git history (don't delete them
 
 ### 6. Summary
 
+**Orient, don't enumerate** (Manifesto Principle 11): open the summary
+with where the work now stands, what falls out next, and why — the
+mechanical details follow.
+
 Print:
 - Version: `v<version>`
 - Plans included:
