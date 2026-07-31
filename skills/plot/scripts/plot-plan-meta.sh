@@ -77,7 +77,10 @@
 #                  e.g. "2026-07-30, alice, in-session"); "" if absent
 #   started_raw    implementation-start records, one raw string per
 #                  `Started:` line in `## Status` (repeatable; front matter
-#                  `started:` contributes one entry); [] if absent
+#                  `started:` contributes one entry); [] if absent.
+#                  Exception to "front matter wins": started is ADDITIVE —
+#                  canonical entries and the front-matter entry merge
+#                  (canonical first, front matter appended)
 #
 # title/sprint/story/assignee are the board-facing surface (`@plot-pm/board`
 # consumes this script instead of parsing plans itself). Front matter wins over

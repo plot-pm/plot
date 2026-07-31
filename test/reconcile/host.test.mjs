@@ -102,6 +102,38 @@ test('host: pr-state lookup miss yields state NONE, exit 0', () => {
   assert.equal(out.state, 'NONE');
 });
 
+test('host: invalid PLOT_HOST exits nonzero without calling either CLI', () => {
+  const stubs = makeStubs();
+  assert.throws(() =>
+    run(['pr-state', '7'], { env: { PLOT_HOST: 'gitlab' }, stubs }));
+  assert.equal(argvOf(stubs.ghArgv), null);
+  assert.equal(argvOf(stubs.bbArgv), null);
+});
+
+test('host: Git host config key resolves the backend (bb alias too)', () => {
+  const stubs = makeStubs();
+  // config comes from a CLAUDE.md ## Plot Config in cwd
+  const repo = mkdtempSync(path.join(tmpdir(), 'plot-host-cfg-'));
+  writeFileSync(path.join(repo, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Git host:** bitbucket\n');
+  const out = execFileSync('bash', [adapter, 'backend'], {
+    cwd: repo, encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
+  });
+  assert.equal(out.trim(), 'bitbucket');
+});
+
+test('host: bb pr-state by branch resolves via pr-list filter (hit and miss)', () => {
+  const stubs = makeStubs({
+    bbJson: '[{"id":4,"state":"OPEN","source":{"branch":{"name":"feature/a"}},"links":{"html":{"href":"https://example.test/pr/4"}}}]',
+  });
+  const hit = JSON.parse(run(['pr-state', 'feature/a'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
+  assert.deepEqual(hit, { number: 4, state: 'OPEN', draft: false, url: 'https://example.test/pr/4' });
+  assert.deepEqual(argvOf(stubs.bbArgv), ['pr', 'list', '--state', 'all', '--json']);
+  const miss = JSON.parse(run(['pr-state', 'feature/nope'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
+  assert.equal(miss.state, 'NONE');
+});
+
 test('host: pr-body github maps to gh pr edit --body', () => {
   const stubs = makeStubs();
   run(['pr-body', '4', '--body', 'new text'], { env: { PLOT_HOST: 'github' }, stubs });

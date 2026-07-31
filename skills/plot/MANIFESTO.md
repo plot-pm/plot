@@ -97,7 +97,7 @@ The meta-principle: **don't over-complicate because AI doesn't feel friction.** 
 
 ## Sprints
 
-Sprints are an optional temporal lens over plans — and they exist only where Plot is the tracker. Where a project's declared tracker owns sprint state, Plot writes no sprint artifact: a shadow board that drifts is worse than none. A sprint groups work by schedule — start date, end date, MoSCoW priorities. Plans track *what* to build; sprints track *when* to ship it. Sprint files live in `docs/sprints/`, managed by `/plot-sprint`, committed directly to main. Sprints do not spawn implementation branches, so Principle 2 (plans merge before implementation) does not apply.
+Sprints are an optional temporal lens over plans — and they exist only where Plot is the tracker. Where a project's declared tracker owns sprint state, Plot writes no sprint artifact: a shadow board that drifts is worse than none. A sprint groups work by schedule — start date, end date, MoSCoW priorities. Plans track *what* to build; sprints track *when* to ship it. Sprint files live in `docs/sprints/`, managed by `/plot-sprint`, committed directly to main. Sprints do not spawn implementation branches, so Principle 2 (plans approved before implementation) does not apply.
 
 ## What Plot Is Not
 

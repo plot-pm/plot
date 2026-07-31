@@ -60,7 +60,7 @@ backend() {
 
 op="${1:-}"; [ -n "$op" ] || die "usage: plot-host.sh <op> [args...] (see header)"
 shift
-be="$(backend)"
+be="$(backend)" || exit 1
 
 case "$op" in
   backend)
