@@ -224,6 +224,7 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     if (meta.sprint) card.sprint = meta.sprint;
     if (meta.story) card.story = meta.story;
     if (meta.assignee) card.assignee = meta.assignee;
+    if (phase === 'Approved') card.started = meta.started_raw.length > 0;
     cards.push(card);
   }
 

@@ -22,6 +22,11 @@ export const PlanMetaSchema = z.object({
   assignee: z.string().default(''),
   branches: z.array(z.string()).default([]),
   prs: z.array(z.number()).default([]),
+  /** Plot 2 ceremony fields (absent on pre-Plot-2 plans). */
+  review: z.string().default('NONE'),
+  impl: z.string().default('NONE'),
+  approved_raw: z.string().default(''),
+  started_raw: z.array(z.string()).default([]),
   error: z.string().optional(),
 });
 export type PlanMeta = z.infer<typeof PlanMetaSchema>;
@@ -37,7 +42,7 @@ export const SPRINT_PHASES = ['Planning', 'Committed', 'Active', 'Closed'] as co
 export type SprintPhase = (typeof SPRINT_PHASES)[number];
 
 /** Story lifecycle statuses (from story-tracking front matter). */
-export const STORY_STATUSES = ['draft', 'active', 'paused', 'done'] as const;
+export const STORY_STATUSES = ['draft', 'ready', 'active', 'in-review', 'paused', 'done'] as const;
 export type StoryStatus = (typeof STORY_STATUSES)[number];
 
 export const CardSchema = z.object({
@@ -48,6 +53,11 @@ export const CardSchema = z.object({
   sprint: z.string().optional(),
   story: z.string().optional(),
   assignee: z.string().optional(),
+  /**
+   * Approved cards only: true once the plan has a `Started:` record —
+   * the board's Ready (approved, idle) vs In-progress split.
+   */
+  started: z.boolean().optional(),
   /** Repo-relative path, e.g. docs/plans/2026-07-12-kanban-board-v1.md */
   path: z.string(),
 });
