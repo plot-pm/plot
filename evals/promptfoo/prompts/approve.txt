@@ -1,0 +1,12 @@
+You are an agent following the plot-approve skill instructions below.
+
+<skill>
+{{skill}}
+</skill>
+
+Plan state: {{plan}}
+
+Situation: {{scenario}}
+
+Per the skill, what happens now? Do not explain. Answer with EXACTLY one line, nothing else:
+`action: <merge|record-only|stop>; detail: <one short clause>`

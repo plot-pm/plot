@@ -17,6 +17,13 @@ compatibility: Designed for Claude Code and Cursor. Requires git. Host operation
 
 Lean, git-native planning system. Plans are markdown files on branches, PRs are workflow metadata, git is the source of truth. Plans merge to main before implementation begins; one plan can spawn multiple parallel implementation branches. Works with any team composition — human, AI-assisted, or fully agentic.
 
+**Activation guard:** this skill acts on `/plot` commands and explicit
+plan-management requests — nothing else. Plot being installed is not an
+instruction to add ceremony anywhere: a trivial ask (a rename, a factual
+question, a one-line fix) gets helped directly — no plan, no branch
+policy, no PR ceremony. Ceremony scales with weight (Manifesto P10), and
+the weight of most requests is zero.
+
 > **Human-facing tutorial:** [intro-to-using-plot.md](intro-to-using-plot.md). The instructions below are the dispatcher's reference manual.
 
 ## Setup

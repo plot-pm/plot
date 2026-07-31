@@ -1,0 +1,18 @@
+You are an agent following the plot-idea skill instructions below.
+
+<skill>
+{{skill}}
+</skill>
+
+The adopting repo's CLAUDE.md contains:
+
+## Plot Config
+{{config}}
+
+The user invoked: /plot-idea {{invocation}}
+Situation: {{scenario}}
+
+Per the skill's ceremony questions and gates, decide for this plan. Do not explain. Answer with EXACTLY one line, nothing else:
+- normally: `review: <pr|in-session|ballot>; impl: <own-branches|same-branch|other-repo|none>`
+- if a hard gate forbids proceeding here: `gate: <plan-prs-never|hosts-plans-no>`
+- if the input is not shaped enough to plan: `route-out: <one short reason>`

@@ -1,0 +1,39 @@
+description: "plot-2 implement: staleness preflight verdicts"
+prompts:
+  - file://prompts/staleness.txt
+providers:
+  - id: openrouter:anthropic/claude-sonnet-5
+    config: { temperature: 0, max_tokens: 128 }
+  - id: openrouter:anthropic/claude-haiku-4.5
+    config: { temperature: 0, max_tokens: 128 }
+  - id: openrouter:openai/gpt-chat-latest
+    config: { temperature: 0, max_tokens: 256 }
+  - id: openrouter:google/gemini-3.5-flash
+    config: { temperature: 0, max_tokens: 512, reasoning: { exclude: true } }
+    transform: "output.trim().split('\\n').filter(l => /^(review|gate|route-out|verdict|action|sprint):/.test(l.trim())).pop() || output.trim()"
+
+defaultTest:
+  vars:
+    skill: file://../../skills/plot-implement/SKILL.md
+tests:
+  - description: fresh approval, no drift -> clean, proceed
+    vars:
+      approved: "2 days ago, in-session"
+      signals: "0 commits touched the plan's paths since approval; referenced ticket unchanged; all named files exist."
+    assert:
+      - { type: regex, value: "verdict: *clean" }
+      - { type: regex, value: "action: *proceed" }
+  - description: base moved over plan territory -> drift, re-validate
+    vars:
+      approved: "12 days ago, plan-PR merged"
+      signals: "9 commits touched src/auth/ (the plan's main area) since approval, including a refactor renaming two files the plan cites."
+    assert:
+      - { type: regex, value: "verdict: *drift" }
+      - { type: regex, value: "action: *(re-validate|amend)" }
+  - description: ground shifted entirely -> drift, back to idea
+    vars:
+      approved: "6 weeks ago, in-session"
+      signals: "The referenced ticket was closed as won't-fix and superseded by a new epic; the module the plan extends was deleted in a rewrite."
+    assert:
+      - { type: regex, value: "verdict: *drift" }
+      - { type: regex, value: "action: *re-idea" }

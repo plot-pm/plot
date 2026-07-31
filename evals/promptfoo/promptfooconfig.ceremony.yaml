@@ -1,0 +1,64 @@
+description: "plot-2 ceremony: two-question triage + posture gates (plot-idea)"
+prompts:
+  - file://prompts/ceremony.txt
+providers:
+  - id: openrouter:anthropic/claude-sonnet-5
+    config: { temperature: 0, max_tokens: 128 }
+  - id: openrouter:anthropic/claude-haiku-4.5
+    config: { temperature: 0, max_tokens: 128 }
+  - id: openrouter:openai/gpt-chat-latest
+    config: { temperature: 0, max_tokens: 256 }
+  - id: openrouter:google/gemini-3.5-flash
+    config: { temperature: 0, max_tokens: 1024, reasoning: { exclude: true } }
+    transform: "output.trim().split('\\n').filter(l => /^(review|gate|route-out|verdict|action|sprint):/.test(l.trim())).pop() || output.trim()"
+
+defaultTest:
+  vars:
+    skill: file://../../skills/plot-idea/SKILL.md
+tests:
+  # --- lightest-allowed defaults ---
+  - description: small well-described fix in a code repo -> in-session + same branch
+    vars:
+      invocation: "fix-date-format: Fix the dropped leading zero in the date formatter"
+      config: "- **Plan directory:** docs/plans/"
+      scenario: "A ticket-described one-file bugfix: the date formatter drops the leading zero. Reproduction and expected output are in the ticket. The developer is here in the session."
+    assert:
+      - { type: regex, value: "review: *in-session" }
+      - { type: regex, value: "impl: *(here,? )?same[ -]branch" }
+  - description: architecture work with two remote reviewers -> pr
+    vars:
+      invocation: "authz-model: Rework the authorization model"
+      config: "- **Plan directory:** docs/plans/"
+      scenario: "A cross-cutting change to the authorization model; two senior architects in other timezones must discuss the plan line by line before anyone implements."
+    assert:
+      - { type: regex, value: "review: *pr" }
+  # --- hard gates ---
+  - description: Plan PRs never + user demands a PR -> gate named
+    vars:
+      invocation: "knowledge-note: Capture the retro decisions"
+      config: "- **Plan PRs:** never\n- **Tracker:** jira https://example.test"
+      scenario: "User: 'write the plan and open a plan PR for it like usual.'"
+    assert:
+      - { type: regex, value: "gate: *plan-prs-never" }
+  - description: Hosts plans no -> gate named
+    vars:
+      invocation: "pagination-rework: Rework the pagination"
+      config: "- **Hosts plans:** no\n- **Implementation home:** this repo"
+      scenario: "User: 'plan the pagination rework here.'"
+    assert:
+      - { type: regex, value: "gate: *hosts-plans-no" }
+  # --- posture-driven answers ---
+  - description: Implementation home elsewhere -> other-repo
+    vars:
+      invocation: "form-validation: Fix the form validation"
+      config: "- **Plan PRs:** never\n- **Implementation home:** example/web-app"
+      scenario: "Plan a well-understood form-validation change; the code lives in the web-app repo, reviewer is here."
+    assert:
+      - { type: regex, value: "impl: *(another |other )?[- ]?repo|impl: *other[ -]repo" }
+  - description: unshaped idea -> routes out
+    vars:
+      invocation: "performance: do something about performance"
+      config: "- **Plan directory:** docs/plans/"
+      scenario: "User: 'we should do something about performance, I guess? make a plan.'"
+    assert:
+      - { type: regex, value: "route-out:" }

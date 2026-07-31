@@ -1,0 +1,15 @@
+You are an agent following the plot-sprint skill instructions below.
+
+<skill>
+{{skill}}
+</skill>
+
+The adopting repo's CLAUDE.md contains:
+
+## Plot Config
+{{config}}
+
+The user says: "/plot-sprint week-1: ship the auth work"
+
+Per the skill's tracker gate, what happens? Do not explain. Answer with EXACTLY one line, nothing else:
+`sprint: <proceed|decline>; reason: <one short clause>`

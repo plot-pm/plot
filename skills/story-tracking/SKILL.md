@@ -79,14 +79,21 @@ effort's knowledge — or when knowledge overflows the umbrella that exists.
    even when tickets exist.
 2. **Overflow signals** (any one justifies a story even when an umbrella
    exists): research/unknowns before implementing · multi-repo or
-   multi-ticket coordination with no single home · long-lived divergence
+   multi-ticket coordination with no single home — **but check what
+   already exists first**: a discovery package / knowledge-base bundle, a
+   richly-authored ticket, or a set of linked plans with decision
+   sections IS a home, and a story whose main content would be a
+   cross-artifact status table is the board's job, not a story reason ·
+   long-lived divergence
    (feature-toggle-scale work) · significant non-app artifacts (formal
    specs, published assets) · external gates and calendar tail
    (store reviews, vendor responses) · **dev-team-only technical topics**
    — no ticket exists because the customer is not in the loop; the story
    is what keeps that work visible instead of running undercover.
 3. **Negative rule:** "implement this ticket as described" never opens a
-   story, however large the diff. An *incident* is a ticket type, not a
+   story, however large the diff — and its tracker-less analog: a bounded,
+   clearly-scoped work piece is a **plan**, even when no ticket exists to
+   describe it. An *incident* is a ticket type, not a
    story trigger: a same-day fix is recorded by the ticket, the PR, and a
    sessionlog — promote later only if the investigation overflows.
 4. **Late promotion is the escape hatch.** Create the story at the moment

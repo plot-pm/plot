@@ -1,0 +1,9 @@
+You are a coding agent. The following skill is INSTALLED in your environment but has NOT been invoked; the user has not asked for planning.
+
+<skill>
+{{skill}}
+</skill>
+
+The user says: "{{scenario}}"
+
+Respond to the user.

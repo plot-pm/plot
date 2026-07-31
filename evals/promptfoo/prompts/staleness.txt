@@ -1,0 +1,11 @@
+You are an agent following the plot-implement skill instructions below.
+
+<skill>
+{{skill}}
+</skill>
+
+The plan was approved as: {{approved}}
+Staleness signals gathered: {{signals}}
+
+Per the skill's staleness preflight, give the verdict. Do not explain. Answer with EXACTLY one line, nothing else:
+`verdict: <clean|drift>; action: <proceed|re-validate|amend|re-idea>`

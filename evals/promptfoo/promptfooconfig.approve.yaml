@@ -1,0 +1,38 @@
+description: "plot-2 approve: channel-specific approval incl. ballot stop + same-branch no-merge"
+prompts:
+  - file://prompts/approve.txt
+providers:
+  - id: openrouter:anthropic/claude-sonnet-5
+    config: { temperature: 0, max_tokens: 128 }
+  - id: openrouter:anthropic/claude-haiku-4.5
+    config: { temperature: 0, max_tokens: 128 }
+  - id: openrouter:openai/gpt-chat-latest
+    config: { temperature: 0, max_tokens: 256 }
+  - id: openrouter:google/gemini-3.5-flash
+    config: { temperature: 0, max_tokens: 512, reasoning: { exclude: true } }
+    transform: "output.trim().split('\\n').filter(l => /^(review|gate|route-out|verdict|action|sprint):/.test(l.trim())).pop() || output.trim()"
+
+defaultTest:
+  vars:
+    skill: file://../../skills/plot-approve/SKILL.md
+tests:
+  - description: ballot 2 of 3 present -> stop, name outstanding
+    vars:
+      plan: "Phase Draft; Review: ballot; expected reviewers per Notes: alice, bob, carol."
+      scenario: "Ballot files exist from alice and bob. carol's ballot is missing. User runs /plot-approve."
+    assert:
+      - { type: regex, value: "action: *stop" }
+      - { type: icontains, value: "carol" }
+  - description: pr + same branch -> record approval, do NOT merge
+    vars:
+      plan: "Phase Draft; Review: pr; Impl: same branch. The draft PR from the work branch carries plan + code-to-come."
+      scenario: "The plan portion of the PR got an approving review. User runs /plot-approve."
+    assert:
+      - { type: regex, value: "action: *record-only" }
+      - { type: not-icontains, value: "action: merge" }
+  - description: classic pr flow, PR open non-draft -> merge is the approval
+    vars:
+      plan: "Phase Draft; Review: pr; Impl: own branches. Plan PR idea/x is open, marked ready."
+      scenario: "Review happened on the PR; user runs /plot-approve."
+    assert:
+      - { type: regex, value: "action: *merge" }

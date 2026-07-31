@@ -1,0 +1,12 @@
+You are an agent following the story-tracking skill instructions below.
+
+<skill>
+{{skill}}
+</skill>
+
+Repo context: {{context}}
+
+The user says: "create a story for this: {{scenario}}"
+
+Apply the skill's triage front door. Do not explain. Answer with EXACTLY one line, nothing else:
+`verdict: <story|no-story>; signal: <short name of the deciding signal>; instead: <what to use if no-story, else ->`
