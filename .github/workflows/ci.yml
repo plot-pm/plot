@@ -29,6 +29,8 @@ jobs:
 
       - name: Reconcile contract tests
         run: pnpm run test:reconcile
+      - name: E2E choreography tests
+        run: pnpm run test:e2e
 
       # ── Board (first-class): the Definition of Done requires the board to keep
       #    working. Typecheck, tests, and a fresh build are gated here. ──────────

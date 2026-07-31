@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Plot helper: Get implementation PR states for a slug
 # Usage: plot-impl-status.sh <slug>
-# Reads the plan file for <slug> (date-prefixed in docs/plans/) and checks PR states.
+# Reads the plan file for <slug> (date-prefixed, in the configured Plan
+# directory) from the remote default branch and checks PR states.
 # Cross-repo (split-home) aware: a Branches annotation `→ owner/repo#12` is
 # looked up in that repo via plot-host.sh; bare `→ #12` stays local. All host
 # access goes through plot-host.sh (gh or bb — never called directly here).
@@ -12,16 +13,22 @@ set -euo pipefail
 
 SLUG="${1:?Usage: plot-impl-status.sh <slug>}"
 
+_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLAN_DIR="$(bash "$_HERE/plot-config.sh" get "Plan directory" "docs/plans/")"
+PLAN_DIR="${PLAN_DIR%/}"
+
 # Read plan file from main (not CWD) so PR links are always current.
 # On impl branches the local copy is stale — it lacks the → #N annotations
 # written when PRs are created (by the implementing session per its
 # /plot-implement brief, or back-filled by /plot-deliver step 4).
 #
 # Find the date-prefixed plan file via the active or delivered symlink index
-PLAN_PATH=$(git ls-tree --name-only origin/main docs/plans/ 2>/dev/null \
+DEFAULT_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')"
+[ -n "$DEFAULT_BRANCH" ] || DEFAULT_BRANCH=main
+PLAN_PATH=$(git ls-tree --name-only "origin/$DEFAULT_BRANCH" "$PLAN_DIR/" 2>/dev/null \
   | grep -E "[0-9]{4}-[0-9]{2}-[0-9]{2}-${SLUG}\.md$" | head -1)
 if [ -n "$PLAN_PATH" ]; then
-  PLAN_CONTENT=$(git show "origin/main:${PLAN_PATH}" 2>/dev/null || true)
+  PLAN_CONTENT=$(git show "origin/$DEFAULT_BRANCH:${PLAN_PATH}" 2>/dev/null || true)
 else
   PLAN_CONTENT=""
 fi

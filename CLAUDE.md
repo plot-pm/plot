@@ -113,6 +113,7 @@ package under `packages/`.
 pnpm install         # install dependencies first if node_modules is missing
 pnpm test            # validates all skills parse correctly
 pnpm run test:reconcile   # plan-format contract tests (plot-plan-meta.sh)
+pnpm run test:e2e         # lifecycle choreography in sandbox repos (stubbed hosts)
 pnpm run test:board       # rebuilds the board artifact + runs its tests
 pnpm run typecheck        # typechecks @plot-pm/board
 ```
