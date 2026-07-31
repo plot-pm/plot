@@ -456,13 +456,22 @@ Shared helpers (use these instead of hand-parsing):
 
 ### 2. Detect Current Context
 
+**Orientation contract (Manifesto Principle 11):** every suggestion this
+dispatcher makes names three things — where the work stands, which
+artifact falls out next, and *why that artifact exists*. "Run
+`/plot-approve`" is a procedure; "the plan is reviewed — recording the
+approval makes it safe to implement from" is orientation. Users should
+never need to memorize the pipeline; this command is the pipeline telling
+them where they are.
+
+
 **If on an `idea/*` branch:**
 - Read the plan file from `docs/plans/<slug>.md` on this branch
 - Check plan PR state (draft / ready / merged)
 - Suggest:
   - If plan PR is draft: "Plan is still a draft. Refine it, then run `gh pr ready <number>` when ready for review."
-  - If plan PR is non-draft (ready for review): "Plan is ready for review. Run `/plot-approve <slug>` to merge and create impl branches."
-  - If plan PR is merged: "Plan is already approved. Run `/plot-approve <slug>` to create impl branches (if not already created)."
+  - If plan PR is non-draft (ready for review): "Plan is ready for review. Run `/plot-approve <slug>` — merging it records the approval."
+  - If plan PR is merged: "Plan is approved. Nothing is in flight until `/plot-implement <slug>` starts it (staleness check + branch setup + hand-off brief)."
 
 **If on an impl branch (`feature/*`, `bug/*`, `docs/*`, `infra/*`):**
 - Check if there's a corresponding approved plan via `docs/plans/active/<slug>.md` on main
@@ -470,7 +479,12 @@ Shared helpers (use these instead of hand-parsing):
 - If no plan exists: warn "Orphan branch — no approved plan found. Consider running `/plot-idea` first."
 
 **If on `main`:**
-- List all active plans with their phases
+- List all active plans with their phases — and split Approved into
+  **Ready** (no `Started:` record — approved, idle) vs **In progress**
+  (has `Started:` records), from plot-plan-meta.sh's `started_raw`. A
+  long Ready list is a finding worth stating ("4 plans approved but never
+  started"), never a nag.
+- For Ready plans, the suggested action is `/plot-implement <slug>`
 - List any delivered plans awaiting release (from `docs/plans/delivered/`). For each, optionally compare plan branches vs merged PRs — if unbuilt branches exist, suggest `/plot-reject <slug>`
 - List active sprints with countdown and progress: `week-1 — "Ship auth improvements" | 3 days remaining | Must: 2/4 done`. Past end date: show "ended 2 days ago" factually — no warning tone, no nagging.
 - Show overall status summary
@@ -485,7 +499,7 @@ Flag any problems found:
 
 - **Orphan impl branches**: branches with `feature/`, `bug/`, `docs/`, `infra/` prefix that have no corresponding plan in `docs/plans/`
 - **Phase mismatches**: plan says Draft but PR is non-draft, or plan says Approved but PR is still open
-- **Completed drafts**: impl PRs still in `isDraft: true` state whose branch has commits beyond the initial branch cut (real implementation work has been pushed) — suggest `gh pr ready <n>`; reviewers filter by PR state, so a draft with completed work is invisible to them
+- **Completed drafts**: impl PRs still in draft state whose branch has commits beyond the initial branch cut (real implementation work has been pushed) — suggest marking them ready; reviewers filter by PR state, so a draft with completed work is invisible to them
 - **Abandoned drafts**: impl PRs in draft state with no new commits for >7 days — surface for cleanup
 - **Overlapping plans**: Draft/Approved plans with titles sharing 3+ significant words — flag in the status summary as informational (no blocking)
 - **Sprints past end date**: active sprints where end date has passed — flag as informational

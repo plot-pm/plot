@@ -14,7 +14,21 @@ compatibility: Designed for Claude Code and Cursor. Requires git. Sprint skeleto
 
 # Plot: Sprint
 
-Sprints are **not plans**. Plans track *what* to build; sprints track *when* to ship it. Sprint files live in `docs/sprints/`. The initial skeleton commits directly to main; subsequent Planning-phase refinement may optionally happen on a `sprint/<slug>` branch with a draft PR for review. Principle 2 ("Plans merge before implementation") does not apply to sprints — sprints don't spawn implementation branches — but the *refinement* benefits from the same review surface.
+**Tracker gate — check before anything else.** Sprints exist only where
+plot is the tracker. Read the declared tracker:
+
+```bash
+TRACKER=$(../plot/scripts/plot-config.sh get "Tracker" "none")
+```
+
+If it names an external tracker (jira, github-issues, linear, …), decline:
+"This repo's sprints live in <tracker> — plot writes no sprint artifact
+here, because a shadow board drifts. Plan-level status stays visible via
+`/plot` and the board." This is a gate, not advice; the config must change
+before `/plot-sprint` operates in this repo. Only `Tracker: none` (or no
+declaration) proceeds.
+
+Sprints are **not plans**. Plans track *what* to build; sprints track *when* to ship it. Sprint files live in `docs/sprints/`. The initial skeleton commits directly to main; subsequent Planning-phase refinement may optionally happen on a `sprint/<slug>` branch with a draft PR for review. Principle 2 ("Plans are approved before implementation") does not apply to sprints — sprints don't spawn implementation branches — but the *refinement* benefits from the same review surface.
 
 **Input:** `$ARGUMENTS` determines the subcommand.
 

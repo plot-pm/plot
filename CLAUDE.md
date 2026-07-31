@@ -22,9 +22,10 @@ Plot is a hub-and-spoke skill system:
 | Role | Skill | Purpose |
 |------|-------|---------|
 | Hub | `plot/` | Dispatcher — reads git state, suggests next action |
-| Command | `plot-idea/` | Create plan: idea branch + plan file + draft PR |
-| Command | `plot-approve/` | Merge plan to main, fan out implementation branches |
-| Command | `plot-deliver/` | Verify all impl PRs merged, deliver the plan |
+| Command | `plot-idea/` | Create plan with ceremony matched to the change (two-question triage, posture gates) |
+| Command | `plot-approve/` | Record the plan's approval through its declared review channel — and stop |
+| Command | `plot-implement/` | Start/resume implementation: staleness preflight, branch setup, hand-off brief, Started record |
+| Command | `plot-deliver/` | Verify all impl PRs merged (cross-repo aware), deliver the plan |
 | Command | `plot-release/` | Cut versioned release with changelog |
 | Coordination | `plot-sprint/` | Time-boxed sprint with MoSCoW priorities |
 | Automation | `ralph-plot-sprint/` | Automated sprint runner (shell loop wrapper) |
@@ -47,6 +48,7 @@ Scripts in `skills/plot/scripts/` that any model tier can use:
 | `plot-plan-meta.sh` | Parse plan files → JSON (phase, type, title, sprint, story, assignee, branches, PRs, `Review:`/`Impl:` ceremony answers, `Approved:`/`Started:` transition records); the plan-format contract |
 | `plot-config.sh` | Read a `## Plot Config` key with a default (`get <key> [default]`); includes the optional `Plan template` override key and the Plot 2 posture keys (`Plan PRs`, `Implementation home`, `Hosts plans`, `Tracker`, `Git host`) |
 | `plot-host.sh` | Git-host adapter (gh/bb): `backend`, `default-branch`, `pr-state`, `pr-create`, `pr-merge`, `pr-list`, `pr-body` — the ONE place that talks to the host CLI |
+| `plot-phase-gate.sh` | PreToolUse hook (see `hooks/hooks.json`): blocks implementation commits while the governing plan is Draft; plan-only commits pass; fails open |
 | `plot-reconcile-scan.sh` | Read-only plan/branch drift sweep (five sections + machine-countable footer) |
 | `board/board-server.mjs` | Local Kanban status board — built artifact of `@plot-pm/board` (`packages/board`); run via `pnpm board`, rebuild via `pnpm build:board` |
 

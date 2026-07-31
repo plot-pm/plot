@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Plot helper: Get implementation PR states for a slug
 # Usage: plot-impl-status.sh <slug>
-# Reads the plan file for <slug> (date-prefixed in docs/plans/) and checks PR states
-# Output: JSON array of {branch, number, state, isDraft, title}
+# Reads the plan file for <slug> (date-prefixed in docs/plans/) and checks PR states.
+# Cross-repo (split-home) aware: a Branches annotation `→ owner/repo#12` is
+# looked up in that repo via plot-host.sh; bare `→ #12` stays local. All host
+# access goes through plot-host.sh (gh or bb — never called directly here).
+# Output: JSON {prs: [{number, state, draft, url, repo}]}
 # Designed for small-model consumption: structured JSON output, no interpretation needed.
 
 set -euo pipefail
@@ -27,28 +30,38 @@ if [ -z "$PLAN_CONTENT" ]; then
   exit 0
 fi
 
-# Parse PR numbers from ## Branches section
-# Format: - `type/name` — description → #12
-PR_NUMBERS=$(echo "$PLAN_CONTENT" \
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Parse PR references from ## Branches section.
+# Formats: `→ #12` (this repo) and `→ owner/repo#12` (split-home impl repo).
+PR_REFS=$(echo "$PLAN_CONTENT" \
   | sed -n '/^## Branches/,/^## /p' \
-  | grep -oE '#[0-9]+' \
-  | tr -d '#' \
+  | grep -oE '→ [A-Za-z0-9_.-]*/?[A-Za-z0-9_.-]*#[0-9]+' \
+  | sed 's/^→ //' \
   | sort -u)
 
-if [ -z "$PR_NUMBERS" ]; then
+if [ -z "$PR_REFS" ]; then
   echo '{"error": "No PR references found in plan", "prs": []}'
   exit 0
 fi
 
-# Build JSON array of PR states
+# Build JSON array of PR states via the host adapter
 RESULT="["
 FIRST=true
-for NUM in $PR_NUMBERS; do
-  PR_JSON=$(gh pr view "$NUM" --json number,title,state,isDraft,headRefName 2>/dev/null || echo '{}')
+for REF in $PR_REFS; do
+  NUM="${REF##*#}"
+  REPO="${REF%#*}"
+  if [ -n "$REPO" ]; then
+    PR_JSON=$(bash "$HERE/plot-host.sh" pr-state "$NUM" --repo "$REPO" 2>/dev/null || echo '{"state":"NONE"}')
+  else
+    PR_JSON=$(bash "$HERE/plot-host.sh" pr-state "$NUM" 2>/dev/null || echo '{"state":"NONE"}')
+  fi
 
-  if [ "$PR_JSON" = "{}" ]; then
+  if [ "$(echo "$PR_JSON" | jq -r .state)" = "NONE" ]; then
     continue
   fi
+
+  PR_JSON=$(echo "$PR_JSON" | jq -c --arg repo "$REPO" '. + {repo: $repo}')
 
   if [ "$FIRST" = true ]; then
     FIRST=false

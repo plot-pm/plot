@@ -90,12 +90,13 @@ Run the helper:
 Or for each PR number found in the Branches section:
 
 ```bash
-gh pr view <number> --json state,isDraft --jq '{state: .state, isDraft: .isDraft}'
+../plot/scripts/plot-host.sh pr-state <number>   # {"number","state","draft","url"}
 ```
 
 - If all are `MERGED`: proceed to step 5
 - If any are `OPEN`:
-  - If any open PRs have `isDraft: true`, list them and run `gh pr ready <number>` to mark each one ready for review — this is part of the delivery flow, not optional
+  - If any open PRs have `draft: true`, list them and mark each one ready for review (`gh pr ready` / `bb pr edit --ready`) — this is part of the delivery flow, not optional
+  - Split-home plans (`Impl: other repo`): the PR references carry a repo prefix (`owner/repo#N`) and `plot-impl-status.sh` resolves them in that repo via the host adapter — delivery works unchanged; only the merge itself happens over there
   - List all remaining open PRs and ask the user: "These PRs are still open. Merge them first, or deliver anyway?"
   - If user declines, stop and list the unfinished PRs
 - If any are `CLOSED` (not merged): warn — these need manual attention

@@ -9,7 +9,7 @@
 # Ops (the ~6 operations plot actually needs):
 #   backend                       print the resolved backend: github|bitbucket
 #   default-branch                print the repo's default branch name
-#   pr-state <number|branch>      one JSON object:
+#   pr-state <number|branch> [--repo <owner/repo>]   one JSON object:
 #                                   {"number":N,"state":"OPEN|MERGED|CLOSED|NONE",
 #                                    "draft":true|false,"url":"..."}
 #                                 NONE = no PR found (exit 0 — callers branch on
@@ -79,18 +79,25 @@ case "$op" in
     ;;
 
   pr-state)
-    ref="${1:?pr-state needs a PR number or branch}"
+    ref="${1:?pr-state needs a PR number or branch}"; shift || true
+    repo_args=()
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --repo) repo_args=(-R "${2:?}"); shift 2 ;;
+        *) die "pr-state: unknown arg $1" ;;
+      esac
+    done
     if [ "$be" = "github" ]; then
-      out="$(gh pr view "$ref" --json number,state,isDraft,url 2>/dev/null)" \
+      out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url 2>/dev/null)" \
         && jq -c '{number:.number,state:.state,draft:.isDraft,url:.url}' <<<"$out" \
         || echo '{"number":0,"state":"NONE","draft":false,"url":""}'
     else
       if [[ "$ref" =~ ^[0-9]+$ ]]; then
-        out="$(bb pr view "$ref" --json 2>/dev/null)" \
+        out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json 2>/dev/null)" \
           && jq -c '{number:.id,state:(if .state=="DECLINED" then "CLOSED" else .state end),draft:(.draft // false),url:.links.html.href}' <<<"$out" \
           || echo '{"number":0,"state":"NONE","draft":false,"url":""}'
       else
-        out="$(bb pr list --state all --json 2>/dev/null)" \
+        out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state all --json 2>/dev/null)" \
           && jq -c --arg b "$ref" '[.[] | select(.source.branch.name==$b)][0] // null
                | if .==null then {number:0,state:"NONE",draft:false,url:""}
                  else {number:.id,state:(if .state=="DECLINED" then "CLOSED" else .state end),draft:(.draft // false),url:.links.html.href} end' <<<"$out" \
