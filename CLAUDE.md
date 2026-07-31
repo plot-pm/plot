@@ -2,7 +2,7 @@
 
 Git-native planning workflow for software development. Plans are markdown files on branches; git is the source of truth.
 
-**Design authority:** [MANIFESTO.md](skills/plot/MANIFESTO.md) — all design decisions must pass its 8-question checklist. When in doubt, the manifesto wins.
+**Design authority:** [MANIFESTO.md](skills/plot/MANIFESTO.md) — all design decisions must pass its 9-question checklist. When in doubt, the manifesto wins.
 
 ## Plot Config
 
@@ -44,8 +44,9 @@ Scripts in `skills/plot/scripts/` that any model tier can use:
 | `plot-impl-status.sh` | Query all implementation PR states for a slug |
 | `plot-review-status.sh` | Check review freshness for sprint items |
 | `plot-update-board.sh` | Update GitHub Projects board status for a PR |
-| `plot-plan-meta.sh` | Parse plan files → JSON (phase, type, title, sprint, story, assignee, branches, PRs); the plan-format contract |
-| `plot-config.sh` | Read a `## Plot Config` key with a default (`get <key> [default]`); includes the optional `Plan template` override key |
+| `plot-plan-meta.sh` | Parse plan files → JSON (phase, type, title, sprint, story, assignee, branches, PRs, `Review:`/`Impl:` ceremony answers, `Approved:`/`Started:` transition records); the plan-format contract |
+| `plot-config.sh` | Read a `## Plot Config` key with a default (`get <key> [default]`); includes the optional `Plan template` override key and the Plot 2 posture keys (`Plan PRs`, `Implementation home`, `Hosts plans`, `Tracker`, `Git host`) |
+| `plot-host.sh` | Git-host adapter (gh/bb): `backend`, `default-branch`, `pr-state`, `pr-create`, `pr-merge`, `pr-list`, `pr-body` — the ONE place that talks to the host CLI |
 | `plot-reconcile-scan.sh` | Read-only plan/branch drift sweep (five sections + machine-countable footer) |
 | `board/board-server.mjs` | Local Kanban status board — built artifact of `@plot-pm/board` (`packages/board`); run via `pnpm board`, rebuild via `pnpm build:board` |
 
@@ -122,7 +123,7 @@ pnpm run typecheck        # typechecks @plot-pm/board
 ## Contributing
 
 - **Issues:** https://github.com/plot-pm/plot/issues
-- **Decision criteria:** Does the change pass the [manifesto's 8-question checklist](skills/plot/MANIFESTO.md#making-decisions)?
+- **Decision criteria:** Does the change pass the [manifesto's 9-question checklist](skills/plot/MANIFESTO.md#making-decisions)?
 - **Known gaps & improvements:** tracked in `skills/plot/README.md`
 - **Evolution history:** `skills/plot/changelog.md`
 

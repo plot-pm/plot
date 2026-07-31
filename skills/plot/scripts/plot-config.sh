@@ -27,6 +27,12 @@
 #   Project board | Branch prefixes | Plan directory | Active index |
 #   Delivered index | Sprint directory | Story directory | Story index |
 #   Plan template | Main branch
+# Plot 2 posture keys (repo-declared ceremony bounds; all optional):
+#   Plan PRs            required | never | optional   (never = hard gate)
+#   Implementation home this repo | <repo/path list> | none
+#   Hosts plans         yes | no                      (no = refuse plan files)
+#   Tracker             none | jira | github-issues | linear  (+ URL)
+#   Git host            github | bitbucket            (resolves gh vs bb)
 #
 # `Plan template` is a repo-root-relative path to the plan template /plot-idea
 # instantiates; when absent, /plot-idea falls back to the shipped template.

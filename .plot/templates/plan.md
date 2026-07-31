@@ -14,6 +14,12 @@
 - **Type:** feature | bug | docs | infra
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
+- **Review:** <!-- pr | in-session | ballot — how is this plan reviewed & approved? -->
+- **Impl:** <!-- own branches | same branch | other repo | none — where does implementation happen? -->
+<!-- Transition records — written by the workflow commands, not by hand:
+- **Approved:** <date>, <who>, <channel>
+- **Started:** <date>, <who>, <branch>   (one line per started branch)
+-->
 
 ## Changelog
 
@@ -43,7 +49,7 @@
      Monorepo layout: skills live at the repo root; the board is a package under
      packages/. A change to the plan format or helper scripts often has board
      implications — call them out here. Design decisions must pass the
-     MANIFESTO.md 8-question checklist. -->
+     MANIFESTO.md 9-question checklist. -->
 
 ### Open Questions
 

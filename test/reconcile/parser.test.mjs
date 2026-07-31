@@ -70,6 +70,34 @@ const SPEC = [
     // H1 is the title fallback when there is no front matter title.
     title: 'Canonical draft plan', sprint: '', story: '', assignee: '',
   }],
+  // Ceremony fields (plot 2): Review/Impl answers + transition records.
+  ['canonical-ceremony.md', {
+    format: 'canonical', phase: 'approved', type: 'feature',
+    review_raw: 'in-session (walkthrough 2026-07-30)', review: 'in-session',
+    impl_raw: 'here, same branch', impl: 'same-branch',
+    approved_raw: '2026-07-30, alice, in-session',
+    started_raw: [
+      '2026-07-31, alice, `feature/ceremony`',
+      '2026-07-31, bob, `docs/ceremony-notes`',
+    ],
+    branches: ['feature/ceremony'], prs: [21],
+  }],
+  ['frontmatter-ceremony.md', {
+    // Front matter answers; empty-quoted records count as absent.
+    format: 'frontmatter', phase: 'draft', type: 'infra',
+    review_raw: 'pr', review: 'pr', impl_raw: 'other-repo', impl: 'other-repo',
+    approved_raw: '', started_raw: [],
+  }],
+  ['legacy-no-phase.md', {
+    // Pre-ceremony plans: all four fields absent, normalized to NONE/empty.
+    review: 'NONE', impl: 'NONE', approved_raw: '', started_raw: [],
+  }],
+  ['canonical-comment-block.md', {
+    // Placeholder values and multi-line comment interiors are non-content —
+    // an unfilled template parses as all-absent.
+    format: 'canonical', phase: 'draft', type: 'docs',
+    review: 'NONE', impl: 'NONE', approved_raw: '', started_raw: [],
+  }],
 ];
 
 for (const [name, expected] of SPEC) {

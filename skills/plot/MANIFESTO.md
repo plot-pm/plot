@@ -1,10 +1,10 @@
 # Plot Manifesto
 
-Plot is a git-native planning system for software development. It is designed for teams where humans make decisions and AI agents help plan and implement, but requires nothing more than git, a forge with pull request review, and markdown. It is experimental, evolving through real-world usage, and currently in alpha.
+Plot is a git-native planning system for software development. It is designed for teams where humans make decisions and AI agents help plan and implement, but requires nothing more than git and markdown — plus a forge with pull request review where the ceremony you choose needs one. It is experimental, evolving through real-world usage, and currently in alpha.
 
 ## Core Belief
 
-Plans belong in git. Not in a separate issue tracker, not in a project management tool, not in a spreadsheet. Plans are markdown files — written, reviewed, and versioned just like source code. They live on branches, merge through pull requests, and stay in place forever with date-prefixed filenames. Anyone with repo access can `ls docs/plans/active/` and see exactly what's in flight. No dashboard logins, no access tiers, no sync problems.
+Plans belong in git. Not in a separate issue tracker, not in a project management tool, not in a spreadsheet. Plans are markdown files — written, reviewed, and versioned just like source code. They get review appropriate to their weight — a pull request with inline discussion, an in-session walkthrough with the approval recorded in the file, or an async ballot — and stay in place forever with date-prefixed filenames. Anyone with repo access can `ls docs/plans/active/` and see exactly what's in flight. No dashboard logins, no access tiers, no sync problems.
 
 Plot works for any team composition, but it is especially designed for a specific one: **human decision-makers** working with **AI facilitators** (for refining ideas, planning, and process administration) and **AI coding agents** (implementing plans as autonomously as current models allow). In this model, humans always own the decisions — approval, prioritization, release, verification. Agents surface information, suggest actions, and do implementation work. But every step of the workflow can also be done by a human with basic git knowledge. The AI is the designed-for sweet spot, not a hard requirement.
 
@@ -18,9 +18,9 @@ Plans are markdown files committed to git. Pull requests are workflow metadata. 
 
 This also makes plans transparent. Plans-as-files are more visible than backlog items in a tracker. Anyone with repo access can browse `docs/plans/active/` and `docs/plans/delivered/` without needing credentials for a separate tool. The full history of every plan — drafts, revisions, approvals — is in the git log.
 
-### 2. Plans merge before implementation
+### 2. Plans are approved before implementation
 
-The key design insight: the plan file lands on main *before* any implementation branch is created. Every implementation branch references a stable, approved document. Anyone with repo access can see what was promised and compare it to what was delivered.
+The key design insight: implementation only ever references a stable, **approved** plan. Anyone with repo access can see what was promised and compare it to what was delivered. Merging the plan to main first is how PR-reviewed plans realize this — but the invariant is the recorded approval, not the merge: a plan that rides its work branch with an in-session approval recorded in the file satisfies it just as well. Guardrails read the recorded phase, not pull-request state.
 
 ### 3. Commands, not code
 
@@ -60,11 +60,19 @@ Each skill's `## Model Guidance` section maps steps to tiers. Steps that exceed 
 
 Design implications: explicit step-by-step instructions over narrative prose, structured data over free-form parsing, concrete examples over abstract descriptions.
 
+### 10. Ceremony scales with weight
+
+Every plan answers two independent questions, recorded in its frontmatter or Status block: **how is this plan reviewed and approved?** (`Review:` pr · in-session · ballot) and **where does implementation happen?** (`Impl:` here on own branches · here on the same branch · another repo · nowhere). The adopting repo's Plot Config constrains the answers — a knowledge repo can forbid plan PRs outright, a handover repo can refuse to host plans at all — and within those bounds the default for a small, well-described change is the *lightest allowed* path. Needing more ceremony is what requires justification, never less. The answers, not a workflow shape, drive every downstream command.
+
+### 11. Guidance is part of the workflow
+
+Commands narrate position and consequence, not procedure: where the work stands, which artifact falls out next, and why it exists. Every effort-starting flow opens by eliciting a complete problem statement — goal, motivation, prior attempts, constraints, deadlines, and every source that exists — and a free-form brain dump is the *preferred* input; structuring it is the agent's job, never the user's. Skills ask-and-advise when unsure (naming the signal they see and their recommendation), never re-ask what an upstream artifact already answered, and may push back on a human's explicit wish exactly once before complying and recording the override. The user should feel helped, not processed.
+
 ## Lifecycle
 
-Plot has four plan-level phases: **Draft**, **Approved**, **Delivered**, and **Released**.
+Plot has four plan-level phases: **Draft**, **Approved**, **Delivered**, and **Released** — universal across every ceremony choice. What varies with the recorded `Review:`/`Impl:` answers is how a transition is *effected*; what never varies is that it is *recorded* in the plan (who, when, through which channel — e.g. `Approved: 2026-07-30, alice, in-session`).
 
-A plan starts as a draft on an `idea/` branch. When the plan is reviewed and approved, it merges to main and spawns implementation branches (`feature/`, `bug/`, `docs/`, `infra/`). When all implementation PRs are merged, the plan is delivered — its symlink moves from `active/` to `delivered/` and the Phase field is updated. For features and bugs, a separate release step cuts a versioned tag with changelog entries. For docs and infra work, delivery is the end — it's live when merged to main.
+A PR-reviewed plan starts as a draft on an `idea/` branch and merges to main on approval. An in-session-reviewed plan is approved by recording the human's go in the file — on the work branch itself when plan and code travel together. **Approval and implementation start are two events**: approving a plan makes it *ready*; starting it (creating branches, briefing the implementer, recording `Started:`) is its own step, because under human pacing days may pass between the two — and re-entry after a gap begins with a staleness check of the plan's assumptions, not blind execution. When all implementation work is merged, the plan is delivered — its symlink moves from `active/` to `delivered/` and the Phase field is updated. For features and bugs, a separate release step cuts a versioned tag with changelog entries. For docs and infra work, delivery is the end — it's live when merged to main.
 
 The release phase includes a verification loop. An RC (release candidate) tag is cut from delivered plans, and a verification checklist is generated — one item per delivered feature or bug fix. The team tests against the checklist: automated CI for technical tests, manual verification for user stories. Bugs found during this endgame phase are fixed via normal `bug/` branches, merged to main, and a new RC is cut. When all checklist items pass, a final release tag is created.
 
@@ -89,15 +97,15 @@ The meta-principle: **don't over-complicate because AI doesn't feel friction.** 
 
 ## Sprints
 
-Sprints are an optional temporal lens over plans. A sprint groups work by schedule — start date, end date, MoSCoW priorities. Plans track *what* to build; sprints track *when* to ship it. Sprint files live in `docs/sprints/`, managed by `/plot-sprint`, committed directly to main. Sprints do not spawn implementation branches, so Principle 2 (plans merge before implementation) does not apply.
+Sprints are an optional temporal lens over plans — and they exist only where Plot is the tracker. Where a project's declared tracker owns sprint state, Plot writes no sprint artifact: a shadow board that drifts is worse than none. A sprint groups work by schedule — start date, end date, MoSCoW priorities. Plans track *what* to build; sprints track *when* to ship it. Sprint files live in `docs/sprints/`, managed by `/plot-sprint`, committed directly to main. Sprints do not spawn implementation branches, so Principle 2 (plans merge before implementation) does not apply.
 
 ## What Plot Is Not
 
 Plot is deliberately small and opinionated. These boundaries are intentional, not oversights.
 
-- **Not a monorepo tool.** Plot works with a single repository. Coordinating releases across multiple packages or repos is out of scope.
+- **Not a monorepo tool.** Plot's mechanics work per repository. A repo may declare that plans live here while implementation happens in another repo (or that it hosts no plans at all) — but coordinating releases across multiple packages or repos stays out of scope.
 - **Not a package publisher.** Plot handles versioning and changelogs, not npm publish or artifact distribution.
-- **Not an issue tracker.** Plot replaces issue trackers for *planned implementation work* — the things the team has committed to build. GitHub Issues (or any equivalent) remain useful as the *inbox* that feeds Plot: external bug reports, user-submitted feature requests, and high-level user stories or business goals that haven't been refined into plans yet. The boundary: issues are signals, plans are commitments. An issue may eventually become a plan, but work is executed and scheduled in plans, not in the issue tracker.
+- **Not an issue tracker.** Two postures, declared per repo. Where no tracker exists, Plot replaces it for *planned implementation work*; issues (or any equivalent) remain the *inbox* — signals, not commitments. Where a team already runs a tracker (Jira, GitHub Issues, Linear) as its system of record, Plot never duplicates tracker state: the tracker owns work items, business status, and sprints; Plot owns what trackers structurally can't — git-reviewable plans, narrative continuity, and machine-readable plan phases. Plans reference tickets; they never mirror their content, because copies age into lies.
 - **Not a CI/CD system.** Plot creates tags and changelogs. What happens after that (deployment, notifications, artifact builds) is the project's CI/CD pipeline's job.
 - **Not an effort tracker.** No story points, no burndown charts, no estimates. Sprints use deadlines as constraints, not time as a metric — Plot tracks *what* is planned and *whether* it shipped, not *how long* it took.
 - **Not a release note generator.** Plot discovers and uses whatever release note tooling the project already has (changesets, custom scripts, etc.). When no tooling exists, it constructs notes from plan changelog sections and commit messages. It doesn't auto-generate notes from commit history alone.
@@ -108,7 +116,7 @@ Not every change needs a release note. The rule: **user-facing changes need rele
 
 ## Origin
 
-Plot was built on 2026-02-07 across five Claude Code sessions, starting from a simple question: "I want to plan multiple ideas, read them as formatted text, and implement them in parallel." The design evolved through two complete end-to-end lifecycle tests that uncovered and fixed critical issues — empty branches on approve, undated archive names, draft PR merge failures, and stale local state in helper scripts.
+Plot was built on 2026-02-07 across five Claude Code sessions, starting from a simple question: "I want to plan multiple ideas, read them as formatted text, and implement them in parallel." It grew up in a project where *all* collaboration was asynchronous by construction — pull requests were the UI — and its early defaults reflected that. That context turned out to be one ceremony choice among several, not the definition: the field feedback behind Plot 2 was, by volume, mostly about PR ceremony applied where it wasn't carrying review. The design evolved through two complete end-to-end lifecycle tests that uncovered and fixed critical issues — empty branches on approve, undated archive names, draft PR merge failures, and stale local state in helper scripts.
 
 Plot is experimental. The current version (1.0.0-beta) reflects what works for a small team, but conventions may change and behavior may be revised as more projects adopt it.
 
@@ -124,5 +132,6 @@ When considering a change to Plot, ask:
 6. Could a human with basic git knowledge execute this manually?
 7. Could a smaller model (Sonnet/Haiku) follow these instructions for the mechanical parts?
 8. Does it stay focused on scheduling, or creep into effort tracking?
+9. Does it add ceremony that doesn't scale with the weight of the change?
 
 If the answer to question 5 is yes, remove it. If the answer to question 6 is no, simplify it. Plot should stay lean. The goal is a small set of strong conventions, not a large set of flexible options.
