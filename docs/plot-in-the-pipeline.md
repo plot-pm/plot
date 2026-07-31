@@ -22,8 +22,10 @@ session — rather than absorbing the work.
 
 **Inbound (something → plot):** upstream tools deliver a *shaped input* —
 a ready ticket, a spec, discovery notes. Plot never re-asks what the
-input already answers; its intake only fills what's missing (goal, why,
-constraints, sources).
+input already answers; its intake elicits only the missing *problem
+context* (goal, why, constraints, sources) — still management, not
+content: writing the plan from that picture remains the content layer's
+job.
 
 **Outbound (plot → implementation):** `/plot-implement` produces a brief
 that pre-answers the mechanics — branch and base, PR-or-direct, review

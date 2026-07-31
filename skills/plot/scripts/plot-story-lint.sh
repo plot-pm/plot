@@ -25,9 +25,37 @@ cd "$root"
 
 INDEX_FILE="$(bash "$HERE/plot-config.sh" get "Story index" "README.md")"
 
-# Story homes: parents of tracked STORY files + the configured default.
+# The index that covers a home is found by walking UP from the home to the
+# first project boundary (the index file itself, or a CLAUDE.md/AGENTS.md/
+# .git marking a nested project — e.g. an embedded test-fixture repo). A
+# nested project without the index file is not checkable against THIS
+# repo's index: S4 is skipped for it (empty result), never false-flagged.
+index_for_home() {
+  local d="$1"
+  while :; do
+    if [ -f "$d/$INDEX_FILE" ]; then printf '%s\n' "$d/$INDEX_FILE"; return; fi
+    if [ "$d" != "." ] && { [ -f "$d/CLAUDE.md" ] || [ -f "$d/AGENTS.md" ] || [ -e "$d/.git" ]; }; then
+      return   # nested project boundary without the index — skip S4
+    fi
+    [ "$d" = "." ] || [ "$d" = "/" ] && break
+    d="$(dirname "$d")"
+  done
+  [ -f "$INDEX_FILE" ] && printf '%s\n' "$INDEX_FILE"
+}
+
+# Story homes: parents of tracked STORY files that follow the convention
+# <home>/<slug>/STORY-<slug>.md (the dir name must equal the slug — this
+# excludes shipped/copied STORY-template.md files and any stray match),
+# normalized past archived/, plus the configured default.
 homes=$(
-  { git ls-files '*STORY-*.md' 2>/dev/null | sed -E 's#/[^/]+/STORY-[^/]+$##'
+  { git ls-files '*STORY-*.md' 2>/dev/null | while IFS= read -r f; do
+      base="$(basename "$f")"
+      slug="${base#STORY-}"; slug="${slug%.md}"
+      dir="$(dirname "$f")"
+      [ "$(basename "$dir")" = "$slug" ] || continue
+      home="$(dirname "$dir")"
+      printf '%s\n' "${home%/archived}"
+    done
     bash "$HERE/plot-config.sh" get "Story directory" "docs/stories/" | sed 's#/$##'
   } | sort -u
 )
@@ -47,10 +75,10 @@ for home in $homes; do
       fi
       continue
     fi
-    first="$(head -1 "$story")"
+    first="$(head -1 "$story" | tr -d '\r')"
     status=""
     if [ "$first" = "---" ]; then
-      status="$(awk '/^---$/{n++; next} n==1 && tolower($0) ~ /^status:/ {sub(/^[^:]*:[ \t]*/, ""); print; exit}' "$story")"
+      status="$(awk '{ gsub(/\r/, "") } /^---$/{n++; next} n==1 && tolower($0) ~ /^status:/ {sub(/^[^:]*:[ \t]*/, ""); print; exit}' "$story")"
       [ -n "$status" ] || say "S2 $story — frontmatter has no status: key"
     else
       say "S2 $story — no frontmatter"
@@ -64,9 +92,10 @@ for home in $homes; do
        && ! grep -qi '^archived:' "$story"; then
       say "S3 $story — status done but not archived (no archived/ location, no archived: date)"
     fi
-    if [ "$in_archived" = 0 ] && [ -f "$INDEX_FILE" ] \
-       && ! grep -q "$base" "$INDEX_FILE"; then
-      say "S4 $story — active story not listed in $INDEX_FILE"
+    home_index="$(index_for_home "$home")"
+    if [ "$in_archived" = 0 ] && [ -n "$home_index" ] \
+       && ! grep -qF "$base/STORY-" "$home_index"; then
+      say "S4 $story — active story not listed in $home_index"
     fi
   done
 done

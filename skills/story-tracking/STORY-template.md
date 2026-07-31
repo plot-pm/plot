@@ -3,6 +3,7 @@ title: {TITLE}
 author: {NAME}  # Who owns/drives this story — always set it; multi-author repos depend on it
 jira: {JIRA_TICKET_URL}  # Optional — link (never copy) the tracking ticket
 status: draft | ready | active | in-review | paused | done
+# unit: {UNIT}  # Optional — owning unit, for repos with several story homes
 created: {YYYY-MM-DD}
 updated: {YYYY-MM-DD}
 # archived: {YYYY-MM-DD}  # Add when done + moved to <story directory>/archived/ (see Archiving a Story)

@@ -14,7 +14,7 @@ function estate(stories) {
   const dir = mkdtempSync(path.join(tmpdir(), 'plot-lint-'));
   const sh = (c) => execSync(c, { cwd: dir, stdio: 'pipe' });
   sh('git init -q -b main && git config user.email t@t && git config user.name t && git config commit.gpgsign false');
-  writeFileSync(path.join(dir, 'README.md'), '## Active Stories\n\n- [good](docs/stories/good/STORY-good.md)\n');
+  writeFileSync(path.join(dir, 'README.md'), '## Active Stories — test coverage notes\n\n- [good](docs/stories/good/STORY-good.md)\n');
   for (const [p, content] of Object.entries(stories)) {
     const full = path.join(dir, p);
     mkdirSync(path.dirname(full), { recursive: true });
@@ -67,6 +67,46 @@ test('story-lint: done + archived date passes S3', () => {
   const dir = estate({ 'docs/stories/good/STORY-good.md': fm('done', 'archived: 2026-01-01\n') });
   const r = run(dir);
   assert.doesNotMatch(r.out, /S3/);
+});
+
+test('story-lint: shipped/copied STORY-template.md never creates a home (C1)', () => {
+  const dir = estate({
+    'docs/stories/good/STORY-good.md': fm('active'),
+    'docs/templates/STORY-template.md': fm('draft'),
+    'skills/story-tracking/STORY-template.md': fm('draft'),
+  });
+  const r = run(dir);
+  assert.equal(r.code, 0);
+  assert.match(r.out, /story-lint: 0 finding/);
+});
+
+test('story-lint: archived story is scanned once, not twice (I1)', () => {
+  const dir = estate({
+    'docs/stories/good/STORY-good.md': fm('active'),
+    'docs/stories/archived/old/STORY-old.md': '# no frontmatter\n',
+  });
+  const r = run(dir);
+  assert.match(r.out, /story-lint: 1 finding/);
+});
+
+test('story-lint: S4 is path-based — common-word slugs still flagged (I2)', () => {
+  // README contains the word "test" in prose but not the story path
+  const dir = estate({
+    'docs/stories/good/STORY-good.md': fm('active'),
+    'docs/stories/test/STORY-test.md': fm('active'),
+  });
+  const r = run(dir);
+  assert.match(r.out, /S4 .*STORY-test/);
+});
+
+test('story-lint: nested project (own CLAUDE.md, no index) is skipped, not false-flagged', () => {
+  const dir = estate({
+    'docs/stories/good/STORY-good.md': fm('active'),
+    'fixtures/mini/CLAUDE.md': '# mini project\n',
+    'fixtures/mini/docs/stories/thing/STORY-thing.md': fm('active'),
+  });
+  const r = run(dir);
+  assert.equal(r.code, 0);
 });
 
 test('story-lint: S4 active story missing from index', () => {
