@@ -39,6 +39,7 @@ ready — propose it per smart defaults).
 | 3. Branch Setup | Small | Git commands per recorded answers |
 | 4. Hand-off Brief | Small | Template from parsed fields |
 | 5. Record Started | Small | One Status line + commit |
+| 6. Summary | Small | Orientation template |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor).
 
@@ -98,6 +99,11 @@ ceremony questions now and record the answers first.
   git checkout -b <branch> "origin/$DEFAULT_BRANCH"
   ```
 
+  **If a branch already exists** (local or remote — check
+  `git ls-remote --heads origin <branch>`), do not recreate it: treat
+  that branch as already started (plans approved under pre-Plot-2 flows
+  arrive here with branches but no `Started:` records) — check it out,
+  record `Started:` if missing, and re-orient as a resume.
   Multiple branches: create the first, list the rest — parallel sessions
   create theirs on pickup.
 - **`same-branch`** — the plan already rides the work branch; just check
@@ -125,6 +131,12 @@ re-asking mechanics the plan already answers — and without plot:
 - **Scope guard:** implement what the plan says; drift → back to the plan.
 ```
 
+The brief also carries one bookkeeping duty for the implementing session:
+**when the PR is created, append `→ #<number>`** (from another repo:
+`→ <owner>/<repo>#<number>`) to this branch's line in the plan's
+`## Branches` section — `/plot-deliver` back-fills missed ones via the
+host adapter, but written-at-creation keeps the plan current.
+
 For `same-branch`, note that the end-PR body must carry the plan link and
 mirror its approval record (the file is the truth; the PR body is the
 reviewer-facing mirror). For `other-repo`, the brief plus the plan URL is
@@ -143,9 +155,10 @@ Add one line to the plan's `## Status` per started branch:
 ```
 
 Commit it where the plan lives (same branch in `same-branch` flow;
-default branch in direct flows; the plan's branch otherwise). The board
-derives **Ready** (approved, no `Started:`) vs **In progress** from
-exactly this record.
+default branch in direct flows — see `/plot-approve` step 4 for the
+exact push mechanics and the branch-protection fallback; the plan's
+branch otherwise). The board derives **Ready** (approved, no `Started:`)
+vs **In progress** from exactly this record.
 
 ### 6. Summary — orient
 

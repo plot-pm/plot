@@ -74,7 +74,7 @@ Resolve the symlink to find the actual plan file path (e.g., `docs/plans/YYYY-MM
 
 Read the plan file (resolved from the `active/` symlink) and find the section headed with "Branches" (matches `## Branches`, `## Implementation Branches`, `### Implementation Branches`, or any heading containing the word "Branches"). Parse it for PR references. If the plan has a `Sprint: <name>` field in its Status section, extract it for the summary.
 
-Expected format after `/plot-approve`:
+Expected format once PRs exist (annotated at PR creation or back-filled above):
 ```markdown
 - `feature/name` — description → #12
 ```
@@ -82,6 +82,18 @@ Expected format after `/plot-approve`:
 ### 4. Verify All PRs Merged
 
 Run the helper:
+
+```bash
+../plot/scripts/plot-impl-status.sh <slug>
+```
+
+**Back-fill missing PR annotations first.** The `→ #N` (or
+`→ owner/repo#N`) Branches annotations are written when a PR becomes
+known — by the implementing session at PR-creation time per its brief,
+or, failing that, by THIS step: for each branch line without an
+annotation, resolve `../plot/scripts/plot-host.sh pr-state <branch>`
+(add `--repo <owner/repo>` for `Impl: other repo` plans) and append
+`→ #<number>` to the line, committing the plan update. Only then read:
 
 ```bash
 ../plot/scripts/plot-impl-status.sh <slug>

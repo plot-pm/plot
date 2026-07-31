@@ -13,7 +13,7 @@ import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const gate = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-phase-gate.sh');
 
-function repoWith({ branch, planPhase, stage }) {
+function repoWith({ branch, planPhase, stage, unstaged = [], extraPlans = {} }) {
   const dir = mkdtempSync(path.join(tmpdir(), 'plot-gate-'));
   const sh = (c) => execSync(c, { cwd: dir, stdio: 'pipe' });
   sh('git init -q -b main && git config user.email t@t && git config user.name t && git config commit.gpgsign false');
@@ -28,12 +28,24 @@ function repoWith({ branch, planPhase, stage }) {
       `# P\n\n## Status\n\n- **Phase:** ${planPhase}\n- **Type:** feature\n`,
     );
   }
+  for (const [name, phase] of Object.entries(extraPlans)) {
+    mkdirSync(path.join(dir, 'docs', 'plans'), { recursive: true });
+    writeFileSync(
+      path.join(dir, 'docs', 'plans', name),
+      `# P\n\n## Status\n\n- **Phase:** ${phase}\n- **Type:** feature\n`,
+    );
+  }
   for (const f of stage) {
     const full = path.join(dir, f);
     mkdirSync(path.dirname(full), { recursive: true });
     writeFileSync(full, 'y');
   }
   sh('git add -A');
+  for (const f of unstaged) {
+    const full = path.join(dir, f);
+    mkdirSync(path.dirname(full), { recursive: true });
+    writeFileSync(full, 'z');
+  }
   return dir;
 }
 
@@ -72,6 +84,35 @@ test('gate: allows unplanned branch (no plan file)', () => {
 test('gate: ignores non-commit commands', () => {
   const dir = repoWith({ branch: 'feature/x', planPhase: 'Draft', stage: ['src/a.js'] });
   assert.equal(runGate(dir, 'git status').code, 0);
+});
+
+test('gate: compound git add -A && git commit is caught (index empty)', () => {
+  const dir = repoWith({ branch: 'feature/x', planPhase: 'Draft', stage: [], unstaged: ['src/a.js'] });
+  const r = runGate(dir, 'git add -A && git commit -m x');
+  assert.equal(r.code, 2);
+});
+
+test('gate: git commit -a stages tracked modifications — caught', () => {
+  const dir = repoWith({ branch: 'feature/x', planPhase: 'Draft', stage: ['src/a.js'] });
+  execSync('git commit -qm setup', { cwd: dir });
+  writeFileSync(path.join(dir, 'src', 'a.js'), 'modified');
+  const r = runGate(dir, 'git commit -am x');
+  assert.equal(r.code, 2);
+});
+
+test('gate: git add of only the plan file passes', () => {
+  const dir = repoWith({ branch: 'feature/x', planPhase: 'Draft', stage: [], unstaged: [] });
+  const r = runGate(dir, 'git add docs/plans/2026-01-01-x.md && git commit -m x');
+  assert.equal(r.code, 0);
+});
+
+test('gate: suffix-colliding plan slug does not false-block', () => {
+  // branch feature/x, its own plan Approved; unrelated Draft plan *-refactor-x.md
+  const dir = repoWith({
+    branch: 'feature/x', planPhase: 'Approved', stage: ['src/a.js'],
+    extraPlans: { '2026-03-01-refactor-x.md': 'Draft' },
+  });
+  assert.equal(runGate(dir).code, 0);
 });
 
 test('gate: fails open on malformed input', () => {

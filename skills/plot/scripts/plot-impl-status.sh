@@ -14,7 +14,8 @@ SLUG="${1:?Usage: plot-impl-status.sh <slug>}"
 
 # Read plan file from main (not CWD) so PR links are always current.
 # On impl branches the local copy is stale — it lacks the → #N annotations
-# that /plot-approve adds to main after creating impl PRs.
+# written when PRs are created (by the implementing session per its
+# /plot-implement brief, or back-filled by /plot-deliver step 4).
 #
 # Find the date-prefixed plan file via the active or delivered symlink index
 PLAN_PATH=$(git ls-tree --name-only origin/main docs/plans/ 2>/dev/null \

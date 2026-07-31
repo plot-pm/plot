@@ -51,7 +51,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 2. Read Ceremony Bounds | Small | plot-config.sh reads, hard gates are mechanical |
 | 3. Pre-flight Checks | Small (hard gate), Mid (soft warning) | Slug collision is mechanical; title similarity needs mid-tier |
 | 4. Answer the Ceremony Questions | Mid | Weight assessment + recommendation; smaller models ask instead of recommending |
-| 5-8. Create Branch through Board Status | Small | Git/host commands, template resolution, file ops |
+| 5-8. Create the Plan through Board Status | Small | Git/host commands, template resolution, file ops |
 | 9. Summary | Small | Template formatting |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
@@ -168,6 +168,12 @@ recorded answers drive `/plot-approve`, `/plot-implement`, and
   tracker and merges share state → recommend `pr`.
 - `Implementation home` names other repos → `Impl: other repo`.
   `Implementation home: none` → `Impl: none`.
+- **`pr` + `same branch`** is a defined combination, not a contradiction:
+  the plan's draft PR opens from the *work branch* (no idea branch), the
+  plan is reviewed inline there, approval is recorded **in the file**
+  (not by merging), implementation continues on the same branch, and the
+  single PR — carrying plan + code — merges once at the end. Use it when
+  you want inline plan discussion without a separate plan PR.
 - Unsure → ask both questions in plain words — "who needs to review this,
   and where does the work happen?" — with your recommendation and the
   signal behind it stated (ask-and-advise).
@@ -203,13 +209,18 @@ Always ask — don't infer from the title.
 
 **Where the plan file goes depends on the recorded answers:**
 
-- **`Review: pr`** — new branch from the default branch (worktree-safe,
-  does not check out the default branch):
+- **`Review: pr`, `Impl:` ≠ `same branch`** — new idea branch from the
+  default branch (worktree-safe, does not check out the default branch):
 
   ```bash
   git fetch origin "$DEFAULT_BRANCH"
   git checkout -b idea/<slug> "origin/$DEFAULT_BRANCH"
   ```
+
+- **`Review: pr`, `Impl: same branch`** — the work branch
+  (`feature/<slug>` or type-appropriate prefix) is created instead, the
+  plan is its first commit, and the draft PR opens from it (step 7). No
+  idea branch; approval will be recorded in-file, not by merge.
 
 - **`Review: in-session` or `ballot`, `Impl: same branch`** — the plan
   rides the work branch: create (or stay on) `feature/<slug>` (or the

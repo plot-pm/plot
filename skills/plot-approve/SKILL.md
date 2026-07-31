@@ -44,7 +44,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
 | 1. Parse Input | Small | Slug lookup via helper scripts |
-| 2. Determine Review State | Small | plot-plan-meta.sh + plot-pr-state.sh |
+| 2. Determine Review State | Small | plot-plan-meta.sh + plot-host.sh pr-state |
 | 2b. Suggest Tracer Bullet | Mid | Heuristic evaluation of plan design |
 | 3. Effect the Approval | Small | One merge or one confirmation |
 | 4. Record the Approval | Small | Phase flip + Status line + commit |
@@ -72,7 +72,9 @@ Read the plan (`../plot/scripts/plot-plan-meta.sh <plan-file>`) — its
 recorded `Review:` answer decides what "approve" means. If the field is
 missing (pre-Plot-2 plan on an idea branch), treat it as `pr`.
 
-**`Review: pr`** — run `../plot/scripts/plot-pr-state.sh <slug>` and handle:
+**`Review: pr`** — get the plan PR's state via the host adapter,
+`../plot/scripts/plot-host.sh pr-state idea/<slug>` (for
+`Impl: same branch`: `pr-state <work-branch>`), and handle:
 
 - **Draft PR**: Error — "Plan is still a draft. Mark it ready for review first."
 - **Open, non-draft**: proceed — merging is the approval (step 3)
@@ -110,7 +112,7 @@ Read the plan file and check for a `### Tracer` subsection under `## Branches`:
 
 Per the review channel:
 
-- **`pr`**:
+- **`pr`** (with `Impl:` ≠ `same branch`):
 
   ```bash
   ../plot/scripts/plot-host.sh pr-merge <number> --delete-branch
@@ -119,6 +121,11 @@ Per the review channel:
   This lands the plan file on the default branch and deletes `idea/<slug>`.
   Default to merge commits (plan refinement history is valuable context);
   follow the project's declared merge strategy if it differs.
+
+- **`pr` with `Impl: same branch`**: do **not** merge — the PR carries
+  plan + code and merges once at the end. The approval is the review
+  approval on the plan portion: record it in the file (step 4) on the
+  work branch; the PR stays open for implementation.
 
   If `## Plot Config` includes a project board, update the plan PR status
   to "Done": `../plot/scripts/plot-update-board.sh <plan-pr-url> "Done" <owner> <number>`
@@ -149,9 +156,21 @@ a merge commit merely coincides with it in the `pr` flow.
 4. Keep/insert the `## Approval` section with `- **Assignee:** <who>`
    (the board reads the assignee from there).
 5. Commit where the plan lives:
-   - `pr` flow: on the default branch (fetch first; do **not** check out
-     the default branch locally — commit via a `plot/approve-<slug>`
-     branch pushed to it, as with other plan-file updates)
+   - `pr`-merged flow: on the default branch — fetch first; do **not**
+     check out the default branch locally. The exact mechanic:
+
+     ```bash
+     git fetch origin <default>
+     git checkout -b plot/approve-<slug> origin/<default>
+     # edit the plan file, commit
+     git push origin plot/approve-<slug>:<default>
+     git push origin --delete plot/approve-<slug> 2>/dev/null || true
+     ```
+
+     **Branch protection fallback:** if that push is rejected, open a
+     micro-PR instead (`plot-host.sh pr-create` from
+     `plot/approve-<slug>`, then `pr-merge`) — never leave the merged
+     plan stranded at `Phase: Draft` on the default branch.
    - `same branch` flow: on the work branch, in place
    - direct flow: on the current branch
 
