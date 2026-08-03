@@ -67,7 +67,7 @@ paths; make it deliberately.
 effort's knowledge — or when knowledge overflows the umbrella that exists.
 
 1. **Umbrella scan — ticket → existing story → plan.** Check the repo's
-   declared tracker (`plot-config.sh get "Tracker" none`) and the
+   declared tracker (`plot-config.sh get "Tracker" plot`) and the
    existing stories and plans. A well-described *ticket* holds
    implement-as-described work: no story — a plan may still exist, the
    ticket stays the umbrella. An existing story that covers the effort:
