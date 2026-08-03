@@ -40,7 +40,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
     <!-- - **Plan PRs:** required | never | optional -->
     <!-- - **Implementation home:** this repo | <repo list> | none -->
     <!-- - **Hosts plans:** yes | no -->
-    <!-- - **Tracker:** none | jira <url> | github-issues | linear <url> -->
+    <!-- - **Tracker:** plot | jira <url> | github-issues | linear <url> -->
     <!-- - **Git host:** github | bitbucket -->
 
 ## Model Guidance
@@ -102,7 +102,7 @@ pre-Plot-2 behavior):
 PLAN_PRS=$(../plot/scripts/plot-config.sh get "Plan PRs" "optional")
 HOSTS_PLANS=$(../plot/scripts/plot-config.sh get "Hosts plans" "yes")
 IMPL_HOME=$(../plot/scripts/plot-config.sh get "Implementation home" "this repo")
-TRACKER=$(../plot/scripts/plot-config.sh get "Tracker" "none")
+TRACKER=$(../plot/scripts/plot-config.sh get "Tracker" "plot")
 ```
 
 **Hard gates — these are not advice:**
