@@ -1,5 +1,38 @@
 # plot
 
+## 2.0.0
+
+### Major Changes
+
+- [#61](https://github.com/plot-pm/plot/pull/61) [`3712eea`](https://github.com/plot-pm/plot/commit/3712eeae5c4cc831314cb23616394a950af63549) Thanks [@eins78](https://github.com/eins78)! - **Plot 2** — ceremony matched to the plan's weight.
+
+  If plot ever opened a pull request in a repository that never wanted one, this is the release that stops it. Every plan now records two choices — who reviews it, and where the work happens — and plot defaults to the lightest path the repository allows.
+
+  **Ceremony is a recorded choice, not a default.** `/plot-idea` asks two questions and writes the answers into the plan: `Review:` (a pull request, an in-session walkthrough, or an async ballot) and `Impl:` (own branches, the same branch, another repository, or nowhere). Repositories declare their bounds once in `## Plot Config` — `Plan PRs`, `Implementation home`, `Hosts plans`, `Tracker`, `Git host` — and `Plan PRs: never` and `Hosts plans: no` are enforced gates, not guidelines.
+
+  **Approval is no longer a starting gun.** `/plot-approve` only records the approval through the declared channel. Implementation starts when the new `/plot-implement` says so: it checks the plan for staleness, sets up branches per the recorded answers, and writes a hand-off brief so the implementing agent never guesses. The board splits Approved into Ready vs In progress, and a PreToolUse phase gate blocks implementation commits on Draft plans — including the explicit `.plot/hold` review hold.
+
+  **Bitbucket and split-home setups are first-class.** The Git-host adapter `plot-host.sh` (gh/bb) makes every spoke host-neutral, and `plot-impl-status.sh` follows cross-repository `owner/repo#N` references, the `Plan directory` key, and the remote default branch.
+
+  **The companion skills grow a discipline layer.** story-tracking gains a triage front door: the ticket (or an existing story, or a plain plan) is the umbrella until knowledge genuinely overflows it — with named overflow signals, late promotion with guided backfill, and an ask-and-advise stance where the human always has the last word. Add mirror-resistance ("reference, never copy") and one-home-for-narrative rules, a richer status vocabulary, the new `plot-story-lint.sh` for story-estate drift, and `/plot-sprint` declining where an external tracker owns sprints. The "Plot in the Pipeline" doc draws the boundary between plot (plan mechanics) and the skills that write plan content or implement it.
+
+  **Upgrading**: no action required — repositories without posture keys keep the classic behavior, and pre-2.0 plans (without `Review:`/`Impl:`) keep working. Declare `## Plot Config` posture keys when you want the gates. Update with `/plugin update plot`.
+
+  **Validated before release**: a deterministic e2e harness (`pnpm test:e2e`, in CI) drives four full lifecycles in sandbox repositories, and promptfoo eval suites — run against the release candidate before merge — caught two skill-text defects that were fixed in this release.
+
+  <!--
+  bumps:
+    skills:
+      plot: major
+      plot-idea: major
+      plot-approve: major
+      story-tracking: major
+      plot-sprint: minor
+      plot-deliver: minor
+      plot-release: patch
+      plot-reconcile: patch
+  -->
+
 ## 1.8.1
 
 ### Patch Changes
