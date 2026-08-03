@@ -23,9 +23,9 @@ Follows Manifesto Principle 3 (skills interpret and adapt; scripts collect and r
 - **`plot-config.sh`** — the `## Plot Config` accessor the scan builds on: the one place that knows where plot configuration lives.
 - **`SKILL.md` Stage 2** — the inferential half: deciding which drift to fix, which branch is truly stale, whether a plan should be delivered or rejected. Frontier-tier judgment.
 
-## Forge
+## Git host
 
-Open-PR enumeration binds to the forge of the **`origin` remote's host**: `gh` on GitHub (pinned to origin's repo via `-R`), `bb` on Bitbucket. A repo can carry extra remotes on other forges; letting a CLI resolve the "current repo" itself would silently enumerate the wrong repo's PRs, so the scan never does. Unknown host or missing CLI → `PR state: DEGRADED`, falling back to git merge-state alone (the stale-branch section may then over-list branches with an open PR, so each is confirmed before deletion).
+Open-PR enumeration binds to the git host of the **`origin` remote's host**: `gh` on GitHub (pinned to origin's repo via `-R`), `bb` on Bitbucket. A repo can carry extra remotes on other git hosts; letting a CLI resolve the "current repo" itself would silently enumerate the wrong repo's PRs, so the scan never does. Unknown host or missing CLI → `PR state: DEGRADED`, falling back to git merge-state alone (the stale-branch section may then over-list branches with an open PR, so each is confirmed before deletion).
 
 Since bb 3.1 ([quatico-solutions/agent-skills#18](https://github.com/quatico-solutions/agent-skills/issues/18)) the two arms are call-symmetric: `bb pr list --state open --json headRefName --jq '.[].headRefName'` matches the `gh` invocation exactly. Older bb versions reject the field argument and fall back to the full-object `--json` form; pre-`--json` versions degrade to git merge-state.
 
@@ -38,11 +38,11 @@ Since bb 3.1 ([quatico-solutions/agent-skills#18](https://github.com/quatico-sol
 ## Known Gaps
 
 - **Advisory only, by design.** Never auto-applies a fix. This is deliberate: a downstream run showed the scan's own suggested fix for a `Superseded` plan was wrong (defaulted the symlink to `active/`; the terminal index was correct), so the human override must stay in the loop.
-- **GitHub.com and Bitbucket only** for open-PR precision; other forges (GitLab, self-hosted hosts) run in the degraded git-merge-state mode.
+- **GitHub.com and Bitbucket only** for open-PR precision; other git hosts (GitLab, self-hosted) run in the degraded git-merge-state mode.
 - **`origin` is assumed** as the remote of record (matching the rest of plot).
 
 ## Planned Improvements
 
 - A one-line drift summary in `/plot`'s dispatcher output pointing at `/plot-reconcile`.
 - A scoped post-delivery verification gate in `/plot-deliver` (re-run the scan for the just-delivered slug), superseding the earlier opt-in-nudge idea.
-- `glab` arm in the forge seam if a GitLab adopter shows up.
+- `glab` arm in the git-host seam if a GitLab adopter shows up.

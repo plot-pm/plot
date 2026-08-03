@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Plot helper: reconciliation sweep — deterministic extractor for plan/branch drift.
 # Usage: plot-reconcile-scan.sh [--no-fetch] [--no-pr] [--offline]
-#   --no-fetch  skip `git fetch`   --no-pr  skip forge pr list
+#   --no-fetch  skip `git fetch`   --no-pr  skip git-host pr list
 #   --offline   both (no network)  — used by the ambient /plot hygiene line
 # Output: five-section text report on stdout (each finding carries its exact
 #         remediating command as copy-paste text — nothing is executed),
@@ -11,7 +11,7 @@
 #         line, /plot-reconcile's Automation Output) read that one line.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
 #
-# Reads the repo's plan files, symlink indexes, and git/forge ref state and
+# Reads the repo's plan files, symlink indexes, and git/git-host ref state and
 # emits a five-section report. This is the COMPUTATIONAL half of the
 # reconciliation loop: mechanical, reproducible enumeration. The INFERENTIAL
 # half — deciding which drift to fix, which branch is truly stale, whether a
@@ -43,7 +43,7 @@
 # with a `## Plot Config` line:
 #     - **Main branch:** develop
 #
-# Open-PR enumeration binds to the forge of ORIGIN's host — gh on GitHub,
+# Open-PR enumeration binds to ORIGIN's git host — gh on GitHub,
 # bb on Bitbucket — and degrades to git merge-state alone otherwise (the
 # report header states which source was used).
 #
@@ -73,8 +73,8 @@ command -v jq >/dev/null 2>&1 \
 
 # Flags (any order, any combination):
 #   --no-fetch  skip `git fetch` (offline, or when you just fetched)
-#   --no-pr     skip forge PR enumeration (no `gh/bb pr list` network call) —
-#               falls back to git merge-state, same as an absent forge CLI
+#   --no-pr     skip git-host PR enumeration (no `gh/bb pr list` network call) —
+#               falls back to git merge-state, same as an absent git-host CLI
 #   --offline   both of the above: a fully network-free sweep. Used by the
 #               ambient /plot hygiene line so /plot never blocks on the network.
 do_fetch=1
@@ -131,9 +131,9 @@ all_branches=$(git branch -r 2>/dev/null \
   | sed 's/^[[:space:]]*//; s#^origin/##' \
   | grep -E "^($PREFIX_RE)/" )
 
-# Open-PR source branches, from the forge CLI matching ORIGIN's host — the
+# Open-PR source branches, from the git-host CLI matching ORIGIN — the
 # scan compares origin/* refs, so PR state must come from the same remote (a
-# repo can carry extra remotes on other forges; letting gh/bb resolve "any"
+# repo can carry extra remotes on other git hosts; letting gh/bb resolve "any"
 # remote would silently enumerate the wrong repo's PRs). Unknown host →
 # degraded (git merge-state only).
 PR_SOURCE="degraded"
@@ -166,7 +166,7 @@ else
   PR_SOURCE="off"   # deliberately skipped (--no-pr/--offline), not a failure
 fi
 
-# Open-PR info is trustworthy only from a real forge listing. When it isn't
+# Open-PR info is trustworthy only from a real git-host listing. When it isn't
 # (degraded = no CLI, or off = deliberately skipped), the stale-branch section
 # leans on git merge-state alone and may over-list — so it warns to confirm.
 case "$PR_SOURCE" in gh|bb) pr_reliable=1 ;; *) pr_reliable=0 ;; esac
@@ -175,11 +175,11 @@ echo "plot-reconcile sweep — $(git rev-parse --short "origin/$MAIN" 2>/dev/nul
 if [ "$pr_reliable" = 1 ]; then
   echo "PR state: $PR_SOURCE pr list (open PRs enumerated)"
 elif [ "$PR_SOURCE" = off ]; then
-  echo "PR state: skipped (--no-pr) — git merge-state only; no forge network call."
+  echo "PR state: skipped (--no-pr) — git merge-state only; no git-host network call."
   echo "          (stale-branch section may over-list branches with an open PR;"
   echo "           run /plot-reconcile without --offline for the precise list.)"
 else
-  echo "PR state: DEGRADED — no forge CLI (gh/bb) available; using git merge-state only."
+  echo "PR state: DEGRADED — no git-host CLI (gh/bb) available; using git merge-state only."
   echo "          (stale-branch section may over-list branches with an open PR;"
   echo "           confirm each before deleting.)"
 fi

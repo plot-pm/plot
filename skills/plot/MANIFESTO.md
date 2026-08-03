@@ -1,10 +1,10 @@
 # Plot Manifesto
 
-Plot is a git-native planning system for software development. It is designed for teams where humans make decisions and AI agents help plan and implement, but requires nothing more than git and markdown — plus a forge with pull request review where the ceremony you choose needs one. It is experimental, evolving through real-world usage, and currently in alpha.
+Plot is a git-native planning system for software development. It is designed for teams where humans make decisions and AI agents help plan and implement, but requires nothing more than git and markdown. It is experimental, evolving through real-world usage, and currently in alpha.
 
 ## Core Belief
 
-Plans belong in git. Not in a separate issue tracker, not in a project management tool, not in a spreadsheet. Plans are markdown files — written, reviewed, and versioned just like source code. They get review appropriate to their weight — a pull request with inline discussion, an in-session walkthrough with the approval recorded in the file, or an async ballot — and stay in place forever with date-prefixed filenames. Anyone with repo access can `ls docs/plans/active/` and see exactly what's in flight. No dashboard logins, no access tiers, no sync problems.
+Plans belong in git. Not in a separate issue tracker, not in a project management tool, not in a spreadsheet. Plans are markdown files — written, reviewed, and versioned just like source code. They get reviewed — a pull request with inline discussion, an in-session walkthrough with the approval recorded in the file, or an async ballot, whichever matches the plan's weight — and stay in place forever with date-prefixed filenames. Anyone with repo access can `ls docs/plans/active/` and see exactly what's in flight. No dashboard logins, no access tiers, no sync problems.
 
 Plot works for any team composition, but it is especially designed for a specific one: **human decision-makers** working with **AI facilitators** (for refining ideas, planning, and process administration) and **AI coding agents** (implementing plans as autonomously as current models allow). In this model, humans always own the decisions — approval, prioritization, release, verification. Agents surface information, suggest actions, and do implementation work. But every step of the workflow can also be done by a human with basic git knowledge. The AI is the designed-for sweet spot, not a hard requirement.
 
