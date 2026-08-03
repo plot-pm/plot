@@ -31,7 +31,8 @@
 #   Plan PRs            required | never | optional   (never = hard gate)
 #   Implementation home this repo | <repo/path list> | none
 #   Hosts plans         yes | no                      (no = refuse plan files)
-#   Tracker             none | jira | github-issues | linear  (+ URL)
+#   Tracker             plot | jira | github-issues | linear  (+ URL)
+#                       (plot = plans in this repo ARE the tracker; absent = same)
 #   Git host            github | bitbucket            (resolves gh vs bb)
 #
 # `Plan template` is a repo-root-relative path to the plan template /plot-idea
