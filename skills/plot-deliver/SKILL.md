@@ -9,12 +9,12 @@ metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
   version: 1.1.0
-compatibility: Designed for Claude Code and Cursor. Requires git. Currently uses gh CLI for forge operations, but the workflow works with any git host that supports pull request review.
+compatibility: Designed for Claude Code and Cursor. Requires git. Host operations (PRs, default branch) go through plot-host.sh (GitHub or Bitbucket).
 ---
 
 # Plot: Deliver Plan
 
-Verify all implementation is done, then deliver the plan. This workflow can be run manually (using git and forge CLI), by an AI agent interpreting this skill, or via a workflow script (once available).
+Verify all implementation is done, then deliver the plan. This workflow can be run manually (using git and the git-host CLI), by an AI agent interpreting this skill, or via a workflow script (once available).
 
 For docs/infra work, this is the end — live when merged. For features/bugs, `/plot-release` follows when the team is ready to cut a versioned release.
 
@@ -74,7 +74,7 @@ Resolve the symlink to find the actual plan file path (e.g., `docs/plans/YYYY-MM
 
 Read the plan file (resolved from the `active/` symlink) and find the section headed with "Branches" (matches `## Branches`, `## Implementation Branches`, `### Implementation Branches`, or any heading containing the word "Branches"). Parse it for PR references. If the plan has a `Sprint: <name>` field in its Status section, extract it for the summary.
 
-Expected format after `/plot-approve`:
+Expected format once PRs exist (annotated at PR creation or back-filled above):
 ```markdown
 - `feature/name` — description → #12
 ```
@@ -87,15 +87,28 @@ Run the helper:
 ../plot/scripts/plot-impl-status.sh <slug>
 ```
 
+**Back-fill missing PR annotations first.** The `→ #N` (or
+`→ owner/repo#N`) Branches annotations are written when a PR becomes
+known — by the implementing session at PR-creation time per its brief,
+or, failing that, by THIS step: for each branch line without an
+annotation, resolve `../plot/scripts/plot-host.sh pr-state <branch>`
+(add `--repo <owner/repo>` for `Impl: other repo` plans) and append
+`→ #<number>` to the line, committing the plan update. Only then read:
+
+```bash
+../plot/scripts/plot-impl-status.sh <slug>
+```
+
 Or for each PR number found in the Branches section:
 
 ```bash
-gh pr view <number> --json state,isDraft --jq '{state: .state, isDraft: .isDraft}'
+../plot/scripts/plot-host.sh pr-state <number>   # {"number","state","draft","url"}
 ```
 
 - If all are `MERGED`: proceed to step 5
 - If any are `OPEN`:
-  - If any open PRs have `isDraft: true`, list them and run `gh pr ready <number>` to mark each one ready for review — this is part of the delivery flow, not optional
+  - If any open PRs have `draft: true`, list them and mark each one ready for review (`gh pr ready` / `bb pr edit --ready`) — this is part of the delivery flow, not optional
+  - Split-home plans (`Impl: other repo`): the PR references carry a repo prefix (`owner/repo#N`) and `plot-impl-status.sh` resolves them in that repo via the host adapter — delivery works unchanged; only the merge itself happens over there
   - List all remaining open PRs and ask the user: "These PRs are still open. Merge them first, or deliver anyway?"
   - If user declines, stop and list the unfinished PRs
 - If any are `CLOSED` (not merged): warn — these need manual attention
@@ -241,6 +254,10 @@ For each merged implementation PR from the Branches section:
 If no project board is configured, skip this step.
 
 ### 9. Summary
+
+**Orient, don't enumerate** (Manifesto Principle 11): open the summary
+with where the work now stands, what falls out next, and why — the
+mechanical details follow.
 
 Print:
 - Delivered: `<slug>`

@@ -46,6 +46,11 @@ export function PlanCard({ card, showSprint, showStory, onOpen }: PlanCardProps)
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
         <Badge variant={typeVariant(card.type)}>{card.type}</Badge>
+        {card.phase === 'Approved' && card.started !== undefined && (
+          <Badge variant={card.started ? 'sprint' : 'neutral'}>
+            {card.started ? 'In progress' : 'Ready'}
+          </Badge>
+        )}
         {showSprint && card.sprint && <Badge variant="sprint">{card.sprint}</Badge>}
         {showStory && card.story && <Badge variant="story">{card.story}</Badge>}
       </div>

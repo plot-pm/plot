@@ -1,22 +1,28 @@
 ---
 name: plot-approve
 description: >-
-  Merge an approved plan and fan out into implementation branches.
-  Part of the Plot workflow. Use on /plot-approve.
+  Record a plan's approval through its declared review channel (merge the
+  plan PR, record an in-session go, or tally a ballot) and stop — implementation
+  starts separately with /plot-implement. Part of the Plot workflow.
+  Use on /plot-approve.
 globs: []
 license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
   version: 1.0.2
-compatibility: Designed for Claude Code and Cursor. Requires git. Currently uses gh CLI for forge operations, but the workflow works with any git host that supports pull request review.
+compatibility: Designed for Claude Code and Cursor. Requires git. Host operations go through plot-host.sh (GitHub or Bitbucket).
 ---
 
 # Plot: Approve Plan
 
-Merge an approved plan and fan out into implementation branches. This workflow can be run manually (using git and forge CLI), by an AI agent interpreting this skill, or via a workflow script (once available).
+Record a plan's approval — and only that. Approval makes a plan *ready*;
+starting the work is `/plot-implement`'s job (Manifesto: approval and
+implementation start are two events). This command ends with the plan in
+phase Approved, a transition record in the file, and an offer to chain
+into `/plot-implement` for the fast-paced case.
 
-**Input:** `$ARGUMENTS` is the `<slug>` of an existing idea.
+**Input:** `$ARGUMENTS` is the `<slug>` of an existing plan.
 
 Example: `/plot-approve sse-backpressure`
 
@@ -37,57 +43,58 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
-| 1-2. Parse and PR State | Small | Git/gh commands, helper script, state checks |
-| 2b. Suggest Tracer Bullet | Mid | Heuristic evaluation of plan design and branch structure |
-| 3. Merge Plan PR | Small | Single gh command |
-| 4. Read and Parse Plan | Small | Structured markdown parsing |
-| 4b. Branch Conflicts | Mid | Cross-referencing multiple plan files |
-| 5-8. Create Branches through Summary | Small | Git/gh commands, templates, board sync |
-
-Nearly all steps are mechanical. Steps 2b and 4b require mid-tier reasoning — heuristic evaluation and cross-plan comparison respectively.
+| 1. Parse Input | Small | Slug lookup via helper scripts |
+| 2. Determine Review State | Small | plot-plan-meta.sh + plot-host.sh pr-state |
+| 2b. Suggest Tracer Bullet | Mid | Heuristic evaluation of plan design |
+| 3. Effect the Approval | Small | One merge or one confirmation |
+| 4. Record the Approval | Small | Phase flip + Status line + commit |
+| 5. Summary | Small | Orientation template |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
 
 ### 1. Parse Input
 
 If `$ARGUMENTS` is empty or missing:
-- List open plan PRs: `gh pr list --json number,title,headRefName --jq '.[] | select(.headRefName | startswith("idea/"))'`
-- If exactly one exists, propose: "Found plan `<slug>`. Approve it?"
+- Find Draft plans: parse `docs/plans/active/*.md` with `../plot/scripts/plot-plan-meta.sh`, plus open idea-branch PRs via `../plot/scripts/plot-host.sh pr-list`
+- If exactly one candidate exists, propose: "Found plan `<slug>`. Approve it?"
 - If multiple exist, list them and ask which one to approve
-- If none exist, explain: "No open plan PRs found. Create one first with `/plot-idea <slug>: <title>`."
+- If none exist, explain: "No plans awaiting approval. Create one first with `/plot-idea <slug>: <title>`."
 
 Extract `slug` from `$ARGUMENTS` (trimmed, lowercase, hyphens only).
 
 ### Batch Mode
 
-If the user asks to approve multiple plans at once ("approve all", or lists multiple slugs):
+If the user asks to approve multiple plans at once ("approve all", or lists multiple slugs): loop the single-plan flow for each slug and print a combined summary. No special syntax needed.
 
-1. Verify all plan PRs are non-draft or already merged
-2. Merge each plan PR sequentially (step 3)
-3. Create all implementation branches (steps 4-5)
-4. Print a combined summary
+### 2. Determine Review State
 
-This works naturally — loop the single-plan flow for each slug. No special syntax needed.
+Read the plan (`../plot/scripts/plot-plan-meta.sh <plan-file>`) — its
+recorded `Review:` answer decides what "approve" means. If the field is
+missing (pre-Plot-2 plan on an idea branch), treat it as `pr`.
 
-### 2. Determine Plan PR State
+**`Review: pr`** — get the plan PR's state via the host adapter,
+`../plot/scripts/plot-host.sh pr-state idea/<slug>` (for
+`Impl: same branch`: `pr-state <work-branch>`), and handle:
 
-Run the helper to get plan PR state:
+- **Draft PR**: Error — "Plan is still a draft. Mark it ready for review first."
+- **Open, non-draft**: proceed — merging is the approval (step 3)
+- **Already merged**: the approval already happened — skip to step 4 to make sure it's recorded
+- **Closed (not merged)**: Error — "Plan PR is closed. Reopen it or create a new one."
+- **No PR found**: Error — "No PR found for branch `idea/<slug>`. Run `/plot-idea` first."
 
-```bash
-../plot/scripts/plot-pr-state.sh <slug>
-```
+**`Review: in-session`** — the reviewer is the human in this session.
+If the plan hasn't been walked through yet, do it now (section by
+section, surfacing open points). The approval is their explicit go —
+never infer it from silence or from "looks good" about something else.
 
-Handle each case:
-
-- **Plan PR is a draft**: Error — "Plan is still a draft. Mark it ready for review first: `gh pr ready <number>`"
-- **Plan PR is open and non-draft (ready for review)**: Proceed to merge it (step 3)
-- **Plan PR is already merged**: That's the approval signal — skip merge, proceed directly to creating impl branches (step 4)
-- **Plan PR is closed (not merged)**: Error — "Plan PR is closed. Reopen it or create a new one."
-- **No PR found**: Error — "No PR found for branch `idea/<slug>`. Run `/plot-idea <slug>: <title>` first."
+**`Review: ballot`** — check the collected ballot files against the
+expected reviewers (plan Notes or the user). All in → report the tally.
+Missing ballots → report who's outstanding and stop (no partial
+approvals unless the user explicitly rules).
 
 ### 2b. Suggest Tracer Bullet (optional)
 
-Before merging, check if a tracer bullet might be valuable. This is a suggestion, never a hard gate.
+Before approving, check if a tracer bullet might be valuable. This is a suggestion, never a hard gate.
 
 Read the plan file and check for a `### Tracer` subsection under `## Branches`:
 
@@ -101,199 +108,87 @@ Read the plan file and check for a `### Tracer` subsection under `## Branches`:
 
 > **Smaller models:** Skip heuristic evaluation. Only check for an existing `### Tracer` subsection. If present and incomplete, warn. Otherwise proceed silently.
 
-### 3. Merge Plan PR (if open and non-draft)
+### 3. Effect the Approval
 
-```bash
-gh pr merge <number> --merge --delete-branch
-```
+Per the review channel:
 
-This lands the plan file on main and deletes the `idea/<slug>` branch.
+- **`pr`** (with `Impl:` ≠ `same branch`):
 
-Default to **merge commits** to preserve granular commit history (plan refinement steps are valuable context). If the project's `CLAUDE.md` specifies a different merge strategy, follow that instead.
+  ```bash
+  ../plot/scripts/plot-host.sh pr-merge <number> --delete-branch
+  ```
 
-If `## Plot Config` includes a project board (`owner/number`), update the plan PR status to "Done":
+  This lands the plan file on the default branch and deletes `idea/<slug>`.
+  Default to merge commits (plan refinement history is valuable context);
+  follow the project's declared merge strategy if it differs.
 
-```bash
-../plot/scripts/plot-update-board.sh <plan-pr-url> "Done" <owner> <number>
-```
+- **`pr` with `Impl: same branch`**: do **not** merge — the PR carries
+  plan + code and merges once at the end. The approval is the review
+  approval on the plan portion: record it in the file (step 4) on the
+  work branch; the PR stays open for implementation.
 
-### 4. Read and Parse Plan
+  If `## Plot Config` includes a project board, update the plan PR status
+  to "Done": `../plot/scripts/plot-update-board.sh <plan-pr-url> "Done" <owner> <number>`
 
-Fetch main to get the (just-merged or previously-merged) plan — do **not** check out main locally (see Branch Safety in the hub skill):
+- **`in-session`**: ask for the explicit go. The channel value recorded in
+  step 4 is `in-session`.
 
-```bash
-git fetch origin main
-# Read the plan file directly from origin/main
-git show origin/main:docs/plans/active/<slug>.md   # resolve symlink target
-git show origin/main:docs/plans/YYYY-MM-DD-<slug>.md  # read plan content
-```
+- **`ballot`**: the tally is the approval; the channel value is e.g.
+  `ballot 3/3`.
 
-Find the plan file: the `active/<slug>.md` symlink resolves to the date-prefixed file (e.g., `docs/plans/YYYY-MM-DD-<slug>.md`). Read it and find the section headed with "Branches" (matches `## Branches`, `## Implementation Branches`, `### Implementation Branches`, or any heading containing the word "Branches"). If the plan has a `Sprint: <name>` field in its Status section, note the sprint membership for the summary. Expected format:
+### 4. Record the Approval
 
-```markdown
-- `type/name` — description
-```
-
-Each line must have a backtick-quoted branch name (e.g. `feature/sse-backpressure`) and a description after the `—` dash.
-
-Example — a valid Branches section:
-```markdown
-## Branches
-
-- `feature/sse-backpressure` — Handle client disconnects gracefully
-- `bug/sse-memory-leak` — Fix connection pool leak on timeout
-```
-
-Parsing rules:
-1. Find the section headed with "Branches" (matches `## Branches`, `## Implementation Branches`, `### Implementation Branches`, or any heading containing the word "Branches")
-2. Check for subsections: `### Tracer` and `### Implementation`
-   - If `### Implementation` exists, parse branches from that subsection only (skip `### Tracer` — tracer branches are managed by the `tracer-bullets` skill)
-   - If no subsections exist, parse branches directly from the matched section
-3. For each line starting with `- \``: extract the branch name between backticks, extract the description after ` — `
-4. Skip comment lines (`<!-- ... -->`) and blank lines
-5. If no branches are listed (or section is empty/only has the template comment), error: "No branches listed in the plan. Add branches to the `## Branches` section before approving."
-6. Validate each branch name starts with a known prefix: `feature/`, `bug/`, `docs/`, `infra/`
-
-### 4b. Check for Branch Conflicts
-
-Before creating branches, check if any branch name from the Branches section already exists in another Draft/Approved plan:
-
-- Read all active plan files via `docs/plans/active/*.md` on main (excluding the current plan)
-- For each plan, parse its Branches section (any heading containing "Branches") for branch names
-- If any branch name in the current plan already appears in another plan, warn the user and ask to confirm before proceeding
-
-Also check if any of the branches already exist as remote branches (`git ls-remote --heads origin <branch-name>`). If so, warn — the branch may be from a previous run of `/plot-approve` or from unrelated work.
-
-> **Smaller models:** Skip cross-plan branch conflict detection. Only check if the branch already exists on the remote (`git ls-remote --heads origin <branch>`). Cross-plan overlap detection requires mid-tier reasoning.
-
-### 5. Create Implementation Branches and PRs
-
-Collect approval metadata once (reuse for all branches):
-
-```bash
-APPROVED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-APPROVED_BY=$(gh api user --jq '.login')
-```
-
-For **each branch** in the parsed list (use the `APPROVED_AT` and `APPROVED_BY` values collected above):
-
-```bash
-git checkout -b <type>/<name> origin/main
-```
-
-**Update the plan file (date-prefixed) on the branch** to reflect the approval:
+The record lives in the plan file — the file is the truth in every flow;
+a merge commit merely coincides with it in the `pr` flow.
 
 1. Change `**Phase:** Draft` → `**Phase:** Approved`
-2. Insert an `## Approval` section immediately after the `## Status` block:
+2. Set the `Review:`/`Impl:` Status fields if they're missing (ask the
+   two ceremony questions — see `/plot-idea` step 4 — rather than
+   guessing; pre-Plot-2 plans land here)
+3. Fill the `Approved:` transition record in `## Status`:
 
-```markdown
-## Approval
+   ```markdown
+   - **Approved:** <YYYY-MM-DD>, <who>, <channel>
+   ```
 
-- **Approved:** <APPROVED_AT>
-- **Approved by:** <APPROVED_BY>
-- **Assignee:** <APPROVED_BY>
-```
+   `<who>`: the host login (`pr` flow) or the approving human's name.
+   `<channel>`: `plan-PR #<n> merged` | `in-session` | `ballot <n>/<m>`.
+4. Keep/insert the `## Approval` section with `- **Assignee:** <who>`
+   (the board reads the assignee from there).
+5. If `.plot/hold` lists a branch for this plan/story (review hold),
+   remove that line — the approval is what releases the gate.
+6. Commit where the plan lives:
+   - `pr`-merged flow: on the default branch — fetch first; do **not**
+     check out the default branch locally. The exact mechanic:
 
-This provides the initial commit needed for PR creation (no empty commits).
+     ```bash
+     git fetch origin <default>
+     git checkout -b plot/approve-<slug> origin/<default>
+     # edit the plan file, commit
+     git push origin plot/approve-<slug>:<default>
+     git push origin --delete plot/approve-<slug> 2>/dev/null || true
+     ```
 
-```bash
-git add docs/plans/YYYY-MM-DD-<slug>.md
-git commit -m "plot: approve <slug>"
-git push -u origin <type>/<name>
+     **Branch protection fallback:** if that push is rejected, open a
+     micro-PR instead (`plot-host.sh pr-create` from
+     `plot/approve-<slug>`, then `pr-merge`) — never leave the merged
+     plan stranded at `Phase: Draft` on the default branch.
+   - `same branch` flow: on the work branch, in place
+   - direct flow: on the current branch
 
-gh pr create \
-  --draft \
-  --assignee @me \
-  --title "<description>" \
-  --body "$(cat <<'EOF'
-## Plan
+### 5. Summary — orient, then offer to chain
 
-Part of [<slug>](../blob/main/docs/plans/YYYY-MM-DD-<slug>.md).
+The plan is approved and **nothing is in flight** — say so, and say what
+falls out next and why:
 
----
-*Created with `/plot-approve`*
-EOF
-)"
-```
+> Plan `<slug>` approved (<channel>) — it's now Ready. Nothing starts
+> until you (or anyone picking it up, today or next week) run
+> `/plot-implement <slug>`: that re-checks the plan against what moved
+> since approval, sets up the branch per the plan's recorded answers, and
+> hands the implementer a brief.
 
-(Replace `YYYY-MM-DD` with the actual date prefix from the plan filename.)
+Then offer — once, not pushily — to chain: "Start now?" If yes, invoke
+`/plot-implement <slug>` directly (the fast-paced case keeps its
+one-step feel).
 
-If `## Plot Config` includes a project board (`owner/number`), add the new impl PR and set status to "In Progress" — approved work is actively being implemented:
-
-```bash
-../plot/scripts/plot-update-board.sh <impl-pr-url> "In Progress" <owner> <number>
-```
-
-Collect all created PR numbers and URLs.
-
-### 6. Check for Release Note Requirements
-
-After creating implementation PRs, check for project-specific release note tooling:
-
-1. **Changesets:** Does `.changeset/config.json` exist? If so, the project uses `@changesets/cli`.
-2. **Project rules:** Read `CLAUDE.md` and `AGENTS.md` for release note instructions (e.g., custom scripts, specific commands).
-3. **Custom scripts:** Check `package.json` for release-related scripts (e.g., `release`, `version`, `changelog`).
-
-If tooling is found, note the specific tool for the summary (step 8).
-
-If no tooling is found, skip — the plan's `## Changelog` section will be used during `/plot-release`.
-
-### 7. Update Plan File on Main
-
-After all branches are created, update the plan file on main (date-prefixed path) to reflect the approval and link the implementation PRs.
-
-1. Change `**Phase:** Draft` → `**Phase:** Approved`
-2. Insert an `## Approval` section immediately after the `## Status` block (same content as step 5):
-
-```markdown
-## Approval
-
-- **Approved:** <APPROVED_AT>
-- **Approved by:** <APPROVED_BY>
-- **Assignee:** <APPROVED_BY>
-```
-
-3. In the `## Branches` section, append ` → #<number>` to each branch line.
-
-Before:
-```markdown
-- `feature/sse-backpressure` — Handle disconnects
-- `bug/sse-memory-leak` — Fix connection leak
-```
-
-After:
-```markdown
-- `feature/sse-backpressure` — Handle disconnects → #12
-- `bug/sse-memory-leak` — Fix connection leak → #13
-```
-
-4. **Update sprint file** (if the plan has a `Sprint:` field): find the `[<slug>]` item in the sprint file and add an annotation comment:
-
-```markdown
-- [ ] [slug] description <!-- pr: #<number>, status: draft, branch: <type>/<name> -->
-```
-
-If the plan spawns multiple branches, annotate the item with the first (primary) PR.
-
-```bash
-git fetch origin main
-git checkout -b plot/link-prs-<slug> origin/main
-git add docs/plans/YYYY-MM-DD-<slug>.md docs/sprints/
-git commit -m "plot: link implementation PRs for <slug>"
-git push origin plot/link-prs-<slug>:main
-```
-
-### 8. Summary
-
-Print:
-- Plan merged: PR #<plan-number> (or "already merged" if it was pre-merged)
-- Implementation PRs created:
-  - `type/name` → PR #<number> (URL)
-  - `type/name` → PR #<number> (URL)
-- If release note tooling was found in step 6: "Remember to add release note entries on each implementation branch (e.g., `pnpm exec changeset`)."
-- If the plan has a Sprint field: "Part of sprint `<sprint-name>`."
-- Progress: `[ ] Draft > [x] Approved > [ ] Delivered > [ ] Released`
-- Suggested next actions:
-  1. Start implementing on a branch (use a worktree for parallel work: `claude --worktree`)
-  2. When implementation on a branch is complete, **mark its PR ready for review:** `gh pr ready <number>`. Impl PRs are created as drafts; reviewers filter by PR state, so a draft is invisible to them. Reporting "ready for visual review" in chat is not the same as marking the PR ready. Neither `/plot-deliver` nor the dispatcher will do this silently — it is the agent's responsibility.
-  3. Run `/plot-deliver <slug>` once all impl PRs for the plan are merged
+Progress: `[ ] Draft > [x] Approved > [ ] Delivered > [ ] Released`

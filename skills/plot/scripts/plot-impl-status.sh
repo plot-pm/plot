@@ -1,23 +1,34 @@
 #!/usr/bin/env bash
 # Plot helper: Get implementation PR states for a slug
 # Usage: plot-impl-status.sh <slug>
-# Reads the plan file for <slug> (date-prefixed in docs/plans/) and checks PR states
-# Output: JSON array of {branch, number, state, isDraft, title}
+# Reads the plan file for <slug> (date-prefixed, in the configured Plan
+# directory) from the remote default branch and checks PR states.
+# Cross-repo (split-home) aware: a Branches annotation `→ owner/repo#12` is
+# looked up in that repo via plot-host.sh; bare `→ #12` stays local. All host
+# access goes through plot-host.sh (gh or bb — never called directly here).
+# Output: JSON {prs: [{number, state, draft, url, repo}]}
 # Designed for small-model consumption: structured JSON output, no interpretation needed.
 
 set -euo pipefail
 
 SLUG="${1:?Usage: plot-impl-status.sh <slug>}"
 
+_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLAN_DIR="$(bash "$_HERE/plot-config.sh" get "Plan directory" "docs/plans/")"
+PLAN_DIR="${PLAN_DIR%/}"
+
 # Read plan file from main (not CWD) so PR links are always current.
 # On impl branches the local copy is stale — it lacks the → #N annotations
-# that /plot-approve adds to main after creating impl PRs.
+# written when PRs are created (by the implementing session per its
+# /plot-implement brief, or back-filled by /plot-deliver step 4).
 #
 # Find the date-prefixed plan file via the active or delivered symlink index
-PLAN_PATH=$(git ls-tree --name-only origin/main docs/plans/ 2>/dev/null \
+DEFAULT_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')"
+[ -n "$DEFAULT_BRANCH" ] || DEFAULT_BRANCH=main
+PLAN_PATH=$(git ls-tree --name-only "origin/$DEFAULT_BRANCH" "$PLAN_DIR/" 2>/dev/null \
   | grep -E "[0-9]{4}-[0-9]{2}-[0-9]{2}-${SLUG}\.md$" | head -1)
 if [ -n "$PLAN_PATH" ]; then
-  PLAN_CONTENT=$(git show "origin/main:${PLAN_PATH}" 2>/dev/null || true)
+  PLAN_CONTENT=$(git show "origin/$DEFAULT_BRANCH:${PLAN_PATH}" 2>/dev/null || true)
 else
   PLAN_CONTENT=""
 fi
@@ -27,28 +38,38 @@ if [ -z "$PLAN_CONTENT" ]; then
   exit 0
 fi
 
-# Parse PR numbers from ## Branches section
-# Format: - `type/name` — description → #12
-PR_NUMBERS=$(echo "$PLAN_CONTENT" \
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Parse PR references from ## Branches section.
+# Formats: `→ #12` (this repo) and `→ owner/repo#12` (split-home impl repo).
+PR_REFS=$(echo "$PLAN_CONTENT" \
   | sed -n '/^## Branches/,/^## /p' \
-  | grep -oE '#[0-9]+' \
-  | tr -d '#' \
+  | grep -oE '→ [A-Za-z0-9_.-]*/?[A-Za-z0-9_.-]*#[0-9]+' \
+  | sed 's/^→ //' \
   | sort -u)
 
-if [ -z "$PR_NUMBERS" ]; then
+if [ -z "$PR_REFS" ]; then
   echo '{"error": "No PR references found in plan", "prs": []}'
   exit 0
 fi
 
-# Build JSON array of PR states
+# Build JSON array of PR states via the host adapter
 RESULT="["
 FIRST=true
-for NUM in $PR_NUMBERS; do
-  PR_JSON=$(gh pr view "$NUM" --json number,title,state,isDraft,headRefName 2>/dev/null || echo '{}')
+for REF in $PR_REFS; do
+  NUM="${REF##*#}"
+  REPO="${REF%#*}"
+  if [ -n "$REPO" ]; then
+    PR_JSON=$(bash "$HERE/plot-host.sh" pr-state "$NUM" --repo "$REPO" 2>/dev/null || echo '{"state":"NONE"}')
+  else
+    PR_JSON=$(bash "$HERE/plot-host.sh" pr-state "$NUM" 2>/dev/null || echo '{"state":"NONE"}')
+  fi
 
-  if [ "$PR_JSON" = "{}" ]; then
+  if [ "$(echo "$PR_JSON" | jq -r .state)" = "NONE" ]; then
     continue
   fi
+
+  PR_JSON=$(echo "$PR_JSON" | jq -c --arg repo "$REPO" '. + {repo: $repo}')
 
   if [ "$FIRST" = true ]; then
     FIRST=false

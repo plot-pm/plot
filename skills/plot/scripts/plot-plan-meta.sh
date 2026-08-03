@@ -64,6 +64,23 @@
 #                  quoted, matching the known prefixes; sorted, unique)
 #   prs            PR numbers from `→ #NNN` links in the `## Branches`
 #                  section (sorted, unique)
+#   review_raw     the plan's review-channel answer as written (`## Status`
+#                  `Review:` or front matter `review:`); "" if absent
+#   review         normalized: pr|in-session|ballot|UNKNOWN|NONE
+#   impl_raw       the plan's implementation-home answer as written
+#                  (`## Status` `Impl:` or front matter `impl:`); "" if absent
+#   impl           normalized: own-branches|same-branch|other-repo|none|
+#                  UNKNOWN|NONE ("nowhere" is accepted for none; free-text
+#                  like "here, own branches" normalizes by token)
+#   approved_raw   the approval transition record as written (`## Status`
+#                  `Approved:` or front matter `approved:` — who/when/channel,
+#                  e.g. "2026-07-30, alice, in-session"); "" if absent
+#   started_raw    implementation-start records, one raw string per
+#                  `Started:` line in `## Status` (repeatable; front matter
+#                  `started:` contributes one entry); [] if absent.
+#                  Exception to "front matter wins": started is ADDITIVE —
+#                  canonical entries and the front-matter entry merge
+#                  (canonical first, front matter appended)
 #
 # title/sprint/story/assignee are the board-facing surface (`@plot-pm/board`
 # consumes this script instead of parsing plans itself). Front matter wins over
@@ -90,7 +107,7 @@ if [ ${#files[@]} -eq 0 ] && [ ${#missing[@]} -eq 0 ]; then
 fi
 
 for f in ${missing[@]+"${missing[@]}"}; do
-  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[]}\n' \
+  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","approved_raw":"","started_raw":[]}\n' \
     "$(printf '%s' "$f" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 done
 
@@ -134,17 +151,45 @@ function norm_type(raw,   lower, toks, n, i, t) {
   }
   return ""
 }
+# Canonicalize a ceremony answer: lowercase, punctuation/space runs → "-",
+# so "here, own branches" → "here-own-branches" and token checks are uniform.
+function canon_answer(raw,   s) {
+  s = tolower(raw)
+  gsub(/[^a-z0-9]+/, "-", s)
+  sub(/^-+/, "", s); sub(/-+$/, "", s)
+  return s
+}
+function norm_review(raw,   s) {
+  if (raw == "") return "NONE"
+  s = "-" canon_answer(raw) "-"
+  if (s ~ /-in-session-/) return "in-session"
+  if (s ~ /-ballot-/) return "ballot"
+  if (s ~ /-pr-/) return "pr"
+  return "UNKNOWN"
+}
+function norm_impl(raw,   s) {
+  if (raw == "") return "NONE"
+  s = "-" canon_answer(raw) "-"
+  if (s ~ /-own-branches-/) return "own-branches"
+  if (s ~ /-same-branch-/) return "same-branch"
+  if (s ~ /-other-repo-/) return "other-repo"
+  if (s ~ /-none-/ || s ~ /-nowhere-/) return "none"
+  return "UNKNOWN"
+}
 function reset_state() {
   fm_status = ""; fm_phase = ""; fm_type = ""
   fm_title = ""; fm_sprint = ""; fm_story = ""; fm_assignee = ""
+  fm_review = ""; fm_impl = ""; fm_approved = ""; fm_started = ""
   canon_phase = ""; canon_type = ""
   canon_sprint = ""; canon_story = ""; canon_assignee = ""
+  canon_review = ""; canon_impl = ""; canon_approved = ""
   h1_title = ""
-  in_fm = 0; section = ""
+  in_fm = 0; section = ""; in_comment = 0
   delete branches; n_branches = 0
   delete prs; n_prs = 0
+  delete started; n_started = 0
 }
-function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, i, j, out, sorted_b, sorted_p, nb, np) {
+function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, review, impl, approved, i, j, out, sorted_b, sorted_p, nb, np) {
   if (fm_status != "" || fm_phase != "") {
     fmt = "frontmatter"
     praw = (fm_status != "") ? fm_status : fm_phase
@@ -161,6 +206,10 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   sprint   = strip_placeholder((fm_sprint   != "") ? fm_sprint   : canon_sprint)
   story    = strip_placeholder((fm_story    != "") ? fm_story    : canon_story)
   assignee = strip_placeholder((fm_assignee != "") ? fm_assignee : canon_assignee)
+  review   = strip_placeholder((fm_review   != "") ? fm_review   : canon_review)
+  impl     = strip_placeholder((fm_impl     != "") ? fm_impl     : canon_impl)
+  approved = strip_placeholder((fm_approved != "") ? fm_approved : canon_approved)
+  if (fm_started != "" && strip_placeholder(fm_started) != "") started[++n_started] = fm_started
   # Insertion sort + dedupe (portable: no gawk asort).
   nb = 0
   for (i = 1; i <= n_branches; i++) {
@@ -186,6 +235,12 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   for (i = 1; i <= nb; i++) out = out (i > 1 ? "," : "") "\"" jesc(sorted_b[i]) "\""
   out = out "],\"prs\":["
   for (i = 1; i <= np; i++) out = out (i > 1 ? "," : "") sorted_p[i]
+  out = out "]"
+  out = out ",\"review_raw\":\"" jesc(review) "\",\"review\":\"" norm_review(review) "\""
+  out = out ",\"impl_raw\":\"" jesc(impl) "\",\"impl\":\"" norm_impl(impl) "\""
+  out = out ",\"approved_raw\":\"" jesc(approved) "\""
+  out = out ",\"started_raw\":["
+  for (i = 1; i <= n_started; i++) out = out (i > 1 ? "," : "") "\"" jesc(started[i]) "\""
   out = out "]}"
   print out
 }
@@ -206,8 +261,16 @@ in_fm {
   else if (lower ~ /^sprint:/ && fm_sprint == "") fm_sprint = val_after_colon($0)
   else if (lower ~ /^story:/ && fm_story == "") fm_story = val_after_colon($0)
   else if (lower ~ /^assignee:/ && fm_assignee == "") fm_assignee = val_after_colon($0)
+  else if (lower ~ /^review:/ && fm_review == "") fm_review = val_after_colon($0)
+  else if (lower ~ /^impl:/ && fm_impl == "") fm_impl = val_after_colon($0)
+  else if (lower ~ /^approved:/ && fm_approved == "") fm_approved = val_after_colon($0)
+  else if (lower ~ /^started:/ && fm_started == "") fm_started = val_after_colon($0)
   next
 }
+# Interior of multi-line HTML comments is non-content (template guidance
+# blocks); single-line "<!-- ... -->" placeholders are unaffected.
+in_comment { if ($0 ~ /-->/) in_comment = 0; next }
+/<!--/ && $0 !~ /-->/ { in_comment = 1; next }
 # First H1 is the title fallback (front matter title: still wins in emit).
 /^#[ \t]/ && h1_title == "" { h1_title = trim(substr($0, 2)) }
 /^## / {
@@ -223,6 +286,13 @@ section == "status" {
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**type[:*]/ && canon_type == "") canon_type = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**sprint[:*]/ && canon_sprint == "") canon_sprint = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**story[:*]/ && canon_story == "") canon_story = val_after_colon($0)
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**review[:*]/ && canon_review == "") canon_review = val_after_colon($0)
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**impl[:*]/ && canon_impl == "") canon_impl = val_after_colon($0)
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**approved[:*]/ && canon_approved == "") canon_approved = val_after_colon($0)
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**started[:*]/) {
+    _s = strip_placeholder(val_after_colon($0))
+    if (_s != "") started[++n_started] = _s
+  }
   next
 }
 section == "approval" {

@@ -1,0 +1,50 @@
+description: "plot-2 story triage: umbrella rule verdicts (story-tracking front door)"
+prompts:
+  - file://prompts/story-triage.txt
+providers:
+  - id: openrouter:anthropic/claude-sonnet-5
+    config: { temperature: 0, max_tokens: 128 }
+  - id: openrouter:anthropic/claude-haiku-4.5
+    config: { temperature: 0, max_tokens: 128 }
+  - id: openrouter:openai/gpt-chat-latest
+    config: { temperature: 0, max_tokens: 256 }
+  - id: openrouter:google/gemini-3.5-flash
+    config: { temperature: 0, max_tokens: 512, reasoning: { exclude: true } }
+    transform: "output.trim().split('\\n').filter(l => /^(review|gate|route-out|verdict|action|sprint):/.test(l.trim())).pop() || output.trim()"
+
+defaultTest:
+  vars:
+    skill: file://../../skills/story-tracking/SKILL.md
+tests:
+  - description: well-described ticket, implement as described -> no story
+    vars:
+      context: "Tracker: jira. The ticket has clear AC and reproduction steps."
+      scenario: "implementing ticket ABC-123 exactly as described (a form field validation fix)"
+    assert:
+      - { type: regex, value: "verdict: *no-story" }
+  - description: epic-scale topic -> story
+    vars:
+      context: "Tracker: jira. An epic with 40 child tickets exists for the frontend migration."
+      scenario: "the two-quarter migration of the frontend to the new component library, epic ABC-100"
+    assert:
+      - { type: regex, value: "verdict: *story" }
+  - description: same-day incident fix -> no story (sessionlog)
+    vars:
+      context: "Tracker: jira, incident ticket type in use."
+      scenario: "yesterday's incident: cache poisoning froze the weather widget; root-caused and fixed the same day, one PR"
+    assert:
+      - { type: regex, value: "verdict: *no-story" }
+      - { type: icontains-any, value: ["sessionlog", "session log", "ticket"] }
+  - description: dev-team-only technical topic -> story
+    vars:
+      context: "Tracker: jira, but customers never see internal tooling work; no ticket exists."
+      scenario: "rotating all CI credentials across 9 infra repos over the next weeks — customer is not involved at all"
+    assert:
+      - { type: regex, value: "verdict: *story" }
+  - description: bounded slice in a tracker-less plot repo -> no story, plan is the umbrella
+    vars:
+      context: "Tracker: plot — the plans in this repo are the tracker; docs/plans/ carries the work units."
+      scenario: "a bounded work piece: make the e-mail templates editable (single slice, clear scope)"
+    assert:
+      - { type: regex, value: "verdict: *no-story" }
+      - { type: icontains, value: "plan" }

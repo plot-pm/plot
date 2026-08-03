@@ -2,7 +2,7 @@
 
 Git-native planning workflow for software development. Plans are markdown files on branches; git is the source of truth.
 
-**Design authority:** [MANIFESTO.md](skills/plot/MANIFESTO.md) — all design decisions must pass its 8-question checklist. When in doubt, the manifesto wins.
+**Design authority:** [MANIFESTO.md](skills/plot/MANIFESTO.md) — all design decisions must pass its 9-question checklist. When in doubt, the manifesto wins.
 
 ## Plot Config
 
@@ -22,9 +22,10 @@ Plot is a hub-and-spoke skill system:
 | Role | Skill | Purpose |
 |------|-------|---------|
 | Hub | `plot/` | Dispatcher — reads git state, suggests next action |
-| Command | `plot-idea/` | Create plan: idea branch + plan file + draft PR |
-| Command | `plot-approve/` | Merge plan to main, fan out implementation branches |
-| Command | `plot-deliver/` | Verify all impl PRs merged, deliver the plan |
+| Command | `plot-idea/` | Create plan with ceremony matched to the change (two-question triage, posture gates) |
+| Command | `plot-approve/` | Record the plan's approval through its declared review channel — and stop |
+| Command | `plot-implement/` | Start/resume implementation: staleness preflight, branch setup, hand-off brief, Started record |
+| Command | `plot-deliver/` | Verify all impl PRs merged (cross-repo aware), deliver the plan |
 | Command | `plot-release/` | Cut versioned release with changelog |
 | Coordination | `plot-sprint/` | Time-boxed sprint with MoSCoW priorities |
 | Automation | `ralph-plot-sprint/` | Automated sprint runner (shell loop wrapper) |
@@ -44,8 +45,11 @@ Scripts in `skills/plot/scripts/` that any model tier can use:
 | `plot-impl-status.sh` | Query all implementation PR states for a slug |
 | `plot-review-status.sh` | Check review freshness for sprint items |
 | `plot-update-board.sh` | Update GitHub Projects board status for a PR |
-| `plot-plan-meta.sh` | Parse plan files → JSON (phase, type, title, sprint, story, assignee, branches, PRs); the plan-format contract |
-| `plot-config.sh` | Read a `## Plot Config` key with a default (`get <key> [default]`); includes the optional `Plan template` override key |
+| `plot-plan-meta.sh` | Parse plan files → JSON (phase, type, title, sprint, story, assignee, branches, PRs, `Review:`/`Impl:` ceremony answers, `Approved:`/`Started:` transition records); the plan-format contract |
+| `plot-config.sh` | Read a `## Plot Config` key with a default (`get <key> [default]`); includes the optional `Plan template` override key and the Plot 2 posture keys (`Plan PRs`, `Implementation home`, `Hosts plans`, `Tracker`, `Git host`) |
+| `plot-host.sh` | Git-host adapter (gh/bb): `backend`, `default-branch`, `pr-state`, `pr-create`, `pr-merge`, `pr-list`, `pr-body` — the ONE place that talks to the host CLI |
+| `plot-phase-gate.sh` | PreToolUse hook (see `hooks/hooks.json`): blocks implementation commits while the governing plan is Draft; plan-only commits pass; fails open |
+| `plot-story-lint.sh` | Story-estate drift check (missing STORY files, frontmatter, done-not-archived, index sync); machine-countable footer; exit 1 on findings |
 | `plot-reconcile-scan.sh` | Read-only plan/branch drift sweep (five sections + machine-countable footer) |
 | `board/board-server.mjs` | Local Kanban status board — built artifact of `@plot-pm/board` (`packages/board`); run via `pnpm board`, rebuild via `pnpm build:board` |
 
@@ -109,6 +113,7 @@ package under `packages/`.
 pnpm install         # install dependencies first if node_modules is missing
 pnpm test            # validates all skills parse correctly
 pnpm run test:reconcile   # plan-format contract tests (plot-plan-meta.sh)
+pnpm run test:e2e         # lifecycle choreography in sandbox repos (stubbed hosts)
 pnpm run test:board       # rebuilds the board artifact + runs its tests
 pnpm run typecheck        # typechecks @plot-pm/board
 ```
@@ -122,7 +127,7 @@ pnpm run typecheck        # typechecks @plot-pm/board
 ## Contributing
 
 - **Issues:** https://github.com/plot-pm/plot/issues
-- **Decision criteria:** Does the change pass the [manifesto's 8-question checklist](skills/plot/MANIFESTO.md#making-decisions)?
+- **Decision criteria:** Does the change pass the [manifesto's 9-question checklist](skills/plot/MANIFESTO.md#making-decisions)?
 - **Known gaps & improvements:** tracked in `skills/plot/README.md`
 - **Evolution history:** `skills/plot/changelog.md`
 

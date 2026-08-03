@@ -3,7 +3,7 @@
 // known finding per report section, runs the scan, and asserts each section
 // reports exactly its planted finding. The repo uses a NON-default plan
 // directory (plans/ at the repo root) so the Plot Config path is exercised,
-// not just the defaults. The origin remote is a local path (no forge), so
+// not just the defaults. The origin remote is a local path (no git host), so
 // the PR-state banner must be DEGRADED — deterministic in CI.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -141,7 +141,7 @@ type: feature
 });
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
-test('scan: degraded banner without a forge CLI for the origin host', () => {
+test('scan: degraded banner without a git-host CLI for the origin host', () => {
   assert.match(report, /PR state: DEGRADED/);
 });
 
@@ -203,9 +203,9 @@ test('scan: summary footer carries machine-countable finding counts', () => {
     'summary: drift=2 merged_not_delivered=1 stale=2 attention=3 concurrent=2 pr_source=degraded main=main');
 });
 
-test('scan: --offline skips forge PR enumeration and reports pr_source=off', () => {
+test('scan: --offline skips git-host PR enumeration and reports pr_source=off', () => {
   // A separate run with --offline. The fixture origin is a local path (no
-  // forge), so a plain run is already `degraded`; --offline must instead
+  // git host), so a plain run is already `degraded`; --offline must instead
   // report the deliberate-skip state `off` and the "skipped (--no-pr)" banner.
   const offline = execFileSync('bash', [scan, '--offline'], { encoding: 'utf8', cwd: repo });
   assert.match(offline, /PR state: skipped \(--no-pr\)/);

@@ -22,7 +22,7 @@ The periodic reconciliation pass for the plot workflow. It closes the loop that 
 
 Run it on a cadence (weekly fits), and especially **after a delivery batch**, when drift is freshest — a `/plot-deliver` that half-lands (symlink moved, phase not flipped) is exactly what this catches. It is **read-only**: it prints the exact remediating command for every finding but never runs it. The judgment — is this branch still relevant, should this plan be delivered or rejected — stays yours.
 
-**Input:** `$ARGUMENTS` is optional. `--no-fetch` skips the `git fetch` (offline, or when you just fetched); `--no-pr` skips the forge `pr list` call; `--offline` skips both (a fully network-free sweep — what the `/plot` hygiene line uses). Flags combine in any order. For the explicit `/plot-reconcile` command, run the **full** sweep (no flags) so the stale-branch section is forge-accurate.
+**Input:** `$ARGUMENTS` is optional. `--no-fetch` skips the `git fetch` (offline, or when you just fetched); `--no-pr` skips the git-host `pr list` call; `--offline` skips both (a fully network-free sweep — what the `/plot` hygiene line uses). Flags combine in any order. For the explicit `/plot-reconcile` command, run the **full** sweep (no flags) so the stale-branch section is accurate against the git host.
 
 <!-- keep in sync with plot/SKILL.md Setup -->
 ## Setup
@@ -69,7 +69,7 @@ Run the scanner (it lives in the plot skill's `scripts/` directory, next to the 
 ```bash
 ../plot/scripts/plot-reconcile-scan.sh            # full sweep (fetches origin first)
 ../plot/scripts/plot-reconcile-scan.sh --no-fetch # skip the fetch (offline / just-fetched)
-../plot/scripts/plot-reconcile-scan.sh --offline  # no network at all (skips fetch + forge pr list)
+../plot/scripts/plot-reconcile-scan.sh --offline  # no network at all (skips fetch + git-host pr list)
 ```
 
 It reads `origin/*` refs plus the configured plan directory and emits five sections, each finding carrying its exact remediating command as copy-paste text:
@@ -82,7 +82,7 @@ It reads `origin/*` refs plus the configured plan directory and emits five secti
 
 Plan files are parsed by the shared `plot-plan-meta.sh` parser, which understands both the canonical `## Status` body format (`- **Phase:** …`) and YAML front matter (`status:`/`phase:`). Do not re-derive this list by hand; the script is the source of truth for *what the state is*. Your job is *what to do about it*.
 
-**PR state, bound to origin's forge.** The scan enumerates open-PR branches with the CLI matching the `origin` remote's host — `gh` on GitHub, `bb` on Bitbucket — never a CLI's own idea of the "current repo" (a second remote on another forge must not win). Without a matching CLI it prints `PR state: DEGRADED` and falls back to git merge-state alone; in that mode the stale-branch section may list a branch that still has an open PR, so confirm each before deleting.
+**PR state, bound to origin's git host.** The scan enumerates open-PR branches with the CLI matching the `origin` remote's host — `gh` on GitHub, `bb` on Bitbucket — never a CLI's own idea of the "current repo" (a second remote on another git host must not win). Without a matching CLI it prints `PR state: DEGRADED` and falls back to git merge-state alone; in that mode the stale-branch section may list a branch that still has an open PR, so confirm each before deleting.
 
 **Summary footer.** The report's final line is machine-countable — consumers that only need counts (the `/plot` hygiene line, the Automation Output below) read it instead of parsing section bodies:
 
@@ -109,7 +109,7 @@ You produce **text only** — a short summary of what the scan found and which f
 
 - **Do not let the command mutate anything on its own.** The scan is read-only by construction; keep it that way. Symlink moves, phase flips, and branch deletions happen only when the human runs a printed command (or explicitly tells you to run a batch).
 - **Do not flag legacy plans as errors.** A plan with no phase field is pre-plot history, not a defect. Report the count; don't propose fixing all of them.
-- **Do not delete a branch the scan degraded on.** If no forge CLI was available, the "no open PR" signal is unverified — confirm before any deletion.
+- **Do not delete a branch the scan degraded on.** If no git-host CLI was available, the "no open PR" signal is unverified — confirm before any deletion.
 - **Do not re-derive the state by hand.** Trust the scan for *what is*; spend your judgment on *what to do*.
 
 **Tip:** Run `/plot` to see overall status and what to do next.
@@ -138,4 +138,4 @@ When the conversation context indicates automation (see `/plot` for detection ru
 }
 ```
 
-`pr_source` is `gh`, `bb`, `degraded` (no forge CLI), or `off` (PR enumeration deliberately skipped via `--no-pr`/`--offline`). Section 4 (concurrent-delivery) is informational — divergence counts, not defects — so it reports under `info`, not `findings`. Fill every count from the scan's `summary:` footer line — do not re-count section bodies.
+`pr_source` is `gh`, `bb`, `degraded` (no git-host CLI), or `off` (PR enumeration deliberately skipped via `--no-pr`/`--offline`). Section 4 (concurrent-delivery) is informational — divergence counts, not defects — so it reports under `info`, not `findings`. Fill every count from the scan's `summary:` footer line — do not re-count section bodies.

@@ -1,0 +1,9 @@
+You are the /plot dispatcher following the hub skill instructions below.
+
+<skill>
+{{skill}}
+</skill>
+
+Current state: {{state}}
+
+Give the user your orientation (2-4 sentences).

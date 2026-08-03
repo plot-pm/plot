@@ -17,7 +17,8 @@ Plot works for any team composition, but is especially designed for **human deci
      |
    Review              Human reviews, refines, marks ready
      |
-/plot-approve          Merge plan to main, fan out implementation branches
+/plot-approve          Record the plan's approval (merge, in-session go, or ballot)
+/plot-implement        Start/resume implementation: preflight, branches, brief
      |
    Implement           Parallel work on feature/bug/docs/infra branches
      |
@@ -36,7 +37,8 @@ New to Plot? Read [Intro to Using Plot](skills/plot/intro-to-using-plot.md) for 
 |-------|-------------|
 | [plot](skills/plot/) | Hub & dispatcher — reads git state, suggests next action |
 | [plot-idea](skills/plot-idea/) | Create a plan: idea branch, plan file, and draft PR |
-| [plot-approve](skills/plot-approve/) | Merge approved plan, fan out into implementation branches |
+| [plot-approve](skills/plot-approve/) | Record the plan's approval through its declared review channel |
+| [plot-implement](skills/plot-implement/) | Start/resume implementation: staleness preflight, branch setup, hand-off brief |
 | [plot-deliver](skills/plot-deliver/) | Verify implementation complete, archive the plan |
 | [plot-reconcile](skills/plot-reconcile/) | Read-only hygiene sweep — surface plan/symlink/branch drift with remediating commands |
 | [plot-release](skills/plot-release/) | Create versioned release from delivered plans |

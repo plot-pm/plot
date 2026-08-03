@@ -10,12 +10,19 @@ metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
   version: 1.5.1
-compatibility: Designed for Claude Code and Cursor. Requires git. Currently uses gh CLI for forge operations, but the workflow works with any git host that supports pull request review.
+compatibility: Designed for Claude Code and Cursor. Requires git. Host operations (PRs, default branch) go through plot-host.sh (GitHub or Bitbucket).
 ---
 
 # Plot
 
 Lean, git-native planning system. Plans are markdown files on branches, PRs are workflow metadata, git is the source of truth. Plans merge to main before implementation begins; one plan can spawn multiple parallel implementation branches. Works with any team composition — human, AI-assisted, or fully agentic.
+
+**Activation guard:** this skill acts on `/plot` commands and explicit
+plan-management requests — nothing else. Plot being installed is not an
+instruction to add ceremony anywhere: a trivial ask (a rename, a factual
+question, a one-line fix) gets helped directly — no plan, no branch
+policy, no PR ceremony. Ceremony scales with weight (Manifesto P10), and
+the weight of most requests is zero.
 
 > **Human-facing tutorial:** [intro-to-using-plot.md](intro-to-using-plot.md). The instructions below are the dispatcher's reference manual.
 
@@ -452,17 +459,26 @@ Shared helpers (use these instead of hand-parsing):
 # summary: drift=0 merged_not_delivered=0 stale=0 attention=0 concurrent=0 pr_source=off main=main
 ```
 
-`--offline` is deliberate here: it skips both the `git fetch` **and** the forge `pr list` network call, so `/plot` stays instant and never blocks on the network or spends API quota (the full `/plot-reconcile` still does the precise, forge-backed sweep). The trade-off is a looser `stale` count — offline it can't see which branches still have an open PR, so `pr_source=off` and stale-branch counts are advisory only; the hygiene line still points at `/plot-reconcile` for the authoritative report. (Prefix with `timeout 10` where available as a belt-and-braces guard.) If `drift`, `merged_not_delivered`, `stale`, or `attention` is non-zero, feed the counts into the Status Summary's hygiene line (step 4); `concurrent` is informational and never counts. If the scan is missing, fails, or times out, skip silently — the hygiene line is ambient awareness, never a blocker.
+`--offline` is deliberate here: it skips both the `git fetch` **and** the git-host `pr list` network call, so `/plot` stays instant and never blocks on the network or spends API quota (the full `/plot-reconcile` still does the precise, host-backed sweep). The trade-off is a looser `stale` count — offline it can't see which branches still have an open PR, so `pr_source=off` and stale-branch counts are advisory only; the hygiene line still points at `/plot-reconcile` for the authoritative report. (Prefix with `timeout 10` where available as a belt-and-braces guard.) If `drift`, `merged_not_delivered`, `stale`, or `attention` is non-zero, feed the counts into the Status Summary's hygiene line (step 4); `concurrent` is informational and never counts. If the scan is missing, fails, or times out, skip silently — the hygiene line is ambient awareness, never a blocker.
 
 ### 2. Detect Current Context
+
+**Orientation contract (Manifesto Principle 11):** every suggestion this
+dispatcher makes names three things — where the work stands, which
+artifact falls out next, and *why that artifact exists*. "Run
+`/plot-approve`" is a procedure; "the plan is reviewed — recording the
+approval makes it safe to implement from" is orientation. Users should
+never need to memorize the pipeline; this command is the pipeline telling
+them where they are.
+
 
 **If on an `idea/*` branch:**
 - Read the plan file from `docs/plans/<slug>.md` on this branch
 - Check plan PR state (draft / ready / merged)
 - Suggest:
   - If plan PR is draft: "Plan is still a draft. Refine it, then run `gh pr ready <number>` when ready for review."
-  - If plan PR is non-draft (ready for review): "Plan is ready for review. Run `/plot-approve <slug>` to merge and create impl branches."
-  - If plan PR is merged: "Plan is already approved. Run `/plot-approve <slug>` to create impl branches (if not already created)."
+  - If plan PR is non-draft (ready for review): "Plan is ready for review. Run `/plot-approve <slug>` — merging it records the approval."
+  - If plan PR is merged: "Plan is approved. Nothing is in flight until `/plot-implement <slug>` starts it (staleness check + branch setup + hand-off brief)."
 
 **If on an impl branch (`feature/*`, `bug/*`, `docs/*`, `infra/*`):**
 - Check if there's a corresponding approved plan via `docs/plans/active/<slug>.md` on main
@@ -470,7 +486,12 @@ Shared helpers (use these instead of hand-parsing):
 - If no plan exists: warn "Orphan branch — no approved plan found. Consider running `/plot-idea` first."
 
 **If on `main`:**
-- List all active plans with their phases
+- List all active plans with their phases — and split Approved into
+  **Ready** (no `Started:` record — approved, idle) vs **In progress**
+  (has `Started:` records), from plot-plan-meta.sh's `started_raw`. A
+  long Ready list is a finding worth stating ("4 plans approved but never
+  started"), never a nag.
+- For Ready plans, the suggested action is `/plot-implement <slug>`
 - List any delivered plans awaiting release (from `docs/plans/delivered/`). For each, optionally compare plan branches vs merged PRs — if unbuilt branches exist, suggest `/plot-reject <slug>`
 - List active sprints with countdown and progress: `week-1 — "Ship auth improvements" | 3 days remaining | Must: 2/4 done`. Past end date: show "ended 2 days ago" factually — no warning tone, no nagging.
 - Show overall status summary
@@ -485,7 +506,7 @@ Flag any problems found:
 
 - **Orphan impl branches**: branches with `feature/`, `bug/`, `docs/`, `infra/` prefix that have no corresponding plan in `docs/plans/`
 - **Phase mismatches**: plan says Draft but PR is non-draft, or plan says Approved but PR is still open
-- **Completed drafts**: impl PRs still in `isDraft: true` state whose branch has commits beyond the initial branch cut (real implementation work has been pushed) — suggest `gh pr ready <n>`; reviewers filter by PR state, so a draft with completed work is invisible to them
+- **Completed drafts**: impl PRs still in draft state whose branch has commits beyond the initial branch cut (real implementation work has been pushed) — suggest marking them ready; reviewers filter by PR state, so a draft with completed work is invisible to them
 - **Abandoned drafts**: impl PRs in draft state with no new commits for >7 days — surface for cleanup
 - **Overlapping plans**: Draft/Approved plans with titles sharing 3+ significant words — flag in the status summary as informational (no blocking)
 - **Sprints past end date**: active sprints where end date has passed — flag as informational

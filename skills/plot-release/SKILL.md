@@ -9,12 +9,12 @@ metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
   version: 1.1.0
-compatibility: Designed for Claude Code and Cursor. Requires git. Currently uses gh CLI for forge operations, but the workflow works with any git host that supports pull request review.
+compatibility: Designed for Claude Code and Cursor. Requires git. Host operations (PRs, default branch) go through plot-host.sh (GitHub or Bitbucket).
 ---
 
 # Plot: Cut a Release
 
-Create a versioned release from delivered plans. This workflow can be run manually (using git and forge CLI), by an AI agent interpreting this skill, or via a workflow script (once available).
+Create a versioned release from delivered plans. This workflow can be run manually (using git and the git-host CLI), by an AI agent interpreting this skill, or via a workflow script (once available).
 
 **Input:** `$ARGUMENTS` is optional. Can be:
 - `rc` — cut a release candidate tag and generate a verification checklist
@@ -210,6 +210,10 @@ Do **not** execute these on the user's behalf. Point them at their release tooli
 If RC tags exist for this version, they remain in git history (don't delete them — they're part of the release record). The checklist file at `docs/releases/v<version>-checklist.md` stays committed as documentation of what was verified.
 
 ### 6. Summary
+
+**Orient, don't enumerate** (Manifesto Principle 11): open the summary
+with where the work now stands, what falls out next, and why — the
+mechanical details follow.
 
 Print:
 - Version: `v<version>`

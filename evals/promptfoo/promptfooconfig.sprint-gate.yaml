@@ -1,0 +1,34 @@
+description: "plot-2 sprint: tracker gate declines where an external tracker owns sprints"
+prompts:
+  - file://prompts/sprint-gate.txt
+providers:
+  - id: openrouter:anthropic/claude-sonnet-5
+    config: { temperature: 0, max_tokens: 128 }
+  - id: openrouter:anthropic/claude-haiku-4.5
+    config: { temperature: 0, max_tokens: 128 }
+  - id: openrouter:openai/gpt-chat-latest
+    config: { temperature: 0, max_tokens: 256 }
+  - id: openrouter:google/gemini-3.5-flash
+    config: { temperature: 0, max_tokens: 512, reasoning: { exclude: true } }
+    transform: "output.trim().split('\\n').filter(l => /^(review|gate|route-out|verdict|action|sprint):/.test(l.trim())).pop() || output.trim()"
+
+defaultTest:
+  vars:
+    skill: file://../../skills/plot-sprint/SKILL.md
+tests:
+  - description: Tracker jira -> decline, names the tracker
+    vars:
+      config: "- **Tracker:** jira https://example.test\n- **Sprint directory:** docs/sprints/"
+    assert:
+      - { type: regex, value: "sprint: *decline" }
+      - { type: icontains, value: "jira" }
+  - description: Tracker plot -> proceed
+    vars:
+      config: "- **Tracker:** plot\n- **Sprint directory:** docs/sprints/"
+    assert:
+      - { type: regex, value: "sprint: *proceed" }
+  - description: no Tracker key declared -> proceed
+    vars:
+      config: "- **Sprint directory:** docs/sprints/"
+    assert:
+      - { type: regex, value: "sprint: *proceed" }

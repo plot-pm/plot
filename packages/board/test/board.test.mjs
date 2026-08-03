@@ -62,6 +62,13 @@ status: active
 # Kanban board
 `;
 
+const APPROVED_STARTED = `# Started work
+## Status
+- **Phase:** Approved
+- **Type:** infra
+- **Started:** 2026-07-31, alice, \`infra/started-work\`
+`;
+
 // ── Rich repo: contract fields, phase mapping, discovery ─────────────────────
 
 describe('board: contract fields + frontmatter visibility', () => {
@@ -207,5 +214,48 @@ describe('board: a directory named *.md is ignored, not fed to the parser', () =
     const all = board.columns.flatMap((c) => c.cards);
     assert.equal(all.length, 1, 'the real plan is served; the .md directory is skipped');
     assert.equal(all[0].slug, 'board-sync');
+  });
+});
+
+// ── Ready vs In-progress: Approved cards carry the started flag ──────────────
+
+describe('board: Approved splits into Ready vs In progress via Started records', () => {
+  let tmp, server;
+
+  before(async () => {
+    tmp = makeRepo({
+      plans: [
+        { name: '2026-07-01-ready-plan.md', content: APPROVED },
+        { name: '2026-07-02-started-plan.md', content: APPROVED_STARTED },
+        { name: '2026-07-03-draft-plan.md', content: DRAFT },
+      ],
+    });
+    server = await startServer(tmp, await findFreePort());
+  });
+
+  after(() => {
+    server?.kill();
+    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('Approved card without Started is Ready (started: false)', async () => {
+    const board = await fetchBoard(server.port);
+    const approved = board.columns.find((c) => c.phase === 'Approved');
+    const ready = approved.cards.find((c) => c.slug === 'ready-plan');
+    assert.equal(ready.started, false);
+  });
+
+  it('Approved card with a Started record is In progress (started: true)', async () => {
+    const board = await fetchBoard(server.port);
+    const approved = board.columns.find((c) => c.phase === 'Approved');
+    const started = approved.cards.find((c) => c.slug === 'started-plan');
+    assert.equal(started.started, true);
+  });
+
+  it('non-Approved cards carry no started flag', async () => {
+    const board = await fetchBoard(server.port);
+    const draft = board.columns.find((c) => c.phase === 'Draft');
+    const card = draft.cards.find((c) => c.slug === 'draft-plan');
+    assert.equal(card.started, undefined);
   });
 });

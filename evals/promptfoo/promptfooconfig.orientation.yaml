@@ -1,0 +1,40 @@
+description: "plot-2 hub orientation: position + next artifact + why, never bare procedure"
+prompts:
+  - file://prompts/orientation.txt
+providers:
+  - id: openrouter:anthropic/claude-sonnet-5
+    config: { temperature: 0, max_tokens: 400 }
+  - id: openrouter:anthropic/claude-haiku-4.5
+    config: { temperature: 0, max_tokens: 400 }
+  - id: openrouter:openai/gpt-chat-latest
+    config: { temperature: 0, max_tokens: 600 }
+# gemini excluded: reasoning-exclude transform unreliable for prose output
+# (documented in the laconic scoreboard) — one-line suites only.
+
+defaultTest:
+  options:
+    provider: openrouter:anthropic/claude-sonnet-5
+  vars:
+    skill: file://../../skills/plot/SKILL.md
+tests:
+  - description: approved-but-idle plan -> orients to /plot-implement with the why
+    vars:
+      state: "On main. One plan 'checkout-retry' is Approved with no Started records. No branches exist for it. Nothing else in flight."
+    assert:
+      - { type: icontains, value: "plot-implement" }
+      - type: llm-rubric
+        value: >-
+          The answer must (1) say where the work stands (approved / ready,
+          nothing in flight), (2) name what comes next, AND (3) give the
+          reason the next step exists (e.g. it re-checks the plan against
+          drift / sets up the branch / records the start). A bare command
+          instruction without position or reason fails.
+  - description: many ready plans -> states the finding without nagging
+    vars:
+      state: "On main. Six plans are Approved; four have no Started records, two are in progress with open PRs."
+    assert:
+      - type: llm-rubric
+        value: >-
+          The answer must surface that several approved plans are idle
+          (ready but not started) as a factual finding, without a scolding
+          or nagging tone, and orient toward what can be started.
