@@ -9,12 +9,12 @@ metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
   version: 1.1.0
-compatibility: Designed for Claude Code and Cursor. Requires git. Currently uses gh CLI for forge operations, but the workflow works with any git host that supports pull request review.
+compatibility: Designed for Claude Code and Cursor. Requires git. Host operations (PRs, default branch) go through plot-host.sh (GitHub or Bitbucket).
 ---
 
 # Plot: Deliver Plan
 
-Verify all implementation is done, then deliver the plan. This workflow can be run manually (using git and forge CLI), by an AI agent interpreting this skill, or via a workflow script (once available).
+Verify all implementation is done, then deliver the plan. This workflow can be run manually (using git and the git-host CLI), by an AI agent interpreting this skill, or via a workflow script (once available).
 
 For docs/infra work, this is the end — live when merged. For features/bugs, `/plot-release` follows when the team is ready to cut a versioned release.
 

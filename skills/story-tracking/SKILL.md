@@ -19,7 +19,7 @@ Multi-session work items tracked in markdown folders, linked to JIRA tickets.
 
 ## Markdown Standards
 
-Standard CommonMark only, no GFM extensions (task lists, strikethrough) — some forges (e.g. Bitbucket) don't render them. If the project has a markdown-conventions skill, follow it.
+Standard CommonMark only, no GFM extensions (task lists, strikethrough) — some git hosts (e.g. Bitbucket) don't render them. If the project has a markdown-conventions skill, follow it.
 
 ## Structure
 
