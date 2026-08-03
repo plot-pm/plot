@@ -10,7 +10,7 @@ metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
   version: 1.5.1
-compatibility: Designed for Claude Code and Cursor. Requires git. Currently uses gh CLI for forge operations, but the workflow works with any git host that supports pull request review.
+compatibility: Designed for Claude Code and Cursor. Requires git. Host operations (PRs, default branch) go through plot-host.sh (GitHub or Bitbucket).
 ---
 
 # Plot
@@ -452,7 +452,7 @@ Shared helpers (use these instead of hand-parsing):
 # summary: drift=0 merged_not_delivered=0 stale=0 attention=0 concurrent=0 pr_source=off main=main
 ```
 
-`--offline` is deliberate here: it skips both the `git fetch` **and** the forge `pr list` network call, so `/plot` stays instant and never blocks on the network or spends API quota (the full `/plot-reconcile` still does the precise, forge-backed sweep). The trade-off is a looser `stale` count — offline it can't see which branches still have an open PR, so `pr_source=off` and stale-branch counts are advisory only; the hygiene line still points at `/plot-reconcile` for the authoritative report. (Prefix with `timeout 10` where available as a belt-and-braces guard.) If `drift`, `merged_not_delivered`, `stale`, or `attention` is non-zero, feed the counts into the Status Summary's hygiene line (step 4); `concurrent` is informational and never counts. If the scan is missing, fails, or times out, skip silently — the hygiene line is ambient awareness, never a blocker.
+`--offline` is deliberate here: it skips both the `git fetch` **and** the git-host `pr list` network call, so `/plot` stays instant and never blocks on the network or spends API quota (the full `/plot-reconcile` still does the precise, host-backed sweep). The trade-off is a looser `stale` count — offline it can't see which branches still have an open PR, so `pr_source=off` and stale-branch counts are advisory only; the hygiene line still points at `/plot-reconcile` for the authoritative report. (Prefix with `timeout 10` where available as a belt-and-braces guard.) If `drift`, `merged_not_delivered`, `stale`, or `attention` is non-zero, feed the counts into the Status Summary's hygiene line (step 4); `concurrent` is informational and never counts. If the scan is missing, fails, or times out, skip silently — the hygiene line is ambient awareness, never a blocker.
 
 ### 2. Detect Current Context
 
