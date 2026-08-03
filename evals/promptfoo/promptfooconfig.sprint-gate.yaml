@@ -22,9 +22,9 @@ tests:
     assert:
       - { type: regex, value: "sprint: *decline" }
       - { type: icontains, value: "jira" }
-  - description: Tracker none -> proceed
+  - description: Tracker plot -> proceed
     vars:
-      config: "- **Tracker:** none\n- **Sprint directory:** docs/sprints/"
+      config: "- **Tracker:** plot\n- **Sprint directory:** docs/sprints/"
     assert:
       - { type: regex, value: "sprint: *proceed" }
   - description: no Tracker key declared -> proceed

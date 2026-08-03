@@ -43,7 +43,7 @@ tests:
       - { type: regex, value: "verdict: *story" }
   - description: bounded slice in a tracker-less plot repo -> no story, plan is the umbrella
     vars:
-      context: "Tracker: none — plot is the tracker; docs/plans/ carries the work units."
+      context: "Tracker: plot — the plans in this repo are the tracker; docs/plans/ carries the work units."
       scenario: "a bounded work piece: make the e-mail templates editable (single slice, clear scope)"
     assert:
       - { type: regex, value: "verdict: *no-story" }
