@@ -127,8 +127,16 @@ d = json.load(sys.stdin)
 for i, w in enumerate(d.get("waves", [])):
     name = w["name"]
     for b in w["branches"]:
-        row = [str(i), name, b["branch"], str(b["deferred"]).lower(), b["claimed"]]
-        print("\t".join(row))
+        ref = b["branch"]
+        # Not every prefixed token in a ## Branches section is implementation
+        # work. A cited file path (`docs/note.md`) matches the docs/ branch
+        # prefix, and an idea/ branch carries the plan itself — counting either
+        # as outstanding would keep a finished wave blocked forever.
+        if ref.startswith("idea/") or "." in ref.rsplit("/", 1)[-1]:
+            continue
+        row = [str(i), ref, str(b["deferred"]).lower(),
+               name or "-", b["claimed"] or "-"]
+        print("\t".join(x.replace("\t", " ") for x in row))
 ' 2>/dev/null) || wave_lines=""
 
   [ -n "$wave_lines" ] || { echo "  (no branches)"; echo; continue; }
@@ -139,11 +147,12 @@ for i, w in enumerate(d.get("waves", [])):
   # a run of tabs into ONE separator. A branch with no claim note would shift
   # every later field left by one. Everything that must survive `read` is
   # therefore placed BEFORE the optional claim note, which stays last.
+  # Emitted fields are never empty ("-" stands in), so no tab run can collapse.
   states=""
-  while IFS=$'\t' read -r idx wname br deferred claim; do
+  while IFS=$'\t' read -r idx br deferred wname claim; do
     [ -n "$br" ] || continue
     if [ "$deferred" = "true" ]; then st="deferred"; else st=$(branch_state "$br"); fi
-    states+="$idx	$wname	$st	$deferred	$br	$claim"$'\n'
+    states+="$idx	$br	$st	$deferred	$wname	$claim"$'\n'
   done <<< "$wave_lines"
 
   # Pass 2: wave verdicts. A wave is complete when none of its non-deferred
@@ -151,9 +160,10 @@ for i, w in enumerate(d.get("waves", [])):
   wave_ids=$(printf '%s' "$states" | cut -f1 | sort -un)
   prior_ok=1
   for wid in $wave_ids; do
-    wname=$(printf '%s' "$states" | awk -F'\t' -v w="$wid" '$1==w {print $2; exit}')
+    wname=$(printf '%s' "$states" | awk -F'\t' -v w="$wid" '$1==w {print $5; exit}')
+    [ "$wname" = "-" ] && wname=""
     outstanding=0
-    while IFS=$'\t' read -r idx nm st deferred br claim; do
+    while IFS=$'\t' read -r idx br st deferred nm claim; do
       [ "$idx" = "$wid" ] || continue
       [ "$st" = "deferred" ] && continue
       [ "$st" = "merged" ] || outstanding=$((outstanding + 1))
@@ -164,8 +174,9 @@ for i, w in enumerate(d.get("waves", [])):
     else verdict="blocked"; fi
 
     echo "  ${wname:-(unnamed)} — $verdict"
-    while IFS=$'\t' read -r idx nm st deferred br claim; do
+    while IFS=$'\t' read -r idx br st deferred nm claim; do
       [ "$idx" = "$wid" ] || continue
+      [ "$claim" = "-" ] && claim=""
       n_branches=$((n_branches + 1))
       case "$st" in
         deferred) n_deferred=$((n_deferred + 1)); note="deferred" ;;

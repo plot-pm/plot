@@ -51,6 +51,26 @@ before(() => {
   // Wave 1 (Tracer) has one branch, merged below → wave 2 becomes eligible.
   // Wave 2 has three branches: one claimed (pushed, empty), one deferred
   // (never eligible), one unclaimed. Wave 3 stays blocked behind wave 2.
+  // A pre-wave plan: no ### subheadings, so one unnamed wave. Its branch line
+  // must still render as a branch — an empty wave name must not shift fields.
+  // It also cites a docs/ FILE PATH and an idea/ branch: neither is
+  // implementation work, and neither may enter the wave arithmetic.
+  write('plans/2026-01-02-legacy.md', `# Legacy plan without waves
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/no-waves\` — the only implementation branch
+- see \`docs/some-note.md\` for background
+- planning lived on \`idea/legacy\`
+`);
+  fs.mkdirSync(path.join(repo, 'plans', 'active'), { recursive: true });
+  fs.symlinkSync('../2026-01-02-legacy.md', path.join(repo, 'plans', 'active', 'legacy.md'));
+
   write('plans/2026-01-01-fleet.md', `# Fleet plan
 
 ## Status
@@ -131,12 +151,15 @@ test('fleet: emits a machine-countable summary footer', () => {
   // never re-count the body.
   const footer = report.trim().split('\n').at(-1);
   assert.match(footer, /^summary: /);
-  assert.match(footer, /waves=3/);
+  assert.match(footer, /plans=2/);
+  // 3 waves in the fleet plan + 1 unnamed wave in the legacy plan.
+  assert.match(footer, /waves=4/);
   assert.match(footer, /claimed=1/);
   // eligible counts branches a worker could pick up RIGHT NOW: in an eligible
   // wave, not already claimed, not deferred, not merged. Here that is
   // feature/unclaimed alone — claimed-one is taken, dropped is deferred.
-  assert.match(footer, /eligible=1/);
+  // feature/unclaimed (fleet plan) + feature/no-waves (legacy plan).
+  assert.match(footer, /eligible=2/);
   assert.match(footer, /blocked=1/);
   assert.match(footer, /deferred=1/);
 });
@@ -150,6 +173,29 @@ test('fleet: branches without a claim note keep their state (IFS collapse)', () 
   assert.match(report, /feature\/tracer — merged/);
   assert.match(report, /feature\/unclaimed — open/);
   assert.match(report, /feature\/dropped — deferred/);
+});
+
+test('fleet: an unnamed wave renders its branch as a branch, not as a wave name', () => {
+  // Regression: with no ### subheading the wave name is empty, and the IFS
+  // tab-collapse shifted the branch into the wave-name column — the report
+  // printed "feature/no-waves — eligible" as a heading with an empty branch
+  // under it.
+  assert.match(report, /\(unnamed\) — eligible/);
+  assert.match(report, /feature\/no-waves — open/);
+  assert.doesNotMatch(report, /^ *feature\/no-waves — eligible/m);
+});
+
+test('fleet: a docs/ file path in a plan is not treated as a branch', () => {
+  // `docs/` is a branch prefix, so the parser scrapes any backticked token
+  // that looks like one. A cited file path is not implementation work and must
+  // not enter the wave arithmetic.
+  assert.doesNotMatch(report, /docs\/some-note\.md/);
+});
+
+test('fleet: an idea/ branch is not implementation work', () => {
+  // idea/ branches carry the plan itself, never implementation. Counting one
+  // as outstanding work would keep a finished wave blocked forever.
+  assert.doesNotMatch(report, /idea\/legacy/);
 });
 
 test('fleet: scan is read-only — working tree and refs unchanged', () => {

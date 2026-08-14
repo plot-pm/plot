@@ -148,6 +148,12 @@
       "type": "file"
     },
     {
+      "path": "skills/plot/scripts/plot-fleet-scan.sh",
+      "accessCount": 13,
+      "lastAccessed": 1786715450588,
+      "type": "file"
+    },
+    {
       "path": "skills/challenge-the-plan/SKILL.md",
       "accessCount": 10,
       "lastAccessed": 1784996116528,
@@ -184,9 +190,9 @@
       "type": "file"
     },
     {
-      "path": "skills/plot/scripts/plot-fleet-scan.sh",
+      "path": "test/reconcile/fleet.test.mjs",
       "accessCount": 7,
-      "lastAccessed": 1786713720127,
+      "lastAccessed": 1786715383931,
       "type": "file"
     },
     {
@@ -205,12 +211,6 @@
       "path": "skills/ralph-plot-sprint/deliverable-rubric.md",
       "accessCount": 5,
       "lastAccessed": 1784996446748,
-      "type": "file"
-    },
-    {
-      "path": "test/reconcile/fleet.test.mjs",
-      "accessCount": 3,
-      "lastAccessed": 1786713738146,
       "type": "file"
     },
     {
