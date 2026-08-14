@@ -1,0 +1,350 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1786694415302,
+  "projectRoot": "/Users/jwloka/Quatico/Agentic-Tools/plot",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      }
+    ],
+    "frameworks": [],
+    "packageManager": "pnpm",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": "pnpm test",
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {
+      "test": "skills add . --list",
+      "board": "node skills/plot/scripts/board/board-server.mjs",
+      "board:dev": "pnpm --filter @plot-pm/board dev",
+      "build:board": "pnpm --filter @plot-pm/board build",
+      "typecheck": "pnpm --filter @plot-pm/board typecheck",
+      "test:board": "pnpm --filter @plot-pm/board build && pnpm --filter @plot-pm/board test && pnpm --filter @plot-pm/board exec vitest run",
+      "test:reconcile": "node --test test/reconcile/*.test.mjs",
+      "test:e2e": "node --test test/e2e/*.test.mjs",
+      "changeset": "cp .changeset/_template \".changeset/$(date +%Y%m%d-%H%M%S).md\" && echo 'Created changeset — edit it now'",
+      "version": "bash .dev/scripts/bump-skill-versions.sh && changeset version && bash .dev/scripts/sync-versions.sh && pnpm run build:board",
+      "validate": "bash .dev/scripts/validate-skills.sh",
+      "release": "pnpm run version && git add -A && git commit -m \"chore: release v$(jq -r .version package.json)\" && git tag \"v$(jq -r .version package.json)\" && echo 'Release committed and tagged. Run: git push --follow-tags'"
+    }
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": true,
+    "workspaces": [],
+    "mainDirectories": [
+      "assets",
+      "docs",
+      "test"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "assets": {
+      "path": "assets",
+      "purpose": "Static assets",
+      "fileCount": 3,
+      "lastAccessed": 1786694415143,
+      "keyFiles": [
+        "favicon.svg",
+        "logo.png",
+        "logo.svg"
+      ]
+    },
+    "commands": {
+      "path": "commands",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1786694415143,
+      "keyFiles": [
+        "challenge-the-plan.md"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 2,
+      "lastAccessed": 1786694415148,
+      "keyFiles": [
+        "definition-of-done.md",
+        "plot-in-the-pipeline.md"
+      ]
+    },
+    "evals": {
+      "path": "evals",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1786694415148,
+      "keyFiles": [
+        "promptfoo-results.md"
+      ]
+    },
+    "hooks": {
+      "path": "hooks",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1786694415149,
+      "keyFiles": [
+        "hooks.json"
+      ]
+    },
+    "packages": {
+      "path": "packages",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1786694415149,
+      "keyFiles": []
+    },
+    "skills": {
+      "path": "skills",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1786694415149,
+      "keyFiles": []
+    },
+    "test": {
+      "path": "test",
+      "purpose": "Test files",
+      "fileCount": 0,
+      "lastAccessed": 1786694415149,
+      "keyFiles": []
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "skills/ralph-plot-sprint/ralph-sprint.sh",
+      "accessCount": 28,
+      "lastAccessed": 1785001627743,
+      "type": "file"
+    },
+    {
+      "path": "docs/plans/2026-07-25-opus5-longhorizon-hardening.md",
+      "accessCount": 22,
+      "lastAccessed": 1784995957255,
+      "type": "file"
+    },
+    {
+      "path": "docs/plans/2026-08-14-parallel-agent-fleet.md",
+      "accessCount": 18,
+      "lastAccessed": 1786708179345,
+      "type": "file"
+    },
+    {
+      "path": "skills/challenge-the-plan/SKILL.md",
+      "accessCount": 10,
+      "lastAccessed": 1784996116528,
+      "type": "file"
+    },
+    {
+      "path": "skills/ralph-plot-sprint/SKILL.md",
+      "accessCount": 10,
+      "lastAccessed": 1784996159700,
+      "type": "file"
+    },
+    {
+      "path": "skills/plot-deliver/SKILL.md",
+      "accessCount": 8,
+      "lastAccessed": 1784995965759,
+      "type": "file"
+    },
+    {
+      "path": "skills/plot-approve/SKILL.md",
+      "accessCount": 7,
+      "lastAccessed": 1784995966697,
+      "type": "file"
+    },
+    {
+      "path": "skills/plot-reconcile/SKILL.md",
+      "accessCount": 5,
+      "lastAccessed": 1784995966231,
+      "type": "file"
+    },
+    {
+      "path": "skills/plot/MANIFESTO.md",
+      "accessCount": 5,
+      "lastAccessed": 1784995967231,
+      "type": "file"
+    },
+    {
+      "path": "skills/ralph-plot-sprint/deliverable-rubric.md",
+      "accessCount": 5,
+      "lastAccessed": 1784996446748,
+      "type": "file"
+    },
+    {
+      "path": "skills/plot/scripts/plot-plan-meta.sh",
+      "accessCount": 5,
+      "lastAccessed": 1786712558168,
+      "type": "file"
+    },
+    {
+      "path": "test/reconcile/parser.test.mjs",
+      "accessCount": 3,
+      "lastAccessed": 1786712530902,
+      "type": "file"
+    },
+    {
+      "path": "skills/plot/README.md",
+      "accessCount": 2,
+      "lastAccessed": 1782466396452,
+      "type": "file"
+    },
+    {
+      "path": "skills/plot/scripts/plot-reconcile-scan.sh",
+      "accessCount": 2,
+      "lastAccessed": 1783245388508,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 2,
+      "lastAccessed": 1783245490958,
+      "type": "file"
+    },
+    {
+      "path": "skills/plot/scripts/board/server.mjs",
+      "accessCount": 1,
+      "lastAccessed": 1782460406027,
+      "type": "file"
+    },
+    {
+      "path": ".claude-plugin/marketplace.json",
+      "accessCount": 1,
+      "lastAccessed": 1782460454270,
+      "type": "file"
+    },
+    {
+      "path": "skills/plot/scripts/plot-pr-state.sh",
+      "accessCount": 1,
+      "lastAccessed": 1783245262015,
+      "type": "file"
+    },
+    {
+      "path": "skills/plot/scripts/plot-impl-status.sh",
+      "accessCount": 1,
+      "lastAccessed": 1783245263020,
+      "type": "file"
+    },
+    {
+      "path": "skills/plot-reject/SKILL.md",
+      "accessCount": 1,
+      "lastAccessed": 1783245263198,
+      "type": "file"
+    },
+    {
+      "path": "skills/plot-reject/README.md",
+      "accessCount": 1,
+      "lastAccessed": 1783245451176,
+      "type": "file"
+    },
+    {
+      "path": "skills/plot-reconcile/README.md",
+      "accessCount": 1,
+      "lastAccessed": 1783245475928,
+      "type": "file"
+    },
+    {
+      "path": "skills/plot/SKILL.md",
+      "accessCount": 1,
+      "lastAccessed": 1783245502250,
+      "type": "file"
+    },
+    {
+      "path": ".changeset/plot-reconcile.md",
+      "accessCount": 1,
+      "lastAccessed": 1783245542230,
+      "type": "file"
+    },
+    {
+      "path": "skills/tracer-bullets/SKILL.md",
+      "accessCount": 1,
+      "lastAccessed": 1784983157790,
+      "type": "file"
+    },
+    {
+      "path": ".changeset/opus5-longhorizon-hardening.md",
+      "accessCount": 1,
+      "lastAccessed": 1784983677535,
+      "type": "file"
+    },
+    {
+      "path": ".changeset/opus5-hardening-ralph-bounds.md",
+      "accessCount": 1,
+      "lastAccessed": 1784985883286,
+      "type": "file"
+    },
+    {
+      "path": ".changeset/opus5-hardening-challenge-budget.md",
+      "accessCount": 1,
+      "lastAccessed": 1784994006613,
+      "type": "file"
+    },
+    {
+      "path": ".changeset/opus5-hardening-deliver-gates.md",
+      "accessCount": 1,
+      "lastAccessed": 1784994072216,
+      "type": "file"
+    },
+    {
+      "path": ".changeset/opus5-hardening-invariants.md",
+      "accessCount": 1,
+      "lastAccessed": 1784994131242,
+      "type": "file"
+    },
+    {
+      "path": ".changeset/opus5-hardening-approve-tracer.md",
+      "accessCount": 1,
+      "lastAccessed": 1784994178571,
+      "type": "file"
+    },
+    {
+      "path": "docs/model-provenance.md",
+      "accessCount": 1,
+      "lastAccessed": 1784994207830,
+      "type": "file"
+    },
+    {
+      "path": "skills/plot/intro-to-using-plot.md",
+      "accessCount": 1,
+      "lastAccessed": 1784994213874,
+      "type": "file"
+    },
+    {
+      "path": ".changeset/opus5-hardening-model-provenance.md",
+      "accessCount": 1,
+      "lastAccessed": 1784994227880,
+      "type": "file"
+    },
+    {
+      "path": "test/reconcile/fixtures/plans/canonical-branches-in-prose.md",
+      "accessCount": 1,
+      "lastAccessed": 1786712429106,
+      "type": "file"
+    },
+    {
+      "path": "test/reconcile/fixtures/plans/canonical-waves.md",
+      "accessCount": 1,
+      "lastAccessed": 1786712521687,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

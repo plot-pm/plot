@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"grep -rln \\\"^## Branches\\\" test/reconcile/fixtures/ | while read f; do n=$(grep -c \\\"^## Branches\\\" \\\"$f\\\"); [ \\\"$n\\\" -gt 1 ] && echo \\\"$n × $f\\\"; done\"}",
+  "error": "Exit code 1\n2 × test/reconcile/fixtures/plans/canonical-branches-in-prose.md",
+  "timestamp": "2026-08-14T13:01:12.821Z",
+  "retry_count": 1
+}

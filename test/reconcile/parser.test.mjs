@@ -109,6 +109,57 @@ for (const [name, expected] of SPEC) {
   });
 }
 
+test('plan-meta: only the first ## Branches heading contributes branches', () => {
+  // A plan documenting the plan format quotes a `## Branches` section in prose.
+  // Later same-named headings are illustration, not contract.
+  const actual = parse('canonical-branches-in-prose.md');
+  assert.deepEqual(actual.branches, ['feature/real-one', 'feature/real-two']);
+});
+
+test('plan-meta: waves group branches by ### subheading, deferred flagged', () => {
+  const actual = parse('canonical-waves.md');
+  assert.deepEqual(actual.waves, [
+    { name: 'Tracer', branches: [{ branch: 'feature/thin-slice', deferred: false }] },
+    {
+      name: 'Implementation',
+      branches: [
+        { branch: 'feature/api', deferred: false },
+        { branch: 'feature/ui', deferred: false },
+        { branch: 'feature/dropped', deferred: true },
+      ],
+    },
+    { name: 'Wave 3', branches: [{ branch: 'feature/migration', deferred: false }] },
+  ]);
+  // Flat branches[] stays the whole set, in sorted order — existing consumers unaffected.
+  assert.deepEqual(actual.branches, [
+    'feature/api', 'feature/dropped', 'feature/migration', 'feature/thin-slice', 'feature/ui',
+  ]);
+});
+
+test('plan-meta: a plan without ### subheadings is a single unnamed wave', () => {
+  // Backwards compatibility: every pre-wave plan behaves as one wave, all
+  // branches eligible at once — exactly today's semantics.
+  const actual = parse('canonical-approved-branches.md');
+  assert.deepEqual(actual.waves, [{
+    name: '',
+    branches: [
+      { branch: 'bug/fix-crash', deferred: false },
+      { branch: 'docs/fix-crash-notes', deferred: false },
+    ],
+  }]);
+});
+
+test('plan-meta: first-## Branches-wins state resets between files', () => {
+  // Regression: the "already saw a Branches heading" flag is per-file. Without
+  // a reset it leaks across multi-file mode and silently empties later plans.
+  const out = execFileSync('bash',
+    [parser, fixture('canonical-branches-in-prose.md'), fixture('canonical-approved-branches.md')],
+    { encoding: 'utf8' });
+  const lines = out.trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(lines[0].branches, ['feature/real-one', 'feature/real-two']);
+  assert.deepEqual(lines[1].branches, ['bug/fix-crash', 'docs/fix-crash-notes']);
+});
+
 test('plan-meta: --prefixes restricts branch extraction', () => {
   const actual = parse('canonical-approved-branches.md', ['--prefixes', 'docs']);
   assert.deepEqual(actual.branches, ['docs/fix-crash-notes']);
