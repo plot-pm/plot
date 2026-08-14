@@ -32,7 +32,8 @@ agents, several branches, real tokens. Monitoring is automatable; committing to
 parallel work is a decision. This command therefore never runs itself, and
 `--dry-run` exists so the decision can be taken with the facts in hand.
 
-**Input:** `$ARGUMENTS` = `[--dry-run] [--no-start] [--max N] <slug>`.
+**Input:** `$ARGUMENTS` = `[--dry-run] [--no-start] [--max N] <slug>`,
+or `--status` / `--stop <branch>` to inspect or stop running workers.
 
 ## Model Guidance
 
@@ -120,8 +121,28 @@ them.
 and the workers keep going — which is also why a dead worker needs the reaper
 (`/plot-reconcile`) rather than being noticed here.
 
+## Inspecting and stopping workers
+
+Detached workers would otherwise be invisible:
+
+```bash
+../plot/scripts/plot-dispatch.sh --status            # every worktree: pid, alive?, last log line
+../plot/scripts/plot-dispatch.sh --stop feature/x    # stop one worker
+```
+
+Both work **regardless of the plan's phase** — work already running must stay
+inspectable even if the plan was since delivered. `--stop` requires an explicit
+branch name (containing `/`); there is deliberately no "stop everything".
+
+Stopping leaves the worktree and the claim in place: the branch stays taken
+until you release it. Releasing is `/plot-reconcile`'s job.
+
 ## Guardrails
 
+- **The phase and `Impl:` checks are gates in the script**, not advice here.
+  `plot-dispatch.sh` refuses a plan that is not Approved, or whose `Impl:`
+  answer is not `own branches`, and it **fails closed** if the phase cannot be
+  read. You cannot talk it into fanning out unapproved work.
 - **Never dispatch a blocked wave.** Eligibility lives in
   `plot-fleet-scan.sh`; do not second-guess it or hand-pick a branch from a
   later wave.

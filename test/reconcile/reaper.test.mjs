@@ -111,3 +111,57 @@ test('reaper: the sweep stays read-only', () => {
   assert.match(git(repo, 'ls-remote', '--heads', 'origin', 'feature/abandoned'),
     /feature\/abandoned/, 'scan must never delete a ref itself');
 });
+
+test('reaper: a fresh bare claim is not called stale', () => {
+  // A worker may simply be thinking. Reporting a minutes-old claim as stale
+  // invites deleting live work.
+  const line = report.split('\n').find((l) => /feature\/orphaned/.test(l)) ?? '';
+  assert.doesNotMatch(line, /stale/i);
+  assert.match(line, /needs judgment/i);
+});
+
+test('reaper: a claim older than the threshold is flagged stale, with its age', () => {
+  // Distinguishing "thinking" from "dead" needs TIME, not just the annotation.
+  // Threshold: `Claim stale after` (hours).
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-stale-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, r);
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n- **Claim stale after:** 24\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-s.md'),
+    '# S\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n- `feature/old` — taken long ago <!-- claimed: 2026-01-01T09:00Z, session-1 -->\n');
+  fs.symlinkSync('../2026-01-01-s.md', path.join(r, 'plans', 'active', 's.md'));
+  git(r, 'add', '-A');
+  // Date the base commit 30 days back: a claim with no commits of its own
+  // inherits that age, which is exactly what a long-idle claim looks like.
+  const old = new Date(Date.now() - 30 * 864e5).toISOString();
+  execFileSync('git', ['commit', '-qm', 'plan'], {
+    cwd: r, env: { ...process.env, GIT_COMMITTER_DATE: old, GIT_AUTHOR_DATE: old },
+  });
+  git(r, 'push', '-q', 'origin', 'main');
+
+  // A real claim has NO commit of its own — it points at the same commit as
+  // main. Its age is therefore the age of that commit, which is what a
+  // long-idle claim looks like: the worker took the branch and never pushed.
+  // (An earlier version of this test gave the claim its own empty commit,
+  // which made it "ahead of main" and thus not a claim at all.)
+  git(r, 'checkout', '-q', '-b', 'feature/old');
+  git(r, 'push', '-q', '-u', 'origin', 'feature/old');
+  git(r, 'checkout', '-q', 'main');
+
+  const out = execFileSync('bash', [scan, '--offline'], { encoding: 'utf8', cwd: r });
+  const line = out.split('\n').find((l) => /feature\/old/.test(l)) ?? '';
+  assert.match(line, /stale/i, 'a month-old claim must read as stale');
+  assert.match(line, /\d+d/, 'must state the age so the human can judge');
+  // Still no deletion command: staleness is evidence, not permission.
+  const idx = out.indexOf('feature/old');
+  assert.doesNotMatch(out.slice(idx, idx + 200).split('\n').slice(0, 2).join('\n'),
+    /--delete feature\/old/);
+  fs.rmSync(t, { recursive: true, force: true });
+});

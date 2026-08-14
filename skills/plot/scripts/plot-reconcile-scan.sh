@@ -99,6 +99,11 @@ ACTIVE_DIR=$(cfg "Active index" "$PLAN_DIR/active/"); ACTIVE_DIR="${ACTIVE_DIR%/
 DELIVERED_DIR=$(cfg "Delivered index" "$PLAN_DIR/delivered/"); DELIVERED_DIR="${DELIVERED_DIR%/}"
 
 # "idea/, feature/, bug/, docs/, infra/" -> "idea|feature|bug|docs|infra"
+# Hours after which a bare claim is worth a second look. A DURATION, so it is
+# deliberately NOT `Sprint stall limit` — that counts iterations without a
+# deliverable in a serial run, which is a different quantity. Reusing it would
+# have silently read "3 iterations" as "3 hours".
+CLAIM_STALE_H=$(cfg "Claim stale after" "24")
 PREFIX_RE=$(cfg "Branch prefixes" "idea/, feature/, bug/, docs/, infra/" \
   | tr -d ' /' | tr ',' '|')
 
@@ -231,6 +236,16 @@ is_empty_claim() { # $1=branch
 # reading it here is the ONE deliberate exception to "no gate reads the
 # annotation": this gate decides CLEANUP, not work, so a wrong annotation costs
 # at most a missed cleanup — never lost or duplicated work.
+# How old is this claim, in whole days? The claim ref's commit date is when the
+# worker took the branch.
+claim_age_days() { # $1=branch → integer days
+  local when now
+  when=$(git log -1 --format=%ct "origin/$1" </dev/null 2>/dev/null) || { echo 0; return; }
+  [ -n "$when" ] || { echo 0; return; }
+  now=$(date -u +%s)
+  echo $(( (now - when) / 86400 ))
+}
+
 claim_disposition() { # $1=branch → "abandoned" | "unresolved"
   local br="$1" l line
   for l in "$ACTIVE_DIR"/*.md; do
@@ -393,8 +408,17 @@ while IFS= read -r b; do
       claims_out+="  origin/$b — abandoned claim (plan says deferred/moved) → deletion candidate\n"
       claims_out+="    fix: git push origin --delete $b\n"
     else
-      claims_out+="  origin/$b — still claimed, no commits → needs judgment (worker thinking, or dead)\n"
-      claims_out+="    inspect: git log -1 --format='claimed %cr' origin/$b\n"
+      age_d=$(claim_age_days "$b")
+      if [ "$CLAIM_STALE_H" -gt 0 ] && [ $((age_d * 24)) -ge "$CLAIM_STALE_H" ]; then
+        # Stale is EVIDENCE, not permission: still no deletion command, because
+        # a slow worker and a dead one look identical and one of them is doing
+        # real work. The age lets a human decide; the tool must not.
+        claims_out+="  origin/$b — still claimed, no commits, ${age_d}d old → stale, needs judgment\n"
+        claims_out+="    inspect: plot-dispatch.sh --status   # is its worker alive?\n"
+      else
+        claims_out+="  origin/$b — still claimed, no commits → needs judgment (worker thinking, or dead)\n"
+        claims_out+="    inspect: git log -1 --format='claimed %cr' origin/$b\n"
+      fi
     fi
     n_claims=$((n_claims + 1))
     continue

@@ -43,6 +43,22 @@ done
 git rev-parse --git-dir >/dev/null 2>&1 || { echo "not a git repository" >&2; exit 1; }
 [ -n "$slug" ] || { echo "plot-merge-queue: need a plan slug" >&2; exit 1; }
 
+# `merge-tree --write-tree` arrived in git 2.38. Older git HAS a merge-tree,
+# with entirely different semantics (a three-way file diff), so it does not
+# fail cleanly — it succeeds while answering a different question, and every
+# branch would silently read as conflict-free. A wrong "all clean" is far worse
+# than a refusal, so check the version rather than trusting an exit code.
+git_ver=$(git --version 2>/dev/null | sed -n 's/^git version \([0-9]*\)\.\([0-9]*\).*/\1 \2/p')
+gv_major=${git_ver%% *}; gv_minor=${git_ver##* }
+if [ -z "$git_ver" ] || [ "$gv_major" -lt 2 ] \
+   || { [ "$gv_major" -eq 2 ] && [ "$gv_minor" -lt 38 ]; }; then
+  echo "plot-merge-queue: needs git 2.38 or newer for 'merge-tree --write-tree'." >&2
+  echo "  Found: $(git --version 2>/dev/null || echo 'unknown')" >&2
+  echo "  Older git has a different merge-tree that would report every branch" >&2
+  echo "  as conflict-free — refusing rather than reporting a false all-clear." >&2
+  exit 1
+fi
+
 PLAN_DIR=$(cfg "Plan directory" "docs/plans/")
 ACTIVE_DIR=$(cfg "Active index" "docs/plans/active/")
 PREFIX_RE=$(cfg "Branch prefixes" "idea/, feature/, bug/, docs/, infra/" \
