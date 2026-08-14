@@ -66,6 +66,7 @@ Two designs shaped this, and it is worth being precise about what was taken and 
 | Skill | Description |
 |-------|-------------|
 | [plot](skills/plot/) | Hub & dispatcher — reads git state, suggests next action |
+| [plot-init](skills/plot-init/) | Adopt Plot in a repo — detects your setup and proposes the config |
 | [plot-idea](skills/plot-idea/) | Create a plan: idea branch, plan file, and draft PR |
 | [plot-approve](skills/plot-approve/) | Record the plan's approval through its declared review channel |
 | [plot-implement](skills/plot-implement/) | Start/resume implementation: staleness preflight, branch setup, hand-off brief |
