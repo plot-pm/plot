@@ -135,6 +135,32 @@ justify**, and say what triggered the offer:
 | `commit_style` detected | Record it in the Plot Config | A reviewer agent aligned to the wrong notation flags correct commits |
 | `has_settings: false` and Plot is used as a plugin | The `.claude/settings.json` block enabling the plugin | Merge into an existing file, never overwrite |
 | Repo has `docs/stories/` | Note that `story-tracking` pairs with it | It is a companion, not a spoke — it works standalone |
+| Repo has `docs/sessionlogs/` (or a session-wrap tool is in use) | A `## Session Wrap Up` section in the hub | Session-scoped tools write the log; Plot only supplies the plot-shaped facts |
+
+**The `## Session Wrap Up` section**, when offered, tells whatever writes
+session logs which Plot facts belong in one:
+
+```markdown
+## Session Wrap Up
+
+When writing a session log, include the Plot context for this session:
+
+    skills/plot/scripts/plot-context.sh
+
+It reports the governing plan (if the current branch belongs to one), its
+phase, its wave, and its PRs — as JSON. An empty `plan_slug` means the branch
+belongs to no plan; say that rather than guessing, since a durable log
+attributed to the wrong plan outlives the session that mis-attributed it.
+
+Record decisions and their **rejected alternatives** in the log, not in the
+plan: a plan is frozen on approval and says what will be built, while a log
+stays amendable and says why it was built that way.
+```
+
+Plot deliberately does **not** write session logs. Tools scoped to a session
+(such as a wrap-up skill) reconstruct compacted history, classify session
+types, and guard against parallel sessions — none of which a plan-shaped tool
+can know. Supplying facts to a better-placed writer beats competing with it.
 
 **On writing `.claude/settings.json`:** if it exists, merge and preserve every
 key. If it is malformed or unwritable, **print the block and ask the user to

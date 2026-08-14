@@ -76,6 +76,47 @@ Every plan answers two independent questions, recorded in its frontmatter or Sta
 
 Commands narrate position and consequence, not procedure: where the work stands, which artifact falls out next, and why it exists. Every effort-starting flow opens by eliciting a complete problem statement — goal, motivation, prior attempts, constraints, deadlines, and every source that exists — and a free-form brain dump is the *preferred* input; structuring it is the agent's job, never the user's. Skills ask-and-advise when unsure (naming the signal they see and their recommendation), never re-ask what an upstream artifact already answered, and may push back on a human's explicit wish exactly once before complying and recording the override. The user should feel helped, not processed.
 
+### 12. Evidence over assertion
+
+A gate is satisfied by the artifact that proves it, never by the claim that it holds. `/plot-deliver`'s landed check demands the scan's actual `summary:` footer line — not the words "verified" or "clean". Release sign-off is a human's, not an agent's. Completeness is checked by comparing what a plan promised against what the diffs contain, because a changelog written at planning time describes intent, and intent is not delivery.
+
+The reason is specific to how agents fail: **reading code and judging it is not the same as running it and seeing what happens.** An agent that inspects a mechanism will usually conclude it works, because the mental model it uses to read is the same one it used to write. Only execution can contradict that model.
+
+Two things follow, and both cost something:
+
+**Passing tests prove only what they test.** A suite can be entirely green while the central mechanism is broken, if the untested case is precisely the one the mechanism exists for. Green is evidence about the covered cases and silence about everything else — so when a claim matters, ask which test would fail if it were false, and if the answer is none, the claim is unverified however many tests pass.
+
+**Verification wants an adversary, and preferably a separate one.** Checking your own work shares the blind spot that produced it. Where a claim is load-bearing, the useful instruction is not "confirm this" but *"try to prove this is false, and report what you executed versus what you only read."* That distinction — executed versus read — is what makes a verification report worth trusting.
+
+This principle is a rule, not a gate: nothing can force an agent to genuinely doubt itself. What Plot *can* do, and does, is demand the artifact instead of the assertion wherever an objective one exists.
+
+## Four phases, four artifacts
+
+Plot's phases (below) are **states of a plan**. Cutting across them are four
+*activities*, each turning one durable artifact into the next:
+
+| Activity | Turns | Into | Plot phase |
+|---|---|---|---|
+| **Discovery** | a request, a bug report, an idea | a story (`docs/stories/`) — or straight to a plan, for small work | *before* Draft |
+| **Design** | a story or a request | a plan, reviewed before any code exists | Draft → Approved |
+| **Development** | an approved plan | merged branches | Approved → Delivered |
+| **Endgame** | delivered work | a verified release | Delivered → Released |
+
+The artifact is the point of each phase, and it is what survives the session
+that produced it. **Discovery is the one that predates Plot's own states** —
+a story can gather context for weeks before any plan exists, and several plans
+can hang off one story. It is optional: small, well-understood work goes
+straight to Design.
+
+A fifth artifact runs alongside rather than between: the **session log**,
+which records how something was decided — including the alternatives that were
+rejected and why. A plan says what will be built and is frozen on approval; a
+log says what was decided and stays amendable, can be superseded, and outlives
+the plan it belongs to. The rule of thumb: if it must be true *before* building
+starts, it belongs in the plan; if it answers "why not the other way?", it
+belongs in a log. Plot does not write session logs — session-scoped tools do
+that better — but it supplies the plot-shaped facts they need.
+
 ## Lifecycle
 
 Plot has four plan-level phases: **Draft**, **Approved**, **Delivered**, and **Released** — universal across every ceremony choice. What varies with the recorded `Review:`/`Impl:` answers is how a transition is *effected*; what never varies is that it is *recorded* in the plan (who, when, through which channel — e.g. `Approved: 2026-07-30, alice, in-session`).

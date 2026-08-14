@@ -6,6 +6,16 @@ This guide walks you through Plot's lifecycle once, end to end, so you know what
 
 ## Using Plot
 
+Work moves through four activities, each producing an artifact the next one
+consumes:
+
+| | Turns | Into |
+|---|---|---|
+| **Discovery** | a request or an idea | a story (`docs/stories/`) — optional; small work goes straight to Design |
+| **Design** | a story or request | a plan, reviewed *before* any code exists |
+| **Development** | an approved plan | merged branches |
+| **Endgame** | delivered work | a verified release |
+
 A **plan** is a markdown file in `docs/plans/`. It describes something the team has decided to build — context, recommendation, files to change, verification steps. Plans move through four phases:
 
 ```
