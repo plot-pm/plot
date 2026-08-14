@@ -171,3 +171,61 @@ test('reaper: a claim older than the threshold is flagged stale, with its age', 
     /--delete feature\/old/);
   fs.rmSync(t, { recursive: true, force: true });
 });
+
+test('reaper: a real commit titled like a claim marker is NOT a claim', () => {
+  // Claim detection matched the commit SUBJECT alone, so a human commit titled
+  // "plot: claim handling refactor" — carrying real files — read as an empty
+  // claim. With a `deferred:` annotation the reaper then offered to DELETE a
+  // branch holding real, unmerged work. Subject alone is not evidence; a claim
+  // marker is also EMPTY (its tree equals its parent's).
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-subject-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, 'repo');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n- **Delivered index:** plans/delivered/\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-s.md'),
+    '# S\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n'
+    + '- `bug/humantitle` — real work, unlucky commit title <!-- deferred: descoped -->\n'
+    + '- `feature/genuine` — a true claim <!-- deferred: descoped -->\n');
+  fs.symlinkSync('../2026-01-01-s.md', path.join(r, 'plans', 'active', 's.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  // Real work whose subject happens to start with the marker text.
+  git(r, 'checkout', '-q', '-b', 'bug/humantitle');
+  fs.writeFileSync(path.join(r, 'src.txt'), 'real code\n');
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plot: claim handling refactor');
+  git(r, 'push', '-q', '-u', 'origin', 'bug/humantitle');
+  git(r, 'checkout', '-q', 'main');
+
+  // Control: a genuine, empty claim marker.
+  git(r, 'checkout', '-q', '-b', 'feature/genuine');
+  git(r, 'commit', '-q', '--allow-empty', '-m', 'plot: claim feature/genuine');
+  git(r, 'push', '-q', '-u', 'origin', 'feature/genuine');
+  git(r, 'checkout', '-q', 'main');
+
+  const out = execFileSync('bash', [scan, '--offline'], { encoding: 'utf8', cwd: r });
+
+  // Assert PER LINE. A dot-all regex spanning the whole report matches across
+  // entries — "bug/humantitle" on one line and "abandoned claim" on another —
+  // so it would pass or fail on report ordering rather than on the verdict.
+  const verdict = (br) =>
+    out.split('\n').find((l) => l.includes(br) && l.includes('→')) ?? '';
+
+  // The control must still be reapable — the fix must not blunt real detection.
+  assert.match(verdict('feature/genuine'), /abandoned claim/);
+  // The impostor must not be, and above all must get no deletion command.
+  assert.doesNotMatch(verdict('bug/humantitle'), /abandoned claim/);
+  assert.doesNotMatch(out, /--delete bug\/humantitle/,
+    'never offer to delete a branch holding real unmerged work');
+
+  fs.rmSync(t, { recursive: true, force: true });
+});

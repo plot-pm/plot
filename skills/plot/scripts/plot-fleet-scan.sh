@@ -149,6 +149,29 @@ fi
 # Every git call here redirects stdin from /dev/null: this function runs inside
 # `while read ... <<< "$states"` loops, and a child process inheriting that
 # here-string would swallow the loop's remaining lines.
+# Count commits beyond main that are NOT claim markers. A claim marker must be
+# BOTH titled `plot: claim ...` AND empty (its tree equals its parent's) — the
+# subject alone is not evidence. A human commit titled "plot: claim handling
+# refactor" carrying real files would otherwise read as an empty claim, and
+# with a deferred: annotation the reaper would offer to DELETE real work.
+real_commits_beyond_main() { # $1=branch → count
+  local br="$1" c n=0 subj
+  for c in $(git rev-list "origin/$MAIN..origin/$br" </dev/null 2>/dev/null); do
+    subj=$(git log -1 --format=%s "$c" </dev/null 2>/dev/null)
+    # A claim marker is titled `plot: claim ...` AND empty. Both, or it counts
+    # as real work.
+    case "$subj" in
+      "plot: claim "*)
+        if [ "$(git rev-parse "$c^{tree}" </dev/null 2>/dev/null)" \
+             = "$(git rev-parse "$c^^{tree}" </dev/null 2>/dev/null)" ]; then
+          continue
+        fi ;;
+    esac
+    n=$((n + 1))
+  done
+  echo "$n"
+}
+
 branch_state() {
   local br="$1"
   if ! git show-ref -q --verify "refs/remotes/origin/$br" </dev/null 2>/dev/null; then
@@ -161,8 +184,7 @@ branch_state() {
   # would think they held the claim (see plot-dispatch.sh, "THE CLAIM").
   ahead=$(git rev-list --count "origin/$MAIN..origin/$br" </dev/null 2>/dev/null || echo 0)
   if [ "$ahead" -gt 0 ]; then
-    real=$(git log --format=%s "origin/$MAIN..origin/$br" </dev/null 2>/dev/null \
-           | grep -cv '^plot: claim ' || true)
+    real=$(real_commits_beyond_main "$br")
     [ "${real:-0}" = "0" ] && { echo "claimed"; return; }
     # Has real work: merged only if that work already landed.
     git merge-base --is-ancestor "origin/$br" "origin/$MAIN" </dev/null 2>/dev/null \

@@ -79,8 +79,8 @@ It reads `origin/*` refs plus the configured plan directory and emits five secti
 3. **Stale branches** — remote branches under a configured prefix with no open PR: merged into the main branch → deletion candidates; ahead of it → orphans needing judgment. The main branch and `release/*` are never listed.
 ### Claims (inside section 3)
 
-An **empty branch with no commits of its own** is a claim: a worker pushed a
-ref to take that work atomically. Two very different situations leave that
+A branch whose only commits beyond main are **empty `plot: claim …` markers**
+is a claim: a dispatcher pushed it to take that work. Two very different situations leave that
 identical artifact, and git cannot tell them apart:
 
 | Plan says | Meaning | Report |

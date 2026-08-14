@@ -224,6 +224,29 @@ plan_branches() { # $1=plan file path
 # Is this remote branch an empty CLAIM — a ref pushed to take work atomically,
 # holding no commits of its own? Distinct from "merged" (real work, landed) and
 # from "orphan" (real work, never landed).
+# Count commits beyond main that are NOT claim markers. A claim marker must be
+# BOTH titled `plot: claim ...` AND empty (its tree equals its parent's) — the
+# subject alone is not evidence. A human commit titled "plot: claim handling
+# refactor" carrying real files would otherwise read as an empty claim, and
+# with a deferred: annotation the reaper would offer to DELETE real work.
+real_commits_beyond_main() { # $1=branch → count
+  local br="$1" c n=0 subj
+  for c in $(git rev-list "origin/$MAIN..origin/$br" </dev/null 2>/dev/null); do
+    subj=$(git log -1 --format=%s "$c" </dev/null 2>/dev/null)
+    # A claim marker is titled `plot: claim ...` AND empty. Both, or it counts
+    # as real work.
+    case "$subj" in
+      "plot: claim "*)
+        if [ "$(git rev-parse "$c^{tree}" </dev/null 2>/dev/null)" \
+             = "$(git rev-parse "$c^^{tree}" </dev/null 2>/dev/null)" ]; then
+          continue
+        fi ;;
+    esac
+    n=$((n + 1))
+  done
+  echo "$n"
+}
+
 is_empty_claim() { # $1=branch
   local ahead real
   git show-ref -q --verify "refs/remotes/origin/$1" </dev/null 2>/dev/null || return 1
@@ -232,8 +255,7 @@ is_empty_claim() { # $1=branch
   # plot-dispatch.sh, "THE CLAIM"). A branch carrying only those is claimed but
   # unworked; one carrying any real commit is work in progress, not a claim.
   [ "$ahead" -gt 0 ] || return 1   # nothing of its own → merged work, not a claim
-  real=$(git log --format=%s "origin/$MAIN..origin/$1" </dev/null 2>/dev/null \
-         | grep -cv '^plot: claim ' || true)
+  real=$(real_commits_beyond_main "$1")
   [ "${real:-0}" = "0" ]
 }
 # A branch with NO commits of its own is deliberately not treated as a claim,
