@@ -225,11 +225,23 @@ plan_branches() { # $1=plan file path
 # holding no commits of its own? Distinct from "merged" (real work, landed) and
 # from "orphan" (real work, never landed).
 is_empty_claim() { # $1=branch
+  local ahead real
   git show-ref -q --verify "refs/remotes/origin/$1" </dev/null 2>/dev/null || return 1
-  git merge-base --is-ancestor "origin/$1" "origin/$MAIN" </dev/null 2>/dev/null || return 1
-  [ "$(git rev-list --count "origin/$1" </dev/null 2>/dev/null || echo 0)" \
-    = "$(git rev-list --count "origin/$MAIN" </dev/null 2>/dev/null || echo 0)" ]
+  ahead=$(git rev-list --count "origin/$MAIN..origin/$1" </dev/null 2>/dev/null || echo 0)
+  # Claim commits are empty markers pushed to take a branch (see
+  # plot-dispatch.sh, "THE CLAIM"). A branch carrying only those is claimed but
+  # unworked; one carrying any real commit is work in progress, not a claim.
+  [ "$ahead" -gt 0 ] || return 1   # nothing of its own → merged work, not a claim
+  real=$(git log --format=%s "origin/$MAIN..origin/$1" </dev/null 2>/dev/null \
+         | grep -cv '^plot: claim ' || true)
+  [ "${real:-0}" = "0" ]
 }
+# A branch with NO commits of its own is deliberately not treated as a claim,
+# even though pre-claim-commit fleets produced exactly that shape. Such a
+# branch is indistinguishable from merged work — which is why claims carry a
+# commit now. Reporting merged branches as claimed would hide real deletion
+# candidates, so the ambiguous legacy shape falls through to the stale-branch
+# logic instead.
 
 # How did this claim end? Git cannot say — an abandoned claim and a dead worker
 # leave the identical empty branch. The plan annotation is the only signal, and

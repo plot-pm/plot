@@ -109,9 +109,12 @@ before(() => {
   git(repo, 'merge', '-q', '--no-ff', '-m', 'merge tracer', 'feature/tracer');
   git(repo, 'push', '-q', 'origin', 'main');
 
-  // A claim: branch pushed with NO commits of its own. This is what claiming
-  // looks like on the wire — the ref exists, the work does not yet.
+  // A claim: branch pushed carrying only a CLAIM COMMIT. The commit is what
+  // makes claiming exclusive — a branch merely pointing at main does not
+  // diverge from it, so a second dispatcher's push would succeed and both
+  // would think they held it (see plot-dispatch.sh, "THE CLAIM").
   git(repo, 'checkout', '-qb', 'feature/claimed-one');
+  git(repo, 'commit', '-q', '--allow-empty', '-m', 'plot: claim feature/claimed-one');
   git(repo, 'push', '-q', '-u', 'origin', 'feature/claimed-one');
   git(repo, 'checkout', '-q', 'main');
 

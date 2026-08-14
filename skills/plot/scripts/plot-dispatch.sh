@@ -301,6 +301,18 @@ while :; do
     }
     # THE CLAIM. Rejection means another session won the race; leave its
     # worktree alone and move on to the next branch.
+    #
+    # The claim carries an EMPTY COMMIT, and that is load-bearing. Pushing a
+    # branch that merely points at origin/<main> is a no-op: the remote already
+    # has that commit, so the push succeeds with "Everything up-to-date" and
+    # BOTH dispatchers believe they own the branch. Mutual exclusion requires
+    # the refs to diverge — two independent claim commits are not fast-forwards
+    # of each other, so the second push is rejected as non-fast-forward.
+    #
+    # Never add --force or --force-with-lease here: forcing is precisely what
+    # would let a second dispatcher take a branch someone is working on.
+    git -C "$wt" -c "user.name=${PLOT_CLAIM_WHO:-$(git config user.name || echo plot)}" \
+        commit -q --allow-empty -m "plot: claim $branch" 2>/dev/null
     if git -C "$wt" push -q -u origin "$branch" 2>/dev/null; then
       echo "dispatched $branch → $wt"
       n_dispatched=$((n_dispatched + 1))

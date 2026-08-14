@@ -121,17 +121,24 @@ branch_state() {
   if ! git show-ref -q --verify "refs/remotes/origin/$br" </dev/null 2>/dev/null; then
     echo "open"; return
   fi
-  if git merge-base --is-ancestor "origin/$br" "origin/$MAIN" </dev/null 2>/dev/null; then
-    # Ref exists and adds nothing beyond main: either merged work, or an empty
-    # branch pushed to stake a claim. Commit count tells them apart.
-    if [ "$(git rev-list --count "origin/$MAIN..origin/$br" </dev/null 2>/dev/null || echo 0)" = "0" ] \
-       && [ "$(git rev-list --count "origin/$br" </dev/null 2>/dev/null || echo 0)" \
-            = "$(git rev-list --count "origin/$MAIN" </dev/null 2>/dev/null || echo 0)" ]; then
-      echo "claimed"; return
-    fi
-    echo "merged"; return
+  # A CLAIM is a branch whose only commits beyond main are claim commits —
+  # empty markers a dispatcher pushed to take the work. They must be real
+  # commits, not a bare pointer at main: two branches pointing at the same
+  # commit do not diverge, so the second push would succeed and both sides
+  # would think they held the claim (see plot-dispatch.sh, "THE CLAIM").
+  ahead=$(git rev-list --count "origin/$MAIN..origin/$br" </dev/null 2>/dev/null || echo 0)
+  if [ "$ahead" -gt 0 ]; then
+    real=$(git log --format=%s "origin/$MAIN..origin/$br" </dev/null 2>/dev/null \
+           | grep -cv '^plot: claim ' || true)
+    [ "${real:-0}" = "0" ] && { echo "claimed"; return; }
+    # Has real work: merged only if that work already landed.
+    git merge-base --is-ancestor "origin/$br" "origin/$MAIN" </dev/null 2>/dev/null \
+      && { echo "merged"; return; }
+    echo "wip"; return
   fi
-  echo "wip"
+  # Nothing of its own. NOT a claim: that shape is indistinguishable from
+  # merged work, which is exactly why claims carry a commit.
+  echo "merged"
 }
 
 [ "$next_only" = 1 ] || { echo "plot-fleet pulse — $(git rev-parse --short HEAD) on origin/$MAIN${loose:+$([ "$loose" = 1 ] && echo " (loose eligibility)")}"; echo; }
