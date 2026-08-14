@@ -188,7 +188,7 @@ function reset_state() {
   delete branches; n_branches = 0
   delete prs; n_prs = 0
   delete wave_names; delete wave_of; delete wave_seq; delete wave_count
-  delete deferred_of; delete ordered_b; n_waves = 0
+  delete deferred_of; delete claimed_of; delete ordered_b; n_waves = 0
   delete started; n_started = 0
 }
 function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, review, impl, approved, i, j, out, sorted_b, sorted_p, nb, np) {
@@ -246,7 +246,8 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
     first = 1
     for (i = 1; i <= n_branches; i++) {
       if (wave_of[i] != w) continue
-      out = out (first ? "" : ",") "{\"branch\":\"" jesc(ordered_b[i]) "\",\"deferred\":" deferred_of[i] "}"
+      out = out (first ? "" : ",") "{\"branch\":\"" jesc(ordered_b[i]) "\",\"deferred\":" deferred_of[i] \
+            ",\"claimed\":\"" jesc(claimed_of[i]) "\"}"
       first = 0
     }
     out = out "]}"
@@ -325,6 +326,17 @@ section == "branches" {
     wave_names[++n_waves] = trim(substr($0, 4))
     next
   }
+  # Claim reflection, written by the worker after its ref push succeeds. This is
+  # a reflection, not the claim: git refs remain authoritative. Computed before
+  # the branch loop below — match() clobbers RSTART/RLENGTH, which that loop
+  # needs to advance.
+  claim_note = ""
+  if (index($0, "claimed:") > 0) {
+    _c = $0
+    sub(/^.*<!--[ \t]*claimed:[ \t]*/, "", _c)
+    sub(/[ \t]*-->.*$/, "", _c)
+    claim_note = trim(_c)
+  }
   line = $0
   while (match(line, branch_re)) {
     b = substr(line, RSTART + 1, RLENGTH - 2)
@@ -333,6 +345,9 @@ section == "branches" {
     wave_of[n_branches] = n_waves
     wave_seq[n_branches] = ++wave_count[n_waves]
     deferred_of[n_branches] = ($0 ~ /<!--[ \t]*deferred:/) ? "true" : "false"
+    # Claim reflection, written by the worker after its ref push succeeds. This
+    # is a reflection, not the claim: git refs remain authoritative.
+    claimed_of[n_branches] = claim_note
     ordered_b[n_branches] = b
     line = substr(line, RSTART + RLENGTH)
   }

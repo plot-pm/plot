@@ -160,9 +160,21 @@
       "type": "file"
     },
     {
+      "path": "skills/plot/scripts/plot-plan-meta.sh",
+      "accessCount": 10,
+      "lastAccessed": 1786712892446,
+      "type": "file"
+    },
+    {
       "path": "skills/plot-deliver/SKILL.md",
       "accessCount": 8,
       "lastAccessed": 1784995965759,
+      "type": "file"
+    },
+    {
+      "path": "test/reconcile/parser.test.mjs",
+      "accessCount": 8,
+      "lastAccessed": 1786712913733,
       "type": "file"
     },
     {
@@ -190,18 +202,6 @@
       "type": "file"
     },
     {
-      "path": "skills/plot/scripts/plot-plan-meta.sh",
-      "accessCount": 5,
-      "lastAccessed": 1786712558168,
-      "type": "file"
-    },
-    {
-      "path": "test/reconcile/parser.test.mjs",
-      "accessCount": 3,
-      "lastAccessed": 1786712530902,
-      "type": "file"
-    },
-    {
       "path": "skills/plot/README.md",
       "accessCount": 2,
       "lastAccessed": 1782466396452,
@@ -217,6 +217,12 @@
       "path": "README.md",
       "accessCount": 2,
       "lastAccessed": 1783245490958,
+      "type": "file"
+    },
+    {
+      "path": "test/reconcile/fixtures/plans/canonical-waves.md",
+      "accessCount": 2,
+      "lastAccessed": 1786712581555,
       "type": "file"
     },
     {
@@ -337,12 +343,6 @@
       "path": "test/reconcile/fixtures/plans/canonical-branches-in-prose.md",
       "accessCount": 1,
       "lastAccessed": 1786712429106,
-      "type": "file"
-    },
-    {
-      "path": "test/reconcile/fixtures/plans/canonical-waves.md",
-      "accessCount": 1,
-      "lastAccessed": 1786712521687,
       "type": "file"
     }
   ],

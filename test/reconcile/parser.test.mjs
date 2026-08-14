@@ -119,16 +119,16 @@ test('plan-meta: only the first ## Branches heading contributes branches', () =>
 test('plan-meta: waves group branches by ### subheading, deferred flagged', () => {
   const actual = parse('canonical-waves.md');
   assert.deepEqual(actual.waves, [
-    { name: 'Tracer', branches: [{ branch: 'feature/thin-slice', deferred: false }] },
+    { name: 'Tracer', branches: [{ branch: 'feature/thin-slice', deferred: false, claimed: '' }] },
     {
       name: 'Implementation',
       branches: [
-        { branch: 'feature/api', deferred: false },
-        { branch: 'feature/ui', deferred: false },
-        { branch: 'feature/dropped', deferred: true },
+        { branch: 'feature/api', deferred: false, claimed: '' },
+        { branch: 'feature/ui', deferred: false, claimed: '2026-08-14T10:22Z, session-3' },
+        { branch: 'feature/dropped', deferred: true, claimed: '' },
       ],
     },
-    { name: 'Wave 3', branches: [{ branch: 'feature/migration', deferred: false }] },
+    { name: 'Wave 3', branches: [{ branch: 'feature/migration', deferred: false, claimed: '' }] },
   ]);
   // Flat branches[] stays the whole set, in sorted order — existing consumers unaffected.
   assert.deepEqual(actual.branches, [
@@ -143,10 +143,20 @@ test('plan-meta: a plan without ### subheadings is a single unnamed wave', () =>
   assert.deepEqual(actual.waves, [{
     name: '',
     branches: [
-      { branch: 'bug/fix-crash', deferred: false },
-      { branch: 'docs/fix-crash-notes', deferred: false },
+      { branch: 'bug/fix-crash', deferred: false, claimed: '' },
+      { branch: 'docs/fix-crash-notes', deferred: false, claimed: '' },
     ],
   }]);
+});
+
+test('plan-meta: claim parsing terminates (no RSTART/RLENGTH clobber)', () => {
+  // Regression: computing the claim note with match() inside the branch loop
+  // clobbered RSTART/RLENGTH, which that loop needs to advance — the parser
+  // hung forever. Guard with a timeout so a hang fails instead of blocking CI.
+  const out = execFileSync('bash', [parser, fixture('canonical-waves.md')],
+    { encoding: 'utf8', timeout: 10_000 });
+  const actual = JSON.parse(out);
+  assert.equal(actual.waves.length, 3);
 });
 
 test('plan-meta: first-## Branches-wins state resets between files', () => {

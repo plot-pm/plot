@@ -17,7 +17,7 @@
 
 ### Implementation
 - `feature/api` — endpoint + schema → #11
-- `feature/ui` — form and validation
+- `feature/ui` — form and validation <!-- claimed: 2026-08-14T10:22Z, session-3 -->
 - `feature/dropped` — not needed after all <!-- deferred: covered by feature/api -->
 
 ### Wave 3
