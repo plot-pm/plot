@@ -111,6 +111,23 @@ interrogation.
 - `packages/board/test/unit/schema.test.ts` — the `waves` contract at the
   board boundary, including the pre-wave default.
 
+## `--next`: the pull side
+
+`/plot-implement` calls `plot-fleet-scan.sh --next [<slug>]` to ask *what may I
+take?* rather than walking the branch list in file order. It prints one branch
+name (exit 0) or nothing (exit 1).
+
+This is deliberately **pull, not push**. The plan's branch decomposition is a
+guess made before the work started, and it is often wrong — branches split,
+turn out unnecessary, or belong in a later wave. A dispatcher that *assigned*
+branches up front would leave a session holding a stale ticket. Asking each
+time means the plan file stays the single mutable truth and nothing caches an
+assignment.
+
+Exit 1 is a normal state ("everything eligible is claimed, or the next wave is
+blocked"), not a failure — hence the exit code rather than an error message, so
+callers can branch on it without parsing output.
+
 ## Known gaps
 
 - No pulse-line writing yet (SKILL.md step 5 describes it; not implemented).
