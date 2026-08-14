@@ -10,8 +10,7 @@ import {
   type Card,
   type Column,
   type SprintCard,
-  type StoryCard,
-} from '../contract/schema.js';
+  type StoryCard, summariseWaves } from '../contract/schema.js';
 
 /**
  * Where to look. `repoRoot` is the adopting project (source of plans / sprints
@@ -225,6 +224,9 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     if (meta.story) card.story = meta.story;
     if (meta.assignee) card.assignee = meta.assignee;
     if (phase === 'Approved') card.started = meta.started_raw.length > 0;
+    // Only carry wave state where it says something — a pre-wave plan or a
+    // single unnamed wave adds noise to the tile rather than information.
+    if (meta.waves.length > 1) card.waveSummary = summariseWaves(meta.waves);
     cards.push(card);
   }
 

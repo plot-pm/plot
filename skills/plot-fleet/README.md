@@ -128,9 +128,18 @@ Exit 1 is a normal state ("everything eligible is claimed, or the next wave is
 blocked"), not a failure — hence the exit code rather than an error message, so
 callers can branch on it without parsing output.
 
+## Strict vs loose eligibility
+
+`--loose` lets a prior wave count as satisfied when its branches carry **pushed
+work** rather than **merged work**. Strict is the default and should stay that
+way: loose buys throughput and pays in rebase risk, because the next wave then
+builds on a seam that has not landed. The plan requires a stated reason for
+using it — the inverse of Principle 10's usual burden, since here it is *less*
+safety that needs justifying.
+
 ## Known gaps
 
-- No pulse-line writing yet (SKILL.md step 5 describes it; not implemented).
-- The board validates `waves` but renders no wave column yet.
 - Stall detection is described but not computed — the scan reports claims
-  without ageing them.
+  without ageing them. `Sprint stall limit` is the intended threshold.
+- The pulse line records counts, not per-branch history; reconstructing "when
+  was this branch claimed" still means reading git.

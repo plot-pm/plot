@@ -53,6 +53,15 @@ export function PlanCard({ card, showSprint, showStory, onOpen }: PlanCardProps)
         )}
         {showSprint && card.sprint && <Badge variant="sprint">{card.sprint}</Badge>}
         {showStory && card.story && <Badge variant="story">{card.story}</Badge>}
+        {card.waveSummary && card.waveSummary.branches > 0 && (
+          // Answers the question a tile is actually asked: how much work is
+          // left, and is anyone on it? Deferred branches are excluded from the
+          // count — they are not outstanding.
+          <Badge variant="neutral">
+            {card.waveSummary.waves} waves · {card.waveSummary.branches} branches
+            {card.waveSummary.claimed > 0 && ` · ${card.waveSummary.claimed} claimed`}
+          </Badge>
+        )}
       </div>
       <div className="mt-2 font-mono text-xs text-slate-400 dark:text-slate-500">{card.path}</div>
       <div className="mt-2 flex items-center justify-between gap-2">

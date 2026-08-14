@@ -6,6 +6,14 @@
 #   --list-eligible  print EVERY claimable branch, one per line (exit 1 if none).
 #               For callers that need the count rather than one item — a dry
 #               run changes nothing, so its answer cannot go stale.
+#   --loose     a prior wave counts as satisfied when its branches carry PUSHED
+#               work, not only merged work. Buys throughput, pays in rebase
+#               risk — the plan requires a stated reason for using it. Default
+#               is strict (merged only).
+#   --log-pulse append one pulse line to each reported plan's ## Notes, clean
+#               pulses included — without a record of quiet pulses an idle fleet
+#               and a dead fleet look identical. The ONLY thing this script ever
+#               writes, and it is a log, not state.
 #   --next      print ONE claimable branch name and exit 0; print nothing and
 #               exit 1 when there is none. Used by /plot-implement to pick work
 #               without re-deriving eligibility. "Nothing to start" is a normal
@@ -46,10 +54,14 @@ cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 do_fetch=1
 next_only=0
 list_all=0
+loose=0
+log_pulse=0
 slug=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-fetch|--offline) do_fetch=0 ;;
+    --loose) loose=1 ;;
+    --log-pulse) log_pulse=1 ;;
     --next) next_only=1 ;;
     --list-eligible) next_only=1; list_all=1 ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
@@ -117,15 +129,18 @@ branch_state() {
   echo "wip"
 }
 
-[ "$next_only" = 1 ] || { echo "plot-fleet pulse — $(git rev-parse --short HEAD) on origin/$MAIN"; echo; }
+[ "$next_only" = 1 ] || { echo "plot-fleet pulse — $(git rev-parse --short HEAD) on origin/$MAIN${loose:+$([ "$loose" = 1 ] && echo " (loose eligibility)")}"; echo; }
 
 n_plans=0 n_waves=0 n_branches=0 n_claimed=0 n_eligible=0 n_blocked=0 n_deferred=0
 claimable=()
+plan_files=()
 
 for plan in "${plans[@]}"; do
   meta=$("$script_dir/plot-plan-meta.sh" "$plan" --prefixes "$PREFIX_RE" 2>/dev/null) || continue
   [ -n "$meta" ] || continue
   n_plans=$((n_plans + 1))
+  plan_target=$(readlink "$plan" 2>/dev/null && echo "" || true)
+  plan_files+=("$plan")
 
   # One awk pass over the parsed JSON would need a JSON parser; instead the
   # wave walk below is driven by plot-plan-meta.sh's own output via a tiny
@@ -177,7 +192,13 @@ for i, w in enumerate(d.get("waves", [])):
     while IFS=$'\t' read -r idx br st deferred nm claim; do
       [ "$idx" = "$wid" ] || continue
       [ "$st" = "deferred" ] && continue
-      [ "$st" = "merged" ] || outstanding=$((outstanding + 1))
+      # strict (default): only a merged branch is settled.
+      # loose: pushed work counts too — buys throughput, pays in rebase risk.
+      case "$st" in
+        merged) ;;
+        wip) [ "$loose" = 1 ] || outstanding=$((outstanding + 1)) ;;
+        *) outstanding=$((outstanding + 1)) ;;
+      esac
     done <<< "$states"
 
     if [ "$outstanding" -eq 0 ]; then verdict="complete"
@@ -221,6 +242,28 @@ if [ "$next_only" = 1 ]; then
     printf '%s\n' "${claimable[0]}"
   fi
   exit 0
+fi
+
+# --log-pulse: append ONE line per plan, clean pulses included. Without a
+# record of quiet pulses an idle fleet and a dead fleet are indistinguishable.
+# This is a LOG, not state: deleting it changes no behaviour, because the next
+# pulse re-derives everything from git.
+if [ "$log_pulse" = 1 ]; then
+  stamp=$(date -u +%Y-%m-%dT%H:%MZ)
+  line="<!-- pulse: $stamp — waves=$n_waves eligible=$n_eligible claimed=$n_claimed blocked=$n_blocked deferred=$n_deferred -->"
+  for pf in ${plan_files[@]+"${plan_files[@]}"}; do
+    real=$(cd "$(dirname "$pf")" && readlink "$(basename "$pf")" 2>/dev/null || true)
+    target=$([ -n "$real" ] && echo "$(dirname "$pf")/$real" || echo "$pf")
+    [ -f "$target" ] || continue
+    if grep -q '^## Notes' "$target" 2>/dev/null; then
+      awk -v ln="$line" '
+        /^## Notes/ && !done { print; print ""; print ln; done=1; next }
+        { print }
+      ' "$target" > "$target.tmp" && mv "$target.tmp" "$target"
+    else
+      printf '\n## Notes\n\n%s\n' "$line" >> "$target"
+    fi
+  done
 fi
 
 echo "Pulse complete. This report is derived — nothing was changed."
