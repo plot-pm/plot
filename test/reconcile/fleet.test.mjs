@@ -361,3 +361,23 @@ test('fleet: scan is read-only — working tree and refs unchanged', () => {
   const status = git(repo, 'status', '--porcelain');
   assert.equal(status.trim(), '', 'scan must not modify the working tree');
 });
+
+test('fleet: the scan stays read-only by default, so internal callers cannot write', () => {
+  // A tension worth naming: Lloyd's lesson says log clean pulses or you cannot
+  // tell an idle fleet from a dead one. Plot's architecture says the scan is
+  // read-only. Both hold — but only because the DEFAULT lives in the skill,
+  // not the script.
+  //
+  // /plot-implement and /plot-dispatch both call this script internally (for
+  // --next). If writing were the script's default, claiming a branch would
+  // silently amend the plan file mid-dispatch. So: the script writes only when
+  // asked, and /plot-fleet — the human-facing command — asks every time.
+  const plan = path.join(repo, 'plans', '2026-01-01-fleet.md');
+  const before = fs.readFileSync(plan, 'utf8');
+
+  execFileSync('bash', [scan, '--offline', 'fleet'], { encoding: 'utf8', cwd: repo });
+  execFileSync('bash', [scan, '--offline', '--next', 'fleet'], { encoding: 'utf8', cwd: repo });
+
+  assert.equal(fs.readFileSync(plan, 'utf8'), before,
+    'no invocation without --log-pulse may modify a plan');
+});

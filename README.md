@@ -45,7 +45,21 @@ Everything else is derived from that. `/plot-fleet` re-reads git each time to re
 
 Because fleet state is derived and never stored, a killed dispatcher or a dead worker costs nothing: the next read re-derives the truth from git. And because merging stays with you, throughput never outruns review — the queue tells you the safe order, you decide what lands.
 
+**Every step of this is something you could do by hand.** Claiming a branch is `git push`. Giving an agent its own workspace is `git worktree add`. Checking what is in flight is reading refs. Plot makes that faster and keeps it honest; it does not make it possible, and there is nothing to learn that is not already git. That is also the exit: stop using Plot and your plans are still markdown, your claims are still branches, and nothing needs migrating.
+
+**No database is the feature, not the omission.** Orchestrators usually need one because their tickets have no home. Plot's plans *are* the work table and its branches *are* the claims — so there is no second store to fall out of sync with git, and no state that survives being wrong.
+
 Start with [Working several branches at once](skills/plot/intro-to-using-plot.md#working-several-branches-at-once).
+
+### How this compares
+
+Two designs shaped this, and it is worth being precise about what was taken and what was deliberately left:
+
+**[Scape](https://www.scape.work/)** runs many agents in isolated worktrees with a live fleet dashboard, and sells scale — *"ten, fifty, a hundred sessions."* The worktree isolation is the same idea, and a good one. What Plot does differently is the axis: not *how many agents can you run*, but *how many can safely work one reviewed plan at once*. Waves exist because the answer is usually "not all of them yet." Plot is also plain git and markdown on any platform, with no app to keep running.
+
+**The [Lloyd loop orchestrator](https://explainx.ai/blog/claude-code-loop-orchestrator-heartbeat-ticket-memory-august-2026)** is a persistent agent on a heartbeat with a SQLite ticket table. Three of its lessons are directly in Plot: state must outlive any one context (git, not SQLite), read-only investigation gates every write (only `/plot-dispatch` touches branches or processes at all), and the agent *proposes* while the human decides. Its fourth — log clean pulses, or you cannot tell an idle fleet from a dead one — is why `/plot-fleet` records a line even when nothing changed. Its author's own framing applies here too: the tooling is replaceable, the discipline is not.
+
+**Deliberately not built:** autonomous merging (the queue computes the order; you land it), agent-to-agent messaging, and a general automation layer. Plot coordinates work on a plan. It is not trying to be the place your agents live.
 
 ## Skills
 
