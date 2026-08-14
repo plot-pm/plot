@@ -11,9 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-08-14, jwloka, plan-PR #70 merged
-<!-- Transition records — written by the workflow commands, not by hand:
-- **Started:** <date>, <who>, <branch>   (one line per started branch)
--->
+- **Started:** 2026-08-14, jwloka, `feature/parallel-fleet-tracer`
 
 ## Approval
 
