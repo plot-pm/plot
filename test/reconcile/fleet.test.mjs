@@ -210,6 +210,50 @@ test('fleet: --next names one branch a worker may claim right now', () => {
   assert.match(picked, /^(feature\/unclaimed|feature\/no-waves)$/);
 });
 
+test('fleet: strict is the default — an unmerged prior wave blocks the next', () => {
+  // The default must be the safe one. `loose` trades rebase safety for
+  // throughput, so it has to be asked for explicitly.
+  assert.match(report, /Wave 3 — blocked/);
+});
+
+test('fleet: --loose opens a wave whose prior branches are pushed but unmerged', () => {
+  // The real difference: a prior wave with WORK PUSHED but not merged blocks
+  // under strict and opens under loose. That is the throughput/rebase-risk
+  // trade the plan makes explicit.
+  const lt = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-'));
+  const bare = path.join(lt, 'origin.git');
+  const r = path.join(lt, 'repo');
+  git(lt, 'init', '--bare', '-q', '-b', 'main', bare);
+  git(lt, 'clone', '-q', bare, r);
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-two.md'),
+    '# Two\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n- `feature/first` — has work, not merged\n\n### Two\n- `feature/second` — waits on first\n');
+  fs.symlinkSync('../2026-01-01-two.md', path.join(r, 'plans', 'active', 'two.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+  // feature/first: real work pushed, NOT merged.
+  git(r, 'checkout', '-q', '-b', 'feature/first');
+  fs.writeFileSync(path.join(r, 'work.txt'), 'done\n');
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'work');
+  git(r, 'push', '-q', '-u', 'origin', 'feature/first');
+  git(r, 'checkout', '-q', 'main');
+
+  const strict = execFileSync('bash', [scan, '--offline'], { encoding: 'utf8', cwd: r });
+  assert.match(strict, /Two — blocked/, 'strict must block on an unmerged prior wave');
+
+  const loose = execFileSync('bash', [scan, '--offline', '--loose'], { encoding: 'utf8', cwd: r });
+  assert.match(loose, /Two — eligible/, 'loose must open it once work is pushed');
+
+  fs.rmSync(lt, { recursive: true, force: true });
+});
+
 test('fleet: --list-eligible names every claimable branch, one per line', () => {
   // --next answers "give me one" (pull, for a worker). --list-eligible answers
   // "how many could run" (for a dry run, which changes nothing and so cannot
@@ -252,6 +296,35 @@ test('fleet: --next stays silent when nothing is claimable', () => {
   assert.equal(stdout.trim(), '');
   assert.equal(code, 1);
   fs.rmSync(blocked, { recursive: true, force: true });
+});
+
+test('fleet: --log-pulse appends one line to the plan, clean pulses included', () => {
+  // Lloyd's lesson applied: a pulse that finds nothing wrong must still say so,
+  // or an idle fleet and a dead fleet look identical. This is the ONLY thing
+  // the pulse ever writes, and it is a log, not state — deleting the whole log
+  // changes no behaviour, because the next pulse re-derives everything.
+  const plan = path.join(repo, 'plans', '2026-01-01-fleet.md');
+  const before = fs.readFileSync(plan, 'utf8');
+  assert.ok(!before.includes('<!-- pulse:'), 'precondition: no pulse lines yet');
+
+  execFileSync('bash', [scan, '--offline', '--log-pulse', 'fleet'],
+    { encoding: 'utf8', cwd: repo });
+
+  const after = fs.readFileSync(plan, 'utf8');
+  const lines = after.split('\n').filter((l) => l.includes('<!-- pulse:'));
+  assert.equal(lines.length, 1, 'exactly one pulse line per run');
+  assert.match(lines[0], /eligible=\d+/);
+  assert.match(lines[0], /claimed=\d+/);
+
+  // A second run appends rather than replacing — the log is a history.
+  execFileSync('bash', [scan, '--offline', '--log-pulse', 'fleet'],
+    { encoding: 'utf8', cwd: repo });
+  const twice = fs.readFileSync(plan, 'utf8').split('\n')
+    .filter((l) => l.includes('<!-- pulse:'));
+  assert.equal(twice.length, 2);
+
+  // Restore: every other test in this file asserts on an unmodified repo.
+  fs.writeFileSync(plan, before);
 });
 
 test('fleet: scan is read-only — working tree and refs unchanged', () => {

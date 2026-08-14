@@ -67,6 +67,33 @@ export type SprintPhase = (typeof SPRINT_PHASES)[number];
 export const STORY_STATUSES = ['draft', 'ready', 'active', 'in-review', 'paused', 'done'] as const;
 export type StoryStatus = (typeof STORY_STATUSES)[number];
 
+/** Wave state condensed to the four numbers a board tile can show. */
+export const WaveSummarySchema = z.object({
+  waves: z.number(),
+  /** Non-deferred branches only — deferred work is not outstanding. */
+  branches: z.number(),
+  claimed: z.number(),
+  deferred: z.number(),
+});
+export type WaveSummary = z.infer<typeof WaveSummarySchema>;
+
+/**
+ * Condense `PlanMeta.waves` for display. Deferred branches are excluded from
+ * `branches` and counted separately: counting them as outstanding would make a
+ * finished plan look unfinished on the board.
+ */
+export function summariseWaves(waves: PlanMeta['waves']): WaveSummary {
+  let branches = 0, claimed = 0, deferred = 0;
+  for (const w of waves) {
+    for (const b of w.branches) {
+      if (b.deferred) { deferred += 1; continue; }
+      branches += 1;
+      if (b.claimed) claimed += 1;
+    }
+  }
+  return { waves: waves.length, branches, claimed, deferred };
+}
+
 export const CardSchema = z.object({
   slug: z.string(),
   title: z.string(),
@@ -82,6 +109,15 @@ export const CardSchema = z.object({
   started: z.boolean().optional(),
   /** Repo-relative path, e.g. docs/plans/2026-07-12-kanban-board-v1.md */
   path: z.string(),
+  /**
+   * Glanceable wave state for a card: how many waves, how much outstanding
+   * work, how much of it is taken. Deliberately a summary rather than the
+   * nested `waves` structure — a tile answers "how much is left and is anyone
+   * on it?", not "which branch sits in which wave".
+   *
+   * Optional: pre-wave plans and older helper output produce cards without it.
+   */
+  waveSummary: WaveSummarySchema.optional(),
 });
 export type Card = z.infer<typeof CardSchema>;
 
