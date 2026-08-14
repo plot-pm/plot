@@ -43,6 +43,7 @@ New to Plot? Read [Intro to Using Plot](skills/plot/intro-to-using-plot.md) for 
 | [plot-reconcile](skills/plot-reconcile/) | Read-only hygiene sweep — surface plan/symlink/branch drift with remediating commands |
 | [plot-release](skills/plot-release/) | Create versioned release from delivered plans |
 | [plot-sprint](skills/plot-sprint/) | Time-boxed sprint coordination with MoSCoW prioritization |
+| [plot-dispatch](skills/plot-dispatch/) | Fan out a plan across several agents — one worktree and one worker per eligible branch |
 | [plot-fleet](skills/plot-fleet/) | Fleet pulse — which branch waves are eligible to start, which branches are claimed |
 | [ralph-plot-sprint](skills/ralph-plot-sprint/) | Automated sprint runner (extension) |
 | [challenge-the-plan](skills/challenge-the-plan/) | Deep plan interrogation — adaptive interviews across technical, domain, UX, non-functional dimensions (companion) |

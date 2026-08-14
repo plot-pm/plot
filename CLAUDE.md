@@ -28,6 +28,7 @@ Plot is a hub-and-spoke skill system:
 | Command | `plot-deliver/` | Verify all impl PRs merged (cross-repo aware), deliver the plan |
 | Command | `plot-release/` | Cut versioned release with changelog |
 | Coordination | `plot-sprint/` | Time-boxed sprint with MoSCoW priorities |
+| Coordination | `plot-dispatch/` | Fan out an approved plan: one worktree + one detached worker per eligible branch, each claimed by ref push (the writing half of the fleet) |
 | Coordination | `plot-fleet/` | Fleet pulse — which branch waves are complete/eligible/blocked, which branches are claimed (read-only, stateless) |
 | Automation | `ralph-plot-sprint/` | Automated sprint runner (shell loop wrapper) |
 | Companion | `challenge-the-plan/` | Deep plan interrogation (design-phase: idea → challenge → approve) — usable standalone, not a plot spoke |
@@ -52,6 +53,7 @@ Scripts in `skills/plot/scripts/` that any model tier can use:
 | `plot-phase-gate.sh` | PreToolUse hook (see `hooks/hooks.json`): blocks implementation commits while the governing plan is Draft; plan-only commits pass; fails open |
 | `plot-story-lint.sh` | Story-estate drift check (missing STORY files, frontmatter, done-not-archived, index sync); machine-countable footer; exit 1 on findings |
 | `plot-reconcile-scan.sh` | Read-only plan/branch drift sweep (five sections + machine-countable footer) |
+| `plot-dispatch.sh` | Worktree fan-out: one worktree + claim + detached worker per eligible branch; `--dry-run`/`--no-start`/`--max N`; idempotent — re-running adopts rather than duplicates |
 | `plot-fleet-scan.sh` | Read-only wave/claim state per plan (complete/eligible/blocked + machine-countable footer); `--next` names one claimable branch (exit 1 = nothing to start); stateless — re-derived from git refs every run |
 | `board/board-server.mjs` | Local Kanban status board — built artifact of `@plot-pm/board` (`packages/board`); run via `pnpm board`, rebuild via `pnpm build:board` |
 

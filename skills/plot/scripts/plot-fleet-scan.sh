@@ -3,6 +3,9 @@
 # Usage: plot-fleet-scan.sh [--no-fetch] [--offline] [--next] [<slug>]
 #   --no-fetch  skip `git fetch`
 #   --offline   same (no network) — used for cheap, ambient pulses
+#   --list-eligible  print EVERY claimable branch, one per line (exit 1 if none).
+#               For callers that need the count rather than one item — a dry
+#               run changes nothing, so its answer cannot go stale.
 #   --next      print ONE claimable branch name and exit 0; print nothing and
 #               exit 1 when there is none. Used by /plot-implement to pick work
 #               without re-deriving eligibility. "Nothing to start" is a normal
@@ -42,11 +45,13 @@ cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 
 do_fetch=1
 next_only=0
+list_all=0
 slug=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-fetch|--offline) do_fetch=0 ;;
     --next) next_only=1 ;;
+    --list-eligible) next_only=1; list_all=1 ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) slug="$1" ;;
   esac
@@ -210,7 +215,11 @@ done
 # distinguishes it from a name, so callers can branch on it without parsing.
 if [ "$next_only" = 1 ]; then
   [ ${#claimable[@]} -gt 0 ] || exit 1
-  printf '%s\n' "${claimable[0]}"
+  if [ "$list_all" = 1 ]; then
+    printf '%s\n' "${claimable[@]}"
+  else
+    printf '%s\n' "${claimable[0]}"
+  fi
   exit 0
 fi
 
