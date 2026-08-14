@@ -196,11 +196,13 @@ test('scan: summary footer carries machine-countable finding counts', () => {
   // The one line consumers (the /plot hygiene hook, Automation Output) parse.
   // drift: alpha (delivered-in-active) + sigma (superseded-in-active).
   // merged_not_delivered: beta. stale: feature/beta (merged) + bug/gamma
-  // (orphan). attention: legacy + omega + tau (superseded orphan). concurrent:
-  // beta + gamma branches of active plans (sigma has no branch).
+  // (orphan). claims: none — every branch here carries real commits, so the
+  // reaper's empty-claim classification finds nothing. attention: legacy +
+  // omega + tau (superseded orphan). concurrent: beta + gamma branches of
+  // active plans (sigma has no branch).
   const last = report.trim().split('\n').at(-1);
   assert.equal(last,
-    'summary: drift=2 merged_not_delivered=1 stale=2 attention=3 concurrent=2 pr_source=degraded main=main');
+    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=3 concurrent=2 pr_source=degraded main=main');
 });
 
 test('scan: --offline skips git-host PR enumeration and reports pr_source=off', () => {
