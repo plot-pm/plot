@@ -4,16 +4,20 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches
+- **Approved:** 2026-08-14, jwloka, plan-PR #70 merged
 <!-- Transition records — written by the workflow commands, not by hand:
-- **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
 -->
+
+## Approval
+
+- **Assignee:** jwloka
 
 ## Changelog
 
