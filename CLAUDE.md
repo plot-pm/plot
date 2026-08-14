@@ -131,6 +131,11 @@ pnpm run typecheck        # typechecks @plot-pm/board
 
 **The board is first-class.** Keeping it working — and considering board impact when planning changes to the plan format, template, helper scripts, or `docs/plans` layout — is part of the [Definition of Done](docs/definition-of-done.md), gated in CI.
 
+**Fleet user test:** [docs/fleet-user-test.md](docs/fleet-user-test.md) — a
+guided run of `/plot-fleet`, `/plot-dispatch`, and `/plot-merge-queue` in a
+real project, covering what the automated flows deliberately cannot (agent
+adherence to prose, message clarity, real detached workers).
+
 **Behavioral testing is manual.** The skills have no unit tests — validation is via end-to-end lifecycle testing (full workflow from `/plot-idea` through `/plot-release`). Any change to a spoke command or helper script should be tested with a full lifecycle walkthrough. See `skills/plot/README.md` for documented test runs. (The board, being real code, does have automated tests.)
 
 ## Contributing
