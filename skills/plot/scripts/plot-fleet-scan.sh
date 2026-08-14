@@ -100,6 +100,11 @@ else
 fi
 
 if [ ${#plans[@]} -eq 0 ]; then
+  # --next/--list-eligible must stay silent and exit 1: "nothing to start" is
+  # the same answer whether the plans are all claimed or there are no plans at
+  # all. Exiting 0 here would hand a caller an EMPTY branch name as if it were
+  # valid work.
+  [ "$next_only" = 1 ] && exit 1
   echo "No active plans found in ${ACTIVE_DIR}."
   echo "summary: plans=0 waves=0 branches=0 claimed=0 eligible=0 blocked=0 deferred=0 main=$MAIN"
   exit 0

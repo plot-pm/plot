@@ -64,6 +64,16 @@ wt_root=$(cd "$repo_root/.." && pwd)
 
 n_dispatched=0 n_reused=0 n_skipped=0 n_started=0
 
+# Branches this run cannot dispatch. --next re-asks each iteration (pull
+# semantics), and a branch that is never CLAIMED keeps coming back — without
+# this the loop spins forever on the first undispatchable branch.
+declare -a exhausted=()
+is_exhausted() {
+  local x
+  for x in ${exhausted[@]+"${exhausted[@]}"}; do [ "$x" = "$1" ] && return 0; done
+  return 1
+}
+
 # Start one DETACHED worker per worktree. Detached is the whole point: the
 # fleet must outlive the dispatching session. Logs go beside the worktree so a
 # human can read them without knowing anything about how the worker was started.
@@ -106,6 +116,9 @@ while :; do
 
   branch=$("$script_dir/plot-fleet-scan.sh" $offline --next "$slug" 2>/dev/null) || break
   [ -n "$branch" ] || break
+  # --next has no memory; if it offers something we already failed on, the
+  # eligible set is exhausted for this run.
+  is_exhausted "$branch" && break
 
   suffix=${branch##*/}
   wt="$wt_root/plot-wt-$suffix"
@@ -127,6 +140,7 @@ while :; do
       git worktree add -q "$wt" "$branch" 2>/dev/null || {
         echo "skipped $branch (cannot create worktree)"
         n_skipped=$((n_skipped + 1))
+        exhausted+=("$branch")
         continue
       }
     }
@@ -139,6 +153,7 @@ while :; do
       echo "skipped $branch (claimed by another session)"
       git worktree remove --force "$wt" 2>/dev/null || true
       n_skipped=$((n_skipped + 1))
+      exhausted+=("$branch")
       continue
     fi
   fi
