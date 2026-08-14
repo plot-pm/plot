@@ -384,7 +384,7 @@ a reason), and the parser fix (first `## Branches` heading wins).
 ## Branches
 
 ### Tracer
-- `feature/parallel-fleet-tracer` — Stage 1: `waves[]` + `claimed`/`deferred` in
+- `feature/parallel-fleet-tracer` → #72 — Stage 1: `waves[]` + `claimed`/`deferred` in
   `plot-plan-meta.sh`, read-only `/plot-fleet` rendering the derived view, pulse
   log, board wave column.
   Layers: plan format → `plot-plan-meta.sh` → `test:reconcile` → skill → board
