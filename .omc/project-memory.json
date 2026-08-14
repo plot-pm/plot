@@ -184,6 +184,12 @@
       "type": "file"
     },
     {
+      "path": "skills/plot/scripts/plot-fleet-scan.sh",
+      "accessCount": 7,
+      "lastAccessed": 1786713720127,
+      "type": "file"
+    },
+    {
       "path": "skills/plot-reconcile/SKILL.md",
       "accessCount": 5,
       "lastAccessed": 1784995966231,
@@ -199,6 +205,12 @@
       "path": "skills/ralph-plot-sprint/deliverable-rubric.md",
       "accessCount": 5,
       "lastAccessed": 1784996446748,
+      "type": "file"
+    },
+    {
+      "path": "test/reconcile/fleet.test.mjs",
+      "accessCount": 3,
+      "lastAccessed": 1786713738146,
       "type": "file"
     },
     {
