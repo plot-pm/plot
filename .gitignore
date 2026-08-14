@@ -11,3 +11,8 @@ Thumbs.db
 
 # Dependencies
 node_modules/
+
+# Agent tooling — per-developer session state and caches, not project content.
+# (oh-my-claudecode writes session logs, a HUD cache, and project memory here;
+# these mutate on every run and are personal to whoever is working.)
+.omc/
