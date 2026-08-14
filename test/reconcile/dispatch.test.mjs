@@ -96,6 +96,46 @@ test('dispatch: is idempotent — a second run re-adopts, never duplicates', () 
   assert.match(out, /(already|existing|reus)/i);
 });
 
+test('dispatch: a branch it cannot dispatch is skipped once, not forever', () => {
+  // The loop re-asks --next after each claim (pull semantics). A branch that
+  // CANNOT be dispatched is never claimed, so --next keeps returning it — the
+  // first version span forever printing "skipped". Anything unskippable must
+  // be remembered for the duration of the run.
+  const blocked = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-blocked-'));
+  const o = path.join(blocked, 'origin.git');
+  const r = path.join(blocked, 'repo');
+  git(blocked, 'init', '--bare', '-q', '-b', 'main', o);
+  git(blocked, 'clone', '-q', o, r);
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-b.md'),
+    '# B\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n- `feature/blocked` — one\n');
+  fs.symlinkSync('../2026-01-01-b.md', path.join(r, 'plans', 'active', 'b.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  // Occupy the worktree path with a non-worktree directory so creation fails.
+  const wt = path.join(path.dirname(r), 'plot-wt-blocked');
+  fs.mkdirSync(wt, { recursive: true });
+  fs.writeFileSync(path.join(wt, 'PREEXISTING'), 'not ours\n');
+
+  const out = execFileSync('bash', [dispatch, '--offline', '--no-start', 'b'],
+    { encoding: 'utf8', cwd: r, timeout: 20_000 });
+  const skips = out.split('\n').filter((l) => /skipped feature\/blocked/.test(l));
+  assert.equal(skips.length, 1, `must skip once, got ${skips.length}`);
+  assert.match(out, /summary: /, 'must still reach the summary footer');
+
+  // And it must not have touched the directory it did not create.
+  assert.ok(fs.existsSync(path.join(wt, 'PREEXISTING')));
+  fs.rmSync(blocked, { recursive: true, force: true });
+  fs.rmSync(wt, { recursive: true, force: true });
+});
+
 test('dispatch: refuses to run outside a git repository', () => {
   const notRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-not-repo-'));
   let failed = false;

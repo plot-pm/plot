@@ -265,6 +265,36 @@ test('fleet: --list-eligible names every claimable branch, one per line', () => 
   assert.deepEqual(lines, ['feature/no-waves', 'feature/unclaimed']);
 });
 
+test('fleet: --next exits 1 in a repo with no plans at all', () => {
+  // The no-plans early exit returned 0 regardless of mode, so a caller doing
+  // `BRANCH=$(... --next) || exit` would accept an EMPTY branch name as a
+  // valid answer and try to claim it. Exit 1 is the contract: "nothing to
+  // start", whatever the reason.
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-noplans-'));
+  const o = path.join(bare, 'origin.git');
+  const r = path.join(bare, 'repo');
+  git(bare, 'init', '--bare', '-q', '-b', 'main', o);
+  git(bare, 'clone', '-q', o, r);
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.writeFileSync(path.join(r, 'README.md'), '# no plot config here\n');
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'init');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  let code = 0, stdout = '';
+  try {
+    stdout = execFileSync('bash', [scan, '--offline', '--next'], { encoding: 'utf8', cwd: r });
+  } catch (e) {
+    code = e.status;
+    stdout = e.stdout ?? '';
+  }
+  assert.equal(code, 1, '--next must exit 1 when there is nothing to start');
+  assert.equal(stdout.trim(), '', '--next must print nothing but a branch name');
+  fs.rmSync(bare, { recursive: true, force: true });
+});
+
 test('fleet: --next stays silent when nothing is claimable', () => {
   // Empty output, exit 1: "nothing to start" is a normal state, not an error
   // condition to crash on, but it must be distinguishable from a name.
