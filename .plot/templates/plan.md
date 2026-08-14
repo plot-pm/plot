@@ -68,6 +68,13 @@
 <!-- When using ### Tracer, wrap remaining branches in ### Implementation: -->
 <!-- ### Implementation -->
 
+<!-- Waves: branches under one ### subheading may run concurrently. A wave is
+     eligible once every non-deferred branch in every PRIOR wave is merged, so
+     `### Tracer` proves the seam before `### Implementation` fans out. Add
+     `### Wave 3`, `### Wave 4`, … for anything that must follow.
+     No subheadings at all = one wave = every branch eligible at once (the
+     pre-wave behaviour). Check state with /plot-fleet. -->
+
 - `feature/<slug>` — <description>
 
 ## Notes

@@ -1,7 +1,7 @@
 {
   "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"grep -rln \\\"^## Branches\\\" test/reconcile/fixtures/ | while read f; do n=$(grep -c \\\"^## Branches\\\" \\\"$f\\\"); [ \\\"$n\\\" -gt 1 ] && echo \\\"$n × $f\\\"; done\"}",
-  "error": "Exit code 1\n2 × test/reconcile/fixtures/plans/canonical-branches-in-prose.md",
-  "timestamp": "2026-08-14T13:01:12.821Z",
+  "tool_input_preview": "{\"command\":\"echo \\\"=== validate ===\\\" && timeout 60 pnpm run validate 2>&1 | tail -2 && echo \\\"=== reconcile ===\\\" && timeout 150 pnpm run test:reconcile 2>&1 | grep -E \\\"^.(ℹ (pass|fail))\\\" && echo \\...",
+  "error": "Exit code 1\n=== validate ===\n\nAll skills valid (0 warning(s))\n=== reconcile ===",
+  "timestamp": "2026-08-14T13:59:54.568Z",
   "retry_count": 1
 }

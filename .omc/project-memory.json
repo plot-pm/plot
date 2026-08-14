@@ -214,6 +214,12 @@
       "type": "file"
     },
     {
+      "path": "README.md",
+      "accessCount": 3,
+      "lastAccessed": 1786715981892,
+      "type": "file"
+    },
+    {
       "path": "skills/plot/README.md",
       "accessCount": 2,
       "lastAccessed": 1782466396452,
@@ -226,15 +232,15 @@
       "type": "file"
     },
     {
-      "path": "README.md",
-      "accessCount": 2,
-      "lastAccessed": 1783245490958,
-      "type": "file"
-    },
-    {
       "path": "test/reconcile/fixtures/plans/canonical-waves.md",
       "accessCount": 2,
       "lastAccessed": 1786712581555,
+      "type": "file"
+    },
+    {
+      "path": "CLAUDE.md",
+      "accessCount": 2,
+      "lastAccessed": 1786715975024,
       "type": "file"
     },
     {
@@ -355,6 +361,42 @@
       "path": "test/reconcile/fixtures/plans/canonical-branches-in-prose.md",
       "accessCount": 1,
       "lastAccessed": 1786712429106,
+      "type": "file"
+    },
+    {
+      "path": "packages/board/test/unit/schema.test.ts",
+      "accessCount": 1,
+      "lastAccessed": 1786715829918,
+      "type": "file"
+    },
+    {
+      "path": "skills/plot-fleet/SKILL.md",
+      "accessCount": 1,
+      "lastAccessed": 1786715903207,
+      "type": "file"
+    },
+    {
+      "path": "skills/plot-fleet/README.md",
+      "accessCount": 1,
+      "lastAccessed": 1786715932955,
+      "type": "file"
+    },
+    {
+      "path": ".plot/templates/plan.md",
+      "accessCount": 1,
+      "lastAccessed": 1786715944643,
+      "type": "file"
+    },
+    {
+      "path": "skills/plot/templates/plan.md",
+      "accessCount": 1,
+      "lastAccessed": 1786715952561,
+      "type": "file"
+    },
+    {
+      "path": ".changeset/parallel-fleet-tracer.md",
+      "accessCount": 1,
+      "lastAccessed": 1786715964693,
       "type": "file"
     }
   ],

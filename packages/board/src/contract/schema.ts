@@ -21,6 +21,28 @@ export const PlanMetaSchema = z.object({
   story: z.string().default(''),
   assignee: z.string().default(''),
   branches: z.array(z.string()).default([]),
+  /**
+   * Branches grouped into waves by `### ` subheading under `## Branches`, in
+   * document order. A wave is eligible once every non-deferred branch in every
+   * prior wave is merged — that arithmetic lives in `plot-fleet-scan.sh`, not
+   * here; the board only renders what the helper reports.
+   *
+   * `claimed` is a REFLECTION of a claim, not the claim itself: a worker takes
+   * a branch by pushing its ref (atomic), then writes this annotation for
+   * humans and the board. Where the two disagree, git wins.
+   *
+   * Defaults to empty so output from a pre-wave `plot-plan-meta.sh` still
+   * validates. `branches` above stays the complete flat set — never derive one
+   * from the other at this layer.
+   */
+  waves: z.array(z.object({
+    name: z.string().default(''),
+    branches: z.array(z.object({
+      branch: z.string(),
+      deferred: z.boolean().default(false),
+      claimed: z.string().default(''),
+    })).default([]),
+  })).default([]),
   prs: z.array(z.number()).default([]),
   /** Plot 2 ceremony fields (absent on pre-Plot-2 plans). */
   review: z.string().default('NONE'),
