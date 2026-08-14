@@ -147,3 +147,73 @@ exec /usr/bin/git "$@"
   assert.match(stderr, /2\.38/, 'must name the required version');
   fs.rmSync(fakeBin, { recursive: true, force: true });
 });
+
+test('merge-queue: never orders a later wave ahead of an earlier one', () => {
+  // The queue sorted purely by footprint, so a small wave-2 branch could be
+  // recommended ahead of a larger tracer — inverting the entire premise that
+  // the tracer proves the seam first. Wave order must dominate size.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-mqwave-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, 'repo');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-w.md'),
+    '# W\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### Tracer\n- `feature/seam` — proves the seam, touches several files\n\n### Implementation\n- `feature/tiny` — one small file\n');
+  fs.symlinkSync('../2026-01-01-w.md', path.join(r, 'plans', 'active', 'w.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  // The tracer is deliberately the BIGGER branch, so footprint ordering alone
+  // would put the wave-2 branch first.
+  git(r, 'checkout', '-q', '-b', 'feature/seam');
+  for (const f of ['a.txt', 'b.txt', 'c.txt']) fs.writeFileSync(path.join(r, f), 'seam\n');
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'seam');
+  git(r, 'push', '-q', '-u', 'origin', 'feature/seam');
+  git(r, 'checkout', '-q', 'main');
+  git(r, 'checkout', '-q', '-b', 'feature/tiny');
+  fs.writeFileSync(path.join(r, 'tiny.txt'), 'x\n');
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'tiny');
+  git(r, 'push', '-q', '-u', 'origin', 'feature/tiny');
+  git(r, 'checkout', '-q', 'main');
+
+  const out = execFileSync('bash', [queue, '--offline', 'w'], { encoding: 'utf8', cwd: r });
+  const lines = out.split('\n').filter((l) => /feature\/(seam|tiny)/.test(l));
+  assert.match(lines[0], /feature\/seam/,
+    `the tracer must be offered first despite being larger:\n${out}`);
+
+  fs.rmSync(t, { recursive: true, force: true });
+});
+
+test('scripts: no bash-4-only constructs (macOS ships bash 3.2)', () => {
+  // `declare -A` slipped into the queue during the wave-ordering fix and broke
+  // the script outright on any stock macOS — the exact class of portability
+  // bug a first user on a different machine would hit, and one no fixture
+  // catches because CI runs bash 5.
+  const scriptsDir = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
+  const offenders = [];
+  for (const f of fs.readdirSync(scriptsDir)) {
+    if (!f.endsWith('.sh')) continue;
+    const src = fs.readFileSync(path.join(scriptsDir, f), 'utf8');
+    src.split('\n').forEach((line, i) => {
+      if (/^\s*(declare|local|typeset)\s+-[A-Za-z]*A/.test(line)) {
+        offenders.push(`${f}:${i + 1} associative array`);
+      }
+      if (/\$\{[A-Za-z_][A-Za-z0-9_]*\^\^?\}|\$\{[A-Za-z_][A-Za-z0-9_]*,,?\}/.test(line)) {
+        offenders.push(`${f}:${i + 1} case conversion \${x^^}/\${x,,}`);
+      }
+      if (/\breadarray\b|\bmapfile\b/.test(line)) {
+        offenders.push(`${f}:${i + 1} readarray/mapfile`);
+      }
+    });
+  }
+  assert.deepEqual(offenders, [], `bash 4+ constructs found:\n${offenders.join('\n')}`);
+});

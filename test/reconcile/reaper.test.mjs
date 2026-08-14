@@ -59,10 +59,13 @@ before(() => {
   git(repo, 'commit', '-qm', 'plan');
   git(repo, 'push', '-q', 'origin', 'main');
 
-  // Two claims on the wire: empty branches, no commits of their own. Identical
-  // in git; only the plan annotation distinguishes them.
+  // Two claims on the wire: branches carrying only a CLAIM COMMIT. Identical
+  // in git; only the plan annotation distinguishes them. The commit is what
+  // makes the claim exclusive — a branch merely pointing at main does not
+  // diverge, so a second dispatcher's push would silently succeed.
   for (const b of ['feature/abandoned', 'feature/orphaned']) {
     git(repo, 'checkout', '-q', '-b', b);
+    git(repo, 'commit', '-q', '--allow-empty', '-m', `plot: claim ${b}`);
     git(repo, 'push', '-q', '-u', 'origin', b);
     git(repo, 'checkout', '-q', 'main');
   }
@@ -152,6 +155,9 @@ test('reaper: a claim older than the threshold is flagged stale, with its age', 
   // (An earlier version of this test gave the claim its own empty commit,
   // which made it "ahead of main" and thus not a claim at all.)
   git(r, 'checkout', '-q', '-b', 'feature/old');
+  execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'plot: claim feature/old'], {
+    cwd: r, env: { ...process.env, GIT_COMMITTER_DATE: old, GIT_AUTHOR_DATE: old },
+  });
   git(r, 'push', '-q', '-u', 'origin', 'feature/old');
   git(r, 'checkout', '-q', 'main');
 
