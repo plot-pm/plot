@@ -184,9 +184,11 @@ function reset_state() {
   canon_sprint = ""; canon_story = ""; canon_assignee = ""
   canon_review = ""; canon_impl = ""; canon_approved = ""
   h1_title = ""
-  in_fm = 0; section = ""; in_comment = 0
+  in_fm = 0; section = ""; in_comment = 0; branches_seen = 0
   delete branches; n_branches = 0
   delete prs; n_prs = 0
+  delete wave_names; delete wave_of; delete wave_seq; delete wave_count
+  delete deferred_of; delete claimed_of; delete ordered_b; n_waves = 0
   delete started; n_started = 0
 }
 function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, review, impl, approved, i, j, out, sorted_b, sorted_p, nb, np) {
@@ -236,6 +238,21 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   out = out "],\"prs\":["
   for (i = 1; i <= np; i++) out = out (i > 1 ? "," : "") sorted_p[i]
   out = out "]"
+  # waves[]: branches grouped by `### ` subheading, in document order. A plan
+  # with no subheadings yields one wave with an empty name.
+  out = out ",\"waves\":["
+  for (w = 1; w <= n_waves; w++) {
+    out = out (w > 1 ? "," : "") "{\"name\":\"" jesc(wave_names[w]) "\",\"branches\":["
+    first = 1
+    for (i = 1; i <= n_branches; i++) {
+      if (wave_of[i] != w) continue
+      out = out (first ? "" : ",") "{\"branch\":\"" jesc(ordered_b[i]) "\",\"deferred\":" deferred_of[i] \
+            ",\"claimed\":\"" jesc(claimed_of[i]) "\"}"
+      first = 0
+    }
+    out = out "]}"
+  }
+  out = out "]"
   out = out ",\"review_raw\":\"" jesc(review) "\",\"review\":\"" norm_review(review) "\""
   out = out ",\"impl_raw\":\"" jesc(impl) "\",\"impl\":\"" norm_impl(impl) "\""
   out = out ",\"approved_raw\":\"" jesc(approved) "\""
@@ -275,7 +292,9 @@ in_comment { if ($0 ~ /-->/) in_comment = 0; next }
 /^#[ \t]/ && h1_title == "" { h1_title = trim(substr($0, 2)) }
 /^## / {
   if ($0 ~ /^## Status/) section = "status"
-  else if ($0 ~ /^## Branches/) section = "branches"
+  # First `## Branches` wins: a plan documenting the plan format quotes the
+  # section in prose, and those later headings are illustration, not contract.
+  else if ($0 ~ /^## Branches/) { section = branches_seen ? "" : "branches"; branches_seen = 1 }
   else if ($0 ~ /^## Approval/) section = "approval"
   else section = ""
   next
@@ -301,10 +320,35 @@ section == "approval" {
   next
 }
 section == "branches" {
+  # `### <name>` opens a wave. Branches before any subheading belong to an
+  # unnamed wave, so a pre-wave plan parses as exactly one wave.
+  if ($0 ~ /^###[ \t]/) {
+    wave_names[++n_waves] = trim(substr($0, 4))
+    next
+  }
+  # Claim reflection, written by the worker after its ref push succeeds. This is
+  # a reflection, not the claim: git refs remain authoritative. Computed before
+  # the branch loop below — match() clobbers RSTART/RLENGTH, which that loop
+  # needs to advance.
+  claim_note = ""
+  if (index($0, "claimed:") > 0) {
+    _c = $0
+    sub(/^.*<!--[ \t]*claimed:[ \t]*/, "", _c)
+    sub(/[ \t]*-->.*$/, "", _c)
+    claim_note = trim(_c)
+  }
   line = $0
   while (match(line, branch_re)) {
     b = substr(line, RSTART + 1, RLENGTH - 2)
     branches[++n_branches] = b
+    if (n_waves == 0) { wave_names[++n_waves] = "" }
+    wave_of[n_branches] = n_waves
+    wave_seq[n_branches] = ++wave_count[n_waves]
+    deferred_of[n_branches] = ($0 ~ /<!--[ \t]*deferred:/) ? "true" : "false"
+    # Claim reflection, written by the worker after its ref push succeeds. This
+    # is a reflection, not the claim: git refs remain authoritative.
+    claimed_of[n_branches] = claim_note
+    ordered_b[n_branches] = b
     line = substr(line, RSTART + RLENGTH)
   }
   line = $0

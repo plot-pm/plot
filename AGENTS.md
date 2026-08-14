@@ -28,7 +28,6 @@ Plot is a hub-and-spoke skill system:
 | Command | `plot-deliver/` | Verify all impl PRs merged (cross-repo aware), deliver the plan |
 | Command | `plot-release/` | Cut versioned release with changelog |
 | Coordination | `plot-sprint/` | Time-boxed sprint with MoSCoW priorities |
-| Coordination | `plot-fleet/` | Fleet pulse — which branch waves are complete/eligible/blocked, which branches are claimed (read-only, stateless) |
 | Automation | `ralph-plot-sprint/` | Automated sprint runner (shell loop wrapper) |
 | Companion | `challenge-the-plan/` | Deep plan interrogation (design-phase: idea → challenge → approve) — usable standalone, not a plot spoke |
 | Companion | `story-tracking/` | Multi-session work tracking (stories = umbrella around plans) — usable standalone, not a plot spoke |
@@ -52,7 +51,6 @@ Scripts in `skills/plot/scripts/` that any model tier can use:
 | `plot-phase-gate.sh` | PreToolUse hook (see `hooks/hooks.json`): blocks implementation commits while the governing plan is Draft; plan-only commits pass; fails open |
 | `plot-story-lint.sh` | Story-estate drift check (missing STORY files, frontmatter, done-not-archived, index sync); machine-countable footer; exit 1 on findings |
 | `plot-reconcile-scan.sh` | Read-only plan/branch drift sweep (five sections + machine-countable footer) |
-| `plot-fleet-scan.sh` | Read-only wave/claim state per plan (complete/eligible/blocked + machine-countable footer); stateless — re-derived from git refs every run |
 | `board/board-server.mjs` | Local Kanban status board — built artifact of `@plot-pm/board` (`packages/board`); run via `pnpm board`, rebuild via `pnpm build:board` |
 
 Design split (Manifesto Principle 3): **skills interpret and adapt; scripts collect and report.**
@@ -78,7 +76,7 @@ Each command validates the current phase before acting:
 
 ## Project-Agnostic Design
 
-Plot contains zero hardcoded project names, paths, or configuration. Adopting projects describe their conventions in a `## Plot Config` section of their `CLAUDE.md`. Plot discovers and adapts — never enforces.
+Plot contains zero hardcoded project names, paths, or configuration. Adopting projects describe their conventions in a `## Plot Config` section of their `AGENTS.md`. Plot discovers and adapts — never enforces.
 
 ## Skill Authoring
 
@@ -87,14 +85,14 @@ Plot contains zero hardcoded project names, paths, or configuration. Adopting pr
 - Progressive disclosure: overview in SKILL.md, details in referenced files
 - Third person ("Processes files" not "I help you process files")
 - Keep skills generic — no account-specific data
-- When skills say "ask the user", use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor)
+- When skills say "ask the user", use `AskUserQuestion` (Codex) / `ask_question` (Cursor)
 - Keep the root README.md skills table in sync
 
 ## Gates Over Rules
 
 **For important agent behaviors, always implement gates, not rules.** ([Reference](https://blog.fsck.com/2026/04/07/rules-and-gates/))
 
-- A **rule** is a guideline the agent can rationalize around. Rules live in `CLAUDE.md` or skill instructions and depend on the agent choosing to follow them.
+- A **rule** is a guideline the agent can rationalize around. Rules live in `AGENTS.md` or skill instructions and depend on the agent choosing to follow them.
 - A **gate** is a hard stop with objective verification — enforced via hooks (PreToolUse / PostToolUse) where the agent cannot proceed without meeting a concrete, checkable condition.
 - **The test:** Can you answer "Did I complete this?" without actually doing the work? If yes, it's a rule. If no, it's a gate.
 
@@ -143,7 +141,7 @@ Every skill MUST have a `metadata.version` field in its SKILL.md frontmatter.
 - **Minor** (`x.Y.0`): new sections, new patterns, expanded coverage
 - **Major** (`X.0.0`): structural reorganization, removed sections, breaking workflow changes
 
-**When any skill version is bumped, bump the plugin version** in all 3 metadata files (`package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`):
+**When any skill version is bumped, bump the plugin version** in all 3 metadata files (`package.json`, `.Codex-plugin/plugin.json`, `.Codex-plugin/marketplace.json`):
 
 - Skill patch → plugin patch (at minimum)
 - Skill minor → plugin minor (at minimum)
@@ -153,8 +151,8 @@ Every skill MUST have a `metadata.version` field in its SKILL.md frontmatter.
 
 - `plot: <description>` — hub skill or cross-cutting changes
 - `plot-<command>: <description>` — spoke-specific changes (e.g., `plot-approve: fix branch creation`)
-- Plain description — repo-level files (README, CLAUDE.md, plugin metadata)
+- Plain description — repo-level files (README, AGENTS.md, plugin metadata)
 
 ## Status
 
-Version 1.0.0-beta.3. Experimental, evolving through real-world usage. Originated 2026-02-07 across 5 Claude Code sessions in a private project; migrated to this standalone repo 2026-03-13.
+Version 1.0.0-beta.3. Experimental, evolving through real-world usage. Originated 2026-02-07 across 5 Codex sessions in a private project; migrated to this standalone repo 2026-03-13.

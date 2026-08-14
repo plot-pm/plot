@@ -109,6 +109,67 @@ for (const [name, expected] of SPEC) {
   });
 }
 
+test('plan-meta: only the first ## Branches heading contributes branches', () => {
+  // A plan documenting the plan format quotes a `## Branches` section in prose.
+  // Later same-named headings are illustration, not contract.
+  const actual = parse('canonical-branches-in-prose.md');
+  assert.deepEqual(actual.branches, ['feature/real-one', 'feature/real-two']);
+});
+
+test('plan-meta: waves group branches by ### subheading, deferred flagged', () => {
+  const actual = parse('canonical-waves.md');
+  assert.deepEqual(actual.waves, [
+    { name: 'Tracer', branches: [{ branch: 'feature/thin-slice', deferred: false, claimed: '' }] },
+    {
+      name: 'Implementation',
+      branches: [
+        { branch: 'feature/api', deferred: false, claimed: '' },
+        { branch: 'feature/ui', deferred: false, claimed: '2026-08-14T10:22Z, session-3' },
+        { branch: 'feature/dropped', deferred: true, claimed: '' },
+      ],
+    },
+    { name: 'Wave 3', branches: [{ branch: 'feature/migration', deferred: false, claimed: '' }] },
+  ]);
+  // Flat branches[] stays the whole set, in sorted order — existing consumers unaffected.
+  assert.deepEqual(actual.branches, [
+    'feature/api', 'feature/dropped', 'feature/migration', 'feature/thin-slice', 'feature/ui',
+  ]);
+});
+
+test('plan-meta: a plan without ### subheadings is a single unnamed wave', () => {
+  // Backwards compatibility: every pre-wave plan behaves as one wave, all
+  // branches eligible at once — exactly today's semantics.
+  const actual = parse('canonical-approved-branches.md');
+  assert.deepEqual(actual.waves, [{
+    name: '',
+    branches: [
+      { branch: 'bug/fix-crash', deferred: false, claimed: '' },
+      { branch: 'docs/fix-crash-notes', deferred: false, claimed: '' },
+    ],
+  }]);
+});
+
+test('plan-meta: claim parsing terminates (no RSTART/RLENGTH clobber)', () => {
+  // Regression: computing the claim note with match() inside the branch loop
+  // clobbered RSTART/RLENGTH, which that loop needs to advance — the parser
+  // hung forever. Guard with a timeout so a hang fails instead of blocking CI.
+  const out = execFileSync('bash', [parser, fixture('canonical-waves.md')],
+    { encoding: 'utf8', timeout: 10_000 });
+  const actual = JSON.parse(out);
+  assert.equal(actual.waves.length, 3);
+});
+
+test('plan-meta: first-## Branches-wins state resets between files', () => {
+  // Regression: the "already saw a Branches heading" flag is per-file. Without
+  // a reset it leaks across multi-file mode and silently empties later plans.
+  const out = execFileSync('bash',
+    [parser, fixture('canonical-branches-in-prose.md'), fixture('canonical-approved-branches.md')],
+    { encoding: 'utf8' });
+  const lines = out.trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(lines[0].branches, ['feature/real-one', 'feature/real-two']);
+  assert.deepEqual(lines[1].branches, ['bug/fix-crash', 'docs/fix-crash-notes']);
+});
+
 test('plan-meta: --prefixes restricts branch extraction', () => {
   const actual = parse('canonical-approved-branches.md', ['--prefixes', 'docs']);
   assert.deepEqual(actual.branches, ['docs/fix-crash-notes']);
