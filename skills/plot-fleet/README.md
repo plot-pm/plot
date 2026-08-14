@@ -54,10 +54,23 @@ and requires a stated reason — not implemented in Stage 1.
 
 ## Claim detection
 
-A branch whose remote ref exists but holds **no commits of its own** is a
-claim: a worker pushed an empty branch to take the work. A ref push is atomic,
-so the loser of a race is simply rejected — git is the lock, and no lock
-manager exists or is wanted.
+A branch whose only commits beyond main are **empty `plot: claim …` markers**
+is a claim: a dispatcher pushed it to take the work. Two independent claims
+make two different commits, so they diverge and the loser's push is rejected
+as non-fast-forward — git is the lock, and no lock manager exists or is wanted.
+
+**The marker commit is load-bearing, and an earlier design got this wrong.**
+Claiming by pushing an *empty branch* — one merely pointing at `origin/main` —
+provides no exclusion at all: the remote already has that commit, so the second
+push succeeds with "Everything up-to-date" and both dispatchers believe they
+won. An audit reproduced exactly that, with two real dispatchers each reporting
+`dispatched=1` for one branch. Git is the lock only when the refs diverge.
+
+**Detection needs both halves.** A commit counts as a marker when its subject
+is `plot: claim …` **and** it is empty (its tree equals its parent's). Matching
+the subject alone let a human commit titled `plot: claim handling refactor`,
+carrying real files, read as a claim — and with a `deferred:` annotation the
+reaper then offered to *delete* a branch holding real, unmerged work.
 
 The plan's `<!-- claimed: … -->` annotation is a *reflection* for humans and
 the board. Where annotation and git disagree, **git wins**. The one component

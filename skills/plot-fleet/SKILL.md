@@ -74,7 +74,7 @@ this command as a heartbeat.
 | **complete** | Every non-deferred branch in the wave is merged |
 | **eligible** | Every *prior* wave is complete — this wave may be started |
 | **blocked** | A prior wave still has outstanding work |
-| **claimed** | A branch ref exists on the remote with no commits of its own |
+| **claimed** | A branch whose only commits beyond main are empty `plot: claim …` markers |
 | **deferred** | Annotated `<!-- deferred: … -->`; never counts as outstanding |
 
 ## Steps
@@ -122,7 +122,7 @@ Name the signal, then advise (Principle 11 — guidance is part of the workflow)
 
 ### 4. Flag Stalls — carefully
 
-A branch claimed long ago with no commits is *suspicious*, not *broken*: a
+A branch claimed long ago with no work on it is *suspicious*, not *broken*: a
 worker may be thinking, or may be dead. This command **never** reaps. Report
 the observation and hand it to `/plot-reconcile`, which owns cleanup and can
 tell a deliberately abandoned claim (annotated `deferred:` / `moved:`) from a

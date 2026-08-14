@@ -367,3 +367,20 @@ test('dispatch: branches sharing a last segment get distinct worktrees', () => {
   for (const p of paths) fs.rmSync(p, { recursive: true, force: true });
   fs.rmSync(t, { recursive: true, force: true });
 });
+
+test('dispatch: --max rejects a non-numeric value', () => {
+  // Reverting this guard left the suite fully green, so nothing pinned it.
+  // Without validation `--max abc` reaches arithmetic on a string.
+  const { tmp: t, repo: r } = repoWithPlan('- **Phase:** Approved', 'maxguard');
+  let failed = false, stderr = '';
+  try {
+    execFileSync('bash', [dispatch, '--offline', '--no-start', '--max', 'abc', 'g'],
+      { encoding: 'utf8', cwd: r, timeout: 20_000 });
+  } catch (e) {
+    failed = true;
+    stderr = String(e.stderr ?? '');
+  }
+  assert.ok(failed, '--max must reject a non-number');
+  assert.match(stderr, /--max needs a number/);
+  fs.rmSync(t, { recursive: true, force: true });
+});
