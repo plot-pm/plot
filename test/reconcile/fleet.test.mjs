@@ -198,6 +198,51 @@ test('fleet: an idea/ branch is not implementation work', () => {
   assert.doesNotMatch(report, /idea\/legacy/);
 });
 
+test('fleet: --next names one branch a worker may claim right now', () => {
+  // /plot-implement asks "what may I take?" and must get an answer it can act
+  // on without re-deriving eligibility itself. Bare branch name on stdout,
+  // nothing else — a shell can use it directly.
+  const out = execFileSync('bash', [scan, '--offline', '--next'],
+    { encoding: 'utf8', cwd: repo });
+  // feature/unclaimed and feature/no-waves are both free; either is a correct
+  // answer, but claimed/deferred/merged branches never are.
+  const picked = out.trim();
+  assert.match(picked, /^(feature\/unclaimed|feature\/no-waves)$/);
+});
+
+test('fleet: --next stays silent when nothing is claimable', () => {
+  // Empty output, exit 1: "nothing to start" is a normal state, not an error
+  // condition to crash on, but it must be distinguishable from a name.
+  const blocked = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-none-'));
+  const bare = path.join(blocked, 'origin.git');
+  const r = path.join(blocked, 'repo');
+  git(blocked, 'init', '--bare', '-q', '-b', 'main', bare);
+  git(blocked, 'clone', '-q', bare, r);
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-done.md'),
+    '# Done\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n- `feature/gone` — deferred <!-- deferred: no longer needed -->\n');
+  fs.symlinkSync('../2026-01-01-done.md', path.join(r, 'plans', 'active', 'done.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  let stdout = '', code = 0;
+  try {
+    stdout = execFileSync('bash', [scan, '--offline', '--next'], { encoding: 'utf8', cwd: r });
+  } catch (e) {
+    stdout = e.stdout ?? '';
+    code = e.status;
+  }
+  assert.equal(stdout.trim(), '');
+  assert.equal(code, 1);
+  fs.rmSync(blocked, { recursive: true, force: true });
+});
+
 test('fleet: scan is read-only — working tree and refs unchanged', () => {
   const status = git(repo, 'status', '--porcelain');
   assert.equal(status.trim(), '', 'scan must not modify the working tree');

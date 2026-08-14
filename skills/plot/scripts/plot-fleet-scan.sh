@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Plot helper: fleet pulse — deterministic extractor for wave/claim state.
-# Usage: plot-fleet-scan.sh [--no-fetch] [--offline] [<slug>]
+# Usage: plot-fleet-scan.sh [--no-fetch] [--offline] [--next] [<slug>]
 #   --no-fetch  skip `git fetch`
 #   --offline   same (no network) — used for cheap, ambient pulses
+#   --next      print ONE claimable branch name and exit 0; print nothing and
+#               exit 1 when there is none. Used by /plot-implement to pick work
+#               without re-deriving eligibility. "Nothing to start" is a normal
+#               state — the exit code, not stderr, is what says so.
 #   <slug>      limit the report to one plan (default: all active plans)
 # Output: per-plan wave report on stdout, terminated by a machine-countable
 #         summary line:
@@ -37,10 +41,12 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 
 do_fetch=1
+next_only=0
 slug=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-fetch|--offline) do_fetch=0 ;;
+    --next) next_only=1 ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) slug="$1" ;;
   esac
@@ -106,10 +112,10 @@ branch_state() {
   echo "wip"
 }
 
-echo "plot-fleet pulse — $(git rev-parse --short HEAD) on origin/$MAIN"
-echo
+[ "$next_only" = 1 ] || { echo "plot-fleet pulse — $(git rev-parse --short HEAD) on origin/$MAIN"; echo; }
 
 n_plans=0 n_waves=0 n_branches=0 n_claimed=0 n_eligible=0 n_blocked=0 n_deferred=0
+claimable=()
 
 for plan in "${plans[@]}"; do
   meta=$("$script_dir/plot-plan-meta.sh" "$plan" --prefixes "$PREFIX_RE" 2>/dev/null) || continue
@@ -119,7 +125,7 @@ for plan in "${plans[@]}"; do
   # One awk pass over the parsed JSON would need a JSON parser; instead the
   # wave walk below is driven by plot-plan-meta.sh's own output via a tiny
   # python shim (present wherever the board's toolchain is).
-  echo "== $(basename "$(readlink "$plan" 2>/dev/null || echo "$plan")") =="
+  [ "$next_only" = 1 ] || echo "== $(basename "$(readlink "$plan" 2>/dev/null || echo "$plan")") =="
 
   wave_lines=$(printf '%s' "$meta" | python3 -c '
 import json, sys
@@ -139,7 +145,7 @@ for i, w in enumerate(d.get("waves", [])):
         print("\t".join(x.replace("\t", " ") for x in row))
 ' 2>/dev/null) || wave_lines=""
 
-  [ -n "$wave_lines" ] || { echo "  (no branches)"; echo; continue; }
+  [ -n "$wave_lines" ] || { [ "$next_only" = 1 ] || { echo "  (no branches)"; echo; }; continue; }
 
   # Pass 1: per-branch git state.
   #
@@ -173,7 +179,7 @@ for i, w in enumerate(d.get("waves", [])):
     elif [ "$prior_ok" -eq 1 ]; then verdict="eligible"
     else verdict="blocked"; fi
 
-    echo "  ${wname:-(unnamed)} — $verdict"
+    [ "$next_only" = 1 ] || echo "  ${wname:-(unnamed)} — $verdict"
     while IFS=$'\t' read -r idx br st deferred nm claim; do
       [ "$idx" = "$wid" ] || continue
       [ "$claim" = "-" ] && claim=""
@@ -185,16 +191,28 @@ for i, w in enumerate(d.get("waves", [])):
         wip)      note="in progress" ;;
         *)        note="open" ;;
       esac
-      [ "$verdict" = "eligible" ] && [ "$st" = "open" ] && n_eligible=$((n_eligible + 1))
-      echo "      $br — $note"
+      if [ "$verdict" = "eligible" ] && [ "$st" = "open" ]; then
+        n_eligible=$((n_eligible + 1))
+        claimable+=("$br")
+      fi
+      [ "$next_only" = 1 ] || echo "      $br — $note"
     done <<< "$states"
 
     n_waves=$((n_waves + 1))
     [ "$verdict" = "complete" ] || prior_ok=0
     [ "$verdict" = "blocked" ] && n_blocked=$((n_blocked + 1))
   done
-  echo
+  [ "$next_only" = 1 ] || echo
 done
+
+# --next: name ONE branch a worker may claim, or stay silent with exit 1.
+# "Nothing to start" is a normal state, not a failure — the exit code is what
+# distinguishes it from a name, so callers can branch on it without parsing.
+if [ "$next_only" = 1 ]; then
+  [ ${#claimable[@]} -gt 0 ] || exit 1
+  printf '%s\n' "${claimable[0]}"
+  exit 0
+fi
 
 echo "Pulse complete. This report is derived — nothing was changed."
 echo "summary: plans=$n_plans waves=$n_waves branches=$n_branches claimed=$n_claimed eligible=$n_eligible blocked=$n_blocked deferred=$n_deferred main=$MAIN"

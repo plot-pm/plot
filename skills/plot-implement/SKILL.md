@@ -11,7 +11,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.0.0
+  version: 1.1.0
 compatibility: Designed for Claude Code and Cursor. Requires git. Host operations go through plot-host.sh (GitHub or Bitbucket).
 ---
 
@@ -36,7 +36,7 @@ ready — propose it per smart defaults).
 |-------|-----------|-------|
 | 1. Locate Plan | Small | plot-plan-meta.sh lookup |
 | 2. Staleness Preflight | Mid–Frontier | Comparing plan assumptions against repo drift is judgment |
-| 3. Branch Setup | Small | Git commands per recorded answers |
+| 3. Branch Setup | Small | Git commands per recorded answers; `plot-fleet-scan.sh --next` picks the branch and the ref push claims it — no judgment needed |
 | 4. Hand-off Brief | Small | Template from parsed fields |
 | 5. Record Started | Small | One Status line + commit |
 | 6. Summary | Small | Orientation template |
@@ -104,8 +104,53 @@ ceremony questions now and record the answers first.
   that branch as already started (plans approved under pre-Plot-2 flows
   arrive here with branches but no `Started:` records) — check it out,
   record `Started:` if missing, and re-orient as a resume.
-  Multiple branches: create the first, list the rest — parallel sessions
-  create theirs on pickup.
+
+  **Which branch, and claiming it.** When the plan groups its branches
+  into waves (`### ` subheadings under `## Branches`), do not pick by
+  hand and do not take them in file order — ask:
+
+  ```bash
+  BRANCH=$(../plot/scripts/plot-fleet-scan.sh --next <slug>) || {
+    echo "Nothing claimable: every eligible branch is taken, or the next
+    wave is blocked on unmerged work. Run /plot-fleet to see why."; exit 0
+  }
+  ```
+
+  A wave becomes eligible only once every non-deferred branch in every
+  **prior** wave is merged, so this never hands you work that builds on
+  an unproven seam. Exit 1 means "nothing to start" — a normal state, not
+  an error.
+
+  Then **claim the branch before doing any work**:
+
+  ```bash
+  git checkout -b "$BRANCH" "origin/$DEFAULT_BRANCH"
+  git push -u origin "$BRANCH"          # ← THE CLAIM
+  ```
+
+  The push is the claim, and it is the whole locking mechanism: pushing a
+  ref that already exists is rejected, so two sessions racing for the same
+  branch cannot both win. The loser takes the rejection, asks `--next`
+  again, and moves on. There is no lock manager and none is wanted.
+
+  **Claim first, work second.** Claiming after an hour of work means two
+  agents duplicate that hour before discovering the collision.
+
+  Optionally reflect the claim in the plan file for humans and the board:
+
+      - `feature/x` — description <!-- claimed: <ISO-8601>, <session> -->
+
+  This is a *reflection*, never the claim itself. Where the annotation and
+  git disagree, **git wins**.
+
+  **Giving a branch up.** If the work turns out to be unnecessary, wrongly
+  cut, or blocked, annotate the plan (`deferred:` / `split-from:` /
+  `moved:`) and **leave the ref in place** — never delete a remote ref
+  another session may be reading. `/plot-reconcile` owns cleanup and uses
+  that annotation to tell deliberate abandonment from a dead worker.
+
+  Several eligible branches means several sessions may run concurrently,
+  each claiming its own. Check the fleet any time with `/plot-fleet`.
 - **`same-branch`** — the plan already rides the work branch; just check
   it out (or confirm you're on it). No new branches.
 - **`other-repo`** — no branches here. The hand-off brief (step 4) is the
