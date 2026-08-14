@@ -30,6 +30,14 @@ Plot's workflow commands are markdown skill instructions that an AI agent interp
 
 A single approved plan can spawn multiple implementation branches. Different people, different agents, different worktrees — all working on the same plan in parallel. Each branch merges independently on its own schedule.
 
+Parallelism needs exactly two things beyond that: a way to say which branches may run *at the same time*, and a way for one worker to take a branch without another taking it too. Both follow from Principle 1 rather than adding machinery.
+
+**Waves** answer the first. Branches grouped under a `### ` subheading of `## Branches` may run concurrently; a wave becomes eligible once every non-deferred branch in every prior wave is merged. This expresses the dependency teams actually have — a tracer bullet proves the seam, then the rest fan out — without a dependency graph nobody maintains correctly. A plan with no subheadings is one wave, so nothing about the original shape changes.
+
+**Claim-by-ref** answers the second. A worker takes a branch by pushing an empty ref for it. A push that would overwrite an existing branch is rejected, so a race has exactly one winner: **git is the lock**. There is no lock manager, no lease, and no coordination file, because a second store of who-has-what is precisely the drift Principle 1 exists to prevent. The plan may carry a `<!-- claimed: -->` note, but that is a reflection for humans and the board — where it and git disagree, git wins.
+
+Fleet state is therefore **derived, never stored**: every report re-reads git. A killed dispatcher, a crashed watcher, or a dead worker costs nothing, because the next read re-derives the truth. That is what makes a fleet restartable, and it is why Plot needs no database to run one.
+
 ### 5. Skills stay project-agnostic
 
 Plot contains zero hardcoded project names, paths, or configuration. Adopting projects describe their conventions in a `## Plot Config` section of their `CLAUDE.md`. Plot discovers and adapts to whatever the project provides — branch prefixes, release tooling, changelog conventions. If a project uses changesets, Plot uses changesets. If it doesn't, Plot constructs release notes from plan files and commit messages.
@@ -93,7 +101,15 @@ Not every step in the workflow should move at the same speed. Plot recognizes th
 
 **Human-paced** — Steps that require a human decision. No agent should rush these. Examples: reviewing and approving a plan, deciding when to release, signing off on a verification checklist item, choosing the version number.
 
+Parallel work sorts into the same three, and the sort is not obvious:
+
+- **Watching a fleet is automate-ASAP.** Reading which waves are complete and which branches are taken is mechanical, cheap, and safe to run on a timer.
+- **Fanning one out is human-paced.** Starting four agents commits scope: four branches, four pull requests, four reviews. That is a decision with a cost, so it belongs beside approval and release — not beside the transitions a script may take on its own.
+- **Merging stays human-paced, deliberately, even once the order is computed.** A tool can say which merge order is safe and which branches will collide; it should not be the thing that lands them. Automating the *ordering* removes the guesswork; automating the *merge* removes the last review point in a workflow that just multiplied its throughput.
+
 The meta-principle: **don't over-complicate because AI doesn't feel friction.** Every step must be executable by a human with basic git knowledge. If a workflow step can't be done by hand, it's too complex. Scripts and AI make it faster, not possible.
+
+This is why the fleet has no autonomous merger. Every part of it — claiming, dispatching, reaping, ordering — is a thing a human could do by hand with `git push`, `git worktree add`, and a list. The tooling makes that faster. It does not make it possible, and it deliberately stops short of making it automatic.
 
 ## Sprints
 

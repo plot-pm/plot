@@ -67,6 +67,103 @@ The key design choice: the plan lands on main **before** any implementation begi
 
 One plan can have many implementation branches. They merge independently, on whatever schedule each piece of work needs. Different people, different agents, different worktrees can all work on the same plan in parallel.
 
+For one branch at a time, that is `/plot-implement <slug>` and you are done. The rest of this section is about doing several at once.
+
+### Working several branches at once
+
+Two questions have to be answered before several people or agents can share a plan: **which branches may run at the same time**, and **how does one person take a branch without someone else taking it too**.
+
+**Waves** answer the first. Group your branches under `### ` subheadings:
+
+```markdown
+## Branches
+
+### Tracer
+- `feature/checkout-tracer` — thinnest slice through all layers
+
+### Implementation
+- `feature/checkout-api` — endpoint and schema
+- `feature/checkout-ui` — form and validation
+```
+
+Branches in the same wave may run concurrently. A wave becomes eligible once every branch in every earlier wave is **merged** — so the tracer proves the seam before the rest fan out. This is the dependency most work actually has, and it is why the plan template puts `### Tracer` before `### Implementation`.
+
+A plan with no subheadings is a single wave: every branch eligible at once. That is what every plan written before waves existed does, and it still works exactly as before.
+
+**Claiming** answers the second, and it is simpler than it sounds:
+
+```
+/plot-fleet
+```
+
+shows which waves are complete, eligible, or blocked, and which branches are already taken:
+
+```
+  Tracer — complete
+      feature/checkout-tracer — merged
+  Implementation — eligible
+      feature/checkout-api — claimed (2026-08-14T10:22Z, session-3)
+      feature/checkout-ui — open
+```
+
+Taking a branch means pushing it — empty, before doing any work:
+
+```bash
+git checkout -b feature/checkout-ui origin/main
+git push -u origin feature/checkout-ui     # this is the claim
+```
+
+That push *is* the lock. Git rejects a push that would overwrite an existing branch, so if two people try the same branch at the same moment, exactly one wins and the other picks something else. There is nothing else to configure and nothing that can get out of sync — the branch either exists on the remote or it does not.
+
+Claim **before** you work, not after. Claiming late means two people spend an hour on the same thing before finding out.
+
+`/plot-implement` does all of this for you: it asks which branch is next, claims it, and hands you the brief.
+
+### Letting agents do it
+
+If your branches are independent enough to hand to agents:
+
+```
+/plot-dispatch <slug>
+```
+
+creates one git worktree per eligible branch — as siblings of your repo, `../plot-wt-<name>` — claims each one, and starts a worker in it. It shows you a dry run and asks how many to start first; starting four agents means four pull requests someone has to review.
+
+Starting workers needs one line of config, because Plot does not assume which agent you use:
+
+```markdown
+- **Worker command:** claude -p "Implement the branch in $PLOT_BRANCH per the plan. Open a PR. Do not merge."
+```
+
+Without it, `/plot-dispatch` still prepares and claims the worktrees and you start them yourself — which is a perfectly good way to work.
+
+Workers run **detached**, so the fleet outlives your session: start it, close the laptop, come back later. Check on them with:
+
+```
+/plot-dispatch --status          # who is running, and their last log line
+/plot-dispatch --stop <branch>   # stop one
+```
+
+### Merging what comes back
+
+When several branches finish at once, each merge invalidates the others' bases — the second pull request was green when it opened and is broken by the time you reach it.
+
+```
+/plot-merge-queue <slug>
+```
+
+tells you the safe order, and which branches will collide with a branch **ahead of them in the queue** (not with `main` — each of them merges into main cleanly on its own, which is exactly why the problem is invisible without this).
+
+It does not merge anything. You do, in the order it gives, re-running it after each merge.
+
+### If something goes quiet
+
+```
+/plot-reconcile
+```
+
+reports claimed branches with no work on them, and how long they have sat there. It distinguishes a branch someone deliberately gave up (annotated `<!-- deferred: … -->` in the plan) from one whose worker may have died — and it never offers to delete the second kind, because a slow worker and a dead one look identical from outside.
+
 To check progress at any point, run:
 
 ```
