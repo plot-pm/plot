@@ -8,7 +8,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.2.0
+  version: 1.3.0
 compatibility: Designed for Claude Code and Cursor. Requires git. Host operations (PRs, default branch) go through plot-host.sh (GitHub or Bitbucket).
 ---
 
@@ -144,16 +144,37 @@ Compare what the plan promised against what was actually delivered.
 
 1. **Extract deliverables** from the plan file. Look for actionable items in sections like `## Design`, `## Branches`, or bulleted lists that describe what should be built. Number each deliverable for reference.
 
-2. **Gather PR evidence using parallel subagents.** Launch one Task agent per merged PR to review what was implemented:
-   - Each agent receives the PR number and the full list of deliverables.
-   - Each agent runs `gh pr diff <number>` and reads the PR body via `gh pr view <number> --json title,body,files`.
-   - Each agent returns: which deliverables (by number) are addressed by that PR, with a one-line summary of the evidence for each.
-   - Launch all PR agents in parallel since they are independent.
+2. **Try to disprove each deliverable, using parallel subagents.** Ask them to
+   *refute*, not to confirm (Principle 12): an agent asked "which deliverables
+   does this PR cover?" pattern-matches its way to yes, while one asked "show
+   me this was NOT delivered" has to go and look.
 
-3. **Consolidate results.** Merge the per-PR reports into a single checklist. For each deliverable, mark it:
-   - **Done** — clear evidence in one or more PRs
+   Launch one Task agent per merged PR, in parallel, with this shape of brief:
+
+   > Deliverable N claims: "<text from the plan>". Try to establish it was NOT
+   > delivered by PR #M. Run `gh pr diff <M>` and read `gh pr view <M> --json
+   > title,body,files`. Report one of: REFUTED (with the evidence that it is
+   > absent), or SUPPORTED (naming the specific file/hunk that implements it).
+   > **State separately what you EXECUTED versus what you only READ** — a
+   > deliverable confirmed by reading a PR body rather than a diff is not
+   > confirmed.
+
+   A deliverable that names a behaviour (a command works, a flag is honoured)
+   is only SUPPORTED when someone *ran* it. "The diff appears to add it" is a
+   reading, and readings are how a promise that was never implemented survives
+   review.
+
+3. **Consolidate results.** Merge the per-PR reports into a single checklist.
+   For each deliverable, mark it:
+   - **Done** — a subagent found the specific implementing change and could
+     not refute it
    - **Partial** — some work done but not fully matching the plan
-   - **Missing** — no evidence found in any PR
+   - **Missing** — no evidence found in any PR, or every attempt to support it
+     came back as a reading rather than an execution
+
+   **Watch for the shape this catches:** a changelog entry written at planning
+   time that describes intent nobody built. It reads as delivered because the
+   plan says so — the diffs are the only place the truth lives.
 
 4. **Present the checklist** to the user and **ask to confirm** the plan is complete enough to deliver.
    - If all items are done: "All deliverables verified. Proceed with delivery?"
