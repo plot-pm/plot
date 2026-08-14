@@ -29,7 +29,9 @@ fanning out is a scope commitment, monitoring is not.
 
 **Input:** `$ARGUMENTS` is optional. A `<slug>` limits the pulse to one plan
 (default: all active plans). `--offline` / `--no-fetch` skip the `git fetch`
-for a network-free pulse.
+for a network-free pulse. `--log-pulse` appends one line per plan to its
+`## Notes`. `--loose` relaxes wave eligibility (see below) — strict is the
+default and should stay that way.
 
 ## Why it is stateless
 

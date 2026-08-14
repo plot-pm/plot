@@ -14,6 +14,9 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
 - **Delivered index:** docs/plans/delivered/
 - **Sprint directory:** docs/sprints/
 - **Plan template:** .plot/templates/plan.md
+- **Claim stale after:** 24
+<!-- Optional: **Worker command:** how to run an agent headless; without it
+     /plot-dispatch prepares worktrees and you start them yourself. -->
 
 ## Architecture
 

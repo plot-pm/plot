@@ -117,3 +117,33 @@ test('merge-queue: merges nothing and leaves the repo untouched', () => {
   const mainLog = git(repo, 'log', '--oneline', 'origin/main');
   assert.equal(mainLog.trim().split('\n').length, 1, 'origin/main must not advance');
 });
+
+test('merge-queue: refuses clearly on git older than 2.38', () => {
+  // `merge-tree --write-tree` arrived in git 2.38. Older git HAS a merge-tree
+  // with entirely different semantics (a three-way file diff), so it does not
+  // fail cleanly — it succeeds and answers a different question. Every branch
+  // would silently read as conflict-free. A wrong "all clean" is worse than a
+  // refusal, so detect the version rather than trusting the exit code.
+  const fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-oldgit-'));
+  const shim = path.join(fakeBin, 'git');
+  fs.writeFileSync(shim, `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "git version 2.30.0"; exit 0; fi
+exec /usr/bin/git "$@"
+`);
+  fs.chmodSync(shim, 0o755);
+
+  let failed = false, stderr = '';
+  try {
+    execFileSync('bash', [queue, '--offline', 'mq'], {
+      encoding: 'utf8', cwd: repo,
+      env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
+      timeout: 20_000,
+    });
+  } catch (e) {
+    failed = true;
+    stderr = String(e.stderr ?? '');
+  }
+  assert.ok(failed, 'must refuse on git < 2.38');
+  assert.match(stderr, /2\.38/, 'must name the required version');
+  fs.rmSync(fakeBin, { recursive: true, force: true });
+});

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Plot helper: fan out one worktree + one worker per eligible branch.
 # Usage: plot-dispatch.sh [--dry-run] [--no-start] [--offline] [--max N] <slug>
+#   --status    list fleet worktrees with worker pid, liveness, and last log
+#               line; then exit. Works regardless of plan phase.
+#   --stop <br> stop the worker on <br> (branch required — never "all").
 #   --dry-run   print what would happen; create nothing, push nothing
 #   --no-start  create worktrees and claim refs, but start no workers
 #   --offline   skip `git fetch`
@@ -35,12 +38,19 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 dry_run=0
 no_start=0
+mode=dispatch
+stop_branch=""
 offline=""
 max=0
 slug=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run)  dry_run=1 ;;
+    --status)   mode=status ;;
+    # Only a value containing "/" is taken as the branch: otherwise a bare
+    # `--stop <slug>` would silently treat the plan slug as a branch name and
+    # stop the wrong thing (or nothing) without saying so.
+    --stop)     mode=stop; case "${2:-}" in */*) stop_branch="$2"; shift ;; esac ;;
     --no-start) no_start=1 ;;
     --offline|--no-fetch) offline="--offline" ;;
     --max)      max="${2:?--max needs a value}"; shift ;;
@@ -51,7 +61,146 @@ while [ $# -gt 0 ]; do
 done
 
 git rev-parse --git-dir >/dev/null 2>&1 || { echo "not a git repository" >&2; exit 1; }
-[ -n "$slug" ] || { echo "plot-dispatch: need a plan slug" >&2; exit 1; }
+[ -n "$slug" ] || [ "$mode" != dispatch ] || { echo "plot-dispatch: need a plan slug" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# Inspection and shutdown
+# ---------------------------------------------------------------------------
+#
+# Deliberately BEFORE the phase gate: work that is already running must stay
+# inspectable and stoppable even if the plan was since delivered or rejected.
+# Refusing to show a running worker because of a phase change would strand it.
+repo_root_early=$(git rev-parse --show-toplevel)
+wt_root_early=$(cd "$repo_root_early/.." && pwd)
+
+worker_state() { # $1=worktree → "running <pid>" | "dead <pid>" | "no worker"
+  local wt="$1" pid
+  [ -f "$wt/.plot-worker.pid" ] || { echo "no worker"; return; }
+  pid=$(cat "$wt/.plot-worker.pid" 2>/dev/null | tr -d ' \n')
+  [ -n "$pid" ] || { echo "no worker"; return; }
+  if kill -0 "$pid" 2>/dev/null; then echo "running $pid"; else echo "dead $pid"; fi
+}
+
+if [ "$mode" = "status" ]; then
+  n_live=0 n_dead=0 n_none=0
+  for wt in "$wt_root_early"/plot-wt-*; do
+    [ -d "$wt" ] || continue
+    br=$(git -C "$wt" branch --show-current 2>/dev/null || echo "?")
+    st=$(worker_state "$wt")
+    case "$st" in
+      running*) n_live=$((n_live + 1)) ;;
+      dead*)    n_dead=$((n_dead + 1)) ;;
+      *)        n_none=$((n_none + 1)) ;;
+    esac
+    echo "  $br — $st"
+    echo "      worktree: $wt"
+    if [ -f "$wt/.plot-worker.log" ]; then
+      echo "      log: $wt/.plot-worker.log"
+      echo "      last: $(tail -1 "$wt/.plot-worker.log" 2>/dev/null)"
+    fi
+  done
+  [ $((n_live + n_dead + n_none)) -gt 0 ] || echo "  (no fleet worktrees under $wt_root_early)"
+  echo "summary: running=$n_live dead=$n_dead no_worker=$n_none"
+  exit 0
+fi
+
+if [ "$mode" = "stop" ]; then
+  # An explicit branch is REQUIRED. A --stop that could mean "all" is one
+  # fat-finger away from killing a whole fleet.
+  if [ -z "$stop_branch" ]; then
+    echo "plot-dispatch: --stop needs a branch name, e.g. --stop feature/x" >&2
+    echo "  Refusing to guess — stopping the wrong worker discards its work." >&2
+    exit 1
+  fi
+  wt="$wt_root_early/plot-wt-${stop_branch##*/}"
+  [ -d "$wt" ] || { echo "plot-dispatch: no worktree for '$stop_branch' at $wt" >&2; exit 1; }
+  st=$(worker_state "$wt")
+  case "$st" in
+    running*)
+      pid=${st#running }
+      kill "$pid" 2>/dev/null && echo "stopped $stop_branch (pid $pid)" \
+        || { echo "plot-dispatch: could not stop pid $pid" >&2; exit 1; }
+      # The worktree and its claim are left in place: the branch is still taken,
+      # and deleting either would be the kind of write this design avoids.
+      echo "  worktree kept at $wt — the claim stands until you release it"
+      ;;
+    dead*)  echo "$stop_branch is not running (stale pid ${st#dead })" ;;
+    *)      echo "$stop_branch has no worker" ;;
+  esac
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Phase and ceremony gate
+# ---------------------------------------------------------------------------
+#
+# A GATE, not a rule (CLAUDE.md, "Gates Over Rules"): the check lives here, in
+# the script, because prose in a SKILL.md is something an agent can rationalise
+# around and a human calling this script directly bypasses entirely. Fanning
+# out is the one place a user can do real damage — branches and worker
+# processes for a plan nobody approved.
+#
+# FAIL CLOSED, unlike plot-phase-gate.sh. That one is a PreToolUse hook, so a
+# broken gate would lock every commit in the repo and it must fail open. This
+# is a command the user invoked: if the plan's phase cannot be read, refusing
+# costs one confused re-run, while proceeding costs several agents doing
+# unapproved work. The damage is asymmetric, so the default is too.
+PLAN_DIR_CFG=$("$script_dir/plot-config.sh" get "Plan directory" "docs/plans/")
+ACTIVE_DIR_CFG=$("$script_dir/plot-config.sh" get "Active index" "docs/plans/active/")
+plan_file=""
+for cand in "$ACTIVE_DIR_CFG$slug.md" "$PLAN_DIR_CFG"*"$slug".md; do
+  [ -e "$cand" ] && { plan_file="$cand"; break; }
+done
+
+if [ -z "$plan_file" ]; then
+  echo "plot-dispatch: no plan found for '$slug' — looked in $ACTIVE_DIR_CFG and $PLAN_DIR_CFG" >&2
+  exit 1
+fi
+
+gate_meta=$("$script_dir/plot-plan-meta.sh" "$plan_file" 2>/dev/null) || gate_meta=""
+gate_phase=$(printf '%s' "$gate_meta" | sed -n 's/.*"phase":"\([^"]*\)".*/\1/p')
+gate_impl=$(printf '%s' "$gate_meta" | sed -n 's/.*"impl":"\([^"]*\)".*/\1/p')
+
+case "$gate_phase" in
+  approved) ;;
+  draft)
+    echo "plot-dispatch: plan '$slug' is still Draft — nothing may be dispatched." >&2
+    echo "  Review it, then: /plot-approve $slug" >&2
+    exit 1 ;;
+  delivered|released)
+    echo "plot-dispatch: plan '$slug' is already $gate_phase — its work is done." >&2
+    exit 1 ;;
+  "")
+    echo "plot-dispatch: cannot read the phase of '$slug' ($plan_file)." >&2
+    echo "  Refusing rather than guessing — dispatching starts real work." >&2
+    exit 1 ;;
+  *)
+    echo "plot-dispatch: plan '$slug' is in phase '$gate_phase', not Approved." >&2
+    exit 1 ;;
+esac
+
+# Fan-out only makes sense where implementation happens on its own branches
+# here. NONE means a pre-Plot-2 plan that never recorded an answer — allowed,
+# since those predate the question.
+case "$gate_impl" in
+  own-branches|NONE|"") ;;
+  same-branch)
+    echo "plot-dispatch: plan '$slug' records 'Impl: same branch' — plan and code" >&2
+    echo "  travel on one branch, so there is nothing to fan out." >&2
+    exit 1 ;;
+  other-repo)
+    echo "plot-dispatch: plan '$slug' records 'Impl: other repo' — implementation" >&2
+    echo "  happens elsewhere. Dispatch from the implementation repo instead." >&2
+    exit 1 ;;
+  none)
+    echo "plot-dispatch: plan '$slug' records 'Impl: none' — knowledge-only work," >&2
+    echo "  nothing to implement." >&2
+    exit 1 ;;
+  *)
+    echo "plot-dispatch: plan '$slug' records an unrecognised 'Impl:' answer" >&2
+    echo "  ('$gate_impl'). Refusing rather than guessing." >&2
+    exit 1 ;;
+esac
 
 MAIN=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
 [ -n "$MAIN" ] || MAIN="main"
@@ -85,7 +234,13 @@ start_worker() {
   local cmd
   cmd=$("$script_dir/plot-config.sh" get "Worker command" "")
   if [ -z "$cmd" ]; then
-    echo "    (no 'Worker command' in Plot Config — worktree ready, start it yourself)"
+    # Not an error: Plot deliberately hardcodes no agent tooling (Principle 5).
+    # Word it as the next step rather than a failure, or a first run reads as
+    # "it did nothing".
+    echo "    worktree ready — no 'Worker command' configured, so start it yourself:"
+    echo "      cd $wt   # branch $branch is claimed and waiting"
+    echo "    To start workers automatically, add to your CLAUDE.md Plot Config:"
+    echo "      - **Worker command:** <how to run your agent headless>"
     return 1
   fi
   local log="$wt/.plot-worker.log"

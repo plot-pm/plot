@@ -136,6 +136,129 @@ test('dispatch: a branch it cannot dispatch is skipped once, not forever', () =>
   fs.rmSync(wt, { recursive: true, force: true });
 });
 
+// A plan in a given phase, in its own throwaway repo. Returns { repo, run }.
+function repoWithPlan(statusBlock, label) {
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), `plot-gate-${label}-`));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, r);
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-g.md'),
+    `# G\n\n## Status\n\n${statusBlock}\n\n## Branches\n\n- \`feature/g\` — one\n`);
+  fs.symlinkSync('../2026-01-01-g.md', path.join(r, 'plans', 'active', 'g.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+  return { tmp: t, repo: r };
+}
+
+test('dispatch: refuses to fan out a Draft plan', () => {
+  // The phase check must live in the SCRIPT, not only in the skill's prose.
+  // Prose is a rule an agent can rationalise around, and calling the script
+  // directly bypasses it entirely — this is the one place a user can do real
+  // damage (branches and workers for an unapproved plan).
+  const { tmp, repo: r } = repoWithPlan('- **Phase:** Draft', 'draft');
+  let failed = false, stderr = '';
+  try {
+    execFileSync('bash', [dispatch, '--offline', '--no-start', 'g'],
+      { encoding: 'utf8', cwd: r, timeout: 20_000 });
+  } catch (e) {
+    failed = true;
+    stderr = String(e.stderr ?? '');
+  }
+  assert.ok(failed, 'must exit non-zero on a Draft plan');
+  assert.match(stderr, /draft/i);
+  assert.match(stderr, /plot-approve/, 'must say how to fix it, not just refuse');
+  assert.equal(git(r, 'ls-remote', '--heads', 'origin', 'feature/g').trim(), '',
+    'nothing may be claimed');
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('dispatch: fans out an Approved plan', () => {
+  const { tmp, repo: r } = repoWithPlan('- **Phase:** Approved', 'approved');
+  const out = execFileSync('bash', [dispatch, '--offline', '--no-start', 'g'],
+    { encoding: 'utf8', cwd: r, timeout: 20_000 });
+  assert.match(out, /dispatched feature\/g/);
+  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.rmSync(path.join(path.dirname(r), 'plot-wt-g'), { recursive: true, force: true });
+});
+
+test('dispatch: fails closed when the phase cannot be read', () => {
+  // Unlike plot-phase-gate.sh (a PreToolUse hook, which must fail OPEN so a
+  // broken gate never locks the repo), this is a command the user invoked.
+  // If the phase is unreadable, starting several agents is the costly mistake
+  // — so refuse. The damage is asymmetric, and so is the default.
+  const { tmp, repo: r } = repoWithPlan('- **Type:** feature', 'nophase');
+  let failed = false, stderr = '';
+  try {
+    execFileSync('bash', [dispatch, '--offline', '--no-start', 'g'],
+      { encoding: 'utf8', cwd: r, timeout: 20_000 });
+  } catch (e) {
+    failed = true;
+    stderr = String(e.stderr ?? '');
+  }
+  assert.ok(failed, 'must refuse rather than guess');
+  assert.match(stderr, /phase/i);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('dispatch: --dry-run is also gated', () => {
+  // A dry run creates nothing, but reporting "would dispatch 6 branches" for a
+  // Draft plan is itself misleading — it reads as permission.
+  const { tmp, repo: r } = repoWithPlan('- **Phase:** Draft', 'dryrun');
+  let failed = false;
+  try {
+    execFileSync('bash', [dispatch, '--offline', '--dry-run', 'g'],
+      { encoding: 'utf8', cwd: r, timeout: 20_000 });
+  } catch {
+    failed = true;
+  }
+  assert.ok(failed, '--dry-run must respect the phase gate too');
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('dispatch: refuses a plan whose work is not on its own branches', () => {
+  // Fan-out is meaningless for same-branch / other-repo / none. The message
+  // must name the recorded answer, so the user learns why rather than just
+  // being blocked.
+  for (const [impl, expect] of [
+    ['same branch', /same branch/i],
+    ['other repo', /other repo/i],
+    ['none', /nothing to implement/i],
+  ]) {
+    const { tmp, repo: r } = repoWithPlan(
+      `- **Phase:** Approved\n- **Impl:** ${impl}`, `impl-${impl.replace(/\W/g, '')}`);
+    let failed = false, stderr = '';
+    try {
+      execFileSync('bash', [dispatch, '--offline', '--no-start', 'g'],
+        { encoding: 'utf8', cwd: r, timeout: 20_000 });
+    } catch (e) {
+      failed = true;
+      stderr = String(e.stderr ?? '');
+    }
+    assert.ok(failed, `Impl: ${impl} must be refused`);
+    assert.match(stderr, expect);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('dispatch: a pre-Plot-2 plan with no Impl answer still dispatches', () => {
+  // Plans predating the ceremony questions never recorded an answer. Refusing
+  // them would break existing repos on upgrade.
+  const { tmp, repo: r } = repoWithPlan('- **Phase:** Approved', 'noimpl');
+  const out = execFileSync('bash', [dispatch, '--offline', '--no-start', 'g'],
+    { encoding: 'utf8', cwd: r, timeout: 20_000 });
+  assert.match(out, /dispatched feature\/g/);
+  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.rmSync(path.join(path.dirname(r), 'plot-wt-g'), { recursive: true, force: true });
+});
+
 test('dispatch: refuses to run outside a git repository', () => {
   const notRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-not-repo-'));
   let failed = false;
@@ -147,4 +270,65 @@ test('dispatch: refuses to run outside a git repository', () => {
   }
   assert.ok(failed, 'must exit non-zero outside a repo');
   fs.rmSync(notRepo, { recursive: true, force: true });
+});
+
+test('dispatch: --status reports each worktree, its pid, and whether it lives', () => {
+  // Detached workers are invisible without this: a user could otherwise only
+  // read .plot-worker.log and the pid file by hand, and could not tell a
+  // working worker from a dead one at all.
+  const { tmp, repo: r } = repoWithPlan('- **Phase:** Approved', 'status');
+  execFileSync('bash', [dispatch, '--offline', '--no-start', 'g'],
+    { encoding: 'utf8', cwd: r, timeout: 20_000 });
+
+  const out = execFileSync('bash', [dispatch, '--status', 'g'],
+    { encoding: 'utf8', cwd: r, timeout: 20_000 });
+  assert.match(out, /feature\/g/);
+  assert.match(out, /plot-wt-g/);
+  // --no-start means no worker was started; that must read as "no worker",
+  // not as a dead one — the difference matters when deciding to reap.
+  assert.match(out, /no worker/i);
+  assert.match(out, /summary: /);
+
+  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.rmSync(path.join(path.dirname(r), 'plot-wt-g'), { recursive: true, force: true });
+});
+
+test('dispatch: --status distinguishes a live worker from a dead one', () => {
+  const { tmp, repo: r } = repoWithPlan('- **Phase:** Approved', 'alive');
+  execFileSync('bash', [dispatch, '--offline', '--no-start', 'g'],
+    { encoding: 'utf8', cwd: r, timeout: 20_000 });
+  const wt = path.join(path.dirname(r), 'plot-wt-g');
+
+  // A pid that cannot be running (pid 0 is never a user process).
+  fs.writeFileSync(path.join(wt, '.plot-worker.pid'), '0\n');
+  fs.writeFileSync(path.join(wt, '.plot-worker.log'), 'started\nlast line here\n');
+  const dead = execFileSync('bash', [dispatch, '--status', 'g'],
+    { encoding: 'utf8', cwd: r, timeout: 20_000 });
+  assert.match(dead, /dead|not running/i);
+  assert.match(dead, /last line here/, 'must surface the last log line for triage');
+
+  // Our own pid is certainly alive.
+  fs.writeFileSync(path.join(wt, '.plot-worker.pid'), `${process.pid}\n`);
+  const live = execFileSync('bash', [dispatch, '--status', 'g'],
+    { encoding: 'utf8', cwd: r, timeout: 20_000 });
+  assert.match(live, /running/i);
+
+  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.rmSync(wt, { recursive: true, force: true });
+});
+
+test('dispatch: --stop refuses without a branch and never kills everything', () => {
+  // A --stop that could take no argument and mean "all" is one fat-finger away
+  // from killing a whole fleet.
+  const { tmp, repo: r } = repoWithPlan('- **Phase:** Approved', 'stop');
+  let failed = false, stderr = '';
+  try {
+    execFileSync('bash', [dispatch, '--stop', 'g'], { encoding: 'utf8', cwd: r, timeout: 20_000 });
+  } catch (e) {
+    failed = true;
+    stderr = String(e.stderr ?? '');
+  }
+  assert.ok(failed, '--stop must require an explicit branch');
+  assert.match(stderr, /branch/i);
+  fs.rmSync(tmp, { recursive: true, force: true });
 });
