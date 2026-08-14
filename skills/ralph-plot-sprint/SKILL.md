@@ -9,7 +9,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 0.1.1
+  version: 0.2.0
 compatibility: Designed for Claude Code. Requires git and gh CLI.
 ---
 
@@ -112,6 +112,12 @@ Check PR #<N> in repo <owner/repo>:
 - Otherwise (no open PRs, no unchecked items, demos present, RC tagged, no post-RC commits) → output BLOCKED (sprint is complete pending human testing)
 
 **CRITICAL RULE: Finish before starting.** Never start building a new branch (Step 3) when there is an open PR that can be reviewed, fixed, or merged. The gate "no open PRs exist for this plan" enforces this — each branch must complete the full review→fix→merge cycle before the next branch is built.
+
+**Scope of that rule, with parallel agents in play.** It governs *this runner's own attention*, not the repo. A ralph iteration must still finish what it started before starting more — that is what stops review debt and merge conflicts from compounding within one serial loop.
+
+It does **not** mean the plan may only ever have one branch in flight. `/plot-dispatch` can fan several agents across a wave, each in its own worktree on its own branch, each internally serial in exactly this way. Wave eligibility (`plot-fleet-scan.sh`) is what keeps *those* honest: a wave opens only when every non-deferred branch in every prior wave is merged.
+
+So: one runner, one branch at a time. Several runners, several branches — provided the wave says so. If you are a ralph iteration, the rule above applies to you unchanged.
 
 **CRITICAL: Do exactly ONE step per iteration.** Do not cascade into subsequent steps. Each iteration is cheap — doing less per iteration keeps work focused, reviewable, and recoverable. After completing your one step, write the iteration summary and exit.
 

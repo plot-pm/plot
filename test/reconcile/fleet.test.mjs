@@ -210,6 +210,17 @@ test('fleet: --next names one branch a worker may claim right now', () => {
   assert.match(picked, /^(feature\/unclaimed|feature\/no-waves)$/);
 });
 
+test('fleet: --list-eligible names every claimable branch, one per line', () => {
+  // --next answers "give me one" (pull, for a worker). --list-eligible answers
+  // "how many could run" (for a dry run, which changes nothing and so cannot
+  // go stale). Both must be machine-readable: no consumer should ever parse
+  // the human report.
+  const out = execFileSync('bash', [scan, '--offline', '--list-eligible'],
+    { encoding: 'utf8', cwd: repo });
+  const lines = out.trim().split('\n').filter(Boolean).sort();
+  assert.deepEqual(lines, ['feature/no-waves', 'feature/unclaimed']);
+});
+
 test('fleet: --next stays silent when nothing is claimable', () => {
   // Empty output, exit 1: "nothing to start" is a normal state, not an error
   // condition to crash on, but it must be distinguishable from a name.
