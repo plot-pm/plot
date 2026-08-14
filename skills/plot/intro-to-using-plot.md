@@ -110,10 +110,11 @@ Taking a branch means pushing it — empty, before doing any work:
 
 ```bash
 git checkout -b feature/checkout-ui origin/main
+git commit --allow-empty -m "plot: claim feature/checkout-ui"
 git push -u origin feature/checkout-ui     # this is the claim
 ```
 
-That push *is* the lock. Git rejects a push that would overwrite an existing branch, so if two people try the same branch at the same moment, exactly one wins and the other picks something else. There is nothing else to configure and nothing that can get out of sync — the branch either exists on the remote or it does not.
+That push *is* the lock. Two people claiming the same branch make two different commits, so the second push is rejected as non-fast-forward: exactly one wins and the other picks something else. The empty commit is what makes that work — a branch merely pointing at `main` does not differ from it, so both pushes would quietly succeed. There is nothing else to configure and nothing that can get out of sync — the branch either exists on the remote or it does not.
 
 Claim **before** you work, not after. Claiming late means two people spend an hour on the same thing before finding out.
 

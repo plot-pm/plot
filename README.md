@@ -39,7 +39,7 @@ Plot answers both without adding a database.
 
 **Waves.** Branches grouped under a `### ` subheading may run at the same time; a wave opens once every branch in every earlier wave is merged. So a tracer bullet proves the seam, then the rest fan out — the dependency real work actually has, without a dependency graph nobody keeps accurate. A plan with no subheadings is one wave, exactly as before.
 
-**Claim-by-ref.** An agent takes a branch by pushing an empty ref for it. Git rejects a push that would overwrite an existing branch, so a race has exactly one winner. **Git is the lock** — no lock manager, no lease, no coordination file, nothing to fall out of sync.
+**Claim-by-ref.** An agent takes a branch by pushing a claim commit to it. Two independent claims diverge, so the loser's push is rejected as non-fast-forward and exactly one agent wins. **Git is the lock** — no lock manager, no lease, no coordination file, nothing to fall out of sync. (The commit matters: a branch merely pointing at `main` does not diverge from it, so both pushes would succeed and both agents would think they held it. Plot never force-pushes, which is the other half of why the lock holds.)
 
 Everything else is derived from that. `/plot-fleet` re-reads git each time to report what is complete, eligible, or claimed; `/plot-dispatch` gives each eligible branch its own worktree and a detached worker; `/plot-merge-queue` says in what order the finished branches can land and which will collide with a branch ahead of it — the failure that is invisible when every branch merges into `main` cleanly on its own.
 

@@ -30,7 +30,14 @@
 # there is no fleet database. Every fact printed here is re-derived from git
 # refs and plan files on each run, so a killed dispatcher, a dead worker, or a
 # crashed pulse costs nothing — the next pulse re-derives the truth. Nothing
-# here creates a branch, pushes a ref, starts a worker, or writes a repo file.
+# here creates a branch, pushes a ref, or starts a worker.
+#
+# ONE exception to "writes nothing": --log-pulse appends a pulse line to each
+# reported plan (see below). That is a LOG, not state — deleting the whole log
+# changes no behaviour, because the next run re-derives everything. The flag
+# defaults OFF precisely so internal callers (plot-implement, plot-dispatch,
+# which invoke --next) can never amend a plan as a side effect of asking what
+# to work on; /plot-fleet, the human-facing command, passes it every run.
 #
 # Wave eligibility (the one rule this script encodes):
 #   A wave is ELIGIBLE when every non-deferred branch in every PRIOR wave is
@@ -39,9 +46,11 @@
 # Deferred branches never count as outstanding work — that is what the
 # `<!-- deferred: -->` annotation is for.
 #
-# Claim state comes from git, not from the plan file. A branch whose remote ref
-# exists but holds no commits of its own is a CLAIM: a worker pushed an empty
-# branch to take the work atomically (a ref push either wins or is rejected).
+# Claim state comes from git, not from the plan file. A branch whose only
+# commits beyond main are `plot: claim ...` markers is a CLAIM: a dispatcher
+# pushed it to take the work. The marker commit is what makes the claim
+# exclusive — a branch merely pointing at main does not diverge from it, so a
+# second push would succeed and both sides would think they held it.
 # The plan's `<!-- claimed: -->` annotation is a reflection for humans and the
 # board; where the two disagree, git wins. The one exception is the reaper in
 # plot-reconcile-scan.sh, which reads the annotation to tell a deliberately
@@ -85,6 +94,30 @@ fi
 [ -n "$MAIN" ] || MAIN="main"
 
 [ "$do_fetch" = 1 ] && git fetch -q origin "$MAIN" 2>/dev/null
+
+# --loose promises "the prior wave's PRs are green and ready", which needs the
+# git host. An earlier version accepted ANY pushed commit — strictly weaker
+# than promised, and dangerous: red CI or a draft PR would open the next wave,
+# so it built on a seam that was not merely unlanded but possibly broken.
+#
+# Readiness must be VERIFIED, never assumed. Without a host CLI, --loose
+# degrades to strict and says so: an unverifiable claim of readiness is not
+# readiness.
+loose_verifiable=0
+if [ "$loose" = 1 ]; then
+  if [ "$do_fetch" = 1 ] && "$script_dir/plot-host.sh" backend >/dev/null 2>&1 \
+     && [ "$("$script_dir/plot-host.sh" backend 2>/dev/null)" != "none" ]; then
+    loose_verifiable=1
+  fi
+fi
+
+# Is this branch's PR ready to merge — open, not draft? Unknown counts as NO.
+pr_ready() {
+  local br="$1" js
+  js=$("$script_dir/plot-host.sh" pr-state "$br" </dev/null 2>/dev/null) || return 1
+  printf '%s' "$js" | grep -q '"state":"OPEN"' || return 1
+  printf '%s' "$js" | grep -q '"draft":false'
+}
 
 # Resolve which plans to report on.
 plans=()
@@ -141,7 +174,15 @@ branch_state() {
   echo "merged"
 }
 
-[ "$next_only" = 1 ] || { echo "plot-fleet pulse — $(git rev-parse --short HEAD) on origin/$MAIN${loose:+$([ "$loose" = 1 ] && echo " (loose eligibility)")}"; echo; }
+if [ "$next_only" != 1 ]; then
+  banner="plot-fleet pulse — $(git rev-parse --short HEAD) on origin/$MAIN"
+  if [ "$loose" = 1 ]; then
+    if [ "$loose_verifiable" = 1 ]; then banner="$banner (loose eligibility)"
+    else banner="$banner (--loose cannot verify PR readiness without a git host — using strict)"
+    fi
+  fi
+  echo "$banner"; echo
+fi
 
 n_plans=0 n_waves=0 n_branches=0 n_claimed=0 n_eligible=0 n_blocked=0 n_deferred=0
 claimable=()
@@ -208,7 +249,12 @@ for i, w in enumerate(d.get("waves", [])):
       # loose: pushed work counts too — buys throughput, pays in rebase risk.
       case "$st" in
         merged) ;;
-        wip) [ "$loose" = 1 ] || outstanding=$((outstanding + 1)) ;;
+        wip)
+          # Loose only counts pushed work as settled when its PR is verifiably
+          # ready. Unverifiable → treat as outstanding (i.e. behave as strict).
+          if [ "$loose_verifiable" = 1 ] && pr_ready "$br"; then :; else
+            outstanding=$((outstanding + 1))
+          fi ;;
         *) outstanding=$((outstanding + 1)) ;;
       esac
     done <<< "$states"

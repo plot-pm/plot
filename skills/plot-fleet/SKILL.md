@@ -128,8 +128,10 @@ the observation and hand it to `/plot-reconcile`, which owns cleanup and can
 tell a deliberately abandoned claim (annotated `deferred:` / `moved:`) from a
 dead worker (a bare `claimed:` past the threshold).
 
-Use `Sprint stall limit` from `## Plot Config` as the staleness threshold —
-do **not** introduce a second timeout key. One vocabulary for stalls.
+The staleness threshold is `Claim stale after` (hours, default 24), read by
+`plot-reconcile-scan.sh`. It is deliberately NOT `Sprint stall limit`: that
+counts *iterations without a deliverable* in a serial run — a count, not a
+duration — so reusing it would silently read "3 iterations" as "3 hours".
 
 ### 5. Append a Pulse Line — by default, not on request
 

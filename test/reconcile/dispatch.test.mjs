@@ -77,9 +77,9 @@ test('dispatch: creates one worktree per eligible branch and claims each ref', (
   run(['--offline', '--no-start', 'fan']);
 
   const worktrees = git(repo, 'worktree', 'list');
-  assert.match(worktrees, /plot-wt-one/);
-  assert.match(worktrees, /plot-wt-two/);
-  assert.doesNotMatch(worktrees, /plot-wt-skipped/);
+  assert.match(worktrees, /plot-wt-feature-one/);
+  assert.match(worktrees, /plot-wt-feature-two/);
+  assert.doesNotMatch(worktrees, /plot-wt-feature-skipped/);
 
   // The claim is the pushed ref — it must be on the remote, not just local.
   assert.match(git(repo, 'ls-remote', '--heads', 'origin', 'feature/one'), /feature\/one/);
@@ -120,7 +120,7 @@ test('dispatch: a branch it cannot dispatch is skipped once, not forever', () =>
   git(r, 'push', '-q', 'origin', 'main');
 
   // Occupy the worktree path with a non-worktree directory so creation fails.
-  const wt = path.join(path.dirname(r), 'plot-wt-blocked');
+  const wt = path.join(path.dirname(r), 'plot-wt-feature-blocked');
   fs.mkdirSync(wt, { recursive: true });
   fs.writeFileSync(path.join(wt, 'PREEXISTING'), 'not ours\n');
 
@@ -186,7 +186,7 @@ test('dispatch: fans out an Approved plan', () => {
     { encoding: 'utf8', cwd: r, timeout: 20_000 });
   assert.match(out, /dispatched feature\/g/);
   fs.rmSync(tmp, { recursive: true, force: true });
-  fs.rmSync(path.join(path.dirname(r), 'plot-wt-g'), { recursive: true, force: true });
+  fs.rmSync(path.join(path.dirname(r), 'plot-wt-feature-g'), { recursive: true, force: true });
 });
 
 test('dispatch: fails closed when the phase cannot be read', () => {
@@ -256,7 +256,7 @@ test('dispatch: a pre-Plot-2 plan with no Impl answer still dispatches', () => {
     { encoding: 'utf8', cwd: r, timeout: 20_000 });
   assert.match(out, /dispatched feature\/g/);
   fs.rmSync(tmp, { recursive: true, force: true });
-  fs.rmSync(path.join(path.dirname(r), 'plot-wt-g'), { recursive: true, force: true });
+  fs.rmSync(path.join(path.dirname(r), 'plot-wt-feature-g'), { recursive: true, force: true });
 });
 
 test('dispatch: refuses to run outside a git repository', () => {
@@ -283,21 +283,21 @@ test('dispatch: --status reports each worktree, its pid, and whether it lives', 
   const out = execFileSync('bash', [dispatch, '--status', 'g'],
     { encoding: 'utf8', cwd: r, timeout: 20_000 });
   assert.match(out, /feature\/g/);
-  assert.match(out, /plot-wt-g/);
+  assert.match(out, /plot-wt-feature-g/);
   // --no-start means no worker was started; that must read as "no worker",
   // not as a dead one — the difference matters when deciding to reap.
   assert.match(out, /no worker/i);
   assert.match(out, /summary: /);
 
   fs.rmSync(tmp, { recursive: true, force: true });
-  fs.rmSync(path.join(path.dirname(r), 'plot-wt-g'), { recursive: true, force: true });
+  fs.rmSync(path.join(path.dirname(r), 'plot-wt-feature-g'), { recursive: true, force: true });
 });
 
 test('dispatch: --status distinguishes a live worker from a dead one', () => {
   const { tmp, repo: r } = repoWithPlan('- **Phase:** Approved', 'alive');
   execFileSync('bash', [dispatch, '--offline', '--no-start', 'g'],
     { encoding: 'utf8', cwd: r, timeout: 20_000 });
-  const wt = path.join(path.dirname(r), 'plot-wt-g');
+  const wt = path.join(path.dirname(r), 'plot-wt-feature-g');
 
   // A pid that cannot be running (pid 0 is never a user process).
   fs.writeFileSync(path.join(wt, '.plot-worker.pid'), '0\n');
@@ -331,4 +331,39 @@ test('dispatch: --stop refuses without a branch and never kills everything', () 
   assert.ok(failed, '--stop must require an explicit branch');
   assert.match(stderr, /branch/i);
   fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('dispatch: branches sharing a last segment get distinct worktrees', () => {
+  // `feature/api` and `bug/api` both end in "api", so a worktree named after
+  // the last segment alone collides: the second branch adopts the FIRST one's
+  // worktree, and `--stop bug/api` would stop the wrong worker.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-suffix-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, 'repo');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-s.md'),
+    '# S\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/api` — one\n- `bug/api` — a different thing entirely\n');
+  fs.symlinkSync('../2026-01-01-s.md', path.join(r, 'plans', 'active', 's.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  const out = execFileSync('bash', [dispatch, '--offline', '--no-start', 's'],
+    { encoding: 'utf8', cwd: r, timeout: 30_000 });
+  assert.match(out, /dispatched feature\/api/);
+  assert.match(out, /dispatched bug\/api/, 'the second branch must get its own worktree');
+
+  const worktrees = git(r, 'worktree', 'list');
+  const paths = worktrees.trim().split('\n').slice(1).map((l) => l.split(' ')[0]);
+  assert.equal(new Set(paths).size, paths.length, 'worktree paths must be unique');
+
+  for (const p of paths) fs.rmSync(p, { recursive: true, force: true });
+  fs.rmSync(t, { recursive: true, force: true });
 });

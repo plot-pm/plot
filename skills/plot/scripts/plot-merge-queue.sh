@@ -20,7 +20,10 @@
 #   1. Does it merge cleanly into main RIGHT NOW?  (its own readiness)
 #   2. Does it conflict with a branch ahead of it in the queue?  (burst risk)
 #
-# Ordering rule: branches that touch fewer files first. A small, clean branch
+# Ordering rule: EARLIER WAVE FIRST, then fewer changed files. Wave order
+# dominates size — recommending a small wave-2 branch ahead of a larger tracer
+# would invert the premise that an earlier wave proves the seam. Within one
+# wave, the smallest clean branch first. A small, clean branch
 # merged early invalidates the fewest other bases, and a branch that conflicts
 # with one already ahead of it is the one that should rebase — not the other
 # way round.
@@ -80,23 +83,25 @@ branches=$("$script_dir/plot-plan-meta.sh" "$plan" --prefixes "$PREFIX_RE" 2>/de
   | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
-for w in d.get("waves", []):
+for i, w in enumerate(d.get("waves", [])):
     for b in w["branches"]:
         ref = b["branch"]
         if b["deferred"] or ref.startswith("idea/") or "." in ref.rsplit("/", 1)[-1]:
             continue
-        print(ref)
+        print(f"{i} {ref}")
 ' 2>/dev/null)
 
 # Candidates: branches with real work that has not landed yet. A merged branch
 # is done; an empty claim has nothing to merge.
+# Each entry is "<wave-index> <branch>" — no associative arrays, which bash 3.2
+# (still the macOS default) does not have.
 candidates=()
-while IFS= read -r b; do
+while IFS=' ' read -r widx b; do
   [ -n "$b" ] || continue
   git show-ref -q --verify "refs/remotes/origin/$b" </dev/null 2>/dev/null || continue
   git merge-base --is-ancestor "origin/$b" "origin/$MAIN" </dev/null 2>/dev/null && continue
   [ "$(git rev-list --count "origin/$MAIN..origin/$b" </dev/null 2>/dev/null || echo 0)" != "0" ] || continue
-  candidates+=("$b")
+  candidates+=("$widx $b")
 done <<< "$branches"
 
 echo "plot merge queue — $slug against origin/$MAIN"
@@ -110,10 +115,11 @@ fi
 
 # Order by footprint: fewest changed files first. The smallest clean branch
 # merged first invalidates the fewest other bases.
-ordered=$(for b in "${candidates[@]}"; do
+ordered=$(for entry in "${candidates[@]}"; do
+  widx=${entry%% *}; b=${entry#* }
   n=$(git diff --name-only "origin/$MAIN...origin/$b" </dev/null 2>/dev/null | wc -l | tr -d ' ')
-  printf '%s\t%s\n' "$n" "$b"
-done | sort -n -k1,1 -k2,2 | cut -f2)
+  printf '%s\t%s\t%s\n' "$widx" "$n" "$b"
+done | sort -n -k1,1 -n -k2,2 -k3,3 | cut -f3)
 
 # Would merging $2 into $1 conflict? Pure computation — no worktree, no index.
 would_conflict() {

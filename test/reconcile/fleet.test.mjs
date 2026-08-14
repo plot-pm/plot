@@ -251,8 +251,14 @@ test('fleet: --loose opens a wave whose prior branches are pushed but unmerged',
   const strict = execFileSync('bash', [scan, '--offline'], { encoding: 'utf8', cwd: r });
   assert.match(strict, /Two — blocked/, 'strict must block on an unmerged prior wave');
 
+  // --loose no longer opens a wave on pushed work ALONE. It promises "green and
+  // ready", which needs the git host; with none reachable here, readiness
+  // cannot be verified and loose must degrade to strict rather than assume it.
+  // (An earlier version opened the wave on any pushed commit — weaker than
+  // promised, and it would build the next wave on possibly-red code.)
   const loose = execFileSync('bash', [scan, '--offline', '--loose'], { encoding: 'utf8', cwd: r });
-  assert.match(loose, /Two — eligible/, 'loose must open it once work is pushed');
+  assert.match(loose, /Two — blocked/, 'unverifiable readiness must not open the wave');
+  assert.match(loose, /cannot verify/i, 'and the report must say why');
 
   fs.rmSync(lt, { recursive: true, force: true });
 });
@@ -383,4 +389,47 @@ test('fleet: the scan stays read-only by default, so internal callers cannot wri
 
   assert.equal(fs.readFileSync(plan, 'utf8'), before,
     'no invocation without --log-pulse may modify a plan');
+});
+
+test('fleet: --loose needs a ready, non-draft PR — not merely pushed work', () => {
+  // The plan promises loose means "the prior wave's PRs are green and ready".
+  // An earlier implementation accepted ANY pushed commit, so a branch with red
+  // CI or a draft PR opened the next wave — the next wave then building on a
+  // seam that is not merely unlanded but possibly broken. Strictly worse than
+  // the promised semantics, so the code follows the promise.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose2-'));
+  const bare = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', bare);
+  git(t, 'clone', '-q', bare, r);
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-l.md'),
+    '# L\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n- `feature/first` — pushed, but no ready PR\n\n### Two\n- `feature/second` — waits\n');
+  fs.symlinkSync('../2026-01-01-l.md', path.join(r, 'plans', 'active', 'l.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+  git(r, 'checkout', '-q', '-b', 'feature/first');
+  fs.writeFileSync(path.join(r, 'work.txt'), 'done\n');
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'work');
+  git(r, 'push', '-q', '-u', 'origin', 'feature/first');
+  git(r, 'checkout', '-q', 'main');
+
+  // No git-host CLI is reachable in this sandbox, so PR readiness cannot be
+  // established. --loose must then behave like strict rather than assume the
+  // best: an unverifiable claim of readiness is not readiness.
+  const loose = execFileSync('bash', [scan, '--offline', '--loose'],
+    { encoding: 'utf8', cwd: r });
+  assert.match(loose, /Two — blocked/,
+    'without verifiable PR readiness, --loose must not open the next wave');
+  assert.match(loose, /cannot verify|degraded|strict/i,
+    'and it must say why, rather than silently behaving like strict');
+
+  fs.rmSync(t, { recursive: true, force: true });
 });

@@ -16,9 +16,12 @@
 # (plot-fleet-scan.sh, plot-reconcile-scan.sh) is read-only. Consequently every
 # write here is either idempotent or refused:
 #
-#   - Claim by ref push. A push that would overwrite an existing branch is
-#     REJECTED, and that rejection is the concurrency control — two dispatchers
-#     racing for the same branch cannot both win. Git is the lock.
+#   - Claim by ref push, where the claim carries an empty COMMIT. Two
+#     independent claims diverge, so the loser's push is rejected as
+#     non-fast-forward — that rejection is the concurrency control. Pushing a
+#     branch that merely points at origin/<main> would NOT work: the remote
+#     already has that commit, so both pushes succeed and both dispatchers
+#     think they won. Git is the lock only when the refs actually diverge.
 #   - Worktrees are adopted, never duplicated. A dispatcher that dies halfway
 #     through a fan-out is safe to re-run.
 #   - Nothing is ever deleted. Cleanup belongs to /plot-reconcile, which can
@@ -53,8 +56,12 @@ while [ $# -gt 0 ]; do
     --stop)     mode=stop; case "${2:-}" in */*) stop_branch="$2"; shift ;; esac ;;
     --no-start) no_start=1 ;;
     --offline|--no-fetch) offline="--offline" ;;
-    --max)      max="${2:?--max needs a value}"; shift ;;
-    -h|--help)  sed -n '2,9p' "$0"; exit 0 ;;
+    --max)      max="${2:?--max needs a value}"
+                case "$max" in
+                  ''|*[!0-9]*) echo "plot-dispatch: --max needs a number, got '$max'" >&2; exit 1 ;;
+                esac
+                shift ;;
+    -h|--help)  sed -n '2,13p' "$0"; exit 0 ;;
     *)          slug="$1" ;;
   esac
   shift
@@ -112,7 +119,7 @@ if [ "$mode" = "stop" ]; then
     echo "  Refusing to guess — stopping the wrong worker discards its work." >&2
     exit 1
   fi
-  wt="$wt_root_early/plot-wt-${stop_branch##*/}"
+  wt="$wt_root_early/plot-wt-$(printf '%s' "$stop_branch" | tr '/' '-')"
   [ -d "$wt" ] || { echo "plot-dispatch: no worktree for '$stop_branch' at $wt" >&2; exit 1; }
   st=$(worker_state "$wt")
   case "$st" in
@@ -256,7 +263,7 @@ start_worker() {
 if [ "$dry_run" = 1 ]; then
   while read -r br; do
     [ -n "$br" ] || continue
-    echo "would dispatch $br → $wt_root/plot-wt-${br##*/}"
+    echo "would dispatch $br → $wt_root/plot-wt-$(printf '%s' "$br" | tr '/' '-')"
     n_dispatched=$((n_dispatched + 1))
   done < <("$script_dir/plot-fleet-scan.sh" $offline --list-eligible "$slug" 2>/dev/null)
   echo "summary: dispatched=$n_dispatched reused=0 skipped=0 started=0"
@@ -275,13 +282,15 @@ while :; do
   # eligible set is exhausted for this run.
   is_exhausted "$branch" && break
 
-  suffix=${branch##*/}
+  # Flatten the whole branch name, not just its last segment: feature/api and
+  # bug/api are different work and must not share a worktree (a shared path
+  # also makes --stop act on whichever claimed it first).
+  suffix=$(printf '%s' "$branch" | tr '/' '-')
   wt="$wt_root/plot-wt-$suffix"
 
   if [ "$dry_run" = 1 ]; then
     echo "would dispatch $branch → $wt"
     n_dispatched=$((n_dispatched + 1))
-    dry_seen+=("$branch")
     continue
   fi
 
