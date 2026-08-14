@@ -31,6 +31,22 @@ Sprints (`/plot-sprint`) are orthogonal — they group plans by schedule, not by
 
 New to Plot? Read [Intro to Using Plot](skills/plot/intro-to-using-plot.md) for a walkthrough of the lifecycle.
 
+## Several agents, one plan
+
+An approved plan usually decomposes into several branches. Handing them to several agents at once raises two questions that hand-coordination answers badly: **which branches may run concurrently**, and **how does one agent take a branch without another taking it too**.
+
+Plot answers both without adding a database.
+
+**Waves.** Branches grouped under a `### ` subheading may run at the same time; a wave opens once every branch in every earlier wave is merged. So a tracer bullet proves the seam, then the rest fan out — the dependency real work actually has, without a dependency graph nobody keeps accurate. A plan with no subheadings is one wave, exactly as before.
+
+**Claim-by-ref.** An agent takes a branch by pushing an empty ref for it. Git rejects a push that would overwrite an existing branch, so a race has exactly one winner. **Git is the lock** — no lock manager, no lease, no coordination file, nothing to fall out of sync.
+
+Everything else is derived from that. `/plot-fleet` re-reads git each time to report what is complete, eligible, or claimed; `/plot-dispatch` gives each eligible branch its own worktree and a detached worker; `/plot-merge-queue` says in what order the finished branches can land and which will collide with a branch ahead of it — the failure that is invisible when every branch merges into `main` cleanly on its own.
+
+Because fleet state is derived and never stored, a killed dispatcher or a dead worker costs nothing: the next read re-derives the truth from git. And because merging stays with you, throughput never outruns review — the queue tells you the safe order, you decide what lands.
+
+Start with [Working several branches at once](skills/plot/intro-to-using-plot.md#working-several-branches-at-once).
+
 ## Skills
 
 | Skill | Description |
