@@ -52,7 +52,7 @@ Scripts in `skills/plot/scripts/` that any model tier can use:
 | `plot-host.sh` | Git-host adapter (gh/bb): `backend`, `default-branch`, `pr-state`, `pr-create`, `pr-merge`, `pr-list`, `pr-body` — the ONE place that talks to the host CLI |
 | `plot-phase-gate.sh` | PreToolUse hook (see `hooks/hooks.json`): blocks implementation commits while the governing plan is Draft; plan-only commits pass; fails open |
 | `plot-story-lint.sh` | Story-estate drift check (missing STORY files, frontmatter, done-not-archived, index sync); machine-countable footer; exit 1 on findings |
-| `plot-reconcile-scan.sh` | Read-only plan/branch drift sweep (five sections + machine-countable footer) |
+| `plot-reconcile-scan.sh` | Read-only plan/branch drift sweep (five sections + machine-countable footer); section 3 classifies empty claims — `deferred:`/`moved:` in the plan means reapable, a bare `claimed:` means needs judgment |
 | `plot-dispatch.sh` | Worktree fan-out: one worktree + claim + detached worker per eligible branch; `--dry-run`/`--no-start`/`--max N`; idempotent — re-running adopts rather than duplicates |
 | `plot-fleet-scan.sh` | Read-only wave/claim state per plan (complete/eligible/blocked + machine-countable footer); `--next` names one claimable branch (exit 1 = nothing to start); stateless — re-derived from git refs every run |
 | `board/board-server.mjs` | Local Kanban status board — built artifact of `@plot-pm/board` (`packages/board`); run via `pnpm board`, rebuild via `pnpm build:board` |

@@ -9,7 +9,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.0.2
+  version: 1.1.0
 compatibility: >-
   Designed for Claude Code. Requires git and jq; gh (GitHub) or bb (Bitbucket)
   CLI adds open-PR precision — without one the sweep degrades to git
@@ -77,6 +77,27 @@ It reads `origin/*` refs plus the configured plan directory and emits five secti
 1. **Phase↔symlink drift** — a plan whose phase disagrees with which index dir (`active/` vs `delivered/`) its symlink lives in. The `Delivered` + still-in-`active/` case is the classic half-delivery failure mode.
 2. **Merged-but-not-delivered** — a plan still `Approved` whose impl branch (resolved from the `## Branches` `→ #NNN` links) is already merged to the main branch. Candidate `/plot-deliver`.
 3. **Stale branches** — remote branches under a configured prefix with no open PR: merged into the main branch → deletion candidates; ahead of it → orphans needing judgment. The main branch and `release/*` are never listed.
+### Claims (inside section 3)
+
+An **empty branch with no commits of its own** is a claim: a worker pushed a
+ref to take that work atomically. Two very different situations leave that
+identical artifact, and git cannot tell them apart:
+
+| Plan says | Meaning | Report |
+|---|---|---|
+| `deferred:` / `moved:` on that branch | the worker gave it up deliberately | **abandoned claim** — deletion candidate, with the command |
+| a bare `claimed:`, or nothing | the worker may be thinking, or may be dead | **needs judgment** — no deletion command offered |
+
+Reading the plan annotation here is the one deliberate exception to "git is the
+truth, the annotation is only a reflection". It is safe because this gate
+decides *cleanup*, not *work*: a wrong annotation costs at most a missed
+cleanup, never lost or duplicated work.
+
+**Never offer to delete a claim that was not explicitly given up.** A worker
+that is simply slow looks exactly like a dead one, and deleting its branch
+destroys work in progress. Check `/plot-fleet` and the worker's log
+(`../plot-wt-*/.plot-worker.log`) before deciding.
+
 4. **Concurrent-delivery check** — each active plan's impl branch shown as ahead/behind `origin/<main>`, so a parallel session's delivery is visible before you act on the same plan.
 5. **Needs attention** — malformed or non-conforming plans: no phase field (pre-plot legacy), an unrecognized phase value, a front-matter `status:`/`phase:` disagreement, or a dated plan with no symlink in either index. Skip-and-warn — never a crash, never silent.
 
@@ -87,7 +108,7 @@ Plan files are parsed by the shared `plot-plan-meta.sh` parser, which understand
 **Summary footer.** The report's final line is machine-countable — consumers that only need counts (the `/plot` hygiene line, the Automation Output below) read it instead of parsing section bodies:
 
 ```
-summary: drift=1 merged_not_delivered=1 stale=3 attention=0 concurrent=1 pr_source=gh main=main
+summary: drift=1 merged_not_delivered=1 stale=3 claims=0 attention=0 concurrent=1 pr_source=gh main=main
 ```
 
 ### Stage 2 — Act (your judgment)

@@ -6,7 +6,7 @@
 # Output: five-section text report on stdout (each finding carries its exact
 #         remediating command as copy-paste text — nothing is executed),
 #         terminated by a machine-countable summary line:
-#             summary: drift=0 merged_not_delivered=0 stale=0 attention=0 concurrent=0 pr_source=gh main=main
+#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 pr_source=gh main=main
 #         Consumers that only need counts (the /plot dispatcher's hygiene
 #         line, /plot-reconcile's Automation Output) read that one line.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
@@ -28,7 +28,8 @@
 # Sections:
 #   1. Phase<->symlink drift    — plan phase vs active//delivered/ index
 #   2. Merged-but-not-delivered — impl branch merged, plan still Approved
-#   3. Stale branches           — merged/orphan remote branches, no open PR
+#   3. Stale branches           — merged/orphan remote branches, no open PR,
+#                                 plus CLAIMS (empty branches a worker took)
 #   4. Concurrent-delivery      — active plans' branch divergence vs main
 #   5. Needs attention          — malformed / non-conforming / orphaned plans
 #
@@ -215,6 +216,34 @@ plan_branches() { # $1=plan file path
   printf '%s\n' "$plan_rows" | awk -F"$US" -v f="$1" '$1 == f { print $6; exit }'
 }
 
+# Is this remote branch an empty CLAIM — a ref pushed to take work atomically,
+# holding no commits of its own? Distinct from "merged" (real work, landed) and
+# from "orphan" (real work, never landed).
+is_empty_claim() { # $1=branch
+  git show-ref -q --verify "refs/remotes/origin/$1" </dev/null 2>/dev/null || return 1
+  git merge-base --is-ancestor "origin/$1" "origin/$MAIN" </dev/null 2>/dev/null || return 1
+  [ "$(git rev-list --count "origin/$1" </dev/null 2>/dev/null || echo 0)" \
+    = "$(git rev-list --count "origin/$MAIN" </dev/null 2>/dev/null || echo 0)" ]
+}
+
+# How did this claim end? Git cannot say — an abandoned claim and a dead worker
+# leave the identical empty branch. The plan annotation is the only signal, and
+# reading it here is the ONE deliberate exception to "no gate reads the
+# annotation": this gate decides CLEANUP, not work, so a wrong annotation costs
+# at most a missed cleanup — never lost or duplicated work.
+claim_disposition() { # $1=branch → "abandoned" | "unresolved"
+  local br="$1" l line
+  for l in "$ACTIVE_DIR"/*.md; do
+    [ -e "$l" ] || continue
+    line=$(grep -F -- "\`$br\`" "$l" 2>/dev/null | head -1)
+    [ -n "$line" ] || continue
+    case "$line" in
+      *"<!-- deferred:"*|*"<!-- moved:"*) echo "abandoned"; return ;;
+    esac
+  done
+  echo "unresolved"
+}
+
 # Does a dated plan file have a symlink pointing at it from a given index dir?
 symlinked_from() { # $1=index_dir $2=dated_basename
   local l t
@@ -226,7 +255,7 @@ symlinked_from() { # $1=index_dir $2=dated_basename
   return 1
 }
 
-n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0
+n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0
 
 # ---------------------------------------------------------------------------
 # 1. Phase <-> symlink drift  (plot-managed plans only)
@@ -341,6 +370,7 @@ echo
 
 echo "== 3. Stale branches =="
 stale_out=""
+claims_out=""
 while IFS= read -r b; do
   [ -n "$b" ] || continue
   case "$b" in
@@ -354,6 +384,21 @@ while IFS= read -r b; do
   if [ "$has_open_pr" = 1 ]; then
     continue   # live work — never a stale candidate
   fi
+  # An empty claim is neither merged work nor an orphan: someone took this
+  # branch and may still be on it. Classify it before those two verdicts, or it
+  # falls into "ahead of main → orphan", which is doubly wrong — it is not
+  # ahead, and "orphan" hides that a worker may be alive there.
+  if is_empty_claim "$b"; then
+    if [ "$(claim_disposition "$b")" = "abandoned" ]; then
+      claims_out+="  origin/$b — abandoned claim (plan says deferred/moved) → deletion candidate\n"
+      claims_out+="    fix: git push origin --delete $b\n"
+    else
+      claims_out+="  origin/$b — still claimed, no commits → needs judgment (worker thinking, or dead)\n"
+      claims_out+="    inspect: git log -1 --format='claimed %cr' origin/$b\n"
+    fi
+    n_claims=$((n_claims + 1))
+    continue
+  fi
   if [ "$is_merged" = 1 ]; then
     stale_out+="  origin/$b — merged into $MAIN, no open PR → deletion candidate\n"
     stale_out+="    fix: git push origin --delete $b\n"
@@ -364,6 +409,11 @@ while IFS= read -r b; do
   n_stale=$((n_stale + 1))
 done <<< "$all_branches"
 if [ -n "$stale_out" ]; then printf '%b' "$stale_out"; else echo "  (none)"; fi
+if [ -n "$claims_out" ]; then
+  echo
+  echo "  -- claims (empty branches taken by a worker) --"
+  printf '%b' "$claims_out"
+fi
 echo
 
 # ---------------------------------------------------------------------------
@@ -399,5 +449,5 @@ if [ -n "$attention_out" ]; then printf '%b' "$attention_out"; else echo "  (non
 echo
 
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale attention=$n_att concurrent=$n_conc pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc pr_source=$PR_SOURCE main=$MAIN"
 exit 0
