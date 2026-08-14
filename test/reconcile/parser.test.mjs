@@ -128,11 +128,22 @@ test('plan-meta: waves group branches by ### subheading, deferred flagged', () =
         { branch: 'feature/dropped', deferred: true, claimed: '' },
       ],
     },
-    { name: 'Wave 3', branches: [{ branch: 'feature/migration', deferred: false, claimed: '' }] },
+    {
+      name: 'Wave 3',
+      branches: [
+        { branch: 'feature/migration', deferred: false, claimed: '' },
+        // Annotations bind to the line carrying the backticked branch name.
+        // A `deferred:` comment on a wrapped continuation line does NOT apply —
+        // it would silently read as "still outstanding", and /plot-deliver's
+        // branch gate would block delivery on a branch nobody intends to build.
+        { branch: 'feature/wrapped', deferred: false, claimed: '' },
+      ],
+    },
   ]);
   // Flat branches[] stays the whole set, in sorted order — existing consumers unaffected.
   assert.deepEqual(actual.branches, [
-    'feature/api', 'feature/dropped', 'feature/migration', 'feature/thin-slice', 'feature/ui',
+    'feature/api', 'feature/dropped', 'feature/migration', 'feature/thin-slice',
+    'feature/ui', 'feature/wrapped',
   ]);
 });
 

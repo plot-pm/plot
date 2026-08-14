@@ -22,6 +22,8 @@
 
 ### Wave 3
 - `feature/migration` — backfill, needs api landed
+- `feature/wrapped` — a long description that wraps onto
+  the next line <!-- deferred: annotation on a continuation line does NOT count -->
 
 ## Notes
 

@@ -62,6 +62,10 @@
 #                  front matter `assignee:`; "" if absent
 #   branches       branch names from the `## Branches` section (backtick-
 #                  quoted, matching the known prefixes; sorted, unique)
+#                  NOTE: per-branch annotations (`<!-- deferred: ... -->`,
+#                  `<!-- claimed: ... -->`) bind to the LINE carrying the
+#                  backticked branch name. An annotation on a wrapped
+#                  continuation line is not seen — keep it on the branch line.
 #   prs            PR numbers from `→ #NNN` links in the `## Branches`
 #                  section (sorted, unique)
 #   review_raw     the plan's review-channel answer as written (`## Status`

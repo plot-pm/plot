@@ -393,29 +393,32 @@ a reason), and the parser fix (first `## Branches` heading wins).
   Status: Not started
 
 ### Implementation
-- `feature/parallel-fleet-claim` — Stage 2: claim-by-ref in `/plot-implement`
+- `feature/parallel-fleet-claim` → #75 — Stage 2: claim-by-ref in `/plot-implement`
   (push empty branch before work), claim reflections, wave eligibility reporting
   in `/plot-fleet` including the `strict`/`loose` setting, board claim column.
   Makes today's hand-run parallel sessions safe.
-- `feature/parallel-fleet-dispatch` — Stage 3: worktree creation and
+- `feature/parallel-fleet-dispatch` → #76 — Stage 3: worktree creation and
   `/plot-dispatch` fan-out via detached `claude -p` per worktree, including
   worker log destinations and how a human inspects or kills a worker. Adds the
   worker-side DoD self-check before PR-ready. Includes the `ralph-plot-sprint`
   "Finish before starting" restatement as a reviewed change.
-- `feature/parallel-fleet-reaper` — Stage 4: abandoned-claim classification in
+- `feature/parallel-fleet-reaper` → #77 — Stage 4: abandoned-claim classification in
   `plot-reconcile-scan.sh`, distinguishing deliberate abandonment
   (`deferred:`/`moved:` present → reapable) from a dead worker (bare `claimed:`
   past threshold → needs judgment). Read-only; prints the removal command, human
   runs it, consistent with `/plot-reconcile` today.
 
 ### Wave 3
-- `feature/parallel-fleet-merge-queue` — Stage 5: ordered merge-ready queue with
+- `feature/parallel-fleet-merge-queue` → #78 — Stage 5: ordered merge-ready queue with
   `git merge-tree` conflict prediction. Human still merges.
 
 ### Wave 4
-- `feature/parallel-fleet-merge-authority` — Stage 6: single serialised merge
-  authority with rebase signalling. Only after Stage 5 proves the ordering is
-  trustworthy.
+- `feature/parallel-fleet-merge-authority` — Stage 6: single serialised merge authority with rebase signalling. <!-- deferred: conditional on Stage 5's ordering proving trustworthy in practice — an experience question, not a code question; building it now skips the evidence it waits for -->
+
+**Stage 6 is deferred, not dropped.** Everything the plan set out to enable —
+several agents on one plan, safely, with a known-good merge order — is delivered
+by Stages 1–5. Stage 6 removes the human from the merge step itself, which is
+the one place this design deliberately kept them.
 
 ## Notes
 
