@@ -2,8 +2,9 @@
 name: plot-fleet
 description: >-
   Fleet pulse — report which branch waves of a plan are complete, eligible,
-  or blocked, and which branches are claimed. Read-only and stateless; every
-  fact is re-derived from git. Use on /plot-fleet.
+  or blocked, and which branches are claimed. Stateless — every fact is
+  re-derived from git; the only thing written is a pulse line. Use on
+  /plot-fleet.
 globs: []
 license: MIT
 metadata:
@@ -45,7 +46,9 @@ git refs and plan files on each run. That is the design, not an optimization
 - There is nothing to keep in sync, so there is nothing to drift.
 
 **Log clean pulses too.** A pulse that finds nothing wrong must still say so.
-Without that, an idle fleet and a dead fleet look identical.
+Without that, an idle fleet and a dead fleet look identical — so `--log-pulse`
+is part of the normal invocation, not an extra (step 5 explains why the script
+still defaults to writing nothing).
 
 ## Model Guidance
 
@@ -79,8 +82,11 @@ this command as a heartbeat.
 ### 1. Run the Scan
 
 ```bash
-../plot/scripts/plot-fleet-scan.sh [--offline] [<slug>]
+../plot/scripts/plot-fleet-scan.sh --log-pulse [--offline] [<slug>]
 ```
+
+`--log-pulse` is deliberate on every run — see step 5. Drop it only if the user
+asks for a look without leaving a trace.
 
 The scan prints a per-plan wave report and ends with one machine-countable
 line. **Read the counts from that footer — never re-count the body:**
@@ -125,10 +131,20 @@ dead worker (a bare `claimed:` past the threshold).
 Use `Sprint stall limit` from `## Plot Config` as the staleness threshold —
 do **not** introduce a second timeout key. One vocabulary for stalls.
 
-### 5. Append a Pulse Line (optional)
+### 5. Append a Pulse Line — by default, not on request
 
-When run on a cadence, append one line per pulse to the plan's `## Notes`,
-**including clean pulses**:
+**Pass `--log-pulse` on every `/plot-fleet` run** unless the user asks you not
+to. A pulse that finds nothing wrong must still leave a trace, or an idle fleet
+and a dead fleet are indistinguishable — which is the failure this command
+exists to prevent.
+
+The *script* defaults to writing nothing, because `/plot-implement` and
+`/plot-dispatch` call it internally and must never amend a plan as a side
+effect of asking what to work on. The default therefore lives here, in the
+human-facing command: the script writes only when asked, and this command asks
+every time.
+
+Appends one line per pulse to the plan's `## Notes`, **including clean pulses**:
 
 ```
 <!-- pulse: 2026-08-14T11:00Z — wave 2: 2 claimed, 1 eligible, 0 stale -->
@@ -140,9 +156,12 @@ everything.
 
 ## Guardrails
 
-- **Read-only.** This command never creates a branch, pushes a ref, starts a
-  worker, or merges anything. If a step seems to require writing, it belongs in
-  `/plot-dispatch` or `/plot-implement`.
+- **Read-only, with one exception.** This command never creates a branch,
+  pushes a ref, starts a worker, or merges anything. The single thing it writes
+  is the pulse line (step 5) — a log, not state: deleting the whole log changes
+  no behaviour, because the next pulse re-derives everything from git. If a
+  step seems to require any other write, it belongs in `/plot-dispatch` or
+  `/plot-implement`.
 - **Never claim on the user's behalf.** Reporting a branch as eligible is not
   taking it.
 - **Never re-count the body.** The footer is the contract.
@@ -154,5 +173,5 @@ everything.
 | Treating `claimed` in the plan file as authoritative | A stale annotation hides a free branch, or fakes a busy one | Git refs are the claim; the annotation is a reflection |
 | Reporting a wave eligible while a prior wave has open work | Workers build on an unproven seam | The scan's arithmetic already enforces this — do not second-guess it |
 | Reaping a stale claim here | Silent data loss; a thinking worker looks dead | Cleanup belongs to `/plot-reconcile`, which can tell abandoned from crashed |
-| Skipping the pulse line when nothing changed | A dead fleet is indistinguishable from an idle one | Log clean pulses explicitly |
+| Dropping `--log-pulse` because nothing changed | A dead fleet is indistinguishable from an idle one — the quiet pulses ARE the evidence | Pass it every run; it is the default, not an option |
 | Calling this a heartbeat | Collides with `ralph-plot-sprint`'s per-run liveness signal | This is a pulse: an observation across a fleet |
