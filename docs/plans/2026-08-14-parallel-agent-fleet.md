@@ -18,7 +18,9 @@
 ## Changelog
 
 - New `/plot-fleet` command: a stateless watcher pulse that re-derives fleet state from git each tick, renders which branches are claimed/eligible/stale, and appends a pulse-log line so a dead fleet is distinguishable from an idle one.
-- New `/plot-dispatch` command: human-paced fan-out that creates one git worktree per eligible branch and starts a worker in each.
+- New `/plot-dispatch` command: human-paced fan-out that creates one git worktree per eligible branch and starts a detached worker in each, so the fleet outlives the dispatching session.
+- Wave eligibility is `strict` by default (prior wave merged); a per-plan `loose` override (prior wave green and ready) requires a stated reason.
+- Workers check their own branch against the Definition of Done before marking a PR ready; a branch that cannot yet comply stays draft with the blocking reason recorded.
 - Plan format gains **waves** (`### Tracer` / `### Implementation` / `### Wave N` subheadings under `## Branches`) expressing which branches may run concurrently.
 - Plan format gains **claim reflections** (`<!-- claimed: <ts>, <session> -->`) and two new drift annotations (`<!-- split-from: ... -->`, `<!-- moved: wave N, ... -->`).
 - `/plot-implement` claims a branch atomically by pushing its ref before starting work, so concurrent sessions cannot collide.
@@ -154,13 +156,35 @@ branch-scraping mode at a `## Branches` heading and scrapes backticked tokens
 from every following line until the next `## ` heading — regardless of fenced
 code blocks, which it does not track. A plan containing a second literal
 `## Branches` heading in prose therefore poisons `branches[]` with example
-names. This plan's first draft did exactly that. Hardening the parser
-(fence-awareness, or "first `## Branches` wins") is Stage 1 work — see Open
-Questions.
+names. This plan's first draft did exactly that.
+
+The fix is **"first `## Branches` heading wins"** — later same-named headings are
+ignored. A one-line change that resolves the observed failure. Full
+fence-awareness was rejected as disproportionate: it adds awk state to the
+contract script that 83 tests depend on, to guard against example markup that
+the narrower rule already handles. Stage 1 owns it.
 
 **Eligibility rule:** a wave is eligible when every non-deferred branch in every
 prior wave has a merged PR. `### Tracer` is wave 1 by convention,
 `### Implementation` is wave 2, explicit `### Wave N` beyond.
+
+Under the v1 merge posture (human merges), this means a wave boundary is a
+**human checkpoint** — which is the intent, not a limitation: the tracer proves
+the seam, a human looks, then the rest fans out. It matches the Pacing model,
+where a scope commitment is human-paced.
+
+A per-plan override loosens the rule to *green and ready* instead of *merged*:
+
+| Setting | Wave N+1 eligible when | Status |
+|---|---|---|
+| `strict` | every prior branch has a **merged** PR | **default** |
+| `loose` | every prior branch's PR is **green and ready** | requires a stated reason in the plan |
+
+`loose` buys throughput by letting a wave build on unmerged code — which is
+exactly the rebase cascade the risk section warns about. It therefore inverts
+Principle 10's burden: where ceremony needs justification only when *increased*,
+this setting needs justification when *relaxed*. A plan using `loose` records
+why, in the same place it records its ceremony answers.
 
 **A plan with no subheadings is a single wave** — every branch eligible
 immediately, which is exactly today's behaviour. No existing plan regresses.
@@ -211,13 +235,70 @@ The plan-file annotation is a **reflection**, not the claim:
 
 If the annotation is missing, stale, or contradicts git, **git wins** — the same
 relationship the manifesto already defines for the project board ("a read-only
-reflection of PR state, never the source of truth"). No gate reads the
-annotation, so stale reflections are harmless under the constraint above.
+reflection of PR state, never the source of truth").
+
+**One deliberate exception: the reaper reads the annotation.** An abandoned
+claim and a crashed worker leave the identical artifact — a pushed branch with
+zero commits — so the annotation is the only signal that separates them:
+
+| Plan state | Meaning | Reaper action |
+|---|---|---|
+| `deferred:` / `moved:` present | worker gave the branch up deliberately | ref is reapable, print the deletion command |
+| bare `claimed:`, past threshold, no commits | worker died mid-claim | needs judgment — report, never auto-suggest deletion |
+
+This narrows "no gate reads the annotation" rather than preserving it, and the
+narrowing is intentional: the alternative (a tombstone commit convention) puts
+the signal in git but invents a new commit grammar for a rare event. The
+weakened invariant is stated precisely so it is not rediscovered as a surprise:
+**no gate that decides work reads the annotation; the reaper, which decides
+cleanup, does.** A wrong annotation therefore causes at worst a missed or
+deferred cleanup, never lost or duplicated work.
 
 **Accepted cost:** a crashed worker leaves a pushed-but-empty branch that looks
 claimed forever. Stage 4 adds the reaper. Note that "empty branches on approve"
 appears in the manifesto's Origin section as a *bug* found during lifecycle
 testing — the same artifact is correct here because it is explicit and reaped.
+
+#### Worker lifecycle
+
+`/plot-dispatch` starts **one detached `claude -p` process per worktree**. The
+fleet therefore outlives the dispatching session: you can run `/plot-dispatch`,
+close the laptop lid, and the workers keep going.
+
+This is the keystone decision — it silently settles three others:
+
+1. **The reaper is core machinery, not emergency cleanup.** Detached processes
+   die without telling anyone. Stage 4 is load-bearing, not a nicety.
+2. **`/plot-dispatch` is a command, not a session.** It starts processes and
+   returns. Nothing must stay open.
+3. **Process bookkeeping becomes real work.** PIDs, log destinations, and how a
+   human inspects or kills a running worker are Stage 3 concerns, not
+   afterthoughts.
+
+The rejected alternative — Task subagents of the dispatching session — is
+cheaper and reuses existing fan-out machinery, but it makes the dispatching
+session a single point of failure for the whole fleet, which defeats the point
+of worktree isolation.
+
+**When a worker gives up.** A worker that has claimed a branch and then finds
+the work impossible (branch unnecessary, wrongly cut, blocked) annotates the
+plan (`deferred:` / `split-from:` / `moved:`) and **leaves the ref in place**.
+It never deletes a remote ref — workers write only to their own branch and to
+the plan. The abandoned ref is cleaned up by the reaper, which distinguishes
+abandonment from a crash via the annotation (see the claim section above).
+
+**When a worker cannot satisfy the DoD.** Each worker classifies its own branch
+against `docs/definition-of-done.md` and only marks its PR ready when the
+required BDD scenarios, docs, and changeset are present — moving the DoD check
+from *after the burst* to *before the PR exists*. This costs nothing, because
+each worker is already serial internally.
+
+If a branch genuinely *cannot* satisfy the DoD yet — a BDD scenario needing a
+seam that is still unmerged in an earlier wave — the worker **leaves the PR as
+draft and annotates the blocking reason**. The work stays pushed and visible,
+and `/plot-fleet` reports it as blocked on wave N. Nothing is discarded, and the
+stall is visible rather than silent. Workers do not grant themselves DoD
+exemptions; an exemption is a human decision.
 
 #### Worktrees
 
@@ -278,18 +359,23 @@ along as an inference.
       both — on-demand for humans, timed for unattended runs.
 - [ ] Reaper threshold for an abandoned claim: fixed duration, or derived from
       `Sprint stall limit` in `opus5-longhorizon-hardening`? Prefer reusing that
-      key over inventing a second timeout.
+      key over inventing a second timeout. Now higher-stakes than at first
+      draft: detached workers make the reaper core machinery (see Worker
+      lifecycle).
 - [ ] Does the pulse log belong in the plan's `## Notes` (git-native, but noisy
       in diffs) or in a separate per-slug log file under docs/plans/pulses/?
       Plan file is the Principle 1 answer; diff noise is the cost.
-- [ ] Should `plot-plan-meta.sh` become fence-aware, or simply take the *first*
-      `## Branches` heading and ignore later ones? Raised by this plan poisoning
-      its own `branches[]` on first draft (see Parser note in Approach).
-- [ ] How does `/plot-dispatch` actually start workers — Task subagents, or
-      detached `claude -p` processes per worktree? Affects whether the fleet
-      survives the dispatching session's death.
 - [ ] Worktree parent directory: sibling of the repo, or a configurable
       `Worktree root` Plot Config key? Sibling by default, key if requested.
+- [ ] Where do detached worker logs go, and how does a human inspect or kill a
+      running worker? Falls out of the `claude -p` decision; Stage 3 owns it.
+
+**Resolved during plan interrogation** (see the sections above for the woven
+rationale): worker start mechanism (detached `claude -p`), abandoned-claim
+handling (annotate, leave the ref, reaper reads the annotation), wave
+eligibility (`strict` default with a justified `loose` override), DoD under
+burst (worker self-checks before marking ready; blocked branches stay draft with
+a reason), and the parser fix (first `## Branches` heading wins).
 
 ## Branches
 
@@ -300,20 +386,25 @@ along as an inference.
   Layers: plan format → `plot-plan-meta.sh` → `test:reconcile` → skill → board
   Proves: the derived-view approach renders usefully, and the plan-format
   extension survives the contract tests, before anything depends on either.
-  Also reconciles heartbeat vocabulary with `opus5-longhorizon-hardening`.
+  Also reconciles heartbeat vocabulary with `opus5-longhorizon-hardening`, and
+  fixes the parser so the first `## Branches` heading wins.
   Status: Not started
 
 ### Implementation
 - `feature/parallel-fleet-claim` — Stage 2: claim-by-ref in `/plot-implement`
   (push empty branch before work), claim reflections, wave eligibility reporting
-  in `/plot-fleet`, board claim column. Makes today's hand-run parallel sessions
-  safe.
+  in `/plot-fleet` including the `strict`/`loose` setting, board claim column.
+  Makes today's hand-run parallel sessions safe.
 - `feature/parallel-fleet-dispatch` — Stage 3: worktree creation and
-  `/plot-dispatch` fan-out. Includes the `ralph-plot-sprint` "Finish before
-  starting" restatement as a reviewed change.
+  `/plot-dispatch` fan-out via detached `claude -p` per worktree, including
+  worker log destinations and how a human inspects or kills a worker. Adds the
+  worker-side DoD self-check before PR-ready. Includes the `ralph-plot-sprint`
+  "Finish before starting" restatement as a reviewed change.
 - `feature/parallel-fleet-reaper` — Stage 4: abandoned-claim classification in
-  `plot-reconcile-scan.sh` (read-only; prints the removal command, human runs
-  it, consistent with `/plot-reconcile` today).
+  `plot-reconcile-scan.sh`, distinguishing deliberate abandonment
+  (`deferred:`/`moved:` present → reapable) from a dead worker (bare `claimed:`
+  past threshold → needs judgment). Read-only; prints the removal command, human
+  runs it, consistent with `/plot-reconcile` today.
 
 ### Wave 3
 - `feature/parallel-fleet-merge-queue` — Stage 5: ordered merge-ready queue with
@@ -338,12 +429,20 @@ always precedes autonomy. The plan therefore tolerates being stopped at any
 stage: stop after 2 for safe manual parallelism, after 3 for real fan-out with
 human merges.
 
-**Known risk — DoD enforcement under burst.** The DoD gate is applied per-PR by
-an agent seeing one PR at a time. Several concurrent workers means several
-concurrent classifications. The gate is in CI so it will not be silently
-bypassed, but the *fixing* loop (`ralph-plot-sprint` Step 1) assumes serial
-attention. Expect DoD gaps to accumulate faster than they are fixed between
-Stages 3 and 5.
+**Known risk — DoD enforcement under burst (mitigated, not eliminated).** The
+DoD gate is applied per-PR by an agent seeing one PR at a time; several
+concurrent workers means several concurrent classifications, and the *fixing*
+loop (`ralph-plot-sprint` Step 1) assumes serial attention.
+
+The mitigation is to move the check earlier rather than to add a queue: each
+worker classifies its own branch and marks its PR ready only when the DoD
+artifacts are present (see Worker lifecycle). Gaps then surface as
+still-draft PRs at their source instead of accumulating as red PRs downstream.
+
+Residual risk: a worker's self-classification can be wrong. CI remains the
+backstop, and `/plot-fleet` reporting draft-with-reason branches makes a growing
+stall visible. This is weaker than a queue and deliberately so — Stage 5 is
+where it gets properly solved.
 
 **Sources.**
 - Lloyd loop orchestrator — https://www.reddit.com/r/ClaudeAI/comments/1vnnpur/example_of_a_real_working_loop_orchestrator/
