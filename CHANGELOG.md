@@ -1,5 +1,58 @@
 # plot
 
+## 2.2.0
+
+### Minor Changes
+
+- [#103](https://github.com/plot-pm/plot/pull/103) [`06cd57f`](https://github.com/plot-pm/plot/commit/06cd57f649884b9dc3adcd98dd5a247a95041463) Thanks [@jwloka](https://github.com/jwloka)! - The board serves `/api/fleet`: what agents are doing, and what they wait for.
+
+  Branch state was only ever visible as terminal output — real, but gone the moment the scrollback rolled. The endpoint turns `plot-fleet-scan.sh --json` into rows grouped by **the reason each one is waiting**, because each group implies a different action: review it, nothing, nothing, go check whether it died, decide whether to start it. Sorted that way the list is workable top to bottom, and when only _working_ is populated you can walk away.
+
+  **It never runs the scan.** Measured: 0.5–1.05 s per scan against a 4 s client poll, on a single-threaded server — that would block the event loop roughly a quarter of the time. The server refreshes a cache on its own timer using the async `execFile`, and every request reads the cache plus its age. Client poll rate and scan duration are decoupled, so twenty plans give you a _staler_ tab, not a _slower_ board.
+
+  Two failure modes are handled as deliberate design rather than as edge cases. Until the first scan lands the endpoint reports `ready: false` — "not ready yet", never an empty fleet. And a failed refresh **never overwrites a good result**: the tab keeps the last pulse, its age, and the error. Replacing real state with emptiness because one scan failed is what makes a monitoring view untrustworthy.
+
+  The `waiting-on-machine` group is defined but empty at this step — it needs PR data. It is still rendered, because an absent group reads as "nothing is waiting on CI", a claim this step cannot make.
+
+  **Known limit, worth stating:** this is git-only, so unpushed local work is invisible. An agent editing files without pushing shows as `not-started`.
+
+- [#102](https://github.com/plot-pm/plot/pull/102) [`b11ddbe`](https://github.com/plot-pm/plot/commit/b11ddbec1b9353c37b8c256e6261ed2f51e60a35) Thanks [@jwloka](https://github.com/jwloka)! - `plot-fleet-scan.sh --json` emits the pulse as one machine-readable object.
+
+  The scan's prose is a **human** interface — mechanical enumeration a person reads, per Principle 3. That is precisely why it is not a contract: anything consuming lines like `  Tracer — eligible` breaks the day someone improves the wording. The board is about to consume exactly this data, so the scan gains a second rendering rather than a second reader.
+
+  `--json` serialises the derivation the script already performs. Wave verdicts, per-branch state, claim notes and the summary counters come out as they exist internally: `open` · `wip` · `merged` · `claimed` · `deferred`, and `complete` · `eligible` · `blocked`. Deliberately **not** the prose labels — no consumer should parse `in progress`, a string that exists only to be read. Field names follow `plot-plan-meta.sh` (`branch`, and `""` rather than `null` for an absent claim), because two JSON conventions in one repo is worse than either.
+
+  It is an output mode and nothing more: it composes with `--offline`, `--no-fetch` and `--loose` rather than implying any of them, so the data depends on what the caller asked for rather than how. `--next` still wins — a different question with a one-line answer.
+
+  The test that matters here is not the one that parses the JSON. It is the one asserting the **human report stays byte-identical**: a machine mode is worth adding only if it leaves the thing people read untouched, and that is verifiable rather than assertable — the prose was diffed against its pre-change output, not merely against itself.
+
+- [#104](https://github.com/plot-pm/plot/pull/104) [`12310cb`](https://github.com/plot-pm/plot/commit/12310cba677be3c8755a10af6058c5e4d2e6f747) Thanks [@jwloka](https://github.com/jwloka)! - The board has a second tab: **Agents** — what each branch is waiting for.
+
+  Artifacts move in days, agents in minutes. Forcing both onto one surface answers each question halfway, so they become two tabs — which also lets them poll at different rates: the board every 30 s, the fleet every 4 s, and only while its tab is open. That poll is cheap because `/api/fleet` reads a server-refreshed cache rather than running a scan per request.
+
+  Rows are grouped by **the reason each one waits**, because each group implies a different action: review it · nothing · nothing · go check whether it died · decide whether to start it · nothing at all. Sorted that way the list is workable top to bottom, and when only _working_ is populated you can walk away.
+
+  Every group renders even when empty, `waiting on a machine` included — it needs PR data that does not exist yet, and an absent group would read as "nothing is waiting on CI", a claim this step cannot make. The footer carries the pulse age, so a stale view says so rather than looking live.
+
+  Two things were wrong the moment the tab was first rendered, and neither would have failed a test that was not looking at a screen:
+
+  - **Merged branches sat under _quiet_.** Technically right — no recent commit — and the wrong answer: "go check whether it died" is not a prompt for work that landed. Merged work now has its own **done** group, which asks nothing of you.
+  - **A note read `no commit for 30300 min`.** Minutes are the right unit for the first hour and arithmetic the reader has to do after that. Ages now scale to hours and days.
+
+- [#98](https://github.com/plot-pm/plot/pull/98) [`9d5521c`](https://github.com/plot-pm/plot/commit/9d5521c04dbf9c1ca1586051758ea65b000b1e96) Thanks [@jwloka](https://github.com/jwloka)! - `/plot-implement` sets new implementation PRs to **Ready** on a project board.
+
+  The board-sync plan promised a five-step mapping from Plot events to board columns. Four were built; the third — _new implementation PRs land in Ready_ — was not, so those PRs sat in whatever column GitHub assigned them until `/plot-deliver` moved them to Done. The middle of the lifecycle was invisible on the board, which is the part a board exists to show.
+
+  It was missed for a structural reason worth recording. The plan was written for Plot 1, where `/plot-approve` created the implementation branches itself, so the mapping table put the Ready transition there. Plot 2 split that apart: approval only records the approval, and `/plot-implement` starts the work. The step did not go missing so much as its home moved out from under it — and nothing failed, because a board update that never happens looks exactly like a board nobody configured.
+
+  The status is set at the one moment the PR both exists and has not been worked on: when the implementing session creates it. That is already the moment the brief asks for the `→ #<number>` annotation, so it is one more line of bookkeeping at a point the session is stopping anyway, rather than a new obligation somewhere else.
+
+  <!--
+  bumps:
+    skills:
+      plot-implement: minor
+  -->
+
 ## 2.1.0
 
 ### Minor Changes
