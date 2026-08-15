@@ -4,8 +4,9 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
+- **Delivered:** 2026-08-15
 
 ## Approval
 
@@ -124,3 +125,15 @@ If no project board is configured, skip this step.
 - Real board structure from eins78's project #5: Status field has Planning, Ready, In progress, Done
 - Also has Priority (P0/P1/P2) and Size (XS/S/M/L/XL) fields — not in scope for this plan but could be useful for sprint integration later
 - The `gh project` CLI requires `project` scope on the token — add via `gh auth refresh -s project`
+
+Delivered 2026-08-15, five months after PR #8 merged — the work shipped in
+releases long before it was booked. A refutation pass over the mapping table at
+delivery time found the third transition (new implementation PRs → **Ready**)
+had never been built. It was written for Plot 1, where `/plot-approve` created
+the implementation branches; Plot 2 moved that to `/plot-implement` and the
+transition did not move with it. Closed in #98 before this plan was delivered,
+so all five transitions now exist.
+
+Nothing failed loudly in between, which is the lesson: a board update that never
+happens is indistinguishable from a board nobody configured. `plot-update-board.sh`
+still has no test.
