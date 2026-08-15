@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-08-15, jwloka, plan-PR #97 merged
+- **Started:** 2026-08-15, jwloka, `feature/fleet-scan-json`
 
 ## Approval
 
