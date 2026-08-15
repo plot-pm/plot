@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classify, rowsFromPulse } from '../../src/server/fleet.js';
+import { classify, humanAge, rowsFromPulse } from '../../src/server/fleet.js';
 import type { FleetPulse } from '../../src/contract/schema.js';
 
 // The classifier is where the tab's judgments live: which group a branch lands
@@ -57,9 +57,25 @@ describe('classify', () => {
     expect(r.note).toBe('deferred');
   });
 
-  it('says a merged branch is done, and whether its wave still is not', () => {
+  it('puts merged work in done, not in quiet', () => {
+    // Found by looking at the rendered tab: "go check whether it died" is the
+    // wrong prompt for a branch that landed. Quiet asks a question; done does
+    // not. A real mis-answer, not a cosmetic one.
+    expect(classify('merged', 'complete', 1, QUIET).group).toBe('done');
+    expect(classify('merged', 'eligible', 1, QUIET).group).toBe('done');
     expect(classify('merged', 'complete', 1, QUIET).note).toBe('merged');
     expect(classify('merged', 'eligible', 1, QUIET).note).toMatch(/wave still open/);
+  });
+
+  it('scales the age unit so a note never reads "30300 min"', () => {
+    // Also found on screen. Minutes are right for the first hour and become
+    // arithmetic the reader has to do after that.
+    expect(humanAge(45)).toBe('45 min');
+    expect(humanAge(60)).toBe('1 hour');
+    expect(humanAge(150)).toBe('2 hours');
+    expect(humanAge(1440)).toBe('1 day');
+    expect(humanAge(30300)).toBe('21 days');
+    expect(classify('wip', 'eligible', 30300, QUIET).note).toMatch(/21 days/);
   });
 });
 
@@ -96,7 +112,8 @@ describe('rowsFromPulse', () => {
     // working first (nothing to do but look), quiet next (go check), then
     // not-started (decide). Workable top to bottom.
     expect(groups[0]).toBe('working');
-    expect(groups.at(-1)).toBe('not-started');
+    // done sits last: it asks nothing of you at all.
+    expect(groups.at(-1)).toBe('done');
   });
 
   it('strips the date prefix so the plan column stays readable', () => {

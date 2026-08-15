@@ -231,6 +231,7 @@ export const WaitingGroupSchema = z.enum([
   'waiting-on-machine',
   'quiet',
   'not-started',
+  'done',
 ]);
 export type WaitingGroup = z.infer<typeof WaitingGroupSchema>;
 
