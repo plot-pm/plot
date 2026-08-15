@@ -15,8 +15,10 @@
 ## Changelog
 
 - `/plot-release` records the release in the plans it contains: each delivered
-  plan gains `Phase: Released` and a `Released:` transition record naming the
-  version, and its index symlink is already where it belongs.
+  feature or bug plan gains `Phase: Released` and a `Released:` transition
+  record naming the version, and ends with a gate proving the write landed.
+  docs/infra plans are skipped — they are live when merged, and `/plot-deliver`
+  already says so.
 - `plot-reconcile-scan.sh` reports delivered plans whose work is inside a
   released tag but which are still marked Delivered — the drift that made this
   invisible for sixteen releases.
@@ -117,6 +119,29 @@ So this runs after the hand-off, and its absence is recoverable: the reconcile
 check below finds anything the step missed, which is precisely why the check is
 in the same plan rather than a follow-up.
 
+**And it ends with a gate, in the shape `/plot-deliver` step 7b already
+established.** This is a multi-file write followed by a push — flip several
+phases, add several records, commit, push — which is exactly the operation that
+half-lands. 7b exists because delivery had the same shape, and this one is
+worse: it touches N plans rather than one, so a partial write leaves some
+released and some not, with nothing to say which.
+
+The gate runs the section-2 check and shows its **real output**. An empty result
+clears it; anything reported is a hard stop with the fix printed. Not a warning
+— a warning nobody reads is silence with more text, and silence is what let this
+sit for sixteen releases.
+
+Note the pleasing economy: the check written for section 2 is the gate for
+section 1. That is why they belong in one plan and why the check is worth
+building even though the write is the visible feature.
+
+**docs/infra plans end at Delivered.** They are live when merged, and
+`/plot-deliver` already tells their authors exactly that — marking them Released
+would contradict a message Plot itself sends. The write skips them and the check
+skips them too, so they never surface as permanent drift. (Every plan in this
+repo today is `feature`, so the rule is currently untested against real docs or
+infra work — stated here so it is a decision rather than an oversight.)
+
 **Step 2 — the scan reports the drift.**
 
 A new section: plans at Delivered whose merge commit is already inside a release
@@ -129,8 +154,12 @@ The check is git-only (tags, refs, plan phases), so it costs nothing and works
 offline. Each finding names the version it found and prints
 `/plot-release`; a plan with no PR annotation is reported as
 **unresolvable** rather than skipped, because "cannot tell" and "nothing wrong"
-must not look the same. The footer gains a counter so the sweep stays
+must not look the same. docs/infra plans are excluded by type, so they never
+appear as permanent drift. The footer gains a counter so the sweep stays
 machine-countable.
+
+This section doubles as step 1's gate, which is the reason it is worth building
+even though the write is the visible half.
 
 **Historical plans are back-filled where git can answer.** Six plans are
 currently Delivered. Five resolve exactly through their PR annotations —
@@ -160,9 +189,13 @@ alongside the write.
       answers and no single one. Taking the **last** branch's version is the
       honest reading — the plan is not fully released until its final branch is
       — but it makes the record depend on branch order rather than on the plan.
-- [ ] Do docs/infra plans get a `Released:` record at all? They are live when
-      merged, and `/plot-deliver` already tells them so. Marking them Released
-      may be inventing a phase they do not have.
+- [ ] **Twelve plan-state commits went straight to `main` today**, every one of
+      them waved through branch protection by admin rights. The micro-PR
+      fallback in `/plot-approve` only triggers on *rejection*, never on a
+      bypass — so the fallback has never once fired. This step adds a
+      thirteenth such push and inherits the problem rather than causing it. It
+      belongs to `/plot-approve`, `/plot-implement` and `/plot-deliver` equally,
+      so it wants its own plan; recorded here so it does not sink again.
 
 ## Branches
 
@@ -209,20 +242,42 @@ the design's core mechanism; two others filled gaps the draft had not seen.
   by the scan. A visible gap beats a plausible fiction in a record nobody
   re-checks.
 
+Round 2 went after the write's failure paths and the questions round 1 had only
+posed:
+
+- **The write had no gate.** `/plot-deliver` step 7b exists because flipping a
+  phase, moving a symlink and pushing is an operation that half-lands. This step
+  has the same shape and is worse — it touches N plans, so a partial write
+  leaves some released and some not with nothing to say which. It now ends by
+  running the section-2 check and showing its real output. The check written for
+  the scan *is* the gate for the write, which is the economy that justifies
+  building both here.
+- **docs/infra plans end at Delivered.** `/plot-deliver` already tells their
+  authors no release is needed; marking them Released would contradict a message
+  Plot itself sends. Both the write and the check skip them by type.
+- **Twelve plan-state commits went straight to `main` today**, every one waved
+  through branch protection by admin rights — the micro-PR fallback triggers on
+  rejection, never on a bypass, so it has never fired. This step inherits the
+  problem rather than causing it, and it belongs to three other commands
+  equally, so it is recorded as an open question rather than fixed here.
+
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {"q": "How is a plan's release version determined?", "a": "git tag --contains on the merge SHA — dates are wrong for the majority of real cases", "category": "technical"},
     {"q": "plot-plan-meta.sh has no released_raw — how far does the parser change go?", "a": "Add released_raw alongside the other transition records, with a contract fixture", "category": "technical"},
-    {"q": "Back-fill the six existing delivered plans?", "a": "Yes where git tag --contains answers (five); the sixth stays Delivered and is reported", "category": "domain"}
+    {"q": "Back-fill the six existing delivered plans?", "a": "Yes where git tag --contains answers (five); the sixth stays Delivered and is reported", "category": "domain"},
+    {"q": "Should the multi-plan write have a gate like /plot-deliver 7b?", "a": "Yes, same shape — run the section-2 check and show its real output", "category": "technical"},
+    {"q": "Do docs/infra plans get a Released record?", "a": "No — they end at Delivered, consistent with what /plot-deliver already tells them", "category": "domain"},
+    {"q": "Twelve direct pushes to main bypassed branch protection — fix here?", "a": "No — it affects approve/implement/deliver equally; recorded as an open question for its own plan", "category": "tradeOffs"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
     "technical": {"stack": true, "architecture": true, "implementation": true},
     "domain": true,
     "ux": {"happyPath": true, "edgeCases": true, "errors": true, "accessibility": false},
-    "nonFunctional": {"security": false, "performance": true, "scalability": false},
+    "nonFunctional": {"security": true, "performance": true, "scalability": false},
     "tradeOffs": true
   }
 }
