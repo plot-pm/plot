@@ -104,3 +104,37 @@ test('context: is read-only', () => {
   run(w);
   assert.equal(git(w, 'status', '--porcelain'), before);
 });
+
+test('context: an idea/ branch resolves its plan even when no Branches list names it', () => {
+  // A plan on its own idea/ branch is often not listed in any Branches section
+  // yet — the fast path is the ONLY thing that resolves it. Disabling that path
+  // left every test green, so nothing pinned the primary resolution route.
+  const w = repo({
+    plan: { slug: 'solo', body: '# Solo\n\n## Status\n\n- **Phase:** Draft\n- **Type:** feature\n\n## Branches\n\n<!-- none yet -->\n' },
+    branch: 'idea/solo',
+  });
+  assert.equal(run(w).plan_slug, 'solo');
+});
+
+test('context: a branch claimed by two plans reports the ambiguity, not a guess', () => {
+  // The loop broke on the first glob hit, so the "governing plan" was whichever
+  // symlink sorted first ALPHABETICALLY — renaming a file changed the answer
+  // without anything about the work changing. The header promises the opposite:
+  // "a durable decision record attributed to the wrong plan is worse than one
+  // with no attribution". Silence about ambiguity is exactly that attribution.
+  const w = repo({});
+  const plansDir = path.join(w, 'plans');
+  for (const n of ['alpha', 'beta']) {
+    fs.writeFileSync(path.join(plansDir, `2026-01-01-${n}.md`),
+      `# ${n}\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n- \`feature/shared\` — in both\n`);
+    fs.symlinkSync(`../2026-01-01-${n}.md`, path.join(plansDir, 'active', `${n}.md`));
+  }
+  git(w, 'add', '-A');
+  git(w, 'commit', '-qm', 'two plans');
+  git(w, 'checkout', '-q', '-b', 'feature/shared');
+
+  const c = run(w);
+  assert.equal(c.ambiguous, true, 'ambiguity must be reported');
+  assert.deepEqual([...c.candidates].sort(), ['alpha', 'beta']);
+  assert.equal(c.plan_slug, '', 'no single plan may be claimed when two match');
+});

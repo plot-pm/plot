@@ -154,3 +154,33 @@ test('detect: language hint counts word occurrences, not lines', () => {
   });
   assert.equal(probe(en).language_hint, 'en');
 });
+
+test('detect: a hostname merely containing "github" is not GitHub', () => {
+  // The globs were substring matches: `*bitbucket.*` matched
+  // git.mybitbucket.internal.example.com, and a path segment could spoof the
+  // host entirely. A detector that calls itself conservative must not guess
+  // from a substring — the value feeds a proposal the user is asked to trust.
+  const spoof = repoWith({ 'a.txt': 'x' },
+    { remote: 'https://evil.example.com/notgithub.com.evil/x.git' });
+  assert.equal(probe(spoof).git_host, '', 'a path segment must not decide the host');
+  const selfhosted = repoWith({ 'a.txt': 'x' },
+    { remote: 'https://git.mybitbucket.internal.example.com/team/x.git' });
+  assert.equal(probe(selfhosted).git_host, '', 'a self-hosted lookalike is not bitbucket.org');
+  // Real ones still resolve, in each supported URL form.
+  assert.equal(probe(repoWith({ 'a.txt': 'x' }, { remote: 'git@github.com:a/b.git' })).git_host, 'github');
+  assert.equal(probe(repoWith({ 'a.txt': 'x' }, { remote: 'https://bitbucket.org/a/b.git' })).git_host, 'bitbucket');
+});
+
+test('detect: finds quality gates in workspace packages, not only the root', () => {
+  // A monorepo root often carries no gates of its own. Reading only the root
+  // reports "no quality gates" — and the Definition of Done is the single
+  // question /plot-init insists on, so an empty answer there is the worst
+  // possible miss.
+  const r = repoWith({
+    'package.json': JSON.stringify({ workspaces: ['packages/*'], scripts: { postinstall: 'x' } }),
+    'packages/api/package.json': JSON.stringify({ scripts: { test: 'vitest', lint: 'eslint .' } }),
+  });
+  const d = probe(r);
+  assert.ok(d.dod_candidates.includes('test'), `expected test among ${JSON.stringify(d.dod_candidates)}`);
+  assert.ok(d.dod_candidates.includes('lint'));
+});

@@ -35,9 +35,13 @@ git rev-parse --git-dir >/dev/null 2>&1 || { echo '{"error":"not a git repositor
 # --- git host -----------------------------------------------------------
 host=""
 url=$(git remote get-url origin 2>/dev/null || true)
+# Anchored to the host position: `*bitbucket.*` matched
+# git.mybitbucket.internal.example.com, and `*github.com*` matched
+# https://evil.com/notgithub.com.evil/x.git. A detector that calls itself
+# conservative must not guess from a substring.
 case "$url" in
-  *github.com*)    host=github ;;
-  *bitbucket.org*|*bitbucket.*) host=bitbucket ;;
+  git@github.com:*|https://github.com/*|ssh://git@github.com/*)       host=github ;;
+  git@bitbucket.org:*|https://bitbucket.org/*|ssh://git@bitbucket.org/*) host=bitbucket ;;
 esac
 
 # --- default branch -----------------------------------------------------
@@ -53,11 +57,17 @@ if [ -f package.json ] && command -v python3 >/dev/null 2>&1; then
   dod=$(python3 - <<'PY' 2>/dev/null || echo '[]'
 import json
 GATES = ('test', 'lint', 'typecheck', 'check', 'build', 'dist', 'e2e', 'verify', 'validate')
-try:
-    scripts = json.load(open('package.json')).get('scripts', {}) or {}
-except Exception:
-    scripts = {}
-found = [k for k in scripts if any(k == g or k.startswith(g + ':') for g in GATES)]
+import glob
+found = set()
+# A workspace root often has no gates of its own — the packages do. Reading
+# only the root reports "no quality gates" for a monorepo, which is exactly
+# the answer the one question /plot-init insists on must not get wrong.
+for f in ['package.json'] + sorted(glob.glob('packages/*/package.json'))[:20]:
+    try:
+        scripts = json.load(open(f)).get('scripts', {}) or {}
+    except Exception:
+        continue
+    found |= {k for k in scripts if any(k == g or k.startswith(g + ':') for g in GATES)}
 print(json.dumps(sorted(found)))
 PY
 )
