@@ -167,3 +167,96 @@ export function toBoardPhase(helperPhase: string): Phase | null {
       return null;
   }
 }
+
+// --- Fleet: what agents are doing, and what they wait for -------------------
+//
+// A different time axis from the board above: minutes rather than days,
+// processes rather than artifacts. Kept in the same contract file because both
+// are things the server promises the client, but deliberately its own document
+// — forcing them together would answer each question halfway.
+
+/** The scan's INTERNAL vocabulary, not the prose labels people read. */
+export const BranchStateSchema = z.enum(['open', 'wip', 'merged', 'claimed', 'deferred']);
+export type BranchState = z.infer<typeof BranchStateSchema>;
+
+export const WaveVerdictSchema = z.enum(['complete', 'eligible', 'blocked']);
+export type WaveVerdict = z.infer<typeof WaveVerdictSchema>;
+
+export const FleetBranchSchema = z.object({
+  branch: z.string(),
+  state: BranchStateSchema,
+  deferred: z.boolean(),
+  /** Claim note from the plan, or "" — never null (house style). */
+  claimed: z.string(),
+});
+export type FleetBranch = z.infer<typeof FleetBranchSchema>;
+
+export const FleetWaveSchema = z.object({
+  name: z.string(),
+  verdict: WaveVerdictSchema,
+  branches: z.array(FleetBranchSchema),
+});
+
+export const FleetPlanSchema = z.object({
+  file: z.string(),
+  waves: z.array(FleetWaveSchema),
+});
+
+/** The raw `plot-fleet-scan.sh --json` document, parsed. */
+export const FleetPulseSchema = z.object({
+  main: z.string(),
+  head: z.string(),
+  plans: z.array(FleetPlanSchema),
+  summary: z.object({
+    plans: z.number(),
+    waves: z.number(),
+    branches: z.number(),
+    claimed: z.number(),
+    eligible: z.number(),
+    blocked: z.number(),
+    deferred: z.number(),
+  }),
+});
+export type FleetPulse = z.infer<typeof FleetPulseSchema>;
+
+/**
+ * Groups are ordered by what they ask OF YOU, not by plan: review it, nothing,
+ * nothing, go check whether it died, decide whether to start it. Sorted this
+ * way the list is workable top to bottom, and when only `working` is populated
+ * you can walk away.
+ */
+export const WaitingGroupSchema = z.enum([
+  'waiting-on-you',
+  'working',
+  'waiting-on-machine',
+  'quiet',
+  'not-started',
+]);
+export type WaitingGroup = z.infer<typeof WaitingGroupSchema>;
+
+export const AgentRowSchema = z.object({
+  /** Constant today. Present so the second repo is an addition, not a rebuild. */
+  repo: z.string(),
+  branch: z.string(),
+  plan: z.string(),
+  wave: z.string(),
+  state: BranchStateSchema,
+  group: WaitingGroupSchema,
+  /** Minutes since the branch tip, or null when there is no branch yet. */
+  ageMinutes: z.number().nullable(),
+  note: z.string(),
+});
+export type AgentRow = z.infer<typeof AgentRowSchema>;
+
+export const FleetSchema = z.object({
+  generatedAt: z.string(),
+  /** Seconds since the cached scan completed — the tab shows this. */
+  ageSeconds: z.number(),
+  /** False until the first scan lands: "not ready yet", never an empty fleet. */
+  ready: z.boolean(),
+  /** Last scan error, if any. A failed refresh never clears a good result. */
+  error: z.string().nullable(),
+  rows: z.array(AgentRowSchema),
+  summary: FleetPulseSchema.shape.summary,
+});
+export type Fleet = z.infer<typeof FleetSchema>;
