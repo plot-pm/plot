@@ -5,12 +5,17 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:**
 - **Story:**
 - **Review:** pr
 - **Impl:** own branches
+- **Approved:** 2026-08-15, jwloka, plan-PR #97 merged
+
+## Approval
+
+- **Assignee:** jwloka
 
 ## Changelog
 
