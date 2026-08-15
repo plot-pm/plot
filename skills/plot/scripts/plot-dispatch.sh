@@ -80,24 +80,49 @@ git rev-parse --git-dir >/dev/null 2>&1 || { echo "not a git repository" >&2; ex
 repo_root_early=$(git rev-parse --show-toplevel)
 wt_root_early=$(cd "$repo_root_early/.." && pwd)
 
-worker_state() { # $1=worktree → "running <pid>" | "dead <pid>" | "no worker"
-  local wt="$1" pid
+# States: "running <pid>" | "finished <pid>" | "failed <pid> (exit N)"
+#       | "ended <pid> (status unknown)" | "no worker"
+#
+# `kill -0` only separates running from not-running. Whether a stopped worker
+# finished its job or crashed is gone unless the exit code was recorded — and
+# reporting a completed worker as "dead" reads as a crash, which is how a
+# healthy fleet looks broken. The wrapper in start_worker writes the code.
+worker_state() { # $1=worktree
+  local wt="$1" pid code
   [ -f "$wt/.plot-worker.pid" ] || { echo "no worker"; return; }
   pid=$(cat "$wt/.plot-worker.pid" 2>/dev/null | tr -d ' \n')
   [ -n "$pid" ] || { echo "no worker"; return; }
-  if kill -0 "$pid" 2>/dev/null; then echo "running $pid"; else echo "dead $pid"; fi
+  # `kill -0 0` signals the whole process GROUP and succeeds, so pid 0 would
+  # read as running forever. It is never a real worker pid.
+  case "$pid" in 0|*[!0-9]*) echo "no worker"; return ;; esac
+  if kill -0 "$pid" 2>/dev/null; then echo "running $pid"; return; fi
+  if [ -f "$wt/.plot-worker.exit" ]; then
+    code=$(cat "$wt/.plot-worker.exit" 2>/dev/null | tr -d ' \n')
+    case "$code" in
+      0)  echo "finished $pid" ;;
+      "") echo "ended $pid (status unknown)" ;;
+      *)  echo "failed $pid (exit $code)" ;;
+    esac
+    return
+  fi
+  # No exit file: a worker started before this was recorded, or one killed
+  # outright. Unknown is its own answer — guessing "finished" would be the
+  # same mistake in the other direction.
+  echo "ended $pid (status unknown)"
 }
 
 if [ "$mode" = "status" ]; then
-  n_live=0 n_dead=0 n_none=0
+  n_live=0 n_done=0 n_failed=0 n_ended=0 n_none=0
   for wt in "$wt_root_early"/plot-wt-*; do
     [ -d "$wt" ] || continue
     br=$(git -C "$wt" branch --show-current 2>/dev/null || echo "?")
     st=$(worker_state "$wt")
     case "$st" in
-      running*) n_live=$((n_live + 1)) ;;
-      dead*)    n_dead=$((n_dead + 1)) ;;
-      *)        n_none=$((n_none + 1)) ;;
+      running*)  n_live=$((n_live + 1)) ;;
+      finished*) n_done=$((n_done + 1)) ;;
+      failed*)   n_failed=$((n_failed + 1)) ;;
+      ended*)    n_ended=$((n_ended + 1)) ;;
+      *)         n_none=$((n_none + 1)) ;;
     esac
     echo "  $br — $st"
     echo "      worktree: $wt"
@@ -106,8 +131,9 @@ if [ "$mode" = "status" ]; then
       echo "      last: $(tail -1 "$wt/.plot-worker.log" 2>/dev/null)"
     fi
   done
-  [ $((n_live + n_dead + n_none)) -gt 0 ] || echo "  (no fleet worktrees under $wt_root_early)"
-  echo "summary: running=$n_live dead=$n_dead no_worker=$n_none"
+  [ $((n_live + n_done + n_failed + n_ended + n_none)) -gt 0 ] \
+    || echo "  (no fleet worktrees under $wt_root_early)"
+  echo "summary: running=$n_live finished=$n_done failed=$n_failed ended=$n_ended no_worker=$n_none"
   exit 0
 fi
 
@@ -131,7 +157,7 @@ if [ "$mode" = "stop" ]; then
       # and deleting either would be the kind of write this design avoids.
       echo "  worktree kept at $wt — the claim stands until you release it"
       ;;
-    dead*)  echo "$stop_branch is not running (stale pid ${st#dead })" ;;
+    finished*|failed*|ended*) echo "$stop_branch is not running ($st)" ;;
     *)      echo "$stop_branch has no worker" ;;
   esac
   exit 0
@@ -251,8 +277,10 @@ start_worker() {
     return 1
   fi
   local log="$wt/.plot-worker.log"
-  ( cd "$wt" && PLOT_BRANCH="$branch" PLOT_WORKTREE="$wt" \
-      nohup sh -c "$cmd" >"$log" 2>&1 </dev/null & echo $! >"$wt/.plot-worker.pid" )
+  rm -f "$wt/.plot-worker.exit"
+  ( cd "$wt" && PLOT_BRANCH="$branch" PLOT_WORKTREE="$wt" PLOT_EXIT_FILE="$wt/.plot-worker.exit" \
+      nohup sh -c '( '"$cmd"' ); rc=$?; printf "%s" "$rc" > "$PLOT_EXIT_FILE"' \
+      >"$log" 2>&1 </dev/null & echo $! >"$wt/.plot-worker.pid" )
   echo "    started worker (pid $(cat "$wt/.plot-worker.pid" 2>/dev/null || echo '?')), log: $log"
   return 0
 }
