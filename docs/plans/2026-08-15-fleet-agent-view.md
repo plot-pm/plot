@@ -8,7 +8,7 @@
 - **Phase:** Approved
 - **Type:** feature
 - **Sprint:**
-- **Story:**
+- **Story:** plot-board
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-08-15, jwloka, plan-PR #97 merged

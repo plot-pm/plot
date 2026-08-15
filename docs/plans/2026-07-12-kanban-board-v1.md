@@ -7,6 +7,7 @@
 - **Phase:** Delivered
 - **Delivered:** 2026-08-15
 - **Type:** feature
+- **Story:** plot-board
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 
 ## Approval

@@ -7,7 +7,7 @@
 - **Phase:** Delivered
 - **Type:** feature
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
-- **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
+- **Story:** plot-board
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-08-14, jwloka, plan-PR #70 merged

@@ -130,6 +130,15 @@ Plot discovers and adapts to whatever conventions your project provides. No hard
 - **[story-tracking](skills/story-tracking/)** — Multi-session work tracking in markdown folders (`docs/stories/`). Stories are the long-running umbrella (research, decisions, session narrative); plans are the approved, actionable units — they reference each other. Usable standalone; adopted from [quatico-solutions/agent-skills](https://github.com/quatico-solutions/agent-skills).
 - **[tracer-bullets](skills/tracer-bullets/)** — Thin vertical slice strategy. Referenced by `/plot-approve` heuristics for work with technical uncertainty. Bundled with the plugin; usable standalone — it is a companion, not a lifecycle phase.
 
+## Stories
+
+Long-running work spanning several plans. Stories carry the intent and the
+decision record; plans carry the approved, actionable units.
+
+| Story | Status | About |
+|-------|--------|-------|
+| [plot-board](docs/stories/plot-board/STORY-plot-board.md) | active | Making parallel work visible — the board, the fleet, and the agent view |
+
 ## Design
 
 See [MANIFESTO.md](skills/plot/MANIFESTO.md) for Plot's founding principles and design philosophy.
