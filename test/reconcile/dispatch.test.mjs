@@ -299,12 +299,16 @@ test('dispatch: --status distinguishes a live worker from a dead one', () => {
     { encoding: 'utf8', cwd: r, timeout: 20_000 });
   const wt = path.join(path.dirname(r), 'plot-wt-feature-g');
 
-  // A pid that cannot be running (pid 0 is never a user process).
-  fs.writeFileSync(path.join(wt, '.plot-worker.pid'), '0\n');
+  // An impossible-but-well-formed pid. Not 0: `kill -0 0` signals the caller's
+  // whole process group and succeeds, so 0 reads as running.
+  fs.writeFileSync(path.join(wt, '.plot-worker.pid'), '2147483646\n');
   fs.writeFileSync(path.join(wt, '.plot-worker.log'), 'started\nlast line here\n');
   const dead = execFileSync('bash', [dispatch, '--status', 'g'],
     { encoding: 'utf8', cwd: r, timeout: 20_000 });
-  assert.match(dead, /dead|not running/i);
+  // No exit file, process gone: "ended (status unknown)". Deliberately not
+  // "dead" — that reads as a crash, and a completed worker looked crashed.
+  assert.match(dead, /ended|not running/i);
+  assert.doesNotMatch(dead, /running \d/, 'a gone process must not read as running');
   assert.match(dead, /last line here/, 'must surface the last log line for triage');
 
   // Our own pid is certainly alive.
@@ -383,4 +387,97 @@ test('dispatch: --max rejects a non-numeric value', () => {
   assert.ok(failed, '--max must reject a non-number');
   assert.match(stderr, /--max needs a number/);
   fs.rmSync(t, { recursive: true, force: true });
+});
+
+test('dispatch: --status tells a finished worker from a crashed one', () => {
+  // Found by actually running a worker rather than testing with --no-start:
+  // a worker that completed its job was reported as "dead", which reads as a
+  // crash. `kill -0` can only distinguish running from not-running, so the
+  // exit status has to be recorded when the process ends or the information
+  // is gone.
+  const { tmp: t, repo: r } = repoWithPlan('- **Phase:** Approved', 'exit');
+  execFileSync('bash', [dispatch, '--offline', '--no-start', 'g'],
+    { encoding: 'utf8', cwd: r, timeout: 20_000 });
+  const wt = path.join(path.dirname(r), 'plot-wt-feature-g');
+
+  // Assert on the branch's OWN line. The summary footer contains every state
+  // word ("finished=0 failed=0 …"), so a regex over the whole report matches
+  // the counter rather than the verdict.
+  const status = () => {
+    const out = execFileSync('bash', [dispatch, '--status', 'g'],
+      { encoding: 'utf8', cwd: r, timeout: 20_000 });
+    return out.split('\n').find((l) => l.includes('feature/g')) ?? '';
+  };
+
+  // Finished cleanly: exit code 0 recorded, process gone.
+  fs.writeFileSync(path.join(wt, '.plot-worker.pid'), '2147483646\n');
+  fs.writeFileSync(path.join(wt, '.plot-worker.exit'), '0\n');
+  const done = status();
+  assert.match(done, /finished/i, 'a clean exit must not read as a crash');
+  assert.doesNotMatch(done, /dead|crash/i);
+
+  // Failed: non-zero exit recorded.
+  fs.writeFileSync(path.join(wt, '.plot-worker.exit'), '3\n');
+  assert.match(status(), /failed.*3|exit 3/i, 'a non-zero exit must say so, with the code');
+
+  // No exit file at all — a worker from before this existed, or one killed
+  // outright. Unknown is its own state; do not guess "finished".
+  fs.rmSync(path.join(wt, '.plot-worker.exit'));
+  const unknown = status();
+  assert.doesNotMatch(unknown, /finished/i);
+
+  // Still running.
+  fs.writeFileSync(path.join(wt, '.plot-worker.pid'), `${process.pid}\n`);
+  assert.match(status(), /running/i);
+
+  fs.rmSync(t, { recursive: true, force: true });
+  fs.rmSync(wt, { recursive: true, force: true });
+});
+
+test('dispatch: a real worker that exits records its status', () => {
+  // Every other test uses --no-start, which is exactly why the original bug
+  // survived: with no worker ever run, nothing exercised the exit-recording
+  // wrapper. This one starts a real process.
+  //
+  // Two traps this pins: a `Worker command` ending in `exit N` would kill the
+  // wrapper shell before the code was written (hence the subshell), and the
+  // exit-file path travels as an env var so no quoting level mangles it.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-realworker-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, 'repo');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n'
+    + '- **Worker command:** echo ran; exit 0\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-w.md'),
+    '# W\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/real` — one\n');
+  fs.symlinkSync('../2026-01-01-w.md', path.join(r, 'plans', 'active', 'w.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  execFileSync('bash', [dispatch, '--offline', 'w'],
+    { encoding: 'utf8', cwd: r, timeout: 30_000 });
+
+  const wt = path.join(path.dirname(r), 'plot-wt-feature-real');
+  // Give the detached worker a moment; it only echoes and exits.
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline && !fs.existsSync(path.join(wt, '.plot-worker.exit'))) {
+    execFileSync('sleep', ['0.2']);
+  }
+  assert.ok(fs.existsSync(path.join(wt, '.plot-worker.exit')),
+    'the wrapper must record an exit code even when the command calls exit');
+  assert.equal(fs.readFileSync(path.join(wt, '.plot-worker.exit'), 'utf8').trim(), '0');
+
+  const line = execFileSync('bash', [dispatch, '--status', 'w'], { encoding: 'utf8', cwd: r })
+    .split('\n').find((l) => l.includes('feature/real')) ?? '';
+  assert.match(line, /finished/, `a clean exit must read as finished, got: ${line}`);
+
+  fs.rmSync(t, { recursive: true, force: true });
+  fs.rmSync(wt, { recursive: true, force: true });
 });
