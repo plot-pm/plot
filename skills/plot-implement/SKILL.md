@@ -11,7 +11,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.2.0
+  version: 1.3.0
 compatibility: Designed for Claude Code and Cursor. Requires git. Host operations go through plot-host.sh (GitHub or Bitbucket).
 ---
 
@@ -38,7 +38,7 @@ ready — propose it per smart defaults).
 | 2. Staleness Preflight | Mid–Frontier | Comparing plan assumptions against repo drift is judgment |
 | 3. Branch Setup | Small | Git commands per recorded answers; `plot-fleet-scan.sh --next` picks the branch and the ref push claims it — no judgment needed |
 | 4. Hand-off Brief | Small | Template from parsed fields |
-| 5. Record Started | Small | One Status line + commit |
+| 5. Record Started | Small | One Status line + commit; optional board status is a single shell command |
 | 6. Summary | Small | Orientation template |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor).
@@ -176,11 +176,14 @@ re-asking mechanics the plan already answers — and without plot:
 - **Scope guard:** implement what the plan says; drift → back to the plan.
 ```
 
-The brief also carries one bookkeeping duty for the implementing session:
+The brief also carries the bookkeeping duties for the implementing session:
 **when the PR is created, append `→ #<number>`** (from another repo:
 `→ <owner>/<repo>#<number>`) to this branch's line in the plan's
 `## Branches` section — `/plot-deliver` back-fills missed ones via the
-host adapter, but written-at-creation keeps the plan current.
+host adapter, but written-at-creation keeps the plan current. Where a
+project board is configured, the same moment sets the new PR to "Ready"
+(step 5) — it is the only point at which the PR both exists and has not
+yet been worked on.
 
 For `same-branch`, note that the end-PR body must carry the plan link and
 mirror its approval record (the file is the truth; the PR body is the
@@ -204,6 +207,18 @@ default branch in direct flows — see `/plot-approve` step 4 for the
 exact push mechanics and the branch-protection fallback; the plan's
 branch otherwise). The board derives **Ready** (approved, no `Started:`)
 vs **In progress** from exactly this record.
+
+If `## Plot Config` includes a project board (`owner/number`), set each
+started branch's PR to "Ready" once it exists:
+
+```bash
+../plot/scripts/plot-update-board.sh <impl-pr-url> "Ready" <owner> <number>
+```
+
+At this point the PR usually does not exist yet — the implementing session
+creates it. The hand-off brief (step 4) carries this as bookkeeping alongside
+the `→ #<number>` annotation, so the status is set when the PR appears rather
+than guessed here. Skip if no project board is configured.
 
 ### 6. Summary — orient
 
