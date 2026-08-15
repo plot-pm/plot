@@ -15,8 +15,8 @@
 ## Changelog
 
 - The Agents tab fills its two empty groups: **waiting on you** (a PR that is
-  open, not draft, and green — ready, and nobody has merged it) and **waiting on
-  a machine** (CI still running).
+  open, not draft, and either green or carrying no checks at all — ready, and
+  nobody has merged it) and **waiting on a machine** (CI genuinely running).
 - `plot-host.sh` gains a richer PR listing (check status, review decision) so
   the board can tell "waiting on a person" from "waiting on a machine" without
   talking to the host itself. Review state is shown as a note and never gates:
@@ -26,7 +26,8 @@
   leads. `Approved` splits into *Ready* and *In progress* as its own column
   boundary rather than a badge, and Endgame cards count the release checklist.
 - Stories become swimlanes: one row per story, plans in the column their phase
-  puts them in, with a `(no story)` row for plans created directly.
+  puts them in, with a `(no story)` row for plans created directly. Leadership
+  reads from a symbol and a word, with colour only reinforcing it.
 
 Board impact: **yes, throughout.** No plan-format change — `plot-plan-meta.sh`
 already emits `started_raw` and `story`, verified — but two contracts move.
@@ -48,8 +49,9 @@ completion, and its cost lands where the fleet cache already is.
 **A bundled PR query costs 0.80 s** — the same order as the scan itself (0.5–1.05 s).
 The draft proposed two poll rates for two data sources: 4 s for git, 30 s for the
 host. That distinction dissolves once both live behind the same
-server-refreshed cache, which is where step 1 put the scan. One refresh cycle,
-two sources, one age on screen.
+server-refreshed cache, which is where step 1 put the scan — one refresh cycle
+rather than two poll rates. The two sources still cache separately, because they
+fail separately; what they share is the cycle, not a single age.
 
 **Rendering something is how you learn whether it answers the question.** Step 1
 shipped with merged branches classified as *quiet* and an age reading
@@ -94,8 +96,19 @@ Two groups fill:
 
 | Group | Rule |
 |---|---|
-| ⚠ waiting on you | PR open, not draft, checks green |
-| ⏳ waiting on a machine | PR open with checks pending |
+| ⚠ waiting on you | PR open, not draft, and checks are green **or absent** |
+| ⏳ waiting on a machine | PR open with checks actually pending |
+
+**A PR with no checks is waiting on you, not on a machine.** `statusCheckRollup`
+comes back **empty** for bot PRs — GitHub does not start workflows for them
+without approval. That happened today: the release PR sat with zero checks until
+a person approved the run. Filing it under *waiting on a machine* would have
+shown "CI running" forever while nothing ran, and nobody would have looked. It
+lands in *waiting on you* with the note **no checks** — which says why it is not
+green instead of implying it is.
+
+So the check state has three cases, not two: green, pending, absent. Only
+*pending* means a machine is working.
 
 **Review state is shown, but never gates.** The distinction matters and the
 first draft got it wrong in both directions — first by making "review not yet
@@ -135,6 +148,19 @@ unavailable, the two groups stay empty **and say why** rather than looking
 settled. An empty *waiting on you* that means "no host CLI" must not read as
 "nothing needs your review".
 
+**The two sources cache separately, each with its own age.** They fail
+independently — the host can be down while git is fine, and a `git fetch` can
+fail behind a VPN while `gh` works — so one failure must not stale the other.
+A shared cycle would freeze git state on a transient `gh` hiccup, hiding data
+that was available the whole time.
+
+Concretely: the git pulse and the PR map are stored side by side, each with its
+own timestamp and error. The tab's footer shows both ages when they differ, and
+a row whose PR data is stale says so rather than presenting a five-minute-old
+check result as current. More state than a single cycle, and the reason is the
+same one that made a failed refresh keep its last good pulse: partial knowledge
+reported honestly beats complete knowledge reported late.
+
 **Step 3 — phase columns.**
 
 The board shows plan states (`Draft`/`Approved`/`Delivered`/`Released`). The
@@ -162,6 +188,15 @@ resolution follows the leadership model rather than convenience. Delivered means
 the code landed and the agents are done; what remains is verification and
 signoff, which is human-led. So Delivered belongs to **Endgame alone**, and
 Development holds exactly the plans an agent is working on right now.
+
+**Leadership is carried by symbol and word, with colour as reinforcement.** The
+👤/🤖 distinction is the whole point of the column headers, so it must not
+depend on hue: roughly one man in twelve distinguishes red from green poorly,
+and the same page turns up in greyscale screenshots and printed handouts. Each
+header therefore reads `👤 Design` / `🤖 Development` with the leadership word
+in its tooltip, and colour merely repeats what the glyph already said. This
+costs nothing — the draft's own sketch already carried the glyphs — and is
+cheaper to build now than to retrofit.
 
 **Five columns will be tight**, and the layout question is deliberately not
 answered here. The board renders `lg:grid-cols-4` today; five plus a swimlane
@@ -196,10 +231,17 @@ Stories become rows; the Discovery column doubles as the row header. A story
 with no plans is a row with no cards, which reads correctly as "still in
 discovery". Plans created directly land in a `(no story)` row.
 
-This is the largest rebuild and the least certain, because the repo has **one**
-story. One story proves a row renders; it does not prove the layout survives
-five. The branch therefore ships behind nothing — it is simply last, and if it
-reads badly with one story it can wait for a second.
+**Smaller than the draft assumed.** Cards already carry `story` — verified
+against a running `/api/board`, which returns `"story": "plot-board"` on the
+plans that have one and `null` on the rest. So this is a grouping change in the
+render layer, not a new association: no server work, no contract change. The
+draft called it "the largest rebuild" on the assumption that the link had to be
+built.
+
+What stays uncertain is the layout, not the data. The repo has **one** story:
+that proves a row renders, not that the arrangement survives five. The branch
+ships last for that reason and can wait for a second story if it reads badly
+with one.
 
 **Manifesto check.** Principle 1: PR state is fetched, not stored — the cache is
 derived and disposable. Principle 3: the host adapter collects, the board
@@ -297,22 +339,42 @@ rules — and found three things, one of them a plain contradiction:
   undecided on purpose: step 1 established that display problems appear on
   screen and not in tests, so this gets built, looked at, and then decided.
 
+Round 3 took the paths the first two had not: what the new data source does when
+it half-fails, and what the display assumes about the person reading it.
+
+- **A PR with no checks is not a PR waiting on a machine.** `statusCheckRollup`
+  comes back empty for bot PRs, and today's release PR sat that way until a
+  person approved the workflow run. Filing it under *waiting on a machine* would
+  have shown "CI running" indefinitely while nothing ran. Check state has three
+  cases — green, pending, absent — and only *pending* means a machine is busy.
+- **The two sources cache separately.** They fail independently, so a `gh`
+  hiccup must not stale git data that was available throughout.
+- **Leadership cannot be carried by colour alone.** Symbol and word first,
+  colour as reinforcement — the distinction is the column headers' whole point,
+  and it has to survive colour blindness and greyscale.
+- **Swimlanes turned out smaller than the draft assumed.** Cards already carry
+  `story`, verified against a running `/api/board`. Step 4 is a grouping change
+  in the render layer, not the new association the draft budgeted for.
+
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 2,
+  "round": 3,
   "questionHistory": [
     {"q": "How should the board get rich PR data, given pr-list returns only 4 fields?", "a": "Widen plot-host.sh — the adapter stays the one place that talks to the host", "category": "technical"},
     {"q": "BOARD_PHASES breaks four readers, not one — how to handle?", "a": "Update all four in the same branch", "category": "technical"},
     {"q": "Should Endgame parse the release checklist or just say Delivered?", "a": "Parse it (15/27) — overrides the plan's recommendation; test pins the parse", "category": "tradeOffs"},
     {"q": "Delivered-not-Released appeared in both Development and Endgame — which?", "a": "Endgame alone; Development ends at the merge", "category": "domain"},
     {"q": "reviewDecision is empty on every sampled PR — what does 'waiting on you' mean?", "a": "Membership: open + not draft + checks green. Review state is SHOWN as a note but never gates — approved is approved with or without a review, and nothing downstream may treat the note as a condition", "category": "domain"},
-    {"q": "Five columns on a lg:grid-cols-4 board — how?", "a": "Build it, look at it, then decide — display defects are not visible in tests", "category": "ux"}
+    {"q": "Five columns on a lg:grid-cols-4 board — how?", "a": "Build it, look at it, then decide — display defects are not visible in tests", "category": "ux"},
+    {"q": "Bot PRs have zero checks — which group?", "a": "waiting-on-you with a 'no checks' note; only genuinely pending checks mean a machine is busy", "category": "domain"},
+    {"q": "Refresh cycle now has two sources — what if one fails?", "a": "Cache them separately, each with its own age and error", "category": "technical"},
+    {"q": "Leadership colour and accessibility?", "a": "Symbol + word always; colour reinforces only", "category": "ux"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
     "technical": {"stack": true, "architecture": true, "implementation": true},
     "domain": true,
-    "ux": {"happyPath": true, "edgeCases": true, "errors": true, "accessibility": false},
+    "ux": {"happyPath": true, "edgeCases": true, "errors": true, "accessibility": true},
     "nonFunctional": {"security": false, "performance": true, "scalability": true},
     "tradeOffs": true
   }
