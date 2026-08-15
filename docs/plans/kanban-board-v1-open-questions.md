@@ -8,6 +8,8 @@
 
 Decision: do **not** publish 1.0.0. First release is `1.0.0-rc.1`, shipped as the in-repo bundled artifact only. The npm path stays **open** (org `plot-pm` exists) but **deferred** until size/usage justify it. Data-driven recommendation below.
 
+> **Both halves of Q1 were later reversed** (recorded 2026-08-15, not edited away — see the [`plot-board` story](../stories/plot-board/STORY-plot-board.md) Decisions table). `@plot-pm/board` was published to npm in `0.2.1` (#44) once someone wanted the board in a repo that was not a Plot checkout, and `npm view` reports `latest: 0.3.0` today. The `1.0.0-rc.1` scheme never happened either: the package stayed in `0.x`. The reasoning below is still the reasoning that was applied at the time.
+
 ### Q1.1 — Expected artifact size
 
 Single-file esbuild bundle, deps inlined, client served from memory. From published bundle stats of the runtime pieces:

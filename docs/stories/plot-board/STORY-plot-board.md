@@ -82,10 +82,26 @@ that closes the loop, and it has not been built yet.
 
 ## Decisions
 
+The five `Q*` rows below come from
+[`kanban-board-v1-open-questions.md`](../../plans/kanban-board-v1-open-questions.md),
+the `/challenge-the-plan` decision log — that file keeps the working:
+the bundle-size table, the install-path comparison, the version-scheme
+options. The decision belongs here where it outlives its plan; the
+reasoning stays there where it was produced.
+
+Two of them were later reversed. That is recorded rather than corrected —
+a decision log that only shows decisions that survived teaches nothing
+about how the ground moves.
+
 | Date | Decision | Rationale |
 |------|----------|-----------|
 | 2026-07-12 | Board becomes its own package, ships a prebuilt dependency-free artifact | `pnpm board` must work with no install step; a board nobody can start is not a board |
 | 2026-07-12 | Board consumes `plot-plan-meta.sh` rather than parsing plans itself | Plan format changes in one place or it drifts in two |
+| 2026-07-12 | Do not publish to npm; ship the bundled artifact in-repo (Q1) | The npm path stays open — org `plot-pm` exists — but deferred until size or usage justifies it. *Superseded within weeks: `@plot-pm/board` is published (0.2.1, #44), and `npm view` today reports `latest: 0.3.0` alongside an `rc` tag. The deferral held only until someone wanted the board in a repo that was not a Plot checkout* |
+| 2026-07-12 | Package name `@plot-pm/board` (Q2) | Scoped to the org that already owns the marketplace name |
+| 2026-07-12 | Sprint filter is multi-select, sharing a component with the story filter (Q3) | `?sprint=a,b`; single-value links keep working, so no adopter's bookmark breaks |
+| 2026-07-12 | "Board impact in every plan" stays prose, not a CI gate (Q4) | A linter can check that a line exists, not that impact was considered. The mechanical half — *the board must still work* — is CI-gated |
+| 2026-07-13 | First release is a release candidate (Q1) | *Superseded: shipped as `0.3.0`; the package stayed in `0.x` rather than reaching `1.0.0-rc.1`* |
 | 2026-08-14 | Waves gate concurrency; a wave is eligible once every prior non-deferred branch merged | Dispatching everything at once collides; dispatching one at a time is not a fleet |
 | 2026-08-14 | A claim is an empty commit pushed to the branch ref, not a bare pointer | Two branches at the same commit do not diverge, so both pushes succeed and both sides think they hold the claim |
 | 2026-08-15 | Artifact status and agent status become **two tabs**, not one view | Days versus minutes, permanent versus transient — one surface answers each halfway |
