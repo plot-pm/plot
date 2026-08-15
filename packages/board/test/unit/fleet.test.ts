@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { classify, humanAge, rowsFromPulse } from '../../src/server/fleet.js';
 import type { FleetPulse } from '../../src/contract/schema.js';
+import type { PrRecord } from '../../src/server/fleet.js';
 
 // The classifier is where the tab's judgments live: which group a branch lands
 // in IS the answer to "what should I do next". Tested as pure functions rather
@@ -139,5 +140,81 @@ describe('rowsFromPulse', () => {
     for (let i = 1; i < quiet.length; i++) {
       expect(quiet[i - 1].ageMinutes ?? -1).toBeGreaterThanOrEqual(quiet[i].ageMinutes ?? -1);
     }
+  });
+});
+
+describe('classify with PR data', () => {
+  const pr = (over: Partial<PrRecord> = {}): PrRecord => ({
+    number: 42, head: 'feature/x', draft: false, checks: 'green', review: '', ...over,
+  });
+
+  it('sends a green PR to waiting-on-you', () => {
+    const r = classify('wip', 'eligible', 3, QUIET, pr());
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toMatch(/#42 green/);
+  });
+
+  it('sends a pending PR to waiting-on-a-machine', () => {
+    const r = classify('wip', 'eligible', 3, QUIET, pr({ checks: 'pending' }));
+    expect(r.group).toBe('waiting-on-machine');
+    expect(r.note).toMatch(/CI running/);
+  });
+
+  it('treats a PR with NO checks as waiting on you, saying so', () => {
+    // GitHub starts no workflow for a bot PR until a person approves the run.
+    // "no checks" says why it is not green; calling it pending would show CI
+    // running while nothing runs, and nobody would look.
+    const r = classify('wip', 'eligible', 3, QUIET, pr({ checks: 'none' }));
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toMatch(/no checks/);
+  });
+
+  it('treats unknown check state as unavailable, never as green', () => {
+    // Bitbucket carries no rollup. An honest gap beats an invented verdict.
+    const r = classify('wip', 'eligible', 3, QUIET, pr({ checks: 'unknown' }));
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toMatch(/unavailable/);
+  });
+
+  it('sends failing checks to waiting-on-you, not to a machine', () => {
+    const r = classify('wip', 'eligible', 3, QUIET, pr({ checks: 'failing' }));
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toMatch(/failing/);
+  });
+
+  it('leaves a green DRAFT PR to its author rather than to you', () => {
+    const r = classify('wip', 'eligible', 3, QUIET, pr({ draft: true }));
+    expect(r.group).toBe('working');
+  });
+
+  it('shows review state as a note without ever gating on it', () => {
+    // Approved is approved with or without a review: membership comes from
+    // checks, and the review only annotates. Both of these are waiting-on-you.
+    const awaiting = classify('wip', 'eligible', 3, QUIET, pr({ review: 'REVIEW_REQUIRED' }));
+    const approved = classify('wip', 'eligible', 3, QUIET, pr({ review: 'APPROVED' }));
+    expect(awaiting.group).toBe('waiting-on-you');
+    expect(approved.group).toBe('waiting-on-you');
+    expect(awaiting.note).toMatch(/awaiting review/);
+    expect(approved.note).toMatch(/approved/);
+  });
+
+  it('emits no review note when the host has nothing to say', () => {
+    // "" must not render as "nobody reviewed it" — the honest reading is that
+    // this host does not carry review state at all.
+    const r = classify('wip', 'eligible', 3, QUIET, pr({ review: '' }));
+    expect(r.note).not.toMatch(/review/);
+  });
+
+  it('lets git answer for merged and unpushed branches even with a PR present', () => {
+    // A merged branch is done; an unpushed one has not started. Neither
+    // question is answered by whatever its PR says.
+    expect(classify('merged', 'complete', 1, QUIET, pr()).group).toBe('done');
+    expect(classify('open', 'eligible', null, QUIET, pr()).group).toBe('not-started');
+  });
+
+  it('falls back to git state when no PR exists', () => {
+    // The step-1 behaviour must survive untouched for branches without a PR.
+    expect(classify('wip', 'eligible', 3, QUIET, null).group).toBe('working');
+    expect(classify('claimed', 'eligible', 3, QUIET, null).group).toBe('quiet');
   });
 });

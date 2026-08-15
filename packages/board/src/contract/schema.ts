@@ -259,5 +259,11 @@ export const FleetSchema = z.object({
   error: z.string().nullable(),
   rows: z.array(AgentRowSchema),
   summary: FleetPulseSchema.shape.summary,
+  /**
+   * PR data ages separately from the pulse, because the two sources fail
+   * separately. null means it has never landed — not that it is fresh.
+   */
+  prAgeSeconds: z.number().nullable(),
+  prError: z.string().nullable(),
 });
 export type Fleet = z.infer<typeof FleetSchema>;

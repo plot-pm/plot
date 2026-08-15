@@ -13,7 +13,7 @@ import type { AgentRow, Fleet, WaitingGroup } from '../../contract/schema.js';
 const GROUPS: { key: WaitingGroup; icon: string; label: string; hint: string }[] = [
   { key: 'waiting-on-you', icon: '⚠', label: 'Waiting on you', hint: 'review, merge, decide' },
   { key: 'working', icon: '🤖', label: 'Working', hint: 'nothing to do — just look' },
-  { key: 'waiting-on-machine', icon: '⏳', label: 'Waiting on a machine', hint: 'needs PR data — not wired up yet' },
+  { key: 'waiting-on-machine', icon: '⏳', label: 'Waiting on a machine', hint: 'nothing — CI will finish' },
   { key: 'quiet', icon: '💤', label: 'Quiet', hint: 'still thinking, or dead?' },
   { key: 'not-started', icon: '📋', label: 'Not started', hint: 'nobody has taken it' },
   { key: 'done', icon: '✅', label: 'Done', hint: 'merged' },
@@ -81,11 +81,22 @@ export function AgentList({ fleet }: { fleet: Fleet }) {
         );
       })}
 
-      {/* The age is the honesty: a stale pulse says so rather than looking live. */}
+      {/* The ages are the honesty: a stale source says so rather than looking
+          live. They are reported separately because they fail separately —
+          "git 3s ago, PR data 4 min ago" is a different situation from both
+          being fresh, and the reader is the one who has to know which. */}
       <p className="px-3 text-xs text-slate-400 dark:text-slate-600">
         {fleet.summary.branches} branches across {fleet.summary.plans} plans · scanned{' '}
         {fleet.ageSeconds}s ago
+        {fleet.prAgeSeconds !== null && ` · PR data ${fleet.prAgeSeconds}s ago`}
+        {fleet.prAgeSeconds === null && !fleet.prError && ' · no PR data yet'}
       </p>
+      {fleet.prError && (
+        <p className="px-3 text-xs text-amber-700 dark:text-amber-400">
+          PR data unavailable ({fleet.prError.slice(0, 80)}) — the two groups above that
+          depend on it may be incomplete.
+        </p>
+      )}
     </div>
   );
 }
