@@ -15,9 +15,9 @@
 ## Changelog
 
 - The board has a second tab, **Agents**, listing every plan branch grouped by
-  why it is waiting: *waiting on you*, *working*, *waiting on a machine*, or
-  *quiet*. It answers "what are my agents doing" without reading terminal
-  output.
+  why it is waiting: *waiting on you*, *working*, *waiting on a machine*,
+  *quiet*, or *not started*. It answers "what are my agents doing" without
+  reading terminal output.
 - `plot-fleet-scan.sh --json` emits the pulse as machine-readable JSON. The
   human report is unchanged.
 
@@ -95,13 +95,39 @@ un-prettified: `open` · `wip` · `merged` · `claimed` · `deferred`; wave verd
 the renderer — the JSON is the raw derivation, so the board is never parsing a
 label that exists for humans.
 
-**Layer 2 — `/api/fleet`.** A `buildFleet(opts: BuildBoardOptions)` in
-`packages/board/src/server/fleet.ts`, invoked from `src/server/index.ts`
-alongside `/api/board`. It calls the scan exactly the way `board.ts` already
-calls `plot-config.sh` — `execFileSync('bash', [scriptPath, '--json',
-'--offline'], { cwd: repoRoot })`, no shell string — parses it through a zod
-schema in `src/contract/schema.ts`, and maps each branch to a **waiting
-group**.
+**Layer 2 — `/api/fleet`, served from a cache the server refreshes itself.**
+A `buildFleet(opts: BuildBoardOptions)` in `packages/board/src/server/fleet.ts`,
+invoked from `src/server/index.ts` alongside `/api/board`.
+
+The endpoint does **not** run the scan. Measured on this repo (4 plans, 8
+branches): 1.05 s with its `git fetch`, 0.49 s with `--no-fetch`, 0.53 s with
+`--offline`. The board is a single-threaded HTTP server and the existing code
+uses `execFileSync`, so a 4 s client poll running a 1.05 s synchronous scan
+would block the event loop **26% of the time** — the board would stutter while
+the tab is open, and worse as branch count grows.
+
+Instead the server keeps a cached pulse and refreshes it on its own timer with
+the **async** `execFile`, so no request ever waits on bash. `/api/fleet` returns
+the cached object plus the age of the scan that produced it. Client poll rate
+and scan duration are thereby decoupled: a repo with twenty plans gets a
+*staler* tab, not a *slower* board — degradation you can see (the age is on
+screen) rather than degradation you feel.
+
+The refresh cycle runs the scan in its **default mode, with the fetch**. The
+whole point of moving it off the request path is that a second of work is now
+free, and the fetch is what lets the board see branches a remote worker pushed
+— without it the tab only reflects whatever another process happened to fetch.
+`--json` is the only flag it adds.
+
+The cache warms at server start, so the first person to open the tab does not
+wait a second for it; until that first scan lands the endpoint reports
+*not ready yet* rather than an empty fleet. **A failed refresh never overwrites
+a good result**: the tab keeps showing the last successful pulse, with its age
+and the error. Replacing real state with emptiness because one scan failed is
+the failure mode that makes a monitoring view untrustworthy.
+
+The parse goes through a zod schema in `src/contract/schema.ts` — where the
+board's contracts already live — and each branch maps to a **waiting group**.
 
 The grouping rule, git-only:
 
@@ -111,6 +137,15 @@ The grouping rule, git-only:
 | 🤖 working | `state: wip` with a commit newer than the freshness window |
 | ⏳ waiting on a machine | *empty at this step* — needs PR/CI data (step 2 of the draft) |
 | 💤 quiet | `state: claimed`, or `wip` with no commit inside the window |
+| 📋 not started | `state: open` — the branch does not exist on origin yet |
+
+Five groups, not the draft's four. The draft's set did not partition the scan's
+state vocabulary: `open` — a branch a plan names but nobody has pushed — fell
+through into nothing, so a plan with five unstarted branches would have rendered
+as a plan with no work. It is a real waiting reason and a distinct one: this
+work is not waiting on a machine or on review, it is waiting on the decision to
+dispatch it. Folding it into *waiting on you* would merge "review this" with
+"start this", which are different actions.
 
 The machine group is rendered but empty, with a one-line note saying PR data is
 not wired yet. An absent group would read as "nothing is waiting on CI", which
@@ -124,19 +159,40 @@ think for an hour sets it higher without a code change. The card shows the
 commit age either way, so a misjudged window is visible rather than misleading.
 
 **Layer 3 — the tab.** `App.tsx` gains a two-item tab bar; the existing board
-becomes the first tab and is otherwise untouched. `AgentList.tsx` renders four
-groups in fixed order (waiting on you → working → machine → quiet), each row:
-repo · branch · plan · state · age. Empty groups render their heading with a
-muted "none", because a group vanishing is indistinguishable from a group being
-empty.
+becomes the first tab and is otherwise untouched. `AgentList.tsx` renders the
+five groups in fixed order (waiting on you → working → machine → quiet → not
+started), each row: repo · branch · plan · state · age. Empty groups render
+their heading with a muted "none", because a group vanishing is
+indistinguishable from a group being empty.
 
-Polls at 4 s (the draft's measurement: a full scan is 526 ms, so ~a tenth of a
-core), independent of the board's existing 30 s poll. The repo column is
-constant today and stays — it is where the second repo lands without a rebuild.
+Polls at 4 s, independent of the board's existing 30 s poll. That rate is now
+cheap in the way that matters: the request hits a cache, so it costs a JSON
+serialisation rather than a scan. The repo column is constant today and stays —
+it is where the second repo lands without a rebuild.
 
 **Degrade, do not hide.** If the scan fails or is absent, the tab shows the
 error and the last successful result with its age. It never shows an empty list,
 which would read as "no agents are working".
+
+### Testing
+
+`test/reconcile/fleet.test.mjs` already covers the scan, so branch 1 extends an
+existing suite rather than starting one. Two tests, and the second matters more
+than the first:
+
+- **`--json` parses and carries the structure** — a fixture repo, `--json`
+  through `JSON.parse`, asserting wave verdicts and per-branch states against
+  known refs. Assert per line, not with a whole-output regex: this suite has
+  been fooled three times by patterns matching across report lines or the
+  summary footer.
+- **The human output is byte-identical without `--json`** — the regression that
+  actually protects the change. `--json` is worth doing precisely because the
+  prose is a human interface and not a contract; a test that pins the prose is
+  what keeps adding a machine mode from quietly reshaping it.
+
+Branches 2 and 3 fall under the board's own gates, which the DoD already
+names: `pnpm run typecheck`, `pnpm run test:board`, and `pnpm run build:board`
+producing no git diff.
 
 **Manifesto check.** Principle 1 (git is the database): every value derives
 from refs and commits; nothing new is stored. Principle 3: the script collects,
@@ -145,15 +201,20 @@ shell. Principle 5 (project-agnostic): no plot-specific names; the freshness
 window is config. Principle 12 (evidence over assertion): the tab shows commit
 ages, not inferred activity.
 
+`--json` is an output mode and nothing more: it composes with `--offline`,
+`--no-fetch` and the rest rather than implying any of them, and the refresh
+cycle passes it alone. A flag that silently changed network behaviour would make
+the board's data depend on how it asked rather than on what it asked for.
+
 ### Open Questions
 
-- [ ] Does `--json` belong behind `--offline` too, or should the JSON mode
-      always skip the network? Leaning: independent flags, since a board with
-      network access wants fresh merge state.
-- [ ] Should *waiting on you* include branches whose wave is `eligible` but
-      unclaimed — work nobody has picked up? It is a real waiting reason, but a
-      different one from "review this". Possibly a fifth group rather than a
-      widened first.
+- [ ] What is the right default for `Fleet quiet after`? 30 minutes is a guess
+      that only real use can correct — deliberately a config key rather than a
+      constant for exactly that reason.
+- [ ] Does the *not started* group need the wave's verdict on each row
+      (`eligible` vs `blocked`)? Eligible-but-unstarted is actionable now;
+      blocked-and-unstarted is not, and showing them identically may invite
+      dispatching work whose seam has not landed.
 
 ## Branches
 
@@ -166,10 +227,32 @@ ages, not inferred activity.
   derivation, which is the assumption the other two branches rest on
   Status: Not started
 
-### Implementation
+### Server
 
-- `feature/fleet-api` — `buildFleet()` + `/api/fleet` + zod schema + waiting-group mapping
-- `feature/fleet-tab` — tab bar in `App.tsx`, `AgentList.tsx`, 4 s poll, degraded states
+- `feature/fleet-api` — `buildFleet()` + cached refresh cycle + `/api/fleet` + zod schema + waiting-group mapping
+
+### Client
+
+- `feature/fleet-tab` — tab bar in `App.tsx`, `AgentList.tsx`, five groups, 4 s poll, degraded states
+
+<!-- Three waves, not two: fleet-api and fleet-tab both rebuild the checked-in
+     690 KB bundle skills/plot/scripts/board/board-server.mjs, so running them
+     concurrently produces a conflict in a generated file that cannot be
+     hand-merged. Serialising them is exactly what waves are for. -->
+
+The wave split between server and client is not thematic. Both branches must
+regenerate `skills/plot/scripts/board/board-server.mjs` — a 690 KB bundle that
+is checked in, gated by the DoD's no-diff rule, and covered by no merge driver.
+Two branches rewriting it concurrently collide in a file nobody can resolve by
+hand, so they run in sequence. The cost is small here (two branches, no real
+parallelism lost) and the alternative — dropping the artifact from both branches
+and rebuilding once at the end — would fail the DoD gate on both PRs.
+
+Worth noting for the plans that follow: a generated artifact is invisible to
+"which source files does this branch touch?" reasoning, which is how the
+collision got into the first draft of this plan. `/plot-merge-queue` predicts
+conflicts from `git merge-tree`, so it would catch this one — but only after
+both branches exist.
 
 ## Notes
 
@@ -184,3 +267,31 @@ carries `repoRoot` + `scriptsDir`. `buildFleet()` takes the same options object,
 so the multi-repo seam costs nothing here.
 
 Definition of Done: `docs/definition-of-done.md`.
+
+Interrogated with `/challenge-the-plan` over two rounds before approval. Three
+findings changed the plan's structure rather than its wording: the synchronous
+scan on a 4 s poll (now a server-side cache), the unassigned `open` state (now a
+fifth group), and the shared generated bundle (now three waves instead of two).
+The scan timings quoted in the Design were measured on this repo, not estimated.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 2,
+  "questionHistory": [
+    {"q": "Synchronous 0.5-1.05s scan on a 4s poll blocks the event loop 13-26%", "a": "Server-side cache, async execFile, endpoint serves cache + age", "category": "nonFunctional"},
+    {"q": "State `open` falls through the four-group table", "a": "Fifth group: not started", "category": "domain"},
+    {"q": "Plan states no test strategy; DoD gates on tests", "a": "Both: JSON structure test + human-output regression", "category": "technical"},
+    {"q": "fleet-api and fleet-tab both rebuild the checked-in 690KB bundle (unresolvable conflict, same wave)", "a": "Serialise into separate waves", "category": "technical"},
+    {"q": "Cache behaviour at startup and on failure", "a": "Warm at start; failed refresh never overwrites last good result", "category": "technical"},
+    {"q": "Which network mode for the refresh cycle", "a": "Default, with fetch — it no longer blocks anyone", "category": "nonFunctional"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": true, "architecture": true, "implementation": true},
+    "domain": true,
+    "ux": {"happyPath": true, "edgeCases": true, "errors": true, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": true, "scalability": true},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
