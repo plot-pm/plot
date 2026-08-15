@@ -263,6 +263,13 @@ rendered result, because step 1 proved that is where display defects live.
       an empty first column on every adopter repo that never adopted stories
       would be a permanent blank. Possibly the column appears only when at least
       one story does.
+- [ ] **Nothing moves a plan to Released.** Found by looking at the five columns:
+      Endgame held five cards and Released none, although v2.2.0 shipped today
+      carrying four of them. `/plot-release` bundles changesets and tags, but
+      never writes `Phase: Released` back to the plans a release contains. The
+      board did not cause this and does not fix it — it made four months of
+      quiet drift visible, which is what a column whose emptiness is wrong is
+      for. Out of scope here; wants its own plan.
 - [ ] Which checklist does an Endgame card read when several releases are open?
       `docs/releases/` holds one file per version; a plan delivered but not
       released could plausibly belong to more than one.

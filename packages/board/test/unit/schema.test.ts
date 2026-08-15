@@ -75,12 +75,12 @@ describe('summariseWaves — what a board card shows', () => {
     // Optional: pre-wave plans and older helper output must still produce a
     // valid card.
     const card = CardSchema.parse({
-      slug: 'x', title: 'X', type: 'feature', phase: 'Approved', path: 'docs/plans/x.md',
+      slug: 'x', title: 'X', type: 'feature', phase: 'Development', path: 'docs/plans/x.md',
       waveSummary: { waves: 2, branches: 3, claimed: 1, deferred: 0 },
     });
     expect(card.waveSummary?.claimed).toBe(1);
     const bare = CardSchema.parse({
-      slug: 'y', title: 'Y', type: 'docs', phase: 'Draft', path: 'docs/plans/y.md',
+      slug: 'y', title: 'Y', type: 'docs', phase: 'Design', path: 'docs/plans/y.md',
     });
     expect(bare.waveSummary).toBeUndefined();
   });

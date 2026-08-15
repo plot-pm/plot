@@ -24,7 +24,10 @@ describe('tiny-garden: data layer (built artifact + real helpers)', () => {
     // no plans would be found — so these counts also guard the #42 fix.
     const board = await fetchBoard(server.port);
     const counts = Object.fromEntries(board.columns.map((c: any) => [c.phase, c.cards.length]));
-    expect(counts).toEqual({ Draft: 2, Approved: 2, Delivered: 3, Released: 1 });
+    // Workflow phases, not plan states: the fixture's 2 Draft + 2 Approved
+    // plans all land in Design because none carries a Started: record, and its
+    // 3 Delivered ones are Endgame — Development ends at the merge.
+    expect(counts).toEqual({ Discovery: 0, Design: 4, Development: 0, Endgame: 3, Released: 1 });
   });
 
   it('excludes the Rejected plan from every column', async () => {
