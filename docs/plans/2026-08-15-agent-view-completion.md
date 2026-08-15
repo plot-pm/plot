@@ -15,9 +15,9 @@
 ## Changelog
 
 - The Agents tab fills its two empty groups: **waiting on you** (a PR that is
-  green and unreviewed, or one whose branch conflicts) and **waiting on a
-  machine** (CI still running).
-- `plot-host.sh` gains a richer PR listing (check status, review decision) so
+  open, not draft, and green — ready, and nobody has merged it) and **waiting on
+  a machine** (CI still running).
+- `plot-host.sh` gains a richer PR listing (check status) so
   the board can tell "waiting on a person" from "waiting on a machine" without
   talking to the host itself.
 - The board shows the four workflow phases rather than four plan states:
@@ -70,26 +70,40 @@ Three branches in three waves, ordered by what each one unblocks.
 
 **The adapter needs widening first.** `plot-host.sh pr-list` returns only
 `number`, `head`, `state`, `title` — enough to know a PR exists, not enough to
-know whether it is waiting on a person or a machine. Meanwhile a single
-`gh pr list --json number,headRefName,statusCheckRollup,reviewDecision` returns
-all of it in **0.58 s**, faster than the narrower call through the adapter.
+know whether it is waiting on a person or a machine. A single
+`gh pr list --json number,headRefName,statusCheckRollup` returns that in
+**0.58 s**, faster than the narrower call through the adapter. (The measurement
+included `reviewDecision`; the rule below drops it, so the adapter need not
+carry it — one less field to define an equivalent for on other hosts.)
 
 So the branch starts in `plot-host.sh`: a richer listing mode that carries check
-status and review decision. The board must not call `gh` directly — Principle 3
+status. The board must not call `gh` directly — Principle 3
 puts host knowledge in exactly one place, and a board that shells out to `gh`
 would silently become GitHub-only, leaving Bitbucket users with two permanently
 empty groups and no explanation.
 
 The Bitbucket path degrades explicitly rather than pretending: where the backend
-cannot supply check or review state, the adapter says so and the two groups
-report *unavailable* rather than *empty*.
+cannot supply check state, the adapter says so and the two groups report
+*unavailable* rather than *empty*.
 
 Two groups fill:
 
 | Group | Rule |
 |---|---|
-| ⚠ waiting on you | PR open, not draft, checks green, review not yet approving |
+| ⚠ waiting on you | PR open, not draft, checks green |
 | ⏳ waiting on a machine | PR open with checks pending |
+
+**Review state is deliberately not part of the rule.** The first draft said
+"review not yet approving", which sounded precise and would have been noise:
+`reviewDecision` came back **empty on all twelve PRs sampled here, merged ones
+included** — nobody reviews formally through GitHub in this repo, so the
+condition would be permanently true and carry no information. Worse, it would
+suggest the board knows something about review that it does not.
+
+What the group means instead is plain and checkable: *this PR is ready and
+nobody has merged it*. In a repo that does review through GitHub the same rule
+still holds — a green unmerged PR is waiting on a person either way — it simply
+stops claiming to know which person or which stage.
 
 The classifier stays a pure function — it takes the PR record as another
 argument, which keeps the 14 existing tests meaningful and makes the new rules
@@ -112,8 +126,8 @@ Development, Endgame — three human-led, exactly one agent-led.
 |---|---|---|
 | Discovery | stories with no plans yet | 👤 human-led |
 | Design | Draft plans, and Approved without a `Started:` record | 👤 human-led |
-| Development | Approved *with* a `Started:` record, plus Delivered-not-Released | 🤖 agent-led |
-| Endgame | Delivered, release checklist open (`15/27`) | 👤 human-led |
+| Development | Approved *with* a `Started:` record | 🤖 agent-led |
+| Endgame | Delivered, not yet Released — release checklist open (`15/27`) | 👤 human-led |
 | Released | Released | — |
 
 `Approved` spans a phase boundary, which is the substantive change: a plan
@@ -121,6 +135,22 @@ without `Started:` sits at the end of Design; one with it is in Development. The
 board already draws that split as a *Ready*/*In progress* badge, so the data is
 there (`started_raw`, verified present) — it simply is not read as a phase
 change.
+
+**Development ends at the merge, not at the release.** The first draft of this
+table put Delivered-not-Released in *both* Development and Endgame — the same
+plans in two columns, which a kanban column cannot be: it is a partition. The
+resolution follows the leadership model rather than convenience. Delivered means
+the code landed and the agents are done; what remains is verification and
+signoff, which is human-led. So Delivered belongs to **Endgame alone**, and
+Development holds exactly the plans an agent is working on right now.
+
+**Five columns will be tight**, and the layout question is deliberately not
+answered here. The board renders `lg:grid-cols-4` today; five plus a swimlane
+row header is a real constraint on a laptop. Step 1 established that display
+problems are visible on screen and invisible to passing tests, so this one gets
+decided the same way: build five, look at it, then choose between narrowing,
+folding Discovery into the row header, or scrolling. Guessing now would only
+produce a decision to revisit.
 
 **The Endgame card counts the release checklist** (`15/27`), parsed from
 `docs/releases/v<version>-checklist.md` — `- [x]` over `- [ ]`. "Delivered" does
@@ -230,13 +260,33 @@ which corrected the plan rather than filling a gap:
   fixture, because a count nobody verifies looks exactly as authoritative when
   wrong as when right.
 
+Round 2 went after what round 1 had not touched — display, error paths, domain
+rules — and found three things, one of them a plain contradiction:
+
+- **The phase table put Delivered-not-Released in two columns at once.** A
+  kanban column is a partition, so that is a defect rather than an imprecision.
+  Resolved along the leadership model: Development ends at the merge, Endgame
+  owns everything from Delivered to Released.
+- **The review condition would have been noise.** "Review not yet approving"
+  read as precise; `reviewDecision` came back empty on all twelve PRs sampled
+  here, merged ones included. The rule would have been permanently true while
+  implying the board knew something about review. Dropped — which also removes
+  a field the adapter would otherwise have to define an equivalent for on
+  Bitbucket.
+- **Five columns will be tight** on a laptop (`lg:grid-cols-4` today). Left
+  undecided on purpose: step 1 established that display problems appear on
+  screen and not in tests, so this gets built, looked at, and then decided.
+
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {"q": "How should the board get rich PR data, given pr-list returns only 4 fields?", "a": "Widen plot-host.sh — the adapter stays the one place that talks to the host", "category": "technical"},
     {"q": "BOARD_PHASES breaks four readers, not one — how to handle?", "a": "Update all four in the same branch", "category": "technical"},
-    {"q": "Should Endgame parse the release checklist or just say Delivered?", "a": "Parse it (15/27) — overrides the plan's recommendation; test pins the parse", "category": "tradeOffs"}
+    {"q": "Should Endgame parse the release checklist or just say Delivered?", "a": "Parse it (15/27) — overrides the plan's recommendation; test pins the parse", "category": "tradeOffs"},
+    {"q": "Delivered-not-Released appeared in both Development and Endgame — which?", "a": "Endgame alone; Development ends at the merge", "category": "domain"},
+    {"q": "reviewDecision is empty on every sampled PR — what does 'waiting on you' mean?", "a": "Open + not draft + checks green; review state carries no information here", "category": "domain"},
+    {"q": "Five columns on a lg:grid-cols-4 board — how?", "a": "Build it, look at it, then decide — display defects are not visible in tests", "category": "ux"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
