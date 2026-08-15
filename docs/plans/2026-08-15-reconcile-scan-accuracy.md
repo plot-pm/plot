@@ -164,9 +164,9 @@ with both in one wave before that was caught. The second fix's ordering
 constraint (containment must be tested after the claim check) is also easier to
 reason about against a file that has already absorbed the first change.
 
-`feature/update-board-test` touches only `plot-update-board.sh` and its new
-test, so it collides with nothing. It sits last for reviewability, not
-dependency — pull it forward if the scan fixes stall.
+The coverage branch touches only the board script and its new test, so it
+collides with nothing. It sits last for reviewability, not dependency — pull it
+forward if the scan fixes stall.
 
 ## Notes
 
