@@ -21,7 +21,9 @@
   already says so.
 - `plot-reconcile-scan.sh` reports delivered plans whose work is inside a
   released tag but which are still marked Delivered — the drift that made this
-  invisible for sixteen releases.
+  invisible for sixteen releases. It ships first, because it doubles as the
+  gate proving the write above landed, and the six existing plans are
+  back-filled with it.
 
 Board impact: **yes — the plan-format contract gains a field.**
 `plot-plan-meta.sh` emits `approved_raw` and `started_raw` but no
@@ -132,8 +134,25 @@ clears it; anything reported is a hard stop with the fix printed. Not a warning
 sit for sixteen releases.
 
 Note the pleasing economy: the check written for section 2 is the gate for
-section 1. That is why they belong in one plan and why the check is worth
-building even though the write is the visible feature.
+section 1. That is why they belong in one plan, why the check is worth building
+even though the write is the visible feature, and why it is built first.
+
+**What the user sees.** The step names every plan it touched and shows the
+gate's real output — the same shape `/plot-deliver` uses for its 7b footer,
+where an actual scan line is pasted rather than the word "verified":
+
+    Released as v2.3.0:
+      fleet-agent-view          docs/plans/2026-08-15-fleet-agent-view.md
+      reconcile-scan-accuracy   docs/plans/2026-08-15-reconcile-scan-accuracy.md
+    Not marked:
+      some-docs-plan            docs plan — live when merged
+      older-plan                unresolvable: no PR annotation
+    summary: … unreleased_delivered=0 …
+
+Listing what was **not** marked matters more than listing what was. A plan
+silently skipped looks identical to a plan that had nothing to do, and this
+whole finding exists because those two were indistinguishable for sixteen
+releases.
 
 **docs/infra plans end at Delivered.** They are live when merged, and
 `/plot-deliver` already tells their authors exactly that — marking them Released
@@ -161,15 +180,23 @@ machine-countable.
 This section doubles as step 1's gate, which is the reason it is worth building
 even though the write is the visible half.
 
-**Historical plans are back-filled where git can answer.** Six plans are
-currently Delivered. Five resolve exactly through their PR annotations —
-v1.0.0, v1.7.0, v2.1.0, v2.2.0, and one that is genuinely in no release yet.
-The sixth (`reconcile-drift-loop`) carries no PR annotation and stays Delivered,
-reported by the scan.
+**Historical plans are back-filled where git can answer — which here is all of
+them.** Running the rule as a prototype over the six delivered plans:
 
-That asymmetry is the point rather than an inconvenience: the plans the method
-can answer for get an exact record, and the one it cannot gets a visible gap
-instead of a plausible fiction.
+    board-sync            → v1.0.0     kanban-board-v1       → v1.7.0
+    reconcile-drift-loop  → v1.6.0     parallel-agent-fleet  → v2.1.0
+    fleet-agent-view      → v2.2.0     agent-view-completion → in no release yet
+
+Five carry drift; the sixth is correctly unreleased and needs nothing. An
+earlier draft of this plan claimed `reconcile-drift-loop` had no PR annotation
+and would stay unresolvable — that came from a hand-written list rather than
+from the parser, and it is wrong: the annotation is there and resolves cleanly.
+
+The unresolvable case therefore has **no instance in this repo**. The rule stays
+in the plan because other repos will have plans predating their PR annotations,
+and because an invented version in a transition record is a claim nobody
+re-checks. But it is a rule for elsewhere, not a description of the back-fill
+here.
 
 **Manifesto check.** Principle 1: the release record lives in the plan file,
 where every other transition record lives; the tag remains the git truth and the
@@ -199,21 +226,29 @@ alongside the write.
 
 ## Branches
 
-### Write
-
-- `feature/release-marks-plans` — `/plot-release` writes Phase + `Released:` per included plan, idempotently
-
 ### Check
 
-- `bug/scan-unreleased-delivered` — reconcile section for delivered-but-shipped plans, plus the footer counter
+- `bug/scan-unreleased-delivered` — reconcile section for delivered-but-shipped plans, the footer counter, and the back-fill of the six existing plans
 
-<!-- Two waves, one branch each: both edit the plot skill estate, and the
-     check is written second so it can be verified against a repo the write
-     has already corrected. -->
+### Write
 
-The two are serialised deliberately. The check's value is that it finds what the
-write misses, and testing it against a repo the write has already cleaned is the
-only way to see it report zero honestly rather than by accident.
+- `feature/release-marks-plans` — `/plot-release` writes Phase + `Released:` per included plan, idempotently, gated on the check
+
+<!-- Two waves, one branch each, in this order because the write's gate IS
+     the check. The first draft had them the other way round, which would
+     have shipped the multi-file write ungated. -->
+
+**The check comes first because it is the write's gate.** The first draft
+ordered these the other way, reasoning that a check is best tested against a
+repo the write has already cleaned. That is true and it is the wrong trade: it
+would ship the multi-file write with nothing to prove it landed — precisely the
+risk that put a gate in the plan.
+
+Reversed, both halves get better. The check is independently useful the moment
+it exists (it reports five real drift cases today, before anything writes), and
+the write arrives into a repo where its gate already works. The back-fill rides
+with the check for the same reason: the branch that finds the drift is the
+branch that clears it, and the repo demonstrates the fix on itself.
 
 ## Notes
 
@@ -242,6 +277,22 @@ the design's core mechanism; two others filled gaps the draft had not seen.
   by the scan. A visible gap beats a plausible fiction in a record nobody
   re-checks.
 
+Round 3 found a contradiction between two things the plan said, and one claim
+that was simply wrong:
+
+- **The waves were ordered backwards.** The plan said the section-2 check is the
+  write's gate, then scheduled the write first — shipping the multi-file write
+  ungated. Reversed: the check ships first, is useful on its own, and the write
+  lands where its gate already works.
+- **All six delivered plans resolve**, contradicting round 1's claim that
+  `reconcile-drift-loop` had no PR annotation. That came from a hand-written
+  list rather than the parser; it resolves to v1.6.0. The prototype run reports
+  five drift cases and one correctly-unreleased plan, so the rule works and the
+  "unresolvable" branch has no instance here.
+- **The step now says what it did not do.** A silently skipped plan looks
+  identical to a plan with nothing to do — which is the exact confusion that
+  hid this for sixteen releases.
+
 Round 2 went after the write's failure paths and the questions round 1 had only
 posed:
 
@@ -263,14 +314,17 @@ posed:
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 2,
+  "round": 3,
   "questionHistory": [
     {"q": "How is a plan's release version determined?", "a": "git tag --contains on the merge SHA — dates are wrong for the majority of real cases", "category": "technical"},
     {"q": "plot-plan-meta.sh has no released_raw — how far does the parser change go?", "a": "Add released_raw alongside the other transition records, with a contract fixture", "category": "technical"},
     {"q": "Back-fill the six existing delivered plans?", "a": "Yes where git tag --contains answers (five); the sixth stays Delivered and is reported", "category": "domain"},
     {"q": "Should the multi-plan write have a gate like /plot-deliver 7b?", "a": "Yes, same shape — run the section-2 check and show its real output", "category": "technical"},
     {"q": "Do docs/infra plans get a Released record?", "a": "No — they end at Delivered, consistent with what /plot-deliver already tells them", "category": "domain"},
-    {"q": "Twelve direct pushes to main bypassed branch protection — fix here?", "a": "No — it affects approve/implement/deliver equally; recorded as an open question for its own plan", "category": "tradeOffs"}
+    {"q": "Twelve direct pushes to main bypassed branch protection — fix here?", "a": "No — it affects approve/implement/deliver equally; recorded as an open question for its own plan", "category": "tradeOffs"},
+    {"q": "Wave 1 needs the gate wave 2 builds — contradiction?", "a": "Swap them: the check ships first, is independently useful, and the write arrives into a repo where its gate works", "category": "technical"},
+    {"q": "All six delivered plans resolve, contradicting round 1 — what about the back-fill?", "a": "Back-fill all six in the check branch; the unresolvable rule stays for other repos but has no instance here", "category": "domain"},
+    {"q": "What does /plot-release print?", "a": "Every plan touched, every plan NOT marked with the reason, and the gate's real scan line", "category": "ux"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
