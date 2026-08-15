@@ -5,12 +5,18 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-board
 - **Review:** pr
 - **Impl:** own branches
+- **Approved:** 2026-08-15, jwloka, plan-PR #105 merged
+- **Started:** 2026-08-15, jwloka, `feature/fleet-pr-data`
+
+## Approval
+
+- **Assignee:** jwloka
 
 ## Changelog
 
