@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-08-15, jwloka, plan-PR #101 merged
+- **Started:** 2026-08-15, jwloka, `bug/scan-single-pr-plans`
 
 ## Approval
 
