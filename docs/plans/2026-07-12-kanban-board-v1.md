@@ -4,7 +4,8 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
+- **Delivered:** 2026-08-15
 - **Type:** feature
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 
@@ -183,7 +184,7 @@ Challenged 2026-07-12 (`/challenge-the-plan`, autonomous pass); the five escalat
 
 **Single-PR mode (explicit deviation):** this plan is implemented on the idea branch itself — one PR carries the plan from Draft through Delivered. No fan-out to separate implementation branches at approval; `/plot-approve` semantics reduce to "Max approves the plan in this PR, implementation commits follow on the same branch."
 
-- `idea/kanban-board-v1` — plan + full implementation (this PR)
+- `idea/kanban-board-v1` — plan + full implementation (this PR) → #40
 
 ## Notes
 
@@ -193,4 +194,22 @@ Challenged 2026-07-12 (`/challenge-the-plan`, autonomous pass); the five escalat
   Nothing in this plan depends on either; the package split and contract rework keep both options open.
 - Type chosen as `feature` (user-facing board functionality is the center of gravity; the monorepo work is enabling infra). Flag during review if `infra` fits better.
 - The board remains **read-only and local-only** in v1.0 — editing is R1 territory.
+- 2026-08-15: delivered, five weeks after PR #40 merged (2026-07-13) — the work
+  shipped and has been in daily use since; only the booking was outstanding. The
+  reconcile scan never flagged it because this plan ran in single-PR mode on the
+  idea branch, and the scan looks for *implementation branches merged while the
+  plan is still Approved* — a shape this plan never had.
+
+  A refutation pass at delivery time re-checked seven promises against main.
+  Six hold, three of them by execution rather than reading: the shipped artifact
+  imports only `node:` modules (dependency-free confirmed), plan metadata is
+  parsed solely through `plot-plan-meta.sh`, and the plan viewer's allowlist was
+  probed with live requests — legitimate plan 200, `CLAUDE.md` 404, four
+  traversal variants 404, a malformed percent escape 400, server still serving
+  afterwards.
+
+  One deviation: the package shipped as `0.3.0`, never as the `1.0.0-rc.1` that
+  Q1 chose below. It went 0.2.1 → 0.3.0 and stayed in `0.x`. The substance was
+  delivered under a different number — a decision that was revised after this
+  plan was written, not a missing deliverable.
 - 2026-07-12: `/challenge-the-plan` run (autonomous — findings self-resolved where the brief/manifesto/codebase decide, woven into Design above). Five decisions escalated to Max; all five decided same day and recorded in `kanban-board-v1-open-questions.md` (Q1 defer npm + `1.0.0-rc.1`, Q2 `@plot-pm/board`, Q3 sprint multi-select, Q4 prose, Q5 feature). Known implementation risk recorded: the release chain (`bump-skill-versions.sh → changeset version → sync-versions.sh`, changeset-check CI grep) assumes a single versioned package and needs teaching about `packages/*` — covered in workstream 1's artifact-policy and changeset-check notes.
