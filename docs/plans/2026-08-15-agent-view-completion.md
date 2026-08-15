@@ -14,6 +14,7 @@
 - **Approved:** 2026-08-15, jwloka, plan-PR #105 merged
 - **Started:** 2026-08-15, jwloka, `feature/fleet-pr-data`
 - **Started:** 2026-08-15, jwloka, `feature/board-phase-columns`
+- **Started:** 2026-08-15, jwloka, `feature/board-swimlanes`
 
 ## Approval
 
@@ -285,7 +286,7 @@ rendered result, because step 1 proved that is where display defects live.
 
 ### Columns
 
-- `feature/board-phase-columns` — five columns, leadership colour, Approved split on `started_raw`
+- `feature/board-phase-columns` — five columns, leadership colour, Approved split on `started_raw` → #108
 
 ### Swimlanes
 
