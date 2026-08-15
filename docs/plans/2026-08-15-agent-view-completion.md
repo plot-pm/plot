@@ -17,9 +17,10 @@
 - The Agents tab fills its two empty groups: **waiting on you** (a PR that is
   open, not draft, and green — ready, and nobody has merged it) and **waiting on
   a machine** (CI still running).
-- `plot-host.sh` gains a richer PR listing (check status) so
+- `plot-host.sh` gains a richer PR listing (check status, review decision) so
   the board can tell "waiting on a person" from "waiting on a machine" without
-  talking to the host itself.
+  talking to the host itself. Review state is shown as a note and never gates:
+  approved is approved, with or without a review.
 - The board shows the four workflow phases rather than four plan states:
   Discovery · Design · Development · Endgame · Released, colour-coded by who
   leads. `Approved` splits into *Ready* and *In progress* as its own column
@@ -71,20 +72,23 @@ Three branches in three waves, ordered by what each one unblocks.
 **The adapter needs widening first.** `plot-host.sh pr-list` returns only
 `number`, `head`, `state`, `title` — enough to know a PR exists, not enough to
 know whether it is waiting on a person or a machine. A single
-`gh pr list --json number,headRefName,statusCheckRollup` returns that in
-**0.58 s**, faster than the narrower call through the adapter. (The measurement
-included `reviewDecision`; the rule below drops it, so the adapter need not
-carry it — one less field to define an equivalent for on other hosts.)
+`gh pr list --json number,headRefName,statusCheckRollup,reviewDecision` returns
+all of it in **0.58 s**, faster than the narrower call through the adapter.
+
+Both fields are carried, but they do different jobs: **check status decides
+membership, review state only annotates.** A host that cannot supply review
+state costs a note, not a group.
 
 So the branch starts in `plot-host.sh`: a richer listing mode that carries check
-status. The board must not call `gh` directly — Principle 3
+status and review decision. The board must not call `gh` directly — Principle 3
 puts host knowledge in exactly one place, and a board that shells out to `gh`
 would silently become GitHub-only, leaving Bitbucket users with two permanently
 empty groups and no explanation.
 
 The Bitbucket path degrades explicitly rather than pretending: where the backend
 cannot supply check state, the adapter says so and the two groups report
-*unavailable* rather than *empty*.
+*unavailable* rather than *empty*. Missing review state is milder — it costs a
+note on a row, never a group.
 
 Two groups fill:
 
@@ -93,17 +97,32 @@ Two groups fill:
 | ⚠ waiting on you | PR open, not draft, checks green |
 | ⏳ waiting on a machine | PR open with checks pending |
 
-**Review state is deliberately not part of the rule.** The first draft said
-"review not yet approving", which sounded precise and would have been noise:
-`reviewDecision` came back **empty on all twelve PRs sampled here, merged ones
-included** — nobody reviews formally through GitHub in this repo, so the
-condition would be permanently true and carry no information. Worse, it would
-suggest the board knows something about review that it does not.
+**Review state is shown, but never gates.** The distinction matters and the
+first draft got it wrong in both directions — first by making "review not yet
+approving" part of the membership rule, then by dropping review entirely.
 
-What the group means instead is plain and checkable: *this PR is ready and
-nobody has merged it*. In a repo that does review through GitHub the same rule
-still holds — a green unmerged PR is waiting on a person either way — it simply
-stops claiming to know which person or which stage.
+Membership is plain and checkable: *this PR is ready and nobody has merged it*.
+That is what puts a row in the group, and it holds whether or not the repo
+reviews through GitHub. Sampled here, `reviewDecision` was **empty on all twelve
+PRs, merged ones included** — a membership rule built on it would have been
+permanently true and carried no information.
+
+But an agent genuinely waiting for a review is something the board must **say**,
+because the person looking at the tab is the one who can end that wait. So the
+row carries the review state as a note — *awaiting review*, *changes requested*,
+*approved* — alongside the age. Absent review state simply produces no note,
+which is the honest rendering of "this host has nothing to say about review".
+
+**Approved is approved, with or without a review.** A recorded approval is the
+plan's `Approved:` transition record, not a GitHub review — that is Principle 1
+and `/plot-approve`'s whole design. The board must never withhold or downgrade
+anything because a review is missing; a missing review is a *note on a row*, and
+the user overrides it by merging. Nothing downstream may treat the note as a
+condition.
+
+The same holds for whatever orchestrates dispatch: a wave whose prior branches
+are merged is eligible, review note or not. Making the note load-bearing would
+quietly reintroduce a gate the manifesto removed.
 
 The classifier stays a pure function — it takes the PR record as another
 argument, which keeps the 14 existing tests meaningful and makes the new rules
@@ -267,12 +286,13 @@ rules — and found three things, one of them a plain contradiction:
   kanban column is a partition, so that is a defect rather than an imprecision.
   Resolved along the leadership model: Development ends at the merge, Endgame
   owns everything from Delivered to Released.
-- **The review condition would have been noise.** "Review not yet approving"
-  read as precise; `reviewDecision` came back empty on all twelve PRs sampled
-  here, merged ones included. The rule would have been permanently true while
-  implying the board knew something about review. Dropped — which also removes
-  a field the adapter would otherwise have to define an equivalent for on
-  Bitbucket.
+- **The review condition was wrong twice before it was right.** "Review not yet
+  approving" read as precise and was noise — `reviewDecision` came back empty on
+  all twelve PRs sampled here, merged ones included, so the condition would have
+  been permanently true. Dropping review entirely was the opposite error: an
+  agent waiting on a review is exactly what the person looking at the tab can
+  resolve. Settled as **show, never gate** — the row carries a review note, and
+  approved is approved with or without one.
 - **Five columns will be tight** on a laptop (`lg:grid-cols-4` today). Left
   undecided on purpose: step 1 established that display problems appear on
   screen and not in tests, so this gets built, looked at, and then decided.
@@ -285,7 +305,7 @@ rules — and found three things, one of them a plain contradiction:
     {"q": "BOARD_PHASES breaks four readers, not one — how to handle?", "a": "Update all four in the same branch", "category": "technical"},
     {"q": "Should Endgame parse the release checklist or just say Delivered?", "a": "Parse it (15/27) — overrides the plan's recommendation; test pins the parse", "category": "tradeOffs"},
     {"q": "Delivered-not-Released appeared in both Development and Endgame — which?", "a": "Endgame alone; Development ends at the merge", "category": "domain"},
-    {"q": "reviewDecision is empty on every sampled PR — what does 'waiting on you' mean?", "a": "Open + not draft + checks green; review state carries no information here", "category": "domain"},
+    {"q": "reviewDecision is empty on every sampled PR — what does 'waiting on you' mean?", "a": "Membership: open + not draft + checks green. Review state is SHOWN as a note but never gates — approved is approved with or without a review, and nothing downstream may treat the note as a condition", "category": "domain"},
     {"q": "Five columns on a lg:grid-cols-4 board — how?", "a": "Build it, look at it, then decide — display defects are not visible in tests", "category": "ux"}
   ],
   "deferredItems": [],
