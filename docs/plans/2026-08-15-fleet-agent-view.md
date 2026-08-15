@@ -5,7 +5,8 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
+- **Delivered:** 2026-08-15
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-board
@@ -236,11 +237,11 @@ the board's data depend on how it asked rather than on what it asked for.
 
 ### Server
 
-- `feature/fleet-api` — `buildFleet()` + cached refresh cycle + `/api/fleet` + zod schema + waiting-group mapping
+- `feature/fleet-api` — `buildFleet()` + cached refresh cycle + `/api/fleet` + zod schema + waiting-group mapping → #103
 
 ### Client
 
-- `feature/fleet-tab` — tab bar in `App.tsx`, `AgentList.tsx`, five groups, 4 s poll, degraded states
+- `feature/fleet-tab` — tab bar in `App.tsx`, `AgentList.tsx`, five groups, 4 s poll, degraded states → #104
 
 <!-- Three waves, not two: fleet-api and fleet-tab both rebuild the checked-in
      690 KB bundle skills/plot/scripts/board/board-server.mjs, so running them
@@ -274,6 +275,44 @@ carries `repoRoot` + `scriptsDir`. `buildFleet()` takes the same options object,
 so the multi-repo seam costs nothing here.
 
 Definition of Done: `docs/definition-of-done.md`.
+
+Delivered 2026-08-15, the day it was approved — all three waves built in one
+sitting, which the wave structure made safe rather than lucky: the two branches
+that both rebuild the 690 KB board bundle could not run concurrently by
+construction.
+
+A refutation pass at delivery executed all six behavioural promises rather than
+reading them:
+
+- **The endpoint never runs the scan.** Ten consecutive requests took 0.3–1.9 ms
+  against a scan that takes 500–1050 ms — roughly 1500× faster, which only a
+  cache read can be. `ageSeconds` stayed at 2–3 s across a six-second gap,
+  showing the background refresh working.
+- **A failed refresh keeps the last good result.** Verified by breaking the scan
+  *in a running server*: `rows` stayed at 13, `error` was set, and `ageSeconds`
+  grew to 14 rather than resetting. This is the one promise that only sabotage
+  can establish.
+- **The prose is byte-identical**, diffed against the pre-`--json` script run
+  from its own directory — the first attempt compared against a copy in `/tmp`
+  that could not find its sibling scripts, which produced a meaningless diff.
+
+Three defects surfaced during the build, each caught by a different mechanism
+and none by the 14 unit tests:
+
+- The typechecker refused `'error' in data` as the fleet discriminator. A
+  healthy fleet response *always* carries `error: null`, so the board's pattern
+  would have treated every success as a failure and the tab would never have
+  loaded.
+- Looking at the rendered tab showed merged branches under *quiet*. True, and
+  the wrong answer — "go check whether it died" is not a prompt for work that
+  landed. Merged work got its own `done` group.
+- The same look showed `no commit for 30300 min`. Ages now scale to hours and
+  days.
+
+**Known limit, stated rather than hidden:** this is git-only, so unpushed local
+work is invisible — an agent editing files without pushing reads as
+*not started*. Found by watching the tab report my own in-flight branch that
+way while building it.
 
 Interrogated with `/challenge-the-plan` over two rounds before approval. Three
 findings changed the plan's structure rather than its wording: the synchronous
