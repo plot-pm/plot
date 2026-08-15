@@ -55,9 +55,44 @@ export type PlanMeta = z.infer<typeof PlanMetaSchema>;
 
 // ─── Board output: what GET /api/board returns ───────────────────────────────
 
-/** The four lifecycle phases the board renders as columns, in order. */
-export const BOARD_PHASES = ['Draft', 'Approved', 'Delivered', 'Released'] as const;
+/**
+ * The columns the board renders, in order. These are the WORKFLOW phases, which
+ * differ from the plan's four lifecycle states by asking *who leads* rather
+ * than *what has happened*:
+ *
+ *   Discovery    shaping a story          👤 human-led
+ *   Design       Draft, and Approved with no Started: record   👤 human-led
+ *   Development  Approved WITH a Started: record               🤖 agent-led
+ *   Endgame      Delivered, not yet Released                   👤 human-led
+ *   Released     done
+ *
+ * `Approved` therefore spans a boundary: a plan nobody has started sits at the
+ * end of Design, one with work in flight is in Development. That distinction —
+ * human-led versus agent-led — is what the whole four-phase model turns on, and
+ * the board already had the data for it (`started`) without reading it as a
+ * phase change.
+ *
+ * Development ends at the MERGE, not at the release: Delivered means the code
+ * landed and the agents are done, so what remains is verification and signoff.
+ * A column is a partition, so Delivered belongs to Endgame alone.
+ */
+export const BOARD_PHASES = [
+  'Discovery', 'Design', 'Development', 'Endgame', 'Released',
+] as const;
 export type Phase = (typeof BOARD_PHASES)[number];
+
+/**
+ * Who leads each column. Carried as a symbol AND a word, never as colour alone:
+ * roughly one man in twelve distinguishes red from green poorly, and the same
+ * page shows up in greyscale screenshots. Colour may only repeat what these say.
+ */
+export const PHASE_LEADERSHIP: Record<Phase, { icon: string; who: string }> = {
+  Discovery: { icon: '👤', who: 'human-led' },
+  Design: { icon: '👤', who: 'human-led' },
+  Development: { icon: '🤖', who: 'agent-led' },
+  Endgame: { icon: '👤', who: 'human-led' },
+  Released: { icon: '✓', who: 'done' },
+};
 
 /** Sprint lifecycle phases (parsed from sprint files, not plan files). */
 export const SPRINT_PHASES = ['Planning', 'Committed', 'Active', 'Closed'] as const;
@@ -144,6 +179,12 @@ export type StoryCard = z.infer<typeof StoryCardSchema>;
 export const BoardSchema = z.object({
   generatedAt: z.string(),
   columns: z.array(ColumnSchema),
+  /**
+   * Newest release checklist, for the Endgame column: what is left before
+   * signoff. null when no checklist exists or none could be parsed — the board
+   * shows no badge rather than a guessed count.
+   */
+  checklist: z.object({ done: z.number(), total: z.number() }).nullable(),
   sprints: z.array(SprintCardSchema),
   stories: z.array(StoryCardSchema),
 });
@@ -153,14 +194,17 @@ export type Board = z.infer<typeof BoardSchema>;
  * Map a helper `phase` value to a board column, or null if the plan should not
  * appear on the board (rejected / superseded / unknown / legacy plans).
  */
-export function toBoardPhase(helperPhase: string): Phase | null {
+export function toBoardPhase(helperPhase: string, started = false): Phase | null {
   switch (helperPhase) {
     case 'draft':
-      return 'Draft';
+      return 'Design';
     case 'approved':
-      return 'Approved';
+      // The one place the board reads a plan state as two phases. Without a
+      // Started: record the plan is Ready — designed, waiting for a person to
+      // begin. With one, an agent is working.
+      return started ? 'Development' : 'Design';
     case 'delivered':
-      return 'Delivered';
+      return 'Endgame';
     case 'released':
       return 'Released';
     default:

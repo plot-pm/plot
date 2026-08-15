@@ -4,10 +4,13 @@ import { Badge, typeVariant } from './ui/badge.js';
 import { cn } from '../lib/utils.js';
 import { planHref } from '../lib/plan.js';
 
+// Colour only ever REPEATS what the column header already says in symbol and
+// word — it must not be the sole carrier of the human/agent distinction.
 const PHASE_ACCENT: Record<Phase, string> = {
-  Draft: 'border-l-slate-400',
-  Approved: 'border-l-green-500',
-  Delivered: 'border-l-violet-500',
+  Discovery: 'border-l-sky-400',
+  Design: 'border-l-slate-400',
+  Development: 'border-l-green-500',
+  Endgame: 'border-l-violet-500',
   Released: 'border-l-orange-500',
 };
 
@@ -46,10 +49,12 @@ export function PlanCard({ card, showSprint, showStory, onOpen }: PlanCardProps)
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
         <Badge variant={typeVariant(card.type)}>{card.type}</Badge>
-        {card.phase === 'Approved' && card.started !== undefined && (
-          <Badge variant={card.started ? 'sprint' : 'neutral'}>
-            {card.started ? 'In progress' : 'Ready'}
-          </Badge>
+        {/* Ready/In-progress used to be a badge because Approved was one
+            column. The distinction is now the column itself — a card in
+            Development IS started — so only the waiting half still needs
+            saying, and only where it is not already obvious. */}
+        {card.phase === 'Design' && card.started === false && (
+          <Badge variant="neutral">Ready</Badge>
         )}
         {showSprint && card.sprint && <Badge variant="sprint">{card.sprint}</Badge>}
         {showStory && card.story && <Badge variant="story">{card.story}</Badge>}

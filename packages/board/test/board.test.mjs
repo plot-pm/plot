@@ -94,17 +94,17 @@ describe('board: contract fields + frontmatter visibility', () => {
     if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('returns 4 phase columns in order', async () => {
+  it('returns the 5 workflow phase columns in order', async () => {
     const board = await fetchBoard(server.port);
     assert.deepEqual(
       board.columns.map((c) => c.phase),
-      ['Draft', 'Approved', 'Delivered', 'Released'],
+      ['Discovery', 'Design', 'Development', 'Endgame', 'Released'],
     );
   });
 
   it('frontmatter-format plan appears in its phase column (headline fix)', async () => {
     const board = await fetchBoard(server.port);
-    const approved = board.columns.find((c) => c.phase === 'Approved').cards;
+    const approved = board.columns.find((c) => c.phase === 'Design').cards;
     const fm = approved.find((c) => c.slug === 'frontmatter-plan');
     assert.ok(fm, 'frontmatter plan must render (it was invisible before)');
     assert.equal(fm.title, 'Frontmatter plan renders now', 'frontmatter title wins over H1');
@@ -114,7 +114,7 @@ describe('board: contract fields + frontmatter visibility', () => {
 
   it('extracts title / type / sprint / story / assignee from a canonical plan', async () => {
     const board = await fetchBoard(server.port);
-    const approved = board.columns.find((c) => c.phase === 'Approved').cards;
+    const approved = board.columns.find((c) => c.phase === 'Design').cards;
     const card = approved.find((c) => c.slug === 'board-sync');
     assert.ok(card);
     assert.equal(card.title, 'Sync board columns');
@@ -128,8 +128,8 @@ describe('board: contract fields + frontmatter visibility', () => {
   it('maps phases to columns and omits non-board phases (Rejected)', async () => {
     const board = await fetchBoard(server.port);
     const byPhase = Object.fromEntries(board.columns.map((c) => [c.phase, c.cards.map((x) => x.slug)]));
-    assert.deepEqual(byPhase.Draft, ['webhook-support']);
-    assert.equal(byPhase.Delivered[0], 'sprint-support');
+    assert.ok(byPhase.Design.includes('webhook-support'), 'a Draft plan lands in Design');
+    assert.equal(byPhase.Endgame[0], 'sprint-support', 'Delivered belongs to Endgame alone');
     const all = board.columns.flatMap((c) => c.cards.map((x) => x.slug));
     assert.ok(!all.includes('rejected-idea'), 'rejected plan must not appear on the board');
   });
@@ -163,10 +163,10 @@ describe('board: missing optional dirs', () => {
   it('serves a valid empty-ish board when sprints/stories dirs are absent', async () => {
     const board = await fetchBoard(server.port);
     assert.ok(board.generatedAt);
-    assert.equal(board.columns.length, 4);
+    assert.equal(board.columns.length, 5);
     assert.deepEqual(board.sprints, []);
     assert.deepEqual(board.stories, []);
-    assert.equal(board.columns.find((c) => c.phase === 'Draft').cards[0].slug, 'webhook-support');
+    assert.equal(board.columns.find((c) => c.phase === 'Design').cards[0].slug, 'webhook-support');
   });
 });
 
@@ -238,24 +238,39 @@ describe('board: Approved splits into Ready vs In progress via Started records',
     if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('Approved card without Started is Ready (started: false)', async () => {
+  it('an Approved plan with no Started record sits at the end of Design', async () => {
+    // The substantive change: Approved spans a phase boundary. Nobody has
+    // begun, so it is designed and waiting — human-led, not agent-led.
     const board = await fetchBoard(server.port);
-    const approved = board.columns.find((c) => c.phase === 'Approved');
-    const ready = approved.cards.find((c) => c.slug === 'ready-plan');
+    const design = board.columns.find((c) => c.phase === 'Design');
+    const ready = design.cards.find((c) => c.slug === 'ready-plan');
+    assert.ok(ready, 'a Ready plan belongs in Design, not Development');
     assert.equal(ready.started, false);
   });
 
-  it('Approved card with a Started record is In progress (started: true)', async () => {
+  it('an Approved plan WITH a Started record is in Development', async () => {
     const board = await fetchBoard(server.port);
-    const approved = board.columns.find((c) => c.phase === 'Approved');
-    const started = approved.cards.find((c) => c.slug === 'started-plan');
+    const dev = board.columns.find((c) => c.phase === 'Development');
+    const started = dev.cards.find((c) => c.slug === 'started-plan');
+    assert.ok(started, 'work in flight is agent-led and belongs in Development');
     assert.equal(started.started, true);
+
+    // ...and it must NOT also appear in Design: a column is a partition.
+    const design = board.columns.find((c) => c.phase === 'Design');
+    assert.ok(!design.cards.some((c) => c.slug === 'started-plan'));
   });
 
-  it('non-Approved cards carry no started flag', async () => {
+  it('a Draft plan carries no started flag', async () => {
     const board = await fetchBoard(server.port);
-    const draft = board.columns.find((c) => c.phase === 'Draft');
-    const card = draft.cards.find((c) => c.slug === 'draft-plan');
+    const design = board.columns.find((c) => c.phase === 'Design');
+    const card = design.cards.find((c) => c.slug === 'draft-plan');
     assert.equal(card.started, undefined);
+  });
+
+  it('reports a release checklist count, or null when there is none', async () => {
+    // The Endgame column asks what is left before signoff. The fixture has no
+    // docs/releases/, so null is the right answer — never a guessed 0/0.
+    const board = await fetchBoard(server.port);
+    assert.equal(board.checklist, null);
   });
 });
