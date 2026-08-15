@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-15, jwloka, plan-PR #97 merged
 - **Started:** 2026-08-15, jwloka, `feature/fleet-scan-json`
+- **Started:** 2026-08-15, jwloka, `feature/fleet-api`
 
 ## Approval
 
@@ -227,7 +228,7 @@ the board's data depend on how it asked rather than on what it asked for.
 ### Tracer
 
 - `feature/fleet-scan-json` — add `--json` to `plot-fleet-scan.sh`, emitting the
-  existing internal state vocabulary; human output unchanged
+  existing internal state vocabulary; human output unchanged → #102
   Layers: shell derivation → JSON contract → a test that parses it
   Proves: the scan's internal structure survives serialisation without a second
   derivation, which is the assumption the other two branches rest on
