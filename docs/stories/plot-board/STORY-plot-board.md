@@ -61,7 +61,7 @@ that closes the loop, and it has not been built yet.
 
 ### Phase 3: Parallel work becomes visible 🔄
 
-- 🔄 `fleet-agent-view` — the agent tab, in four steps; approved 2026-08-15
+- 🔄 `fleet-agent-view` — the agent tab, in four steps; approved and started 2026-08-15
   - 🔄 Step 1 `feature/fleet-scan-json` → `feature/fleet-api` → `feature/fleet-tab` — git-only agent list, three waves
   - ⏸️ Step 2 — PR/CI data, completing *waiting on a machine*
   - ⏸️ Step 3 — five board columns, leadership colour, Approved split
@@ -138,12 +138,18 @@ orphaned via `git merge-base --is-ancestor`.
 
 ## Progress Tracking
 
-| Plan | PRs | Status | Notes |
-|------|-----|--------|-------|
-| `board-sync` | [#8](https://github.com/plot-pm/plot/pull/8) | ✅ Delivered | Gap found + closed at delivery ([#98](https://github.com/plot-pm/plot/pull/98)) |
-| `kanban-board-v1` | [#40](https://github.com/plot-pm/plot/pull/40) | ✅ Delivered | Shipped as 0.3.0, not the planned 1.0.0-rc.1 |
-| `parallel-agent-fleet` | #72, #75, #76, #77, #78 | ✅ Delivered | Five stages; three adversarial audits |
-| `fleet-agent-view` | [#97](https://github.com/plot-pm/plot/pull/97) (plan) | 🔄 Approved | Tracer `feature/fleet-scan-json` started, brief in `.plot/briefs/` |
+Plan phases are the ones Plot records, not a second vocabulary: **Delivered**
+means every implementation PR merged and the plan booked; **In progress** means
+approved *and* carrying a `Started:` record. The board derives the same split
+from the same field.
+
+| Plan | PRs | Phase | Notes |
+|------|-----|-------|-------|
+| `board-sync` | [#8](https://github.com/plot-pm/plot/pull/8) | ✅ Delivered 2026-08-15 | Merged 2026-03-15; delivered five months later. Gap found at delivery and closed first ([#98](https://github.com/plot-pm/plot/pull/98)) |
+| `kanban-board-v1` | [#40](https://github.com/plot-pm/plot/pull/40) | ✅ Delivered 2026-08-15 | Merged 2026-07-13; delivered five weeks later. Shipped as 0.3.0, not the planned 1.0.0-rc.1 |
+| ↳ `kanban-board-v1-open-questions` | — | 📋 Decision log | Output of `/challenge-the-plan`; five questions Max decided 2026-07-12. Not a plan — kept as the record behind Q1's deferred `1.0.0-rc.1` |
+| `parallel-agent-fleet` | #72, #75, #76, #77, #78 | ✅ Delivered 2026-08-14 | Five stages; three adversarial audits, four defects found by execution |
+| `fleet-agent-view` | [#97](https://github.com/plot-pm/plot/pull/97) (plan) | 🔄 In progress | Started 2026-08-15 on `feature/fleet-scan-json`; brief in `.plot/briefs/`. Step 1 of four |
 
 ## Session Log
 

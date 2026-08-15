@@ -1,6 +1,8 @@
 # kanban-board-v1 — open questions → decision log
 
 > Output of `/challenge-the-plan` (2026-07-12) on [`2026-07-12-kanban-board-v1.md`](2026-07-12-kanban-board-v1.md). Max decided all five on 2026-07-12; decisions are woven into the plan. This file remains as the decision log.
+>
+> Part of the [`plot-board`](../stories/plot-board/STORY-plot-board.md) story. Not a plan — it carries no Status block and no phase, so `plot-plan-meta.sh` and the board ignore it by design.
 
 ## Q1 — Publish to npm with this release? → **Deferred; first release is a release candidate**
 
