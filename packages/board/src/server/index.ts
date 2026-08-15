@@ -3,6 +3,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { buildBoard, renderPlanPage, type BuildBoardOptions } from './board.js';
+import { buildFleet } from './fleet.js';
 // Inlined at build time by esbuild's text loader — the artifact is a single
 // self-contained file, served from memory (no filesystem static serving, so no
 // path-traversal surface).
@@ -42,6 +43,21 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       // missing we surface a clear error rather than silently forking a second
       // parser.
       console.error('Error building board:', err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+    }
+    return;
+  }
+
+  if (url.pathname === '/api/fleet') {
+    // Reads a cache the server refreshes on its own timer — never runs the
+    // scan inline. A 1.05 s synchronous scan on a 4 s poll would block this
+    // single-threaded server roughly a quarter of the time.
+    try {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(buildFleet(opts)));
+    } catch (err) {
+      console.error('Error building fleet:', err);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
     }
