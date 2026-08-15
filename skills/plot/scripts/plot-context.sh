@@ -29,6 +29,7 @@ PREFIX_RE=$(cfg "Branch prefixes" "idea/, feature/, bug/, docs/, infra/" \
 [ -n "$PREFIX_RE" ] || PREFIX_RE="idea|feature|bug|docs|infra"
 
 slug=""; phase=""; ptype=""; wave=""; waves_total=0; prs="[]"; plan_file=""
+matches=""; match_files=""; ambiguous=false
 
 # Which active plan lists the current branch? An idea/<slug> branch names its
 # plan directly; an implementation branch is matched against the Branches
@@ -38,14 +39,27 @@ if [ -n "$branch" ]; then
     idea/*) cand="${branch#idea/}"
             [ -e "$ACTIVE_DIR$cand.md" ] && { slug="$cand"; plan_file="$ACTIVE_DIR$cand.md"; } ;;
   esac
+  # Collect EVERY plan that lists this branch, rather than taking the first.
+  # Breaking on the first glob hit made the answer depend on which symlink
+  # sorted alphabetically first — renaming a file changed the "governing plan"
+  # while nothing about the work changed. Ambiguity is reported, never resolved
+  # by guessing: a durable record attributed to the wrong plan is worse than
+  # one with no attribution, which is exactly what a silent pick produces.
   if [ -z "$slug" ]; then
     for l in "$ACTIVE_DIR"*.md; do
       [ -e "$l" ] || continue
       meta=$("$script_dir/plot-plan-meta.sh" "$l" --prefixes "$PREFIX_RE" 2>/dev/null) || continue
       printf '%s' "$meta" | grep -q "\"$branch\"" && {
-        slug=$(basename "$l" .md); plan_file="$l"; break
+        matches="${matches:+$matches }$(basename "$l" .md)"
+        match_files="${match_files:+$match_files }$l"
       }
     done
+    n_matches=$(printf '%s' "$matches" | wc -w | tr -d ' ')
+    if [ "${n_matches:-0}" = "1" ]; then
+      slug="$matches"; plan_file="$match_files"
+    elif [ "${n_matches:-0}" -gt 1 ]; then
+      ambiguous=true   # slug stays empty on purpose
+    fi
   fi
 fi
 
@@ -81,6 +95,8 @@ cat <<JSON
   "type": "$(j "$ptype")",
   "wave": "$(j "$wave")",
   "waves_total": ${waves_total:-0},
-  "prs": ${prs:-[]}
+  "prs": ${prs:-[]},
+  "ambiguous": ${ambiguous},
+  "candidates": [$(printf '%s' "$matches" | tr ' ' '\n' | grep -v '^$' | sed 's/.*/"&"/' | paste -sd, -)]
 }
 JSON
