@@ -5,7 +5,8 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
+- **Delivered:** 2026-08-16
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-board
@@ -290,7 +291,7 @@ rendered result, because step 1 proved that is where display defects live.
 
 ### Swimlanes
 
-- `feature/board-swimlanes` — stories as rows, Discovery as row header, `(no story)` row
+- `feature/board-swimlanes` — stories as rows, Discovery as row header, `(no story)` row → #109
 
 <!-- Three waves, one branch each. All three rebuild the checked-in board
      bundle, so none may run concurrently — the same collision that shaped
@@ -314,6 +315,37 @@ change that — an agent that has neither pushed nor opened a PR remains
 `not started`.
 
 Definition of Done: `docs/definition-of-done.md`.
+
+Delivered 2026-08-16, the day after approval — all three waves built in sequence,
+serialised because each rebuilds the checked-in board bundle.
+
+A refutation pass executed five behavioural promises rather than reading them:
+five columns render (`Discovery 0 · Design 2 · Development 2 · Endgame 5 ·
+Released 0`); Design and Development **overlap by zero**, so the partition
+holds; the checklist count `22/27` matches a hand count of the real file; the
+two sources carry separate ages, with the refresh cycle observed climbing
+`0 1 2 3 4 5` and resetting; and the swimlanes account for all nine cards as six
+with a story plus three without.
+
+One measurement was wrong before it was right: a first probe reported
+`ready: false` after eight seconds, which looked like a defect. It was a cold
+cache in a server started moments earlier — and a second probe at one-second
+intervals showed the age climbing and resetting exactly as designed. The
+constant `2` in between was an artefact of sampling on the refresh period.
+
+Three defects surfaced during the build, none of them by tests:
+
+- The typechecker refused a `BOARD_PHASES` reader the plan had not listed —
+  `PlanCard.tsx`, whose Ready/In-progress badge keyed on a phase that no longer
+  exists. The badge was not merely broken but redundant: a card in Development
+  is started by definition.
+- Looking at the five columns showed Endgame holding five cards and Released
+  none, although v2.2.0 had shipped that day carrying four of them. **Nothing in
+  Plot writes `Phase: Released` back after a release** — four months of quiet
+  drift, invisible until a column existed whose emptiness was wrong.
+- Looking at the swimlanes showed a row is as tall as its fullest cell while the
+  rest stay empty: harmless in columns, multiplied across rows. Cells now cap
+  and scroll internally.
 
 Interrogated with `/challenge-the-plan` before approval. Three findings, two of
 which corrected the plan rather than filling a gap:
