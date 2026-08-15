@@ -9,6 +9,8 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const parser = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-plan-meta.sh');
@@ -203,4 +205,45 @@ test('plan-meta: multi-file mode emits one JSON line per file, in input order', 
   assert.equal(lines[1].format, 'frontmatter');
   assert.deepEqual(lines[1].branches, ['feature/api-layer']);
   assert.equal(lines[2].format, 'none');
+});
+
+test('parser: released_raw carries the release transition record', () => {
+  // The release record is what makes "which version shipped this plan?"
+  // readable rather than re-derivable. Without the field the version would be
+  // written into the file and invisible to every consumer.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-rel-'));
+  const f = path.join(dir, '2026-01-01-shipped.md');
+  writeFileSync(f, `# Shipped plan
+
+## Status
+
+- **Phase:** Released
+- **Type:** feature
+- **Approved:** 2026-01-01, alice, plan-PR #1 merged
+- **Delivered:** 2026-01-02
+- **Released:** 2026-01-03, v1.2.0
+`);
+  const meta = JSON.parse(execFileSync('bash', [parser, f], { encoding: 'utf8' }).trim());
+  assert.equal(meta.phase, 'released');
+  assert.equal(meta.released_raw, '2026-01-03, v1.2.0');
+  assert.equal(meta.approved_raw, '2026-01-01, alice, plan-PR #1 merged',
+    'the new field must not disturb the neighbouring records');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('parser: released_raw is empty when no record exists', () => {
+  // Every plan written before this field existed must still parse. Empty is
+  // the answer, not a missing key.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-norel-'));
+  const f = path.join(dir, '2026-01-01-plain.md');
+  writeFileSync(f, `# Plain plan
+
+## Status
+
+- **Phase:** Delivered
+- **Type:** feature
+`);
+  const meta = JSON.parse(execFileSync('bash', [parser, f], { encoding: 'utf8' }).trim());
+  assert.equal(meta.released_raw, '');
+  rmSync(dir, { recursive: true, force: true });
 });

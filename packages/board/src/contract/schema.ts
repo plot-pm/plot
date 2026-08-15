@@ -48,6 +48,10 @@ export const PlanMetaSchema = z.object({
   review: z.string().default('NONE'),
   impl: z.string().default('NONE'),
   approved_raw: z.string().default(''),
+  // Empty until /plot-release records it. Defaulted so a plan written
+  // before the field existed still parses — the board must never fail on
+  // an old plan file.
+  released_raw: z.string().default(''),
   started_raw: z.array(z.string()).default([]),
   error: z.string().optional(),
 });

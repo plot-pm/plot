@@ -76,6 +76,10 @@
 #   impl           normalized: own-branches|same-branch|other-repo|none|
 #                  UNKNOWN|NONE ("nowhere" is accepted for none; free-text
 #                  like "here, own branches" normalizes by token)
+#   released_raw   the release transition record as written (`## Status`
+#                  `Released:` or front matter `released:` — date and version).
+#                  Empty until /plot-release records it; the tag stays the git
+#                  truth and this merely reflects it.
 #   approved_raw   the approval transition record as written (`## Status`
 #                  `Approved:` or front matter `approved:` — who/when/channel,
 #                  e.g. "2026-07-30, alice, in-session"); "" if absent
@@ -111,7 +115,7 @@ if [ ${#files[@]} -eq 0 ] && [ ${#missing[@]} -eq 0 ]; then
 fi
 
 for f in ${missing[@]+"${missing[@]}"}; do
-  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","approved_raw":"","started_raw":[]}\n' \
+  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","approved_raw":"","released_raw":"","started_raw":[]}\n' \
     "$(printf '%s' "$f" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 done
 
@@ -183,10 +187,10 @@ function norm_impl(raw,   s) {
 function reset_state() {
   fm_status = ""; fm_phase = ""; fm_type = ""
   fm_title = ""; fm_sprint = ""; fm_story = ""; fm_assignee = ""
-  fm_review = ""; fm_impl = ""; fm_approved = ""; fm_started = ""
+  fm_review = ""; fm_impl = ""; fm_approved = ""; fm_started = ""; fm_released = ""
   canon_phase = ""; canon_type = ""
   canon_sprint = ""; canon_story = ""; canon_assignee = ""
-  canon_review = ""; canon_impl = ""; canon_approved = ""
+  canon_review = ""; canon_impl = ""; canon_approved = ""; canon_released = ""
   h1_title = ""
   in_fm = 0; section = ""; in_comment = 0; branches_seen = 0
   delete branches; n_branches = 0
@@ -215,6 +219,7 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   review   = strip_placeholder((fm_review   != "") ? fm_review   : canon_review)
   impl     = strip_placeholder((fm_impl     != "") ? fm_impl     : canon_impl)
   approved = strip_placeholder((fm_approved != "") ? fm_approved : canon_approved)
+  released = strip_placeholder((fm_released != "") ? fm_released : canon_released)
   if (fm_started != "" && strip_placeholder(fm_started) != "") started[++n_started] = fm_started
   # Insertion sort + dedupe (portable: no gawk asort).
   nb = 0
@@ -260,6 +265,7 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   out = out ",\"review_raw\":\"" jesc(review) "\",\"review\":\"" norm_review(review) "\""
   out = out ",\"impl_raw\":\"" jesc(impl) "\",\"impl\":\"" norm_impl(impl) "\""
   out = out ",\"approved_raw\":\"" jesc(approved) "\""
+  out = out ",\"released_raw\":\"" jesc(released) "\""
   out = out ",\"started_raw\":["
   for (i = 1; i <= n_started; i++) out = out (i > 1 ? "," : "") "\"" jesc(started[i]) "\""
   out = out "]}"
@@ -285,6 +291,7 @@ in_fm {
   else if (lower ~ /^review:/ && fm_review == "") fm_review = val_after_colon($0)
   else if (lower ~ /^impl:/ && fm_impl == "") fm_impl = val_after_colon($0)
   else if (lower ~ /^approved:/ && fm_approved == "") fm_approved = val_after_colon($0)
+  else if (lower ~ /^released:/ && fm_released == "") fm_released = val_after_colon($0)
   else if (lower ~ /^started:/ && fm_started == "") fm_started = val_after_colon($0)
   next
 }
@@ -312,6 +319,7 @@ section == "status" {
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**review[:*]/ && canon_review == "") canon_review = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**impl[:*]/ && canon_impl == "") canon_impl = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**approved[:*]/ && canon_approved == "") canon_approved = val_after_colon($0)
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**released[:*]/ && canon_released == "") canon_released = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**started[:*]/) {
     _s = strip_placeholder(val_after_colon($0))
     if (_s != "") started[++n_started] = _s

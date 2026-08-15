@@ -4,8 +4,9 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Delivered:** 2026-08-15
+- **Released:** 2026-07-14, v1.7.0
 - **Type:** feature
 - **Story:** plot-board
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
