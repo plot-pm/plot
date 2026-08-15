@@ -1,10 +1,14 @@
 # kanban-board-v1 — open questions → decision log
 
 > Output of `/challenge-the-plan` (2026-07-12) on [`2026-07-12-kanban-board-v1.md`](2026-07-12-kanban-board-v1.md). Max decided all five on 2026-07-12; decisions are woven into the plan. This file remains as the decision log.
+>
+> Part of the [`plot-board`](../stories/plot-board/STORY-plot-board.md) story. Not a plan — it carries no Status block and no phase, so `plot-plan-meta.sh` and the board ignore it by design.
 
 ## Q1 — Publish to npm with this release? → **Deferred; first release is a release candidate**
 
 Decision: do **not** publish 1.0.0. First release is `1.0.0-rc.1`, shipped as the in-repo bundled artifact only. The npm path stays **open** (org `plot-pm` exists) but **deferred** until size/usage justify it. Data-driven recommendation below.
+
+> **Both halves of Q1 were later reversed** (recorded 2026-08-15, not edited away — see the [`plot-board` story](../stories/plot-board/STORY-plot-board.md) Decisions table). `@plot-pm/board` was published to npm in `0.2.1` (#44) once someone wanted the board in a repo that was not a Plot checkout, and `npm view` reports `latest: 0.3.0` today. The `1.0.0-rc.1` scheme never happened either: the package stayed in `0.x`. The reasoning below is still the reasoning that was applied at the time.
 
 ### Q1.1 — Expected artifact size
 
