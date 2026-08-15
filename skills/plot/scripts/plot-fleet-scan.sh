@@ -65,6 +65,7 @@ next_only=0
 list_all=0
 loose=0
 log_pulse=0
+as_json=0
 slug=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -73,6 +74,7 @@ while [ $# -gt 0 ]; do
     --log-pulse) log_pulse=1 ;;
     --next) next_only=1 ;;
     --list-eligible) next_only=1; list_all=1 ;;
+    --json) as_json=1 ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) slug="$1" ;;
   esac
@@ -196,8 +198,25 @@ branch_state() {
   echo "merged"
 }
 
-if [ "$next_only" != 1 ]; then
-  banner="plot-fleet pulse — $(git rev-parse --short HEAD) on origin/$MAIN"
+# Prose is suppressed by BOTH alternate output modes. --json accumulates the
+# same derivation into a document instead of printing it; the arithmetic below
+# is untouched, which is what keeps the human report byte-identical.
+quiet=0
+[ "$next_only" = 1 ] && quiet=1
+[ "$as_json" = 1 ] && quiet=1
+HEAD_SHORT=$(git rev-parse --short HEAD 2>/dev/null)
+json_plans=""
+
+# Emit a JSON string with the six characters JSON forbids escaped. Branch names
+# and claim notes are user data: a plan may legitimately carry a quote or a
+# backslash, and an unescaped one would produce a document nothing can parse.
+json_str() {
+  printf '%s' "$1" | LC_ALL=C sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' \
+    -e 's/\t/\\t/g' -e 's/\r/\\r/g' -e 's/\x08/\\b/g' -e 's/\x0c/\\f/g'
+}
+
+if [ "$next_only" != 1 ] && [ "$as_json" != 1 ]; then
+  banner="plot-fleet pulse — $HEAD_SHORT on origin/$MAIN"
   if [ "$loose" = 1 ]; then
     if [ "$loose_verifiable" = 1 ]; then banner="$banner (loose eligibility)"
     else banner="$banner (--loose cannot verify PR readiness without a git host — using strict)"
@@ -211,6 +230,10 @@ claimable=()
 plan_files=()
 
 for plan in "${plans[@]}"; do
+  # Per-plan reset. State that survives into the next iteration is how the
+  # plan parser once leaked a `## Branches` flag across files — same shape of
+  # bug, so the accumulator is cleared where the plan loop begins.
+  json_waves=""
   meta=$("$script_dir/plot-plan-meta.sh" "$plan" --prefixes "$PREFIX_RE" 2>/dev/null) || continue
   [ -n "$meta" ] || continue
   n_plans=$((n_plans + 1))
@@ -220,7 +243,7 @@ for plan in "${plans[@]}"; do
   # One awk pass over the parsed JSON would need a JSON parser; instead the
   # wave walk below is driven by plot-plan-meta.sh's own output via a tiny
   # python shim (present wherever the board's toolchain is).
-  [ "$next_only" = 1 ] || echo "== $(basename "$(readlink "$plan" 2>/dev/null || echo "$plan")") =="
+  [ "$quiet" = 1 ] || echo "== $(basename "$(readlink "$plan" 2>/dev/null || echo "$plan")") =="
 
   wave_lines=$(printf '%s' "$meta" | python3 -c '
 import json, sys
@@ -240,7 +263,7 @@ for i, w in enumerate(d.get("waves", [])):
         print("\t".join(x.replace("\t", " ") for x in row))
 ' 2>/dev/null) || wave_lines=""
 
-  [ -n "$wave_lines" ] || { [ "$next_only" = 1 ] || { echo "  (no branches)"; echo; }; continue; }
+  [ -n "$wave_lines" ] || { [ "$quiet" = 1 ] || { echo "  (no branches)"; echo; }; continue; }
 
   # Pass 1: per-branch git state.
   #
@@ -285,7 +308,8 @@ for i, w in enumerate(d.get("waves", [])):
     elif [ "$prior_ok" -eq 1 ]; then verdict="eligible"
     else verdict="blocked"; fi
 
-    [ "$next_only" = 1 ] || echo "  ${wname:-(unnamed)} — $verdict"
+    [ "$quiet" = 1 ] || echo "  ${wname:-(unnamed)} — $verdict"
+    json_branches=""
     while IFS=$'\t' read -r idx br st deferred nm claim; do
       [ "$idx" = "$wid" ] || continue
       [ "$claim" = "-" ] && claim=""
@@ -301,14 +325,31 @@ for i, w in enumerate(d.get("waves", [])):
         n_eligible=$((n_eligible + 1))
         claimable+=("$br")
       fi
-      [ "$next_only" = 1 ] || echo "      $br — $note"
+      [ "$quiet" = 1 ] || echo "      $br — $note"
+      if [ "$as_json" = 1 ]; then
+        # The INTERNAL state ($st), never the prose label ($note): the board
+        # must not parse a string that exists for humans to read.
+        json_branches+="${json_branches:+,}{\"branch\":\"$(json_str "$br")\""
+        json_branches+=",\"state\":\"$st\",\"deferred\":$deferred"
+        json_branches+=",\"claimed\":\"$(json_str "$claim")\"}"
+      fi
     done <<< "$states"
+
+    if [ "$as_json" = 1 ]; then
+      json_waves+="${json_waves:+,}{\"name\":\"$(json_str "$wname")\""
+      json_waves+=",\"verdict\":\"$verdict\",\"branches\":[$json_branches]}"
+    fi
 
     n_waves=$((n_waves + 1))
     [ "$verdict" = "complete" ] || prior_ok=0
     [ "$verdict" = "blocked" ] && n_blocked=$((n_blocked + 1))
   done
-  [ "$next_only" = 1 ] || echo
+  if [ "$as_json" = 1 ]; then
+    plan_base=$(basename "$(readlink "$plan" 2>/dev/null || echo "$plan")")
+    json_plans+="${json_plans:+,}{\"file\":\"$(json_str "$plan_base")\""
+    json_plans+=",\"waves\":[$json_waves]}"
+  fi
+  [ "$quiet" = 1 ] || echo
 done
 
 # --next: name ONE branch a worker may claim, or stay silent with exit 1.
@@ -344,6 +385,21 @@ if [ "$log_pulse" = 1 ]; then
       printf '\n## Notes\n\n%s\n' "$line" >> "$target"
     fi
   done
+fi
+
+# --json: the same derivation as the prose above, rendered for machines. It is
+# an OUTPUT MODE and nothing more — it composes with --offline/--no-fetch/
+# --loose rather than implying any of them, so the board's data depends on what
+# it asked for, not on how it asked. --next wins over it (handled above): that
+# is a different question with a one-line answer.
+if [ "$as_json" = 1 ]; then
+  printf '{"main":"%s","head":"%s","plans":[%s],' \
+    "$(json_str "$MAIN")" "$(json_str "$HEAD_SHORT")" "$json_plans"
+  printf '"summary":{"plans":%d,"waves":%d,"branches":%d,"claimed":%d,' \
+    "$n_plans" "$n_waves" "$n_branches" "$n_claimed"
+  printf '"eligible":%d,"blocked":%d,"deferred":%d}}\n' \
+    "$n_eligible" "$n_blocked" "$n_deferred"
+  exit 0
 fi
 
 echo "Pulse complete. This report is derived — nothing was changed."
