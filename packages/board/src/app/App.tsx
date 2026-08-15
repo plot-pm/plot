@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Board, Card, Fleet } from '../contract/schema.js';
 import { AgentList } from './components/AgentList.js';
 import { BoardView } from './components/Board.js';
+import { Swimlanes } from './components/Swimlanes.js';
 import { PlanModal } from './components/PlanModal.js';
 import { MultiSelect } from './components/ui/MultiSelect.js';
 import {
@@ -29,6 +30,12 @@ export function App() {
   const [fleet, setFleet] = useState<Fleet | null>(null);
   const [tab, setTab] = useState<Tab>(
     () => (new URLSearchParams(location.search).get('tab') === 'agents' ? 'agents' : 'board'),
+  );
+  // Swimlanes are a LAYOUT of the same board, not a third tab: the question is
+  // still "where does this work stand", only grouped by story as well as phase.
+  // Off by default — with one story, rows cost width and add nothing.
+  const [lanes, setLanes] = useState(
+    () => new URLSearchParams(location.search).get('lanes') === '1',
   );
   const [error, setError] = useState<string | null>(null);
   const [sprintSel, setSprintSel] = useState<string[]>(() => readList('sprint'));
@@ -80,6 +87,14 @@ export function App() {
     const id = setInterval(() => void loadFleet(), FLEET_POLL_MS);
     return () => clearInterval(id);
   }, [tab, loadFleet]);
+
+  const onLanes = (next: boolean) => {
+    setLanes(next);
+    const url = new URL(location.href);
+    if (next) url.searchParams.set('lanes', '1');
+    else url.searchParams.delete('lanes');
+    history.replaceState(null, '', url);
+  };
 
   const onTab = (next: Tab) => {
     setTab(next);
@@ -163,6 +178,20 @@ export function App() {
         {tab === 'board' && hasStories && (
           <MultiSelect label="All stories" options={storyOptions} selected={validStorySel} onChange={onStory} />
         )}
+        {/* Only offered where it can show something: with no stories, lanes
+            would render one "(no story)" row, which is just the board with a
+            wasted column. */}
+        {tab === 'board' && hasStories && (
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+            <input
+              type="checkbox"
+              checked={lanes}
+              onChange={(e) => onLanes(e.target.checked)}
+              className="h-3.5 w-3.5 accent-slate-500"
+            />
+            Story lanes
+          </label>
+        )}
       </header>
       <main>
         {tab === 'agents' ? (
@@ -176,12 +205,21 @@ export function App() {
             Failed to load board: {error}
           </p>
         ) : board ? (
-          <BoardView
-            board={board}
-            sprintSel={validSprintSel}
-            storySel={validStorySel}
-            onOpenPlan={setOpenPlan}
-          />
+          lanes ? (
+            <Swimlanes
+              board={board}
+              sprintSel={validSprintSel}
+              storySel={validStorySel}
+              onOpenPlan={setOpenPlan}
+            />
+          ) : (
+            <BoardView
+              board={board}
+              sprintSel={validSprintSel}
+              storySel={validStorySel}
+              onOpenPlan={setOpenPlan}
+            />
+          )
         ) : (
           <p className="text-sm text-slate-500">Loading…</p>
         )}
