@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-15, jwloka, plan-PR #105 merged
 - **Started:** 2026-08-15, jwloka, `feature/fleet-pr-data`
+- **Started:** 2026-08-15, jwloka, `feature/board-phase-columns`
 
 ## Approval
 
@@ -273,7 +274,7 @@ rendered result, because step 1 proved that is where display defects live.
 
 ### PR data
 
-- `feature/fleet-pr-data` — widen `plot-host.sh` (checks + review), fetch it in the refresh cycle, fill the two groups, `prSource` honesty
+- `feature/fleet-pr-data` — widen `plot-host.sh` (checks + review), fetch it in the refresh cycle, fill the two groups, `prSource` honesty → #106
 
 ### Columns
 
