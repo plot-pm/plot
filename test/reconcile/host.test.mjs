@@ -139,3 +139,87 @@ test('host: pr-body github maps to gh pr edit --body', () => {
   run(['pr-body', '4', '--body', 'new text'], { env: { PLOT_HOST: 'github' }, stubs });
   assert.deepEqual(argvOf(stubs.ghArgv), ['pr', 'edit', '4', '--body', 'new text']);
 });
+
+// --- pr-list --rich: check state for the agent view ------------------------
+//
+// The board needs to tell "a person is the blocker" from "a machine is busy".
+// That distinction lives entirely in how the rollup is collapsed, so it is
+// pinned here rather than in the board: the adapter is the one place that
+// talks to the host (Principle 3), and a board that guessed would be wrong on
+// a different host.
+
+const richGh = (rollup, extra = '') =>
+  `[{"number":7,"title":"T","state":"OPEN","headRefName":"feature/x","isDraft":false,` +
+  `"statusCheckRollup":${rollup},"reviewDecision":${extra || '""'}}]`;
+
+test('host: pr-list --rich reports an EMPTY rollup as none, not green', () => {
+  // The case that motivated the field: GitHub starts no workflows for bot PRs
+  // until a human approves the run. "none" says a person is the blocker;
+  // "green" would claim a passing CI that never ran.
+  const stubs = makeStubs({ ghJson: richGh('[]') });
+  const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(out.checks, 'none');
+});
+
+test('host: pr-list --rich collapses the rollup to one of four states', () => {
+  const cases = [
+    ['[{"conclusion":"SUCCESS"}]', 'green'],
+    ['[{"conclusion":null,"state":"PENDING"}]', 'pending'],
+    ['[{"conclusion":null,"state":"IN_PROGRESS"}]', 'pending'],
+    ['[{"conclusion":"FAILURE"}]', 'failing'],
+  ];
+  for (const [rollup, expected] of cases) {
+    const stubs = makeStubs({ ghJson: richGh(rollup) });
+    const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs }));
+    assert.equal(out.checks, expected, `${rollup} must read as ${expected}`);
+  }
+});
+
+test('host: one red check among green ones counts red, not pending', () => {
+  const stubs = makeStubs({
+    ghJson: richGh('[{"conclusion":"SUCCESS"},{"conclusion":"FAILURE"},{"conclusion":null,"state":"PENDING"}]'),
+  });
+  const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(out.checks, 'failing',
+    'a failure anywhere outranks both green and still-running siblings');
+});
+
+test('host: ACTION_REQUIRED is failing, not pending — a human is the blocker', () => {
+  // The same situation as an empty rollup seen from the other side: the run
+  // exists but waits on a person. Calling it "pending" would file it under
+  // "waiting on a machine", where nobody looks.
+  const stubs = makeStubs({ ghJson: richGh('[{"conclusion":null,"state":"ACTION_REQUIRED"}]') });
+  const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(out.checks, 'failing');
+});
+
+test('host: pr-list --rich carries review state without interpreting it', () => {
+  const stubs = makeStubs({ ghJson: richGh('[{"conclusion":"SUCCESS"}]', '"APPROVED"') });
+  const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(out.review, 'APPROVED');
+  assert.equal(out.checks, 'green', 'review state must not affect the check verdict');
+
+  // A repo that does not review through the host emits "" — informational, and
+  // no consumer may turn it into a gate. Approved is approved either way.
+  const none = makeStubs({ ghJson: richGh('[{"conclusion":"SUCCESS"}]', 'null') });
+  const out2 = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs: none }));
+  assert.equal(out2.review, '');
+});
+
+test('host: bitbucket --rich says unknown rather than inventing a verdict', () => {
+  // `bb pr list` carries no check rollup. An honest gap beats a guess: the
+  // consumer renders "unavailable", never green.
+  const stubs = makeStubs({
+    bbJson: '[{"id":9,"title":"T","state":"OPEN","source":{"branch":{"name":"feature/y"}}}]',
+  });
+  const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
+  assert.equal(out.checks, 'unknown');
+  assert.equal(out.head, 'feature/y', 'the plain fields still normalize');
+});
+
+test('host: pr-list without --rich is unchanged', () => {
+  // The board is a new consumer; every existing caller must be untouched.
+  const stubs = makeStubs({ ghJson: richGh('[{"conclusion":"SUCCESS"}]') });
+  const out = JSON.parse(run(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.deepEqual(Object.keys(out).sort(), ['head', 'number', 'state', 'title']);
+});

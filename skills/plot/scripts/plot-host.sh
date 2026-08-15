@@ -159,18 +159,66 @@ case "$op" in
 
   pr-list)
     state="open"
+    rich=0
     while [ $# -gt 0 ]; do
       case "$1" in
         --state) state="${2:?}"; shift 2 ;;
+        --rich) rich=1; shift ;;
         *) die "pr-list: unknown arg $1" ;;
       esac
     done
     if [ "$be" = "github" ]; then
-      gh pr list --state "$state" --json number,title,state,headRefName \
-        | jq -c '.[] | {number:.number,title:.title,state:.state,head:.headRefName}'
+      if [ "$rich" = 1 ]; then
+        # `checks` has FOUR states, and two of them mean "a person is the
+        # blocker" rather than "a machine is busy":
+        #
+        #   none     — empty rollup. GitHub starts no workflows for bot PRs
+        #              until a human approves the run. Reporting this as pending
+        #              would show CI running while nothing runs, and nobody
+        #              would look.
+        #   failing  — includes ACTION_REQUIRED, which is the same situation
+        #              seen from the other side: the run exists but waits on a
+        #              human. It is deliberately NOT pending.
+        #   pending  — genuinely queued or in progress. Only this one means a
+        #              machine is working.
+        #   green    — everything concluded successfully.
+        #
+        # One red check among green ones counts red: `any` is checked before
+        # the pending branch, so a mixed rollup never reads as "still running".
+        #
+        # `review` stays informational: a repo that does not review through the
+        # host emits "" here, and no consumer may turn that into a gate.
+        gh pr list --state "$state" \
+          --json number,title,state,headRefName,isDraft,statusCheckRollup,reviewDecision \
+          | jq -c '.[] | {
+              number:.number, title:.title, state:.state, head:.headRefName,
+              draft:.isDraft,
+              checks:(
+                if (.statusCheckRollup|length) == 0 then "none"
+                elif any(.statusCheckRollup[]; (.conclusion // .state) as $c
+                         | $c=="FAILURE" or $c=="ERROR" or $c=="CANCELLED"
+                           or $c=="TIMED_OUT" or $c=="ACTION_REQUIRED") then "failing"
+                elif any(.statusCheckRollup[]; (.conclusion // .state) as $c
+                         | $c=="PENDING" or $c=="IN_PROGRESS" or $c=="QUEUED"
+                           or $c=="WAITING" or $c==null) then "pending"
+                else "green" end),
+              review:(.reviewDecision // "")
+            }'
+      else
+        gh pr list --state "$state" --json number,title,state,headRefName \
+          | jq -c '.[] | {number:.number,title:.title,state:.state,head:.headRefName}'
+      fi
     else
-      bb pr list --state "$state" --json \
-        | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name}'
+      # Bitbucket carries no check rollup through `bb pr list`. Rather than
+      # guess, --rich reports checks:"unknown" — a consumer must render that as
+      # "unavailable", never as green. An honest gap beats an invented answer.
+      if [ "$rich" = 1 ]; then
+        bb pr list --state "$state" --json \
+          | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",review:""}'
+      else
+        bb pr list --state "$state" --json \
+          | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name}'
+      fi
     fi
     ;;
 
