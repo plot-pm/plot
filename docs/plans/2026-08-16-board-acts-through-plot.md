@@ -322,11 +322,11 @@ the attempt to have both is what surfaced the log-path design above.
 
 ### Navigation
 
-- `feature/board-artifact-links` — `url` in `plot-host.sh pr-list --rich` (both backends), PR numbers on cards, links from rows and cards to plan, PR and story
+- `feature/board-artifact-links` — `url` in `plot-host.sh pr-list --rich` (both backends), PR numbers on cards, links from rows and cards to plan, PR and story → #114
 
 ### Dispatch
 
-- `feature/board-start-work` — `POST /api/dispatch` allow-listed ahead of the 405 guard, localhost-bound and same-origin-checked, spawn-and-202 with a slug-keyed log; Start work on cards whose plan phase is `approved`
+- `feature/board-start-work` — `POST /api/dispatch` allow-listed ahead of the 405 guard, localhost-bound and same-origin-checked, spawn-and-202 with a slug-keyed log; Start work on cards whose plan phase is `approved` → #119
 
 <!-- Two waves, one branch each. Both touch the board bundle, so they cannot
      run concurrently; navigation goes first because it is the half that is
