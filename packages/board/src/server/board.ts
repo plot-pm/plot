@@ -9,8 +9,10 @@ import {
   type Board,
   type Card,
   type Column,
+  type CardPr,
   type SprintCard,
   type StoryCard, summariseWaves } from '../contract/schema.js';
+import { prsByNumber } from './fleet.js';
 
 /**
  * Where to look. `repoRoot` is the adopting project (source of plans / sprints
@@ -249,6 +251,11 @@ export function buildBoard(opts: BuildBoardOptions): Board {
 
   const repoRoot = resolvedRepoRoot(opts);
   const files = collectPlanFiles(repoRoot, planDir);
+  // Links come from the host adapter's own `url`, read out of the fleet's PR
+  // cache — the board holds no rule for turning a number into an address. null
+  // until the first fetch lands, which costs a card its link and never a wrong
+  // one.
+  const prLinks = prsByNumber(opts);
   const cards: Card[] = [];
   for (const meta of readPlanMeta(opts.scriptsDir, files)) {
     // `started` decides the Design/Development boundary, so it is read BEFORE
@@ -263,6 +270,10 @@ export function buildBoard(opts: BuildBoardOptions): Board {
       type: meta.type || 'unknown',
       phase,
       path: path.relative(repoRoot, meta.file),
+      prs: meta.prs.map((number): CardPr => ({
+        number,
+        url: prLinks?.get(number)?.url ?? '',
+      })),
     };
     if (meta.sprint) card.sprint = meta.sprint;
     if (meta.story) card.story = meta.story;

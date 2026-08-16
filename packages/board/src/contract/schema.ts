@@ -133,6 +133,24 @@ export function summariseWaves(waves: PlanMeta['waves']): WaveSummary {
   return { waves: waves.length, branches, claimed, deferred };
 }
 
+/**
+ * A pull request as a card names it: the number the plan wrote down, and the
+ * link the HOST gave us for it.
+ *
+ * `url` is empty whenever the board does not know one — the PR data has not
+ * landed yet, or the host CLI reported none. The board never fills that gap:
+ * nothing under `packages/board/src` may learn that a PR number plus a repo
+ * makes a github.com address, because the same arithmetic produces a confidently
+ * wrong link for GitHub Enterprise or a self-hosted Bitbucket. An empty `url`
+ * renders as plain text, exactly as Bitbucket's `checks:"unknown"` renders as
+ * unavailable rather than green.
+ */
+export const CardPrSchema = z.object({
+  number: z.number(),
+  url: z.string().default(''),
+});
+export type CardPr = z.infer<typeof CardPrSchema>;
+
 export const CardSchema = z.object({
   slug: z.string(),
   title: z.string(),
@@ -148,6 +166,12 @@ export const CardSchema = z.object({
   started: z.boolean().optional(),
   /** Repo-relative path, e.g. docs/plans/2026-07-12-kanban-board-v1.md */
   path: z.string(),
+  /**
+   * The plan's pull requests, in the order `plot-plan-meta.sh` reports them
+   * (sorted, unique). Defaults to empty — a plan that names none is the common
+   * case, not a degraded one.
+   */
+  prs: z.array(CardPrSchema).default([]),
   /**
    * Glanceable wave state for a card: how many waves, how much outstanding
    * work, how much of it is taken. Deliberately a summary rather than the
@@ -287,13 +311,28 @@ export const AgentRowSchema = z.object({
   /** Constant today. Present so the second repo is an addition, not a rebuild. */
   repo: z.string(),
   branch: z.string(),
+  /** Display name: the plan file without its date prefix or `.md`. */
   plan: z.string(),
+  /**
+   * The plan's FILENAME (basename, with date prefix and extension) — what
+   * `/plan/<file>` needs. Kept beside `plan` rather than reconstructed from it,
+   * because stripping the date is lossy and no consumer should have to guess
+   * it back. Defaults to "" so an older pulse still validates; a row with none
+   * renders its plan as plain text.
+   */
+  planFile: z.string().default(''),
   wave: z.string(),
   state: BranchStateSchema,
   group: WaitingGroupSchema,
   /** Minutes since the branch tip, or null when there is no branch yet. */
   ageMinutes: z.number().nullable(),
   note: z.string(),
+  /**
+   * The open PR for this branch, if the host reported one. `url` may be "" even
+   * when `number` is set — an older host CLI reports no address — and the row
+   * then shows the number without a link rather than inventing one.
+   */
+  pr: z.object({ number: z.number(), url: z.string().default('') }).nullable().default(null),
 });
 export type AgentRow = z.infer<typeof AgentRowSchema>;
 

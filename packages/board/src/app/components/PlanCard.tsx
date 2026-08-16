@@ -22,9 +22,15 @@ export interface PlanCardProps {
   showStory: boolean;
   /** Open the plan in the in-board modal (plain left-click only). */
   onOpen: (card: Card) => void;
+  /**
+   * Jump to this card's story swimlane. Absent where there is nowhere to jump —
+   * the board layout has no lanes — and the story badge stays plain text rather
+   * than becoming a link that goes nowhere.
+   */
+  onGoToStory?: (story: string) => void;
 }
 
-export function PlanCard({ card, showSprint, showStory, onOpen }: PlanCardProps) {
+export function PlanCard({ card, showSprint, showStory, onOpen, onGoToStory }: PlanCardProps) {
   const href = planHref(card);
 
   // The Open control is a real anchor so cmd/ctrl/shift/middle-click open the
@@ -57,7 +63,28 @@ export function PlanCard({ card, showSprint, showStory, onOpen }: PlanCardProps)
           <Badge variant="neutral">Ready</Badge>
         )}
         {showSprint && card.sprint && <Badge variant="sprint">{card.sprint}</Badge>}
-        {showStory && card.story && <Badge variant="story">{card.story}</Badge>}
+        {showStory && card.story && (
+          // A real anchor to the lane's fragment, so cmd/ctrl/middle-click and
+          // "copy link address" behave. The plain click is intercepted only to
+          // switch the board into lane layout first — a fragment cannot scroll
+          // to a row that is not rendered yet.
+          onGoToStory ? (
+            <a
+              href={`#story-${encodeURIComponent(card.story)}`}
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                e.preventDefault();
+                onGoToStory(card.story!);
+              }}
+              className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1"
+              title={`Go to the ${card.story} swimlane`}
+            >
+              <Badge variant="story" className="hover:underline">{card.story}</Badge>
+            </a>
+          ) : (
+            <Badge variant="story">{card.story}</Badge>
+          )
+        )}
         {card.waveSummary && card.waveSummary.branches > 0 && (
           // Answers the question a tile is actually asked: how much work is
           // left, and is anyone on it? Deferred branches are excluded from the
@@ -69,7 +96,7 @@ export function PlanCard({ card, showSprint, showStory, onOpen }: PlanCardProps)
         )}
       </div>
       <div className="mt-2 font-mono text-xs text-slate-400 dark:text-slate-500">{card.path}</div>
-      <div className="mt-2 flex items-center justify-between gap-2">
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
         <a
           href={href}
           onClick={handleOpen}
@@ -77,8 +104,35 @@ export function PlanCard({ card, showSprint, showStory, onOpen }: PlanCardProps)
         >
           Open
         </a>
+        {/* A PR the board has no URL for stays plain text. The host adapter is
+            the only thing that knows what a PR address looks like; guessing one
+            here would render a confident link that is wrong on GitHub
+            Enterprise and on every self-hosted Bitbucket. */}
+        {card.prs.map((pr) =>
+          pr.url ? (
+            <a
+              key={pr.number}
+              href={pr.url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+            >
+              #{pr.number}
+            </a>
+          ) : (
+            <span
+              key={pr.number}
+              className="text-xs text-slate-400 dark:text-slate-500"
+              title="No link — the host has not reported a URL for this PR"
+            >
+              #{pr.number}
+            </span>
+          ),
+        )}
         {card.assignee && (
-          <span className="text-xs text-slate-500 dark:text-slate-400">@{card.assignee}</span>
+          <span className="ml-auto text-xs text-slate-500 dark:text-slate-400">
+            @{card.assignee}
+          </span>
         )}
       </div>
     </article>

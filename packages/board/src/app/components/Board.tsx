@@ -9,9 +9,11 @@ export interface BoardViewProps {
   storySel: string[];
   /** Open a plan in the in-board modal. */
   onOpenPlan: (card: Card) => void;
+  /** Switch to lane layout and scroll to a story's row. */
+  onGoToStory: (story: string) => void;
 }
 
-export function BoardView({ board, sprintSel, storySel, onOpenPlan }: BoardViewProps) {
+export function BoardView({ board, sprintSel, storySel, onOpenPlan, onGoToStory }: BoardViewProps) {
   const showSprint = sprintSel.length === 0;
   const showStory = storySel.length === 0;
 
@@ -63,6 +65,7 @@ export function BoardView({ board, sprintSel, storySel, onOpenPlan }: BoardViewP
                     showSprint={showSprint}
                     showStory={showStory}
                     onOpen={onOpenPlan}
+                    onGoToStory={onGoToStory}
                   />
                 ))
               ) : (

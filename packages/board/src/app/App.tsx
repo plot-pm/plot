@@ -104,6 +104,21 @@ export function App() {
     history.replaceState(null, '', url);
   };
 
+  // A story badge on a card in column layout has nowhere to scroll to — lanes
+  // are what render a story as a row. So the jump turns lanes on FIRST, then
+  // scrolls on the next frame, once the row it is aiming at exists. Without the
+  // deferral the element is not in the document yet and the jump silently does
+  // nothing, which looks exactly like a broken link.
+  const onGoToStory = useCallback((story: string) => {
+    setLanes(true);
+    const url = new URL(location.href);
+    url.searchParams.set('lanes', '1');
+    history.replaceState(null, '', url);
+    requestAnimationFrame(() => {
+      document.getElementById(`story-${story}`)?.scrollIntoView({ block: 'start' });
+    });
+  }, []);
+
   const onSprint = (values: string[]) => {
     setSprintSel(values);
     writeList('sprint', values);
@@ -218,6 +233,7 @@ export function App() {
               sprintSel={validSprintSel}
               storySel={validStorySel}
               onOpenPlan={setOpenPlan}
+              onGoToStory={onGoToStory}
             />
           )
         ) : (
