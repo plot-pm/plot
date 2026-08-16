@@ -128,7 +128,8 @@ describe('board: contract fields + frontmatter visibility', () => {
   it('maps phases to columns and omits non-board phases (Rejected)', async () => {
     const board = await fetchBoard(server.port);
     const byPhase = Object.fromEntries(board.columns.map((c) => [c.phase, c.cards.map((x) => x.slug)]));
-    assert.ok(byPhase.Design.includes('webhook-support'), 'a Draft plan lands in Design');
+    assert.ok(byPhase.Discovery.includes('webhook-support'), 'a Draft plan lands in Discovery');
+    assert.ok(!byPhase.Design.includes('webhook-support'), 'and not also in Design — a column is a partition');
     assert.equal(byPhase.Endgame[0], 'sprint-support', 'Delivered belongs to Endgame alone');
     const all = board.columns.flatMap((c) => c.cards.map((x) => x.slug));
     assert.ok(!all.includes('rejected-idea'), 'rejected plan must not appear on the board');
@@ -166,7 +167,7 @@ describe('board: missing optional dirs', () => {
     assert.equal(board.columns.length, 5);
     assert.deepEqual(board.sprints, []);
     assert.deepEqual(board.stories, []);
-    assert.equal(board.columns.find((c) => c.phase === 'Design').cards[0].slug, 'webhook-support');
+    assert.equal(board.columns.find((c) => c.phase === 'Discovery').cards[0].slug, 'webhook-support');
   });
 });
 
@@ -260,10 +261,14 @@ describe('board: Approved splits into Ready vs In progress via Started records',
     assert.ok(!design.cards.some((c) => c.slug === 'started-plan'));
   });
 
-  it('a Draft plan carries no started flag', async () => {
+  it('a Draft plan sits in Discovery and carries no started flag', async () => {
+    // `started` is the Design/Development split, which is a question about
+    // approved work only. A Draft plan is in neither column — it is still being
+    // shaped — and must carry no flag that implies otherwise.
     const board = await fetchBoard(server.port);
-    const design = board.columns.find((c) => c.phase === 'Design');
-    const card = design.cards.find((c) => c.slug === 'draft-plan');
+    const discovery = board.columns.find((c) => c.phase === 'Discovery');
+    const card = discovery.cards.find((c) => c.slug === 'draft-plan');
+    assert.ok(card, 'a Draft plan belongs in Discovery');
     assert.equal(card.started, undefined);
   });
 
