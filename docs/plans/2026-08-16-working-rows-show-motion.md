@@ -196,6 +196,49 @@ arrived and has not yet been ignored by anyone, so it leads.
 The inversion is confined to this group rather than made general: a rule that
 flips direction depending on where it is applied is two rules wearing one name.
 
+### Row actions move into an overflow menu
+
+`Start work` sits at the far right of the row today, **after the age** — so the
+line reads *what · state · age · act*, with the action behind the quietest
+number on it. And it is about to stop being alone: `board-becomes-operable`
+adds `Approve`, and every further action would widen a row that already carries
+phase, plan, branch, note, PR and age, and wraps on long branch names.
+
+So the actions go behind a **three-dot menu** at the row's right edge. Constant
+width regardless of how many actions exist, at the edge where menus are
+expected, and no longer downstream of the age.
+
+**The menu holds only things that change something** — `Start work`, later
+`Approve`. Navigation stays in the row: the plan link and the branch link
+belong where the thing is *named*, and a `cmd`-click on a real link is worth
+more than a tidier line. The menu acts; the row shows.
+
+**On a row with no available action the menu renders, disabled.** This is a
+deliberate exception to a rule this plan estate applies elsewhere — *"a button
+whose usual state is 'you cannot' teaches people to ignore buttons"* — and the
+distinction is what a control **claims**. A dead `Start work` button lies: it
+names an action that does not exist here. A dimmed three-dot menu claims only
+*this is where actions would be*, which is true on every row.
+
+The layout argument decides it. With ~25 of 30 rows having no action, rendering
+nothing would leave the right edge ragged — and, worse, **moving**: the pulse
+re-scans every five seconds, so a row gaining or losing its action would shift
+the column while someone reads it. That is the same objection this plan already
+raises against groups that collapse themselves.
+
+**Very dim, same width.** The difference between available and not is contrast,
+not presence, so a quiet row stays quiet.
+
+**It says why, and the row already knows.** A disabled control without a reason
+is the kind that makes people guess. The note beside it reads *blocked by an
+earlier wave* or *no commit for 22 days*, so the `title` says so plainly —
+turning the dead affordance into an explanation.
+
+**`aria-disabled`, not `disabled`.** A natively disabled element leaves the tab
+order, which would put that explanation out of reach for anyone not hovering
+with a mouse. `aria-disabled` keeps it focusable and announced while
+suppressing activation.
+
 ## Branches
 
 ### Motion
@@ -207,7 +250,8 @@ flips direction depending on where it is applied is two rules wearing one name.
 
 - `feature/agent-groups-collapse` — group headers toggle; `quiet` and `done`
   start collapsed with their counts still visible; the state persists in
-  `localStorage`; NOT STARTED sorts by waiting age, freshest first
+  `localStorage`; NOT STARTED sorts by waiting age, freshest first; row actions
+  move into a three-dot overflow menu, dimmed and explained where none apply
 
 Two branches, useful independently — one touches a row, the other a section
 header — but **sequential, motion first**. They edit the same component, and
@@ -264,6 +308,20 @@ group heading and the row's own text, so the dot is decorative and gets
   fixture holding all three cases — no date, today, six months — since the
   current code ties every one of them at `-1` and any order passes a test that
   checks only that they are all present.
+- **`Start work` is reachable only through the menu**, and the menu renders on
+  every row. Assert both: an implementation that keeps the bare button beside
+  the menu passes a test that only checks the action still works.
+- **A row with no available action renders the menu `aria-disabled`, not
+  `disabled`.** Assert it stays focusable — the native attribute removes it
+  from the tab order and takes the explanation with it.
+- **The disabled menu says why.** Assert the `title` names the row's own reason
+  (*blocked by an earlier wave*, *no commit for 22 days*) rather than a generic
+  "no actions".
+- **The menu holds no navigation.** Assert the plan and branch links are still
+  links in the row: `cmd`-click must keep working.
+- **The right edge does not move when a row gains or loses its action.** The
+  layout reason for rendering a disabled menu at all — assert the width is the
+  same in both states.
 - **No other group changes order.** Assert `quiet` still leads with its oldest:
   the inversion is confined to one group, and a global change would silently
   reverse the group that most needs oldest-first.
