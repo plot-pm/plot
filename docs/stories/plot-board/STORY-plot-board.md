@@ -111,6 +111,50 @@ that closes the loop, and it has not been built yet.
   `plot-merge-queue`'s `git merge-tree` prediction should run *before* dispatch
   rather than before merge — is the open question.
 
+- ⏸️ **A PR that cannot be merged reads *"no checks"*, which is true and
+  useless.** Seen 2026-08-17 on PR #149: GitHub says *"This branch has conflicts
+  that must be resolved"*, the board says `PR #149, no checks`.
+
+  Both are correct. Measured: `mergeable=CONFLICTING`, `mergeStateStatus=DIRTY`,
+  and `statusCheckRollup` is genuinely **empty** — GitHub does not start CI for
+  a conflicting PR. So the board reports the *symptom* and withholds the
+  *cause*.
+
+  That makes `no checks` mean two unrelated things, needing opposite actions:
+  a workflow awaiting human approval (`action_required`, the case the code
+  comment describes) versus a branch that must be rebased. One waits on a
+  person's click, the other on a rebase.
+
+  The data exists and is simply never requested: `plot-host.sh pr-state`
+  returns `number`, `state`, `draft`, `url`, `mergeCommit` — no mergeability
+  field at all. The fix is a field in the adapter and a case in `classify`, not
+  a new mechanism.
+
+  Same shape as the rest of this story: one label covering two states, and the
+  distinction is what the reader is supposed to do next.
+
+- ⏸️ **The server binds one address family and the browser picks the other.**
+  Observed 2026-08-17: the board sat at `ERR_CONNECTION_REFUSED` in Chrome while
+  the process was running and healthy. Measured:
+
+  | Address | Result |
+  |---|---|
+  | `http://[::1]:7777/` | **200** |
+  | `http://127.0.0.1:7777/` | **000** — refused |
+  | `http://localhost:7777/` (curl) | 200 — curl resolved to `::1` |
+
+  `lsof` confirms it: `TCP [::1]:7777 (LISTEN)`, IPv6 only. Whether `localhost`
+  resolves to `::1` or `127.0.0.1` is the client's choice, so one URL works in
+  one program and fails in another on the same machine.
+
+  It is the same class as the port defect `board-binds-port-zero` fixed, one
+  layer down: not *which port* but *which address family*. And no in-page
+  mechanism can report it — the document never loads, so the reader gets
+  Chrome's own error page rather than anything the board could say.
+
+  Noticed alongside it: a third `board-server.mjs` was running out of an agent's
+  worktree, which is the accumulation the `pnpm board` point below describes.
+
 - ⏸️ **WAITING ON A MACHINE has never once been populated**, and three separate
   causes keep it that way. Asked 2026-08-16 after the group sat empty through an
   evening in which roughly a dozen CI runs completed.
