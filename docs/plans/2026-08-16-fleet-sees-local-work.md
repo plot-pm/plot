@@ -220,7 +220,7 @@ evidence of *location*, and the modal is asking about location.
 
 ## Branches
 
-- `bug/fleet-sees-local-work` — `local_dirty` in the scan's JSON, `classify()` lifts dirty worktrees out of quiet, tests for both directions
+- `bug/fleet-sees-local-work` — `local_dirty` in the scan's JSON, `classify()` lifts dirty worktrees out of quiet, tests for both directions → #137
 
 <!-- One branch: the scan field and its only consumer are one change, and
      landing either alone leaves a field nobody reads or a reader with no
