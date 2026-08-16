@@ -134,21 +134,38 @@ would report *clean* for every candidate, forever. A check that always passes
 is worse than no check — it converts a known gap into a false assurance.
 
 The question at dispatch time is not *do these two commits conflict* but **which
-files will this branch touch**, and only the plan knows that. So the check is
-built from what is knowable:
+files are already in play**, and that half — unlike the candidate's — is exactly
+measurable.
 
-- **The claimed side is real and readable.** For every branch with a claim, its
-  local ref and its worktree give the exact set of files in play — committed and
-  uncommitted.
-- **The candidate side is a prediction from the plan**, not from git: the
-  branch's own description under `## Branches`, and the areas the Design section
-  names.
+**Only the measured side is used.** A second draft of this plan proposed a
+`Touches:` field per branch, so the candidate could declare its paths and the
+two sets could be intersected. Checking the briefs that already carry such
+declarations killed it: the real scope guards are `packages/board/**`,
+`packages/board/src/app/**` and `skills/plot/scripts/plot-fleet-scan.sh` — the
+first *contains* the second. Under that comparison, `board-tells-the-truth` and
+`fleet-sees-unpushed-commits` would read as colliding, and they ran in parallel
+this evening without touching one another. Three of four briefs use `**` globs,
+so the false positive is the normal case, not the corner. A warning that fires
+on every board pair is a warning that gets ignored by the third time.
 
-Where the two sets overlap, the candidate is held. This is deliberately weaker
-than a merge simulation and honest about it: it can warn where no real conflict
-would arise, and it will miss a collision the plan never mentions. That is the
-correct trade for the case it exists to catch, which happened twice today and
-both times was visible in the plan text: two branches naming `AgentList.tsx`.
+Worse, that half would rest on a **self-declaration**: estimated while planning,
+never checked against what the branch actually writes, and phrased broadly
+enough not to be a nuisance — which is precisely what makes it useless. A
+comparison is only as good as its weaker half.
+
+So dispatch **reports what is held, and does not predict what would clash**. For
+every branch with a claim, its local ref and its worktree give the exact files
+in play, committed and uncommitted:
+
+```
+would dispatch feature/agent-view-phase-ui → …
+  in flight: bug/board-shows-staleness holds App.tsx, AgentList.tsx
+```
+
+That is the same fact a human assembled by hand twice today, from five commands,
+before deciding. It decides nothing automatically; it moves the decision from a
+minute of investigation to a line of output — and it is built entirely on
+measurement, with nothing estimated.
 
 **`merge-tree` still earns its place — after the branch exists.** Re-running a
 dispatch (`reused`) has two real commits to compare, and so does every merge.
@@ -176,21 +193,21 @@ It creates worktrees on this machine; it is already the one Plot command whose
 job is machine-specific. A check that ignored what this machine knows would be
 blind precisely where it acts.
 
-### 3. A predicted collision skips the branch and says so
+### 3. Dispatch reports, and the human decides
 
-The candidate is **not dispatched**, the summary names it and what it collides
-with, and every other candidate starts normally.
+Nothing is skipped automatically, because nothing is predicted. An earlier
+draft had dispatch refuse a colliding candidate; that only makes sense with a
+prediction worth trusting, and the section above explains why there is not one.
+Refusing on a guess would block the pairs that ran fine today.
 
-Skipping rather than warning-and-starting: an agent that is already running is
-hard to recall, and a warning in a dispatch log competes with nothing for the
-reader's attention until two agents have already rewritten the same file. The
-existing summary line already carries `skipped=N`, so a skipped branch is
-counted rather than silently dropped — the rule this repo applies to every
-bounded result.
+So `--dry-run` and the real run both print what is in flight and what it holds,
+and the operator starts the branch or does not. This is the lightest thing that
+would have prevented both of today's incidents, and it cannot itself be wrong:
+every fact in it is read from git on this machine.
 
-**It reports, it does not decide policy.** A human who wants it anyway can
-dispatch that branch explicitly; the check exists to stop the *accidental*
-case, which is the one that happened twice today.
+`plot-dispatch` remains a tool that reports rather than a gate that judges —
+consistent with the pulse beside it, and with the split this repo states
+outright: **scripts collect and report; skills interpret and adapt.**
 
 ### 4. The row says blocked, because it is
 
@@ -217,9 +234,21 @@ counterpart, which is why an accurate scan produces an inaccurate row. The note
 names what holds it — the branch, not merely the fact — because *blocked* alone
 invites the next question and the scan already has the answer.
 
+**On the measured side only, and therefore conservative.** The row does not
+claim the candidate *would* conflict — nothing here can know that. It says work
+is in flight that has files open, which is the fact dispatch reports. So it can
+mark a branch blocked that would in truth have been safe, and it says so in the
+note rather than pretending to a certainty it lacks.
+
+That is the right direction to err. The failure being fixed is a row that reads
+*eligible* while a dispatch is inadvisable; an over-cautious row still leaves
+the operator free to start the branch, and — unlike today — tells them what
+they are deciding against. On tonight's board it would have been exactly right:
+`feature/agent-view-phase-ui` blocked, `feature/plot-sprint-support` free.
+
 **Derived, never stored.** The pulse is stateless by design and stays so: the
-collision is re-computed from refs and worktrees on every scan, exactly like
-wave state. A branch stops reading blocked the moment the work it collided with
+state is re-computed from refs and worktrees on every scan, exactly like wave
+state. A branch stops reading blocked the moment the work it collided with
 lands, with nothing to clear.
 
 ## Branches
@@ -233,12 +262,11 @@ lands, with nothing to clear.
 
 ### Prediction
 
-- `feature/dispatch-predicts-collisions` — `plot-dispatch` runs
-  `merge-tree --write-tree` against local refs and worktrees before fanning
-  out; a predicted collision skips the branch, names it and its counterpart in
-  the summary, and counts toward `skipped=`
-- `feature/fleet-row-says-blocked` — the pulse reports a cross-plan collision
-  as its own state, so a held-back branch stops reading `eligible — nobody has
+- `feature/dispatch-reports-work-in-flight` — before fanning out,
+  `plot-dispatch` prints which claimed branches hold which files, read from
+  local refs and worktrees; it starts everything as before and refuses nothing
+- `feature/fleet-row-says-blocked` — the pulse reports work-in-flight as its
+  own row state, so a held-back branch stops reading `eligible — nobody has
   taken it`; derived per scan, never stored
 
 Two waves, and the order is deliberate: the artifact strategy is what makes any
@@ -254,15 +282,16 @@ artifact stops producing a collision on every single pair.
   survive the strategy — assert that resolving by rebuild is required, not
   optional. Without this the change trades a conflict for a silent
   regression.
-- **A candidate colliding with an unpushed commit is skipped.** The exact case
-  from 2026-08-16: committed, clean worktree, remote ref holds only the claim.
-  A remote-only check passes this test while missing the bug.
-- **A candidate colliding with UNCOMMITTED work is skipped.** No ref holds it,
-  so this fails against any implementation that reads refs alone.
-- **A skipped branch is named, with what it collides with**, and counted in
-  `skipped=`. Assert the count: a silent skip reads as "nothing was eligible".
-- **A non-colliding candidate still dispatches.** The regression that matters —
-  a check that skips everything is indistinguishable from a broken fleet.
+- **Files held in an UNPUSHED commit are reported.** The exact case from
+  2026-08-16: committed, clean worktree, remote ref holds only the claim. An
+  implementation reading remote refs reports nothing and passes any weaker test.
+- **Files held UNCOMMITTED are reported.** No ref holds them, so this fails
+  against any implementation that reads refs alone.
+- **Dispatch still starts everything.** Assert that reporting refuses nothing —
+  the earlier draft skipped colliding candidates, and a skip built on this
+  measurement would block pairs that ran fine today.
+- **Nothing is reported when nothing is claimed.** A report that always prints
+  something teaches the reader to skip it.
 - **A blocked branch does not read `eligible`.** Assert the note differs from a
   genuinely free branch's: tonight `feature/agent-view-phase-ui` and
   `feature/plot-sprint-support` rendered identically while one waited on a
@@ -278,10 +307,10 @@ artifact stops producing a collision on every single pair.
 - **The resolution never names a side.** Assert that a rebase and a merge
   produce the same committed artifact: "ours" inverts between them, so a
   side-named resolution passes one test and fails the other.
-- **The dispatch check does not use `merge-tree` on a branch that does not
-  exist.** Assert a candidate is evaluated from the plan's declared files, not
-  from a commit comparison — the comparison reports clean for every new branch
-  and would turn a known gap into a false assurance.
+- **No candidate-side prediction is consulted.** Assert the report is identical
+  whether or not the plan describes the candidate's files — the two rejected
+  drafts (a `merge-tree` comparison against a branch that does not yet exist, a
+  `Touches:` self-declaration) both pass a loose test and fail this one.
 - **git older than 2.38 refuses rather than reporting clean**, wherever
   `merge-tree` is still used (re-dispatch, merge queue). `plot-merge-queue`
   already guards this because the old `merge-tree` answers a different question;
@@ -308,18 +337,21 @@ Recorded as open points in
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {"q": "The repo has no .gitattributes and no merge driver configured. A custom merge=rebuild driver lives in each clone's git config — would silently do nothing on CI and fresh clones.", "a": "Use `-merge` in .gitattributes instead: no local configuration, same behaviour everywhere. git keeps one side and reports the conflict; the rebuild settles it", "category": "technical-architecture"},
     {"q": "merge=ours inverts between merge and rebase — 'ours' means different things. Problem?", "a": "Yes. The resolution must be side-neutral: take EITHER version, then rebuild. The kept content is overwritten anyway, and agents here rebase routinely", "category": "technical-implementation"},
     {"q": "What does merge-tree compare the candidate against?", "a": "Each claimed branch's local state — the question is 'would these two collide', not 'is the candidate mergeable', which is always yes for a fresh branch", "category": "technical-implementation"},
-    {"q": "A dispatch candidate does not exist as a branch yet — plot-dispatch creates it. What can merge-tree compare?", "a": "Nothing useful — it would report clean for every candidate, turning a known gap into a false assurance. Compare declared FILES instead: the claimed side from refs and worktrees, the candidate side from the plan's own Branches/Design text", "category": "technical-architecture"}
+    {"q": "A dispatch candidate does not exist as a branch yet — plot-dispatch creates it. What can merge-tree compare?", "a": "Nothing useful — it would report clean for every candidate, turning a known gap into a false assurance. Compare declared FILES instead: the claimed side from refs and worktrees, the candidate side from the plan's own Branches/Design text", "category": "technical-architecture"},
+    {"q": "Plan Branches text names no paths; briefs carry `### Scope guard` globs. Introduce a `Touches:` field per branch?", "a": "No. Measured: the real guards are packages/board/** and packages/board/src/app/** — one CONTAINS the other, so two branches that ran in parallel today would read as colliding. Three of four briefs use ** globs, so the false positive is the normal case. And it would rest on an unverified self-declaration", "category": "domain-rules"},
+    {"q": "Then what does dispatch do?", "a": "Reports the measured side only — which claimed branches hold which files, from refs and worktrees — and refuses nothing. The same fact a human assembled by hand twice today from five commands", "category": "ux-happyPath"},
+    {"q": "With no prediction, what does the `blocked` row rest on?", "a": "The measured side: work is in flight with files open. Conservative — it may mark a safe branch blocked — and it says so rather than claiming certainty. Erring that way still leaves the operator free, and tells them what they are deciding against", "category": "ux-errors"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
     "technical": {"stack": true, "architecture": true, "implementation": true},
-    "domain": {"rules": false, "workflows": true, "data": false},
-    "ux": {"happyPath": true, "edgeCases": false, "errors": false, "accessibility": false},
+    "domain": {"rules": true, "workflows": true, "data": false},
+    "ux": {"happyPath": true, "edgeCases": false, "errors": true, "accessibility": false},
     "nonFunctional": {"security": false, "performance": false, "scalability": false},
     "tradeOffs": true
   }
