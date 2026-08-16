@@ -168,6 +168,34 @@ five seconds, so rows would appear and vanish under the cursor and the page
 would jump while being read. A view meant to sit beside your work must not move
 its own furniture.
 
+### NOT STARTED sorts by how long it has waited
+
+Raised from the live board: `feature/plot-sprint-support`, waiting since
+February, sat among branches approved minutes earlier in no discernible order.
+
+Measured — `fleet.ts:977` sorts every group the same way:
+
+```ts
+return (b.ageMinutes ?? -1) - (a.ageMinutes ?? -1);
+```
+
+Descending by **commit age**, with a missing age coerced to `-1` so it falls to
+the end. That is right for the groups whose rows have commits: longest
+unattended first. But NOT STARTED rows have no commit at all — their age is a
+**waiting age**, `waitingDays`, derived from the `Approved:` record and *not
+consulted here*. So every row in the group ties at `-1` and the order is
+whatever the scan happened to produce.
+
+**In this group the direction inverts: freshest first, undated ahead of both.**
+Elsewhere old means neglected and belongs at the top. Here old means *nobody
+wants it* — six months of availability is evidence of that, not urgency. A plan
+approved minutes ago is the one still in the reader's head and the one a
+dispatch is actually likely to pick up. A row with no date at all has just
+arrived and has not yet been ignored by anyone, so it leads.
+
+The inversion is confined to this group rather than made general: a rule that
+flips direction depending on where it is applied is two rules wearing one name.
+
 ## Branches
 
 ### Motion
@@ -179,7 +207,7 @@ its own furniture.
 
 - `feature/agent-groups-collapse` — group headers toggle; `quiet` and `done`
   start collapsed with their counts still visible; the state persists in
-  `localStorage`
+  `localStorage`; NOT STARTED sorts by waiting age, freshest first
 
 Two branches, useful independently — one touches a row, the other a section
 header — but **sequential, motion first**. They edit the same component, and
@@ -232,6 +260,13 @@ group heading and the row's own text, so the dot is decorative and gets
 - **A row entering a collapsed group updates the count without expanding it.**
   Assert the group is still collapsed afterwards: auto-expanding passes a naive
   "the new row is visible" test and breaks the reading position.
+- **NOT STARTED sorts freshest first, undated ahead of dated.** Assert with a
+  fixture holding all three cases — no date, today, six months — since the
+  current code ties every one of them at `-1` and any order passes a test that
+  checks only that they are all present.
+- **No other group changes order.** Assert `quiet` still leads with its oldest:
+  the inversion is confined to one group, and a global change would silently
+  reverse the group that most needs oldest-first.
 - **The footer is reachable without scrolling past a collapsed group.** The
   measurable form of the original complaint.
 - `pnpm run test:board`, `pnpm run typecheck`, `pnpm test`, `pnpm run validate`
