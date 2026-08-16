@@ -385,7 +385,7 @@ blocking `reconcile-scan-accuracy`. The last three bug branches (#122, #125)
 each shipped implementation and ~200 lines of tests together, so a separate
 test wave would formalise a step that does not happen in practice.
 
-### What the board does with the new answer — and why it needs no change
+#### What the board does with the new answer — and why it needs no change
 
 The board consumes branch states through `classify()` in
 `packages/board/src/server/fleet.ts`. Read rather than assumed, because "no
@@ -423,7 +423,7 @@ correctness partly rests on a condition in a *different package*, written for a
 different reason, invisible from `plot-fleet-scan.sh`. A board test pins it, so
 the coupling is enforced rather than merely noted.
 
-### Dispatch is deliberately not hardened
+#### Dispatch is deliberately not hardened
 
 The obvious belt-and-braces addition — have `plot-dispatch.sh` check whether
 the work already landed before claiming — is **not** in scope, and the reason
