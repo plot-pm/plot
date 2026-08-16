@@ -230,9 +230,28 @@ alongside the write.
       because `branch_state()` resolves state from refs and a deleted ref
       cannot be told from one that never existed. It only surfaces between a
       merge and the plan's delivery — earlier waves never showed it because
-      their plans were already Delivered and dropped out of the scan. Cosmetic
-      here (the wave gate is advisory, not enforced), but it is the same
-      git-only blind spot as unpushed work being invisible in the Agents tab.
+      their plans were already Delivered and dropped out of the scan. It is the
+      same git-only blind spot as unpushed work being invisible in the Agents
+      tab.
+      **Amended 2026-08-16, after #124 merged — no longer cosmetic.** The
+      original reading ("the wave gate is advisory, not enforced") was sound
+      when written and is now false, because the gate acquired an automated
+      reader. With both of `board-reads-git`'s PRs merged and both refs
+      deleted, `plot-fleet-scan.sh --next` answers
+      `bug/board-claimed-from-git` — it *names finished work as the next thing
+      to start*, and that is the exact question `plot-dispatch.sh` asks before
+      fanning out. A dispatch would build a worktree, push a claim, and set an
+      agent on work already sitting on `main`; the claim push would then
+      recreate the ref and re-badge the branch `claimed`, so the wrong answer
+      manufactures its own evidence. It also explains the deleted ref that had
+      to be restored by hand earlier today to unblock a wave — that was the
+      symptom; this line is the cause.
+      Absence is ambiguous and the script silently picks one meaning: a
+      never-created branch and a merged-then-deleted one are the same missing
+      ref. Structurally the same defect `bug/scan-contained-in-pr` just fixed
+      one `else` over, where "not the head of an open PR" meant *orphan*. The
+      merge state is in git either way — `git merge-base --is-ancestor` against
+      the merge commits on `main`, or the PR number the plan already records.
 - [ ] **Twelve plan-state commits went straight to `main` today**, every one of
       them waved through branch protection by admin rights. The micro-PR
       fallback in `/plot-approve` only triggers on *rejection*, never on a
@@ -379,6 +398,9 @@ Two defects surfaced while building, neither by tests:
 
 And one from the merge itself: a **merged-and-deleted branch reads as `open`**
 in the fleet scan, because state resolves from refs and a deleted ref cannot be
-told from one that never existed. Recorded as an open question — cosmetic here,
-but the same git-only blind spot as unpushed work being invisible in the Agents
-tab.
+told from one that never existed. Recorded as an open question — the same
+git-only blind spot as unpushed work being invisible in the Agents tab. Judged
+cosmetic when written; **amended after #124 merged**, which gave the advisory
+wave gate an automated reader: `--next` now names finished work as the next
+thing to start, and that is the question `plot-dispatch.sh` asks before fanning
+out. See the open question above for the evidence.

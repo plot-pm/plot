@@ -201,6 +201,31 @@ that closes the loop, and it has not been built yet.
   Related and already visible in the same output: the fleet scan lists those
   merged branches as `open`, because the ref is deleted at merge. Same root as
   the bug #122 fixed, seen from the other side.
+
+  **Escalated 2026-08-16, after #124 merged.** This stopped being a display
+  bug the moment the advisory wave gate got an automated reader. With both of
+  `board-reads-git`'s PRs merged and both refs deleted,
+  `plot-fleet-scan.sh --next` answers `bug/board-claimed-from-git` — finished
+  work, named as the next thing to start, which is precisely the question
+  `plot-dispatch.sh` asks before it fans out. Worse, a dispatch acting on that
+  answer pushes a claim, which **recreates the deleted ref** and re-badges the
+  branch `claimed`: the wrong answer manufactures the evidence that justifies
+  it. It also explains the ref that had to be restored by hand earlier today
+  to unblock a wave — symptom, not cause. Tracked with the evidence in
+  [`release-closes-the-loop`](../../plans/2026-08-16-release-closes-the-loop.md).
+- ⏸️ **`packages/board/src/server/fleet.ts` holds a literal NUL byte** (offset
+  5007, line 126) — `` `${opts.repoRoot}\x00${opts.scriptsDir}` ``, the cache-key
+  separator. The *choice* is right: NUL cannot occur in a path, so it is the one
+  separator that can never be ambiguous. Writing it as a raw byte instead of the
+  `\0` escape is what costs. Every line-oriented tool classifies the file as
+  binary and **answers nothing**: `grep` returns no matches without saying why,
+  and only `rg` names the reason ("binary file matches"). Cost it today — three
+  greps for constants that were in the file all along read as "not there", and
+  the obvious next move would have been to add code that already existed.
+  Diffs and review views are blinded the same way. `node` was run to confirm
+  `\0` in a template literal produces the identical byte, so the fix is
+  behaviour-preserving and one character wide. Only occurrence in the repo
+  (all tracked `.ts/.tsx/.mjs/.js/.sh/.md` scanned).
 - ⏸️ **Does the board stay one-repo?** The design keeps every data function
   repo-parameterised, and tab 2 is meant to go cross-repo — "what are my agents
   waiting for" is a question about a person, not a repository. Not decided.
