@@ -111,6 +111,18 @@ intervals costs a misdiagnosis, which is what this plan is paying off. Waiting
 for a second failure buys quiet flicker at the price of up to 8 seconds in
 which the numbers are wrong and say nothing about it.
 
+**It recovers by itself.** A successful fetch clears the stale state and the
+clock resumes — no reload, because the polling never stopped and asking the
+reader to confirm a recovery the page can observe is ceremony. With a
+first-failure threshold this matters: a hiccup would otherwise strand the view
+in permanent distrust until someone pressed reload.
+
+**The first-load failure keeps its own message.** `!fleet.ready &&
+!fleet.error` already renders *"Waiting for the first fleet scan…"*, and that
+is a different statement from *"this data is old"* — one has never had an
+answer, the other has one it no longer trusts. Collapsing them would make an
+empty view claim staleness it cannot have. The two states stay separate.
+
 **Degrade, do not hide.** The last payload stays on screen — it is still the
 best information available, and blanking the view would destroy what the reader
 came for. What changes is the *confidence*: the ages stop advancing, and the
@@ -133,10 +145,33 @@ the first without touching the second — the OS assigns during `listen()`, the
 process reads its own `address()` and prints it, and there is never a moment
 when a port is known-free but unbound.
 
-The tests then take the port from the started server rather than handing one
-in. `findFreePort` is deleted, not fixed: a retry loop on `EADDRINUSE` makes
-the race rarer instead of impossible, and a test that fails once in fifty runs
-is harder to diagnose than one that never does — which is exactly the cost this
+**The bound port must reach the origin check, and today nothing forces it to.**
+The sharp edge of this change, found by reading rather than assuming. A port is
+not only an address here: `dispatch.ts:154` calls `isSameOrigin(req,
+opts.port)`, which admits a browser `Origin` only when it matches
+`localhost:<port>` — and it guards `/dispatch`, the endpoint that **spawns
+processes**. `index.ts:15` evaluates `const PORT` at module load, before
+`server.listen()` runs. Under `PORT=0` the constant stays `0` while the real
+port is something else, so the allowlist would read `http://localhost:0` and
+refuse **every** browser origin.
+
+So the fix reads `server.address().port` inside the `listen` callback and
+passes *that* to `handleDispatch`. It corrects an inconsistency that exists
+already — the constant and the bound port are two separate facts today, and
+nothing makes them agree; `PORT=0` only makes the gap impossible to ignore.
+Failing closed is the safe direction, but a Start-work button that silently
+stops working is still a bug.
+
+**`startServer` already knows the answer and discards it.** It waits for
+`http://localhost:` in stdout — and that line carries the real port — but
+resolves with the port it was *given* (`helpers.mjs:41–68`). Parsing
+`http://localhost:(\d+)` out of the line it is already reading turns 28 call
+sites into a one-line change inside the helper: no new protocol, no port file
+to write and clean up, and no second way to learn the same fact.
+
+`findFreePort` is deleted, not fixed: a retry loop on `EADDRINUSE` makes the
+race rarer instead of impossible, and a test that fails once in fifty runs is
+harder to diagnose than one that never does — which is exactly the cost this
 plan is paying off.
 
 **All 28 call sites move together.** Counted, because "delete the helper" read
@@ -163,6 +198,12 @@ address is alive*.
 Today the second invocation dies with a raw `EADDRINUSE` stack trace, which
 states the problem in the least useful available form: it says a port is taken
 without saying by what, or where to go instead.
+
+**The failed bind IS the check.** Catch `EADDRINUSE` from `listen()` rather
+than asking beforehand whether the port is free. Probing first would reproduce,
+inside this very plan, the pattern the plan exists to remove: *check, then act*,
+with a gap in between where the answer can change. One less race, and the error
+path already exists — it only needs to say something useful.
 
 **And the page can say which port serves it.** The bookmarked-dead-port case is
 unfixable from inside a page that cannot name its own origin; with the port
@@ -223,6 +264,19 @@ is in flight.
   later "restores" the helper for convenience.
 - **The server reports the port it actually bound**, asserted against a request
   that reaches it — not against the number it intended to use.
+- **`/dispatch` still accepts a same-origin request under `PORT=0`.** The
+  assertion that catches the whole class: send an `Origin` header matching the
+  *bound* port and require a non-403. A dispatch endpoint that fails closed
+  looks like nothing is wrong until someone presses Start work.
+- **A stale view recovers on the next successful fetch** without a reload, and
+  the clock resumes. Assert the recovery, not only the failure — a stale flag
+  that is never cleared passes every test that only checks it gets set.
+- **The first-load message is not the staleness message.** Assert that a tab
+  which has never had an answer still says so: they are different statements,
+  and merging them makes an empty view claim data it never had.
+- **A second `pnpm board` does not probe before binding.** Assert the running
+  board is detected via the failed `listen`, not a prior port check — probing
+  first rebuilds the exact race this plan removes.
 - **The default port is unchanged.** Assert that starting without `PORT` still
   binds 7777: the isolation belongs to the tests, and a fix that made the dev
   board wander would trade one lost-address problem for a permanent one.
@@ -274,19 +328,23 @@ touches `plot-fleet-scan.sh`, which that plan holds.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {"q": "The plan says 'the server binds port 0', but index.ts:15 reads process.env.PORT ?? 7777 — a FIXED port. Tests and the dev board want opposite things.", "a": "PORT=0 opt-in: binds zero and reports it; default 7777 unchanged. Tests get isolation, the dev board keeps a bookmarkable address", "category": "technical-architecture"},
     {"q": "findFreePort has 28 call sites across 8 test files, not just discovery.test.mjs. How big is the branch?", "a": "All 28 at once. A half-migrated helper leaves the race in 7 files that merely have not failed yet, and keeps the helper alive for the next test to reach for. Mechanical and uniform: large in lines, small in risk", "category": "technical-implementation"},
     {"q": "What does 'pnpm board adopts a running board' mean concretely?", "a": "Name it and stop — print the address, exit 0. NOT kill-and-restart: that would shoot down another worktree's board, and several ran side by side the day this was found", "category": "domain-workflows"},
-    {"q": "When is a payload stale? One failed fetch could be a hiccup.", "a": "First failure. The outcomes are asymmetric: a brief false 'last heard 4s ago' costs nothing and self-corrects; a dead server looking normal for two intervals costs a misdiagnosis", "category": "ux-errors"}
+    {"q": "When is a payload stale? One failed fetch could be a hiccup.", "a": "First failure. The outcomes are asymmetric: a brief false 'last heard 4s ago' costs nothing and self-corrects; a dead server looking normal for two intervals costs a misdiagnosis", "category": "ux-errors"},
+    {"q": "isSameOrigin(req, PORT) guards /dispatch, which spawns processes — and const PORT is evaluated at module load, before listen(). Under PORT=0 the allowlist would read localhost:0 and refuse every browser origin.", "a": "Read server.address().port in the listen callback and pass THAT to handleDispatch. Corrects a latent inconsistency that exists today; PORT=0 only makes it visible", "category": "nonfunctional-security"},
+    {"q": "How do tests learn the bound port?", "a": "Parse it from the stdout line startServer already waits on — the line carries it and the helper discards it. One line in the helper instead of a port file, a new protocol, or 28 edits", "category": "technical-implementation"},
+    {"q": "How does pnpm board detect a running board?", "a": "Catch EADDRINUSE from listen(). The failed bind IS the check — probing first would rebuild the check-then-act race this plan exists to remove", "category": "technical-architecture"},
+    {"q": "What happens when the server comes back, and what about a failed FIRST load?", "a": "Recovers automatically on the next successful fetch, no reload. The first-load message stays separate: never-had-an-answer is a different statement from no-longer-trusted", "category": "ux-edgecases"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
     "technical": {"stack": true, "architecture": true, "implementation": true},
     "domain": {"rules": false, "workflows": true, "data": false},
-    "ux": {"happyPath": false, "edgeCases": false, "errors": true, "accessibility": false},
-    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "ux": {"happyPath": false, "edgeCases": true, "errors": true, "accessibility": false},
+    "nonFunctional": {"security": true, "performance": false, "scalability": false},
     "tradeOffs": true
   }
 }
