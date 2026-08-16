@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-16, jwloka, plan-PR #110 merged
 - **Started:** 2026-08-16, jwloka, `bug/scan-unreleased-delivered`
+- **Started:** 2026-08-16, jwloka, `feature/release-marks-plans`
 
 ## Approval
 
@@ -222,6 +223,14 @@ alongside the write.
       answers and no single one. Taking the **last** branch's version is the
       honest reading — the plan is not fully released until its final branch is
       — but it makes the record depend on branch order rather than on the plan.
+- [ ] **A merged-and-deleted branch reads as `open` in the fleet scan.** Seen
+      when #111 merged: the wave stayed `eligible` and the next one `blocked`,
+      because `branch_state()` resolves state from refs and a deleted ref
+      cannot be told from one that never existed. It only surfaces between a
+      merge and the plan's delivery — earlier waves never showed it because
+      their plans were already Delivered and dropped out of the scan. Cosmetic
+      here (the wave gate is advisory, not enforced), but it is the same
+      git-only blind spot as unpushed work being invisible in the Agents tab.
 - [ ] **Twelve plan-state commits went straight to `main` today**, every one of
       them waved through branch protection by admin rights. The micro-PR
       fallback in `/plot-approve` only triggers on *rejection*, never on a
@@ -234,7 +243,7 @@ alongside the write.
 
 ### Check
 
-- `bug/scan-unreleased-delivered` — reconcile section for delivered-but-shipped plans, the footer counter, and the back-fill of the six existing plans
+- `bug/scan-unreleased-delivered` — reconcile section for delivered-but-shipped plans, the footer counter, and the back-fill of the six existing plans → #111
 
 ### Write
 
