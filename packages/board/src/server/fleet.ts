@@ -636,6 +636,14 @@ export function classify(
    * elsewhere reports.
    */
   localDirty = false,
+  /**
+   * Commits the local branch has that the remote does not — see
+   * `FleetBranchSchema.local_ahead`. Same single use as `localDirty`: it LIFTS a
+   * branch out of quiet and may never downgrade an answer, because it is true
+   * only on the machine doing the looking and 0 is what every branch elsewhere
+   * reports.
+   */
+  localAhead = 0,
 ): { group: WaitingGroup; note: string } {
   // A deferred branch is not-started because nobody is working on it — the
   // group is about the claim the row makes, not about the age of its last
@@ -696,7 +704,7 @@ export function classify(
     if (ageMinutes !== null && ageMinutes <= quietMinutes) {
       return { group: 'working', note: 'claimed, no commits yet' };
     }
-    if (localDirty) return workingLocally();
+    if (localDirty || localAhead > 0) return workingLocally(localDirty, localAhead);
     return {
       group: 'quiet',
       note:
@@ -720,28 +728,50 @@ export function classify(
     // is what the reader came for, and replacing it would hide it.
     return { group: 'working', note: `last commit ${humanAge(ageMinutes)} ago` };
   }
-  if (localDirty) return workingLocally();
+  if (localDirty || localAhead > 0) return workingLocally(localDirty, localAhead);
   if (ageMinutes === null) return { group: 'quiet', note: 'pushed work, age unknown' };
   return { group: 'quiet', note: `no commit for ${humanAge(ageMinutes)}` };
 }
 
 /**
- * The one answer a local worktree may produce: working, on evidence this
- * machine can see and no other can.
+ * The one answer local evidence may produce: working, on grounds this machine
+ * can see and no other can.
  *
  * The note names the evidence as LOCAL because that is what a reader needs to
- * judge it. Work that has not been committed is also work nobody else can see,
- * and a row claiming *working* on grounds the next person cannot verify would
- * be its own kind of lie — saying *local* keeps the claim honest.
+ * judge it. Work that has not been pushed is work nobody else can see, and a row
+ * claiming *working* on grounds the next person cannot verify would be its own
+ * kind of lie — saying *local* keeps the claim honest.
  *
- * It does not say WHO. A human's edits look exactly like an agent's (git
- * records no author on an uncommitted change), and on an `Impl: same branch`
- * plan they share one branch by design. So the note reports what was observed
- * and on which machine, and a reader who recognises their own editor is not
- * misled — where "agent working" would have misled them.
+ * It does not say WHO. A human's edits look exactly like an agent's (git records
+ * no author on an uncommitted change), and on an `Impl: same branch` plan they
+ * share one branch by design. So the note reports what was observed and on which
+ * machine, and a reader who recognises their own editor is not misled — where
+ * "agent working" would have misled them.
+ *
+ * TWO FACTS, AND BOTH ARE SAID WHEN BOTH HOLD — unpushed first. `dirty` means
+ * *someone is editing*; `ahead` means *finished work exists that nobody else can
+ * see*. An earlier draft reported only the unpushed commits, on the grounds that
+ * they are the more urgent fact. That is true and not a reason to drop the
+ * other: suppressing a true fact because a second outranks it is precisely the
+ * displacement `deferred` used to cause to the note text. The pair also changes
+ * the advice — *push this* versus *push this, and someone is still working* —
+ * which is the whole reason to distinguish them.
+ *
+ * The count is a COUNT, never an age. "2 commits not pushed" answers a question
+ * no timestamp can: it names an action, and the action belongs to a specific
+ * machine.
+ *
+ * The DIRTY-ONLY note is unchanged from the day it shipped. Rewording it to
+ * match the pair would have been tidier and would have changed what every
+ * existing dirty row says, for a branch whose subject is the OTHER case.
  */
-function workingLocally(): { group: WaitingGroup; note: string } {
-  return { group: 'working', note: 'uncommitted work in a local worktree' };
+function workingLocally(dirty: boolean, ahead: number): { group: WaitingGroup; note: string } {
+  if (ahead <= 0) return { group: 'working', note: 'uncommitted work in a local worktree' };
+  const unpushed = `${ahead} commit${ahead === 1 ? '' : 's'} not pushed locally`;
+  return {
+    group: 'working',
+    note: dirty ? `${unpushed}, uncommitted changes` : unpushed,
+  };
 }
 
 /**
@@ -835,7 +865,7 @@ export function rowsFromPulse(
         const age = ages.get(b.branch) ?? null;
         const pr = prs?.get(b.branch) ?? null;
         const { group, note } = classify(
-          b.state, wave.verdict, age, quietMinutes, pr, b.local_dirty);
+          b.state, wave.verdict, age, quietMinutes, pr, b.local_dirty, b.local_ahead);
         rows.push({
           repo,
           branch: b.branch,

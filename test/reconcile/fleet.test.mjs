@@ -1315,6 +1315,249 @@ exit 1
   f.cleanup();
 });
 
+// --- unpushed commits are not "no commits yet" -------------------------------
+//
+// `local_dirty` reports *someone is editing*, and committing CLEARS it — so a
+// worker that finishes tidily and pauses before pushing leaves a clean worktree,
+// a false flag, and a board reading "claimed, no commits yet" for a branch
+// holding a complete implementation. Measured on 2026-08-16 on the very branch
+// that fixed the other half: 3 commits ahead, 0 dirty files, no PR.
+//
+// IT IS A REF QUESTION, NOT A WORKTREE QUESTION, and that is what most of these
+// tests exist to hold. Worktrees share one ref database, so the answer exists
+// without a worktree — and a local branch with none still holds commits nobody
+// else can see. Routing this through the worktree list "for consistency with
+// local_dirty" was this plan's own first draft, and it skips exactly those.
+//
+// Read docs/plans/2026-08-16-fleet-sees-unpushed-commits.md before changing any
+// of it.
+
+test('fleet: unpushed commits are reported, with a CLEAN worktree', () => {
+  // The exact case that produced the plan. `local_dirty` is asserted FALSE on
+  // purpose: with it true the shipped signal covers for the new one and the
+  // test proves nothing.
+  const f = makeRepo('plot-fleet-ahead-', ONE_WAVE('feature/unpushed'));
+  f.work('feature/unpushed', 'u.txt');
+  f.push('-u', 'origin', 'feature/unpushed');          // an upstream exists…
+  fs.writeFileSync(path.join(f.dir, 'u2.txt'), 'finished\n');
+  git(f.dir, 'add', '-A');
+  git(f.dir, 'commit', '-qm', 'finished, and not pushed');
+  fs.writeFileSync(path.join(f.dir, 'u3.txt'), 'also finished\n');
+  git(f.dir, 'add', '-A');
+  git(f.dir, 'commit', '-qm', 'also finished, also not pushed');
+  git(f.dir, 'checkout', '-q', 'main');                // …and a clean tree
+
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === 'feature/unpushed');
+  assert.equal(b.local_ahead, 2, 'two commits exist that the remote does not have');
+  assert.equal(b.local_dirty, false,
+    'and no uncommitted change is covering for them — this is the whole case');
+  // The git state itself is untouched: local knowledge adds a field, it does not
+  // rewrite what the refs say.
+  assert.equal(b.state, 'wip');
+  f.cleanup();
+});
+
+test('fleet: a local branch with NO worktree is still seen', () => {
+  // The assertion that fails if someone later routes this through the worktree
+  // list for consistency with `local_dirty`. Refs are shared across worktrees,
+  // so the answer exists without one — and a branch checked out once and moved
+  // away from, or fetched from a colleague, still holds invisible commits.
+  //
+  // `git worktree list` in this fixture names exactly ONE worktree (the repo
+  // itself, on main), so `feature/orphan` appears in no worktree at all.
+  const f = makeRepo('plot-fleet-ahead-nowt-', ONE_WAVE('feature/orphan'));
+  f.work('feature/orphan', 'o.txt');
+  f.push('-u', 'origin', 'feature/orphan');
+  fs.writeFileSync(path.join(f.dir, 'o2.txt'), 'invisible\n');
+  git(f.dir, 'add', '-A');
+  git(f.dir, 'commit', '-qm', 'nobody else can see this');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const worktrees = git(f.dir, 'worktree', 'list', '--porcelain')
+    .split('\n').filter((l) => l.startsWith('branch '));
+  assert.deepEqual(worktrees, ['branch refs/heads/main'],
+    'the fixture must hold no worktree for feature/orphan, or it proves nothing');
+
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === 'feature/orphan');
+  assert.equal(b.local_worktree, '', 'no worktree — this is the point');
+  assert.equal(b.local_ahead, 1, 'and the unpushed commit is seen anyway');
+  f.cleanup();
+});
+
+test('fleet: a MISSING upstream is detected, not read as zero', () => {
+  // The trap, and the same one the worktree code already handles: a missing
+  // upstream exits 128 printing NOTHING, bit-identical to the deleted-worktree
+  // signature. A check written as "is the output non-empty" reads `0` and is
+  // right BY ACCIDENT, because empty output would then mean both "zero ahead"
+  // and "I could not look".
+  //
+  // Asserting only the outcome would pass on the accident, so this asserts the
+  // DETECTION: a git shim records argv, and the run is confirmed to have made
+  // the call and had it FAIL — rc 128, empty stdout — before the 0 is accepted.
+  const f = makeRepo('plot-fleet-noupstream-', ONE_WAVE('feature/never-pushed'));
+  f.work('feature/never-pushed', 'n.txt');             // committed, NEVER pushed
+  git(f.dir, 'checkout', '-q', 'main');
+
+  // The signature itself, measured rather than assumed.
+  const probe = execFileSync('bash', ['-c',
+    'out=$(git rev-list --count "refs/remotes/origin/feature/never-pushed..refs/heads/feature/never-pushed" 2>/dev/null); '
+    + 'printf "%s|%s" "$?" "$out"'],
+  { encoding: 'utf8', cwd: f.dir });
+  assert.equal(probe, '128|',
+    'the failure must be exit 128 with EMPTY output — the whole reason to read the code');
+
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === 'feature/never-pushed');
+  assert.equal(b.local_ahead, 0,
+    'a failure to observe reports 0 — not evidence, and not a crash');
+  // A branch with no remote ref keeps the answer it gave before this field
+  // existed: absent is not false.
+  assert.equal(b.state, 'open');
+  f.cleanup();
+});
+
+test('fleet: a FAILED ahead query is not read as its own output', () => {
+  // The assertion the test above cannot make, and the reason it needs a
+  // companion. Reading the exit code and reading the emptiness produce the SAME
+  // 0 whenever a failure happens to print nothing — so the natural fixture
+  // passes either way, and the check that is right by accident survives.
+  //
+  // What separates them is a failure that prints SOMETHING. A git shim makes
+  // the ahead query exit 128 while printing a number: reading the exit code
+  // discards it and reports 0, reading the output believes it. There is nothing
+  // subtle left to get wrong.
+  //
+  // Only the ahead query is intercepted — every other git call runs for real,
+  // so the rest of the scan is unaffected and the branch's own state is still
+  // derived normally.
+  const f = makeRepo('plot-fleet-ahead-fail-', ONE_WAVE('feature/liar'));
+  f.work('feature/liar', 'l.txt');
+  f.push('-u', 'origin', 'feature/liar');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-ahead-'));
+  const realGit = execFileSync('bash', ['-lc', 'command -v git'],
+    { encoding: 'utf8' }).trim();
+  fs.writeFileSync(path.join(shim, 'git'), `#!/usr/bin/env bash
+# The ahead query only: "<remote>..<local>" for this branch.
+for a in "$@"; do
+  case "$a" in
+    refs/remotes/origin/feature/liar..refs/heads/feature/liar)
+      echo 99          # a number, on a call that FAILS
+      exit 128 ;;
+  esac
+done
+exec ${JSON.stringify(realGit)} "$@"
+`);
+  fs.chmodSync(path.join(shim, 'git'), 0o755);
+
+  const out = execFileSync('bash', [scan, '--offline', '--json'], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PATH: `${shim}:${process.env.PATH}` },
+  });
+  const b = JSON.parse(out).plans[0].waves[0].branches
+    .find((x) => x.branch === 'feature/liar');
+  assert.equal(b.local_ahead, 0,
+    'output from a failed call is not evidence — the exit code decides, not the emptiness');
+  fs.rmSync(shim, { recursive: true, force: true });
+  f.cleanup();
+});
+
+test('fleet: a branch BEHIND the remote reports zero ahead', () => {
+  // `A..B` and `B..A` are easy to swap, and the swapped version reports every
+  // branch somebody else has pushed to as local work — turning the whole board
+  // into a wall of false "unpushed" rows. Assert zero.
+  const f = makeRepo('plot-fleet-behind-', ONE_WAVE('feature/behind'));
+  f.work('feature/behind', 'b1.txt');
+  f.push('-u', 'origin', 'feature/behind');
+  // Somebody else pushes two more commits; this machine has not fetched them
+  // into its local branch, so the local ref trails the remote by two.
+  fs.writeFileSync(path.join(f.dir, 'b2.txt'), 'theirs\n');
+  git(f.dir, 'add', '-A');
+  git(f.dir, 'commit', '-qm', 'their work');
+  f.push('origin', 'feature/behind');
+  git(f.dir, 'checkout', '-q', 'main');
+  // Point the LOCAL branch back one commit: behind the remote, ahead of nothing.
+  git(f.dir, 'branch', '-f', 'feature/behind', 'origin/feature/behind~1');
+
+  const behind = git(f.dir, 'rev-list', '--count',
+    'refs/heads/feature/behind..refs/remotes/origin/feature/behind').trim();
+  assert.equal(behind, '1', 'the fixture must actually be behind, or it proves nothing');
+
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === 'feature/behind');
+  assert.equal(b.local_ahead, 0, 'being behind is not an invisible state');
+  f.cleanup();
+});
+
+test('fleet: unpushed commits make no host call, and are not capped', () => {
+  // Two properties in one fixture, exactly as the worktree signal pins them.
+  //
+  // No host call: the default path is what lets the board poll every 5 s.
+  // No cap: measured at 5.2 ms per call, twenty branches cost ~104 ms against a
+  // scan that already runs 500-1050 ms. Asserted by COUNT — every branch is
+  // probed — since a runtime assertion cannot tell a dropped result from a fast
+  // one.
+  const names = ['a', 'b', 'c', 'd', 'e', 'f'];
+  const f = makeRepo('plot-fleet-ahead-nocap-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    names.map((n) => `- \`feature/${n}\` — work\n`).join(''));
+  for (const n of names) {
+    f.work(`feature/${n}`, `${n}.txt`);
+    f.push('-u', 'origin', `feature/${n}`);
+    fs.writeFileSync(path.join(f.dir, `${n}2.txt`), 'unpushed\n');
+    git(f.dir, 'add', '-A');
+    git(f.dir, 'commit', '-qm', `unpushed on ${n}`);
+    git(f.dir, 'checkout', '-q', 'main');
+  }
+
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nohost-ahead-'));
+  const callLog = path.join(shim, 'host.calls');
+  for (const cli of ['gh', 'bb']) {
+    fs.writeFileSync(path.join(shim, cli), `#!/usr/bin/env bash
+printf '%s %s\\n' ${JSON.stringify(cli)} "$*" >> ${JSON.stringify(callLog)}
+exit 1
+`);
+    fs.chmodSync(path.join(shim, cli), 0o755);
+  }
+
+  const out = execFileSync('bash', [scan, '--offline', '--json'], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PATH: `${shim}:${process.env.PATH}` },
+  });
+  const branches = JSON.parse(out).plans[0].waves[0].branches;
+  for (const n of names) {
+    const b = branches.find((x) => x.branch === `feature/${n}`);
+    assert.equal(b.local_ahead, 1, `feature/${n} must not be dropped by a cap`);
+  }
+  assert.equal(fs.existsSync(callLog), false,
+    'the local signal must make no host calls');
+  fs.rmSync(shim, { recursive: true, force: true });
+  f.cleanup();
+});
+
+test('fleet: unpushed commits leave the human report byte-identical', () => {
+  // Same regression guard the dirty signal carries: the prose report is a HUMAN
+  // interface and the row it feeds lives in the board. Adding a field to the
+  // machine rendering must not reshape the one people read.
+  const f = makeRepo('plot-fleet-ahead-prose-', ONE_WAVE('feature/quiet-prose'));
+  f.work('feature/quiet-prose', 'q.txt');
+  f.push('-u', 'origin', 'feature/quiet-prose');
+  git(f.dir, 'checkout', '-q', 'main');
+  const before = f.run();
+  git(f.dir, 'checkout', '-q', 'feature/quiet-prose');
+  fs.writeFileSync(path.join(f.dir, 'q2.txt'), 'unpushed\n');
+  git(f.dir, 'add', '-A');
+  git(f.dir, 'commit', '-qm', 'unpushed');
+  git(f.dir, 'checkout', '-q', 'main');
+  const after = f.run();
+  assert.equal(after, before,
+    'unpushed commits must change the JSON, not the prose');
+  f.cleanup();
+});
+
 test('fleet: the local signal leaves the human report byte-identical', () => {
   // The prose report is a HUMAN interface and the row it feeds lives in the
   // board, not here. Adding a field to the machine rendering must not reshape

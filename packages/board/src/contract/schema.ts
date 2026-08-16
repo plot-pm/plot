@@ -387,6 +387,34 @@ export const FleetBranchSchema = z.object({
    * reading is worse than no path.
    */
   local_worktree: z.string().default(''),
+  /**
+   * Commits on the local branch that the remote does not have.
+   *
+   * The half `local_dirty` cannot answer, by construction: dirtiness reports
+   * *someone is editing*, and committing CLEARS it. So the moment a worker
+   * finishes tidily and pauses before pushing, the worktree is clean, the flag
+   * is false, and the row reads *claimed, no commits yet* for a branch holding a
+   * complete implementation — measured on the very branch that fixed the other
+   * half, at 3 commits ahead and 0 dirty files.
+   *
+   * A REF fact, not a worktree fact — the distinction the scan is built on, and
+   * the reason it is a separate field rather than a flavour of `local_dirty`.
+   * Worktrees share one ref database, so a local branch with NO worktree still
+   * holds commits nobody else can see, and this reports them.
+   *
+   * AHEAD ONLY. Being *behind* is not an invisible state — it is in the remote
+   * for anyone to read — so this never speaks about divergence.
+   *
+   * Like `local_dirty`, strictly ONE-DIRECTIONAL: `classify` may only use it to
+   * LIFT a branch out of quiet. 0 on a machine with no local ref for the branch
+   * — every detached worker, every teammate's laptop, every CI run — which is
+   * exactly the answer that changes nothing.
+   *
+   * Defaults to 0 so a pulse from an older scan still validates: absent and
+   * "nothing unpushed here" are the same statement, and both mean "answer from
+   * refs".
+   */
+  local_ahead: z.number().default(0),
 });
 export type FleetBranch = z.infer<typeof FleetBranchSchema>;
 
