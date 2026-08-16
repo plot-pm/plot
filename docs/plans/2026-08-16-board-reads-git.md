@@ -1,7 +1,8 @@
 # The board asks git about work in flight
 
-> Three numbers the board gets wrong, all because the card asks the plan file
-> about facts that live in git refs.
+> Three numbers the board gets wrong, because the card asks the plan file about
+> facts that live in git refs — and the git it should be asking more is free,
+> while the host it asks every five seconds is not.
 
 ## Status
 
@@ -19,6 +20,10 @@
   row can no longer disagree about whether work is in flight.
 - `/plot-dispatch` records a `Started:` entry when it fans out, the way
   `/plot-implement` already does, so a dispatched plan reads as started.
+- The board stops asking the git host for pull-request state every five
+  seconds. Git is still read at that rate — it is local and free — while PR
+  data refreshes on its own slower timer and backs off when the host reports a
+  rate limit.
 
 Board impact: **yes, and it is most of the plan.** `WaveSummarySchema` gains a
 field, its source changes, and `fleet.ts` exports one more accessor. No
@@ -145,6 +150,41 @@ Booking *before* the fan-out was the other candidate and is worse for a
 symmetric reason: it would write `Started:` for branches whose claim a
 competing dispatcher may still win.
 
+**The two sources must stop sharing a clock.** Reading the pulse for card
+counts makes the fleet cache load-bearing for a second view, which is the right
+moment to notice what that cache is doing: `refresh()` runs every 5 s and
+fires *both* a `plot-fleet-scan.sh` (git, local, free) and a
+`pr-list --rich --state all --limit 300` (GitHub GraphQL, metered). At 720
+calls an hour the second one exhausts a 5000/hour GraphQL budget in well under
+a working day — and did, on this repo, while this plan was being written:
+
+    GraphQL: API rate limit already exceeded for user ID 870334
+    remaining 0/5000, used 5007
+
+The board handled it correctly, which is worth saying: it surfaced the failure
+in the UI — *"the two groups above that depend on it may be incomplete"* —
+rather than rendering the empty groups as *nothing to do*. Keeping the last
+good map instead of blanking it, and saying so, is the behaviour this repo
+keeps having to fix elsewhere. Here it was already right.
+
+What is wrong is only the shared timer. `refreshPrs` already has its own
+timestamp (`prAt`), its own error (`prError`), and a comment stating the two
+sources are independent — so this is separating a cadence that was never
+deliberately joined, not redesigning the cache:
+
+    git   → every 5 s   (local, free, and what "working right now" needs)
+    PRs   → every 60–120 s, with backoff when the host reports a rate limit
+
+PR state does not change on a five-second horizon; a review or a check landing
+is a minutes-scale event. The freshness that matters at 5 s is git, and git is
+free.
+
+`--limit 300` stays. Wave 1's reasoning holds — without it the board sees only
+the newest 30 PRs and exactly the finished work goes unlinked — and 300 PRs
+once or twice a minute is unremarkable. The defect was the frequency, never the
+page size. And when the host does report a rate limit, the cache should wait
+for the reset it was handed rather than keep firing into a closed door.
+
 **The booking must be testable without pushing anywhere.** Adding a network
 write to `plot-dispatch.sh` puts it in the same position the dispatch route was
 in: the interesting behaviour cannot be exercised against a real remote from
@@ -177,7 +217,7 @@ counts are read back from git rather than assumed from what a plan said.
 
 ### Fixes
 
-- `bug/board-claimed-from-git` — `pulseFor()` beside `prsByNumber`; `waveSummary` from the pulse (real `claimed`, new `eligible`), computed for single-wave plans too, `summariseWaves` deleted
+- `bug/board-claimed-from-git` — `pulseFor()` beside `prsByNumber`; `waveSummary` from the pulse (real `claimed`, new `eligible`), computed for single-wave plans too, `summariseWaves` deleted; PR refresh on its own 60–120 s timer with rate-limit backoff
 - `bug/dispatch-records-started` — `plot-dispatch.sh` books `Started:` on a disposable branch pushed to the default branch, after the claim, never unwinding on failure
 
 <!-- One wave, two branches, deliberately concurrent. They share no file: the
@@ -215,6 +255,14 @@ corrected by hand twice this morning, reproduced in a script and therefore
 permanent. It now books through a disposable branch like every other Plot
 command, which in turn is what forced the testing rule: a script that pushes
 needs a test that proves a *failed* push leaves the fan-out standing.
+
+The rate limit arrived unbidden during the second round: the board's own Agents
+tab reported *PR data unavailable* while the plan for it was being interrogated,
+and `gh api rate_limit` put a number on it (0 of 5000 GraphQL, 5007 used). It
+belongs to this plan rather than a separate one because reading the pulse for
+card counts is what makes that cache serve two views — noticing what it costs
+at the moment its role grows is the point, not a detour. It also cost nothing
+to find: the board said so itself, in the UI, in yellow.
 
 Deliberately not here: the stale-bundle trap (a running board does not pick up
 a rebuilt artifact) and the artifact merge conflicts. Both are development
