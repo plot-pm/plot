@@ -55,11 +55,29 @@ bug/board-claimed-from-git
 ```
 
 `--next` names **finished work as the next thing to start**, and that is
-precisely the question `plot-dispatch.sh` asks before fanning out. A dispatch
-acting on that answer creates a worktree, pushes a claim — **which recreates
-the deleted ref** — and re-badges the branch `claimed`. The wrong answer
-manufactures the evidence that justifies it, and an agent is set to work on
-code already sitting on `main`.
+precisely the question `plot-dispatch.sh` asks before fanning out.
+
+That is not an inference. `--dry-run` writes nothing, so the consequence can be
+observed directly — and it is worse than one branch:
+
+```
+$ plot-dispatch.sh --dry-run board-reads-git
+would dispatch bug/board-claimed-from-git → …/plot-wt-bug-board-claimed-from-git
+would dispatch bug/dispatch-records-started → …/plot-wt-bug-dispatch-records-started
+summary: dispatched=2 reused=0 skipped=0 started=0
+```
+
+**The entire completed plan would be re-dispatched** — both branches, both PRs
+merged hours earlier, both refs deleted.
+
+And nothing downstream stops it. `plot-dispatch.sh` carries a loop guard
+(`exhausted`), but it has exactly two triggers — a claim rejected by another
+session, and a worktree that cannot be created. Both are *contention*
+conditions. Here neither fires: the refs are gone, so each claim push
+**succeeds**, creating the branch fresh from the default branch, recreating the
+deleted ref, and handing an agent a worktree whose diff is already on `main`.
+The wrong answer manufactures the evidence that justifies it, and the guard
+that looks like it would catch this was built for a different problem.
 
 It also explains the ref that had to be restored by hand earlier that day to
 unblock a wave. That was the symptom; this `if` is the cause.
@@ -366,6 +384,61 @@ blocking `reconcile-scan-accuracy`. The last three bug branches (#122, #125)
 each shipped implementation and ~200 lines of tests together, so a separate
 test wave would formalise a step that does not happen in practice.
 
+### What the board does with the new answer — and why it needs no change
+
+The board consumes branch states through `classify()` in
+`packages/board/src/server/fleet.ts`. Read rather than assumed, because "no
+change needed" is the kind of claim that is wrong quietly.
+
+**The state change lands in an arm that already handles it.** A merged branch
+returns `{ group: 'done', note: 'merged' }`, or `'merged — wave still open'`
+when the wave has other outstanding branches. Today the same branch takes the
+`'open'` arm and renders *"eligible — nobody has taken it"* — an invitation to
+start finished work, the board-facing half of the dispatch problem above.
+
+Two properties make this work without touching the package, and both are
+accidental enough to be worth writing down:
+
+**1. The `merged` arm never reads `ageMinutes`.** That matters here more than
+anywhere else: branch ages come from `git for-each-ref refs/remotes/origin`, so
+a deleted branch has no entry and its age is `null`. Every other arm has a
+`null`-age fallback for exactly that reason; `merged` needs none because it
+does not ask.
+
+**2. The PR arm is guarded against both states.** Before the state arms,
+`classify()` lets a PR outrank git:
+
+```ts
+if (pr && state !== 'merged' && state !== 'open') { … }
+```
+
+Today a deleted branch escapes that arm via the `'open'` exclusion; after the
+fix it escapes via `'merged'`. **Both exclusions already exist**, so the change
+moves a branch from one excluded value to another and the PR arm never sees it
+either way.
+
+That is a fortunate alignment, not a designed one — and it means this fix's
+correctness partly rests on a condition in a *different package*, written for a
+different reason, invisible from `plot-fleet-scan.sh`. A board test pins it, so
+the coupling is enforced rather than merely noted.
+
+### Dispatch is deliberately not hardened
+
+The obvious belt-and-braces addition — have `plot-dispatch.sh` check whether
+the work already landed before claiming — is **not** in scope, and the reason
+is not cost.
+
+A correct pulse removes the condition entirely: `merged` is not `eligible`, so
+the branch never reaches the dispatch list. A second check would be redundancy
+against a bug that no longer exists, in a code path that would then never
+execute — and a guard nothing exercises is a guard that rots. The `exhausted`
+mechanism above is the cautionary example: it looks like it protects this case
+and does not, because it was written for contention.
+
+Fix the answer, not every consumer of the wrong answer. If a later failure
+shows the pulse can be wrong in some *other* way, that argues for defence in
+depth on its own evidence — not on this one.
+
 ## Done when
 
 - A branch whose PR merged and whose ref was deleted reports `merged`, and its
@@ -408,6 +481,16 @@ test wave would formalise a step that does not happen in practice.
   is the assertion that stops the cap from re-creating the bug: a branch beyond
   the limit reads `open`, which is acceptable only while the scan says it
   stopped looking.
+- **`plot-dispatch.sh --dry-run` on a fully merged plan dispatches nothing.**
+  The end-to-end proof, and the one that speaks in the consumer's terms:
+  `dispatched=0` where it reports `dispatched=2` today. Run it against
+  `board-reads-git`, whose branches are merged and deleted.
+- **The board renders a merged-and-deleted branch as `done`.** A `@plot-pm/board`
+  test calling `classify('merged', verdict, null, …)` — state `merged` with a
+  `null` age, which is what a deleted ref produces — asserting group `done`.
+  This pins the cross-package coupling described above; without it, the fix's
+  correctness depends on an exclusion in `classify()` that nothing connects to
+  this plan.
 - A branch with no merge commit still reports `open` — no third state, no
   guessing — and `merge_detect=none` appears in the footer when the default
   branch offers no conforming merges at all.
@@ -436,7 +519,7 @@ condition where a card can spring back to *eligible* after its work merged.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 3,
+  "round": 4,
   "questionHistory": [
     {"q": "How robust must the merge signal be, given no local ref trace survives?", "a": "Text plus structural counter-check — proposed second-parent check tested and found non-discriminating; replaced by first-parent filter in round 1, which round 2 then removed as well", "category": "technical-architecture"},
     {"q": "Should the fix consult plan → #N annotations?", "a": "No — git only; board-reads-git proved live that merged branches carry no annotation", "category": "technical-architecture"},
@@ -445,7 +528,9 @@ condition where a card can spring back to *eligible* after its work merged.
     {"q": "What if the repo is on develop or next rather than main?", "a": "Overturned round 1: first-parent adds 0 traps caught over the anchored pattern (108 = 108) and breaks GitFlow (feature via develop reads open). Reachability + anchored subject instead; abandoned-stack case fixture-tested as safe", "category": "technical-architecture"},
     {"q": "Which branch counts as landed when a repo has both develop and main?", "a": "The one configured default branch (Main branch → origin/HEAD → main). GitFlow sets Main branch: develop; release merges to production main are the Released phase, out of scope", "category": "domain-workflows"},
     {"q": "One git log per branch, or one per run, given the board polls every 5s?", "a": "Bundle and cap. Measured 197ms vs 79ms at 2000 merges; cap set high (2000) and saturation REPORTED, since a blind 300-cap was tested and silently missed an early merge — recreating this plan's own bug", "category": "nonfunctional-performance"},
-    {"q": "A merged-then-deleted branch name reused for new work carries stale merge evidence — how to handle?", "a": "Correct today by placement (ref check precedes merge lookup); pin the ordering with a test so a refactor cannot invert it silently", "category": "technical-implementation"}
+    {"q": "A merged-then-deleted branch name reused for new work carries stale merge evidence — how to handle?", "a": "Correct today by placement (ref check precedes merge lookup); pin the ordering with a test so a refactor cannot invert it silently", "category": "technical-implementation"},
+    {"q": "Should plot-dispatch.sh also be hardened, given --dry-run shows dispatched=2 on a fully merged plan?", "a": "No — a correct pulse removes the condition entirely; a guard nothing exercises rots, and the existing `exhausted` guard is the cautionary example (built for contention, looks like it covers this, does not). Fix the answer, not every consumer of the wrong answer", "category": "tradeoffs-scope"},
+    {"q": "The board needs no change — but only because classify() already excludes both 'open' and 'merged' from its PR arm, and the merged arm never reads ageMinutes. How to record that?", "a": "Document the cross-package coupling in the plan and pin it with a board test: classify('merged', verdict, null) → group 'done'", "category": "technical-architecture"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
