@@ -258,7 +258,7 @@ lands, with nothing to clear.
 - `infra/board-artifact-merge` — a merge strategy for
   `skills/plot/scripts/board/board-server.mjs` so conflicts in the generated
   bundle are settled by rebuilding rather than by reading; CI's no-diff gate
-  unchanged
+  unchanged → #144
 
 ### Prediction
 
