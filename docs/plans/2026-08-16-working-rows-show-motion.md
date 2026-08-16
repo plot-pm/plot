@@ -201,7 +201,7 @@ flips direction depending on where it is applied is two rules wearing one name.
 ### Motion
 
 - `feature/working-rows-pulse` — a pulsing dot on `working` rows, one animation
-  for the whole group, disabled under `prefers-reduced-motion`
+  for the whole group, disabled under `prefers-reduced-motion` → #148
 
 ### Density
 
