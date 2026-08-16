@@ -291,7 +291,14 @@ lands, with nothing to clear.
   local refs and worktrees; it starts everything as before and refuses nothing
 - `feature/fleet-row-says-blocked` — the pulse reports work-in-flight as its
   own row state, so a held-back branch stops reading `eligible — nobody has
-  taken it`; derived per scan, never stored
+  taken it`; derived per scan, never stored → #154 — delivers the DRAFT half
+  only. The work-in-flight half is blocked on a contradiction between two of
+  this plan's own requirements: *"No candidate-side prediction is consulted"*
+  and *"`agent-view-phase-ui` blocked, `plot-sprint-support` free"* cannot both
+  hold, because with no candidate-side input the only available rule marks both
+  rows blocked. Same-plan narrowing is ruled out by this plan's own evidence —
+  the live pair were in different plans, and the candidate's wave-1 sibling had
+  already *merged*, which is what made its wave eligible. See the note on #154
 
 Two waves, and the order is deliberate: the artifact strategy is what makes any
 board branch mergeable at all, and the prediction is more useful once the
