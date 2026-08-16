@@ -162,22 +162,49 @@ justifies it in the PR. Writing a number here would be a guess wearing the
 authority of a decision — the same mistake this plan's sibling made by naming a
 port before checking how one was chosen.
 
-### 3. Approve prepares, and does not act
+### 3. Approve acts, behind one confirmation
 
-A Draft plan card gains an **Approve** affordance that shows and copies
-`/plot-approve <slug>` — it does **not** merge.
+A Draft plan card gains an **Approve** button that runs `/plot-approve <slug>`.
 
-This is deliberate, and the asymmetry with *Start work* is the argument.
-`Start work` creates a worktree and pushes a claim: local, reversible, and a
-wrong click costs a `git worktree remove`. `/plot-approve` on a `Review: pr`
-plan **merges the plan PR**, rewrites the phase, writes the `Approved:` record,
-and clears `.plot/hold`. It writes to the git host and cannot be undone by
-closing a tab.
+An earlier draft had it merely show and copy the command, on the grounds that
+`/plot-approve` under `Review: pr` **merges the plan PR**, rewrites the phase,
+writes the `Approved:` record and clears `.plot/hold` — writing to the git host,
+undoable only by more git. `Start work`, the board's only other acting control,
+creates a worktree and pushes a claim: local, and a wrong click costs a
+`git worktree remove`.
 
-A button that merges a PR belongs in a different risk class from a button that
-makes a directory. The affordance removes the friction that matters — *what is
-the slug, what is the command* — and leaves the irreversible step where its
-result is visible.
+That asymmetry is real and it is not the whole picture. The same irreversibility
+exists when the command is typed in a terminal, where nothing confirms anything
+— and it gets typed *often*: eight plans were approved in a single evening, each
+through the identical sequence. A button is not more dangerous than a command
+someone runs by rote; it is the same act with less friction. And a
+copy-a-command affordance would have introduced a second action vocabulary onto
+a surface that has exactly one: two buttons side by side, one acting and one
+merely offering text, indistinguishable by looking.
+
+**One confirmation, in the button itself.** The first click turns `Approve` into
+`Approve — merges PR #<n>?`; the second runs it; a click elsewhere cancels. No
+dialog, no modal above a modal, no new pattern — and the second label names the
+*consequence* rather than repeating the verb, which is the part a reader needs
+before committing to it. This is the friction a click needs and a typed command
+already has.
+
+**It runs through the same door as `Start work`.** `/api/dispatch` spawns
+`plot-dispatch.sh` detached and logs it, behind a localhost check, a same-origin
+check and slug validation; Approve gets the same treatment for
+`plot-approve`. One way for the board to invoke Plot, and the approval rules
+stay in the skill rather than being reimplemented beside it.
+
+**A failure shows the script's own words on the card.** `/plot-approve` already
+explains itself — *"Plan is still a draft. Mark it ready for review first."*,
+a closed PR, a rejected push. Surfacing that text beats replacing it with
+"failed": a failure without a reason sends the reader to a terminal, and then
+the command could have been typed there in the first place.
+
+Which is also why the button appears on **every** Draft card, including plans
+whose PR is not yet marked ready — a state that occurred repeatedly in one
+evening. The board would otherwise have to know Approve's preconditions and keep
+them in step with the skill, and the same rule would live in two places.
 
 **It appears only on Draft cards.** An approved plan has nothing to approve, and
 offering it would invite a second approval whose only effect is a confusing
@@ -200,9 +227,12 @@ error.
 - `feature/board-approve-affordance` — Approve on Draft cards, showing and
   copying the command
 
-Three waves, and the order is deliberate rather than habitual: navigation and
-density are display-only and independently useful, while the Approve affordance
-is the one a reviewer should look at last, when the rest is settled.
+Three waves, dispatched **one at a time** rather than fanned out. They are
+independent in purpose but all reach `PlanCard.tsx` or the contract, and this
+repo paid three times in one day for two agents in one file. Navigation goes
+first: it is the largest change (route, schema, overlay) and the one the others
+point at. Then density. Approve last — it is the only wave that acts, and it
+deserves a reviewer looking at it when nothing else is in motion.
 
 ## Done when
 
@@ -230,9 +260,18 @@ is the one a reviewer should look at last, when the rest is settled.
   failure this is meant to prevent.
 - **Recency uses the phase's own date.** Assert against a fixture whose file
   order and date order disagree — otherwise the test passes on a coincidence.
-- **Approve appears only on Draft cards**, shows `/plot-approve <slug>`, and
-  **performs no merge**. Assert that no host call is made: the whole decision is
-  that this button does not act.
+- **Approve appears only on Draft cards**, and on Draft cards whose PR is not
+  yet ready. Assert the second case explicitly: it is the state that occurred
+  repeatedly in one evening, and an implementation that hides the button there
+  has quietly copied Approve's preconditions into the board.
+- **The first click does not approve.** Assert that one click makes no request
+  and changes the label; a single-click implementation passes every test that
+  only checks the end result.
+- **The second click posts to the API**, not to the git host directly — the
+  approval rules stay in the skill.
+- **A failing approval shows the script's own message.** Assert the text
+  reaches the card rather than a generic "failed"; the reason is the whole value
+  of surfacing it.
 - `pnpm run test:board`, `pnpm run typecheck`, `pnpm test`, `pnpm run validate`
   all pass.
 - `pnpm build:board` run and the artifact committed — CI gates on no-diff.
@@ -267,6 +306,29 @@ three agents were being told not to do it. Recorded here rather than quietly
 fixed, because it is the strongest argument the fleet work has produced: the
 board cannot show what git was never told, and the rule applies to plans as
 much as to code.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 2,
+  "questionHistory": [
+    {"q": "The /plan/ route defends against TWO attacks — traversal AND decodeURIComponent throwing on a malformed % escape, which would kill the process. The plan names only traversal.", "a": "Both routes share one hardened resolver. They differ only in which allowlist they consult; a /story/ route written fresh would plausibly get the allowlist right and the decode wrong, and one malformed URL would take the board down", "category": "nonfunctional-security"},
+    {"q": "StoryCardSchema has slug/title/status and no path. What about a story with no file?", "a": "Empty path, no link — the rule plan rows already follow. The card keeps title and status, which are true regardless; hiding it would lose real information to avoid a broken link", "category": "ux-edgeCases"},
+    {"q": "What threshold for the long-column truncation?", "a": "Measured against real columns by the implementing branch and justified in the PR. Writing a number here would be a guess wearing the authority of a decision", "category": "technical-implementation"},
+    {"q": "The plan makes only the story BADGE a link — but the original request was a CTA next to Show in board.", "a": "Both. An Open story button in the modal header is the primary route; the badge stays as a link. The badge NAMES the story at triage time, the button GOES there once you have stopped triaging", "category": "ux-happyPath"},
+    {"q": "The plan claims the overlay carries 'the same two actions' — the modal has three, and has grown a body section since.", "a": "Header mirrors exactly, all three. The body is the story's own: which plans make it up and what phase each is in, derived from board cards rather than the STORY file's hand-maintained prose, which was measurably stale", "category": "ux-happyPath"},
+    {"q": "StartWorkButton calls itself 'the board's ONE control that changes something'. A copy-a-command Approve would be a second action vocabulary.", "a": "Approve ACTS — overriding the plan's first answer. The irreversibility is real but identical to the typed command, which gets run by rote (eight approvals in one evening). One confirmation lives in the button itself", "category": "tradeoffs"},
+    {"q": "What runs the approval, and what does a failure show?", "a": "The same door as Start work — /api/dispatch spawning the script, so the rules stay in the skill. A failure surfaces the script's own message; a reason-less failure sends the reader to a terminal, and then the command could have been typed there", "category": "ux-errors"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": true, "architecture": true, "implementation": true},
+    "domain": {"rules": true, "workflows": true, "data": false},
+    "ux": {"happyPath": true, "edgeCases": true, "errors": true, "accessibility": false},
+    "nonFunctional": {"security": true, "performance": false, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
 
 **Its Density wave now overlaps
 [`working-rows-show-motion`](2026-08-16-working-rows-show-motion.md)**, written
