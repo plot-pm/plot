@@ -1,9 +1,15 @@
-import { useEffect, useState } from 'react';
-import type { Card } from '../../contract/schema.js';
-import { planHref } from '../lib/plan.js';
+import type { Card, StoryCard } from '../../contract/schema.js';
+import { planHref, storyHref } from '../lib/plan.js';
+import { DocModal } from './DocModal.js';
 
 export interface PlanModalProps {
   card: Card;
+  /**
+   * The story card for `card.story`, if the board collected one. Absent for a
+   * plan with no story, and for a plan naming a story nobody has written — and
+   * the `Open story` control then does not render at all.
+   */
+  story?: StoryCard;
   onClose: () => void;
   /**
    * Close, switch to the board, and land on this card — highlighted, among its
@@ -14,150 +20,94 @@ export interface PlanModalProps {
    * filter, which is the friction this control exists to remove.
    */
   onShowInBoard?: (card: Card) => void;
+  /**
+   * Open this plan's story, REPLACING this modal rather than stacking above it.
+   * Absent where the plan has no story file to open.
+   */
+  onOpenStory?: (story: StoryCard) => void;
 }
 
 /**
- * In-board plan viewer. Fetches the server-rendered `/plan/<file>` HTML and
- * embeds it in a sandboxed iframe (fetch + embed, not iframe `src`) so the plan
- * renders in its own isolated document — no style bleed, no scripts. "Open in
- * new tab" points at the same route for the native full-page view.
+ * In-board plan viewer. The chrome, the fetch-and-embed and the three header
+ * controls come from `DocModal`, which the story overlay shares — that shared
+ * component is what keeps the two headers identical rather than merely similar.
  */
-export function PlanModal({ card, onClose, onShowInBoard }: PlanModalProps) {
-  const href = planHref(card);
-  // The embedded view drops the back-to-board titlebar (that navigation only
-  // makes sense on the full page). "Open in new tab" uses the plain href.
-  const embedSrc = `${href}?embed=1`;
-  const [srcDoc, setSrcDoc] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setSrcDoc(null);
-    setError(null);
-    fetch(embedSrc)
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.text();
-      })
-      .then((html) => {
-        if (!cancelled) setSrcDoc(html);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [embedSrc]);
-
-  // Escape closes the modal.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+export function PlanModal({ card, story, onClose, onShowInBoard, onOpenStory }: PlanModalProps) {
+  // A story with no file gets no button, rather than one that 404s — the same
+  // rule the badge follows, and the reason the emptiness is checked here rather
+  // than inside the href helper alone.
+  const canOpenStory = Boolean(onOpenStory && story && storyHref(story));
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Plan: ${card.title}`}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      onClick={onClose}
+    <DocModal
+      label="Plan"
+      ariaLabel={`Plan: ${card.title}`}
+      href={planHref(card)}
+      frameTitle={`Plan: ${card.slug}`}
+      onShowInBoard={onShowInBoard && (() => onShowInBoard(card))}
+      onClose={onClose}
     >
-      <div className="absolute inset-0 bg-black/50" aria-hidden />
-      <div
-        className="relative flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg bg-white shadow-xl dark:bg-slate-900"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
-          <h2 className="mr-auto truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
-            Plan
-          </h2>
-          {/* A real <button>: it changes what this page shows, and is neither a
-              destination nor something to open in a new tab. */}
-          {onShowInBoard && (
-            <button
-              type="button"
-              onClick={() => onShowInBoard(card)}
-              className="shrink-0 rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
-              Show in board
-            </button>
-          )}
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="shrink-0 rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-          >
-            Open in new tab
-          </a>
+      {/* The story this plan belongs to, as an ACTION rather than a label.
+          The badge on the card names the story at triage time; a named button
+          is where people look for something to do once they have stopped
+          triaging — and the modal's header is exactly that list. Kept in the
+          body rather than the header so the header stays identical to the
+          story overlay's, which is the symmetry both are meant to preserve. */}
+      {canOpenStory && story && (
+        <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-2 dark:border-slate-700">
+          <span className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Story
+          </span>
+          <span className="truncate text-xs text-slate-600 dark:text-slate-300">
+            {story.title || story.slug}
+          </span>
           <button
             type="button"
-            onClick={onClose}
-            className="shrink-0 rounded-md px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+            onClick={() => onOpenStory!(story)}
+            className="ml-auto shrink-0 rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
           >
-            Close
+            Open story
           </button>
-        </header>
-        {/* Where this plan's work is checked out on THIS machine.
-
-            Under the header rather than in the row: a row is a triage line and
-            is already full, while a filesystem path is what you want once you
-            have stopped triaging and decided to go look. Shown for CLEAN
-            worktrees too — dirtiness is evidence of work, presence is evidence
-            of location, and this asks about location.
-
-            Labelled "on this machine", because that is the whole caveat: the
-            path is true here and meaningless anywhere else. A card with no
-            worktrees renders nothing at all rather than an empty section. */}
-        {card.worktrees && card.worktrees.length > 0 && (
-          <div className="border-b border-slate-200 px-4 py-2 dark:border-slate-700">
-            <p className="mb-1 text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Checked out on this machine
-            </p>
-            <ul className="space-y-1">
-              {card.worktrees.map((wt) => (
-                <li key={wt.branch} className="flex items-baseline gap-2 text-xs">
-                  <span className="shrink-0 font-mono text-slate-500 dark:text-slate-400">
-                    {wt.branch}
-                  </span>
-                  {/* Selectable, because the next thing anyone does with it is
-                      `cd`. A text input rather than a copy button: it works
-                      without the clipboard permission, in an insecure context,
-                      and it shows the value it would copy. */}
-                  <input
-                    readOnly
-                    value={wt.path}
-                    onFocus={(e) => e.currentTarget.select()}
-                    aria-label={`Worktree path for ${wt.branch}`}
-                    className="min-w-0 flex-1 rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                  />
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        <div className="min-h-0 flex-1 bg-white dark:bg-slate-950">
-          {error ? (
-            <p className="p-6 text-sm text-red-600 dark:text-red-400">Failed to load plan: {error}</p>
-          ) : srcDoc === null ? (
-            <p className="p-6 text-sm text-slate-500">Loading…</p>
-          ) : (
-            <iframe
-              title={`Plan: ${card.slug}`}
-              srcDoc={srcDoc}
-              // Static rendered markdown needs no scripts; sandbox disables them
-              // (defense in depth) while keeping same-origin so the page styles.
-              sandbox="allow-same-origin allow-popups"
-              className="h-[70vh] w-full border-0"
-            />
-          )}
         </div>
-      </div>
-    </div>
+      )}
+      {/* Where this plan's work is checked out on THIS machine.
+
+          Under the header rather than in the row: a row is a triage line and
+          is already full, while a filesystem path is what you want once you
+          have stopped triaging and decided to go look. Shown for CLEAN
+          worktrees too — dirtiness is evidence of work, presence is evidence
+          of location, and this asks about location.
+
+          Labelled "on this machine", because that is the whole caveat: the
+          path is true here and meaningless anywhere else. A card with no
+          worktrees renders nothing at all rather than an empty section. */}
+      {card.worktrees && card.worktrees.length > 0 && (
+        <div className="border-b border-slate-200 px-4 py-2 dark:border-slate-700">
+          <p className="mb-1 text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Checked out on this machine
+          </p>
+          <ul className="space-y-1">
+            {card.worktrees.map((wt) => (
+              <li key={wt.branch} className="flex items-baseline gap-2 text-xs">
+                <span className="shrink-0 font-mono text-slate-500 dark:text-slate-400">
+                  {wt.branch}
+                </span>
+                {/* Selectable, because the next thing anyone does with it is
+                    `cd`. A text input rather than a copy button: it works
+                    without the clipboard permission, in an insecure context,
+                    and it shows the value it would copy. */}
+                <input
+                  readOnly
+                  value={wt.path}
+                  onFocus={(e) => e.currentTarget.select()}
+                  aria-label={`Worktree path for ${wt.branch}`}
+                  className="min-w-0 flex-1 rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </DocModal>
   );
 }

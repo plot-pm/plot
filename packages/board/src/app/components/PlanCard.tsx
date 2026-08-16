@@ -1,8 +1,8 @@
 import type { MouseEvent } from 'react';
-import type { Card, DispatchInfo, Phase } from '../../contract/schema.js';
+import type { Card, DispatchInfo, Phase, StoryCard } from '../../contract/schema.js';
 import { Badge, typeVariant } from './ui/badge.js';
 import { cn } from '../lib/utils.js';
-import { planHref } from '../lib/plan.js';
+import { planHref, storyHref } from '../lib/plan.js';
 import { StartWorkButton } from './StartWorkButton.js';
 
 // Colour only ever REPEATS what the column header already says in symbol and
@@ -93,11 +93,13 @@ export interface PlanCardProps {
   /** Open the plan in the in-board modal (plain left-click only). */
   onOpen: (card: Card) => void;
   /**
-   * Jump to this card's story swimlane. Absent where there is nowhere to jump —
-   * the board layout has no lanes — and the story badge stays plain text rather
-   * than becoming a link that goes nowhere.
+   * The story card for `card.story`, when the board collected one. Absent for a
+   * plan with no story and for one naming a story nobody has written — the
+   * badge then stays plain text (or a lane jump), never a link that 404s.
    */
-  onGoToStory?: (story: string) => void;
+  story?: StoryCard;
+  /** Open the story in the in-board overlay (plain left-click only). */
+  onOpenStory?: (story: StoryCard) => void;
   /**
    * Mark this card as the one just arrived at — a ring, and the anchor the
    * board scrolls to. Transient: it says *here you are*, not *this is selected*,
@@ -114,10 +116,14 @@ export function PlanCard({
   pulse = 0,
   onStarting,
   onOpen,
-  onGoToStory,
+  story,
+  onOpenStory,
   highlighted = false,
 }: PlanCardProps) {
   const href = planHref(card);
+  // The story's own page, or "" — a story with no file gets no link, the same
+  // rule plan rows follow for `planFile: ''`.
+  const storyPage = story ? storyHref(story) : '';
 
   // The Open control is a real anchor so cmd/ctrl/shift/middle-click open the
   // plan page natively (new tab, etc.). Only a plain primary click is
@@ -155,20 +161,30 @@ export function PlanCard({
         {isReadyToStart(card) && <Badge variant="neutral">Ready</Badge>}
         {showSprint && card.sprint && <Badge variant="sprint">{card.sprint}</Badge>}
         {showStory && card.story && (
-          // A real anchor to the lane's fragment, so cmd/ctrl/middle-click and
-          // "copy link address" behave. The plain click is intercepted only to
-          // switch the board into lane layout first — a fragment cannot scroll
-          // to a row that is not rendered yet.
-          onGoToStory ? (
+          // The badge NAMES the story on the card, at triage time — a different
+          // question from the modal's `Open story` button, which is where you
+          // GO once you have stopped triaging. Both exist deliberately; this is
+          // the naming half, and it points at the story ARTEFACT, because that
+          // is what the name refers to.
+          //
+          // A real anchor, so cmd/ctrl/middle-click and "copy link address"
+          // behave; only the plain click is intercepted for the overlay.
+          //
+          // A story with no FILE renders no link at all — the rule plan rows
+          // already follow for `planFile: ''`, and the reason the lane-jump
+          // fallback that used to sit here is gone: a badge that is sometimes a
+          // story and sometimes a scroll position teaches nothing, and the
+          // swimlane view still reaches every lane on its own.
+          storyPage && onOpenStory && story ? (
             <a
-              href={`#story-${encodeURIComponent(card.story)}`}
+              href={storyPage}
               onClick={(e) => {
                 if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                 e.preventDefault();
-                onGoToStory(card.story!);
+                onOpenStory(story);
               }}
               className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1"
-              title={`Go to the ${card.story} swimlane`}
+              title={`Open the ${card.story} story`}
             >
               <Badge variant="story" className="hover:underline">{card.story}</Badge>
             </a>

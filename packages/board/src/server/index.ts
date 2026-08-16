@@ -2,7 +2,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { buildBoard, renderPlanPage, type BuildBoardOptions } from './board.js';
+import { buildBoard, renderPlanPage, renderStoryPage, type BuildBoardOptions } from './board.js';
 import { buildFleet } from './fleet.js';
 import { dispatchAvailability, handleDispatch } from './dispatch.js';
 // Inlined at build time by esbuild's text loader — the artifact is a single
@@ -39,6 +39,20 @@ const opts: BuildBoardOptions = {
   repoRoot: process.env.PLOT_REPO_ROOT ?? process.cwd(),
   scriptsDir: process.env.PLOT_SCRIPTS_DIR ?? path.resolve(here, '..'),
 };
+
+/**
+ * The markdown-viewer routes, which differ ONLY in which allowlist they consult.
+ *
+ * Everything else — the decode, the try/catch that turns a URIError into a 400
+ * rather than a process exit, the 404, the CSP, `?embed=1` — is one code path
+ * below. A table rather than two `if` blocks, because the shape of the table is
+ * the claim: adding a third viewer must be a line here, never a second copy of
+ * the handling.
+ */
+const MARKDOWN_ROUTES = [
+  { prefix: '/plan/', label: 'Plan', render: renderPlanPage },
+  { prefix: '/story/', label: 'Story', render: renderStoryPage },
+] as const;
 
 function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
   const url = new URL(req.url ?? '/', `http://${HOST}:${boundPort}`);
@@ -100,27 +114,36 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     return;
   }
 
-  if (url.pathname.startsWith('/plan/')) {
-    // The modal embeds the plan with ?embed=1 to drop the back-to-board
+  // `/plan/<file>` and `/story/<slug>` are ONE route with two allowlists.
+  //
+  // They were very nearly two, and the second copy would have been the
+  // dangerous one. Traversal is the obvious attack and an allowlist-based
+  // resolver is the obvious defence, so a fresh route gets that right; the
+  // second attack is a single line and easy to miss — `decodeURIComponent`
+  // THROWS a URIError on a malformed `%` escape, and an uncaught throw in a
+  // request listener takes the whole single-process server down. One malformed
+  // URL, no board. Sharing the handler means neither route can lose that.
+  const markdownRoute = MARKDOWN_ROUTES.find((r) => url.pathname.startsWith(r.prefix));
+  if (markdownRoute) {
+    // The modal embeds the document with ?embed=1 to drop the back-to-board
     // titlebar; the plain new-tab / direct-URL view keeps it.
     const embed = url.searchParams.get('embed') === '1';
     try {
-      // decodeURIComponent throws URIError on a malformed % escape (e.g.
-      // /plan/%E0%A4%A). Decode INSIDE the try so a bad request is a 400 — not
-      // an uncaught throw in the request listener that crashes the process (DoS).
-      // `<filename>` is a plan basename; renderPlanPage resolves it against the
-      // board's own plan allowlist, so traversal (../) can't escape the plan dir.
-      const filename = decodeURIComponent(url.pathname.slice('/plan/'.length));
-      const html = renderPlanPage(opts, filename, { embed });
+      // Decode INSIDE the try — see above. A bad request is a 400, never a
+      // crash. The decoded name is resolved against the board's OWN collected
+      // documents (plan basenames / story slugs), so traversal (`../`) cannot
+      // escape the configured directory: it simply matches no entry and 404s.
+      const name = decodeURIComponent(url.pathname.slice(markdownRoute.prefix.length));
+      const html = markdownRoute.render(opts, name, { embed });
       if (html === null) {
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-        res.end('Plan not found');
+        res.end(`${markdownRoute.label} not found`);
         return;
       }
       // Rendered markdown is static — no script should ever run. `marked` does
-      // not sanitize raw HTML, so a plan carrying <script> or inline handlers
-      // would otherwise execute in the full-page view (the modal iframe is
-      // sandboxed, but the direct /plan page is not). CSP blocks that.
+      // not sanitize raw HTML, so a document carrying <script> or inline
+      // handlers would otherwise execute in the full-page view (the modal
+      // iframe is sandboxed, but the direct page is not). CSP blocks that.
       res.writeHead(200, {
         'Content-Type': 'text/html; charset=utf-8',
         'Content-Security-Policy': "script-src 'none'",
@@ -132,9 +155,9 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         res.end('Bad request');
         return;
       }
-      console.error('Error rendering plan:', err);
+      console.error(`Error rendering ${markdownRoute.label.toLowerCase()}:`, err);
       res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('Error rendering plan');
+      res.end(`Error rendering ${markdownRoute.label.toLowerCase()}`);
     }
     return;
   }

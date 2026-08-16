@@ -466,7 +466,7 @@ function collectSprints(repoRoot: string, sprintDir: string): SprintCard[] {
 }
 
 /** Story files use story-tracking's YAML front matter (title + status). */
-function parseStoryFile(absPath: string, slug: string): StoryCard | null {
+function parseStoryFile(absPath: string, slug: string, relPath: string): StoryCard | null {
   let content: string;
   try {
     content = fs.readFileSync(absPath, 'utf8');
@@ -486,7 +486,7 @@ function parseStoryFile(absPath: string, slug: string): StoryCard | null {
     const h1 = content.match(/^# (.+)$/m);
     title = h1 ? h1[1].trim() : slug;
   }
-  return { slug, title, status };
+  return { slug, title, status, path: relPath };
 }
 
 /**
@@ -510,10 +510,36 @@ function collectStories(repoRoot: string, storyDir: string): StoryCard[] {
     if (!storyFile) continue;
     const m = storyFile.match(/^STORY-(.+)\.md$/);
     const slug = m ? m[1] : entry.name;
-    const card = parseStoryFile(path.join(dir, storyFile), slug);
+    const abs = path.join(dir, storyFile);
+    // Repo-relative, computed once here rather than reassembled by whoever
+    // needs it. Same rule as `planFile` on a fleet row: stripping and rebuilding
+    // a path is where the mistakes live, so the consumer is handed the answer.
+    const card = parseStoryFile(abs, slug, path.relative(repoRoot, abs));
     if (card) stories.push(card);
   }
   return stories;
+}
+
+/**
+ * Resolve a story SLUG to its absolute file, restricted to the stories the
+ * board itself collects.
+ *
+ * The slug is a directory name AND a filename component (`<dir>/STORY-<slug>.md`),
+ * so it is checked against the collected stories rather than joined into a path
+ * — the same structural defence `resolvePlanFile` uses, and for the sharper
+ * reason: two path positions means two places a `../` could land.
+ */
+function resolveStoryFile(opts: BuildBoardOptions, slug: string): string | null {
+  if (!slug) return null;
+  const repoRoot = resolvedRepoRoot(opts);
+  const storyDir = readConfig(opts, 'Story directory', 'docs/stories/');
+  for (const story of collectStories(repoRoot, storyDir)) {
+    // `story.slug` came from a real STORY-*.md filename the board walked; a
+    // request naming anything else — traversal, an archived story, a typo —
+    // matches nothing and 404s.
+    if (story.slug === slug) return path.join(repoRoot, story.path);
+  }
+  return null;
 }
 
 /**
@@ -772,21 +798,17 @@ export interface RenderPlanOptions {
 }
 
 /**
- * Render a plan file to a standalone, theme-aware HTML page — or null if the
- * name doesn't resolve to a board plan (→ 404). One response serves both the
- * new-tab route (with a back-to-board titlebar) and the modal's fetched srcdoc
- * (embed=1, no titlebar).
+ * Markdown → the standalone, theme-aware page both viewer routes serve.
+ *
+ * Shared for the same reason the request handler is: the two documents differ
+ * in where their markdown comes from and in nothing else, and a second copy of
+ * the shell is a second place for the front-matter strip or the titlebar to
+ * drift. `fallbackTitle` is used only when the document has no `# ` heading.
  */
-export function renderPlanPage(
-  opts: BuildBoardOptions,
-  filename: string,
-  { embed = false }: RenderPlanOptions = {},
-): string | null {
-  const md = readPlanMarkdown(opts, filename);
-  if (md === null) return null;
+function renderMarkdownPage(md: string, fallbackTitle: string, embed: boolean): string {
   const body = marked.parse(stripFrontMatter(md), { async: false });
   const heading = md.match(/^#\s+(.+)$/m);
-  const title = heading ? heading[1].trim() : filename;
+  const title = heading ? heading[1].trim() : fallbackTitle;
   const titlebar = embed
     ? ''
     : '<header class="plan-titlebar"><a class="plan-back" href="/">← Board</a></header>';
@@ -800,4 +822,47 @@ export function renderPlanPage(
 </head>
 <body>${titlebar}<main>${body}</main></body>
 </html>`;
+}
+
+/**
+ * Render a plan file to a standalone, theme-aware HTML page — or null if the
+ * name doesn't resolve to a board plan (→ 404). One response serves both the
+ * new-tab route (with a back-to-board titlebar) and the modal's fetched srcdoc
+ * (embed=1, no titlebar).
+ */
+export function renderPlanPage(
+  opts: BuildBoardOptions,
+  filename: string,
+  { embed = false }: RenderPlanOptions = {},
+): string | null {
+  const md = readPlanMarkdown(opts, filename);
+  if (md === null) return null;
+  return renderMarkdownPage(md, filename, embed);
+}
+
+/**
+ * Render a story's STORY-<slug>.md the way `renderPlanPage` renders a plan — or
+ * null if the slug names no collected story (→ 404).
+ *
+ * Only the working tree, deliberately: a story is a long-lived umbrella that
+ * lives on the default branch, unlike a Draft plan whose file exists only on
+ * its review branch. There is no branch fallback to write, because there is no
+ * equivalent state to miss.
+ */
+export function renderStoryPage(
+  opts: BuildBoardOptions,
+  slug: string,
+  { embed = false }: RenderPlanOptions = {},
+): string | null {
+  const file = resolveStoryFile(opts, slug);
+  if (!file) return null;
+  let md: string;
+  try {
+    md = fs.readFileSync(file, 'utf8');
+  } catch {
+    // The allowlist named it a moment ago; if it is gone now, that is a 404
+    // rather than a 500 — the answer a reader can act on.
+    return null;
+  }
+  return renderMarkdownPage(md, slug, embed);
 }

@@ -1,6 +1,7 @@
 import type { Board, Card, StoryCard } from '../../contract/schema.js';
 import { BOARD_PHASES, PHASE_LEADERSHIP } from '../../contract/schema.js';
 import { NO_SPRINT, NO_STORY, passesFilter } from '../lib/filters.js';
+import { storyHref } from '../lib/plan.js';
 import { PlanCard } from './PlanCard.js';
 
 export interface SwimlanesProps {
@@ -12,6 +13,14 @@ export interface SwimlanesProps {
   /** A Start work click became outstanding (true) or settled (false). */
   onStarting: (active: boolean) => void;
   onOpenPlan: (card: Card) => void;
+  /**
+   * Open a story in the in-board overlay — what a lane's row header does.
+   *
+   * The lane view is the OTHER place a story is named and led nowhere: the
+   * column view names it on a badge, this one names it as a row header, and
+   * both now point at the story's own file.
+   */
+  onOpenStory?: (story: StoryCard) => void;
   /** Slug of the card just arrived at, or "" — see PlanCard's `highlighted`. */
   highlight?: string;
 }
@@ -22,6 +31,12 @@ interface Lane {
   title: string;
   subtitle: string;
   cards: Card[];
+  /**
+   * The story this row IS, where one exists as a file — so the row header can
+   * open it. Absent for the orphan and catch-all lanes, whose headers name no
+   * artefact and therefore link to none. Same rule as a card's story badge.
+   */
+  story?: StoryCard;
 }
 
 /**
@@ -52,6 +67,7 @@ export function buildLanes(cards: Card[], stories: StoryCard[]): Lane[] {
     title: s.title || s.slug,
     subtitle: s.status ? `${s.slug} · ${s.status}` : s.slug,
     cards: cards.filter((c) => c.story === s.slug),
+    story: s,
   }));
 
   // Plans can name a story that has no file — a typo, or a story not yet
@@ -88,6 +104,7 @@ export function Swimlanes({
   pulse,
   onStarting,
   onOpenPlan,
+  onOpenStory,
   highlight = '',
 }: SwimlanesProps) {
   const showSprint = sprintSel.length === 0;
@@ -133,16 +150,35 @@ export function Swimlanes({
           lanes.map((lane) => (
             <div
               key={lane.key}
-              // The link target a card's story badge points at. `scroll-mt`
-              // keeps the row clear of the sticky header when a fragment jumps
-              // here, so the lane lands visible rather than tucked underneath.
+              // Where a story's `Show in board` lands. `scroll-mt` keeps the
+              // row clear of the sticky header when the jump arrives, so the
+              // lane lands visible rather than tucked underneath.
               id={`story-${lane.key}`}
               className="mb-3 grid scroll-mt-4 gap-3 border-b border-slate-100 pb-3 last:border-0 dark:border-slate-900"
               style={{ gridTemplateColumns: `14rem repeat(${phases.length}, minmax(0, 1fr))` }}
             >
               <div className="pr-2">
                 <div className="text-sm font-medium leading-snug text-slate-800 dark:text-slate-200">
-                  {lane.title}
+                  {/* A real anchor where the row names a story that has a
+                      file; plain text otherwise — the orphan and catch-all
+                      rows name no artefact, and a link that 404s is worse
+                      than no link. Same rule as a card's story badge. */}
+                  {onOpenStory && lane.story && storyHref(lane.story) ? (
+                    <a
+                      href={storyHref(lane.story)}
+                      onClick={(e) => {
+                        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                        e.preventDefault();
+                        onOpenStory(lane.story!);
+                      }}
+                      className="hover:underline"
+                      title={`Open the ${lane.story.slug} story`}
+                    >
+                      {lane.title}
+                    </a>
+                  ) : (
+                    lane.title
+                  )}
                 </div>
                 <div className="mt-0.5 font-mono text-[11px] text-slate-400 dark:text-slate-600">
                   {lane.subtitle}
