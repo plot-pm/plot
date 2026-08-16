@@ -302,11 +302,43 @@ export const DispatchInfoSchema = z.object({
 });
 export type DispatchInfo = z.infer<typeof DispatchInfoSchema>;
 
+/**
+ * How to start this board again, in this project's own words.
+ *
+ * Sent so the unreachable overlay can name a way out rather than only a
+ * problem. The board is left running for hours and reloaded rarely, and
+ * whoever finds it frozen at midday may not remember how it was started.
+ *
+ * From the SERVER, never a constant in the client, and that is Principle 5
+ * rather than tidiness: `pnpm board` is *this* repo's convention. An adopting
+ * project that starts its board some other way would otherwise be handed
+ * advice that does not work, by a message whose entire purpose is to work.
+ *
+ * `port` is the port this server actually BOUND — `boundPort`, not the
+ * requested one, which reads 0 under `PORT=0`. The overlay names it so a
+ * reader whose server came back on a different port can see why the page still
+ * says nothing is there: a page can only ask its own origin, and a board on
+ * another port is genuinely unreachable from here. The client never probes for
+ * one — a page that guessed could attach itself to a different project's board.
+ *
+ * Defaulted so an older server (which sends no such field) yields an overlay
+ * that states the silence without inventing a command it was never told.
+ */
+export const ServerInfoSchema = z.object({
+  /** e.g. `pnpm board`. Empty where the server does not know its own. */
+  restartCommand: z.string().default(''),
+  /** The bound port, or 0 where it is not known. */
+  port: z.number().default(0),
+});
+export type ServerInfo = z.infer<typeof ServerInfoSchema>;
+
 export const BoardSchema = z.object({
   generatedAt: z.string(),
   columns: z.array(ColumnSchema),
   /** See DispatchInfoSchema — a server capability, not plan data. */
   dispatch: DispatchInfoSchema.default({ available: false, reason: '' }),
+  /** See ServerInfoSchema — how to start this server again, and where it is. */
+  server: ServerInfoSchema.default({ restartCommand: '', port: 0 }),
   /**
    * Newest release checklist, for the Endgame column: what is left before
    * signoff. null when no checklist exists or none could be parsed — the board

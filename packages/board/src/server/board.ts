@@ -732,6 +732,10 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // work" is a question about that socket. index.ts overwrites it at response
     // time, where the binding is known.
     dispatch: { available: false, reason: '' },
+    // Empty for the same reason and by the same hand: the port is known only
+    // inside `listen()`, so index.ts overwrites this at response time. An empty
+    // command renders no restart hint rather than a guessed one.
+    server: { restartCommand: '', port: 0 },
     checklist: readChecklist(repoRoot, readConfig(opts, 'Release directory', 'docs/releases/')),
     sprints: collectSprints(repoRoot, sprintDir),
     stories: collectStories(repoRoot, storyDir),

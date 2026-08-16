@@ -5,6 +5,7 @@ import { BoardView } from './components/Board.js';
 import { Swimlanes } from './components/Swimlanes.js';
 import { PlanModal } from './components/PlanModal.js';
 import { StoryModal } from './components/StoryModal.js';
+import { BLOCKED_REASON, UnreachableOverlay } from './components/UnreachableOverlay.js';
 import { MultiSelect } from './components/ui/MultiSelect.js';
 import {
   NO_SPRINT,
@@ -23,6 +24,44 @@ import {
 // refreshes on its own timer; it never runs a scan per request.
 const POLL_MS = 30_000;
 const FLEET_POLL_MS = 4_000;
+
+/**
+ * How many consecutive failed polls mean *the server is gone* rather than *a
+ * poll went missing*.
+ *
+ * COUNTED IN POLLS, NOT SECONDS, and that is the whole reason this is one
+ * constant rather than two. The two tabs run at very different rates — 30 s
+ * for the board against 4 s for the fleet, a factor of 7.5 — so a single
+ * seconds-threshold says two different things: thirty seconds is seven and a
+ * half missed polls on the Agents tab and a single one on the Board tab. The
+ * same number would dim on the first hiccup in one place and only after a real
+ * outage in the other. Counting failures keeps the STATEMENT identical on both
+ * — the server has not answered eight times running — and it survives someone
+ * changing a poll interval later, which a pair of hand-tuned second-counts
+ * would not.
+ *
+ * MEASURED, not guessed. `pnpm board` runs under `node --watch`, so an
+ * ordinary edit to a board source file restarts the server and the tab loses
+ * contact several times an hour; dimming for that would be a strobe, and it
+ * would teach the reader to ignore the dimming. Five real restarts were timed
+ * on this machine, touching the watched artifact and polling /api/board every
+ * 50 ms: the server was unanswerable for 3.1 s, 4.5 s, 5.1 s, 5.8 s and 9.1 s
+ * — median 5.1 s. A COLD boot, which is what a save touching the git-scan
+ * surface costs, took 21.2 s.
+ *
+ * At the fleet's 4 s poll those windows cost at most 3 consecutive failures,
+ * and a cold boot 6. Eight clears the worst of them with room left over, so
+ * the case that happens several times an hour never triggers the case that
+ * means something.
+ *
+ * On the board's 30 s poll eight failures is about four minutes of silence
+ * before the page dims — deliberately long, and the price the plan chose to
+ * pay when it settled on polls over seconds. Four minutes of a banner is not
+ * four minutes of a lie: the banner, the frozen footer and the stopped clocks
+ * are already saying the numbers are old from the first failure. Only the
+ * *posture* waits.
+ */
+const DIM_AFTER_FAILURES = 8;
 
 /**
  * How fast the board re-reads git while a Start work click is outstanding.
@@ -86,16 +125,60 @@ export function App() {
   const [fleetHeardAt, setFleetHeardAt] = useState<number | null>(null);
   const [fleetUnreachable, setFleetUnreachable] = useState(false);
 
+  // Consecutive failed polls, per endpoint. The pair the dimming reads.
+  //
+  // TWO counters rather than one, because the two endpoints are polled at
+  // different rates and only one tab polls the fleet at all: a shared counter
+  // would let the board's four-minute silence and the fleet's thirty-second
+  // one add up into a number describing neither. The tab in front decides
+  // which one is asked, below.
+  //
+  // Counting rather than timing is what makes the STATEMENT the same on both
+  // — see DIM_AFTER_FAILURES.
+  const [boardFailures, setBoardFailures] = useState(0);
+  const [fleetFailures, setFleetFailures] = useState(0);
+
+  /**
+   * Whether a fetch failure means the SERVER IS NOT THERE.
+   *
+   * The distinction this whole overlay turns on. A server returning HTTP 500 or
+   * malformed JSON is alive and speaking: an overlay claiming *no contact*
+   * would be plainly wrong about it, and `pnpm board` would be the wrong
+   * advice — restarting fixes nothing that answers. Those keep the existing
+   * `setError` path.
+   *
+   * Only a fetch that never reached anything counts here. `fetch` rejects for
+   * exactly that class (connection refused, DNS, aborted transport) and
+   * RESOLVES for every HTTP status, however bad — so the thrown-versus-returned
+   * distinction is the discriminator, and it is drawn at the one place that can
+   * see it.
+   */
   const load = useCallback(async () => {
+    let reached = true;
     try {
-      const res = await fetch('/api/board');
+      let res: Response;
+      try {
+        res = await fetch('/api/board');
+      } catch (e) {
+        // The one branch that means no contact. Re-thrown so the single exit
+        // below still records the message, with `reached` carrying the reason.
+        reached = false;
+        throw e;
+      }
+      // Everything from here on is a server that ANSWERED — badly, perhaps,
+      // but answered. `reached` stays true and the error path takes it.
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as Board | { error: string };
       if ('error' in data) throw new Error(data.error);
       setBoard(data);
       setError(null);
+      setBoardFailures(0);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      // A bad answer resets the silence count: the server is there. Without
+      // this a 500 would creep the page toward an overlay that would then tell
+      // the reader to restart something already running.
+      setBoardFailures((n) => (reached ? 0 : n + 1));
     } finally {
       // Bumped even on a failed poll: the button is counting attempts to learn
       // the outcome, and an attempt that failed still did not confirm anything.
@@ -109,8 +192,15 @@ export function App() {
   }, []);
 
   const loadFleet = useCallback(async () => {
+    let reached = true;
     try {
-      const res = await fetch('/api/fleet');
+      let res: Response;
+      try {
+        res = await fetch('/api/fleet');
+      } catch (e) {
+        reached = false;
+        throw e;
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       // A Fleet carries its own `error` field (a failed scan, last pulse kept),
       // so presence of the key is not the discriminator the board endpoint uses
@@ -124,6 +214,7 @@ export function App() {
       // observe its own recovery — asking the reader to confirm one is ceremony.
       setFleetHeardAt(Date.now());
       setFleetUnreachable(false);
+      setFleetFailures(0);
     } catch {
       // The fetch did not reach the server. Keep the last good fleet on screen
       // — it is still the best information available, and blanking it would
@@ -142,7 +233,15 @@ export function App() {
       // since. Deriving the second from the first ("stale once the last success
       // is older than N") would reintroduce a threshold the plan rejected, and
       // would call a view stale during the ordinary gap between two polls.
-      setFleetUnreachable(true);
+      //
+      // A server that ANSWERED badly is excluded, which is a correction the
+      // banner needed too: a 500 left it reading "Not reaching the board
+      // server" about a server that was reaching back. `fleet.error` and the
+      // scan-failure banner already cover the case where the server reports
+      // its own trouble, and an unparseable 500 body now leaves the last good
+      // pulse and no false claim of silence.
+      setFleetUnreachable(!reached);
+      setFleetFailures((n) => (reached ? 0 : n + 1));
     }
   }, []);
 
@@ -162,6 +261,99 @@ export function App() {
     const id = setInterval(() => void loadFleet(), FLEET_POLL_MS);
     return () => clearInterval(id);
   }, [tab, loadFleet]);
+
+  /**
+   * Failed polls for the endpoint the tab in front actually depends on.
+   *
+   * Per tab rather than combined, because the answer has to be about the data
+   * the reader is looking at. The Agents tab is drawn from the fleet, and its
+   * board poll continues in the background — a board endpoint that recovered
+   * would otherwise silently clear an overlay over rows that are still frozen.
+   *
+   * Both endpoints are the SAME server, so in the case this is for — the
+   * process is gone — the two counts fail together. They are separated for the
+   * cases where they do not: a route that 500s while its neighbour is fine.
+   */
+  const failures = tab === 'agents' ? fleetFailures : boardFailures;
+
+  /**
+   * Dimmed: the server has not answered several times running.
+   *
+   * `board`/`fleet` being non-null is part of it, and load-bearing. A tab whose
+   * very FIRST poll fails has never had an answer, so it has no last payload to
+   * dim and no silence to measure from — it shows "Loading…", which is a
+   * different and true statement. Dimming an empty page would claim data it
+   * never held, the same distinction the staleness banner already draws.
+   */
+  const dimmed = failures >= DIM_AFTER_FAILURES && (tab === 'agents' ? fleet : board) !== null;
+
+  /**
+   * What the action controls are told while the page is dimmed.
+   *
+   * The scrim stops a POINTER, and that is not enough on its own: a keyboard
+   * reader tabs straight through a scrim into a live-looking button, and a
+   * screen reader is told nothing by a visual dim. So the state is also
+   * expressed in the one channel every action control already reads —
+   * `DispatchInfo`, whose `reason` those controls already render and announce.
+   *
+   * Overridden in ONE place rather than at each call site, because the rule is
+   * about the page and not about any button: a control added later inherits it
+   * without anyone having to remember, which is the difference between a gate
+   * and a rule.
+   *
+   * Blocked actions stay VISIBLE and `aria-disabled` with the reason, never
+   * removed. Buttons that vanish make the layout jump — once when contact is
+   * lost and again when it returns — and a page that rearranges itself while
+   * frozen is worse than one that simply admits it is.
+   */
+  const dispatchInfo = dimmed
+    ? { available: false, reason: BLOCKED_REASON }
+    : board?.dispatch;
+
+  /**
+   * The board as the card views should see it — same data, effective dispatch.
+   *
+   * `BoardView` and `Swimlanes` read `board.dispatch` off the document rather
+   * than taking it as a prop, so substituting it here reaches every card
+   * through the path they already use. That keeps this change out of both of
+   * those files, which two other branches are editing today, and it means a
+   * card view added later inherits the block for free.
+   *
+   * A function rather than a derived value because it is called where `board`
+   * has already been narrowed to non-null, and a nullable variable would carry
+   * that null into props that do not accept one.
+   */
+  const withEffectiveDispatch = (b: Board): Board =>
+    dispatchInfo ? { ...b, dispatch: dispatchInfo } : b;
+
+  /**
+   * Coming back to a hidden tab RE-CHECKS instead of counting.
+   *
+   * Browsers throttle timers in hidden tabs, so a minimised window would
+   * otherwise return holding a failure count assembled from however often it
+   * was allowed to wake — which is the same defect `App.tsx` already warns
+   * about for the staleness clock: "a board that has heard nothing for an hour
+   * has to say an hour, not 'as many seconds as the browser felt like waking
+   * me'." A count is worse than a duration here, because it cannot even be
+   * recomputed from the wall clock afterwards.
+   *
+   * So visibility returning issues a poll. It either succeeds — and the count
+   * resets, and any overlay goes — or it fails, and the overlay is honest.
+   * Nobody should stare at a dim page for a server that came back two minutes
+   * ago.
+   *
+   * Both endpoints are asked, not merely the tab's own: switching tabs after
+   * returning must not be the moment the page finds out.
+   */
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      void load();
+      if (tab === 'agents') void loadFleet();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [load, loadFleet, tab]);
 
   // Ages the "last heard" number while the server is unreachable.
   //
@@ -520,21 +712,61 @@ export function App() {
               // no card gets no button rather than a broken one. `pulse` counts
               // BOARD refreshes, which is what moves a started row.
               cardForPlanFile={cardForPlanFile}
-              dispatch={board?.dispatch}
+              dispatch={dispatchInfo}
               pulse={pulse}
               onStarting={onStarting}
             />
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>
           )
-        ) : error ? (
+        ) : error && !board ? (
+          // DEGRADE, DO NOT HIDE — applied where it had not reached yet.
+          //
+          // This branch used to fire on any error and REPLACE the cards with a
+          // red string, throwing away a payload the client still held. One
+          // outage then produced two different stories depending on which tab
+          // was in front: the Agents tab kept its rows and said they were old,
+          // the Board tab showed a red message where the board used to be, with
+          // no indication whether it was stale or gone.
+          //
+          // Now the error only takes the whole view when there is nothing to
+          // degrade TO — a first load that never succeeded. With cards in hand
+          // the message moves to a banner above them (below) and the board
+          // stays on screen, because it remains the best information available.
           <p className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
             Failed to load board: {error}
           </p>
         ) : board ? (
-          lanes ? (
+          <>
+            {/* The Board tab's half of the unified error model.
+                Two banners, never merged, because they name two faults with two
+                different remedies — the same split the Agents tab already draws
+                between "not reaching the server" and "the last scan failed".
+                Both can be true at once: a route that started 500ing, then a
+                process that died. */}
+            {boardFailures > 0 && (
+              <p
+                role="status"
+                className="mb-4 rounded-md bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:bg-rose-950/40 dark:text-rose-300"
+              >
+                Not reaching the board server — {boardFailures}{' '}
+                {boardFailures === 1 ? 'poll has' : 'polls have'} gone
+                unanswered. The cards below are frozen at the last answer and
+                are no longer being checked.
+              </p>
+            )}
+            {error && boardFailures === 0 && (
+              // A server that ANSWERED badly. Its cards stay: the payload in
+              // hand is still the best information available, and it is the
+              // half of this that used to be thrown away.
+              <p className="mb-4 rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                Last board refresh failed: {error} — showing the last successful
+                one below.
+              </p>
+            )}
+          {lanes ? (
             <Swimlanes
-              board={board}
+              board={withEffectiveDispatch(board)}
               sprintSel={validSprintSel}
               storySel={validStorySel}
               pulse={pulse}
@@ -545,7 +777,7 @@ export function App() {
             />
           ) : (
             <BoardView
-              board={board}
+              board={withEffectiveDispatch(board)}
               sprintSel={validSprintSel}
               storySel={validStorySel}
               pulse={pulse}
@@ -554,11 +786,21 @@ export function App() {
               onOpenStory={onOpenStory}
               highlight={validHighlight}
             />
-          )
+          )}
+          </>
         ) : (
           <p className="text-sm text-slate-500">Loading…</p>
         )}
       </main>
+      {/* The dimming, and it is placed BEFORE the modals deliberately.
+          Its scrim is z-40 and `DocModal`'s shell is z-50, so a plan modal that
+          is already open paints above it and stays fully usable — which is the
+          intent: a modal is a layer above the board rather than part of it, and
+          its content route may well fail on its own, which it already explains
+          ("Failed to load plan"). Opening a NEW one is board interaction and
+          stops with everything else, because the card behind the scrim can no
+          longer be clicked. */}
+      {dimmed && <UnreachableOverlay failures={failures} server={board?.server} />}
       {/* Exactly one overlay at a time — `onOpenStory` clears the plan and
           `onOpenPlanFromStory` clears the story, so these two conditions are
           never true together. */}

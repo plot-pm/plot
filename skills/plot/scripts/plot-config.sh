@@ -26,7 +26,7 @@
 # Known keys (see the plot skill's Setup section):
 #   Project board | Branch prefixes | Plan directory | Active index |
 #   Delivered index | Sprint directory | Story directory | Story index |
-#   Plan template | Main branch
+#   Plan template | Main branch | Board command
 # Plot 2 posture keys (repo-declared ceremony bounds; all optional):
 #   Plan PRs            required | never | optional   (never = hard gate)
 #   Implementation home this repo | <repo/path list> | none
