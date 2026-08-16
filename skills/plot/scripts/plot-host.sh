@@ -18,9 +18,14 @@
 #                                 create a PR, print its URL
 #   pr-merge <number> [--squash] [--delete-branch]
 #                                 merge the PR
-#   pr-list [--state open|merged|closed|all]
+#   pr-list [--state open|merged|closed|all] [--limit N] [--rich]
 #                                 JSON lines: {"number":N,"title":"...",
 #                                 "state":"...","head":"..."}
+#                                 --rich adds: draft, checks, review, url —
+#                                 `url` so a consumer never has to construct
+#                                 one (it is "" only if the host omits it)
+#                                 --limit raises the host CLI's default page of
+#                                 30, which --state all exhausts immediately
 #   pr-body <number> --body B     replace the PR description
 #
 # Backend resolution: $PLOT_HOST (github|bitbucket) wins — useful for tests —
@@ -163,13 +168,22 @@ case "$op" in
   pr-list)
     state="open"
     rich=0
+    # `gh pr list` and `bb pr list` both cap at 30 by default. That is invisible
+    # with --state open (few repos have 30 open PRs) and bites immediately with
+    # --state all, where the newest 30 crowd out every older merged PR. A caller
+    # that wants history says how much; the default stays the host's, so no
+    # existing caller's result changes.
+    limit=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --state) state="${2:?}"; shift 2 ;;
+        --limit) limit="${2:?}"; shift 2 ;;
         --rich) rich=1; shift ;;
         *) die "pr-list: unknown arg $1" ;;
       esac
     done
+    limit_args=()
+    [ -n "$limit" ] && limit_args=(--limit "$limit")
     if [ "$be" = "github" ]; then
       if [ "$rich" = 1 ]; then
         # `checks` has FOUR states, and two of them mean "a person is the
@@ -191,8 +205,13 @@ case "$op" in
         #
         # `review` stays informational: a repo that does not review through the
         # host emits "" here, and no consumer may turn that into a gate.
-        gh pr list --state "$state" \
-          --json number,title,state,headRefName,isDraft,statusCheckRollup,reviewDecision \
+        # `url` comes from the host, never from a consumer. A board or a report
+        # that templated github.com from a config key would produce a plausible
+        # link and a wrong one for GitHub Enterprise or self-hosted Bitbucket —
+        # this script is the ONE place that knows what a host URL looks like
+        # (Principle 3), and pr-state already reads it from exactly here.
+        gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
+          --json number,title,state,headRefName,isDraft,statusCheckRollup,reviewDecision,url \
           | jq -c '.[] | {
               number:.number, title:.title, state:.state, head:.headRefName,
               draft:.isDraft,
@@ -205,10 +224,12 @@ case "$op" in
                          | $c=="PENDING" or $c=="IN_PROGRESS" or $c=="QUEUED"
                            or $c=="WAITING" or $c==null) then "pending"
                 else "green" end),
-              review:(.reviewDecision // "")
+              review:(.reviewDecision // ""),
+              url:.url
             }'
       else
-        gh pr list --state "$state" --json number,title,state,headRefName \
+        gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
+          --json number,title,state,headRefName \
           | jq -c '.[] | {number:.number,title:.title,state:.state,head:.headRefName}'
       fi
     else
@@ -216,10 +237,10 @@ case "$op" in
       # guess, --rich reports checks:"unknown" — a consumer must render that as
       # "unavailable", never as green. An honest gap beats an invented answer.
       if [ "$rich" = 1 ]; then
-        bb pr list --state "$state" --json \
-          | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",review:""}'
+        bb pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} --json \
+          | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",review:"",url:(.links.html.href // "")}'
       else
-        bb pr list --state "$state" --json \
+        bb pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} --json \
           | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name}'
       fi
     fi
