@@ -344,6 +344,35 @@ that closes the loop, and it has not been built yet.
   would have stopped the board rather than reloading it. Checking what actually
   starts the board was the whole difference between a one-word change and a
   feature.
+- ⏸️ **Agents working on the board break the operator's board, and the reason
+  compounds.** Seen 2026-08-17 with five agents in flight: the Agents tab
+  reported *"Last scan failed"* and rendered **`0 branches across 0 plans`** —
+  not a stale view, an empty one.
+
+  Two causes, both measured:
+
+  **`node --watch` restarts on every agent edit.** The operator's board runs
+  under `--watch`, and three of the five agents were editing files under
+  `packages/board/`. Every save restarts the server, and a freshly restarted
+  process has **no cached pulse to fall back on** — so the *degrade, do not
+  hide* behaviour from #141 has nothing to degrade to. The banner worked
+  perfectly and named the exact failing command; there was simply no last-good
+  payload behind it.
+
+  **The scan reads other people's worktrees.** Since #137 `plot-fleet-scan.sh`
+  runs `git status` inside every worktree on the machine. While an agent is
+  mid-`commit` or mid-`rebase`, git holds `.git/index.lock` and that call fails.
+  The function that makes agents visible is the one that trips over them.
+
+  Compounding it: `pgrep` found **four** `board-server.mjs` processes, two
+  started from agent worktrees — the agents launched boards to check their own
+  work, exactly as their briefs asked them to test. That is the accumulation the
+  point below describes, now with a second source: not just terminals, but
+  agents.
+
+  Worth stating plainly because it bounds the value of the fleet view: **the
+  more parallel work there is, the less reliable the view of it becomes.**
+
 - ⏸️ **`pnpm board` starts another board instead of adopting the running one.**
   Found 2026-08-16 while chasing why the quota kept draining *after* #123 had
   landed and `--watch` was in place: `ps` showed **seven** independent
