@@ -434,6 +434,209 @@ test('dispatch: --status tells a finished worker from a crashed one', () => {
   fs.rmSync(wt, { recursive: true, force: true });
 });
 
+// ---------------------------------------------------------------------------
+// The `Started:` booking
+// ---------------------------------------------------------------------------
+//
+// Dispatch starts real work, so it must record that it did — and record it
+// WHERE THE BOARD LOOKS. The board reads the plan from the DEFAULT BRANCH,
+// while plot-dispatch.sh finds the plan in its local working tree on whatever
+// branch the dispatcher is standing on. Appending to the local file would book
+// the start somewhere nobody reads, which is why every assertion below reads
+// the plan back out of `origin/main` rather than off disk.
+//
+// Tested against a LOCAL BARE REMOTE, never a real host: a push has to
+// genuinely succeed and genuinely fail for any of this to mean anything, and
+// CI cannot reach a host.
+
+/** A repo whose bare remote refuses (or accepts) pushes to main. */
+function repoForBooking(label, { refuseMain = false } = {}) {
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), `plot-started-${label}-`));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, r);
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-s.md'),
+    '# S\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n'
+    + '- **Approved:** 2026-01-01, alice, in-session\n\n## Branches\n\n- `feature/s` — one\n');
+  fs.symlinkSync('../2026-01-01-s.md', path.join(r, 'plans', 'active', 's.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  if (refuseMain) {
+    // Refuse only main. Claim pushes go to feature refs and must still pass —
+    // otherwise this would test "nothing works", not "the booking failed".
+    const hook = path.join(o, 'hooks', 'pre-receive');
+    fs.writeFileSync(hook,
+      '#!/bin/sh\nwhile read old new ref; do\n'
+      + '  case "$ref" in refs/heads/main) echo "refusing main" >&2; exit 1 ;; esac\n'
+      + 'done\nexit 0\n');
+    fs.chmodSync(hook, 0o755);
+  }
+  return { tmp: t, repo: r, planOnMain: () => {
+    git(r, 'fetch', '-q', 'origin', 'main');
+    return git(r, 'show', 'origin/main:plans/2026-01-01-s.md');
+  } };
+}
+
+test('dispatch: records Started: on the default branch, not the local tree', () => {
+  // The naive implementation appends to the plan file in the working tree.
+  // That commits the record to whatever branch the dispatcher stands on, and
+  // the board — which reads the default branch — never sees it. This had to be
+  // back-filled by hand twice on this repo on 2026-08-16.
+  const { tmp: t, repo: r, planOnMain } = repoForBooking('lands');
+  const out = execFileSync('bash', [dispatch, '--offline', '--no-start', 's'],
+    { encoding: 'utf8', cwd: r, timeout: 30_000 });
+  assert.match(out, /dispatched feature\/s/);
+
+  const onMain = planOnMain();
+  assert.match(onMain, /- \*\*Started:\*\* \d{4}-\d{2}-\d{2}, .+, `feature\/s`/,
+    `the record must be on the default branch, in /plot-implement's shape:\n${onMain}`);
+
+  // It must land inside `## Status` — plot-plan-meta.sh reads the records from
+  // there, so a line appended at the end of the document parses as nothing.
+  const status = onMain.split(/^## /m).find((s) => s.startsWith('Status')) ?? '';
+  assert.match(status, /Started:/, `Started: must be inside ## Status:\n${onMain}`);
+
+  // And the dispatcher's own checkout must be untouched: it may hold the
+  // user's uncommitted work, and switching it out to save a note would be the
+  // kind of write this script otherwise refuses.
+  assert.equal(git(r, 'status', '--porcelain').trim(), '');
+  assert.doesNotMatch(fs.readFileSync(path.join(r, 'plans', '2026-01-01-s.md'), 'utf8'),
+    /Started:/, 'the local working-tree copy must not be edited');
+
+  // The disposable booking branch is disposable: gone locally and remotely.
+  assert.doesNotMatch(git(r, 'branch', '-a'), /plot\/start-/);
+  assert.equal(git(r, 'ls-remote', '--heads', 'origin', 'plot/start-s').trim(), '');
+
+  fs.rmSync(t, { recursive: true, force: true });
+  fs.rmSync(path.join(path.dirname(r), 'plot-wt-feature-s'), { recursive: true, force: true });
+});
+
+test('dispatch: a failed booking leaves the fan-out standing', () => {
+  // THE ASSERTION THAT MATTERS. By the time the booking runs, the worktree
+  // exists and the claim is pushed — those are the real state, and the record
+  // is only a report about them. Rolling back real work because a note could
+  // not be saved is the larger damage, and aborting mid-fan-out leaves exactly
+  // the inconsistency the record exists to prevent. Every other test here can
+  // pass while this damage happens.
+  const { tmp: t, repo: r, planOnMain } = repoForBooking('refused', { refuseMain: true });
+
+  // Must not throw: a refused booking is not a failed dispatch.
+  const out = execFileSync('bash', [dispatch, '--offline', '--no-start', 's'],
+    { encoding: 'utf8', cwd: r, timeout: 30_000, stdio: ['ignore', 'pipe', 'pipe'] });
+
+  assert.match(out, /dispatched feature\/s/, 'the fan-out must still be reported');
+  assert.match(out, /summary: dispatched=1/, 'the summary must still report what it dispatched');
+
+  // The claim is on the remote and the worktree is on disk — the real state.
+  assert.match(git(r, 'ls-remote', '--heads', 'origin', 'feature/s'), /feature\/s/,
+    'the claim must survive a failed booking');
+  assert.match(git(r, 'worktree', 'list'), /plot-wt-feature-s/,
+    'the worktree must survive a failed booking');
+
+  // And it must say so rather than failing silently.
+  assert.match(out, /Started:.*(not|could not)/i,
+    `the failure must be reported, not swallowed:\n${out}`);
+
+  // No half-written record on main.
+  assert.doesNotMatch(planOnMain(), /Started:/);
+
+  fs.rmSync(t, { recursive: true, force: true });
+  fs.rmSync(path.join(path.dirname(r), 'plot-wt-feature-s'), { recursive: true, force: true });
+});
+
+test('dispatch: --dry-run writes no branch, no commit and no push', () => {
+  // This is the first write --dry-run has had to suppress that LEAVES THE
+  // REPOSITORY, so it is pinned with a test rather than a comment. An earlier
+  // dry-run test covers worktrees and claims; this one covers the booking.
+  const { tmp: t, repo: r, planOnMain } = repoForBooking('dryrun');
+  const head = git(r, 'rev-parse', 'origin/main').trim();
+
+  const out = execFileSync('bash', [dispatch, '--offline', '--dry-run', 's'],
+    { encoding: 'utf8', cwd: r, timeout: 30_000 });
+  assert.match(out, /would dispatch feature\/s/);
+
+  git(r, 'fetch', '-q', 'origin', 'main');
+  assert.equal(git(r, 'rev-parse', 'origin/main').trim(), head,
+    'the default branch must not have moved');
+  assert.doesNotMatch(planOnMain(), /Started:/, 'no record may be written');
+  assert.doesNotMatch(git(r, 'branch', '-a'), /plot\/start-/, 'no booking branch');
+  assert.equal(git(r, 'ls-remote', '--heads', 'origin', 'plot/start-s').trim(), '',
+    'nothing may be pushed');
+  assert.equal(git(r, 'status', '--porcelain').trim(), '', 'no working-tree change');
+
+  fs.rmSync(t, { recursive: true, force: true });
+});
+
+test('dispatch: re-dispatch does not re-record a branch it only re-adopted', () => {
+  // Re-running a dispatch is safe by design (worktrees are adopted, claims
+  // stay claimed). The record must inherit that: a second run books nothing,
+  // or a plan re-dispatched three times would read as started three times and
+  // the count would drift from the refs it is supposed to describe.
+  const { tmp: t, repo: r, planOnMain } = repoForBooking('idempotent');
+  execFileSync('bash', [dispatch, '--offline', '--no-start', 's'],
+    { encoding: 'utf8', cwd: r, timeout: 30_000 });
+  const first = (planOnMain().match(/Started:/g) ?? []).length;
+  assert.equal(first, 1, 'the first run records exactly one start');
+
+  execFileSync('bash', [dispatch, '--offline', '--no-start', 's'],
+    { encoding: 'utf8', cwd: r, timeout: 30_000 });
+  const second = (planOnMain().match(/Started:/g) ?? []).length;
+  assert.equal(second, 1, `a re-adopted branch must not be recorded again:\n${planOnMain()}`);
+
+  fs.rmSync(t, { recursive: true, force: true });
+  fs.rmSync(path.join(path.dirname(r), 'plot-wt-feature-s'), { recursive: true, force: true });
+});
+
+test('dispatch: a plan with no ## Status section is refused, not appended to', () => {
+  // plot-plan-meta.sh reads Started: records out of `## Status`. A line placed
+  // anywhere else parses as nothing — a record that exists on disk and not in
+  // the data, which is worse than no record because it looks written. So a
+  // malformed plan is a refusal with a reason, not a best-effort append.
+  //
+  // Reachable in practice: the phase gate reads the phase from front matter
+  // too, so a front-matter plan passes the gate with no `## Status` heading.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nostatus-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, r);
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-n.md'),
+    '---\nphase: Approved\nimpl: own branches\n---\n\n# N\n\n## Branches\n\n- `feature/n` — one\n');
+  fs.symlinkSync('../2026-01-01-n.md', path.join(r, 'plans', 'active', 'n.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  const out = execFileSync('bash', [dispatch, '--offline', '--no-start', 'n'],
+    { encoding: 'utf8', cwd: r, timeout: 30_000 });
+
+  // The fan-out still stands — a malformed plan is not a reason to unwind work.
+  assert.match(out, /dispatched feature\/n/);
+  assert.match(out, /Started:.*(not|could not)/i, `must report the missing record:\n${out}`);
+
+  // And nothing may have been smuggled onto main outside `## Status`.
+  git(r, 'fetch', '-q', 'origin', 'main');
+  assert.doesNotMatch(git(r, 'show', 'origin/main:plans/2026-01-01-n.md'), /Started:/);
+
+  fs.rmSync(t, { recursive: true, force: true });
+  fs.rmSync(path.join(path.dirname(r), 'plot-wt-feature-n'), { recursive: true, force: true });
+});
+
 test('dispatch: a real worker that exits records its status', () => {
   // Every other test uses --no-start, which is exactly why the original bug
   // survived: with no worker ever run, nothing exercised the exit-recording

@@ -26,6 +26,10 @@
 #     through a fan-out is safe to re-run.
 #   - Nothing is ever deleted. Cleanup belongs to /plot-reconcile, which can
 #     tell a deliberately abandoned claim from a dead worker.
+#   - The `Started:` record is booked on the DEFAULT BRANCH, after the claims,
+#     and only for branches this run newly claimed. A re-run books nothing it
+#     merely re-adopted. If the booking cannot be pushed, the fan-out stands
+#     and the script says the record is missing — see book_started.
 #
 # Eligibility is NOT decided here: this script asks plot-fleet-scan.sh, which
 # owns the wave arithmetic. Dispatch only acts on the answer. Keeping the rule
@@ -246,6 +250,10 @@ wt_root=$(cd "$repo_root/.." && pwd)
 
 n_dispatched=0 n_reused=0 n_skipped=0 n_started=0
 
+# Branches CLAIMED by this run, for the `Started:` record. Only newly claimed
+# ones: a reused worktree was dispatched by an earlier run, which booked it.
+declare -a claimed_now=()
+
 # Branches this run cannot dispatch. --next re-asks each iteration (pull
 # semantics), and a branch that is never CLAIMED keeps coming back — without
 # this the loop spins forever on the first undispatchable branch.
@@ -254,6 +262,176 @@ is_exhausted() {
   local x
   for x in ${exhausted[@]+"${exhausted[@]}"}; do [ "$x" = "$1" ] && return 0; done
   return 1
+}
+
+# Record what was started, ON THE DEFAULT BRANCH.
+#
+# WHERE THIS IS WRITTEN IS THE WHOLE DIFFICULTY. The plan file found above
+# lives in this dispatcher's LOCAL WORKING TREE — `docs/plans/active/<slug>.md`
+# relative to whatever branch happens to be checked out here. The board reads
+# the plan from the DEFAULT BRANCH. Appending the record to the local file and
+# committing it would book the start on the dispatcher's branch, where the
+# board never looks: the plan would keep reading as Ready while agents edit its
+# branches. That is not hypothetical — it had to be back-filled by hand twice
+# on this repo on 2026-08-16, which is why the naive version is called out here
+# rather than merely avoided.
+#
+# So dispatch books the way every other Plot command books: through a
+# disposable branch off origin/<default>, pushed with plot-push-main.sh.
+#
+# A SEPARATE WORKTREE, not `git checkout -b` in this one. The plan's sketch
+# said checkout, but the dispatcher's working tree belongs to the user and may
+# carry uncommitted work; switching it out from under them to save a note is
+# exactly the kind of write this script otherwise refuses. A throwaway worktree
+# reaches the same commit without touching anyone's checkout, and is removed
+# whether the push succeeded or not.
+#
+# plot-push-main.sh rather than a bare `git push`, so a repo whose protection
+# is configured but not enforced hears about the bypass instead of it passing
+# silently — the reason that helper exists at all.
+book_started() { # $@ = branches dispatched this run
+  [ $# -gt 0 ] || return 0
+
+  if write_started_record "$@"; then
+    return 0
+  fi
+
+  # A FAILED BOOKING NEVER UNWINDS A FAN-OUT. By the time we are here the
+  # worktrees exist and the claims are pushed, and those are the real state;
+  # the record is a report ABOUT that state. Rolling back real work because a
+  # note could not be saved is the larger damage, and aborting mid-fan-out
+  # would leave exactly the inconsistency the record exists to prevent.
+  #
+  # Said ONCE, here, and on STDOUT beside the summary it qualifies. Why the
+  # write failed belongs on stderr and was printed there; that the record is
+  # missing while the work is running is part of this command's report, and a
+  # caller reading only stdout would otherwise see a clean fan-out with no hint
+  # that the plan still reads as Ready.
+  echo "  note: Started: could not be recorded on $MAIN — the fan-out stands."
+  echo "        Record it by hand, or re-run this dispatch once the push works."
+  return 1
+}
+
+# The write itself. Every failure path returns non-zero after saying WHY on
+# stderr; the caller owns the one user-facing consequence line.
+write_started_record() { # $@ = branches
+  local who date rel tmpwt bookbr rc=0
+  who="${PLOT_CLAIM_WHO:-$(git config user.name 2>/dev/null || echo plot)}"
+  date=$(date +%Y-%m-%d)
+
+  # The CANONICAL plan file, not the index symlink: the record belongs in the
+  # dated file both indexes point at, or a later `active/` → `delivered/` move
+  # would carry the symlink and leave the record behind.
+  rel=$(cd "$repo_root" && real_plan_path "$plan_file") || rel=""
+  if [ -z "$rel" ]; then
+    echo "plot-dispatch: $plan_file is outside the repository root" >&2
+    return 1
+  fi
+
+  bookbr="plot/start-$slug"
+  tmpwt="$wt_root/.plot-start-$slug.$$"
+
+  # Fetch even under --offline: booking is a push, so the network is already
+  # required. Without a fresh origin/<default> the branch would fork from a
+  # stale tip and the push would be a guaranteed non-fast-forward.
+  git fetch -q origin "$MAIN" 2>/dev/null
+
+  # -B: a leftover branch from an earlier failed booking must not block this
+  # one. It is disposable by construction — created here, pushed, deleted.
+  if ! git worktree add -q -B "$bookbr" "$tmpwt" "origin/$MAIN" 2>/dev/null; then
+    echo "plot-dispatch: could not prepare a booking worktree at $tmpwt" >&2
+    return 1
+  fi
+
+  if [ -f "$tmpwt/$rel" ]; then
+    local br
+    for br in "$@"; do
+      append_started_line "$tmpwt/$rel" "$date" "$who" "$br" || {
+        echo "plot-dispatch: $rel has no '## Status' section — nowhere to record" >&2
+        rc=1
+        break
+      }
+    done
+    if [ "$rc" = 0 ]; then
+      git -C "$tmpwt" add -- "$rel" 2>/dev/null
+      git -C "$tmpwt" -c "user.name=$who" commit -q \
+        -m "plot: record start of $slug" 2>/dev/null || rc=1
+    fi
+  else
+    echo "plot-dispatch: $rel is not on origin/$MAIN" >&2
+    rc=1
+  fi
+
+  # The helper's own words, indented: which rules were stepped over and which
+  # checks did not run is information only the remote has. Its stderr is folded
+  # in so a `rejected` report is visible rather than swallowed by 2>/dev/null
+  # somewhere upstream.
+  if [ "$rc" = 0 ]; then
+    "$script_dir/plot-push-main.sh" "$bookbr" "$MAIN" 2>&1 | sed 's/^/  /'
+    # The pipeline's status is sed's, so ask the helper's directly.
+    rc=${PIPESTATUS[0]}
+  fi
+
+  git worktree remove --force "$tmpwt" 2>/dev/null || true
+  git branch -D "$bookbr" >/dev/null 2>&1 || true
+  return "$rc"
+}
+
+# The plan path relative to the repo root, with the index symlink resolved.
+# Called from within $repo_root.
+real_plan_path() { # $1=plan file as found (possibly a symlink, possibly relative)
+  local p="$1" d b t
+  d=$(cd "$(dirname "$p")" 2>/dev/null && pwd) || return 1
+  b=$(basename "$p")
+  t=$(readlink "$d/$b" 2>/dev/null || true)
+  if [ -n "$t" ]; then
+    case "$t" in
+      /*) d=$(cd "$(dirname "$t")" 2>/dev/null && pwd) || return 1 ;;
+      *)  d=$(cd "$d/$(dirname "$t")" 2>/dev/null && pwd) || return 1 ;;
+    esac
+    b=$(basename "$t")
+  fi
+  case "$d" in
+    "$repo_root")   printf '%s' "$b" ;;
+    "$repo_root"/*) printf '%s/%s' "${d#$repo_root/}" "$b" ;;
+    *) return 1 ;;
+  esac
+}
+
+# Insert one `- **Started:** ...` line into the plan's `## Status` section, in
+# /plot-implement's exact shape so nothing downstream learns a second format.
+#
+# Placed after the LAST list item of `## Status`, never appended to the end of
+# the file: plot-plan-meta.sh reads these records out of that section, so a
+# line below it would parse as nothing at all — a record that exists on disk
+# and not in the data is worse than no record, because it looks written.
+#
+# A plan with no `## Status` heading is therefore a REFUSAL, not a best-effort
+# append. Exit 1 and let the caller report the record as unwritten; the plan is
+# malformed and guessing where the field belongs would hide that.
+append_started_line() { # $1=file $2=date $3=who $4=branch
+  local f="$1" line
+  line="- **Started:** $2, $3, \`$4\`"
+  awk -v line="$line" '
+    { lines[++n] = $0 }
+    END {
+      # The first `## Status` heading, then the last list item under it.
+      for (i = 1; i <= n; i++) {
+        if (lines[i] ~ /^##[ \t]*[Ss]tatus[ \t]*$/) { start = i; break }
+      }
+      if (!start) exit 1
+      insert = start
+      for (i = start + 1; i <= n; i++) {
+        if (lines[i] ~ /^##[ \t]/) break
+        if (lines[i] ~ /^[ \t]*[-*][ \t]/) insert = i
+      }
+      for (i = 1; i <= n; i++) {
+        print lines[i]
+        if (i == insert) print line
+      }
+    }
+  ' "$f" > "$f.plot-tmp" || { rm -f "$f.plot-tmp"; return 1; }
+  mv "$f.plot-tmp" "$f"
 }
 
 # Start one DETACHED worker per worktree. Detached is the whole point: the
@@ -353,6 +531,10 @@ while :; do
     if git -C "$wt" push -q -u origin "$branch" 2>/dev/null; then
       echo "dispatched $branch → $wt"
       n_dispatched=$((n_dispatched + 1))
+      # AFTER the claim push, never before. A Started: record for a branch
+      # another dispatcher won would be a lie in the file, and the claim is the
+      # only thing that decides who holds a branch.
+      claimed_now+=("$branch")
     else
       echo "skipped $branch (claimed by another session)"
       git worktree remove --force "$wt" 2>/dev/null || true
@@ -366,5 +548,10 @@ while :; do
     start_worker "$branch" "$wt" && n_started=$((n_started + 1))
   fi
 done
+
+# Book AFTER the fan-out, in one commit, so a booking that fails cannot leave
+# the plan claiming starts the run did not achieve. Its failure is reported and
+# then ignored: the summary below reports what was dispatched either way.
+book_started ${claimed_now[@]+"${claimed_now[@]}"} || true
 
 echo "summary: dispatched=$n_dispatched reused=$n_reused skipped=$n_skipped started=$n_started"
