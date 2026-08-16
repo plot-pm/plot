@@ -75,6 +75,36 @@ that closes the loop, and it has not been built yet.
 - ⏸️ **What counts as "working" without a local pid?** Answered provisionally for
   step 1 (tip commit newer than `Fleet quiet after`, default 30 min) but the
   default is a guess only real use can correct.
+- ⏸️ **A freshly claimed branch reads as QUIET** — observed 2026-08-16, seven
+  minutes after dispatching `feature/board-artifact-links`. `classify()` in
+  `fleet.ts` short-circuits `state === 'claimed'` straight to
+  `{group: 'quiet', note: 'claimed, no commits yet'}`, regardless of age. The
+  note is accurate; the group is wrong. QUIET's own subtitle is *go check
+  whether it died*, and a branch claimed minutes ago has just started. This is
+  the merged-branch defect again — right state, wrong story — and the fix
+  probably means letting `claimed` flow through the same age comparison the
+  pushed-work case uses. The age data exists: a claim IS a commit (the empty
+  `plot: claim <branch>`). Deliberately not folded into the Navigation wave,
+  which touches the same file — that PR should stay one thing.
+- ⏸️ **`/plot-dispatch` starts work without recording that it did** — observed
+  2026-08-16: `board-acts-through-plot` sat in DESIGN badged *Ready* while its
+  first wave was claimed and an agent was editing it. The card was rendered
+  correctly; the booking was missing. `plot-dispatch.sh` creates the worktree,
+  pushes the claim and starts the worker, but writes no `Started:` record —
+  `/plot-implement` does that in its step 5, and dispatch never got the
+  equivalent. So the two tabs of one board disagreed by design: Agents reads
+  git refs and saw the claim, Board reads the plan through
+  `toBoardPhase(phase, started)` and saw nothing started. Fixed by hand for this
+  plan; the gap in dispatch remains.
+- ⏸️ **`same branch` work is invisible to the fleet until pushed** — same
+  session, same screenshot: `feature/push-main-bypass` sat under NOT STARTED
+  reading *"eligible — nobody has taken it"* while five commits existed for it
+  locally. The scan derives everything from remote refs (Principle 1), so this
+  is correct behaviour and correct semantics — in a fleet of detached workers,
+  a local branch is nobody's business but its machine's. But `/plot-dispatch`
+  pushes a claim and `/plot-implement` under `Impl: same branch` does not, so
+  that flow produces work the board cannot see. Whether `/plot-implement`
+  should push the branch at start is undecided.
 - ⏸️ **Does the board stay one-repo?** The design keeps every data function
   repo-parameterised, and tab 2 is meant to go cross-repo — "what are my agents
   waiting for" is a question about a person, not a repository. Not decided.

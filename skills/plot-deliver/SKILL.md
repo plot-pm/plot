@@ -236,8 +236,17 @@ When all branches are verified merged, check the box and update annotation:
 ```bash
 git add docs/sprints/
 git commit -m "plot: deliver <slug>"
-git push origin plot/deliver-<slug>:main
+../plot/scripts/plot-push-main.sh plot/deliver-<slug> main
 ```
+
+The helper reports what happened to the push rather than only whether it
+ran: `clean`, `bypassed` (landed, but branch protection was waived — it
+names the rules and the checks that did not run), `unknown` (landed, the
+remote said something unrecognised), or `rejected` (exit 1). Only
+`rejected` needs action: open a micro-PR from `plot/deliver-<slug>` and
+merge it, so the delivery never half-lands. Carry a `bypassed` or
+`unknown` report into the Summary — there is nothing to undo, but a
+delivery that skipped CI should not be discovered by accident.
 
 (Replace `YYYY-MM-DD-<slug>.md` with the actual date-prefixed filename from the resolved symlink.)
 
