@@ -247,6 +247,28 @@ that closes the loop, and it has not been built yet.
   `\0` in a template literal produces the identical byte, so the fix is
   behaviour-preserving and one character wide. Only occurrence in the repo
   (all tracked `.ts/.tsx/.mjs/.js/.sh/.md` scanned).
+- ⏸️ **Design work on an idea branch is invisible to the board.** Asked
+  2026-08-16 during a four-round `/challenge-the-plan` on #126: shouldn't that
+  session have shown up under WAITING ON YOU, then WORKING? Checked, and the
+  answer is *no* twice, for two different reasons — one right, one a gap.
+  **WAITING ON YOU is correct to stay empty.** `classify()` has an explicit
+  rule (`if (pr.draft) break; // a draft is still the author's, not yours`), so
+  a draft plan PR deliberately does not nag. It would appear the moment #126 is
+  marked ready. Working as designed.
+  **WORKING is the gap.** The pulse walks the branches a plan *lists* under
+  `## Branches`, and an idea branch is never one of them. Measured: zero pulse
+  lines for `idea/fleet-sees-merged-branches`, and **no `idea/` branch appears
+  in the pulse at all** — #121 and #126 are both invisible. So the card reads
+  `(unnamed) — eligible` with `bug/fleet-merged-branch-state — open`: truthful
+  that implementation has not started, and blind to hours of design work
+  happening right then on the idea branch.
+  The consequence is that the board answers "is anyone building this?" but not
+  "is anyone *thinking* about this?", and Plot treats design as a first-class
+  phase (Draft → Approved) rather than as pre-work. A plan in Draft with commits
+  on its idea branch is exactly as active as one with commits on a bug branch.
+  Not obviously the fleet scan's job to fix — it is branch-oriented by design —
+  so this may belong to whatever renders the Discovery/Design columns from the
+  plan's own PR rather than from `## Branches`.
 - ⏸️ **Does the board stay one-repo?** The design keeps every data function
   repo-parameterised, and tab 2 is meant to go cross-repo — "what are my agents
   waiting for" is a question about a person, not a repository. Not decided.
