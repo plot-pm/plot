@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Board, Card, Fleet } from '../contract/schema.js';
 import { AgentList } from './components/AgentList.js';
 import { BoardView } from './components/Board.js';
@@ -168,32 +168,29 @@ export function App() {
   //
   // Runs only while unreachable and only with the tab open, so a healthy board
   // pays nothing for it.
-  // The value is read from the WALL CLOCK below rather than counted here, so a
-  // throttled background timer still reports true elapsed time instead of a
-  // count of the ticks it managed to fire. A page left on a dead server for an
-  // hour has to say an hour. This state exists only to re-render each second.
-  const [silenceTick, setSilenceTick] = useState(0);
-  useEffect(() => {
-    if (tab !== 'agents' || !fleetUnreachable) return;
-    setSilenceTick(0);
-    const id = setInterval(() => setSilenceTick((n) => n + 1), 1_000);
-    return () => clearInterval(id);
-  }, [tab, fleetUnreachable]);
-
-  // Seconds since the last answer, or null while the server is answering.
   //
-  // Null is the whole vocabulary of "not stale" — the component reads the
+  // Each tick RECOMPUTES the age from the wall clock rather than incrementing a
+  // counter, so a throttled background timer still reports true elapsed time
+  // instead of the number of ticks it managed to fire. A page left on a dead
+  // server for an hour has to say an hour, not "as many seconds as the browser
+  // felt like waking me".
+  //
+  // Null is the whole vocabulary of "not stale": the component reads the
   // absence of a number as the statement that there is nothing to report, so a
   // healthy board never has to reason about a flag and a number agreeing.
-  const fleetStaleSeconds = useMemo(
-    () =>
-      fleetUnreachable && fleetHeardAt !== null
-        ? Math.max(0, Math.round((Date.now() - fleetHeardAt) / 1_000))
-        : null,
-    // `silenceTick` is the dependency that makes this recompute each second. It
-    // is deliberately not part of the arithmetic.
-    [fleetUnreachable, fleetHeardAt, silenceTick],
-  );
+  const [fleetStaleSeconds, setFleetStaleSeconds] = useState<number | null>(null);
+  useEffect(() => {
+    if (tab !== 'agents' || !fleetUnreachable || fleetHeardAt === null) {
+      setFleetStaleSeconds(null);
+      return;
+    }
+    const since = () => Math.max(0, Math.round((Date.now() - fleetHeardAt) / 1_000));
+    // Immediately, not on the first tick: the banner must appear with the
+    // failure rather than a second after it.
+    setFleetStaleSeconds(since());
+    const id = setInterval(() => setFleetStaleSeconds(since()), 1_000);
+    return () => clearInterval(id);
+  }, [tab, fleetUnreachable, fleetHeardAt]);
 
   const onLanes = (next: boolean) => {
     setLanes(next);
