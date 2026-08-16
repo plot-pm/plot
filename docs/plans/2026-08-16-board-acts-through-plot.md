@@ -25,6 +25,20 @@ new helper script — `plot-dispatch.sh` already does the work. The board gains
 its first non-GET route, which is a change in kind rather than degree and is
 why the localhost condition is designed rather than added.
 
+That change is smaller than it sounds, and must stay that way. `handleRequest`
+opens with a blanket `if (req.method !== 'GET') return 405`, which is why no
+existing route has ever had to think about verbs. Rather than remove that
+guard, the dispatch route is **allow-listed ahead of it**: the guard keeps
+protecting `/api/board`, `/api/fleet` and `/plan/*` exactly as it does today,
+and precisely one path-and-verb pair slips past.
+
+    if (url.pathname === '/api/dispatch' && req.method === 'POST') { … }
+    if (req.method !== 'GET') { 405 }   // unchanged, still the default
+
+Per-route method checks would be the more conventional shape, and are rejected
+for the reason this repo rejects prose MUSTs: a check every future route has to
+remember is a rule, while a default that refuses is a gate.
+
 ## Motivation
 
 The Agents tab answers *what are my agents waiting for*. It answers nothing
@@ -54,9 +68,12 @@ where one exists, its plan opens the viewer at `/plan/<file>`, and its story
 scrolls to that swimlane. Cards gain the same. All read-only, all GET.
 
 One thing is missing and must be added: **cards carry `slug`, `story` and
-`path`, but no PR numbers** (verified against the contract). The plan's `prs`
-are parsed by `plot-plan-meta.sh` and dropped when the card is built. Carrying
-them through is the whole of the PR-link work.
+`path`, but no PR numbers.** `PlanMetaSchema` parses `prs` as
+`z.array(z.number())`; `CardSchema` has no such field; and `board.ts` contains
+**no occurrence of the string `prs` at all** — so the numbers are parsed and
+dropped without anything in between. Carrying them through is the whole of the
+PR-link work, and the absence is a grep result rather than a reading of the
+contract.
 
 Where a row has no PR, it links nothing rather than guessing a URL — the same
 rule the fleet already follows for absent data.
@@ -77,11 +94,57 @@ claim succeeds, whether the phase gate allows it. The board cannot bypass a
 rule it never evaluates.
 
     POST /api/dispatch { slug }
-      → plot-dispatch.sh --max 1 <slug>
-      → 202 with the script's summary line
+      → spawn plot-dispatch.sh --max 1 <slug>, stdout → <repo>/../plot-dispatch-<slug>.log
+      → 202 { slug, log } immediately — before the script has done anything
 
 `--max 1` because a button is one decision. Fanning out a whole wave stays with
 `/plot-dispatch`, where the human sees the count first.
+
+**The 202 is a real 202, and the response body cannot carry a result.** A
+dispatch creates a worktree and pushes a claim — a network write, strictly
+slower than the 0.5–1.05 s scan that already forced the fleet cache to exist on
+this single-threaded server. Awaiting the script would freeze every viewer's
+board for the duration of someone else's click. So the handler spawns and
+returns, and the script's summary line — which only exists once the run is
+finished — is not in the response at all.
+
+That the outcome is missing from the response is not a gap to paper over: it is
+the same shape as `start_worker`'s own detached spawn, and it is why the row
+moving is the answer rather than the reply being one.
+
+**Where the script's words go.** The server picks the log path *before* it
+spawns, keyed by slug, because it cannot know the branch: `--max 1` asks
+`--next` at runtime which branch is eligible, and the worktree path derives
+from that answer. `<repo>/../plot-dispatch-<slug>.log` is knowable at 202 time;
+`<worktree>/.plot-worker.log` is not. Both exist and neither replaces the
+other — the first records what the dispatcher did, the second what the agent is
+doing.
+
+This matters most in the case that looks like nothing: with no `Worker command`
+configured, `start_worker` returns 1 **and that is not an error**. It creates
+the worktree, pushes the claim, and prints a `cd <path>` plus a CLAUDE.md hint,
+because Plot hardcodes no agent tooling (Principle 5). The board surfaces those
+lines verbatim rather than restyling them — Principle 3, and a second copy of
+that message in TypeScript is a second copy to drift.
+
+**The button condition is the gate's condition: `phase === approved`.** Not a
+board column. `plot-dispatch.sh` refuses every other phase — Draft exits 1 with
+*"Review it, then: /plot-approve"* — so a button on an unapproved plan could
+only ever fail, which is the same lie about the layout that kept the button off
+agent rows. But "Development" in the board's phase model means
+*approved **and** started*, and a plan that is approved and **not** started
+renders under Design. That is the first-dispatch case — the one the button is
+most for. Keying on the column would hide it from exactly those plans, so the
+button follows the phase the script actually checks, in whichever column the
+card happens to sit.
+
+**A double click is safe but not quiet.** Two clicks, or two tabs, fire two
+runs at one slug; the claim race handles the danger (the loser's non-fast-
+forward push is rejected and its worktree removed), so nothing is corrupted.
+What is left is a confusing story: two spinners, one worktree. The button
+therefore goes to *starting…* and stays disabled until the pulse moves the row
+or a few cycles pass. Local state, no in-flight registry on the server —
+git remains the only thing holding the lock.
 
 **The binding is the authorisation.** The route exists only while the server
 listens on localhost; with `HOST=0.0.0.0` — which the fleet user test uses for
@@ -120,15 +183,18 @@ read back from a pulse rather than assumed from a 202.
 
 - [ ] What does the button do when the plan has **no eligible branch** — every
       wave blocked or every branch claimed? `plot-dispatch.sh` reports
-      `dispatched=0`, so the honest answer is to show that. Whether the button
-      should be disabled beforehand needs the eligible count on the card, which
-      it does not carry today.
-- [ ] Should a card in **Design** offer it at all? A plan without a `Started:`
-      record has never been dispatched, so the first click is also the first
-      start — which `/plot-implement` normally records. Possibly the button
-      belongs only to Development, and Design keeps a link to the plan.
+      `dispatched=0` and the row never moves, so the click reads as a click
+      that did nothing. Disabling it beforehand needs the eligible count on the
+      card, which it does not carry today; the log names the reason, which is a
+      worse answer than a disabled button and a better one than silence.
 - [ ] Does the story link belong on a row, given the Agents tab has no story
       grouping? Scrolling to a swimlane means switching tabs first.
+
+Two questions left this section during interrogation, both answered by reading
+the script rather than by deciding anything. Whether **Design** cards get the
+button: the phase gate settles it — the condition is `approved`, not a column
+(see Approach). Whether the 202 can carry the script's summary: it cannot, and
+the attempt to have both is what surfaced the log-path design above.
 
 ## Branches
 
@@ -138,7 +204,7 @@ read back from a pulse rather than assumed from a 202.
 
 ### Dispatch
 
-- `feature/board-start-work` — `POST /api/dispatch`, localhost-only, Start work on plan cards
+- `feature/board-start-work` — `POST /api/dispatch` allow-listed ahead of the 405 guard, localhost-only, spawn-and-202 with a slug-keyed log; Start work on cards whose plan phase is `approved`
 
 <!-- Two waves, one branch each. Both touch the board bundle, so they cannot
      run concurrently; navigation goes first because it is the half that is
@@ -156,6 +222,15 @@ is informative but inert. The first framing was about linking artifacts; it was
 corrected to *acting through the orchestrator rather than in the board*, which
 is what put the button on the plan card and the decision-making in
 `plot-dispatch.sh`.
+
+Interrogated over three rounds before approval. What the rounds changed came
+almost entirely from reading `plot-dispatch.sh` and `index.ts` rather than from
+reasoning about the design: the blanket 405 that had to be preserved instead of
+removed, the phase gate that answered an open question outright, the
+`start_worker` return-1-is-not-an-error case, and the 202/summary contradiction
+that could not survive contact with a network write on a single-threaded
+server. The consistent lesson of this story holds again — the plan's model of
+the code and the code disagreed in four places, and only looking found them.
 
 Deliberately not here: stopping workers, reading worker logs in the board, and
 anything that acts over a network. Each is a separate plan, and the last one is
