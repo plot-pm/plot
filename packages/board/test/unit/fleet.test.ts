@@ -152,6 +152,19 @@ describe('rowsFromPulse', () => {
     expect(rows.find((r) => r.branch === 'bug/loose-fix')!.group).toBe('waiting-on-machine');
   });
 
+  it('puts a draft PR in waiting-on-you, not in quiet', () => {
+    // QUIET means "go check whether this died". A draft PR is the opposite: it
+    // is waiting for its author to finish it. classify() declines to claim a
+    // green draft — right for its question, wrong here, where the author is the
+    // reader.
+    const prs = new Map([['idea/some-slug', pr({ head: 'idea/some-slug', draft: true })]]);
+    const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, prs);
+    const row = rows.find((r) => r.branch === 'idea/some-slug');
+    expect(row!.group).toBe('waiting-on-you');
+    // Distinguishable from "green, ready to merge" — the note says which.
+    expect(row!.note).toContain('draft');
+  });
+
   it('files an idea branch under the plan it carries, not under nothing', () => {
     // /plot-idea names the branch after the plan's own slug, so the name is a
     // convention Plot writes rather than a guess about it. Without this, two

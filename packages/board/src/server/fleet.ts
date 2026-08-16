@@ -714,7 +714,15 @@ export function rowsFromPulse(
     // PR's checks decide between waiting-on-you and waiting-on-machine — the
     // group that had never once been populated, because the branches carrying
     // CI state were the ones missing from this list.
-    const { group, note } = classify('wip', 'eligible', ageMinutes, quietMinutes, pr);
+    // A DRAFT PR is waiting on you — to finish it, not to review it. Falling
+    // through to the git answer put it in `quiet`, which means "go check
+    // whether this died": the wrong errand for a plan written an hour ago.
+    // `classify` deliberately declines to claim a green draft ("a draft is
+    // still the author's, not yours"), and that is right for its own question;
+    // here the author IS the reader, so the row says so plainly.
+    const { group, note } = pr.draft
+      ? { group: 'waiting-on-you' as const, note: `PR #${pr.number}, draft` }
+      : classify('wip', 'eligible', ageMinutes, quietMinutes, pr);
     // An idea branch is not planless — it CARRIES the plan it introduces, and
     // `/plot-idea` names it `idea/<slug>` after that plan's own slug. Grouping
     // such a row under "" put two unrelated PRs under one nameless heading and
