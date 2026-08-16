@@ -59,6 +59,37 @@ Plot recognizes three roles in the development workflow:
 
 Facilitation and implementation can be human or AI. Decisions are always human.
 
+## Running the board in another project
+
+The board (`scripts/board/server.mjs`) is **data-portable by design**: it reads plan and sprint files from `process.cwd()` (`docs/plans/`, `docs/plans/active/`, `docs/plans/delivered/`, `docs/sprints/active/`), while serving its own UI assets (`index.html`, `app.mjs`, `styles.css`, `parser.mjs`, `vendor/`) relative to the script's own location. Code location and data location are decoupled — so a single board script can render any Plot-adopting project's plans without copying or building anything.
+
+To use it from another project, point that project's `board` script at this `server.mjs` and run it from the project root:
+
+```json
+// other-project/package.json
+{
+  "scripts": {
+    "board": "node \"$PLOT_BOARD\""
+  }
+}
+```
+
+```bash
+# in your shell profile, pointing at wherever the Plot board lives
+export PLOT_BOARD=/abs/path/to/plot/skills/plot/scripts/board/server.mjs
+```
+
+```bash
+cd /path/to/other-project   # this becomes the data root (cwd)
+pnpm board                  # reads ./docs/plans/, serves http://localhost:7777
+```
+
+Notes:
+
+- The script's boot check requires a `docs/plans/` directory in the working directory and exits otherwise.
+- `PORT` and `HOST` are environment-configurable. Set `PORT` to run boards for several projects at once; set `HOST=0.0.0.0` to expose the board (it will also print a Tailscale URL when `tailscale` is available).
+- No build step is needed — the board references its sibling assets at runtime, so it must stay alongside `parser.mjs` and the static files in this directory.
+
 ## Testing
 
 Validated end-to-end twice in the originating project:
