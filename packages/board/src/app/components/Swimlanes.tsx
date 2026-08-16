@@ -12,6 +12,8 @@ export interface SwimlanesProps {
   /** A Start work click became outstanding (true) or settled (false). */
   onStarting: (active: boolean) => void;
   onOpenPlan: (card: Card) => void;
+  /** Slug of the card just arrived at, or "" — see PlanCard's `highlighted`. */
+  highlight?: string;
 }
 
 /** One row: a story (or the catch-all), with its plans bucketed by phase. */
@@ -86,6 +88,7 @@ export function Swimlanes({
   pulse,
   onStarting,
   onOpenPlan,
+  highlight = '',
 }: SwimlanesProps) {
   const showSprint = sprintSel.length === 0;
   const visible = board.columns.flatMap((c) => c.cards).filter(
@@ -170,6 +173,7 @@ export function Swimlanes({
                         pulse={pulse}
                         onStarting={onStarting}
                         onOpen={onOpenPlan}
+                        highlighted={card.slug === highlight}
                       />
                     ))}
                   </div>

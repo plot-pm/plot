@@ -15,6 +15,8 @@ export interface BoardViewProps {
   onOpenPlan: (card: Card) => void;
   /** Switch to lane layout and scroll to a story's row. */
   onGoToStory: (story: string) => void;
+  /** Slug of the card just arrived at, or "" — see PlanCard's `highlighted`. */
+  highlight?: string;
 }
 
 export function BoardView({
@@ -25,6 +27,7 @@ export function BoardView({
   onStarting,
   onOpenPlan,
   onGoToStory,
+  highlight = '',
 }: BoardViewProps) {
   const showSprint = sprintSel.length === 0;
   const showStory = storySel.length === 0;
@@ -81,6 +84,7 @@ export function BoardView({
                     onStarting={onStarting}
                     onOpen={onOpenPlan}
                     onGoToStory={onGoToStory}
+                    highlighted={card.slug === highlight}
                   />
                 ))
               ) : (

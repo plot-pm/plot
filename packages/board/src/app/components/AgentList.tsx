@@ -1,3 +1,4 @@
+import { useEffect, useState, type MouseEvent } from 'react';
 import type { AgentRow, Fleet, WaitingGroup } from '../../contract/schema.js';
 
 /**
@@ -9,13 +10,19 @@ import type { AgentRow, Fleet, WaitingGroup } from '../../contract/schema.js';
  * indistinguishable from a group that is empty — and for `waiting-on-machine`,
  * which needs PR data this step does not have, silence would read as "nothing
  * is waiting on CI": a claim this step cannot make.
+ *
+ * Actionable before diagnostic: `not-started` precedes `quiet`, because work a
+ * person can pick up right now outranks work they must go investigate. This
+ * order must stay identical to `GROUP_ORDER` in `fleet.ts`, which sorts the
+ * rows — a disagreement between the two would sort rows into a sequence the
+ * sections then render in a different one.
  */
-const GROUPS: { key: WaitingGroup; icon: string; label: string; hint: string }[] = [
+export const GROUPS: { key: WaitingGroup; icon: string; label: string; hint: string }[] = [
   { key: 'waiting-on-you', icon: '⚠', label: 'Waiting on you', hint: 'review, merge, decide' },
   { key: 'working', icon: '🤖', label: 'Working', hint: 'nothing to do — just look' },
   { key: 'waiting-on-machine', icon: '⏳', label: 'Waiting on a machine', hint: 'nothing — CI will finish' },
-  { key: 'quiet', icon: '💤', label: 'Quiet', hint: 'still thinking, or dead?' },
   { key: 'not-started', icon: '📋', label: 'Not started', hint: 'nobody has taken it' },
+  { key: 'quiet', icon: '💤', label: 'Quiet', hint: 'still thinking, or dead?' },
   { key: 'done', icon: '✅', label: 'Done', hint: 'merged' },
 ];
 
@@ -27,35 +34,120 @@ function age(row: AgentRow): string {
   return `${Math.floor(h / 24)}d`;
 }
 
-function Row({ row }: { row: AgentRow }) {
+/**
+ * The waiting age in the unit that reads: days for the first weeks, months once
+ * days stop being countable.
+ *
+ * "waiting 180d" is arithmetic the reader has to do — the same defect
+ * `humanAge` was written to fix for commit ages, and the reason this scales at
+ * all. Today rather than 0d: a plan approved this morning has not been waiting
+ * for a measurable stretch, and "0d" reads like a stopped clock.
+ *
+ * Exported for test — the boundaries are where a unit change reads wrong.
+ */
+export function waitingLabel(days: number): string {
+  if (days < 1) return 'today';
+  if (days < 60) return `${days}d`;
+  const months = Math.floor(days / 30);
+  return `${months}mo`;
+}
+
+/** One plan's rows within a waiting-group, in the order they arrived. */
+export interface PlanGroup {
+  plan: string;
+  planFile: string;
+  rows: AgentRow[];
+}
+
+/**
+ * Split one waiting-group's rows by plan.
+ *
+ * By PLAN, not by story: the waiting-groups answer *what needs me next*, and
+ * within that the useful unit is the plan — the thing whose waves are being
+ * worked. A story spans weeks and several plans; it is the board's axis, not
+ * this view's. (It is also not on a fleet row at all.)
+ *
+ * Rows arrive age-sorted, so a plan's rows keep that order by construction and
+ * the PLANS are ordered by their most urgent row — otherwise a plan holding one
+ * stale branch would outrank one whose branch just moved. An unknown age sorts
+ * last: "we do not know" is not "ancient".
+ *
+ * Exported for test, and because the count is what decides whether a
+ * sub-heading earns its place — a group with one plan gets none.
+ */
+export function groupByPlan(rows: AgentRow[]): PlanGroup[] {
+  const groups = new Map<string, PlanGroup>();
+  for (const row of rows) {
+    const existing = groups.get(row.plan);
+    if (existing) existing.rows.push(row);
+    else groups.set(row.plan, { plan: row.plan, planFile: row.planFile, rows: [row] });
+  }
+  const urgency = (g: PlanGroup) => Math.max(...g.rows.map((r) => r.ageMinutes ?? -1));
+  return [...groups.values()].sort((a, b) => urgency(b) - urgency(a));
+}
+
+/**
+ * Seconds until the next refresh, given how many have passed and how many the
+ * interval is — or null when the age is unknown.
+ *
+ * Clamped at zero: a poll can be late (a hidden tab, a slow response), and
+ * "next in -2s" is not something a reader can act on.
+ */
+export function countdown(ageSeconds: number | null, intervalSeconds: number): number | null {
+  if (ageSeconds === null) return null;
+  return Math.max(0, intervalSeconds - ageSeconds);
+}
+
+export interface AgentListProps {
+  fleet: Fleet;
+  /**
+   * Seconds between fleet polls, or null when the tab is not open and nothing
+   * is polling. Null suppresses the git countdown: a counter ticking toward a
+   * refresh that is not coming is the same false statement this view exists to
+   * remove.
+   */
+  pollSeconds: number | null;
+  /**
+   * Open a plan in the board's own modal. Absent — or returning false — where
+   * the board has no card for that plan, and the plan name then stays a plain
+   * link to `/plan/<file>` rather than opening an empty modal.
+   */
+  onOpenPlan?: (planFile: string) => boolean;
+}
+
+function Row({ row, onOpenPlan }: { row: AgentRow; onOpenPlan?: AgentListProps['onOpenPlan'] }) {
+  // Same convention as the card's Open control: a real anchor, so
+  // cmd/ctrl/shift/middle-click open natively, and only a plain primary click is
+  // intercepted. `onOpenPlan` returns false when the board holds no matching
+  // card — the navigation then proceeds, which is the honest fallback.
+  const handlePlan = (e: MouseEvent<HTMLAnchorElement>) => {
+    if (!onOpenPlan) return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    if (!onOpenPlan(row.planFile)) return;
+    e.preventDefault();
+  };
+
   return (
     <li className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-slate-200/60 px-3 py-2 text-sm last:border-0 dark:border-slate-800">
       {/* Constant today, and visually quiet. It exists now so the list does not
           need rebuilding when a second repo appears. */}
       <span className="w-16 shrink-0 truncate text-xs text-slate-400 dark:text-slate-600">{row.repo}</span>
-      {/* The branch names its PR, so the branch is what carries the link. A
-          branch with no open PR is not a failure — most rows in `not-started`
-          have none — so it simply stays plain text. */}
-      {row.pr && row.pr.url ? (
-        <a
-          href={row.pr.url}
-          target="_blank"
-          rel="noreferrer"
-          className="font-mono text-[13px] text-blue-600 hover:underline dark:text-blue-400"
-          title={`PR #${row.pr.number}`}
-        >
-          {row.branch}
-        </a>
-      ) : (
-        <span className="font-mono text-[13px] text-slate-800 dark:text-slate-200">{row.branch}</span>
-      )}
-      {/* Opens the plan viewer in a new tab. The Agents tab is a live view that
-          polls every 4 s — navigating away from it in place would cost the
-          reader the thing they came to watch. */}
+      {/* Plan BEFORE branch: what this belongs to, then which slice of it — the
+          order in which the tab is read. It also lets rows of one plan form a
+          visible column, reinforcing the grouping rather than repeating it;
+          with the branch first, branch names of differing length left the plan
+          column frayed across six rows of the same plan.
+
+          Opens the plan viewer in the board's own modal — the Agents tab is a
+          live view that polls every 4 s, and navigating away in place would cost
+          the reader the thing they came to watch. The href stays real so a
+          modified click still opens the page, and so a plan with no board card
+          simply navigates. */}
       {row.planFile ? (
         <a
           href={`/plan/${encodeURIComponent(row.planFile)}`}
-          target="_blank"
+          onClick={handlePlan}
+          target={onOpenPlan ? undefined : '_blank'}
           rel="noreferrer"
           className="text-xs text-blue-600 hover:underline dark:text-blue-400"
         >
@@ -64,7 +156,41 @@ function Row({ row }: { row: AgentRow }) {
       ) : (
         <span className="text-xs text-slate-500 dark:text-slate-400">{row.plan}</span>
       )}
-      <span className="ml-auto text-xs text-slate-500 dark:text-slate-400">{row.note}</span>
+      {/* Every link goes where its text says. The branch name opens the BRANCH —
+          it used to open the PR, which is surprising in both directions. An
+          empty `branchUrl` is a merged branch (its remote page is gone) or an
+          origin the server does not recognise; both render as plain text rather
+          than as an invented address. */}
+      {row.branchUrl ? (
+        <a
+          href={row.branchUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="font-mono text-[13px] text-blue-600 hover:underline dark:text-blue-400"
+          title={`Branch ${row.branch} on the git host`}
+        >
+          {row.branch}
+        </a>
+      ) : (
+        <span className="font-mono text-[13px] text-slate-800 dark:text-slate-200">{row.branch}</span>
+      )}
+      {/* How long this has been waiting to be started. LABELLED, because it is a
+          different clock from the age column on the right: that one says when
+          the branch tip last moved, this says when the plan was approved. An
+          unlabelled `22d` in each place would be two different facts wearing one
+          face. Absent where no approval date is recorded — nothing rather than a
+          zero. */}
+      {row.waitingDays !== null && (
+        <span
+          className="text-xs text-amber-700 dark:text-amber-500"
+          title="Approved this long ago, and nobody has started it"
+        >
+          waiting {waitingLabel(row.waitingDays)}
+        </span>
+      )}
+      <span className="ml-auto text-xs text-slate-500 dark:text-slate-400">
+        <Note row={row} />
+      </span>
       <span className="w-10 shrink-0 text-right text-xs tabular-nums text-slate-400 dark:text-slate-500">
         {age(row)}
       </span>
@@ -72,12 +198,68 @@ function Row({ row }: { row: AgentRow }) {
   );
 }
 
-export function AgentList({ fleet }: { fleet: Fleet }) {
+/**
+ * The note, with `PR #<n>` turned into the link to the pull request.
+ *
+ * The number is composed into the note by the server's classifier (`PR #130
+ * green`), so the link is applied to that substring rather than rendered as a
+ * separate control — the reader looks for the PR link where the number is, and
+ * that is where it now is. `green` stays plain text on purpose: the fleet row
+ * carries no checks URL, and adding one is a change through `plot-host.sh` and
+ * the pulse rather than a display change.
+ */
+function Note({ row }: { row: AgentRow }) {
+  const marker = row.pr ? `PR #${row.pr.number}` : '';
+  const at = marker && row.pr?.url ? row.note.indexOf(marker) : -1;
+  if (at === -1) return <>{row.note}</>;
+  return (
+    <>
+      {row.note.slice(0, at)}
+      <a
+        href={row.pr!.url}
+        target="_blank"
+        rel="noreferrer"
+        className="text-blue-600 hover:underline dark:text-blue-400"
+      >
+        {marker}
+      </a>
+      {row.note.slice(at + marker.length)}
+    </>
+  );
+}
+
+export function AgentList({ fleet, pollSeconds, onOpenPlan }: AgentListProps) {
+  // Seconds since this payload arrived. The ages the server sent are true at the
+  // moment of the poll and stale a second later, so a countdown built from them
+  // alone would jump by the poll interval rather than tick. This is the only
+  // clock the client adds, and it runs ONLY while something is polling: a
+  // counter ticking toward a refresh that is not coming is exactly the false
+  // statement the countdowns exist to remove.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    setTick(0);
+    if (pollSeconds === null) return;
+    const id = setInterval(() => setTick((n) => n + 1), 1_000);
+    return () => clearInterval(id);
+  }, [pollSeconds, fleet.generatedAt]);
+
   // Degrade, do not hide: before the first scan lands this says so rather than
   // showing an empty list, which would read as "no agents are working".
   if (!fleet.ready && !fleet.error) {
     return <p className="text-sm text-slate-500">Waiting for the first fleet scan…</p>;
   }
+
+  // The git countdown answers *when can this display change*, not *when does git
+  // get re-read*: /api/fleet reads a cache the server rescans on its own timer,
+  // so the client's poll is the only thing the client can honestly count toward.
+  const gitNext = pollSeconds === null ? null : countdown(fleet.ageSeconds + tick, pollSeconds);
+  // The PR countdown comes from the SERVER, because only the server knows its
+  // own backoff. Absent (an older server) means no countdown at all — a client
+  // assuming 60 s would count to zero and sit there through a 120 s wait.
+  const prNext =
+    pollSeconds === null || fleet.prNextInSeconds === null
+      ? null
+      : Math.max(0, fleet.prNextInSeconds - tick);
 
   return (
     <div className="space-y-4">
@@ -90,6 +272,14 @@ export function AgentList({ fleet }: { fleet: Fleet }) {
 
       {GROUPS.map(({ key, icon, label, hint }) => {
         const rows = fleet.rows.filter((r) => r.group === key);
+        // Every waiting-group is grouped the same way, `done` included: it is
+        // the group that grows fastest over a working day, so it is the first to
+        // become a list one scrolls past. A rule with an exception for the group
+        // nobody reads is a rule someone has to remember.
+        const plans = groupByPlan(rows);
+        // Chrome that never varies is noise: the sub-heading earns its place
+        // only when it separates something.
+        const showPlanHeadings = plans.length > 1;
         return (
           <section key={key}>
             <h2 className="mb-1 flex items-baseline gap-2 px-3 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
@@ -101,7 +291,23 @@ export function AgentList({ fleet }: { fleet: Fleet }) {
             </h2>
             <ul className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
               {rows.length > 0 ? (
-                rows.map((r) => <Row key={`${r.repo}/${r.branch}`} row={r} />)
+                plans.map((group) => (
+                  <li key={group.plan}>
+                    {showPlanHeadings && (
+                      <h3 className="border-b border-slate-200/60 bg-slate-50 px-3 py-1 text-[11px] font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
+                        {group.plan}
+                        <span className="ml-1.5 font-normal text-slate-400 dark:text-slate-600">
+                          ({group.rows.length})
+                        </span>
+                      </h3>
+                    )}
+                    <ul>
+                      {group.rows.map((r) => (
+                        <Row key={`${r.repo}/${r.branch}`} row={r} onOpenPlan={onOpenPlan} />
+                      ))}
+                    </ul>
+                  </li>
+                ))
               ) : (
                 <li className="px-3 py-2 text-sm text-slate-400 dark:text-slate-600">none</li>
               )}
@@ -113,11 +319,17 @@ export function AgentList({ fleet }: { fleet: Fleet }) {
       {/* The ages are the honesty: a stale source says so rather than looking
           live. They are reported separately because they fail separately —
           "git 3s ago, PR data 4 min ago" is a different situation from both
-          being fresh, and the reader is the one who has to know which. */}
+          being fresh, and the reader is the one who has to know which.
+
+          Each age now carries a countdown beside it, because the two readings
+          answer different questions and the pair is the point: how old is this,
+          and when does it change. */}
       <p className="px-3 text-xs text-slate-400 dark:text-slate-600">
         {fleet.summary.branches} branches across {fleet.summary.plans} plans · scanned{' '}
-        {fleet.ageSeconds}s ago
-        {fleet.prAgeSeconds !== null && ` · PR data ${fleet.prAgeSeconds}s ago`}
+        {fleet.ageSeconds + tick}s ago
+        {gitNext !== null && ` · next in ${gitNext}s`}
+        {fleet.prAgeSeconds !== null && ` · PR data ${fleet.prAgeSeconds + tick}s ago`}
+        {fleet.prAgeSeconds !== null && prNext !== null && ` · next in ${prNext}s`}
         {fleet.prAgeSeconds === null && !fleet.prError && ' · no PR data yet'}
       </p>
       {fleet.prError && (

@@ -5,6 +5,15 @@ import { planHref } from '../lib/plan.js';
 export interface PlanModalProps {
   card: Card;
   onClose: () => void;
+  /**
+   * Close, switch to the board, and land on this card — highlighted, among its
+   * neighbours.
+   *
+   * The modal answers *what does this plan say*; the board answers *where does
+   * it sit*. Without this the second question costs a manual tab switch and a
+   * filter, which is the friction this control exists to remove.
+   */
+  onShowInBoard?: (card: Card) => void;
 }
 
 /**
@@ -13,7 +22,7 @@ export interface PlanModalProps {
  * renders in its own isolated document — no style bleed, no scripts. "Open in
  * new tab" points at the same route for the native full-page view.
  */
-export function PlanModal({ card, onClose }: PlanModalProps) {
+export function PlanModal({ card, onClose, onShowInBoard }: PlanModalProps) {
   const href = planHref(card);
   // The embedded view drops the back-to-board titlebar (that navigation only
   // makes sense on the full page). "Open in new tab" uses the plain href.
@@ -67,6 +76,17 @@ export function PlanModal({ card, onClose }: PlanModalProps) {
           <h2 className="mr-auto truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
             Plan
           </h2>
+          {/* A real <button>: it changes what this page shows, and is neither a
+              destination nor something to open in a new tab. */}
+          {onShowInBoard && (
+            <button
+              type="button"
+              onClick={() => onShowInBoard(card)}
+              className="shrink-0 rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              Show in board
+            </button>
+          )}
           <a
             href={href}
             target="_blank"
