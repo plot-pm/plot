@@ -140,6 +140,34 @@ which is worth seeing rather than smoothing over.
 implementation. The row-level derivation composes it with the branch state
 rather than reimplementing it.
 
+### Where the phase sits, and why it is a word
+
+**After the repo column, before the plan** — so a row reads *which repo, which
+phase, which plan, which branch*: outward context first, then the specific
+thing. The repo column stays where it is; it is constant today but exists so
+the list needs no rebuilding when a second repo appears.
+
+Its own column, not `w-16` like the repo: "Development" is 11 characters and
+would truncate at that width, and a phase that reads "Developm…" is worse than
+none.
+
+**A word, optionally with an icon — never an icon alone.** The rule is already
+in the contract, with its reason: *"Carried as a symbol AND a word, never as
+colour alone: roughly one man in twelve distinguishes red from green poorly,
+and the same page shows up in greyscale screenshots."* The same argument
+applies to a glyph replacing a label.
+
+And the existing phase icons **cannot** carry the distinction on their own:
+`PHASE_LEADERSHIP` maps 👤 to Discovery, Design *and* Endgame, because it
+encodes *who leads*, not *which phase*. Three phases share one symbol, so an
+icon-only column would collapse them. If an icon is shown, it accompanies the
+word and repeats the leadership fact the board already uses; it does not
+replace the phase name.
+
+The waiting-group headings are a different case and already correct: ⚠️ 🤖 ⏳
+💤 📋 ✅ are one symbol per group, each unique, and each already paired with its
+label.
+
 ### An age for NOT STARTED, on its own clock
 
 A `not-started` row has no branch, so no tip to date, and renders `—`. But it
@@ -222,6 +250,12 @@ written first would assert against a shape that does not exist yet.
 - **A deferred branch never reads WORKING**, even with a commit inside the
   quiet window. This is the one place intent outranks git, so it needs the test
   that a fresh commit does not pull it in.
+- **The phase sits between repo and plan**, in its own column wide enough for
+  "Development" — assert the rendered order and that the longest phase name is
+  not truncated.
+- **The phase is a word.** Assert the label is present in the row's text, so an
+  icon-only rendering cannot pass. `PHASE_LEADERSHIP` maps 👤 to three
+  different phases, so a glyph alone cannot carry the distinction.
 - **The Start button appears only on `not-started` rows**, and a row whose plan
   has no board card gets no button rather than a broken one.
 - **`toBoardPhase` has exactly one implementation.** Assert that the row
