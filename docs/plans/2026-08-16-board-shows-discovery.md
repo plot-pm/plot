@@ -179,7 +179,7 @@ config and all of it should be searched.
 - `bug/board-shows-discovery` — `toBoardPhase` maps Draft to Discovery, the
   swimlane filter goes, plan files are additionally sourced from prefixed
   branches via the local ref mirror, canonical paths restored after parsing;
-  tests in `packages/board`
+  tests in `packages/board` → #130
 
 One branch. The two changes are a single behaviour — a column that fills — and
 splitting them would ship a remap that changes nothing visible, then a source
