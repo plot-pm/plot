@@ -66,12 +66,34 @@ would produce something worse than the plan it summarises.
 
 ## Design
 
-### `plot-implement` owns the brief; dispatch invokes it
+### `plot-implement` owns the brief; the dispatch SKILL invokes it
 
 `plot-implement` already defines the brief, already reads the plan's recorded
 `Impl:` answer, and already runs the staleness preflight. It is the step that
 gets skipped when someone dispatches directly — so dispatch calls it rather
 than reimplementing a thinner version beside it.
+
+**The caller is the skill, not the script**, and the first draft of this plan
+got that backwards. Checked: **no script in this repo invokes a skill**, and
+that is the Manifesto's direction rather than an omission — *skills interpret
+and adapt; scripts collect and report*. A bash script cannot reach a skill at
+all; skills exist inside an agent session.
+
+`skills/plot-dispatch/SKILL.md` is that session-level layer, and it already
+drives `plot-dispatch.sh` through its phases. The brief step belongs there,
+where interpretation is allowed and another skill is reachable. The script keeps
+doing what it does today.
+
+**A direct `plot-dispatch.sh` call cannot write a brief, but it can say one is
+missing.** That matters, because direct calls are legitimate — `--dry-run` and
+`--status` are the normal way to look before leaping, and this session used the
+bare script five times. Refusing to run without a brief would be a gate in the
+wrong place; reporting the gap costs nothing.
+
+So the summary gains the fact alongside the worker count: *worktree prepared, no
+brief, no worker started*. That single line is exactly what was missing five
+times this evening, when a prepared branch sat claimed with nobody working on it
+and nothing said so.
 
 **One definition of what an implementer needs to know.** A second one in the
 dispatcher would drift from the first the way every duplicated rule in this repo
@@ -98,10 +120,15 @@ tells the operator they are one config line away** from an automatic fan-out.
 The message appears only after a dispatch has already happened, buried in
 per-branch output.
 
-So: `/plot-init` offers to set it, and `plot-dispatch` reports the consequence
-up front rather than per branch — *"no Worker command configured: 3 worktrees
-prepared, 0 workers started"* in the summary, where a caller reading only the
-last line sees it.
+So: `/plot-init` **asks** how this project runs an agent headless, and writes
+the answer. It does not suggest one — a suggestion becomes a template, and then
+Plot has effectively hardcoded a tool it is not supposed to know. The asking is
+the whole fix: the problem was never *which command*, but that nobody learns the
+option exists.
+
+And `plot-dispatch` reports the consequence up front rather than per branch —
+*"3 worktrees prepared, 0 workers started, no Worker command configured"* in the
+summary, where a caller reading only the last line sees it.
 
 **`--no-start` keeps meaning what it says.** It is the right default for a human
 who wants to inspect before letting an agent loose, and this session used it
@@ -116,11 +143,20 @@ and the worker start without its own logic.
 
 **A prepared-but-unstarted branch must be visible as such.** With no
 `Worker command`, the button still cannot start an agent, and the row would
-again claim work nobody is doing. The pulse already has both facts — the claim
-is a commit, and `.plot-worker.pid` exists only where a worker was started — so
-a row can distinguish *claimed and running* from *claimed and waiting for
-someone to start it*. Without that, this plan fixes the mechanism and leaves the
-misreport that made it visible.
+again claim work nobody is doing.
+
+The evidence is `.plot-worker.pid`, which `plot-dispatch` writes only where it
+started a worker itself. **Its absence means *unknown*, not *nobody*** — and
+that distinction is the whole design of this branch. A worker started by hand
+leaves no pid, and hand-starting is the normal case for as long as
+`Worker command` is unset: five agents were started that way this session.
+Reading a missing pid as "nobody is working" would report every one of them as
+dead.
+
+So the row says *claimed, no known worker* rather than *waiting to be started* —
+absent is not false, the rule this repo applies to every other missing signal.
+It is weaker than the misreport it replaces and it is true, which is the trade
+this whole story keeps making.
 
 ## Branches
 
@@ -152,6 +188,18 @@ the third is what proves the first two landed.
 - **The brief comes from `plot-implement`, not from the dispatcher.** Assert
   there is one definition: a template string in `plot-dispatch.sh` fails this
   even if its output looks right.
+- **The script never invokes a skill.** Assert `plot-dispatch.sh` contains no
+  such call — the first draft of this plan proposed exactly that, and it would
+  invert the Manifesto's direction as well as being impossible in bash.
+- **A direct script call reports the missing brief** rather than refusing.
+  Assert `--dry-run` and `--status` still work untouched: a gate that blocks
+  looking-before-leaping is a gate in the wrong place.
+- **`/plot-init` asks rather than suggests.** Assert no example command appears
+  in its prompt — an example becomes a template, and then Plot has hardcoded
+  agent tooling it is not supposed to know.
+- **A missing `.plot-worker.pid` reads as unknown, not as nobody.** Assert a
+  hand-started worker is not reported dead: that is the normal case while
+  `Worker command` is unset, and it was every agent this session.
 - **A dispatch with no `Worker command` says so in the summary**, with counts.
   Assert the summary line, not per-branch output: a caller reading only the last
   line is the case this exists for.
@@ -184,3 +232,23 @@ Deliberately out of scope: making the board start agents itself. The button
 calls `plot-dispatch`, and that is the right shape — a board that steers a
 session is a different architecture from a fleet of detached workers, and this
 plan closes the existing pipeline rather than opening a second one.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "The plan says plot-dispatch invokes /plot-implement, but NO script in this repo invokes a skill — skills call scripts, not the reverse, and bash cannot reach a skill at all.", "a": "The caller is skills/plot-dispatch/SKILL.md, the session-level layer that already drives the script through its phases. The script keeps doing what it does; the plan's wording was backwards", "category": "technical-architecture"},
+    {"q": "What happens when someone calls plot-dispatch.sh directly, as this session did five times?", "a": "The script cannot write a brief but can say one is missing, in the same summary as the worker count. Refusing would be a gate in the wrong place — --dry-run and --status are legitimate direct calls", "category": "domain-workflows"},
+    {"q": "What should /plot-init suggest for Worker command, given Plot hardcodes no agent tooling?", "a": "Ask, do not suggest. A suggestion becomes a template and then Plot has effectively hardcoded a tool. The problem was never WHICH command but that nobody learns the option exists", "category": "domain-rules"},
+    {"q": "How does a row tell a claimed branch with a running worker from one without? plot-dispatch writes .plot-worker.pid only when it starts the worker itself.", "a": "Absence means UNKNOWN, not nobody. A hand-started worker leaves no pid, and hand-starting is the normal case while Worker command is unset — five agents this session. The row says 'claimed, no known worker'", "category": "ux-edgeCases"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "domain": {"rules": true, "workflows": true, "data": false},
+    "ux": {"happyPath": false, "edgeCases": true, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
