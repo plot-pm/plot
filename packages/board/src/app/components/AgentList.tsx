@@ -347,7 +347,10 @@ export function AgentList({ fleet, pollSeconds, onOpenPlan }: AgentListProps) {
               {rows.length > 0 ? (
                 plans.map((group) => (
                   <li key={group.plan}>
-                    {headings && (
+                    {/* A nameless group holds rows no plan claims, so there is
+                        nothing to head them WITH: rendering the heading anyway
+                        printed a bare "(3)", a label that labels nothing. */}
+                    {headings && group.plan && (
                       <h3 className="border-b border-slate-200/60 bg-slate-50 px-3 py-1 text-[11px] font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
                         {group.plan}
                         <span className="ml-1.5 font-normal text-slate-400 dark:text-slate-600">
@@ -361,7 +364,7 @@ export function AgentList({ fleet, pollSeconds, onOpenPlan }: AgentListProps) {
                           key={`${r.repo}/${r.branch}`}
                           row={r}
                           onOpenPlan={onOpenPlan}
-                          planInHeading={headings}
+                          planInHeading={headings && Boolean(group.plan)}
                         />
                       ))}
                     </ul>
@@ -384,7 +387,12 @@ export function AgentList({ fleet, pollSeconds, onOpenPlan }: AgentListProps) {
           answer different questions and the pair is the point: how old is this,
           and when does it change. */}
       <p className="px-3 text-xs text-slate-400 dark:text-slate-600">
-        {fleet.summary.branches} branches across {fleet.summary.plans} plans · scanned{' '}
+        {/* Counted from the ROWS, not from `summary`: the pulse summarises the
+            branches plans name, and the list also shows open PRs no plan
+            claims. Reading the summary here said "8 branches across 3 plans"
+            under twelve visible rows. */}
+        {fleet.rows.length} branches across{' '}
+        {new Set(fleet.rows.map((r) => r.plan).filter(Boolean)).size} plans · scanned{' '}
         {fleet.ageSeconds + tick}s ago
         {gitNext !== null && ` · next in ${gitNext}s`}
         {fleet.prAgeSeconds !== null && ` · PR data ${fleet.prAgeSeconds + tick}s ago`}

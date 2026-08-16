@@ -113,6 +113,24 @@ describe('countdown', () => {
   });
 });
 
+describe('groupByPlan with unplanned rows', () => {
+  const row = (branch: string, plan: string) =>
+    ({ repo: 'plot', branch, plan, planFile: '', wave: '', state: 'wip',
+       group: 'waiting-on-you', ageMinutes: 1, note: '', branchUrl: '',
+       pr: null, waitingDays: null }) as never;
+
+  it('keeps unplanned rows together under one nameless group', () => {
+    // They share `plan: ''` by construction, so they collapse into one group
+    // whose name is empty. That is fine — but the RENDERER must not head it,
+    // or it prints a bare "(3)" that labels nothing. Pinned here because the
+    // grouping is what makes such a group possible at all.
+    const groups = groupByPlan([row('a', ''), row('b', ''), row('c', 'real-plan')]);
+    const nameless = groups.find((g) => g.plan === '');
+    expect(nameless?.rows).toHaveLength(2);
+    expect(groups.filter((g) => g.plan === '')).toHaveLength(1);
+  });
+});
+
 describe('showPlanHeadings', () => {
   // Both halves of the rule, and each is the case the other version got wrong.
   it('labels several plans, so two names cannot run together unlabelled', () => {
