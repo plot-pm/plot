@@ -43,13 +43,35 @@ the exact failure this repo has already argued against for greyed-out buttons.
 **After a sustained silence, the page dims.** The threshold is the difference
 between *a poll went missing* and *the server is gone*.
 
-**The number is measured by whoever builds this, and justified in the PR** —
-not written here. A `node --watch` restart takes as long as it takes on the
-machine in question, and a figure guessed in a plan file carries the authority
-of a decision without the measurement behind it. Set it comfortably beyond a
-real restart, so the case that happens several times an hour never triggers the
-case that means something. This plan's sibling made the same call for the
-column-overflow threshold.
+**Counted in missed polls, not in seconds.** The two tabs run at very different
+rates — measured: `POLL_MS = 30_000` for the board, `FLEET_POLL_MS = 4_000` for
+the fleet, a factor of 7.5. One threshold in seconds therefore says two
+different things: thirty seconds is *seven and a half missed polls* on the
+Agents tab and *a single one* on the Board tab, so the same number would dim on
+the first hiccup in one place and only after a real outage in the other.
+
+Counting consecutive failures keeps the **statement** identical on both — *the
+server has not answered several times running* — and it survives someone
+changing a poll interval later, which a pair of hand-tuned second-counts would
+not.
+
+**How many is measured by whoever builds this, and justified in the PR.** A
+`node --watch` restart takes as long as it takes on the machine in question;
+pick a count that comfortably outlasts one, so the case that happens several
+times an hour never triggers the case that means something. A figure guessed in
+a plan file carries the authority of a decision without the measurement behind
+it — the same call this plan's sibling made for the column-overflow threshold.
+
+### Silence is not the same as a bad answer
+
+A server that returns HTTP 500, malformed JSON or `{ error: … }` is **not**
+covered by this. It is alive and speaking; the overlay would claim *no contact*
+and be plainly wrong, and its restart hint would be the wrong advice —
+`pnpm board` does not fix a 500.
+
+The existing `setError` path stays responsible for that case. Two different
+faults, two different messages: this plan owns *the server stopped answering*,
+and nothing else.
 
 Two states, escalating, and the second only after the first has failed to
 resolve itself.
@@ -133,6 +155,22 @@ hours and reloaded rarely; whoever finds it frozen at midday may not remember
 how it was started, and a message that only describes the problem is a dead
 end. It is also the one moment the page has the reader's full attention.
 
+**The command comes from the server, not from the client.** `pnpm board` is
+*this* repo's convention, and Plot hardcodes no project conventions (Principle
+5) — an adopting project that starts its board differently would be handed
+advice that does not work. The server knows its own start command and the port
+it bound; the page knows neither. So both travel with the last successful poll
+and the overlay repeats what it was told.
+
+**And it names the port this page was served from.** If the server comes back
+somewhere else — which happened this very session, when an agent started a
+second board from its worktree — the overlay stays up, correctly: a page can
+only ask its own origin, and a server on another port is genuinely unreachable
+from here. Naming the port lets the reader see that for themselves rather than
+wondering why a running board still reads as gone. Probing other ports was
+rejected outright: a page that guesses could attach itself to a different
+project's board.
+
 **What this cannot fix, and should not pretend to.** On 2026-08-16 the board
 appeared unreachable while the server was running perfectly: it listened on
 `[::1]:7777` and Chrome resolved `localhost` to `127.0.0.1`, where nothing
@@ -185,6 +223,16 @@ tabs can inherit it.
 - **The message names the restart command.** Assert the text, not just the
   presence of an overlay: a message without a way out is the failure this is
   meant to remove.
+- **The threshold is counted in polls, not seconds.** Assert both tabs dim
+  after the same *number of failures* despite their 7.5× difference in rate —
+  a seconds-based implementation passes on one tab and dims on the first hiccup
+  on the other.
+- **A server that answers badly does not dim.** Assert HTTP 500 and malformed
+  JSON leave the overlay off and the existing error path in charge: the overlay
+  would claim *no contact* about a server that is talking.
+- **The command and port come from the payload**, not from a constant in the
+  client. Assert a different value round-trips — hardcoding passes any test
+  written against this repo's own defaults.
 - **The overlay is announced, not merely drawn.** A visual dim tells a screen
   reader nothing; assert the state reaches assistive technology.
 - `pnpm run test:board`, `pnpm run typecheck`, `pnpm test`, `pnpm run validate`
@@ -209,14 +257,18 @@ overlay wave, in flight now. Whichever lands first, the other rebases.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {"q": "Silence is measured only for the Agents tab (`if (tab !== 'agents') setFleetStaleSeconds(null)`), but the plan says both tabs inherit the overlay.", "a": "Both tabs — which means giving the Board tab the same measurement. It currently sets an error STRING and replaces its cards, while the Agents tab keeps its rows. One outage must not produce two stories", "category": "technical-architecture"},
     {"q": "Is the Board tab's replace-on-error a finding in its own right?", "a": "Yes, and it is folded into this wave rather than noted separately, since covering both tabs requires fixing it", "category": "ux-errors"},
     {"q": "Who picks the dimming threshold?", "a": "The implementer, measured against a real node --watch restart and justified in the PR. A number guessed in a plan file carries the authority of a decision without the measurement", "category": "technical-implementation"},
     {"q": "What happens when a backgrounded tab returns after minutes?", "a": "Re-check rather than count up. Browsers throttle hidden timers, and App.tsx already warns that an hour of silence must say an hour, not however often the browser woke", "category": "ux-edgeCases"},
     {"q": "Block all interaction, or only actions? Navigation and reading need no server.", "a": "Interaction with the BOARD — cards, filters, actions, columns. Reading never stops (it needs no clicks), the overlay's own controls stay usable, and an already-open plan modal keeps its own error path", "category": "ux-happyPath"},
-    {"q": "Should blocked actions vanish or stay disabled?", "a": "Visible, aria-disabled, with the reason — the same pattern the row action menu settles. Vanishing buttons make the layout jump twice: on loss and on recovery", "category": "ux-accessibility"}
+    {"q": "Should blocked actions vanish or stay disabled?", "a": "Visible, aria-disabled, with the reason — the same pattern the row action menu settles. Vanishing buttons make the layout jump twice: on loss and on recovery", "category": "ux-accessibility"},
+    {"q": "The board polls every 30s and the fleet every 4s — a 7.5x difference. One seconds-based threshold means two different things.", "a": "Count missed POLLS, not seconds. Keeps the statement identical on both tabs and survives someone changing an interval later; the count itself is measured against a real node --watch restart", "category": "technical-implementation"},
+    {"q": "What about a server that answers with HTTP 500 or malformed JSON — alive but useless?", "a": "Does not dim. The server is talking, so 'no contact' would be plainly wrong and a restart hint would be the wrong advice. The existing setError path keeps that case", "category": "ux-errors"},
+    {"q": "Where does the restart command in the message come from?", "a": "From the server, with the last successful poll. `pnpm board` is this repo's convention and Plot hardcodes no project conventions — an adopting project would otherwise be handed advice that does not work", "category": "technical-architecture"},
+    {"q": "Does the overlay recover if the server returns on a DIFFERENT port?", "a": "No, and that is honest — a page can only ask its own origin. The message names the port this page was served from, so the reader sees the difference. Probing other ports could attach to another project's board", "category": "ux-edgeCases"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
