@@ -332,6 +332,32 @@ that closes the loop, and it has not been built yet.
   mapping, and the source of plan files (a Draft plan under PR review is not on
   the default branch at all, so remapping alone would leave Discovery just as
   empty).
+
+  **The second change is far smaller than that made it sound.** Asked whether a
+  Draft plan under PR review is not simply what lives on the `idea/` branches —
+  it is, and the branches say so cleanly. Enumerated: each idea branch carries
+  exactly **one** plan file absent from the default branch, and it is exactly
+  the Draft one; everything else matches `main` because the branch was cut from
+  it. So the rule needs no new convention:
+
+  > plan files on branches under the configured idea prefix that are **not** on
+  > the default branch — that set *is* the Draft plans.
+
+  `Branch prefixes` is already config (`idea/, feature/, bug/, docs/, infra/`),
+  so this stays project-agnostic, and the phase is still read from the file
+  exactly as for every other plan — nothing is inferred from the branch name
+  beyond *where to look*. It generalises to `Impl: same branch` plans, whose
+  plan rides `feature/<slug>` rather than an idea branch: same test, wider net.
+  Cost, measured: **`git ls-remote` is 459 ms — a network call — while
+  `for-each-ref refs/remotes/origin/idea/*` is 8 ms.** Use the local mirror; it
+  is already correct, since the fleet scan fetches every run and the refs are as
+  fresh as the pulse. Plus ~7 ms per `ls-tree`/`show`, so ~22 ms for today's two
+  branches against the ~1 s the board already spends. Cheap, local, and the
+  same git-only discipline that makes `plot-fleet-scan.sh` affordable to poll.
+  Third instance today of one underlying question, which is worth naming:
+  a deleted ref is not missing work ([[fleet-sees-merged-branches]]), and the
+  default branch is not all the plans. Manifesto Principle 1 says git *is* the
+  database — the board reads one branch's working tree.
 - ⏸️ **Does the board stay one-repo?** The design keeps every data function
   repo-parameterised, and tab 2 is meant to go cross-repo — "what are my agents
   waiting for" is a question about a person, not a repository. Not decided.
