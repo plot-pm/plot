@@ -28,11 +28,10 @@
 #         merging).
 #         Consumers that only need counts (the /plot-fleet pulse log, the
 #         board) read that one line and never re-count the body.
-#         --json additionally carries, per PLAN, `phase` (the plan's own
-#         lifecycle state, verbatim from plot-plan-meta.sh) and `started` (how
-#         many `Started:` records it holds) — the half of a row's phase that
-#         git cannot answer. Which column a row reads is composed from that
-#         pair AND the branch state one layer up; this script decides nothing.
+#         --json additionally carries, per PLAN, `phase` — the plan's own
+#         lifecycle state, verbatim from plot-plan-meta.sh, and the half of a
+#         row's phase git cannot answer. Which column a row reads is composed
+#         from it AND the branch state one layer up; this script decides nothing.
 #         The plan set also includes plans delivered inside a rolling 24 h
 #         window (see "the last day of finished work"), so work does not
 #         disappear at the moment it becomes finished.
@@ -364,25 +363,47 @@ delivered_candidates() {
 # age out of DONE, and the missing record is a bookkeeping fault
 # plot-reconcile-scan.sh exists to report — a view that quietly compensates
 # for it makes the fault harder to see.
+#
+# A BARE DATE IS ANCHORED AT THE END OF ITS DAY, not at midnight, and this is
+# the one detail that makes "rolling, not the calendar day" true rather than
+# merely stated. Every `Delivered:` record in this repo is a bare date, which
+# names no time — so anchoring at 00:00 measures from up to a day BEFORE the
+# delivery, and the window collapses back into exactly the calendar boundary
+# the rolling window exists to avoid: a plan delivered at 23:50 would be an
+# hour from expiry the moment it was written, and gone ten minutes later
+# mid-session while the branches it names are still on screen.
+#
+# Anchoring at 23:59:59 over-admits by at most the length of the delivery day.
+# That is the same direction the mtime pre-filter is allowed to err in, and for
+# the same reason: showing a finished plan slightly too long costs a row, while
+# dropping one mid-session costs the reader the work they were looking at. A
+# record that DOES carry a time is honoured exactly, so the imprecision belongs
+# to the record rather than to the rule.
 delivered_in_window() { # $1=plan meta JSON → 0 when inside
   printf '%s' "$1" | python3 -c '
-import json, sys, time
+import json, re, sys, time
 d = json.load(sys.stdin)
 raw = (d.get("delivered_raw") or "").strip()
 if not raw:
     sys.exit(1)
-# The leading YYYY-MM-DD only; the rest is provenance for a human. A record
-# whose date does not parse is dropped rather than coerced.
-import re
-m = re.match(r"(\d{4})-(\d{2})-(\d{2})", raw)
+# The leading date, optionally followed by a time. Everything after is
+# provenance for a human. A record whose date does not parse is dropped rather
+# than coerced — Date-style leniency would turn a typo into a confident answer.
+m = re.match(r"(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?", raw)
 if not m:
     sys.exit(1)
+y, mo, dy, hh, mi = m.groups()
+timed = hh is not None
 try:
-    at = time.mktime((int(m.group(1)), int(m.group(2)), int(m.group(3)),
-                      0, 0, 0, 0, 0, -1))
+    at = time.mktime((int(y), int(mo), int(dy),
+                      int(hh) if timed else 23, int(mi) if timed else 59,
+                      0 if timed else 59, 0, 0, -1))
 except (ValueError, OverflowError):
     sys.exit(1)
 window = float(sys.argv[1]) * 3600
+# A future record (a mistyped year, a plan delivered "tomorrow") is INSIDE:
+# `age <= window` with a negative age. Excluding it would hide a live plan for
+# a typo, and the row is visible either way.
 sys.exit(0 if (time.time() - at) <= window else 1)
 ' "$DELIVERED_WINDOW_HOURS" 2>/dev/null
 }
@@ -548,19 +569,10 @@ for plan in "${plans[@]}"; do
   # phase from the PAIR — plan state AND branch git state. It is reported, never
   # interpreted: this script collects and reports, and which column a row reads
   # is a judgment that belongs one layer up (Manifesto Principle 3).
-  #
-  # `started` travels with it because `approved` alone is two phases, and the
-  # distinction is a COUNT of `Started:` records rather than a boolean the plan
-  # file states.
-  plan_facts=$(printf '%s' "$meta" | python3 -c '
+  plan_phase=$(printf '%s' "$meta" | python3 -c '
 import json, sys
-d = json.load(sys.stdin)
-print(d.get("phase", ""))
-print(len(d.get("started_raw", [])))
-' 2>/dev/null) || plan_facts=$'\n0'
-  plan_phase=$(printf '%s\n' "$plan_facts" | sed -n 1p)
-  plan_started=$(printf '%s\n' "$plan_facts" | sed -n 2p)
-  case "$plan_started" in (*[!0-9]*|'') plan_started=0 ;; esac
+print(json.load(sys.stdin).get("phase", ""))
+' 2>/dev/null) || plan_phase=""
 
   # The delivered window's SECOND half: mtime admitted this file, the RECORD
   # decides. Applied only to plans that came in through the delivered index — an
@@ -699,10 +711,10 @@ for i, w in enumerate(d.get("waves", [])):
   if [ "$as_json" = 1 ]; then
     plan_base=$(basename "$(readlink "$plan" 2>/dev/null || echo "$plan")")
     json_plans+="${json_plans:+,}{\"file\":\"$(json_str "$plan_base")\""
-    # The plan's own phase and its Started: COUNT, reported verbatim. The board
-    # composes them with each branch's git state into a row phase; nothing here
-    # decides which column anything reads.
-    json_plans+=",\"phase\":\"$(json_str "$plan_phase")\",\"started\":$plan_started"
+    # The plan's own phase, reported verbatim. The board composes it with each
+    # branch's git state into a row phase; nothing here decides which column
+    # anything reads.
+    json_plans+=",\"phase\":\"$(json_str "$plan_phase")\""
     json_plans+=",\"waves\":[$json_waves]}"
   fi
   [ "$quiet" = 1 ] || echo

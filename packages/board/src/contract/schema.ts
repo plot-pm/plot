@@ -52,6 +52,16 @@ export const PlanMetaSchema = z.object({
   // before the field existed still parses — the board must never fail on
   // an old plan file.
   released_raw: z.string().default(''),
+  /**
+   * The delivery record as written — a date, usually bare.
+   *
+   * NOT the same statement as `phase: 'delivered'`. A plan can carry the phase
+   * with this left empty (`reconcile-scan-accuracy.md` does today), which is a
+   * bookkeeping fault rather than a delivery at an unknown time. Anything
+   * needing a DATE must read this and treat "" as absent — never fall back to
+   * the phase, and never to now.
+   */
+  delivered_raw: z.string().default(''),
   started_raw: z.array(z.string()).default([]),
   error: z.string().optional(),
 });
@@ -352,6 +362,22 @@ export const FleetWaveSchema = z.object({
 
 export const FleetPlanSchema = z.object({
   file: z.string(),
+  /**
+   * The plan's own lifecycle state, as `plot-plan-meta.sh` normalizes it
+   * (draft|approved|delivered|released|…). Half of a row's phase; the branch's
+   * git state is the other half, and the two are composed by `rowPhase` rather
+   * than by either source.
+   *
+   * The plan's `Started:` COUNT deliberately does not travel with it. A row is a
+   * statement about one branch, and whether THAT branch has work is a question
+   * git answers per branch — see `rowPhase`. The count is still what the board's
+   * CARD reads, because a card is a statement about the plan.
+   *
+   * Defaults to "" so a pulse from an older scan still validates — and ""
+   * yields no row phase at all, which renders as nothing rather than as a
+   * guessed column.
+   */
+  phase: z.string().default(''),
   waves: z.array(FleetWaveSchema),
 });
 
@@ -404,6 +430,23 @@ export const AgentRowSchema = z.object({
   planFile: z.string().default(''),
   wave: z.string(),
   state: BranchStateSchema,
+  /**
+   * Which board phase this ROW is in — derived from the PAIR (the plan's phase
+   * and this branch's git state), never from the plan file alone.
+   *
+   * The plan file alone produces rows that contradict themselves, and this repo
+   * had the example: `opus5-longhorizon-hardening` is `Phase: Approved` with
+   * zero `Started:` records while six of its branches carry real commits. Read
+   * from the file the row says *Design*; read from git the note beside it says
+   * *no commit for 22 days*. Two statements about one branch that cannot both
+   * be true, and exactly the defect class this board has hit three times.
+   *
+   * See `rowPhase` for the mapping and for the one place the two sources
+   * disagree deliberately. null where no phase can honestly be named — a plan
+   * whose phase is rejected, superseded or simply unknown — and the cell then
+   * renders empty rather than guessing a column.
+   */
+  phase: z.enum(BOARD_PHASES).nullable().default(null),
   group: WaitingGroupSchema,
   /** Minutes since the branch tip, or null when there is no branch yet. */
   ageMinutes: z.number().nullable(),
