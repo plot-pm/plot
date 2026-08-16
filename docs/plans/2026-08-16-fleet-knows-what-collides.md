@@ -87,6 +87,30 @@ generated output: any version of it is exactly as good as any other, because
 `pnpm build:board` reproduces the correct one from sources that merged cleanly.
 So the merge stops trying to reconcile it, and a rebuild settles it.
 
+**`-merge` in `.gitattributes`, not a custom merge driver.** Checked while
+writing this: the repo has no `.gitattributes` at all and no driver configured.
+That matters, because the two mechanisms have very different reach. A custom
+driver (`merge=rebuild`, invoking `pnpm build:board`) is the more elegant idea
+and the more dangerous one: `.gitattributes` is versioned and travels with the
+repo, but the **driver definition lives in each clone's `git config`**. On CI,
+on a fresh clone, on a new colleague's machine, the attribute would name a
+driver that does not exist — and git falls back to a normal merge, silently.
+A rule that only works where someone remembered to install it is exactly the
+kind this repo's own guidance warns against.
+
+Marking the file `-merge` needs no local configuration and behaves the same
+everywhere: git refuses to blend the two versions, keeps one, and reports the
+conflict. The rebuild then settles it.
+
+**Which side git keeps must not matter, and the plan says so explicitly.**
+Under `git merge`, "ours" is the branch being merged into; under `git rebase`
+the roles invert. A resolution phrased as *take ours* would therefore mean
+different things depending on how the branch is being brought up to date — and
+agents in this repo rebase routinely. Since the kept content is overwritten by
+`pnpm build:board` in the next step, the correct instruction is side-neutral:
+**take either version, then rebuild**. Any wording that names a side is a bug
+waiting for a rebase.
+
 This is the smallest change that removes the constraint, and it deliberately
 does **not** take the file out of git. It is checked in for reasons that still
 hold: `pnpm board` starts it with no build step, and the plugin ships it. CI
@@ -102,8 +126,36 @@ still enforces *correctness*.
 
 ### 2. Dispatch asks before it fans out
 
-`plot-dispatch` runs the prediction that `plot-merge-queue` already implements,
-against the work in flight, before creating a worktree.
+**`merge-tree` cannot answer this, and the plan's first draft was wrong to say
+it could.** The prediction it performs compares two *existing* commits. A
+dispatch candidate is not one: `plot-dispatch` creates the branch, so at the
+moment of the check it is identical to the default branch and `merge-tree`
+would report *clean* for every candidate, forever. A check that always passes
+is worse than no check — it converts a known gap into a false assurance.
+
+The question at dispatch time is not *do these two commits conflict* but **which
+files will this branch touch**, and only the plan knows that. So the check is
+built from what is knowable:
+
+- **The claimed side is real and readable.** For every branch with a claim, its
+  local ref and its worktree give the exact set of files in play — committed and
+  uncommitted.
+- **The candidate side is a prediction from the plan**, not from git: the
+  branch's own description under `## Branches`, and the areas the Design section
+  names.
+
+Where the two sets overlap, the candidate is held. This is deliberately weaker
+than a merge simulation and honest about it: it can warn where no real conflict
+would arise, and it will miss a collision the plan never mentions. That is the
+correct trade for the case it exists to catch, which happened twice today and
+both times was visible in the plan text: two branches naming `AgentList.tsx`.
+
+**`merge-tree` still earns its place — after the branch exists.** Re-running a
+dispatch (`reused`) has two real commits to compare, and so does every merge.
+`plot-merge-queue` keeps that job; this plan does not duplicate it.
+
+`plot-dispatch` runs this check against the work in flight, before creating a
+worktree.
 
 **Against local refs AND worktrees, not the remote.** This is where the
 refs-are-truth principle bends for a good reason, and the reason is measured:
@@ -220,9 +272,20 @@ artifact stops producing a collision on every single pair.
 - **A branch stops reading blocked once the collision lands**, with nothing
   cleared by hand. Assert it against a second scan: a stored flag passes the
   first assertion and fails this one.
-- **git older than 2.38 refuses rather than reporting clean.** `plot-merge-queue`
+- **The strategy works in a clone that configured nothing.** Assert against a
+  fresh clone with no `git config` of its own — a custom driver passes on the
+  author's machine and silently does nothing everywhere else.
+- **The resolution never names a side.** Assert that a rebase and a merge
+  produce the same committed artifact: "ours" inverts between them, so a
+  side-named resolution passes one test and fails the other.
+- **The dispatch check does not use `merge-tree` on a branch that does not
+  exist.** Assert a candidate is evaluated from the plan's declared files, not
+  from a commit comparison — the comparison reports clean for every new branch
+  and would turn a known gap into a false assurance.
+- **git older than 2.38 refuses rather than reporting clean**, wherever
+  `merge-tree` is still used (re-dispatch, merge queue). `plot-merge-queue`
   already guards this because the old `merge-tree` answers a different question;
-  the guard must travel with the prediction, not be reimplemented beside it.
+  the guard must be shared, not reimplemented beside it.
 - `pnpm run test:reconcile`, `pnpm run test:board`, `pnpm run typecheck`,
   `pnpm run validate` all pass.
 - A changeset is present.
@@ -242,3 +305,23 @@ unpushed commits are readable from the main repo is shared between them.
 
 Recorded as open points in
 [`plot-board`](../stories/plot-board/STORY-plot-board.md) on 2026-08-16.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "The repo has no .gitattributes and no merge driver configured. A custom merge=rebuild driver lives in each clone's git config — would silently do nothing on CI and fresh clones.", "a": "Use `-merge` in .gitattributes instead: no local configuration, same behaviour everywhere. git keeps one side and reports the conflict; the rebuild settles it", "category": "technical-architecture"},
+    {"q": "merge=ours inverts between merge and rebase — 'ours' means different things. Problem?", "a": "Yes. The resolution must be side-neutral: take EITHER version, then rebuild. The kept content is overwritten anyway, and agents here rebase routinely", "category": "technical-implementation"},
+    {"q": "What does merge-tree compare the candidate against?", "a": "Each claimed branch's local state — the question is 'would these two collide', not 'is the candidate mergeable', which is always yes for a fresh branch", "category": "technical-implementation"},
+    {"q": "A dispatch candidate does not exist as a branch yet — plot-dispatch creates it. What can merge-tree compare?", "a": "Nothing useful — it would report clean for every candidate, turning a known gap into a false assurance. Compare declared FILES instead: the claimed side from refs and worktrees, the candidate side from the plan's own Branches/Design text", "category": "technical-architecture"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": true, "architecture": true, "implementation": true},
+    "domain": {"rules": false, "workflows": true, "data": false},
+    "ux": {"happyPath": true, "edgeCases": false, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
