@@ -2,14 +2,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** pr
 - **Impl:** own branches
 - **Assignee:** jwloka
-- **Approved:**
-- **Started:**
+- **Approved:** 2026-08-16, jwloka, plan-PR #127 merged
+- **Started:** 2026-08-16, jwloka, `bug/board-shows-discovery`
 - **Delivered:**
 
 ## Problem
