@@ -102,6 +102,15 @@ misses a **dead server** — the same absence-ambiguity this story keeps
 producing, one layer up: *stopped polling* and *polling and failing* are
 indistinguishable to the reader.
 
+**The first failed fetch is enough.** No two-strikes rule, because the two
+outcomes are not symmetric. A fetch that fails **is** an unobserved state, and
+what the reader sees in response is mild — the clock stops, a marker appears —
+so a network hiccup that briefly reads *last heard 4s ago* costs nothing and
+self-corrects on the next poll. A dead server that looks normal for two poll
+intervals costs a misdiagnosis, which is what this plan is paying off. Waiting
+for a second failure buys quiet flicker at the price of up to 8 seconds in
+which the numbers are wrong and say nothing about it.
+
 **Degrade, do not hide.** The last payload stays on screen — it is still the
 best information available, and blanking the view would destroy what the reader
 came for. What changes is the *confidence*: the ages stop advancing, and the
@@ -109,10 +118,20 @@ tab says how long ago the last answer arrived.
 
 ### 2. A port is bound once, and the binder reports it
 
-**The server binds port 0 and reports the port it got.** No separate search
-step, because the gap between finding and using is the whole defect. The OS
-assigns during `listen()`, the process reads its own `address()`, and there is
-never a moment when a port is known-free but unbound.
+**`PORT=0` binds zero and reports what the OS gave; everything else is
+unchanged.** The first draft of this section said "the server binds port 0",
+and checking the code showed why that is wrong: `index.ts:15` reads
+`process.env.PORT ?? 7777`, and the fixed default is a feature. A development
+board on a random port is not bookmarkable, and `pnpm board` would land
+somewhere new every time — turning tonight's dead-bookmark incident from an
+accident into the rule.
+
+Tests and the dev board want opposite things, and the fix should say so rather
+than pick one. Tests want **isolation**: no shared number, no collision. The
+dev board wants **predictability**: the same address every day. `PORT=0` serves
+the first without touching the second — the OS assigns during `listen()`, the
+process reads its own `address()` and prints it, and there is never a moment
+when a port is known-free but unbound.
 
 The tests then take the port from the started server rather than handing one
 in. `findFreePort` is deleted, not fixed: a retry loop on `EADDRINUSE` makes
@@ -120,11 +139,30 @@ the race rarer instead of impossible, and a test that fails once in fifty runs
 is harder to diagnose than one that never does — which is exactly the cost this
 plan is paying off.
 
-**`pnpm board` adopts a running board instead of starting a second.** Same
-root, daily cost: seven boards accumulated on 2026-08-16, each polling at 80
-GraphQL calls/hour, because nothing connects a new invocation to an existing
-one. Adoption needs the port to be *discoverable*, which is what reporting it
-provides — so this rides with the fix rather than waiting for its own plan.
+**All 28 call sites move together.** Counted, because "delete the helper" read
+like a footnote and is not: `findFreePort` is called 28 times across 8 test
+files — `board`, `claimed`, `discovery`, `dispatch` and four integration
+suites. Migrating one file would fix the flake that has been *seen* while
+leaving the same race in seven that have merely not failed yet, and would keep
+the helper alive for the next test file to reach for. The change is mechanical
+and uniform: large in line count, small in risk.
+
+**`pnpm board` reports the running board and exits, rather than starting a
+second.** Same root, daily cost: seven boards accumulated on 2026-08-16, each
+polling at 80 GraphQL calls/hour, because nothing connects a new invocation to
+an existing one.
+
+"Adopt" means **name it and stop** — print `board already running at
+http://localhost:7777` and exit 0. Not "kill the old one and start fresh": a
+`pnpm board` in one terminal would then shoot down the board of another
+worktree, and several worktrees ran side by side on the very day this was
+found. Reporting also needs no process communication and is trivial to assert,
+while giving the reader exactly the fact that was missing tonight — *which
+address is alive*.
+
+Today the second invocation dies with a raw `EADDRINUSE` stack trace, which
+states the problem in the least useful available form: it says a port is taken
+without saying by what, or where to go instead.
 
 **And the page can say which port serves it.** The bookmarked-dead-port case is
 unfixable from inside a page that cannot name its own origin; with the port
@@ -152,9 +190,10 @@ fix; determinism is.
 
 ### Ports
 
-- `bug/board-binds-port-zero` — the server binds 0 and reports its port;
-  `findFreePort` is deleted and callers read the started server's port;
-  `pnpm board` adopts a running board rather than starting a second
+- `bug/board-binds-port-zero` — `PORT=0` binds zero and reports the assigned
+  port (default 7777 unchanged); `findFreePort` is deleted and all 28 call
+  sites across 8 test files read the started server's port; a second
+  `pnpm board` names the running one and exits
 
 Two waves, and they are genuinely parallel: the first touches
 `AgentList.tsx`/`App.tsx`, the second touches the server bootstrap, the test
@@ -176,13 +215,21 @@ is in flight.
   running underneath it.
 - **The last payload stays on screen.** Assert the rows are still rendered —
   degrading must not become hiding.
+- **The first failed fetch marks the payload stale.** Assert on ONE failure —
+  a two-strikes implementation passes a test written against two.
 - **No port is chosen before it is bound.** Assert `findFreePort` no longer
-  exists and that no caller passes a port in. This is the assertion that fails
-  if someone later "restores" the helper for convenience.
+  exists and that **no** test file passes a port in — all 28 call sites, not
+  the one that was seen to fail. This is the assertion that fails if someone
+  later "restores" the helper for convenience.
 - **The server reports the port it actually bound**, asserted against a request
   that reaches it — not against the number it intended to use.
-- **`pnpm board` adopts a running board.** Assert a second invocation does not
-  start a second server; the seven-board case is the one this prevents.
+- **The default port is unchanged.** Assert that starting without `PORT` still
+  binds 7777: the isolation belongs to the tests, and a fix that made the dev
+  board wander would trade one lost-address problem for a permanent one.
+- **A second `pnpm board` reports the first and exits 0.** Assert it does not
+  start a second server AND that it names the address — exiting quietly would
+  leave the reader with the same question tonight's `EADDRINUSE` left them
+  with. Assert it does not kill the running one either.
 - **The nested-repo containment assertions still hold** — they are the reason
   the slow test exists, and a port fix that weakened them would trade a flake
   for a hole.
@@ -214,3 +261,33 @@ three commits on `bug/fleet-sees-local-work` and paused before pushing. The
 worktree was clean, so `local_dirty` was false, and the board read *"claimed,
 no commits yet"* for a branch holding a complete implementation — including the
 commit that fixed the neighbouring half of the same blindness.
+
+Also **not** in scope, found while this plan's own PR was open: a Draft plan's
+branches appear under NOT STARTED reading *"eligible — nobody has taken it"*.
+Measured: `plot-fleet-scan.sh` contains **zero** references to a plan's phase —
+it walks every active plan's waves whether the plan is Draft or Approved. So
+the tab invites a dispatch that `plot-dispatch` would refuse, on work still
+under discussion. It belongs with
+[`agent-view-phase`](2026-08-16-agent-view-phase.md), which is teaching exactly
+this connection — there for the row's *label*, here for its *group* — and it
+touches `plot-fleet-scan.sh`, which that plan holds.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "The plan says 'the server binds port 0', but index.ts:15 reads process.env.PORT ?? 7777 — a FIXED port. Tests and the dev board want opposite things.", "a": "PORT=0 opt-in: binds zero and reports it; default 7777 unchanged. Tests get isolation, the dev board keeps a bookmarkable address", "category": "technical-architecture"},
+    {"q": "findFreePort has 28 call sites across 8 test files, not just discovery.test.mjs. How big is the branch?", "a": "All 28 at once. A half-migrated helper leaves the race in 7 files that merely have not failed yet, and keeps the helper alive for the next test to reach for. Mechanical and uniform: large in lines, small in risk", "category": "technical-implementation"},
+    {"q": "What does 'pnpm board adopts a running board' mean concretely?", "a": "Name it and stop — print the address, exit 0. NOT kill-and-restart: that would shoot down another worktree's board, and several ran side by side the day this was found", "category": "domain-workflows"},
+    {"q": "When is a payload stale? One failed fetch could be a hiccup.", "a": "First failure. The outcomes are asymmetric: a brief false 'last heard 4s ago' costs nothing and self-corrects; a dead server looking normal for two intervals costs a misdiagnosis", "category": "ux-errors"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": true, "architecture": true, "implementation": true},
+    "domain": {"rules": false, "workflows": true, "data": false},
+    "ux": {"happyPath": false, "edgeCases": false, "errors": true, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
