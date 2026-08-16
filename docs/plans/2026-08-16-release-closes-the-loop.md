@@ -5,7 +5,8 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
+- **Delivered:** 2026-08-16
 - **Type:** bug
 - **Sprint:**
 - **Story:** plot-board
@@ -247,7 +248,7 @@ alongside the write.
 
 ### Write
 
-- `feature/release-marks-plans` — `/plot-release` writes Phase + `Released:` per included plan, idempotently, gated on the check
+- `feature/release-marks-plans` — `/plot-release` writes Phase + `Released:` per included plan, idempotently, gated on the check → #112
 
 <!-- Two waves, one branch each, in this order because the write's gate IS
      the check. The first draft had them the other way round, which would
@@ -353,3 +354,30 @@ posed:
 END-CHALLENGE-THE-PLAN-METADATA -->
 
 Definition of Done: `docs/definition-of-done.md`.
+
+Delivered 2026-08-16, the day it was approved. The evidence is the number the
+plan was written around: section 6 reported **5** delivered-but-shipped plans
+before the back-fill and **0** after, and the board's Released column — which
+had been structurally empty for the repo's entire history — now holds five
+cards while Endgame holds one.
+
+Two defects surfaced while building, neither by tests:
+
+- The first working scan reported **v2.2.0 for a plan that shipped in v1.7.0**.
+  `pr-state` carried no `mergeCommit`, so a `git log --grep "#N"` fallback
+  matched any commit *mentioning* the PR rather than its merge — producing five
+  plausible versions of which at least one was wrong. Exactly the "claim nobody
+  re-checks" this plan warns about. The adapter now carries the merge SHA and
+  the fallback is gone.
+- Appending `type` to the parsed plan rows **leaked the field separator** into
+  section 2 (`PRs: 1\x1Ffeature`), because one read loop still named seven
+  fields: an unread trailing field lands in the last one read. Same class as the
+  tab-collapse bugs this suite caught twice, so the new test pins the property
+  rather than the fix — no report line may contain the separator, whatever the
+  field count becomes.
+
+And one from the merge itself: a **merged-and-deleted branch reads as `open`**
+in the fleet scan, because state resolves from refs and a deleted ref cannot be
+told from one that never existed. Recorded as an open question — cosmetic here,
+but the same git-only blind spot as unpushed work being invisible in the Agents
+tab.
