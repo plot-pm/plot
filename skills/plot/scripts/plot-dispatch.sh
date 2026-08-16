@@ -589,12 +589,44 @@ work_in_flight() { # $1=branch to exclude (the candidate)
 #
 # Silent when nothing is held. A report that always prints something teaches
 # the reader to skip it, and then it is worth nothing on the day it matters.
+#
+# BOUNDED, because measured on this repo it was not. The first run against real
+# state printed 13 branches under a single candidate, one of them naming 18
+# paths — the same "ignored by the third time" failure the design warns about,
+# arriving as volume rather than as false positives. Both caps are plain
+# truncation with the remainder counted, never a judgment about which branch or
+# file matters: nothing here can know that, and pretending to would be the
+# candidate-side prediction this design refuses.
+#
+# The full list stays one command away, and the line says which.
+IN_FLIGHT_MAX_FILES=6
+IN_FLIGHT_MAX_BRANCHES=8
+
 report_in_flight() { # $1=candidate branch
-  local br files
+  local br files shown extra n=0 total
+  total=$(work_in_flight "$1" | wc -l | tr -d ' ')
+  [ "${total:-0}" -gt 0 ] || return 0
+
   work_in_flight "$1" | while IFS=$'\t' read -r br files; do
+    n=$((n + 1))
+    if [ "$n" -gt "$IN_FLIGHT_MAX_BRANCHES" ]; then
+      # Said once, on the last line, rather than per branch.
+      [ "$n" = "$((IN_FLIGHT_MAX_BRANCHES + 1))" ] && \
+        echo "  in flight: …and $((total - IN_FLIGHT_MAX_BRANCHES)) more branches" \
+             "— plot-fleet for the full picture"
+      continue
+    fi
     # Commas to ", " for reading; the machine-countable summary is the footer,
     # so this line is allowed to be prose.
-    echo "  in flight: $br holds $(printf '%s' "$files" | sed 's/,/, /g')"
+    shown=$(printf '%s' "$files" | tr ',' '\n' | head -"$IN_FLIGHT_MAX_FILES" \
+      | tr '\n' ',' | sed -e 's/,$//' -e 's/,/, /g')
+    # `printf '%s'` writes no trailing newline, so `wc -l` counts SEPARATORS
+    # and undercounts the last field by one. Terminating the stream with
+    # printf '\n' is what makes the remainder exact — it reported "+2 more"
+    # for nine files with six shown until a test pinned the arithmetic.
+    extra=$(( $(printf '%s\n' "$files" | tr ',' '\n' | wc -l) - IN_FLIGHT_MAX_FILES ))
+    [ "$extra" -gt 0 ] && shown="$shown (+$extra more)"
+    echo "  in flight: $br holds $shown"
   done
 }
 

@@ -101,6 +101,11 @@ branch to hold back, not a refusal.
 No lines means nothing is held — the report stays silent rather than printing
 reassurance nobody would keep reading.
 
+The report is capped at 8 branches and 6 files each, with the remainder counted
+(`(+4 more)`, `…and 5 more branches`). When you see an overflow line, the fleet
+is busy enough that `/plot-fleet <slug>` is the better view — say so rather than
+re-deriving the omitted rows yourself.
+
 ### 3. Fan Out
 
 ```bash

@@ -119,6 +119,16 @@ whole repo.
 rebuilds it, so including it would make every board pair look like a collision:
 precisely the noise `.gitattributes -merge` exists to remove.
 
+**The report is bounded — at most 8 branches, at most 6 files each.** Found by
+running this against the real repo rather than a fixture: the first version
+printed 13 branches under a single candidate, one of them naming 18 paths. That
+is the same "ignored by the third time" failure the design warns about, arriving
+as *volume* rather than as false positives. Both caps are plain truncation with
+the remainder counted (`(+4 more)`, `…and 5 more branches`) — never a judgment
+about which branch or file matters, because nothing here can know that, and
+pretending to would be the candidate-side prediction this design refuses. The
+overflow line names `plot-fleet` as where the full picture lives.
+
 ### Two designs that were tried on paper and killed by measurement
 
 Both look like the obvious answer, so they are recorded here rather than merely
@@ -186,6 +196,14 @@ passes for the wrong reason:
 
 Both were found by mutating the script and checking the tests went red — a
 green test proves nothing until it has been seen to fail.
+
+The **cap** tests came the other way round: from running the real thing rather
+than a fixture. The wide branch there is named `bug/aaa-wide` so it sorts first
+and survives the branch cap — named last it lands past the cap, is truncated
+away, and the file-cap assertions silently test nothing. That is how the first
+version of the test failed, and the test then caught a real off-by-one in the
+remainder count (`printf '%s'` writes no trailing newline, so `wc -l` counts
+separators and undercounts the last field).
 
 ## Known gaps
 

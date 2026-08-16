@@ -987,3 +987,66 @@ test('dispatch: the real run reports too, not only --dry-run', () => {
     `the report belongs directly under the branch it qualifies:\n${out}`);
   f.cleanup();
 });
+
+test('dispatch: the report is bounded, and says what it left out', () => {
+  // Found by running this against the real repo rather than a fixture: the
+  // first version printed 13 branches under ONE candidate, one of them naming
+  // 18 paths. That is the same "ignored by the third time" failure the design
+  // warns about, arriving as volume instead of as false positives.
+  //
+  // Both caps are plain truncation with the remainder COUNTED — never a
+  // judgment about which branch or file matters. Nothing here can know that,
+  // and pretending to would be the candidate-side prediction this refuses.
+  const f = repoWithInFlight('bounded');
+  // The wide branch is named so it sorts FIRST and therefore survives the
+  // branch cap. Named last it lands at position 11, gets truncated away, and
+  // the file-cap assertions below silently test nothing — which is how the
+  // first version of this test failed.
+  const wide = {};
+  for (let i = 0; i < 9; i++) wide[`Wide${i}.tsx`] = 'x\n';
+  f.committedWork('bug/aaa-wide', wide);
+  // Ten more, so the branch cap (8) is exceeded.
+  for (let i = 0; i < 10; i++) {
+    f.committedWork(`bug/many-${i}`, { [`File${i}.tsx`]: 'x\n' });
+  }
+
+  const out = execFileSync('bash', [dispatch, '--offline', '--dry-run', 'f'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 60_000 });
+  const lines = out.split('\n').filter((l) => l.includes('in flight'));
+
+  // The branch cap: 8 branch lines plus one line saying how many were omitted.
+  const omitted = lines.filter((l) => /more branches/.test(l));
+  assert.equal(omitted.length, 1, `exactly one overflow line:\n${out}`);
+  assert.equal(lines.length - omitted.length, 8,
+    `at most 8 branches may be listed:\n${out}`);
+  assert.match(omitted[0], /and 3 more branches/,
+    `the omitted COUNT must be exact — 11 branches, 8 shown:\n${omitted[0]}`);
+  assert.match(omitted[0], /plot-fleet/,
+    'it must say where the full picture lives, not just that it truncated');
+
+  // The file cap, on the branch that exceeds it.
+  const wideLine = lines.find((l) => l.includes('bug/aaa-wide')) ?? '';
+  assert.notEqual(wideLine, '',
+    `the wide branch must survive the branch cap, or the file cap is untested:\n${out}`);
+  assert.match(wideLine, /\(\+3 more\)/,
+    `9 files, 6 shown, so exactly 3 must be counted:\n${wideLine}`);
+  assert.equal((wideLine.match(/Wide\d\.tsx/g) ?? []).length, 6,
+    `exactly 6 paths may be named:\n${wideLine}`);
+
+  f.cleanup();
+});
+
+test('dispatch: a report under both caps is never truncated', () => {
+  // The caps must not fire on ordinary state — the common case is a handful of
+  // branches, and an overflow line there would be noise about nothing.
+  const f = repoWithInFlight('unbounded');
+  f.committedWork('bug/small', { 'A.tsx': 'x\n', 'B.tsx': 'y\n' });
+
+  const out = execFileSync('bash', [dispatch, '--offline', '--dry-run', 'f'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+  assert.match(out, /in flight: bug\/small holds A\.tsx, B\.tsx$/m,
+    `a short list must be printed whole, with no suffix:\n${out}`);
+  assert.doesNotMatch(out, /more branches|\(\+\d+ more\)/,
+    `nothing may be truncated here:\n${out}`);
+  f.cleanup();
+});

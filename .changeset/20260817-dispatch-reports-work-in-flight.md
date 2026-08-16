@@ -24,6 +24,12 @@ not report every commit it picked up from main as its own work. The generated
 `board-server.mjs` is excluded: every board branch rebuilds it, so including it
 would make every board pair look like a collision.
 
+The report is **bounded** — at most 8 branches, at most 6 files each, with the
+remainder counted. Measured against this repo's real state, the unbounded
+version printed 13 branches under one candidate, one of them naming 18 paths.
+Both caps are plain truncation, never a judgment about which branch or file
+matters.
+
 It **reports and refuses nothing** — nothing on the candidate side is predicted,
 so there is no prediction worth acting on. `git merge-tree` cannot help at this
 moment (dispatch creates the candidate branch, so it is identical to main and
