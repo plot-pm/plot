@@ -85,6 +85,102 @@ describe('classify', () => {
     expect(classify('merged', 'eligible', 1, QUIET).note).toMatch(/wave still open/);
   });
 
+  // --- a worktree with uncommitted work is not quiet ------------------------
+  //
+  // The classifier's only new input, and it may do exactly one thing: LIFT a
+  // branch out of quiet. Everything about these tests is about keeping it that
+  // narrow — a signal true only on the machine doing the looking may add an
+  // answer where this machine knows more, never downgrade one.
+
+  it('lifts a stale CLAIM out of quiet when its local worktree is dirty', () => {
+    // The motivating case. A branch claimed a day earlier and resumed today has
+    // a 21-hour-old claim commit and minutes-old work, so the refs say quiet and
+    // the worktree says otherwise. QUIET carries an instruction — go check
+    // whether it died — and following it found a live agent with three modified
+    // files.
+    const r = classify('claimed', 'eligible', QUIET + 1, QUIET, null, true);
+    expect(r.group).toBe('working');
+    // The note names the evidence as LOCAL, because that is what a reader needs
+    // to judge it: work nobody else can see, claimed on grounds the next person
+    // cannot verify. Saying `local` keeps the claim honest.
+    expect(r.note).toMatch(/local/);
+    expect(r.note).toMatch(/uncommitted/);
+  });
+
+  it('lifts a stale WIP branch too, not only a claim', () => {
+    // All six quiet rows on the board the day this was found were `wip` with
+    // 22-day-old commits, not `claimed`. A dirty worktree means the same thing
+    // whatever put the branch there, and a test for only the motivating state
+    // leaves the common one to chance.
+    const r = classify('wip', 'eligible', 30_300, QUIET, null, true);
+    expect(r.group).toBe('working');
+    expect(r.note).toMatch(/local/);
+  });
+
+  it('lifts a claim whose age is unknown — no age, but there IS evidence', () => {
+    // Without an age the claim arm falls to quiet because there is nothing to
+    // judge. A dirty worktree is something to judge.
+    expect(classify('claimed', 'eligible', null, QUIET, null, true).group).toBe('working');
+    expect(classify('wip', 'eligible', null, QUIET, null, true).group).toBe('working');
+  });
+
+  it('changes nothing for a CLEAN worktree', () => {
+    // A clean tree is equally consistent with an agent that finished and one
+    // that never started, so it is not evidence of work and must lift nothing.
+    // `false` is also what every branch on another machine reports, which makes
+    // this the assertion that keeps the change additive.
+    expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null, false).group).toBe('quiet');
+    expect(classify('wip', 'eligible', 200, QUIET, null, false).group).toBe('quiet');
+    expect(classify('wip', 'eligible', null, QUIET, null, false).group).toBe('quiet');
+  });
+
+  it('answers identically whether the field is false or simply not passed', () => {
+    // The absent case, pinned against the false one. Every caller predating the
+    // field passes nothing, and "this machine has no worktree" must not become a
+    // different answer from "this machine did not say".
+    for (const args of [
+      ['claimed', 'eligible', QUIET + 1],
+      ['wip', 'eligible', 200],
+      ['wip', 'eligible', 5],
+      ['open', 'eligible', null],
+      ['merged', 'complete', 1],
+      ['deferred', 'eligible', null],
+    ] as const) {
+      const [state, verdict, age] = args;
+      expect(classify(state, verdict, age, QUIET, null, false))
+        .toEqual(classify(state, verdict, age, QUIET));
+    }
+  });
+
+  it('never DOWNGRADES a group, only lifts one out of quiet', () => {
+    // The one-directional rule, asserted on the groups that are not quiet. A
+    // dirty worktree on a merged branch is somebody editing after the merge —
+    // true, and not a reason to unsay `done`. Same for not-started and for the
+    // groups a PR decides.
+    expect(classify('merged', 'complete', 1, QUIET, null, true).group).toBe('done');
+    expect(classify('open', 'eligible', null, QUIET, null, true).group).toBe('not-started');
+    expect(classify('deferred', 'eligible', null, QUIET, null, true).group).toBe('not-started');
+    // A branch already reading `working` keeps the note it had: a recent commit
+    // is the stronger statement, and replacing it with "uncommitted work" would
+    // hide the age the reader came for.
+    const fresh = classify('wip', 'eligible', 5, QUIET, null, true);
+    expect(fresh.group).toBe('working');
+    expect(fresh.note).toMatch(/last commit/);
+  });
+
+  it('leaves a PR to answer even when the worktree is dirty', () => {
+    // Once work is up for review, what it waits for is decided there. A dirty
+    // worktree on a branch whose CI is running does not move it out of
+    // waiting-on-machine — that group is not quiet, and there is nothing to
+    // lift.
+    const pr = {
+      number: 42, head: 'feature/x', state: 'OPEN', draft: false,
+      checks: 'pending', review: '', url: '',
+    };
+    expect(classify('wip', 'eligible', 200, QUIET, pr, true).group)
+      .toBe('waiting-on-machine');
+  });
+
   it('scales the age unit so a note never reads "30300 min"', () => {
     // Also found on screen. Minutes are right for the first hour and become
     // arithmetic the reader has to do after that.
@@ -382,6 +478,40 @@ describe('rowsFromPulse', () => {
       const future = new Map([['2026-08-15-example-plan.md', NOW + 3 * DAY]]);
       const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, null, '', future, NOW);
       expect(rows.find((r) => r.branch === 'feature/c')?.waitingDays).toBe(0);
+    });
+  });
+
+  describe('a dirty local worktree reaches the row', () => {
+    // The plumbing, asserted separately from the classifier: a field the scan
+    // reports and nothing carries is a field nobody reads.
+    const dirty = (branch: string): FleetPulse => ({
+      ...pulse,
+      plans: [{
+        file: '2026-08-15-example-plan.md',
+        waves: [{
+          name: 'Implementation', verdict: 'eligible',
+          branches: [{
+            branch, state: 'wip', deferred: false, claimed: '',
+            local_dirty: true, local_worktree: '/Users/x/wt-example',
+          }],
+        }],
+      }],
+    });
+
+    it('moves a long-quiet branch into working, saying the evidence is local', () => {
+      // `feature/d` is 240 minutes old against a 30-minute window, so the refs
+      // put it firmly in quiet and only the worktree says otherwise.
+      const rows = rowsFromPulse(dirty('feature/d'), ages, 'plot', QUIET);
+      const row = rows.find((r) => r.branch === 'feature/d');
+      expect(row!.group).toBe('working');
+      expect(row!.note).toMatch(/local/);
+    });
+
+    it('leaves a pulse without the fields answering exactly as before', () => {
+      // Every branch on a machine with no worktree for it, which is nearly all
+      // of them. The base fixture carries neither field.
+      const rows = rowsFromPulse(pulse, ages, 'plot', QUIET);
+      expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('quiet');
     });
   });
 

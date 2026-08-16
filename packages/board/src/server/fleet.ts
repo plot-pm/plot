@@ -556,6 +556,14 @@ export function classify(
   ageMinutes: number | null,
   quietMinutes: number,
   pr?: PrRecord | null,
+  /**
+   * A local worktree for this branch has uncommitted changes — see
+   * `FleetBranchSchema.local_dirty`. Used for exactly one thing, below: to LIFT
+   * a branch out of quiet. It may never downgrade an answer, because it is true
+   * only on the machine doing the looking, and false is what every branch
+   * elsewhere reports.
+   */
+  localDirty = false,
 ): { group: WaitingGroup; note: string } {
   if (state === 'deferred') return { group: 'not-started', note: 'deferred' };
 
@@ -601,6 +609,7 @@ export function classify(
     if (ageMinutes !== null && ageMinutes <= quietMinutes) {
       return { group: 'working', note: 'claimed, no commits yet' };
     }
+    if (localDirty) return workingLocally();
     return {
       group: 'quiet',
       note:
@@ -619,10 +628,33 @@ export function classify(
       : { group: 'done', note: 'merged — wave still open' };
   }
   // state === 'wip'
+  if (ageMinutes !== null && ageMinutes <= quietMinutes) {
+    // A recent commit is the stronger statement and keeps its own note: the age
+    // is what the reader came for, and replacing it would hide it.
+    return { group: 'working', note: `last commit ${humanAge(ageMinutes)} ago` };
+  }
+  if (localDirty) return workingLocally();
   if (ageMinutes === null) return { group: 'quiet', note: 'pushed work, age unknown' };
-  return ageMinutes <= quietMinutes
-    ? { group: 'working', note: `last commit ${humanAge(ageMinutes)} ago` }
-    : { group: 'quiet', note: `no commit for ${humanAge(ageMinutes)}` };
+  return { group: 'quiet', note: `no commit for ${humanAge(ageMinutes)}` };
+}
+
+/**
+ * The one answer a local worktree may produce: working, on evidence this
+ * machine can see and no other can.
+ *
+ * The note names the evidence as LOCAL because that is what a reader needs to
+ * judge it. Work that has not been committed is also work nobody else can see,
+ * and a row claiming *working* on grounds the next person cannot verify would
+ * be its own kind of lie — saying *local* keeps the claim honest.
+ *
+ * It does not say WHO. A human's edits look exactly like an agent's (git
+ * records no author on an uncommitted change), and on an `Impl: same branch`
+ * plan they share one branch by design. So the note reports what was observed
+ * and on which machine, and a reader who recognises their own editor is not
+ * misled — where "agent working" would have misled them.
+ */
+function workingLocally(): { group: WaitingGroup; note: string } {
+  return { group: 'working', note: 'uncommitted work in a local worktree' };
 }
 
 /**
@@ -692,7 +724,8 @@ export function rowsFromPulse(
       for (const b of wave.branches) {
         const age = ages.get(b.branch) ?? null;
         const pr = prs?.get(b.branch) ?? null;
-        const { group, note } = classify(b.state, wave.verdict, age, quietMinutes, pr);
+        const { group, note } = classify(
+          b.state, wave.verdict, age, quietMinutes, pr, b.local_dirty);
         rows.push({
           repo,
           branch: b.branch,

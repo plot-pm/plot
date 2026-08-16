@@ -373,6 +373,36 @@ export function summariseFromPulse(meta: PlanMeta, pulse: FleetPulse | null): Wa
   return summary;
 }
 
+/**
+ * Where this plan's branches are checked out on THIS machine, from the pulse.
+ *
+ * Presence, not dirtiness — the inverse of what lifts a row's group, and
+ * deliberately so: dirtiness is evidence of *work*, presence is evidence of
+ * *location*, and the modal this feeds asks about location. A clean checkout
+ * answers "where did I put this" exactly as well as a dirty one.
+ *
+ * Empty where this machine has no worktree for any of the plan's branches,
+ * which is the common case and the one that keeps the field honest: a path is
+ * true here and meaningless anywhere else, so a reader elsewhere gets nothing
+ * rather than a directory that does not exist for them.
+ */
+export function worktreesFromPulse(
+  meta: PlanMeta,
+  pulse: FleetPulse | null,
+): { branch: string; path: string }[] {
+  // Same join key as `summariseFromPulse`: the pulse names plans by basename
+  // (symlink-resolved), while meta.file is an absolute real path.
+  const plan = pulse?.plans.find((p) => p.file === path.basename(meta.file));
+  if (!plan) return [];
+  const found: { branch: string; path: string }[] = [];
+  for (const wave of plan.waves) {
+    for (const b of wave.branches) {
+      if (b.local_worktree) found.push({ branch: b.branch, path: b.local_worktree });
+    }
+  }
+  return found;
+}
+
 /** slug from a date-prefixed plan filename (YYYY-MM-DD-<slug>.md). */
 function planSlug(file: string): string {
   const base = path.basename(file, '.md');
@@ -602,6 +632,12 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // single-wave plan's one branch is the same question, and this repo's plans
     // are mostly single-wave. What the tile renders stays a display decision.
     if (meta.waves.length > 0) card.waveSummary = summariseFromPulse(meta, pulse);
+    // Only where this machine actually has one. An empty array and "no
+    // worktrees here" are the same statement, so the field is simply absent
+    // rather than present-and-empty — the modal then renders nothing, which is
+    // the right answer everywhere the path would not exist.
+    const worktrees = worktreesFromPulse(meta, pulse);
+    if (worktrees.length > 0) card.worktrees = worktrees;
     cards.push(card);
   }
 

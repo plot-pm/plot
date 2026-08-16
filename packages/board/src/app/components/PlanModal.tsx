@@ -103,6 +103,44 @@ export function PlanModal({ card, onClose, onShowInBoard }: PlanModalProps) {
             Close
           </button>
         </header>
+        {/* Where this plan's work is checked out on THIS machine.
+
+            Under the header rather than in the row: a row is a triage line and
+            is already full, while a filesystem path is what you want once you
+            have stopped triaging and decided to go look. Shown for CLEAN
+            worktrees too — dirtiness is evidence of work, presence is evidence
+            of location, and this asks about location.
+
+            Labelled "on this machine", because that is the whole caveat: the
+            path is true here and meaningless anywhere else. A card with no
+            worktrees renders nothing at all rather than an empty section. */}
+        {card.worktrees && card.worktrees.length > 0 && (
+          <div className="border-b border-slate-200 px-4 py-2 dark:border-slate-700">
+            <p className="mb-1 text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Checked out on this machine
+            </p>
+            <ul className="space-y-1">
+              {card.worktrees.map((wt) => (
+                <li key={wt.branch} className="flex items-baseline gap-2 text-xs">
+                  <span className="shrink-0 font-mono text-slate-500 dark:text-slate-400">
+                    {wt.branch}
+                  </span>
+                  {/* Selectable, because the next thing anyone does with it is
+                      `cd`. A text input rather than a copy button: it works
+                      without the clipboard permission, in an insecure context,
+                      and it shows the value it would copy. */}
+                  <input
+                    readOnly
+                    value={wt.path}
+                    onFocus={(e) => e.currentTarget.select()}
+                    aria-label={`Worktree path for ${wt.branch}`}
+                    className="min-w-0 flex-1 rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                  />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="min-h-0 flex-1 bg-white dark:bg-slate-950">
           {error ? (
             <p className="p-6 text-sm text-red-600 dark:text-red-400">Failed to load plan: {error}</p>

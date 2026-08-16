@@ -187,6 +187,25 @@ export const CardSchema = z.object({
    * question whether a plan has one branch or nine.
    */
   waveSummary: WaveSummarySchema.optional(),
+  /**
+   * Where this plan's branches are checked out on THIS machine — one entry per
+   * branch that has a local worktree, in the pulse's own order.
+   *
+   * Present for CLEAN worktrees too, unlike the group lift a dirty one produces.
+   * That is the one place the clean/dirty distinction goes the other way, and it
+   * is consistent: dirtiness is evidence of *work*, presence is evidence of
+   * *location*, and this answers location — *where did I put this*.
+   *
+   * In the MODAL rather than on a row or a tile. A row is a triage line and is
+   * already full; a filesystem path is what you want once you have stopped
+   * triaging and decided to go look.
+   *
+   * Empty (and so absent from the card) wherever this machine has no worktree —
+   * a modal opened on a teammate's laptop shows no path rather than one that
+   * does not exist there. Same rule as `local_dirty`, and the reason both can be
+   * added without weakening refs-as-truth.
+   */
+  worktrees: z.array(z.object({ branch: z.string(), path: z.string() })).optional(),
 });
 export type Card = z.infer<typeof CardSchema>;
 
@@ -291,6 +310,37 @@ export const FleetBranchSchema = z.object({
   deferred: z.boolean(),
   /** Claim note from the plan, or "" — never null (house style). */
   claimed: z.string(),
+  /**
+   * A local worktree for this branch has uncommitted changes.
+   *
+   * The one thing the refs cannot see: an agent that has edited files and not
+   * committed has written nothing git can report, so a branch someone is
+   * actively working reads as abandoned. The scan runs on the machine that owns
+   * the worktrees and reports what it finds there.
+   *
+   * STRICTLY ONE-DIRECTIONAL, and that is what lets it coexist with
+   * refs-as-truth: `classify` may only use it to LIFT a branch out of quiet,
+   * never to downgrade an answer. On a machine with no worktree for the branch
+   * — every detached worker, every teammate's laptop, every CI run — it is
+   * false, which is exactly the answer that changes nothing.
+   *
+   * Defaults to false so a pulse from an older scan still validates: absent and
+   * "no worktree here" are the same statement, and both mean "answer from refs".
+   */
+  local_dirty: z.boolean().default(false),
+  /**
+   * Where this branch is checked out on THIS machine, or "".
+   *
+   * Kept although `local_dirty` is what moves the group, because it answers a
+   * different question — *where did I put this* — and the plan modal is where
+   * that gets asked. Shown for CLEAN worktrees too: dirtiness is evidence of
+   * work, presence is evidence of location.
+   *
+   * True on this machine and meaningless on any other, so a reader elsewhere
+   * gets "" and no path at all — a path that does not exist where you are
+   * reading is worse than no path.
+   */
+  local_worktree: z.string().default(''),
 });
 export type FleetBranch = z.infer<typeof FleetBranchSchema>;
 

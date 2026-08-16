@@ -28,6 +28,11 @@
 #         merging).
 #         Consumers that only need counts (the /plot-fleet pulse log, the
 #         board) read that one line and never re-count the body.
+#         --json additionally carries, per branch, what THIS MACHINE knows and
+#         the refs do not: `local_dirty` (a local worktree has uncommitted
+#         changes) and `local_worktree` (where it is checked out here). Both are
+#         absent-shaped — false and "" — wherever no worktree exists, so a
+#         branch living on another machine answers exactly as it did before.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
 #
 # STATELESS AND READ-ONLY. This is the whole design (Manifesto Principle 1):
@@ -200,6 +205,72 @@ if printf '%s\n' "$MERGE_SUBJECTS" | grep -qE '^Merge pull request #[0-9]+ from 
 else
   MERGE_DETECT=none
 fi
+
+# ---------------------------------------------------------------------------
+# Local worktrees: what the refs cannot see
+# ---------------------------------------------------------------------------
+#
+# An agent that has edited files and not committed has written nothing git can
+# see, so a branch someone is actively working reads as abandoned — on the one
+# machine that could have known better. This scan runs on that machine, and
+# `git worktree list --porcelain` names every worktree and its branch.
+#
+# The signal is strictly ONE-DIRECTIONAL, which is the whole reason it can be
+# added without weakening refs-as-truth: it may ADD an answer where this machine
+# knows more, never downgrade one. A machine with no worktree for a branch —
+# every detached worker, every teammate's laptop, every CI run — reports nothing
+# here, and the branch answers from refs exactly as it did before.
+#
+# TWO EMPTY-MEANS-ONE-THING GUARDS, both cheap:
+#   * SKIP `prunable` ENTRIES. A worktree directory can be deleted without `git
+#     worktree remove`, and the entry survives. `git status` there exits 128 and
+#     prints NOTHING — so a check on emptiness reads "clean" and is right by
+#     ACCIDENT. `git worktree list --porcelain` already marks such entries, so
+#     running `git status` on a directory known to be gone is asking a question
+#     whose answer was printed a line earlier.
+#   * READ THE EXIT CODE, not the emptiness. A non-zero status is a failure to
+#     observe, and a failure to observe is not evidence of cleanliness.
+#
+# NO CAP, and the measurement is the reason: 6.6 ms per worktree, so twenty cost
+# ~133 ms against a scan that already runs 500–1050 ms. A cap would be stock
+# against a problem the numbers rule out, and caps drop results silently unless
+# they also report saturation.
+#
+# Read ONCE per run, not once per branch — same rule the merge walk follows, for
+# the same reason: branch_state runs per branch and the board polls every 5 s.
+# bash 3.2 (macOS) has no associative arrays, so the table is a newline-
+# separated string of `branch<TAB>path<TAB>dirty` rows, looked up with awk.
+worktree_rows() {
+  git worktree list --porcelain </dev/null 2>/dev/null | awk '
+    /^worktree /   { path = substr($0, 10); br = ""; prunable = 0; next }
+    /^branch /     { br = substr($0, 8); sub(/^refs\/heads\//, "", br); next }
+    /^prunable/    { prunable = 1; next }
+    /^$/           { if (br != "" && !prunable) print br "\t" path; br = ""; path = ""; prunable = 0; next }
+    END            { if (br != "" && !prunable) print br "\t" path }
+  '
+}
+
+WORKTREES=""
+while IFS=$'\t' read -r wt_branch wt_path; do
+  [ -n "$wt_branch" ] || continue
+  # Exit code, never emptiness: `git status` on a vanished directory prints
+  # nothing and fails, and "I could not look" must not read as "clean".
+  if wt_status=$(git -C "$wt_path" status --porcelain </dev/null 2>/dev/null); then
+    if [ -n "$wt_status" ]; then wt_dirty=true; else wt_dirty=false; fi
+  else
+    # A failure to observe. The worktree is not reported at all — neither its
+    # dirtiness (unknown) nor its path (it may not be there).
+    continue
+  fi
+  WORKTREES+="$wt_branch	$wt_path	$wt_dirty"$'\n'
+done <<< "$(worktree_rows)"
+
+# The local worktree for a branch as `path<TAB>dirty`, or empty when this
+# machine has none. Absent is ABSENT — never a false, never a path that does
+# not exist here.
+local_worktree_of() { # $1=branch → "path\tdirty" or ""
+  printf '%s' "$WORKTREES" | awk -F'\t' -v b="$1" '$1==b {print $2 "\t" $3; exit}'
+}
 
 # Did this branch land on the default branch? Positive evidence only — absence
 # keeps today's answer.
@@ -460,7 +531,17 @@ for i, w in enumerate(d.get("waves", [])):
         # must not parse a string that exists for humans to read.
         json_branches+="${json_branches:+,}{\"branch\":\"$(json_str "$br")\""
         json_branches+=",\"state\":\"$st\",\"deferred\":$deferred"
-        json_branches+=",\"claimed\":\"$(json_str "$claim")\"}"
+        json_branches+=",\"claimed\":\"$(json_str "$claim")\""
+        # What this machine knows and the refs do not. Absent everywhere else:
+        # `local_dirty:false` and `local_worktree:""` are what a branch checked
+        # out on somebody else's laptop reports, which is the same answer it
+        # gave before this field existed. Only the JSON carries it — the prose
+        # report is a human interface and the row it feeds lives in the board.
+        wt_row=$(local_worktree_of "$br")
+        wt_dirty=$(printf '%s' "$wt_row" | cut -f2)
+        wt_here=$(printf '%s' "$wt_row" | cut -f1)
+        json_branches+=",\"local_dirty\":${wt_dirty:-false}"
+        json_branches+=",\"local_worktree\":\"$(json_str "$wt_here")\"}"
       fi
     done <<< "$states"
 

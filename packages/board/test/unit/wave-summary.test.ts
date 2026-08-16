@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { summariseFromPulse } from '../../src/server/board.js';
+import { summariseFromPulse, worktreesFromPulse } from '../../src/server/board.js';
 import { PlanMetaSchema, type FleetPulse } from '../../src/contract/schema.js';
 
 // The defect these tests exist for: a card's `claimed` count was read from
@@ -16,16 +16,25 @@ const meta = (over: Record<string, unknown> = {}) =>
     ...over,
   });
 
-/** One wave, whatever branches it was given. */
+/**
+ * One wave, whatever branches it was given. A third tuple element is the local
+ * worktree path, which is absent for every branch this machine does not have
+ * checked out — which is the common case, and the default here.
+ */
 const wave = (
   name: string,
   verdict: 'complete' | 'eligible' | 'blocked',
-  branches: Array<[string, 'open' | 'wip' | 'merged' | 'claimed' | 'deferred']>,
+  branches: Array<[string, 'open' | 'wip' | 'merged' | 'claimed' | 'deferred', string?]>,
 ) => ({
   name,
   verdict,
-  branches: branches.map(([branch, state]) => ({
-    branch, state, deferred: state === 'deferred', claimed: '',
+  branches: branches.map(([branch, state, worktree]) => ({
+    branch,
+    state,
+    deferred: state === 'deferred',
+    claimed: '',
+    local_dirty: false,
+    local_worktree: worktree ?? '',
   })),
 });
 
@@ -225,5 +234,67 @@ describe('summariseFromPulse — shape comes from the plan', () => {
     expect(summariseFromPulse(m, p)).toEqual({
       waves: 1, branches: 1, deferred: 0, claimed: 1, eligible: 0,
     });
+  });
+});
+
+describe('worktreesFromPulse — where the work is checked out HERE', () => {
+  // The path is collected by the scan anyway (`git worktree list --porcelain`
+  // returns it beside the branch), and it answers a question the row cannot:
+  // where is this on my machine. It belongs in the modal, and these tests are
+  // about the one rule that keeps it honest — nothing is shown where the path
+  // would not exist for the reader.
+
+  const m = meta({
+    waves: [{
+      name: 'Fixes',
+      branches: [
+        { branch: 'bug/one', deferred: false, claimed: '' },
+        { branch: 'bug/two', deferred: false, claimed: '' },
+      ],
+    }],
+  });
+
+  it('reports the path for every branch checked out on this machine', () => {
+    const p = pulse('2026-08-16-board-reads-git.md', [
+      wave('Fixes', 'eligible', [
+        ['bug/one', 'wip', '/Users/x/wt-one'],
+        ['bug/two', 'claimed', '/Users/x/wt-two'],
+      ]),
+    ]);
+    expect(worktreesFromPulse(m, p)).toEqual([
+      { branch: 'bug/one', path: '/Users/x/wt-one' },
+      { branch: 'bug/two', path: '/Users/x/wt-two' },
+    ]);
+  });
+
+  it('includes a CLEAN worktree — presence is evidence of location', () => {
+    // The one place the clean/dirty distinction inverts. A clean checkout lifts
+    // no group (it is not evidence of work) and still answers "where did I put
+    // this" perfectly well.
+    const p = pulse('2026-08-16-board-reads-git.md', [
+      wave('Fixes', 'eligible', [['bug/one', 'wip', '/Users/x/wt-one']]),
+    ]);
+    expect(worktreesFromPulse(m, p)[0].path).toBe('/Users/x/wt-one');
+  });
+
+  it('reports nothing for a branch this machine does not have', () => {
+    // The absent case, and the reason the field can exist at all: a path that
+    // does not exist on the reader's machine is worse than no path. Every
+    // detached worker and every teammate's laptop lands here.
+    const p = pulse('2026-08-16-board-reads-git.md', [
+      wave('Fixes', 'eligible', [['bug/one', 'wip'], ['bug/two', 'open']]),
+    ]);
+    expect(worktreesFromPulse(m, p)).toEqual([]);
+  });
+
+  it('reports nothing without a pulse, and nothing for an unknown plan', () => {
+    // Same two degradations `summariseFromPulse` makes: a cold cache and a plan
+    // the scan did not cover both mean "git has said nothing", not "no
+    // worktrees".
+    expect(worktreesFromPulse(m, null)).toEqual([]);
+    const other = pulse('2026-01-01-some-other-plan.md', [
+      wave('Fixes', 'eligible', [['bug/one', 'wip', '/Users/x/wt-one']]),
+    ]);
+    expect(worktreesFromPulse(m, other)).toEqual([]);
   });
 });

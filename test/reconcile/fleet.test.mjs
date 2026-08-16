@@ -1089,3 +1089,245 @@ test('fleet: --json carries the merged state and the detection source', () => {
   assert.equal(doc.summary.merge_detect, 'pr-merge');
   f.cleanup();
 });
+
+// --- a worktree with uncommitted work is not quiet ---------------------------
+//
+// The fleet derives state from refs, and an agent editing files writes none —
+// so a branch someone is actively working reads as abandoned, on the one
+// machine that could have known better. The scan already stands where the
+// answer is: `git worktree list --porcelain` names every worktree and its
+// branch, and `git -C <path> status --porcelain` says whether it is dirty.
+//
+// The signal is strictly ONE-DIRECTIONAL, and these tests are what hold that.
+// It may only ADD an answer where this machine knows more; it may never
+// downgrade one. A machine with no worktree for a branch — every detached
+// worker, every teammate's laptop, every CI run — must answer exactly as it did
+// before this field existed.
+//
+// Read docs/plans/2026-08-16-fleet-sees-local-work.md before changing any of
+// it.
+
+/**
+ * Add a worktree for `br` at `<repo>/../wt-<name>`, returning the path GIT will
+ * report for it.
+ *
+ * Realpath-resolved, because that is what git prints: on macOS `os.tmpdir()`
+ * yields `/var/folders/…`, a symlink to `/private/var/folders/…`. The scan
+ * passes git's own answer through untouched — a path the reader is meant to
+ * `cd` into — so the fixture compares against the same string rather than
+ * against the one it happened to construct.
+ */
+function addWorktree(f, br, name) {
+  const wt = path.join(f.root, `wt-${name}`);
+  git(f.dir, 'worktree', 'add', '-q', wt, br);
+  return fs.realpathSync(wt);
+}
+
+test('fleet: a dirty local worktree reports local_dirty, with its path', () => {
+  // The field itself. `feature/wip-here` carries pushed work whose last commit
+  // is old; the worktree's uncommitted edits are the only evidence anyone is on
+  // it, and git can see none of it from refs.
+  const f = makeRepo('plot-fleet-dirty-', ONE_WAVE('feature/wip-here'));
+  f.work('feature/wip-here', 'w.txt');
+  f.push('-u', 'origin', 'feature/wip-here');
+  git(f.dir, 'checkout', '-q', 'main');
+  const wt = addWorktree(f, 'feature/wip-here', 'dirty');
+  fs.writeFileSync(path.join(wt, 'w.txt'), 'edited but not committed\n');
+
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === 'feature/wip-here');
+  assert.equal(b.local_dirty, true, 'uncommitted changes must be reported');
+  assert.equal(b.local_worktree, wt, 'and the path travels with them');
+  // The git state itself is untouched: local knowledge adds a field, it does
+  // not rewrite what the refs say.
+  assert.equal(b.state, 'wip');
+  f.cleanup();
+});
+
+test('fleet: a CLEAN worktree lifts nothing, but still reports its path', () => {
+  // The one place the clean/dirty distinction inverts, and consistently so:
+  // dirtiness is evidence of WORK, presence is evidence of LOCATION. A clean
+  // checkout is equally consistent with finished and never-started, so it is
+  // not evidence of work — but "where did I put this" is exactly the question
+  // it does answer, and the plan modal is the place that asks it.
+  const f = makeRepo('plot-fleet-clean-', ONE_WAVE('feature/clean-here'));
+  f.work('feature/clean-here', 'c.txt');
+  f.push('-u', 'origin', 'feature/clean-here');
+  git(f.dir, 'checkout', '-q', 'main');
+  const wt = addWorktree(f, 'feature/clean-here', 'clean');
+
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === 'feature/clean-here');
+  assert.equal(b.local_dirty, false, 'a clean tree is not evidence of work');
+  assert.equal(b.local_worktree, wt, 'but it is evidence of location');
+  f.cleanup();
+});
+
+test('fleet: a branch with no worktree on this machine answers exactly as before', () => {
+  // The assertion that keeps the change ADDITIVE. Without it, a regression that
+  // downgrades branches living on other machines — which is nearly all of them
+  // — would pass unnoticed.
+  const f = makeRepo('plot-fleet-nowt-', ONE_WAVE('feature/elsewhere'));
+  f.work('feature/elsewhere', 'e.txt');
+  f.push('-u', 'origin', 'feature/elsewhere');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === 'feature/elsewhere');
+  assert.equal(b.local_dirty, false);
+  assert.equal(b.local_worktree, '', 'absent is absent — never a path that does not exist');
+  assert.equal(b.state, 'wip', 'and the refs answer is untouched');
+  f.cleanup();
+});
+
+test('fleet: a MISSING worktree directory is detected, not mistaken for clean', () => {
+  // The trap in miniature. A worktree directory can be deleted without `git
+  // worktree remove`, and the entry survives in `git worktree list`. `git
+  // status` there exits 128 and prints NOTHING — so a check written as "is the
+  // output non-empty" reads `clean` and is right BY ACCIDENT, because empty
+  // output would then mean both "clean" and "I could not look".
+  //
+  // `git worktree list --porcelain` marks such entries `prunable`, so they are
+  // skipped before `git status` is ever asked. Asserting only the outcome would
+  // pass on the accident; this asserts the DETECTION, by counting the status
+  // calls that were made. Zero of them ran against the deleted directory.
+  const f = makeRepo('plot-fleet-gonewt-', ONE_WAVE('feature/vanished'));
+  f.work('feature/vanished', 'v.txt');
+  f.push('-u', 'origin', 'feature/vanished');
+  git(f.dir, 'checkout', '-q', 'main');
+  const wt = addWorktree(f, 'feature/vanished', 'gone');
+  fs.rmSync(wt, { recursive: true, force: true });   // deleted, never pruned
+
+  // A git shim on PATH records argv, so the skip can be asserted rather than
+  // inferred from an outcome that would look identical either way.
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-wt-'));
+  const argvLog = path.join(shim, 'git.argv');
+  const realGit = execFileSync('bash', ['-lc', 'command -v git'],
+    { encoding: 'utf8' }).trim();
+  fs.writeFileSync(path.join(shim, 'git'), `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}
+exec ${JSON.stringify(realGit)} "$@"
+`);
+  fs.chmodSync(path.join(shim, 'git'), 0o755);
+
+  const out = execFileSync('bash', [scan, '--offline', '--json'], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PATH: `${shim}:${process.env.PATH}` },
+  });
+  const b = JSON.parse(out).plans[0].waves[0].branches
+    .find((x) => x.branch === 'feature/vanished');
+  assert.equal(b.local_dirty, false, 'a tree that cannot be looked at is not evidence');
+  assert.equal(b.local_worktree, '', 'and a path that does not exist is not offered');
+
+  const statusCalls = fs.readFileSync(argvLog, 'utf8').split('\n')
+    .filter((l) => l.startsWith('-C ') && l.includes(' status '));
+  assert.equal(statusCalls.filter((l) => l.includes(wt)).length, 0,
+    'the prunable entry must be skipped, not probed and misread as clean');
+
+  fs.rmSync(shim, { recursive: true, force: true });
+  f.cleanup();
+});
+
+test('fleet: the worktree list is read once per run, not once per branch', () => {
+  // Same rule as the merge walk above, for the same reason: branch_state runs
+  // per branch and the board polls every 5 s, so the naive shape is
+  // O(worktrees × branches) where O(worktrees + branches) is available. Counted
+  // rather than timed — a timing assertion cannot catch a call that is merely
+  // cheap today.
+  const f = makeRepo('plot-fleet-wtonce-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    ['a', 'b', 'c'].map((n) => `- \`feature/${n}\` — work\n`).join(''));
+  for (const n of ['a', 'b', 'c']) {
+    f.work(`feature/${n}`, `${n}.txt`);
+    f.push('-u', 'origin', `feature/${n}`);
+  }
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-wt2-'));
+  const argvLog = path.join(shim, 'git.argv');
+  const realGit = execFileSync('bash', ['-lc', 'command -v git'],
+    { encoding: 'utf8' }).trim();
+  fs.writeFileSync(path.join(shim, 'git'), `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}
+exec ${JSON.stringify(realGit)} "$@"
+`);
+  fs.chmodSync(path.join(shim, 'git'), 0o755);
+
+  execFileSync('bash', [scan, '--offline'], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PATH: `${shim}:${process.env.PATH}` },
+  });
+  const walks = fs.readFileSync(argvLog, 'utf8').split('\n')
+    .filter((l) => l.startsWith('worktree list'));
+  assert.equal(walks.length, 1,
+    `the worktree list must be read once per run, saw ${walks.length}`);
+  fs.rmSync(shim, { recursive: true, force: true });
+  f.cleanup();
+});
+
+test('fleet: the local signal stays git-only — no host call, and no cap', () => {
+  // Two properties in one fixture.
+  //
+  // No host call: the default path is what lets the board poll every 5 s, and a
+  // metered call here would dwarf the GraphQL budget the board already spends.
+  // A `gh`/`bb` stub that records any invocation catches a reintroduction.
+  //
+  // No cap: measured at 6.6 ms per worktree, twenty cost ~133 ms against a scan
+  // that already runs 500-1050 ms. A cap would be stock against a problem the
+  // numbers rule out, and caps drop results silently unless they also report
+  // saturation. Asserted by COUNT — every worktree is probed — since a runtime
+  // assertion cannot tell a dropped result from a fast one.
+  const names = ['a', 'b', 'c', 'd', 'e', 'f'];
+  const f = makeRepo('plot-fleet-nocap-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    names.map((n) => `- \`feature/${n}\` — work\n`).join(''));
+  const trees = {};
+  for (const n of names) {
+    f.work(`feature/${n}`, `${n}.txt`);
+    f.push('-u', 'origin', `feature/${n}`);
+    git(f.dir, 'checkout', '-q', 'main');
+    trees[n] = addWorktree(f, `feature/${n}`, n);
+    fs.writeFileSync(path.join(trees[n], `${n}.txt`), 'uncommitted\n');
+  }
+
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nohost-wt-'));
+  const callLog = path.join(shim, 'host.calls');
+  for (const cli of ['gh', 'bb']) {
+    fs.writeFileSync(path.join(shim, cli), `#!/usr/bin/env bash
+printf '%s %s\\n' ${JSON.stringify(cli)} "$*" >> ${JSON.stringify(callLog)}
+exit 1
+`);
+    fs.chmodSync(path.join(shim, cli), 0o755);
+  }
+
+  const out = execFileSync('bash', [scan, '--offline', '--json'], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PATH: `${shim}:${process.env.PATH}` },
+  });
+  const branches = JSON.parse(out).plans[0].waves[0].branches;
+  for (const n of names) {
+    const b = branches.find((x) => x.branch === `feature/${n}`);
+    assert.equal(b.local_dirty, true, `feature/${n} must not be dropped by a cap`);
+  }
+  assert.equal(fs.existsSync(callLog), false,
+    'the local signal must make no host calls');
+  fs.rmSync(shim, { recursive: true, force: true });
+  f.cleanup();
+});
+
+test('fleet: the local signal leaves the human report byte-identical', () => {
+  // The prose report is a HUMAN interface and the row it feeds lives in the
+  // board, not here. Adding a field to the machine rendering must not reshape
+  // the rendering people read — the same regression guard `--json` carries.
+  const f = makeRepo('plot-fleet-prose-', ONE_WAVE('feature/prose'));
+  f.work('feature/prose', 'p.txt');
+  f.push('-u', 'origin', 'feature/prose');
+  git(f.dir, 'checkout', '-q', 'main');
+  const before = f.run();
+  const wt = addWorktree(f, 'feature/prose', 'prose');
+  fs.writeFileSync(path.join(wt, 'p.txt'), 'dirty now\n');
+  const after = f.run();
+  assert.equal(after, before,
+    'a dirty worktree must change the JSON, not the prose');
+  f.cleanup();
+});
