@@ -1,5 +1,13 @@
 import { useEffect, useState, type MouseEvent } from 'react';
-import type { AgentRow, Fleet, WaitingGroup } from '../../contract/schema.js';
+import {
+  ELIGIBLE_NOTE,
+  type AgentRow,
+  type Card,
+  type DispatchInfo,
+  type Fleet,
+  type WaitingGroup,
+} from '../../contract/schema.js';
+import { StartWorkButton } from './StartWorkButton.js';
 
 /**
  * Groups in fixed order, each labelled by what it asks OF YOU rather than by
@@ -117,6 +125,35 @@ export function showPlanHeadings(rowCount: number, planCount: number): boolean {
   return planCount > 1 || rowCount > planCount;
 }
 
+/**
+ * Does this row offer work a person can start right now?
+ *
+ * `not-started` holds two different things and only one of them is startable:
+ * a branch nobody has taken, and a branch **blocked by an earlier wave**. A
+ * button on the second would offer to skip the ordering waves exist to express
+ * — and `plot-dispatch.sh` refuses that branch for exactly that reason, so the
+ * board would be inviting an action the tool declines. No greyed-out control
+ * either: a button whose usual state is *you cannot* teaches people to ignore
+ * buttons, and the note already says *blocked by an earlier wave*, which is the
+ * whole explanation.
+ *
+ * The row carries no `verdict` field, so the split survives onto it only as the
+ * note the server composed — matched against the shared `ELIGIBLE_NOTE`
+ * constant rather than against a copy of the sentence, so a reword moves both
+ * sides at once. `state === 'open'` is the branch that exists as a plan line
+ * and nothing more, which is what there is to start.
+ *
+ * Never on `working` or `quiet` rows, which already have a branch and a claim:
+ * offering to start one invites the double-dispatch `fleet-sees-merged-branches`
+ * was written to prevent. The group check is what excludes them.
+ *
+ * Exported for test — the negative (a blocked row gets nothing) is the half a
+ * naive implementation gets wrong.
+ */
+export function isStartable(row: AgentRow): boolean {
+  return row.group === 'not-started' && row.state === 'open' && row.note === ELIGIBLE_NOTE;
+}
+
 export interface AgentListProps {
   fleet: Fleet;
   /**
@@ -150,6 +187,28 @@ export interface AgentListProps {
    * link to `/plan/<file>` rather than opening an empty modal.
    */
   onOpenPlan?: (planFile: string) => boolean;
+  /**
+   * This row's plan as a board card, or null where the board holds none.
+   *
+   * `StartWorkButton` takes a `Card` and a fleet row is not one, so the lookup
+   * is the caller's — the same one the plan link already uses. Null is a real
+   * answer rather than a degraded one (a plan outside the walked directories
+   * has a row and no card), and the row then renders no button rather than a
+   * broken one. Absent entirely before the board's first payload lands, which
+   * is also no button: an unknown card is not a missing one, but neither can be
+   * dispatched.
+   */
+  cardForPlanFile?: (planFile: string) => Card | null;
+  /**
+   * Whether this server will act on Start work, and why not. Absent where the
+   * board has not said — no button renders at all, rather than one whose
+   * outcome is unknown. Same rule `PlanCard` follows.
+   */
+  dispatch?: DispatchInfo;
+  /** Bumps once per BOARD refresh; the Start work button counts these. */
+  pulse?: number;
+  /** A Start work click became outstanding (true) or settled (false). */
+  onStarting?: (active: boolean) => void;
 }
 
 /**
@@ -196,6 +255,10 @@ function Row({
   row,
   onOpenPlan,
   planInHeading = false,
+  card = null,
+  dispatch,
+  pulse = 0,
+  onStarting,
 }: {
   row: AgentRow;
   onOpenPlan?: AgentListProps['onOpenPlan'];
@@ -206,6 +269,14 @@ function Row({
    * the group wordier than it was before grouping.
    */
   planInHeading?: boolean;
+  /** This row's plan as a board card, or null where the board has none. */
+  card?: Card | null;
+  /** Whether this server will act on Start work, and why not. */
+  dispatch?: DispatchInfo;
+  /** Bumps once per board refresh; the Start work button counts these. */
+  pulse?: number;
+  /** A Start work click became outstanding (true) or settled (false). */
+  onStarting?: (active: boolean) => void;
 }) {
   // Same convention as the card's Open control: a real anchor, so
   // cmd/ctrl/shift/middle-click open natively, and only a plain primary click is
@@ -220,9 +291,41 @@ function Row({
 
   return (
     <li className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-slate-200/60 px-3 py-2 text-sm last:border-0 dark:border-slate-800">
-      {/* Constant today, and visually quiet. It exists now so the list does not
-          need rebuilding when a second repo appears. */}
-      <span className="w-16 shrink-0 truncate text-xs text-slate-400 dark:text-slate-600">{row.repo}</span>
+      {/* The phase takes the REPO's place rather than adding a seventh cell to
+          a row that already wraps on `feature/opus5-hardening-challenge-budget`.
+          The repo is the right thing to give up: constant in a one-repo board,
+          rendered nowhere else in the app, and a column showing the same word on
+          every row is chrome that never varies. The board's cards keep repo
+          context if a second repo ever appears.
+
+          `w-24` rather than the repo's `w-16`, which fits 8–9 characters at
+          `text-xs`: "Development" is 11 and would render "Developm…", worse
+          than nothing.
+
+          SPELLED OUT, not abbreviated and not an icon. Discovery, Design and
+          Development all begin with D (and `DE` covers two of them), and
+          `PHASE_LEADERSHIP` maps 👤 to Discovery, Design AND Endgame because it
+          encodes who LEADS rather than which phase — an icon column would
+          collapse exactly the three this one exists to separate. The contract's
+          "symbol AND word" rule is not violated by the word travelling alone:
+          that rule exists to stop COLOUR being the sole carrier, and a word is
+          already the non-colour channel.
+
+          The `sr-only` label is load-bearing. This list is a `<li>` of
+          `<span>`s — a visual table with no table semantics — so column
+          position conveys nothing and each row is heard as a run of words.
+          `plot` survived that on luck, reading as a repo name because it looks
+          like one; `Development` does not announce itself as a phase. `title`
+          is what the neighbouring cells use and is the weaker instrument (never
+          shown on touch, read inconsistently), so it accompanies the label
+          rather than replacing it.
+
+          Empty where the row has no honest phase — a plan that is rejected,
+          superseded or simply unknown — rather than guessing a column. */}
+      <span className="w-24 shrink-0 truncate text-xs text-slate-500 dark:text-slate-400" title={row.phase ? `Phase: ${row.phase}` : undefined}>
+        {row.phase && <span className="sr-only">Phase: </span>}
+        {row.phase ?? ''}
+      </span>
       {/* Plan BEFORE branch: what this belongs to, then which slice of it — the
           order in which the tab is read. It also lets rows of one plan form a
           visible column, reinforcing the grouping rather than repeating it;
@@ -265,6 +368,26 @@ function Row({
       ) : (
         <span className="font-mono text-[13px] text-slate-800 dark:text-slate-200">{row.branch}</span>
       )}
+      {/* Carried BESIDE the state, never instead of it — the same shape as the
+          `no story` badge on a plan card: mark the thing, do not bend the state
+          to encode it.
+
+          Both halves are needed and neither alone is the answer. The phase has
+          already fallen back a step (a deferred branch under an approved plan
+          reads Design), because `deferred` means the branch *isn't needed* and
+          was given up deliberately — `plot-deliver` skips such branches, so a
+          plan delivers without them. But a bare Design row is indistinguishable
+          from one nobody ever started, and that is the fact the badge carries:
+          this did not fall back because nobody began it, but because someone
+          handed it back. */}
+      {row.state === 'deferred' && (
+        <span
+          className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+          title="Handed back — the branch was given up deliberately, and the plan can deliver without it"
+        >
+          deferred
+        </span>
+      )}
       <span className="ml-auto text-xs text-slate-500 dark:text-slate-400">
         <Note row={row} />
       </span>
@@ -289,6 +412,22 @@ function Row({
         <span className="w-10 shrink-0 text-right text-xs tabular-nums text-slate-400 dark:text-slate-500">
           {age(row)}
         </span>
+      )}
+      {/* Nothing new is built: `StartWorkButton` already exists, already
+          dispatches and already handles the outstanding-click state. It sat on
+          `PlanCard` only.
+
+          On the ROW, not on the group: a `not-started` group can hold branches
+          from several plans, and dispatch is per plan and wave — a group-level
+          button would have to guess which. Per row, the row has already decided.
+
+          The obstacle is the one `board-ui-polish` met with the plan modal: the
+          button takes a `Card` and a fleet row is not one, so the card is looked
+          up by `planFile` from the board payload. A row whose plan has no card
+          gets NO button rather than a broken one — the same honest fallback the
+          plan link already makes for that case. */}
+      {card && dispatch && isStartable(row) && (
+        <StartWorkButton card={card} dispatch={dispatch} pulse={pulse} onStarting={onStarting} />
       )}
     </li>
   );
@@ -324,7 +463,16 @@ function Note({ row }: { row: AgentRow }) {
   );
 }
 
-export function AgentList({ fleet, pollSeconds, staleSeconds = null, onOpenPlan }: AgentListProps) {
+export function AgentList({
+  fleet,
+  pollSeconds,
+  staleSeconds = null,
+  onOpenPlan,
+  cardForPlanFile,
+  dispatch,
+  pulse = 0,
+  onStarting,
+}: AgentListProps) {
   // Whether the server is answering at all. Not the same question as
   // `fleet.error`, which is a server that answered to say its scan failed.
   const stale = staleSeconds !== null;
@@ -486,6 +634,13 @@ export function AgentList({ fleet, pollSeconds, staleSeconds = null, onOpenPlan 
                           row={r}
                           onOpenPlan={onOpenPlan}
                           planInHeading={headings && Boolean(group.plan)}
+                          // Looked up per row rather than per group: a row's
+                          // plan is what dispatch takes, and only the rows that
+                          // are startable ever use it.
+                          card={cardForPlanFile?.(r.planFile) ?? null}
+                          dispatch={dispatch}
+                          pulse={pulse}
+                          onStarting={onStarting}
                         />
                       ))}
                     </ul>

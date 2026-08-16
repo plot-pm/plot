@@ -443,6 +443,15 @@ export function App() {
               pollSeconds={FLEET_POLL_MS / 1000}
               staleSeconds={fleetStaleSeconds}
               onOpenPlan={onOpenPlanFile}
+              // The Start work button on an eligible row needs the same three
+              // things the cards give it. `cardForPlanFile` is the lookup the
+              // plan link already uses — a row is not a Card, and a plan with
+              // no card gets no button rather than a broken one. `pulse` counts
+              // BOARD refreshes, which is what moves a started row.
+              cardForPlanFile={cardForPlanFile}
+              dispatch={board?.dispatch}
+              pulse={pulse}
+              onStarting={onStarting}
             />
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>
