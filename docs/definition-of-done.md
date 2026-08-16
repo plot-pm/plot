@@ -55,9 +55,16 @@ The freshness gate above is what keeps this honest. Resolve by keeping a stale
 artifact and forget to rebuild, and CI's no-diff check fails — the strategy
 removes the *conflict*, the gate still enforces *correctness*.
 
+**`plot-merge-queue` still flags board pairs, and that is expected.** `-merge`
+changes how git *resolves* the file, not whether it *reports* a conflict, so
+`git merge-tree` goes on predicting one for any two board branches. The
+prediction is now over-cautious rather than wrong: what it names is a conflict
+that costs a rebuild, not an afternoon of reading.
+
 Verified by `test/reconcile/artifact.test.mjs`, which asserts among other things
-that a merge and a rebase commit byte-identical artifacts, and that the strategy
-works in a clone that configured nothing.
+that a merge and a rebase commit byte-identical artifacts, that the strategy
+works in a clone that configured nothing, and that `merge-tree` still predicts
+the conflict.
 
 ## Board impact is a planning item
 

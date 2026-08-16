@@ -274,6 +274,27 @@ test('a stale artifact is detectable exactly as CI detects it', () => {
   assert.equal(clean.code, 1, 'a stale committed artifact must make the CI no-diff check fail');
 });
 
+// ── What the strategy does NOT change ────────────────────────────────────────
+
+test('merge-tree still predicts the artifact conflict — the strategy makes it harmless, not invisible', () => {
+  // Worth pinning down, because it is easy to assume otherwise. `-merge`
+  // changes how git RESOLVES the file, not whether it reports a conflict, so
+  // `git merge-tree --write-tree` still exits non-zero for two board branches.
+  //
+  // plot-merge-queue.sh treats any non-zero exit as a collision, so it will go
+  // on flagging every board pair even though the conflict is now settled by a
+  // rebuild. That is a prediction-side concern, deliberately left to this
+  // plan's second wave; this test exists so the behaviour is recorded rather
+  // than rediscovered.
+  const repo = makeRepo();
+  boardBranch(repo, { branch: 'alpha', source: 'AgentList.tsx', marker: 'alpha' });
+  boardBranch(repo, { branch: 'beta', source: 'index.ts', marker: 'beta' });
+
+  const predicted = gitSoft(repo, 'merge-tree', '--write-tree', 'alpha', 'beta');
+  assert.equal(predicted.code, 1, 'merge-tree still reports the artifact as conflicting');
+  assert.match(predicted.out, /CONFLICT[\s\S]*board-server\.mjs/);
+});
+
 // ── The attribute itself ─────────────────────────────────────────────────────
 
 test('.gitattributes marks the artifact -merge and names no side', () => {
