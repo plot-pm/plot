@@ -6,12 +6,18 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-gates
 - **Review:** in-session
 - **Impl:** same branch
+- **Approved:** 2026-08-16, jwloka, in-session
+- **Started:** 2026-08-16, jwloka, `feature/push-main-bypass`
+
+## Approval
+
+- **Assignee:** jwloka
 
 ## Changelog
 
