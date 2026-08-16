@@ -87,11 +87,33 @@ pass over the same machinery, and because the fix is one line.
 
 ### Approach
 
-**One helper, three one-line call sites.** `plot-push-main.sh` takes the branch
-to push and the default branch, performs the push, and reports what actually
-happened. The three commands stop describing the mechanics and call it. Skills
-interpret; scripts collect and report (Principle 3) — and a rule that lives in
-a script is a rule every caller gets, including a human running it by hand.
+**One helper, three one-line call sites.** `plot-push-main.sh <branch>
+<default>` performs the push and reports what actually happened. The three
+commands stop describing the mechanics and call it. Skills interpret; scripts
+collect and report (Principle 3) — and a rule that lives in a script is a rule
+every caller gets, including a human running it by hand.
+
+It pushes and classifies, and does nothing else. In particular it does **not**
+open the micro-PR when a push is genuinely rejected: it reports the rejection,
+exits non-zero, and the skill decides. A helper that created and merged PRs
+would need the host adapter, a PR title, and a merge strategy — it would become
+a second place that knows what approving means, and the split this plan is
+built on is precisely that scripts collect while skills interpret. The
+difference from today is that the fallback prose now hangs off a condition that
+can actually occur.
+
+The three sites are not identically written, and one difference turns out to be
+nothing. `plot-approve` follows its push with
+`git push origin --delete plot/approve-<slug> 2>/dev/null || true`, which the
+other two lack — but `git push origin <branch>:<default>` never creates
+`<branch>` on the remote in the first place. Checked twice: **zero `plot/`
+branches exist on this repo's remote** after eight approvals and several
+deliveries, and a scratch bare repo pushed exactly that way ends up holding
+`refs/heads/main` and nothing else. The line removes something that was never
+there — its `2>/dev/null || true` is what has kept that invisible — so it goes,
+and the helper does not inherit it. Cleaning up the *local* throwaway branch was considered and
+left out for the same reason the micro-PR is: deleting branches is a different
+responsibility from pushing one.
 
 **Detection reads stderr, not the exit code.** This is the whole finding. A
 bypass and a clean push are both exit 0 and differ only in what the remote
@@ -130,10 +152,37 @@ output tests the matcher against itself. If GitHub rewords the message the test
 stays green — that is accepted and stated, because the failure it produces is
 `unknown`, which is visible, and not `clean`, which is not.
 
+**Which forces the helper's shape: classification is separate from pushing.**
+The interesting outcome cannot be produced in CI — a real bypass needs a GitHub
+remote with protection rules and an actor entitled to step over them, and the
+test suite has neither. So the decision is its own unit, taking an exit code and
+a stderr string and returning one of four answers, testable against the recorded
+output with no network at all:
+
+    classify(exit, stderr) → clean | bypassed | rejected | unknown
+
+The push itself is exercised against a local bare repo, where `clean` and
+`rejected` are both genuinely reproducible (a non-fast-forward push is a real
+rejection, not a simulated one). `bypassed` is reachable only through
+`classify`, and that is the honest arrangement rather than a shortcut: the half
+that cannot be produced locally is the half with no I/O in it.
+
+This is the same split `test/reconcile/host.test.mjs` and `gate.test.mjs`
+already use — scratch repos for what git can really do, direct calls for the
+decisions.
+
 Verifying via the protection API after each push was considered as a
 text-independent cross-check. Rejected: one API call per approval and delivery,
 GitHub-only, and it answers a slightly different question — whether the commit
 carries the required checks, not whether *this push* bypassed a rule.
+
+**The exit code carries one bit, and only one: did the push land?** `clean`,
+`bypassed` and `unknown` all exit 0, because in all three the commit is on the
+default branch and the caller should carry on. Only `rejected` exits non-zero,
+where the caller must open the micro-PR instead. Letting `bypassed` exit
+non-zero would read as failure at every call site and turn a successful
+approval into an apparent error — the outcome the plan is careful to avoid
+everywhere else.
 
 **Report and continue — never revert.** The push has landed by the time
 anything is detectable. Undoing it would strand a merged plan at `Phase: Draft`
@@ -228,13 +277,19 @@ the first one is wanted here.
 
 - [ ] Does Bitbucket print anything recognisable on a bypassed push? Until
       someone runs one, `bb` pushes report `unknown` rather than a guess.
+- [ ] `plot-phase-gate.sh` keys on the **session's** branch rather than the
+      repository being committed to: writing a commit inside a scratch repo in
+      `$TMPDIR`, while checked out on a branch whose plan is Draft, is blocked.
+      Hit while verifying this plan's own claims. Harmless (fails closed, and
+      the workaround is obvious) but it means the gate can refuse work it has
+      no stake in — its own version of judging something it did not examine.
 - [ ] Should a bypass be recorded in the plan file (an audit trail) rather than
       only printed? Argues against itself: the plan would carry a fact about
       *how it was written* rather than about the work, and git already has it.
 
 ## Branches
 
-- `feature/push-main-bypass` — the push helper, its three call sites, the optional `Story:` template field, the `no story` card badge, and tests
+- `feature/push-main-bypass` — the push helper (`classify` split out for testing), its three call sites, removal of `plot-approve`'s no-op branch deletion, the optional `Story:` template field, the `no story` card badge, and tests
 
 <!-- One branch: the helper and its callers are one change. Splitting them
      would land a helper nothing calls, or callers of a helper that does not
@@ -310,5 +365,19 @@ stories are not alternatives. A story is the durable intent; a sprint is a
 time-boxed selection of already-planned work — which the February sprint plan
 already said (*"Plans track what to build; sprints track when to ship it"*) and
 the template never learned.
+
+A third round went at the helper's own mechanics, and found one more thing that
+had been written without checking — this time in Plot rather than in the plan.
+`plot-approve` deletes its throwaway branch from the remote after pushing;
+`git push <branch>:<default>` never puts it there, and the remote carries zero
+`plot/` branches after eight approvals. The line has been removing nothing for
+its whole existence. It is dropped rather than carried into the helper.
+
+The same round fixed what the helper's exit code means (only `rejected` is
+non-zero — a bypassed push still landed and must not read as failure at three
+call sites) and split classification from pushing, because the one outcome that
+matters cannot be produced in CI: a real bypass needs a protected GitHub remote
+and an actor entitled to step over it. Isolating the decision is what makes the
+untestable path testable.
 
 Definition of Done: `docs/definition-of-done.md`.
