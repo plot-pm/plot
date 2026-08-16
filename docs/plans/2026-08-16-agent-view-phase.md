@@ -9,7 +9,7 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-16, jwloka, plan-PR #131 merged
-- **Started:**
+- **Started:** 2026-08-16, Jan Wloka, `feature/agent-view-phase-ui`
 - **Delivered:**
 - **Started:** 2026-08-16, Jan Wloka, `feature/fleet-row-phase`
 
