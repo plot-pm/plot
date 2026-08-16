@@ -8,7 +8,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.1.1
+  version: 1.2.0
 compatibility: Designed for Claude Code and Cursor. Requires git. Host operations (PRs, default branch) go through plot-host.sh (GitHub or Bitbucket).
 ---
 
@@ -43,7 +43,9 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 2A. RC Path | Small | Git tag, template generation |
 | 2B. Release Notes | Mid | Discovery logic, changelog collection |
 | 3. Cross-check Notes | Frontier (orchestrator) + Small (subagents) | Orchestrator compares; small subagents can gather commit messages and plan changelogs in parallel |
-| 4-6. Next Steps through Summary | Small | Template list, no-ops, formatting |
+| 4-5. Hand-off, RC cleanup | Small | Template list, no-ops |
+| 5b. Record the Release in the Plans | Small | Mechanical per plan; the version comes from `git tag --contains`, not judgment. Gate on the sweep's real footer |
+| 6. Summary | Small | Formatting |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
 
@@ -209,6 +211,78 @@ Do **not** execute these on the user's behalf. Point them at their release tooli
 
 If RC tags exist for this version, they remain in git history (don't delete them — they're part of the release record). The checklist file at `docs/releases/v<version>-checklist.md` stays committed as documentation of what was verified.
 
+### 5b. Record the Release in the Plans
+
+The release exists; the plans it shipped do not know it. Until this step, no
+plan in this repo's history had ever reached `Phase: Released` — not once across
+sixteen versioned releases — because step 4 hands off to the project's release
+process and nothing came back afterwards.
+
+**Only run this once the tag exists.** A plan marked before the tag is cut
+claims a version nobody released. Verify with `git tag --list v<version>` before
+writing anything.
+
+For each plan currently at `Phase: Delivered`:
+
+1. **Skip docs/infra plans.** `/plot-deliver` already told their authors they are
+   live on merge; marking them Released contradicts a message Plot itself sends.
+2. **Resolve the version from git, never from dates.** Take the plan's last
+   `→ #N` annotation, get its merge commit, and find the release tag containing
+   it:
+
+   ```bash
+   SHA=$(../plot/scripts/plot-host.sh pr-state <N> | jq -r '.mergeCommit')
+   TAG=$(git tag --contains "$SHA" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | head -1)
+   ```
+
+   The delivery date is when the plan was **booked**, not when its code merged —
+   those can be months apart, and two tags may share a date. Dates get this
+   wrong; `--contains` cannot.
+3. **A plan with no annotation, or no merge commit, is left alone** and reported
+   as unresolvable. An invented version in a transition record is a claim nobody
+   re-checks.
+4. Write, in the plan's `## Status`:
+
+   ```
+   - **Phase:** Released
+   - **Released:** <tag date>, <version>
+   ```
+
+   **The symlink does not move.** `delivered/` means "no longer active", not
+   "phase is exactly Delivered" — unlike `/plot-deliver`, this step moves
+   nothing.
+
+**Idempotent:** a plan already at Released with a record for this version is
+left untouched. Re-running after a partial failure converges.
+
+Commit on the default branch using the disposable-branch mechanic from
+`/plot-approve` step 4 (including its branch-protection fallback).
+
+**Then the gate.** This is a multi-file write followed by a push, the shape that
+half-lands — and worse than delivery's, because it touches N plans, so a partial
+write leaves some released and some not with nothing to say which. Run the sweep
+and show its **real output**:
+
+```bash
+../plot/scripts/plot-reconcile-scan.sh 2>/dev/null | tail -1
+```
+
+`unreleased_delivered=0` clears the gate. Any other number is a hard stop: show
+section 6's findings and fix them before proceeding.
+
+**Report what you did NOT mark, with the reason.** A silently skipped plan looks
+identical to a plan with nothing to do — precisely the confusion that hid this
+for sixteen releases:
+
+```
+Released as v2.3.0:
+  fleet-agent-view          docs/plans/2026-08-15-fleet-agent-view.md
+Not marked:
+  some-docs-plan            docs plan — live when merged
+  older-plan                unresolvable: no PR annotation
+summary: … unreleased_delivered=0 …
+```
+
 ### 6. Summary
 
 **Orient, don't enumerate** (Manifesto Principle 11): open the summary
@@ -221,6 +295,10 @@ Print:
   - `<slug>` — <type>
   - `<slug>` — <type>
 - Cross-check result: complete / gaps found
+- Plans marked Released: `<slug>` → `<version>` for each, and every plan **not**
+  marked with its reason (docs/infra, or unresolvable)
+- Release-recorded gate: paste the sweep's actual `summary:` footer from step 5b
+  — the objective artifact, not the word "verified"
 - RC iterations: <count> (if any)
 - Progress: `[ ] Draft > [ ] Approved > [ ] Delivered > [x] Released`
 - Plot verification complete — hand off to the project's release process (changesets, CI, or manual) for version bump, tag, and push.
