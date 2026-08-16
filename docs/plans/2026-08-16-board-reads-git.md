@@ -224,8 +224,8 @@ counts are read back from git rather than assumed from what a plan said.
 
 ### Fixes
 
-- `bug/board-claimed-from-git` — `pulseFor()` beside `prsByNumber`; `waveSummary` from the pulse (real `claimed`, new `eligible`), computed for single-wave plans too, `summariseWaves` deleted; PR refresh on its own 60–120 s timer with rate-limit backoff
-- `bug/dispatch-records-started` — `plot-dispatch.sh` books `Started:` on a disposable branch pushed to the default branch, after the claim, never unwinding on failure
+- `bug/board-claimed-from-git` — `pulseFor()` beside `prsByNumber`; `waveSummary` from the pulse (real `claimed`, new `eligible`), computed for single-wave plans too, `summariseWaves` deleted; PR refresh on its own 60–120 s timer with rate-limit backoff → #123
+- `bug/dispatch-records-started` — `plot-dispatch.sh` books `Started:` on a disposable branch pushed to the default branch, after the claim, never unwinding on failure → #124
 
 <!-- One wave, two branches, deliberately concurrent. They share no file: the
      first is the board package, the second a shell script that does not

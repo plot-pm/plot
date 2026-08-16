@@ -295,7 +295,7 @@ the first one is wanted here.
 
 ## Branches
 
-- `feature/push-main-bypass` — the push helper (`classify` split out for testing), its three call sites, removal of `plot-approve`'s no-op branch deletion, the optional `Story:` template field, the `no story` card badge, and tests
+- `feature/push-main-bypass` — the push helper (`classify` split out for testing), its three call sites, removal of `plot-approve`'s no-op branch deletion, the optional `Story:` template field, the `no story` card badge, and tests → #115
 
 <!-- One branch: the helper and its callers are one change. Splitting them
      would land a helper nothing calls, or callers of a helper that does not
