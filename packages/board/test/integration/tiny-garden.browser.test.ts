@@ -235,4 +235,86 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
       await page.close();
     }
   });
+
+  // ── Where this plan is checked out on THIS machine ────────────────────────
+  //
+  // The path comes from `git worktree list --porcelain`, which the fleet scan
+  // parses anyway, and it answers a question the triage row cannot: *where is
+  // this on my machine*. It belongs in the modal — once you have stopped
+  // triaging and decided to go look.
+  //
+  // `/api/board` is stubbed here rather than a real worktree created, because
+  // the claim is about what the MODAL renders for a card that carries the field
+  // (and for one that does not). The server's half is pinned against the real
+  // `worktreesFromPulse` in test/unit/wave-summary.test.ts, and the scan's half
+  // against real worktrees in test/reconcile/fleet.test.mjs.
+
+  /**
+   * Open the board with the tomato card carrying `worktrees` — or, with none
+   * given, exactly what the server sent.
+   */
+  async function openBoardWithWorktrees(
+    worktrees?: { branch: string; path: string }[],
+  ): Promise<Page> {
+    const page = await browser.newPage({ viewport: MOBILE });
+    if (worktrees) {
+      await page.route('**/api/board', async (route) => {
+        const res = await route.fetch();
+        const body = await res.json();
+        for (const col of body.columns) {
+          for (const card of col.cards) {
+            if (card.slug === 'plant-tomatoes') card.worktrees = worktrees;
+          }
+        }
+        await route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
+      });
+    }
+    await page.goto(baseURL);
+    await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
+    return page;
+  }
+
+  it('the modal shows the local worktree path, copyable and labelled as local', async () => {
+    const page = await openBoardWithWorktrees([
+      { branch: 'feature/tomatoes', path: '/Users/gardener/wt-tomatoes' },
+    ]);
+    try {
+      await tomatoCard(page).getByRole('link', { name: 'Open' }).click();
+      const dialog = page.getByRole('dialog');
+      await dialog.waitFor({ state: 'visible', timeout: 5_000 });
+
+      // Labelled as LOCAL. The path is true on this machine and meaningless on
+      // any other, and a reader has to be able to tell that from the row.
+      await dialog.getByText(/on this machine/i).waitFor({ timeout: 5_000 });
+      // Selectable rather than a copy button: it works without the clipboard
+      // permission and shows the value it would copy. The next thing anyone does
+      // with it is `cd`.
+      const field = dialog.getByLabel('Worktree path for feature/tomatoes');
+      expect(await field.inputValue()).toBe('/Users/gardener/wt-tomatoes');
+      expect(await field.getAttribute('readonly')).not.toBeNull();
+      await expect.poll(() => dialog.getByText('feature/tomatoes').count()).toBeGreaterThan(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('shows NOTHING where this machine has no worktree for the plan', async () => {
+    // The absent case, and the one that keeps the field honest: a path that does
+    // not exist on the reader's machine is worse than no path. Every modal
+    // opened on a teammate's laptop lands here — including this one, since the
+    // fixture repo has no worktrees at all.
+    const page = await openBoardWithWorktrees();
+    try {
+      await tomatoCard(page).getByRole('link', { name: 'Open' }).click();
+      const dialog = page.getByRole('dialog');
+      await dialog.waitFor({ state: 'visible', timeout: 5_000 });
+      // The plan itself renders, so this is an absent section rather than an
+      // unrendered modal.
+      await page.locator('iframe[title="Plan: plant-tomatoes"]')
+        .waitFor({ state: 'visible', timeout: 5_000 });
+      expect(await dialog.getByText(/on this machine/i).count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
 });
