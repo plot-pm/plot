@@ -2,14 +2,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** same branch
 - **Assignee:** jwloka
-- **Approved:**
-- **Started:**
+- **Approved:** 2026-08-16, jwloka, in-session
+- **Started:** 2026-08-16, jwloka, `feature/board-ui-polish`
 - **Delivered:**
 
 ## Problem
