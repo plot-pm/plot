@@ -16,6 +16,7 @@
 - **Approved:** 2026-08-16, jwloka, plan-PR #139 merged
 - **Started:**
 - **Delivered:**
+- **Started:** 2026-08-16, Jan Wloka, `bug/fleet-sees-unpushed-commits`
 
 ## Problem
 
