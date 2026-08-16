@@ -283,7 +283,18 @@ that closes the loop, and it has not been built yet.
   accident: `Swimlanes.tsx` filters it out of the plan columns
   (`BOARD_PHASES.filter((p) => p !== 'Discovery')`) because in this model
   Discovery is where a *story* lives before any plan exists for it. Writing the
-  plan file is the act of leaving Discovery. Both correct as designed.
+  plan file is the act of leaving Discovery.
+
+  **Corrected by screenshot: Discovery IS a column.** The claim above that it
+  is "not a column" came from reading `Swimlanes.tsx` and generalising from the
+  wrong view. `Board.tsx` renders **all five** columns straight from the API,
+  unfiltered — so the plain column view shows `DISCOVERY  0` with *"No plans in
+  this phase"*, while the swimlane view uses Discovery as the row header. **Two
+  views, two meanings, one name.** And in the column view it is unreachable by
+  construction: `toBoardPhase` maps to Design, Development, Endgame and
+  Released — never to Discovery. Not empty because nothing is happening; empty
+  because nothing *can* be. A rendered column that promises a place for work
+  and can never hold any.
   **But #126 is in neither column.** Queried live: Design holds 2 cards
   (`opus5-longhorizon-hardening`, `plot-sprint-support`), Development 3,
   Endgame 1, Released 7, Discovery 0 — and neither #126 nor #121 appears
@@ -298,11 +309,29 @@ that closes the loop, and it has not been built yet.
   plans under active review are absent. A column that is wrong-but-plausible is
   worse than one that is visibly empty.
   Worth noting what this is not: not a fleet-scan bug (that view is
-  branch-oriented by design), and not the phase mapping (which is right). It is
-  that "what plans exist" is sourced from one branch's working tree, while
-  plans under PR review deliberately live elsewhere — the same
-  git-is-the-database question as [[fleet-sees-merged-branches]], one level up:
-  the default branch is not the whole database.
+  branch-oriented by design). It is that "what plans exist" is sourced from one
+  branch's working tree, while plans under PR review deliberately live
+  elsewhere — the same git-is-the-database question as
+  [[fleet-sees-merged-branches]], one level up: the default branch is not the
+  whole database.
+
+  **And the phase mapping is not right after all** — the follow-up question
+  *"are plans in Draft not exactly the pre-plan work?"* answers the empty
+  column. Measured: #126's Draft phase is 5 commits and 545 lines with **no
+  code**, #121's is 2 commits and 141 lines, likewise none — throwaway
+  fixtures, a first-parent filter measured and discarded, a second-parent check
+  tested and discarded. Investigation, not transcription. Meanwhile the two
+  cards sitting in Design are approved-and-never-started, one since July and
+  one since **February**: finished designs waiting for capacity, not design
+  work.
+  So one column holds two different things while the work itself shows nowhere,
+  and `Draft → Discovery` / `Approved-not-started → Design` fixes both halves
+  with no new vocabulary. The vocabulary decision belongs to
+  [[plot-planning-model]] and is recorded there; this entry owns only the
+  rendering once that lands. Two changes are needed here either way: the
+  mapping, and the source of plan files (a Draft plan under PR review is not on
+  the default branch at all, so remapping alone would leave Discovery just as
+  empty).
 - ⏸️ **Does the board stay one-repo?** The design keeps every data function
   repo-parameterised, and tab 2 is meant to go cross-repo — "what are my agents
   waiting for" is a question about a person, not a repository. Not decided.

@@ -56,6 +56,65 @@ February and never started; `docs/sprints/` does not exist. That is a fact
 about the story's state, not a reason to close the plan: the concept is defined
 and unused, which is a different thing from wrong.
 
+## Open Questions
+
+- ⏸️ **The vocabulary has no term for work whose output is a decision.** Raised
+  2026-08-16, from the board: Discovery is a rendered column that is
+  structurally always empty, and asking why led back here rather than to
+  `plot-board`.
+  Every term in the table above answers a question about work already
+  understood — *why*, *what*, *in what order*, *when*. None answers **"we do
+  not yet know what this is."** The four-term model assumes discovery has
+  already happened by the time anything gets named, so the act of writing a
+  plan file is the act of leaving Discovery. That is coherent, and it is why
+  the column can never fill.
+  Two of the four things that prompted the question turn out to be placed
+  already, and saying so narrows the gap usefully:
+  **a tracer bullet is a wave**, not a discovery activity — `### Tracer` sits
+  under `## Branches` and three plans use it; it proves a seam before fan-out
+  and is code, so Development is the right column. **A design spec is the plan
+  file itself.** What has no home is work whose product is knowledge:
+  **a spike** — throwaway investigation to decide whether a plan is viable at
+  all, ending in a finding rather than a branch — and **a concept that is not
+  yet a story**, which is precisely what four rounds of interrogation produced
+  before `fleet-sees-merged-branches` existed as a file.
+  **A `Type: spike` was the first candidate, and it is the wrong shape.** The
+  question that dissolved it: *are plans in Draft not exactly the pre-plan
+  work?* Checked against what Draft phases actually contain rather than what
+  they are assumed to contain:
+
+  ```
+  #126 idea/fleet-sees-merged-branches   5 commits, 545 lines, 0 code
+  #121 idea/fleet-sees-local-work        2 commits, 141 lines, 0 code
+  ```
+
+  And what those five commits *did*: built throwaway fixtures, measured a
+  first-parent filter and **discarded** it, tested a second-parent check and
+  **discarded** it, measured 197ms against 79ms, found that GitFlow breaks the
+  design. That is not writing down a plan already held — it is finding out what
+  the plan should be, and most of it was thrown away. **That is a spike.** It
+  merely happens to be carried in a plan file.
+
+  So the missing thing is not a new plan *type*. It is that **Draft already is
+  the discovery phase**, and nothing reads it that way. A plan in Draft is not
+  a commitment; it is the investigation deciding whether there is one.
+  Approval is the moment discovery ends.
+
+  The four terms stay as they are — no fifth term, no new type, consistent with
+  the principle that every term must earn its place. What changes is only the
+  reading of an existing phase.
+
+  Corroborating, and visible on the board today: the two cards in Design are
+  `opus5-longhorizon-hardening` (approved July) and `plot-sprint-support`
+  (approved **February**). Neither is being designed; both are finished designs
+  waiting for capacity. Meanwhile the two plans where design is actually
+  happening are in no column at all. One column holds two different things
+  while the work itself is invisible.
+
+  Still not decided here — but the decision is now about a *phase reading*, not
+  about vocabulary, which is a much smaller question. The rendering half is in
+  [[plot-board]]; display follows meaning, per the scope boundary above.
+
 ## Plans
 
 | Plan | Status | What it covers |
