@@ -18,9 +18,11 @@
 - Plot reports when a push to the default branch bypassed branch protection —
   naming the rules it stepped over and the checks that never ran. The push
   still lands; the workflow no longer stays quiet about how.
-- `plot-story-lint.sh` reports a plan that names no story (`S5`), so the
-  convention that every plan belongs to a story is checkable rather than
-  merely stated.
+- `plot-story-lint.sh` reports a plan that names no story (`S5`), and now runs
+  as part of `validate` — so the convention that every plan belongs to a story
+  is enforced rather than merely stated.
+- The plan template gains a `Story:` field, so `/plot-idea` asks the question
+  instead of leaving it to be noticed later.
 
 Board impact: **none.** No plan-format change, no new field, no change to what
 the board reads — `Story:` is already parsed and already rendered as a
@@ -54,11 +56,18 @@ entitled to bypass its own protection. That is exactly why it went unnoticed
 for eight approvals: the outcome looks identical either way. The gap is not
 that Plot bypasses protection. **It is that Plot cannot tell whether it did.**
 
-And it is not one command's problem. Four sites push at the default branch —
-`plot-approve`, `plot-deliver`, and twice in the `plot` hub — while the
-fallback prose exists in exactly one of them. One instruction, four places that
-need it, three that never got it: the shape CLAUDE.md describes as a rule
-rather than a gate.
+And it is not one command's problem. **Three** commands push at the default
+branch — `plot-approve`, `plot-deliver`, and the `plot` hub's phase-fix
+sequence — while the fallback prose exists in exactly one of them. (A fourth
+mention, the hub's "how do I update main" table, describes the options rather
+than running a push; it needs new wording, not the helper.) One instruction,
+three places that need it, two that never got it: the shape CLAUDE.md describes
+as a rule rather than a gate.
+
+`plot-dispatch.sh` also pushes, and is deliberately left alone: it pushes a
+claim to a *feature* branch, where rejection is the concurrency control working
+as designed. Routing it through a helper built to treat rejection as an anomaly
+would break a mechanism that is correct.
 
 **The same defect, found ninety seconds later.** Asked to keep every plan under
 a story, the obvious move was to check what already enforced that. It reported:
@@ -81,9 +90,9 @@ what the `plot-gates` story exists to hold.
 
 ### Approach
 
-**One helper, four one-line call sites.** `plot-push-main.sh` takes the branch
+**One helper, three one-line call sites.** `plot-push-main.sh` takes the branch
 to push and the default branch, performs the push, and reports what actually
-happened. The four commands stop describing the mechanics and call it. Skills
+happened. The three commands stop describing the mechanics and call it. Skills
 interpret; scripts collect and report (Principle 3) — and a rule that lives in
 a script is a rule every caller gets, including a human running it by hand.
 
@@ -133,25 +142,50 @@ deliberate choice and this plan does not touch it. Plot must work correctly in
 a repo it does not control, which means noticing the bypass rather than
 legislating it away.
 
-**S5: a plan that names no story.** `plot-story-lint.sh` gains one check, in
-the shape of the four it already has — `S5 <plan-path> — no Story: field` — and
-it counts into the existing `story-lint: <n> finding(s)` footer, which already
-exits 1 on findings and is therefore already gate-shaped. That is the whole
-mechanism: the convention becomes checkable by being counted.
+**The template is the cause; S5 is the symptom.** The plan template carries
+`Sprint:` — which is optional — and **no `Story:` field at all**, though
+`plot-plan-meta.sh` parses one and the board renders it as a swimlane. So
+`/plot-idea` fills in a form that never asks the question, and story-less plans
+are the predictable result rather than an oversight. The field goes into the
+template, above `Sprint:`, because that is the order of the two ideas:
 
-It reports rather than blocks, for the same reason the bypass does. A plan
-without a story is a bookkeeping gap, not a dangerous act, and a hard stop on
-plan creation would make `/plot-idea` refuse work in any repo that has not yet
-written a story. The footer is what CI can gate on when a repo decides it
-should — this repo's Definition of Done already has a place for that decision,
-and it is a separate one from making the fact visible.
+    - **Story:**   <!-- story slug (docs/stories/<slug>/) -->
+    - **Sprint:**  <!-- optional, time-boxed selection -->
 
-Two things this deliberately does not do. It does not invent a story for a plan
-that has none: which story a plan belongs to is a judgment about intent, and
-the lint's job is to say *this is unanswered*, not to answer it. And it does
-not check that the named story **exists** — that is S1's territory read from
-the other side, and conflating "no story named" with "story named but missing"
-would produce one finding for two different problems with different fixes.
+A **story is the durable intent** a plan serves; a **sprint is a time-boxed
+selection** of already-planned work. They are independent fields at the same
+level — neither knows about the other — and conflating them is what made an
+earlier draft of this plan ask which story `plot-sprint-support` deserved, when
+the real question was which intent it serves. It serves how Plot *structures*
+work, which is why it now belongs to `plot-planning-model` rather than to a
+story of its own.
+
+**S5: a plan that names no story.** `plot-story-lint.sh` gains one check in the
+shape of the four it already has — `S5 <plan-path> — no Story: field` —
+counting into the existing `story-lint: <n> finding(s)` footer.
+
+**And the linter gets wired into `validate`.** This is the correction that
+matters: the footer is gate-*shaped* (exit 1 on findings) but the script is
+called by **no npm script and no workflow** — verified, not assumed. Adding S5
+without wiring it up would produce a finding nobody ever sees, which is
+precisely the defect this plan exists to remove. A check that runs nowhere is
+the same non-event as a fallback that never fires.
+
+    validate = bash .dev/scripts/validate-skills.sh
+             + bash skills/plot/scripts/plot-story-lint.sh
+
+That makes S5 a real gate, and it has a hard prerequisite: **every existing
+plan must name a story before this lands**, or CI goes red on merge. Three
+assignments do it — `push-main-bypass` and `opus5-longhorizon-hardening` to
+`plot-gates`, `plot-sprint-support` to `plot-planning-model` — and the second
+story is created by this plan for that reason.
+
+Two things S5 deliberately does not do. It does not invent a story for a plan
+that has none: which story a plan serves is a judgment about intent, and the
+lint's job is to say *this is unanswered*, not to answer it. And it does not
+check that the named story **exists** — that is S1's territory read from the
+other side, and conflating "no story named" with "story named but missing"
+would produce one finding for two problems with different fixes.
 
 ### Open Questions
 
@@ -163,13 +197,13 @@ would produce one finding for two different problems with different fixes.
 
 ## Branches
 
-- `feature/push-main-bypass` — the push helper, its four call sites, the `S5` story-lint check, and tests for both
+- `feature/push-main-bypass` — the push helper and its three call sites; `S5` plus story-lint wired into `validate`; `Story:` in the plan template; the three story assignments the gate requires; tests for both halves
 
 <!-- One branch: the helper and its callers are one change. Splitting them
      would land a helper nothing calls, or callers of a helper that does not
-     exist yet. S5 rides along because it is the same defect in a second
-     place, and because splitting it would make the pattern look like two
-     unrelated chores. -->
+     exist yet. The story half rides along because it is the same defect in a
+     second place, and because its gate cannot land before the plans it
+     judges are assigned — which is bookkeeping this branch does anyway. -->
 
 ## Notes
 
@@ -196,5 +230,23 @@ wrong: that story is about making parallel work visible, and this is about
 instructions that do not enforce themselves. Corrected before the first commit
 — and the S5 check exists so that the next such mistake is a finding rather
 than a thing someone happens to notice.
+
+Interrogation found the plan committing the same offence it describes. It
+claimed S5 would count into a footer that was "already gate-shaped" — true of
+the footer, false of the script, which no npm script and no workflow calls. A
+check that runs nowhere is the same non-event as a fallback that never fires,
+so the linter is now wired into `validate` and the plan says so.
+
+It also claimed four push call sites. There are three, plus a table row that
+describes options rather than running anything. The number had been written
+without counting — in a plan about instructions nobody verified.
+
+The deeper correction came from outside the plan: sprints and stories are not
+alternatives. A story is the durable intent; a sprint is a time-boxed selection
+of already-planned work. Under that reading `plot-sprint-support` needs no
+story of its own — it serves how Plot structures work — and the plan template's
+missing `Story:` field stops being a detail and becomes the reason story-less
+plans exist at all. S5 catches the symptom; the template change removes the
+cause.
 
 Definition of Done: `docs/definition-of-done.md`.
