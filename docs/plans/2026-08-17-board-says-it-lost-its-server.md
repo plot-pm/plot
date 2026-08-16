@@ -10,7 +10,7 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-17, jwloka, plan-PR #150 merged
-- **Started:**
+- **Started:** 2026-08-17, Jan Wloka, `feature/board-dims-when-lost`
 - **Delivered:**
 
 ## Problem
