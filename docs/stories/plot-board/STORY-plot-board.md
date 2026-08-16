@@ -382,6 +382,24 @@ that closes the loop, and it has not been built yet.
   Deliberately not started: `board-ui-polish` is mid-implementation in exactly
   these files. Three parallel branches stayed collision-free today only because
   nobody widened a scope after the fan-out began.
+- ⏸️ **A branch no plan names is invisible, including its open PR.** Seen
+  2026-08-16 with two PRs waiting to be merged and `WAITING ON YOU` reading
+  *none*. Measured: the pulse reports **8 branches where origin has 20**.
+  The mechanism is by design — `plot-fleet-scan.sh` walks the branches a plan
+  lists under `## Branches`, which is what makes it a *fleet* view rather than a
+  branch listing. The consequence is not: a fix branch opened outside a plan
+  (`bug/plan-view-branch-plans`, `plot/story-close-findings` — both mine, both
+  with open PRs) carries the one thing the tab exists to surface, *something is
+  waiting on you*, and cannot show it.
+  The twelve unseen branches split four ways, and only one class matters:
+  **open PRs with no plan** (2, the finding), merged-and-deleted leftovers,
+  `main` and release branches, and stale `worktree-*` refs. So the fix is not
+  "show every branch" — that would bury the fleet in housekeeping — but
+  something narrower: a branch with an **open PR** is waiting on a person
+  whether or not a plan claims it.
+  Worth noting how it arose: I created both branches for small fixes without
+  writing plans, which Plot's own ceremony rules permit. The tab silently
+  assumes every branch worth watching belongs to a plan.
 - ⏸️ **Does the board stay one-repo?** The design keeps every data function
   repo-parameterised, and tab 2 is meant to go cross-repo — "what are my agents
   waiting for" is a question about a person, not a repository. Not decided.
