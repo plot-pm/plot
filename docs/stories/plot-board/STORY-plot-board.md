@@ -409,6 +409,25 @@ that closes the loop, and it has not been built yet.
   Worth noting how it arose: I created both branches for small fixes without
   writing plans, which Plot's own ceremony rules permit. The tab silently
   assumes every branch worth watching belongs to a plan.
+- ⏸️ **The fleet calls a branch quiet while its PR is open one level up.**
+  Asked 2026-08-16 from a screenshot: why does `feature/opus5-longhorizon-hardening`
+  sit in WAITING ON YOU while six `opus5-hardening-*` rows sit in QUIET? They
+  are **different branches** — the plan names the six slices, and the seventh is
+  the collecting branch carrying PR #57, which no plan names at all (it only
+  became visible once unplanned open PRs got rows).
+  The six are not idle: verified with `git merge-base --is-ancestor`, each is an
+  **ancestor of PR #57's head**. `plot-reconcile-scan.sh` learned this
+  distinction in #125 — *contained in an open PR → not orphaned* — and the fleet
+  scan has not. So it reads six live slices as "no commit for 22 days, go check
+  whether it died", which is the wrong errand: the work is in review, not
+  abandoned.
+  Fixing it means teaching `branch_state` the containment test #125 already
+  implements, and the ordering constraint from that plan carries over (claim
+  first, containment second).
+  Found alongside a data error worth its own line: that plan lists
+  `docs/model-provenance.md` under `## Branches`. It is a FILE NAME, and
+  `git ls-remote` confirms no such ref exists — so the plan claims a branch that
+  cannot ever merge, and every completeness check has been counting it.
 - ⏸️ **Does the board stay one-repo?** The design keeps every data function
   repo-parameterised, and tab 2 is meant to go cross-repo — "what are my agents
   waiting for" is a question about a person, not a repository. Not decided.
