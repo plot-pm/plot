@@ -6,14 +6,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:**
 - **Story:** plot-board
 - **Review:** pr
 - **Impl:** own branches
 - **Assignee:** jwloka
-- **Approved:**
+- **Approved:** 2026-08-16, jwloka, plan-PR #139 merged
 - **Started:**
 - **Delivered:**
 
@@ -191,9 +191,14 @@ Deferred deliberately on 2026-08-16 rather than folded into
 mid-implementation when the case appeared, or into
 [`board-tells-the-truth`](2026-08-16-board-tells-the-truth.md), which is pure
 rendering and test plumbing. This one touches `plot-fleet-scan.sh` and
-`packages/board/src/server/fleet.ts` — **the two files
-[`agent-view-phase`](2026-08-16-agent-view-phase.md) holds** while its Data wave
-is in flight. It must not be dispatched until that wave merges.
+`packages/board/src/server/fleet.ts` — the two files
+[`agent-view-phase`](2026-08-16-agent-view-phase.md) held while its Data wave
+was in flight. **That wave merged as #140 on 2026-08-16, and the block is
+lifted.** Verified at dispatch rather than assumed: the one branch still open
+at that moment (`bug/board-shows-staleness`) had only `App.tsx`,
+`AgentList.tsx`, one browser test and the built artifact uncommitted — no
+overlap with these two files. The artifact is the sole shared surface, as it is
+for every board branch, and it is resolved by rebasing rather than by waiting.
 
 Three parallel branches stayed collision-free earlier that day only because
 nobody widened a scope after the fan-out began. This plan waits for the same
