@@ -134,6 +134,46 @@ export interface AgentListProps {
   onOpenPlan?: (planFile: string) => boolean;
 }
 
+/**
+ * The plan's name as a link into the board's own modal.
+ *
+ * Shared by the row and by the group heading, because grouping moves the name
+ * from one to the other and the CLICK has to move with it — the first cut left
+ * the heading as plain text and quietly dropped the only way to open the plan.
+ *
+ * A real anchor, so cmd/ctrl/shift/middle-click open natively and only a plain
+ * primary click is intercepted. `onOpenPlan` returns false where the board has
+ * no matching card, and the navigation then proceeds — the honest fallback.
+ */
+function PlanLink({
+  plan,
+  planFile,
+  onOpenPlan,
+}: {
+  plan: string;
+  planFile: string;
+  onOpenPlan?: AgentListProps['onOpenPlan'];
+}) {
+  const handle = (e: MouseEvent<HTMLAnchorElement>) => {
+    if (!onOpenPlan) return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    if (!onOpenPlan(planFile)) return;
+    e.preventDefault();
+  };
+  if (!planFile) return <>{plan}</>;
+  return (
+    <a
+      href={`/plan/${encodeURIComponent(planFile)}`}
+      onClick={handle}
+      target={onOpenPlan ? undefined : '_blank'}
+      rel="noreferrer"
+      className="text-blue-600 hover:underline dark:text-blue-400"
+    >
+      {plan}
+    </a>
+  );
+}
+
 function Row({
   row,
   onOpenPlan,
@@ -207,26 +247,31 @@ function Row({
       ) : (
         <span className="font-mono text-[13px] text-slate-800 dark:text-slate-200">{row.branch}</span>
       )}
-      {/* How long this has been waiting to be started. LABELLED, because it is a
-          different clock from the age column on the right: that one says when
-          the branch tip last moved, this says when the plan was approved. An
-          unlabelled `22d` in each place would be two different facts wearing one
-          face. Absent where no approval date is recorded — nothing rather than a
-          zero. */}
-      {row.waitingDays !== null && (
-        <span
-          className="text-xs text-amber-700 dark:text-amber-500"
-          title="Approved this long ago, and nobody has started it"
-        >
-          waiting {waitingLabel(row.waitingDays)}
-        </span>
-      )}
       <span className="ml-auto text-xs text-slate-500 dark:text-slate-400">
         <Note row={row} />
       </span>
-      <span className="w-10 shrink-0 text-right text-xs tabular-nums text-slate-400 dark:text-slate-500">
-        {age(row)}
-      </span>
+      {/* ONE age column, answering "how old is this" once.
+          
+          A row with no branch has no tip to date, so the column read "—" while
+          a second badge mid-row carried the answer: two places for one
+          question, one of them empty. The waiting age takes the column when
+          there is no commit age, and the distinction that matters — a plan
+          approved 6mo ago is not a branch untouched for 6mo — is carried by
+          colour and title rather than by a second position.
+          
+          Still nothing where no approval date is recorded: absent, not zero. */}
+      {row.ageMinutes === null && row.waitingDays !== null ? (
+        <span
+          className="w-10 shrink-0 text-right text-xs tabular-nums text-amber-700 dark:text-amber-500"
+          title="Approved this long ago, and nobody has started it"
+        >
+          {waitingLabel(row.waitingDays)}
+        </span>
+      ) : (
+        <span className="w-10 shrink-0 text-right text-xs tabular-nums text-slate-400 dark:text-slate-500">
+          {age(row)}
+        </span>
+      )}
     </li>
   );
 }
@@ -347,9 +392,22 @@ export function AgentList({ fleet, pollSeconds, onOpenPlan }: AgentListProps) {
               {rows.length > 0 ? (
                 plans.map((group) => (
                   <li key={group.plan}>
-                    {headings && (
+                    {/* A nameless group holds rows no plan claims, so there is
+                        nothing to head them WITH: rendering the heading anyway
+                        printed a bare "(3)", a label that labels nothing. */}
+                    {headings && group.plan && (
                       <h3 className="border-b border-slate-200/60 bg-slate-50 px-3 py-1 text-[11px] font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
-                        {group.plan}
+                        {/* The heading CARRIES the link, because the rows below
+                            no longer print the plan name. Grouping moved the
+                            name up here; the way to reach the plan has to move
+                            with it, or the tab keeps the tidier layout and
+                            loses the click. Once per group rather than once per
+                            row, which is the point of grouping. */}
+                        <PlanLink
+                          plan={group.plan}
+                          planFile={group.planFile}
+                          onOpenPlan={onOpenPlan}
+                        />
                         <span className="ml-1.5 font-normal text-slate-400 dark:text-slate-600">
                           ({group.rows.length})
                         </span>
@@ -361,7 +419,7 @@ export function AgentList({ fleet, pollSeconds, onOpenPlan }: AgentListProps) {
                           key={`${r.repo}/${r.branch}`}
                           row={r}
                           onOpenPlan={onOpenPlan}
-                          planInHeading={headings}
+                          planInHeading={headings && Boolean(group.plan)}
                         />
                       ))}
                     </ul>
@@ -384,7 +442,12 @@ export function AgentList({ fleet, pollSeconds, onOpenPlan }: AgentListProps) {
           answer different questions and the pair is the point: how old is this,
           and when does it change. */}
       <p className="px-3 text-xs text-slate-400 dark:text-slate-600">
-        {fleet.summary.branches} branches across {fleet.summary.plans} plans · scanned{' '}
+        {/* Counted from the ROWS, not from `summary`: the pulse summarises the
+            branches plans name, and the list also shows open PRs no plan
+            claims. Reading the summary here said "8 branches across 3 plans"
+            under twelve visible rows. */}
+        {fleet.rows.length} branches across{' '}
+        {new Set(fleet.rows.map((r) => r.plan).filter(Boolean)).size} plans · scanned{' '}
         {fleet.ageSeconds + tick}s ago
         {gitNext !== null && ` · next in ${gitNext}s`}
         {fleet.prAgeSeconds !== null && ` · PR data ${fleet.prAgeSeconds + tick}s ago`}

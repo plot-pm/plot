@@ -142,6 +142,8 @@ interface CacheEntry {
    * A plan with no `Approved:` record is absent rather than zero.
    */
   approvedAt: Map<string, number>;
+  /** Plan filename per idea branch — see `ideaPlanFiles`. */
+  ideaPlans: Map<string, string>;
   /**
    * PR data is cached BESIDE the pulse, with its own timestamp and error — the
    * two sources fail independently. The host can be down while git is fine, and
@@ -222,6 +224,41 @@ async function branchAges(opts: BuildBoardOptions): Promise<Map<string, number |
  * unknown time" and "approved just now" are different statements, and the row
  * shows nothing rather than the wrong one.
  */
+/**
+ * The plan file each idea branch carries, keyed by branch name.
+ *
+ * An idea branch introduces a plan that lives ON that branch, so the pulse —
+ * which reads the default branch — never sees the filename. Without it the row
+ * has a plan NAME and no way to open it, which is how two grouped rows ended up
+ * with headings that were plain text beside a linked one.
+ *
+ * Read from git, one `ls-tree` per idea branch: they are few (two here), the
+ * refs are local, and this runs on the pulse's own timer rather than per
+ * request. Resolving by slug rather than by "the one file not on main" keeps it
+ * a lookup instead of a diff.
+ */
+async function ideaPlanFiles(opts: BuildBoardOptions): Promise<Map<string, string>> {
+  const found = new Map<string, string>();
+  const planDir = await planDirectory(opts);
+  const refs = await run('git',
+    ['for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin/idea/*'],
+    opts.repoRoot);
+  const branches = refs.split('\n')
+    .map((l) => l.trim().replace(/^origin\//, ''))
+    .filter(Boolean);
+  for (const branch of branches) {
+    const slug = /^idea\/(.+)$/.exec(branch)?.[1];
+    if (!slug) continue;
+    const out = await run('git',
+      ['ls-tree', '-r', '--name-only', `origin/${branch}`, '--', planDir], opts.repoRoot);
+    const hit = out.split('\n')
+      .map((l) => l.trim())
+      .find((l) => l.endsWith(`${slug}.md`));
+    if (hit) found.set(branch, path.basename(hit));
+  }
+  return found;
+}
+
 async function approvalDates(
   opts: BuildBoardOptions,
   pulse: FleetPulse,
@@ -413,6 +450,12 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     entry.ages = await branchAges(opts);
     entry.branchUrlBase = await readBranchUrlBase(opts);
     entry.approvedAt = await approvalDates(opts, parsed);
+    // From the REFS, not from `entry.prs`. The PR map is filled on its own
+    // 60 s timer, so at the first git refresh it is still null — the list came
+    // back empty and nothing recomputed it, because this timer does not watch
+    // that one. Two clocks, one dependency: the same shape that pinned the
+    // countdown at zero earlier today.
+    entry.ideaPlans = await ideaPlanFiles(opts);
     entry.at = Date.now();
     entry.error = null;
   } catch (err) {
@@ -433,6 +476,7 @@ function ensureCache(opts: BuildBoardOptions): CacheEntry {
   entry = {
     pulse: null, ages: new Map(), at: null, error: null, branchUrlBase: '',
     approvedAt: new Map(),
+    ideaPlans: new Map(),
     prs: null, prsByNumber: null, prAt: null, prError: null,
     // 0, so the first fetch happens immediately rather than a minute in.
     prNextAt: 0,
@@ -640,6 +684,7 @@ export function rowsFromPulse(
   urlBase = '',
   approvedAt?: Map<string, number> | null,
   now = Date.now(),
+  ideaPlans?: Map<string, string> | null,
 ): AgentRow[] {
   const rows: AgentRow[] = [];
   for (const plan of pulse.plans) {
@@ -688,6 +733,79 @@ export function rowsFromPulse(
       }
     }
   }
+
+  // A branch no plan names is still work waiting on a person.
+  //
+  // The pulse walks the branches a plan lists under `## Branches`, which is what
+  // makes this a FLEET view rather than a branch listing — main, release
+  // branches and stale worktree refs stay out of it. But a fix branch opened
+  // outside a plan carries the one thing this tab exists to surface, and could
+  // not show it: two PRs sat waiting to be merged while WAITING ON YOU read
+  // "none", and the pulse reported 8 branches where origin had 20.
+  //
+  // OPEN only, deliberately. A merged PR with no plan is finished work, and
+  // letting it in would fill `done` with housekeeping nobody reads. The rule is
+  // narrow on purpose: an open PR is waiting on somebody, whether or not a plan
+  // claims it.
+  //
+  // No new host call — `prs` is the map the board already fetches on its own
+  // slow timer, keyed by head branch.
+  const planned = new Set(rows.map((r) => r.branch));
+  for (const [branch, pr] of prs ?? []) {
+    if (pr.state !== 'OPEN' || planned.has(branch)) continue;
+    const ageMinutes = ages.get(branch) ?? null;
+    // `state: 'wip'` is the honest git answer: the branch exists and carries
+    // work. It also lets `classify` reach its PR arm, which is where an open
+    // PR's checks decide between waiting-on-you and waiting-on-machine — the
+    // group that had never once been populated, because the branches carrying
+    // CI state were the ones missing from this list.
+    // A DRAFT PR is waiting on you — to finish it, not to review it. Falling
+    // through to the git answer put it in `quiet`, which means "go check
+    // whether this died": the wrong errand for a plan written an hour ago.
+    // `classify` deliberately declines to claim a green draft ("a draft is
+    // still the author's, not yours"), and that is right for its own question;
+    // here the author IS the reader, so the row says so plainly.
+    const { group, note } = pr.draft
+      ? { group: 'waiting-on-you' as const, note: `PR #${pr.number}, draft` }
+      : classify('wip', 'eligible', ageMinutes, quietMinutes, pr);
+    // An idea branch is not planless — it CARRIES the plan it introduces, and
+    // `/plot-idea` names it `idea/<slug>` after that plan's own slug. Grouping
+    // such a row under "" put two unrelated PRs under one nameless heading and
+    // hid a plan that exists. The plan file is the branch's own, so it is not
+    // in this pulse (which reads the default branch) and the name is all there
+    // is to go on — but the name is a convention Plot itself writes, not a
+    // guess about it.
+    //
+    // Only the slug is claimed. `planFile` stays empty, so the heading renders
+    // as text rather than linking to a plan file this view cannot resolve —
+    // the same rule the rows already follow.
+    const ideaSlug = /^idea\/(.+)$/.exec(branch)?.[1] ?? '';
+    rows.push({
+      repo,
+      plan: ideaSlug,
+      // Resolvable since the plan viewer learned to read branch plans: before
+      // that this was deliberately blank, because linking to a file the route
+      // would 404 on is worse than plain text. The route reads both sources
+      // now, so the caution is obsolete — and leaving it in cost the grouped
+      // rows their only way to open the plan.
+      planFile: ideaPlans?.get(branch) ?? '',
+      wave: '',
+      state: 'wip',
+      group,
+      ageMinutes,
+      note,
+      branch,
+      // Encoded per path SEGMENT, matching the planned rows above: a branch
+      // name always contains a slash, and encoding it whole yields `bug%2Ffix`
+      // — a link that 404s on the host.
+      branchUrl: urlBase
+        ? `${urlBase}${branch.split('/').map(encodeURIComponent).join('/')}`
+        : '',
+      pr: { number: pr.number, url: pr.url ?? '' },
+      waitingDays: null,
+    });
+  }
+
   rows.sort((a, b) => {
     const g = GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group);
     if (g !== 0) return g;
@@ -717,7 +835,7 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
     error: entry.error,
     rows: entry.pulse
       ? rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, entry.prs,
-        entry.branchUrlBase, entry.approvedAt, now)
+        entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans)
       : [],
     summary: entry.pulse?.summary ?? EMPTY_SUMMARY,
     prAgeSeconds: entry.prAt === null ? null : Math.round((now - entry.prAt) / 1000),

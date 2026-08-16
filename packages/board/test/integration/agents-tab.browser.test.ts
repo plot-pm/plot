@@ -286,17 +286,27 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('labels the waiting age on an unstarted row, and shows none without a date', async () => {
-    // A different clock from the age column: that one says when the branch tip
-    // moved, this says when the plan was approved. Unlabelled, `22d` in each
-    // place would be two different facts wearing one face.
+  it('shows the waiting age IN the age column, and nothing without a date', async () => {
+    // One age column, answering "how old is this" once. An earlier cut put the
+    // waiting age in its own badge mid-row and left the column reading "—":
+    // two places for one question, one of them empty. The distinction that
+    // matters — a plan approved 22d ago is not a branch untouched for 22d — is
+    // carried by colour and title, not by a second position.
     const page = await openAgents();
     try {
       const untaken = page.locator('li', { hasText: 'feature/untaken' });
-      await expect.poll(() => untaken.getByText(/waiting 22d/).count()).toBe(1);
+      await expect.poll(() => untaken.getByTitle(/nobody has started it/).count()).toBe(1);
+      await expect.poll(() => untaken.getByTitle(/nobody has started it/).textContent())
+        .toBe('22d');
+      // And NOT beside it: the row must not carry the age twice. Asserted on
+      // the LAST cell rather than by searching the row for an em dash — the
+      // note reads "eligible — nobody has taken it" and contains one, so a
+      // text search finds the wrong thing and passes for the wrong reason.
+      await expect.poll(() => untaken.locator('span').last().textContent()).toBe('22d');
+      expect(await untaken.getByText(/waiting/).count()).toBe(0);
       // No approval date recorded — nothing rather than a zero or a "just now".
       const undated = page.locator('li', { hasText: 'feature/undated' });
-      expect(await undated.getByText(/waiting/).count()).toBe(0);
+      expect(await undated.getByTitle(/nobody has started it/).count()).toBe(0);
     } finally {
       await page.close();
     }
