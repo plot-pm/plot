@@ -170,6 +170,20 @@ that closes the loop, and it has not been built yet.
   pushes a claim and `/plot-implement` under `Impl: same branch` does not, so
   that flow produces work the board cannot see. Whether `/plot-implement`
   should push the branch at start is undecided.
+- ⏸️ **Section 2 reports a plan when ONE branch merged, not when all did** —
+  seen 2026-08-16 the moment #122 landed: the scan named
+  `reconcile-scan-accuracy` (two waves still open) and `board-reads-git` (one
+  branch still in flight) alongside `push-main-bypass`, which genuinely is
+  deliverable. The line says *consider: /plot-deliver*, and as advice that is
+  defensible — but a reader acting on all three would try to deliver two plans
+  whose work is unfinished, and `/plot-deliver` would then refuse them at its
+  own gate. Cheap to sharpen (compare merged branches against the plan's
+  non-deferred set) and worth doing before the noise trains people to skip the
+  section.
+
+  Related and already visible in the same output: the fleet scan lists those
+  merged branches as `open`, because the ref is deleted at merge. Same root as
+  the bug #122 fixed, seen from the other side.
 - ⏸️ **Does the board stay one-repo?** The design keeps every data function
   repo-parameterised, and tab 2 is meant to go cross-repo — "what are my agents
   waiting for" is a question about a person, not a repository. Not decided.
