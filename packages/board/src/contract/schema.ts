@@ -106,32 +106,31 @@ export type SprintPhase = (typeof SPRINT_PHASES)[number];
 export const STORY_STATUSES = ['draft', 'ready', 'active', 'in-review', 'paused', 'done'] as const;
 export type StoryStatus = (typeof STORY_STATUSES)[number];
 
-/** Wave state condensed to the four numbers a board tile can show. */
+/**
+ * Wave state condensed to the numbers a board tile can show — from TWO sources,
+ * deliberately, and the split is the whole point.
+ *
+ * `waves`, `branches` and `deferred` are plan-derived: they say how the plan is
+ * shaped, they are true whether or not git can be read, and they keep rendering
+ * when the fleet cache is cold.
+ *
+ * `claimed` and `eligible` are git-derived, read from the fleet pulse — because
+ * a claim is a pushed ref, never a note in a file. They are OPTIONAL for the
+ * reason this schema exists at all: `claimed: 0` and "no pulse has landed yet"
+ * must not render identically. A card built without a pulse omits them, and the
+ * tile shows nothing rather than a zero it cannot stand behind.
+ */
 export const WaveSummarySchema = z.object({
   waves: z.number(),
   /** Non-deferred branches only — deferred work is not outstanding. */
   branches: z.number(),
-  claimed: z.number(),
+  /** Branches whose git state is `claimed`. Absent when there is no pulse. */
+  claimed: z.number().optional(),
+  /** Open branches in an eligible wave — startable now. Absent without a pulse. */
+  eligible: z.number().optional(),
   deferred: z.number(),
 });
 export type WaveSummary = z.infer<typeof WaveSummarySchema>;
-
-/**
- * Condense `PlanMeta.waves` for display. Deferred branches are excluded from
- * `branches` and counted separately: counting them as outstanding would make a
- * finished plan look unfinished on the board.
- */
-export function summariseWaves(waves: PlanMeta['waves']): WaveSummary {
-  let branches = 0, claimed = 0, deferred = 0;
-  for (const w of waves) {
-    for (const b of w.branches) {
-      if (b.deferred) { deferred += 1; continue; }
-      branches += 1;
-      if (b.claimed) claimed += 1;
-    }
-  }
-  return { waves: waves.length, branches, claimed, deferred };
-}
 
 /**
  * A pull request as a card names it: the number the plan wrote down, and the
@@ -174,11 +173,14 @@ export const CardSchema = z.object({
   prs: z.array(CardPrSchema).default([]),
   /**
    * Glanceable wave state for a card: how many waves, how much outstanding
-   * work, how much of it is taken. Deliberately a summary rather than the
-   * nested `waves` structure — a tile answers "how much is left and is anyone
-   * on it?", not "which branch sits in which wave".
+   * work, how much of it is taken, and how much could be started now.
+   * Deliberately a summary rather than the nested `waves` structure — a tile
+   * answers "how much is left and is anyone on it?", not "which branch sits in
+   * which wave".
    *
    * Optional: pre-wave plans and older helper output produce cards without it.
+   * Present for single-wave plans too — "is anyone working on this?" is the same
+   * question whether a plan has one branch or nine.
    */
   waveSummary: WaveSummarySchema.optional(),
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classify, humanAge, rowsFromPulse } from '../../src/server/fleet.js';
+import { classify, humanAge, rowsFromPulse, rateLimitBackoffMs } from '../../src/server/fleet.js';
 import type { FleetPulse } from '../../src/contract/schema.js';
 import type { PrRecord } from '../../src/server/fleet.js';
 
@@ -194,6 +194,58 @@ describe('rowsFromPulse', () => {
     ]);
     const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, prs);
     expect(rows.find((r) => r.branch === 'feature/b')?.pr).toEqual({ number: 7, url: '' });
+  });
+});
+
+describe('rateLimitBackoffMs — slow down for a quota, not for a blip', () => {
+  // Why this exists: git and the host used to share a 5 s timer, so the board
+  // spent 720 GraphQL calls an hour and exhausted a 5000/hour budget in under a
+  // working day. It did exactly that on this repo on 2026-08-16, mid-plan.
+  // Separating the cadences fixes the spend; this function decides what to do
+  // once the host has already said no.
+
+  it('backs off on the bare GraphQL exhaustion message', () => {
+    // Verbatim from the failure that prompted the change.
+    const ms = rateLimitBackoffMs('GraphQL: API rate limit already exceeded for user ID 870334');
+    expect(ms).toBe(120_000);
+  });
+
+  it('honours a wait the host names itself', () => {
+    const ms = rateLimitBackoffMs(
+      'You have exceeded a secondary rate limit. Please wait 90 seconds before trying again.',
+    );
+    expect(ms).toBe(90_000);
+  });
+
+  it('never waits LESS than the ordinary cadence', () => {
+    // A 5-second retry would just spend another call to be told the same thing.
+    const ms = rateLimitBackoffMs('rate limited, please retry in 5 seconds');
+    expect(ms).toBe(60_000);
+  });
+
+  it('waits until an absolute reset stamp when one is given', () => {
+    const now = 1_700_000_000_000;
+    const ms = rateLimitBackoffMs(
+      `API rate limit exceeded; reset at 1700000180`, now,
+    );
+    expect(ms).toBe(180_000);
+  });
+
+  it('returns null for an ordinary failure, so the normal timer continues', () => {
+    // The load-bearing negative. A VPN blip or a missing `gh` must NOT buy two
+    // minutes of silence — the board would look stalled for a reason nothing
+    // could explain, which is the same class of unexplained emptiness this plan
+    // exists to remove.
+    expect(rateLimitBackoffMs('bash: plot-host.sh: No such file or directory')).toBeNull();
+    expect(rateLimitBackoffMs('dial tcp: lookup api.github.com: no such host')).toBeNull();
+    expect(rateLimitBackoffMs('')).toBeNull();
+  });
+
+  it('ignores a reset stamp already in the past', () => {
+    // A stale stamp must not produce a negative wait; fall through to the
+    // ceiling instead of retrying instantly against a live limit.
+    const ms = rateLimitBackoffMs('API rate limit exceeded; reset at 1600000000', 1_700_000_000_000);
+    expect(ms).toBe(120_000);
   });
 });
 

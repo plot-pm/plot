@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PlanMetaSchema, CardSchema, summariseWaves } from '../../src/contract/schema';
+import { PlanMetaSchema, CardSchema } from '../../src/contract/schema';
 
 describe('PlanMetaSchema — waves', () => {
   const base = { file: 'docs/plans/x.md', format: 'canonical', phase: 'approved' };
@@ -41,48 +41,40 @@ describe('PlanMetaSchema — waves', () => {
   });
 });
 
-describe('summariseWaves — what a board card shows', () => {
-  const wave = (name: string, branches: Array<[string, boolean, string]>) => ({
-    name,
-    branches: branches.map(([branch, deferred, claimed]) => ({ branch, deferred, claimed })),
-  });
-
-  it('counts waves and the outstanding work in them', () => {
-    // A card needs a glanceable triple, not the whole nested structure:
-    // "wave 2 of 4, N branches, M claimed".
-    const s = summariseWaves([
-      wave('Tracer', [['feature/a', false, '']]),
-      wave('Implementation', [['feature/b', false, 'ts, s-1'], ['feature/c', false, '']]),
-      wave('Wave 3', [['feature/d', false, '']]),
-    ]);
-    expect(s).toEqual({ waves: 3, branches: 4, claimed: 1, deferred: 0 });
-  });
-
-  it('excludes deferred branches from the branch count', () => {
-    // Deferred branches are not outstanding work — showing them as such would
-    // make a finished plan look unfinished on the board.
-    const s = summariseWaves([
-      wave('Implementation', [['feature/a', false, ''], ['feature/gone', true, '']]),
-    ]);
-    expect(s).toEqual({ waves: 1, branches: 1, claimed: 0, deferred: 1 });
-  });
-
-  it('returns zeroes for a pre-wave plan', () => {
-    expect(summariseWaves([])).toEqual({ waves: 0, branches: 0, claimed: 0, deferred: 0 });
-  });
+describe('WaveSummarySchema — plan shape and git occupancy, kept apart', () => {
+  const base = {
+    slug: 'x', title: 'X', type: 'feature', phase: 'Development', path: 'docs/plans/x.md',
+  } as const;
 
   it('is carried on the card as an optional field', () => {
     // Optional: pre-wave plans and older helper output must still produce a
     // valid card.
     const card = CardSchema.parse({
-      slug: 'x', title: 'X', type: 'feature', phase: 'Development', path: 'docs/plans/x.md',
-      waveSummary: { waves: 2, branches: 3, claimed: 1, deferred: 0 },
+      ...base,
+      waveSummary: { waves: 2, branches: 3, claimed: 1, eligible: 2, deferred: 0 },
     });
     expect(card.waveSummary?.claimed).toBe(1);
+    expect(card.waveSummary?.eligible).toBe(2);
     const bare = CardSchema.parse({
       slug: 'y', title: 'Y', type: 'docs', phase: 'Design', path: 'docs/plans/y.md',
     });
     expect(bare.waveSummary).toBeUndefined();
+  });
+
+  it('accepts a summary with NO occupancy counts — absent is not zero', () => {
+    // The contract's load-bearing case. A card built before the fleet scan
+    // landed knows the plan's shape and knows nothing about claims; it must be
+    // able to say so. Defaulting these to 0 at the boundary would re-create the
+    // exact confusion this schema was changed to remove — a card asserting
+    // "nobody is working on this" when it has not looked.
+    const card = CardSchema.parse({
+      ...base, waveSummary: { waves: 1, branches: 2, deferred: 0 },
+    });
+    expect(card.waveSummary?.claimed).toBeUndefined();
+    expect(card.waveSummary?.eligible).toBeUndefined();
+    // Shape survives without git: these come from the plan file and stay true
+    // when the scan cannot run at all.
+    expect(card.waveSummary?.branches).toBe(2);
   });
 });
 
