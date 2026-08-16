@@ -11,6 +11,7 @@
 - **Approved:** 2026-08-16, jwloka, plan-PR #126 merged
 - **Started:**
 - **Delivered:**
+- **Started:** 2026-08-16, Jan Wloka, `bug/fleet-merged-branch-state`
 
 ## Problem
 
