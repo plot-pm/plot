@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
-import { findFreePort, startServer } from '../helpers.mjs';
+import { startServer } from '../helpers.mjs';
 
 // UI layer: drive a REAL browser against the shipped artifact's served page, so
 // pixel-level assertions (bug a: no horizontal page scroll) and inline-sprint
@@ -22,7 +22,7 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
   let baseURL: string;
 
   beforeAll(async () => {
-    server = await startServer(FIXTURE, await findFreePort());
+    server = await startServer(FIXTURE);
     baseURL = `http://localhost:${server.port}/`;
     browser = await chromium.launch();
   });

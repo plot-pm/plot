@@ -14,7 +14,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  findFreePort,
   startServer,
   fetchBoard,
   makeRepo,
@@ -39,7 +38,7 @@ describe('POST /api/dispatch: allow-listed ahead of the 405, and only then', () 
   before(async () => {
     tmp = makeRepo({ plans: [{ name: '2026-08-16-ship-the-widget.md', content: APPROVED }] });
     stub = makeStubScripts();
-    server = await startServer(tmp, await findFreePort(), { PLOT_SCRIPTS_DIR: stub.dir });
+    server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir });
   });
 
   after(() => {
@@ -106,7 +105,7 @@ describe('POST /api/dispatch: a refused request spawns NOTHING', () => {
   before(async () => {
     tmp = makeRepo({ plans: [{ name: '2026-08-16-ship-the-widget.md', content: APPROVED }] });
     stub = makeStubScripts();
-    server = await startServer(tmp, await findFreePort(), { PLOT_SCRIPTS_DIR: stub.dir });
+    server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir });
   });
 
   after(() => {
@@ -170,7 +169,7 @@ describe('POST /api/dispatch: the binding is the authorisation', () => {
     // reaches localhost:7777 is sitting at the machine that owns the worktrees;
     // bound to 0.0.0.0 that is no longer true, and the route refuses rather
     // than inventing an auth scheme.
-    server = await startServer(tmp, await findFreePort(), {
+    server = await startServer(tmp, {
       PLOT_SCRIPTS_DIR: stub.dir,
       HOST: '0.0.0.0',
     });
@@ -213,7 +212,7 @@ describe('GET /api/board reports dispatch as available on localhost', () => {
   before(async () => {
     tmp = makeRepo({ plans: [{ name: '2026-08-16-ship-the-widget.md', content: APPROVED }] });
     stub = makeStubScripts();
-    server = await startServer(tmp, await findFreePort(), { PLOT_SCRIPTS_DIR: stub.dir });
+    server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir });
   });
 
   after(() => {

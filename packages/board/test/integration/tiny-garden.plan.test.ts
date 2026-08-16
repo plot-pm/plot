@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 // Data layer: spawn the built artifact and hit GET /plan/<file> directly, so
 // the markdown→HTML render and the path-traversal guard are exercised on
 // exactly what plot ships (real server, real allowlist).
-import { findFreePort, startServer, fetchRaw } from '../helpers.mjs';
+import { startServer, fetchRaw } from '../helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
@@ -14,7 +14,7 @@ describe('tiny-garden: plan viewer (built artifact renders /plan/<file>)', () =>
   let server: { port: number; kill: () => void };
 
   beforeAll(async () => {
-    server = await startServer(FIXTURE, await findFreePort());
+    server = await startServer(FIXTURE);
   });
   afterAll(() => server?.kill());
 

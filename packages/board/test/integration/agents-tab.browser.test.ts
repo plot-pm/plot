@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
-import { findFreePort, startServer } from '../helpers.mjs';
+import { startServer } from '../helpers.mjs';
 import type { AgentRow, Fleet } from '../../src/contract/schema.js';
 
 /**
@@ -95,7 +95,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   let baseURL: string;
 
   beforeAll(async () => {
-    server = await startServer(FIXTURE, await findFreePort());
+    server = await startServer(FIXTURE);
     baseURL = `http://localhost:${server.port}/`;
     browser = await chromium.launch();
   });

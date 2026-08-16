@@ -6,7 +6,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { findFreePort, startServer, fetchBoard, makeRepo } from './helpers.mjs';
+import { startServer, fetchBoard, makeRepo } from './helpers.mjs';
 
 // ── Plan / sprint / story fixtures ───────────────────────────────────────────
 
@@ -86,7 +86,7 @@ describe('board: contract fields + frontmatter visibility', () => {
       sprints: [{ name: '2026-W18-alpha-week.md', content: SPRINT }],
       stories: [{ dir: 'kanban-board', file: 'STORY-kanban-board.md', content: STORY }],
     });
-    server = await startServer(tmp, await findFreePort());
+    server = await startServer(tmp);
   });
 
   after(() => {
@@ -154,7 +154,7 @@ describe('board: missing optional dirs', () => {
   let tmp, server;
   before(async () => {
     tmp = makeRepo({ plans: [{ name: '2026-01-15-webhook-support.md', content: DRAFT }] });
-    server = await startServer(tmp, await findFreePort());
+    server = await startServer(tmp);
   });
   after(() => {
     server?.kill();
@@ -179,7 +179,7 @@ describe('board: symlink dedup + broken symlink tolerance', () => {
       active: ['2026-03-15-board-sync.md'],
       brokenActive: ['2026-01-01-deleted.md'],
     });
-    server = await startServer(tmp, await findFreePort());
+    server = await startServer(tmp);
   });
   after(() => {
     server?.kill();
@@ -203,7 +203,7 @@ describe('board: a directory named *.md is ignored, not fed to the parser', () =
     // walker must skip it (isFile guard) rather than hand plot-plan-meta.sh a
     // directory (awk: "Is a directory") and 500 the whole board.
     fs.mkdirSync(path.join(tmp, 'docs/plans', '2026-04-01-not-a-plan.md'));
-    server = await startServer(tmp, await findFreePort());
+    server = await startServer(tmp);
   });
   after(() => {
     server?.kill();
@@ -231,7 +231,7 @@ describe('board: Approved splits into Ready vs In progress via Started records',
         { name: '2026-07-03-draft-plan.md', content: DRAFT },
       ],
     });
-    server = await startServer(tmp, await findFreePort());
+    server = await startServer(tmp);
   });
 
   after(() => {
@@ -303,7 +303,7 @@ describe('board: PR numbers reach the card, links never get invented', () => {
       { name: '2026-08-16-ship-the-widget.md', content: WITH_PRS },
       { name: '2026-08-16-no-prs-here.md', content: DRAFT },
     ] });
-    server = await startServer(tmp, await findFreePort());
+    server = await startServer(tmp);
   });
   after(() => {
     server?.kill();

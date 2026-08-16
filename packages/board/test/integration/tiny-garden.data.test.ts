@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 // The framework-agnostic harness the node:test suite also uses: spawn the built
 // artifact (real server + real plot-config.sh / plot-plan-meta.sh helpers).
-import { findFreePort, startServer, fetchBoard } from '../helpers.mjs';
+import { startServer, fetchBoard } from '../helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
@@ -12,7 +12,7 @@ describe('tiny-garden: data layer (built artifact + real helpers)', () => {
   let server: { port: number; kill: () => void };
 
   beforeAll(async () => {
-    server = await startServer(FIXTURE, await findFreePort());
+    server = await startServer(FIXTURE);
   });
   afterAll(() => server?.kill());
 
