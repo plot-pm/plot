@@ -392,8 +392,8 @@ and a state view still has to hold the last few minutes of it.
 
 ### Display
 
-- `feature/agent-view-phase-ui` — the phase replaces the repo cell; `deferred`
-  badge; `StartWorkButton` on eligible rows
+- `feature/agent-view-phase-ui` → #147 — the phase replaces the repo cell;
+  `deferred` badge; `StartWorkButton` on eligible rows
 
 Two waves, and this one is a genuine dependency rather than a habit: the
 display wave asserts against fields the data wave introduces, and a UI test
