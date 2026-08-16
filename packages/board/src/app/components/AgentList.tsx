@@ -134,6 +134,46 @@ export interface AgentListProps {
   onOpenPlan?: (planFile: string) => boolean;
 }
 
+/**
+ * The plan's name as a link into the board's own modal.
+ *
+ * Shared by the row and by the group heading, because grouping moves the name
+ * from one to the other and the CLICK has to move with it — the first cut left
+ * the heading as plain text and quietly dropped the only way to open the plan.
+ *
+ * A real anchor, so cmd/ctrl/shift/middle-click open natively and only a plain
+ * primary click is intercepted. `onOpenPlan` returns false where the board has
+ * no matching card, and the navigation then proceeds — the honest fallback.
+ */
+function PlanLink({
+  plan,
+  planFile,
+  onOpenPlan,
+}: {
+  plan: string;
+  planFile: string;
+  onOpenPlan?: AgentListProps['onOpenPlan'];
+}) {
+  const handle = (e: MouseEvent<HTMLAnchorElement>) => {
+    if (!onOpenPlan) return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    if (!onOpenPlan(planFile)) return;
+    e.preventDefault();
+  };
+  if (!planFile) return <>{plan}</>;
+  return (
+    <a
+      href={`/plan/${encodeURIComponent(planFile)}`}
+      onClick={handle}
+      target={onOpenPlan ? undefined : '_blank'}
+      rel="noreferrer"
+      className="text-blue-600 hover:underline dark:text-blue-400"
+    >
+      {plan}
+    </a>
+  );
+}
+
 function Row({
   row,
   onOpenPlan,
@@ -352,7 +392,17 @@ export function AgentList({ fleet, pollSeconds, onOpenPlan }: AgentListProps) {
                         printed a bare "(3)", a label that labels nothing. */}
                     {headings && group.plan && (
                       <h3 className="border-b border-slate-200/60 bg-slate-50 px-3 py-1 text-[11px] font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
-                        {group.plan}
+                        {/* The heading CARRIES the link, because the rows below
+                            no longer print the plan name. Grouping moved the
+                            name up here; the way to reach the plan has to move
+                            with it, or the tab keeps the tidier layout and
+                            loses the click. Once per group rather than once per
+                            row, which is the point of grouping. */}
+                        <PlanLink
+                          plan={group.plan}
+                          planFile={group.planFile}
+                          onOpenPlan={onOpenPlan}
+                        />
                         <span className="ml-1.5 font-normal text-slate-400 dark:text-slate-600">
                           ({group.rows.length})
                         </span>

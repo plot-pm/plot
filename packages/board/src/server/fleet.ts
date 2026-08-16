@@ -715,11 +715,21 @@ export function rowsFromPulse(
     // group that had never once been populated, because the branches carrying
     // CI state were the ones missing from this list.
     const { group, note } = classify('wip', 'eligible', ageMinutes, quietMinutes, pr);
+    // An idea branch is not planless — it CARRIES the plan it introduces, and
+    // `/plot-idea` names it `idea/<slug>` after that plan's own slug. Grouping
+    // such a row under "" put two unrelated PRs under one nameless heading and
+    // hid a plan that exists. The plan file is the branch's own, so it is not
+    // in this pulse (which reads the default branch) and the name is all there
+    // is to go on — but the name is a convention Plot itself writes, not a
+    // guess about it.
+    //
+    // Only the slug is claimed. `planFile` stays empty, so the heading renders
+    // as text rather than linking to a plan file this view cannot resolve —
+    // the same rule the rows already follow.
+    const ideaSlug = /^idea\/(.+)$/.exec(branch)?.[1] ?? '';
     rows.push({
       repo,
-      // No plan names it, and inventing one would be worse than the gap: the
-      // row says so, and the display shows an empty plan cell.
-      plan: '',
+      plan: ideaSlug,
       planFile: '',
       wave: '',
       state: 'wip',

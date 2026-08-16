@@ -152,6 +152,28 @@ describe('rowsFromPulse', () => {
     expect(rows.find((r) => r.branch === 'bug/loose-fix')!.group).toBe('waiting-on-machine');
   });
 
+  it('files an idea branch under the plan it carries, not under nothing', () => {
+    // /plot-idea names the branch after the plan's own slug, so the name is a
+    // convention Plot writes rather than a guess about it. Without this, two
+    // unrelated idea PRs shared one nameless group and the plan they each
+    // introduce went unnamed.
+    const prs = new Map([['idea/some-slug', pr({ head: 'idea/some-slug' })]]);
+    const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, prs);
+    const row = rows.find((r) => r.branch === 'idea/some-slug');
+    expect(row!.plan).toBe('some-slug');
+    // planFile stays empty: the plan lives on that branch, not in this pulse,
+    // so the heading renders as text rather than linking somewhere unresolvable.
+    expect(row!.planFile).toBe('');
+  });
+
+  it('leaves a non-idea branch with no plan genuinely unnamed', () => {
+    // The mirror: a release branch or a collecting branch has no plan to claim,
+    // and inventing one would be worse than the gap.
+    const prs = new Map([['changeset-release/main', pr({ head: 'changeset-release/main' })]]);
+    const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, prs);
+    expect(rows.find((r) => r.branch === 'changeset-release/main')!.plan).toBe('');
+  });
+
   it('leaves a merged PR with no plan out — finished work is not waiting', () => {
     // The narrowing that keeps `done` from filling with housekeeping.
     const prs = new Map([['bug/loose-fix', pr({ state: 'MERGED' })]]);
