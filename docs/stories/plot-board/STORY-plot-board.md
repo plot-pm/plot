@@ -75,7 +75,17 @@ that closes the loop, and it has not been built yet.
 - ⏸️ **What counts as "working" without a local pid?** Answered provisionally for
   step 1 (tip commit newer than `Fleet quiet after`, default 30 min) but the
   default is a guess only real use can correct.
-- ⏸️ **A freshly claimed branch reads as QUIET** — observed 2026-08-16, seven
+- 🔄 **A card's `claimed` count is always 0** — observed 2026-08-16 alongside
+  the QUIET finding. `waveSummary` is built from `plot-plan-meta.sh`, which
+  reads `claimed` from a *plan-file annotation nobody writes*; the fleet scan
+  reads it from *git refs*, where claims actually live. So the same board asks
+  two sources about one fact and gets two answers — the Agents tab saw the
+  claim, the card said `claimed: 0`. A claim is a git ref by design (Principle
+  1), so the plan parser cannot know it unless someone writes it down twice,
+  which is the second source of truth Plot exists to avoid. `claimed: 0` means
+  "I looked somewhere claims are not kept", and looks exactly like "nobody is
+  working". Blocked while `feature/board-start-work` edits `board.ts`.
+- ✅ **A freshly claimed branch reads as QUIET** — fixed in #118 — observed 2026-08-16, seven
   minutes after dispatching `feature/board-artifact-links`. `classify()` in
   `fleet.ts` short-circuits `state === 'claimed'` straight to
   `{group: 'quiet', note: 'claimed, no commits yet'}`, regardless of age. The
