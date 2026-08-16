@@ -7,14 +7,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:**
 - **Story:** plot-board
 - **Review:** pr
 - **Impl:** own branches
 - **Assignee:** jwloka
-- **Approved:**
+- **Approved:** 2026-08-16, jwloka, plan-PR #138 merged
 - **Started:**
 - **Delivered:**
 
@@ -236,9 +236,21 @@ fix; determinism is.
   sites across 8 test files read the started server's port; a second
   `pnpm board` names the running one and exits
 
-Two waves, and they are genuinely parallel: the first touches
-`AgentList.tsx`/`App.tsx`, the second touches the server bootstrap, the test
-helpers and the `board` script. Neither touches `plot-fleet-scan.sh` or
+**One at a time, and the reason is the artifact, not the sources.** Checked at
+dispatch: `agent-view-phase`'s Data wave holds `fleet.ts`, `schema.ts`,
+`plot-fleet-scan.sh` and `plot-plan-meta.sh`; this plan wants `AgentList.tsx`,
+`App.tsx`, `index.ts`, `dispatch.ts` and `helpers.mjs`. **Zero source
+overlap.** But both must run `pnpm build:board` and commit
+`skills/plot/scripts/board/board-server.mjs`, a minified bundle where any two
+concurrent rebuilds collide and the conflict cannot be meaningfully resolved.
+That is the open point already recorded in
+[`plot-board`](../stories/plot-board/STORY-plot-board.md) — *the checked-in
+artifact collides on every parallel branch* — and until it is fixed it bounds
+how parallel board work can actually be.
+
+So the two waves here are genuinely parallel with each other in *source* terms:
+the first touches `AgentList.tsx`/`App.tsx`, the second the server bootstrap,
+the test helpers and the `board` script. Neither touches `plot-fleet-scan.sh` or
 `packages/board/src/server/fleet.ts`, which
 [`agent-view-phase`](2026-08-16-agent-view-phase.md) holds while its first wave
 is in flight.
