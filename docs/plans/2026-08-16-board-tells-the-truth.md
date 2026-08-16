@@ -7,7 +7,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:**
 - **Story:** plot-board
@@ -16,7 +16,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-16, jwloka, plan-PR #138 merged
 - **Started:** 2026-08-16, Jan Wloka, `bug/board-shows-staleness`
-- **Delivered:**
+- **Delivered:** 2026-08-16
 - **Started:** 2026-08-16, Jan Wloka, `bug/board-binds-port-zero`
 
 ## Problem
