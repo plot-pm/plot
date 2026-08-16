@@ -75,6 +75,18 @@ that closes the loop, and it has not been built yet.
 - ⏸️ **What counts as "working" without a local pid?** Answered provisionally for
   step 1 (tip commit newer than `Fleet quiet after`, default 30 min) but the
   default is a guess only real use can correct.
+
+  Observed 2026-08-16, and it bounds what #118 could fix: a branch claimed
+  **21 hours ago** and *resumed* today reads as QUIET while an agent is
+  actively working on it. #118 separates fresh claims from stale ones by the
+  age of the claim commit, which is right for a first dispatch and blind to a
+  resumption — the claim is old, the work is new, and git holds no record of
+  an agent that has been reading for three minutes. Two branches dispatched
+  minutes earlier sat correctly in WORKING at the same moment, because their
+  claim commits were themselves fresh. The row self-corrects on the agent's
+  first commit. Whether a resumed branch should be distinguishable before
+  that — and from what signal, since a local pid is exactly what the fleet
+  deliberately does not have — is the open half of this question.
 - ⏸️ **A running board does not pick up a rebuilt bundle** — cost the user two
   false readings today. The DATA reloads fine (server scan 5 s, client poll
   4 s), but `clientHtml` is inlined into the bundle at build time and the
