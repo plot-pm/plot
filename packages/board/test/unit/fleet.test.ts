@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { classify, humanAge, rowsFromPulse, rateLimitBackoffMs } from '../../src/server/fleet.js';
-import type { FleetPulse } from '../../src/contract/schema.js';
+import {
+  classify, draftNote, humanAge, rowPhase, rowsFromPulse, rateLimitBackoffMs,
+} from '../../src/server/fleet.js';
+import { toBoardPhase, type FleetPulse } from '../../src/contract/schema.js';
 import type { PrRecord } from '../../src/server/fleet.js';
 
 // The classifier is where the tab's judgments live: which group a branch lands
@@ -69,10 +71,33 @@ describe('classify', () => {
     expect(r.note).toMatch(/unknown/);
   });
 
-  it('reports a deferred branch as deferred, never as abandoned', () => {
+  it('keeps a deferred branch out of the working group', () => {
+    // `not-started` is about the CLAIM the row makes — nobody is working on
+    // this — rather than about the age of its last commit. Work somebody gave
+    // up is not work in progress.
     const r = classify('deferred', 'eligible', null, QUIET);
     expect(r.group).toBe('not-started');
-    expect(r.note).toBe('deferred');
+  });
+
+  it('does not let the word `deferred` displace the note', () => {
+    // The old answer was `{ group: 'not-started', note: 'deferred' }`,
+    // unconditionally — so a branch that was started and then shelved read as
+    // never begun, with its age erased. The fact is carried by `state` beside
+    // the note; the note keeps its own.
+    const shelved = classify('deferred', 'eligible', 4_320, QUIET);
+    expect(shelved.note).not.toBe('deferred');
+    expect(shelved.note).toMatch(/3 days/);
+    // And a branch with genuinely nothing on it still says so.
+    expect(classify('deferred', 'eligible', null, QUIET).note).toMatch(/no commits/);
+  });
+
+  it('never reads WORKING for a deferred branch, however fresh the commit', () => {
+    // The one place intent outranks git. WORKING means an agent is working on
+    // this RIGHT NOW, which is false for work someone gave up even if the last
+    // commit is minutes old.
+    expect(classify('deferred', 'eligible', 1, QUIET).group).toBe('not-started');
+    // Not even with a dirty local worktree, which lifts every other state.
+    expect(classify('deferred', 'eligible', 1, QUIET, null, true).group).toBe('not-started');
   });
 
   it('puts merged work in done, not in quiet', () => {
@@ -193,6 +218,130 @@ describe('classify', () => {
   });
 });
 
+describe('rowPhase — derived from the PAIR, never from the plan file alone', () => {
+  // The whole reason this function exists rather than a field carried straight
+  // through: reading the plan file alone produces rows that contradict
+  // themselves, and the repo had the example sitting in it.
+
+  it('walks a same-branch plan Discovery → Design → Development as its plan moves', () => {
+    // `board-ui-polish` is the case that made this concrete: its plan was
+    // written, interrogated and approved ON the branch an agent then built on,
+    // so one row passed through all three phases in sequence and the tab showed
+    // the same thing for every one of them.
+    expect(rowPhase('draft', 'wip')).toBe('Discovery');
+    expect(rowPhase('approved', 'claimed')).toBe('Design');
+    expect(rowPhase('approved', 'wip')).toBe('Development');
+  });
+
+  it('lets git win over a stale plan file — the opus5 shape, asserted directly', () => {
+    // `opus5-longhorizon-hardening`: Phase: Approved, ZERO Started: records,
+    // real commits on six of its branches. The board card says Design and the
+    // pulse says `in progress`; a row cannot say both. This is the assertion
+    // that fails if someone later simplifies the derivation to read the plan
+    // file alone — that version returns Design here.
+    expect(rowPhase('approved', 'wip')).toBe('Development');
+    // Merged counts too: work that LANDED is a stronger statement than a commit.
+    expect(rowPhase('approved', 'merged')).toBe('Development');
+  });
+
+  it('does not call an empty claim a start', () => {
+    // A claim marker is a dispatcher taking the branch, not an agent having
+    // built anything. The plan is still at the end of Design — which is exactly
+    // what makes Design mean something rather than "we have not looked".
+    expect(rowPhase('approved', 'claimed')).toBe('Design');
+    expect(rowPhase('approved', 'open')).toBe('Design');
+  });
+
+  it('keeps a delivered plan at Endgame when a late commit lands', () => {
+    // "git wins" is about an ABSENT record, not about overruling a recorded
+    // decision. A missing `Started:` line is nobody having written something
+    // down; a commit after delivery contradicts something a human wrote, and a
+    // follow-up fix does not repeal it.
+    //
+    // Load-bearing: the SYMMETRIC implementation — git evidence overriding the
+    // plan in both directions — passes every other test in this file and fails
+    // only here. Without it, a plan goes visibly backwards for a typo fix.
+    expect(rowPhase('delivered', 'wip')).toBe('Endgame');
+    expect(rowPhase('delivered', 'merged')).toBe('Endgame');
+    expect(rowPhase('released', 'wip')).toBe('Released');
+  });
+
+  it('sends a deferred branch BACK a phase, not forward and not nowhere', () => {
+    // `deferred` is not "paused, resuming later": the vocabulary says the
+    // branch isn't needed and was given up deliberately, and /plot-deliver
+    // skips deferred branches in its completeness gate. So the row returns to
+    // where it is decided whether the branch is wanted at all.
+    //
+    // A branch with real commits under an approved plan therefore reads Design,
+    // NOT Development — nobody is working on it. Bare Design would be
+    // indistinguishable from never-started, which is what the `deferred` badge
+    // (rendered from `state`) exists to say; both halves are needed and each
+    // alone is the wrong answer.
+    expect(rowPhase('approved', 'deferred')).toBe('Design');
+    expect(rowPhase('draft', 'deferred')).toBe('Discovery');
+  });
+
+  it('leaves a deferred branch alone once the plan is past deciding', () => {
+    expect(rowPhase('delivered', 'deferred')).toBe('Endgame');
+    expect(rowPhase('released', 'deferred')).toBe('Released');
+  });
+
+  it('names no phase where none is honest', () => {
+    // rejected / superseded / a pulse from a scan too old to report one. An
+    // empty cell beats a guessed column.
+    expect(rowPhase('rejected', 'wip')).toBeNull();
+    expect(rowPhase('', 'wip')).toBeNull();
+  });
+
+  it('calls toBoardPhase rather than restating the mapping', () => {
+    // A second copy is how the two views drift apart, and the board's column
+    // and the row's word are the same claim about the same plan. Asserted as an
+    // agreement rather than by inspection: every phase word rowPhase can
+    // produce must be one toBoardPhase produced for the same inputs.
+    for (const p of ['draft', 'approved', 'delivered', 'released', 'rejected', '']) {
+      // The un-started half: no branch, an empty claim, or work handed back.
+      for (const state of ['open', 'claimed', 'deferred'] as const) {
+        expect(rowPhase(p, state)).toBe(toBoardPhase(p, false));
+      }
+      // And the started half, which git alone decides.
+      for (const state of ['wip', 'merged'] as const) {
+        expect(rowPhase(p, state)).toBe(toBoardPhase(p, true));
+      }
+    }
+  });
+});
+
+describe('draftNote — a draft PR that is red must say so', () => {
+  const pr = (over: Partial<PrRecord> = {}): PrRecord => ({
+    number: 131, head: 'idea/x', state: 'OPEN', draft: true, checks: 'green',
+    review: '', url: '', ...over,
+  });
+
+  it('carries the check state inside the draft framing', () => {
+    // Found on this plan's own PR: #131 reported `checks: failing` and the row
+    // rendered `PR #131, draft`. The shortcut answered for EVERY draft, so a
+    // green draft and a red one produced the identical note.
+    expect(draftNote(pr({ checks: 'failing' }))).toContain('draft');
+    expect(draftNote(pr({ checks: 'failing' }))).toMatch(/checks failing/);
+    expect(draftNote(pr({ checks: 'pending' }))).toMatch(/CI running/);
+    expect(draftNote(pr({ checks: 'none' }))).toMatch(/no checks/);
+    expect(draftNote(pr({ checks: 'unknown' }))).toMatch(/unavailable/);
+  });
+
+  it('says nothing extra for a green draft', () => {
+    // "PR #131, draft" already means *not ready for you*; appending "checks
+    // green" would put the reassuring word on the row whose point is that it is
+    // unfinished. Every other value is a reason to look, so every other value
+    // is said.
+    expect(draftNote(pr({ checks: 'green' }))).toBe('PR #131, draft');
+  });
+
+  it('still annotates the review state, as every other note does', () => {
+    expect(draftNote(pr({ checks: 'failing', review: 'CHANGES_REQUESTED' })))
+      .toMatch(/changes requested/);
+  });
+});
+
 describe('rowsFromPulse', () => {
   const pulse: FleetPulse = {
     main: 'main',
@@ -259,6 +408,35 @@ describe('rowsFromPulse', () => {
     expect(row!.group).toBe('waiting-on-you');
     // Distinguishable from "green, ready to merge" — the note says which.
     expect(row!.note).toContain('draft');
+  });
+
+  it('says a draft PR is failing, and leaves it waiting on its author', () => {
+    // Both halves, because each alone passes against the bug. Asserting only
+    // the GROUP passes against today's code — the group was already right; it
+    // was the note that lost the only fact that changes what to do next. And
+    // asserting only the note would let a fix move the row into a review queue
+    // nobody asked for: a failing draft is still its author's.
+    const prs = new Map([[
+      'idea/some-slug', pr({ head: 'idea/some-slug', draft: true, checks: 'failing' }),
+    ]]);
+    const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, prs);
+    const row = rows.find((r) => r.branch === 'idea/some-slug');
+    expect(row!.group).toBe('waiting-on-you');
+    expect(row!.note).toMatch(/draft/);
+    expect(row!.note).toMatch(/failing/);
+  });
+
+  it('renders a green draft and a red one as DIFFERENT rows', () => {
+    // The defect stated as the reader saw it: two PRs in different states, one
+    // row. A test that only checks the failing case passes against an
+    // implementation that says "checks failing" on everything.
+    const red = rowsFromPulse(pulse, ages, 'plot', QUIET, new Map([[
+      'idea/some-slug', pr({ head: 'idea/some-slug', draft: true, checks: 'failing' }),
+    ]])).find((r) => r.branch === 'idea/some-slug');
+    const green = rowsFromPulse(pulse, ages, 'plot', QUIET, new Map([[
+      'idea/some-slug', pr({ head: 'idea/some-slug', draft: true, checks: 'green' }),
+    ]])).find((r) => r.branch === 'idea/some-slug');
+    expect(red!.note).not.toBe(green!.note);
   });
 
   it('files an idea branch under the plan it carries, not under nothing', () => {
@@ -433,6 +611,90 @@ describe('rowsFromPulse', () => {
     };
     const rows = rowsFromPulse(odd, new Map(), 'plot', QUIET, null, BASE);
     expect(rows[0].branchUrl).toBe('https://github.com/plot-pm/plot/tree/feature/a%20b');
+  });
+
+  describe('the phase reaches the row', () => {
+    // The plumbing, asserted separately from the derivation: a phase computed
+    // and not carried is a phase nobody reads.
+    const withPhase = (phase: string): FleetPulse => ({
+      ...pulse,
+      plans: [{ ...pulse.plans[0], phase }],
+    });
+
+    it('gives the branches of ONE plan different phases', () => {
+      // The point of deriving per row rather than per plan. This fixture's plan
+      // holds a merged branch, a branch being built and one nobody has taken,
+      // and each is at a different point — which a plan-level phase cannot say.
+      const rows = rowsFromPulse(withPhase('approved'), ages, 'plot', QUIET);
+      // `feature/c` is `open` — designed, waiting to be picked up. Development
+      // here would sit beside a note reading *eligible — nobody has taken it*.
+      expect(rows.find((r) => r.branch === 'feature/c')!.phase).toBe('Design');
+      // `feature/b` is `wip` — an agent is building.
+      expect(rows.find((r) => r.branch === 'feature/b')!.phase).toBe('Development');
+      // `feature/a` merged: the work landed, which is a start and then some.
+      expect(rows.find((r) => r.branch === 'feature/a')!.phase).toBe('Development');
+    });
+
+    it('reads Development from git where the plan file records no start', () => {
+      // The opus5 shape at the row level: the pulse carries `approved` and
+      // nothing else, and the branch's own commits are what name the phase.
+      const rows = rowsFromPulse(withPhase('approved'), ages, 'plot', QUIET);
+      expect(rows.find((r) => r.branch === 'feature/b')!.phase).toBe('Development');
+      expect(rows.find((r) => r.branch === 'feature/d')!.phase).toBe('Design');
+    });
+
+    it('keeps a delivered plan\'s rows at Endgame despite fresh commits', () => {
+      // `feature/b` is four minutes old in this fixture — a commit under a plan
+      // already marked delivered, which must not reverse the phase.
+      const rows = rowsFromPulse(withPhase('delivered'), ages, 'plot', QUIET);
+      expect(rows.every((r) => r.phase === 'Endgame')).toBe(true);
+    });
+
+    it('leaves it null on a pulse from a scan that reports no phase', () => {
+      // The base fixture carries neither field, which is what an older scan
+      // sends. Null renders as an empty cell — not as a guessed column.
+      const rows = rowsFromPulse(pulse, ages, 'plot', QUIET);
+      expect(rows.every((r) => r.phase === null)).toBe(true);
+    });
+
+    it('calls an idea branch Discovery, and every other planless branch nothing', () => {
+      // An idea branch CARRIES a plan under review, and a plan under review is
+      // Discovery by definition. A release branch carries no plan at all, and
+      // `Discovery` on it would be a confident wrong answer.
+      const prs = new Map([
+        ['idea/some-slug', pr({ head: 'idea/some-slug' })],
+        ['changeset-release/main', pr({ head: 'changeset-release/main' })],
+      ]);
+      const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, prs);
+      expect(rows.find((r) => r.branch === 'idea/some-slug')!.phase).toBe('Discovery');
+      expect(rows.find((r) => r.branch === 'changeset-release/main')!.phase).toBeNull();
+    });
+
+    it('gives a deferred branch the phase AND the fact, not one or the other', () => {
+      // Both halves on the row: the phase falls back to Design, and `state`
+      // still says `deferred` so the badge has something to render from. Bare
+      // Design would be indistinguishable from never-started; Development with
+      // a badge would claim somebody is working on it.
+      const shelved: FleetPulse = {
+        ...pulse,
+        plans: [{
+          file: '2026-08-15-example-plan.md', phase: 'approved',
+          waves: [{
+            name: 'Implementation', verdict: 'eligible',
+            branches: [{
+              branch: 'feature/shelved', state: 'deferred', deferred: true, claimed: '',
+            }],
+          }],
+        }],
+      };
+      const row = rowsFromPulse(shelved, new Map([['feature/shelved', 5]]), 'plot', QUIET)
+        .find((r) => r.branch === 'feature/shelved')!;
+      expect(row.phase).toBe('Design');
+      expect(row.state).toBe('deferred');
+      // And the note is the branch's own, not the word `deferred`.
+      expect(row.note).not.toBe('deferred');
+      expect(row.group).toBe('not-started');
+    });
   });
 
   describe('waitingDays — a different clock, in its own field', () => {

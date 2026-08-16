@@ -2,10 +2,12 @@ import { execFile } from 'node:child_process';
 import path from 'node:path';
 import {
   FleetPulseSchema,
+  toBoardPhase,
   type AgentRow,
   type BranchState,
   type Fleet,
   type FleetPulse,
+  type Phase,
   type WaitingGroup,
 } from '../contract/schema.js';
 import type { BuildBoardOptions } from './board.js';
@@ -539,6 +541,75 @@ export function stopFleetRefresh(): void {
 }
 
 /**
+ * Which board phase a ROW is in — from the PAIR, never from the plan file alone.
+ *
+ * The obvious implementation carries the plan's phase onto its rows and maps it
+ * with `toBoardPhase`. That produces rows that contradict themselves, and this
+ * repo had the example sitting in it: `opus5-longhorizon-hardening` is
+ * `Phase: Approved` with zero `Started:` records while six of its branches carry
+ * real commits. The board says Design ("approved, nobody has begun"); the pulse
+ * says `in progress`. Both are right about their own source, and a row labelled
+ * *Design* beside a note reading *no commit for 22 days* is two statements about
+ * one branch that cannot both be true.
+ *
+ * So git supplies the `started` half. A branch carrying real work IS a start,
+ * whether or not anyone wrote the record — the same principle that made
+ * `fleet-sees-merged-branches` read merge commits rather than plan annotations.
+ * The `opus5` rows then read Development while the board CARD keeps saying
+ * Design, and that divergence is itself information: the plan's bookkeeping is
+ * behind, which is worth seeing rather than smoothing over.
+ *
+ * `toBoardPhase` stays the single definition of the mapping and gains no second
+ * implementation here. This function composes it with the branch state; every
+ * phase word it can return came out of that call.
+ *
+ * TWO PLACES THE COMPOSITION IS DELIBERATELY NOT SYMMETRIC.
+ *
+ * **"git wins" applies to an ABSENT record, not to a recorded decision.** A
+ * commit landing under a plan already marked `delivered` does NOT pull the row
+ * back to Development. The two cases are not mirror images: a missing `Started:`
+ * line is nobody having written something down, and evidence outranks an
+ * absence; a commit after delivery contradicts something a human recorded, and
+ * a follow-up fix does not repeal it. Sending a plan visibly backwards for a
+ * typo fix teaches readers to distrust the column. The commit is not hidden —
+ * the row's age still shows something moved.
+ *
+ * **`deferred` sends the row BACK a phase.** The annotation does not mean
+ * "paused, resuming later": the vocabulary is explicit that the branch *isn't
+ * needed* and was *given up deliberately*, and `plot-deliver` skips deferred
+ * branches in its completeness gate — a plan delivers without them. So the row
+ * returns to where it is decided whether the branch is wanted at all, which is
+ * the plan's own phase with the git evidence ignored. Past `delivered` the plan
+ * is done deciding, so nothing moves.
+ *
+ * The `deferred` FACT is not carried by the phase — a bare Design row is
+ * indistinguishable from one nobody ever started. `state` carries it, and the
+ * row renders a badge from that.
+ */
+export function rowPhase(planPhase: string, state: BranchState): Phase | null {
+  // A branch handed back returns to the plan's own phase, ignoring whatever its
+  // commits say — the one place intent outranks git. `toBoardPhase(_, false)`
+  // is Design for an approved plan and Discovery for a draft, which is exactly
+  // "back to where it is decided whether this is wanted".
+  if (state === 'deferred') return toBoardPhase(planPhase, false);
+  // Real work on THIS branch is what makes THIS row Development — the plan's
+  // own `Started:` count is deliberately not consulted.
+  //
+  // A row is a statement about one branch, and a plan's records are about the
+  // plan. A three-branch plan with one branch built and two untouched is in
+  // Development as a plan, and the untouched rows are not: they are the
+  // hand-off point, which is what Design means and what the Start button on
+  // them offers. Carrying the plan's count onto them would put `Development`
+  // beside a note reading *eligible — nobody has taken it*, which is the same
+  // class of self-contradicting row this derivation exists to remove.
+  //
+  // `merged` counts: work that landed is a stronger statement than a commit.
+  // `claimed` does NOT — an empty claim marker is a dispatcher taking the
+  // branch, not an agent having built anything.
+  return toBoardPhase(planPhase, state === 'wip' || state === 'merged');
+}
+
+/**
  * Which group a branch belongs to, and why.
  *
  * Two sources, in a deliberate order. A branch WITH a PR is answered by the PR:
@@ -565,7 +636,22 @@ export function classify(
    */
   localDirty = false,
 ): { group: WaitingGroup; note: string } {
-  if (state === 'deferred') return { group: 'not-started', note: 'deferred' };
+  // A deferred branch is not-started because nobody is working on it — the
+  // group is about the claim the row makes, not about the age of its last
+  // commit, so a fresh commit does not pull it into `working`. Work somebody
+  // gave up is not work in progress.
+  //
+  // But the NOTE is not the word `deferred`. That was the old answer and it
+  // displaced whatever else the row had to say: a branch started and then
+  // shelved read as never begun, with its age and its PR erased. The fact is
+  // carried by `state`, beside the note rather than instead of it — the same
+  // shape as the `no story` badge on a plan card. Mark the thing; do not bend
+  // the state to encode it.
+  if (state === 'deferred') {
+    if (pr) return { group: 'not-started', note: withNote(`PR #${pr.number}`, reviewNote(pr)) };
+    if (ageMinutes === null) return { group: 'not-started', note: 'no commits' };
+    return { group: 'not-started', note: `last commit ${humanAge(ageMinutes)} ago` };
+  }
 
   // A PR outranks the git state for work in flight: once a branch has one,
   // what it waits for is decided there, not by commit age. Merged and
@@ -676,6 +762,29 @@ export function reviewNote(pr: PrRecord): string {
   }
 }
 
+/**
+ * A draft PR's note: the draft framing, plus what its checks say inside it.
+ *
+ * Written as its own function rather than inline because the two facts are
+ * independent — a draft can be green, red, running or unchecked — and the
+ * defect being fixed was exactly one of them swallowing the other.
+ *
+ * `green` says nothing extra on purpose. "PR #131, draft" already means *not
+ * ready for you*, and appending "checks green" would put the reassuring word on
+ * the row whose whole point is that it is unfinished. Every other value is a
+ * reason to look, so every other value is said.
+ */
+export function draftNote(pr: PrRecord): string {
+  const base = `PR #${pr.number}, draft`;
+  const checks =
+    pr.checks === 'failing' ? 'checks failing'
+      : pr.checks === 'pending' ? 'CI running'
+        : pr.checks === 'none' ? 'no checks'
+          : pr.checks === 'unknown' ? 'checks unavailable'
+            : '';
+  return withNote(checks ? `${base}, ${checks}` : base, reviewNote(pr));
+}
+
 function withNote(base: string, note: string): string {
   return note ? `${base} · ${note}` : base;
 }
@@ -733,6 +842,9 @@ export function rowsFromPulse(
           planFile: plan.file,
           wave: wave.name || '(unnamed)',
           state: b.state,
+          // From the PAIR — see `rowPhase`. The plan supplies its phase; this
+          // branch supplies the evidence that outranks a missing record.
+          phase: rowPhase(plan.phase, b.state),
           group,
           ageMinutes: age,
           note: b.claimed ? `${note} · ${b.claimed}` : note,
@@ -798,8 +910,21 @@ export function rowsFromPulse(
     // `classify` deliberately declines to claim a green draft ("a draft is
     // still the author's, not yours"), and that is right for its own question;
     // here the author IS the reader, so the row says so plainly.
+    //
+    // The draft shortcut answers the GROUP and nothing else. It used to answer
+    // the note too, and that collapsed a green draft and a red one into the
+    // identical row: this plan's own PR reported `checks: failing` and rendered
+    // `PR #131, draft`. Both halves were right about their own question —
+    // `classify` declines to claim a green draft, and the shortcut is right that
+    // a draft belongs in waiting-on-you regardless, since the author IS the
+    // reader — but neither noticed that the shortcut answered for EVERY draft,
+    // losing the one fact that changes what the author should do next.
+    //
+    // So the checks speak inside the draft framing, and the group stays put: a
+    // failing draft is still waiting on its author, and moving it would claim a
+    // review nobody asked for.
     const { group, note } = pr.draft
-      ? { group: 'waiting-on-you' as const, note: `PR #${pr.number}, draft` }
+      ? { group: 'waiting-on-you' as const, note: draftNote(pr) }
       : classify('wip', 'eligible', ageMinutes, quietMinutes, pr);
     // An idea branch is not planless — it CARRIES the plan it introduces, and
     // `/plot-idea` names it `idea/<slug>` after that plan's own slug. Grouping
@@ -824,6 +949,15 @@ export function rowsFromPulse(
       planFile: ideaPlans?.get(branch) ?? '',
       wave: '',
       state: 'wip',
+      // An idea branch CARRIES a plan still under review, and a plan under
+      // review is Discovery by definition — that is what the phase means, and
+      // the branch name is a convention Plot itself writes rather than a guess.
+      //
+      // Every other planless branch gets null. There is no plan to read a phase
+      // from, and inventing one would be worse than the empty cell: `Discovery`
+      // on a release branch is a confident wrong answer where nothing is the
+      // honest one. Same rule as `plan: ''` two lines down.
+      phase: /^idea\//.test(branch) ? 'Discovery' : null,
       group,
       ageMinutes,
       note,
