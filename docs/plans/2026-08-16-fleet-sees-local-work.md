@@ -95,6 +95,22 @@ here". That would answer a different question (*where did I put this*), and the
 row has no space left for it: after `board-ui-polish` a line already carries
 plan, branch, note, PR and age, and the phase is due to take the repo cell.
 
+**A human's edits look exactly like an agent's, and the note is honest about
+that.** Whoever opens a file on a plan branch dirties its worktree, and the row
+then reads `working` — which is true (someone is working) in a tab called
+*Agents*. It is not a hypothetical: on an `Impl: same branch` plan the person
+and the agent share one branch, and that happened in this repo the same day.
+
+Git cannot tell them apart — there is no author on an uncommitted change — so
+the row does not claim it can. The note says *uncommitted work in a local
+worktree*: what was observed, on which machine, without asserting who. A reader
+who recognises their own editor is not misled; a row saying "agent working"
+would have been.
+
+Excluding the current checkout was considered and rejected: it would remove
+precisely the `same branch` case, where the human and the agent are meant to be
+on one branch and the signal is most useful.
+
 **Any state that would otherwise read quiet**, not only `claimed`. The
 motivation above describes a resumed claim, but the same blindness applies to
 `wip`: a branch whose last commit is weeks old and whose worktree is dirty is
@@ -108,6 +124,31 @@ for anything shared, and nothing is written anywhere. Principle 3: the scan
 collects the fact, the classifier interprets it. Principle 12: the row reports
 what was observed on this machine and labels it as such, rather than asserting
 a liveness it cannot prove.
+
+### A worktree can be gone, and empty must mean one thing
+
+A worktree directory can be deleted without `git worktree remove`, and the
+entry survives in `git worktree list`. Measured what happens then: `git status`
+exits **128** and prints **nothing**.
+
+That is the trap in miniature. A check written as *"is the output non-empty"*
+reads "not dirty" and declines to lift — the right answer, reached by accident,
+because empty output now means both *clean* and *I could not look*. This repo
+has paid for that ambiguity three times today: `open` for a deleted ref and one
+never created; a null date for "no record" and "old format"; a countdown of
+zero for "due now" and "wrong clock".
+
+So two guards, both cheap:
+
+- **Skip `prunable` entries.** `git worktree list --porcelain` marks them
+  (`prunable gitdir file points to non-existent location`). The information is
+  already in hand — running `git status` on a directory known to be gone is
+  asking a question whose answer was printed a line earlier.
+- **Read the exit code, not the emptiness.** A non-zero status is a failure to
+  observe, and a failure to observe is not evidence of cleanliness.
+
+With both, empty means exactly one thing, and the remaining failure is a named
+one rather than a coincidence.
 
 ### No cap, and the measurement is the reason
 
@@ -155,6 +196,11 @@ evidence of *location*, and the modal is asking about location.
   test for only one leaves the other to chance.
 - **A clean worktree changes no group.** It is equally consistent with finished
   and never-started, so it must not lift anything.
+- **A missing worktree directory does not lift, and not because it looks
+  clean.** Build the case — delete a worktree's directory without pruning —
+  and assert the branch keeps its refs answer. A test that only checks the
+  group would pass on the accident; assert that the failure was detected, not
+  just that the outcome happened to be right.
 - **A branch with no worktree on this machine answers exactly as today.**
   This is the assertion that keeps the change additive; without it, a
   regression that downgrades remote branches would pass unnoticed.
@@ -209,11 +255,13 @@ Definition of Done: `docs/definition-of-done.md`.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {"q": "Only `claimed`, or any state that would otherwise read quiet?", "a": "Any state — the six quiet rows on the board today are `wip`, not `claimed`, and a dirty worktree means the same thing whatever put the branch there", "category": "domain-rules"},
     {"q": "Does git status need a cap across many worktrees?", "a": "No — measured 6.6 ms each, so 20 cost ~133 ms against a 500-1050 ms scan. A cap would be stock against a problem the measurement rules out", "category": "nonfunctional-performance"},
     {"q": "Should a clean worktree show anything?", "a": "Nothing in the ROW. It answers a different question, is not evidence of work, and the row has no space left after board-ui-polish", "category": "ux-layout"},
+    {"q": "A human editing a plan branch looks like an agent — distinguish?", "a": "No. Git has no author on an uncommitted change, so the note reports what was observed rather than who. Excluding the current checkout would remove the same-branch case, where the signal is most useful", "category": "domain-rules"},
+    {"q": "What happens when a worktree directory is gone?", "a": "git status exits 128 with EMPTY output, so an output-only check reads clean and is right by accident. Skip prunable entries and read the exit code, so empty means one thing", "category": "technical-implementation"},
     {"q": "Can the plan modal show the worktree path?", "a": "Yes — `git worktree list --porcelain` already returns it and this plan drops it. In the modal rather than the row, labelled local, and shown for clean worktrees too: dirtiness is evidence of work, presence is evidence of location", "category": "ux-happyPath"}
   ],
   "deferredItems": [],
