@@ -590,7 +590,7 @@ work_in_flight() { # $1=branch to exclude (the candidate)
 # Silent when nothing is held. A report that always prints something teaches
 # the reader to skip it, and then it is worth nothing on the day it matters.
 report_in_flight() { # $1=candidate branch
-  local line br files
+  local br files
   work_in_flight "$1" | while IFS=$'\t' read -r br files; do
     # Commas to ", " for reading; the machine-countable summary is the footer,
     # so this line is allowed to be prose.

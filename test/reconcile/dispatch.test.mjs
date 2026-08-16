@@ -684,3 +684,306 @@ test('dispatch: a real worker that exits records its status', () => {
   fs.rmSync(t, { recursive: true, force: true });
   fs.rmSync(wt, { recursive: true, force: true });
 });
+
+// ---------------------------------------------------------------------------
+// The work-in-flight report
+// ---------------------------------------------------------------------------
+//
+// Waves are a WITHIN-PLAN ordering. A correctly eligible branch can still name
+// a file an agent has open on a different plan's branch, and nothing in the
+// wave model represents that. Dispatch therefore reports which branches already
+// hold which files — measured from LOCAL refs and worktrees, because the
+// collision that blocked a dispatch on 2026-08-16 lived in an unpushed commit
+// and uncommitted work is invisible to refs entirely.
+//
+// It REPORTS and refuses nothing: nothing on the candidate side is predicted,
+// so there is no prediction worth acting on. Every assertion below exists
+// because a weaker implementation passes without it.
+
+/**
+ * A repo with a two-branch plan, plus a helper to plant work in flight on a
+ * branch of any name (including one from a different plan entirely).
+ */
+function repoWithInFlight(label) {
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), `plot-inflight-${label}-`));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, r);
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-f.md'),
+    '# F\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n'
+    + '\n## Branches\n\n- `feature/candidate` — the one being dispatched\n');
+  fs.symlinkSync('../2026-01-01-f.md', path.join(r, 'plans', 'active', 'f.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  const worktrees = [];
+
+  /** A branch with a worktree, holding `files` in a COMMIT that is never pushed. */
+  function committedWork(branch, files) {
+    const wt = path.join(path.dirname(r), `plot-wt-${branch.replace(/\//g, '-')}`);
+    git(r, 'worktree', 'add', '-q', '-b', branch, wt, 'origin/main');
+    git(wt, 'config', 'user.email', 'test@example.invalid');
+    git(wt, 'config', 'user.name', 'Plot Test');
+    git(wt, 'config', 'commit.gpgsign', 'false');
+    for (const [f, body] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(wt, f)), { recursive: true });
+      fs.writeFileSync(path.join(wt, f), body);
+    }
+    git(wt, 'add', '-A');
+    git(wt, 'commit', '-qm', `work on ${branch}`);
+    worktrees.push(wt);
+    return wt;
+  }
+
+  /** A branch with a worktree holding `files` UNCOMMITTED — no ref carries these. */
+  function uncommittedWork(branch, files) {
+    const wt = path.join(path.dirname(r), `plot-wt-${branch.replace(/\//g, '-')}`);
+    git(r, 'worktree', 'add', '-q', '-b', branch, wt, 'origin/main');
+    for (const [f, body] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(wt, f)), { recursive: true });
+      fs.writeFileSync(path.join(wt, f), body);
+    }
+    worktrees.push(wt);
+    return wt;
+  }
+
+  /** A branch claimed but holding nothing: an EMPTY commit, like a real claim. */
+  function bareClaim(branch) {
+    const wt = path.join(path.dirname(r), `plot-wt-${branch.replace(/\//g, '-')}`);
+    git(r, 'worktree', 'add', '-q', '-b', branch, wt, 'origin/main');
+    git(wt, 'config', 'user.email', 'test@example.invalid');
+    git(wt, 'config', 'user.name', 'Plot Test');
+    git(wt, 'config', 'commit.gpgsign', 'false');
+    git(wt, 'commit', '-q', '--allow-empty', '-m', `plot: claim ${branch}`);
+    worktrees.push(wt);
+    return wt;
+  }
+
+  function cleanup() {
+    for (const wt of worktrees) fs.rmSync(wt, { recursive: true, force: true });
+    fs.rmSync(path.join(path.dirname(r), 'plot-wt-feature-candidate'),
+      { recursive: true, force: true });
+    fs.rmSync(t, { recursive: true, force: true });
+  }
+
+  return { tmp: t, repo: r, committedWork, uncommittedWork, bareClaim, cleanup };
+}
+
+test('dispatch: reports files held in an UNPUSHED commit', () => {
+  // THE EXACT CASE FROM 2026-08-16: committed, clean worktree, the remote ref
+  // holding only the claim. An implementation reading `origin/*` reports
+  // nothing here and passes every looser test in this file.
+  const f = repoWithInFlight('unpushed');
+  f.committedWork('bug/other-plan', { 'App.tsx': 'x\n', 'AgentList.tsx': 'y\n' });
+
+  // Prove the premise: the work exists on no remote ref.
+  assert.equal(git(f.repo, 'ls-remote', '--heads', 'origin', 'bug/other-plan').trim(), '',
+    'the fixture must keep the work unpushed, or this tests nothing');
+
+  const out = execFileSync('bash', [dispatch, '--offline', '--dry-run', 'f'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+
+  assert.match(out, /in flight: bug\/other-plan holds/,
+    `unpushed work must be reported:\n${out}`);
+  assert.match(out, /App\.tsx/, `the held file must be named:\n${out}`);
+  assert.match(out, /AgentList\.tsx/, `every held file must be named:\n${out}`);
+  f.cleanup();
+});
+
+test('dispatch: reports files held UNCOMMITTED in a worktree', () => {
+  // No ref holds these at all, so this fails against any implementation built
+  // on refs alone — including one that correctly reads LOCAL refs.
+  const f = repoWithInFlight('uncommitted');
+  f.uncommittedWork('bug/editing-now', { 'Sidebar.tsx': 'in progress\n' });
+
+  // Prove the premise: the branch carries no commit of its own.
+  assert.equal(
+    git(f.repo, 'rev-list', '--count', 'origin/main..bug/editing-now').trim(), '0',
+    'the fixture must keep the work uncommitted, or this tests nothing');
+
+  const out = execFileSync('bash', [dispatch, '--offline', '--dry-run', 'f'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+
+  assert.match(out, /in flight: bug\/editing-now holds/,
+    `uncommitted work must be reported:\n${out}`);
+  assert.match(out, /Sidebar\.tsx/, `the held file must be named:\n${out}`);
+  f.cleanup();
+});
+
+test('dispatch: reports nothing when nothing is in flight', () => {
+  // A report that always prints something teaches the reader to skip it, and
+  // then it is worth nothing on the day it matters.
+  //
+  // The fixture carries a branch that EXISTS and holds nothing — a bare claim,
+  // which is an empty commit. Without it the loop has no branch to reach the
+  // empty-files check at all and this passes for the wrong reason: an
+  // implementation printing "holds (nothing)" for every claimed branch would
+  // still go green, and that is the exact noise being guarded against.
+  const f = repoWithInFlight('quiet');
+  f.bareClaim('bug/just-claimed');
+
+  const out = execFileSync('bash', [dispatch, '--offline', '--dry-run', 'f'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+
+  assert.match(out, /would dispatch feature\/candidate/, 'the candidate is still listed');
+  assert.doesNotMatch(out, /in flight/,
+    `nothing is held, so nothing may be reported:\n${out}`);
+  assert.doesNotMatch(out, /just-claimed/,
+    `an empty claim holds no files and must stay silent:\n${out}`);
+  f.cleanup();
+});
+
+test('dispatch: still starts everything — the report refuses nothing', () => {
+  // An earlier draft of this plan had dispatch SKIP a colliding candidate.
+  // That only makes sense with a prediction worth trusting, and there is none:
+  // a skip built on this measurement alone would block the pairs that ran fine.
+  const f = repoWithInFlight('refusenothing');
+  f.committedWork('bug/other-plan', { 'App.tsx': 'x\n' });
+
+  const out = execFileSync('bash', [dispatch, '--offline', '--no-start', 'f'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+
+  assert.match(out, /in flight: bug\/other-plan holds/, 'it must still report');
+  assert.match(out, /^dispatched feature\/candidate/m,
+    `and it must still dispatch:\n${out}`);
+  assert.match(out, /summary: dispatched=1/, 'the summary must count it as dispatched');
+  assert.doesNotMatch(out, /skipped feature\/candidate/, 'nothing may be refused');
+
+  // The real state, not just the words: the claim is pushed and the worktree exists.
+  assert.match(git(f.repo, 'ls-remote', '--heads', 'origin', 'feature/candidate'),
+    /feature\/candidate/, 'the branch must be claimed despite the report');
+  assert.match(git(f.repo, 'worktree', 'list'), /plot-wt-feature-candidate/);
+  f.cleanup();
+});
+
+test('dispatch: consults no candidate-side prediction', () => {
+  // The two rejected drafts — a `merge-tree` comparison against a branch that
+  // does not yet exist, and a `Touches:` self-declaration in the plan — both
+  // pass a loose test. This one fails against either: the report must be
+  // byte-identical whether or not the plan describes the candidate's files.
+  const bare = repoWithInFlight('nopredict-bare');
+  bare.committedWork('bug/other-plan', { 'App.tsx': 'x\n' });
+  const withoutDecl = execFileSync('bash', [dispatch, '--offline', '--dry-run', 'f'],
+    { encoding: 'utf8', cwd: bare.repo, timeout: 30_000 });
+
+  const declared = repoWithInFlight('nopredict-declared');
+  declared.committedWork('bug/other-plan', { 'App.tsx': 'x\n' });
+  // Describe the candidate's files as loudly as any rejected design would have:
+  // a Touches: field, a scope-guard glob, and the colliding path spelled out.
+  const plan = path.join(declared.repo, 'plans', '2026-01-01-f.md');
+  fs.writeFileSync(plan, fs.readFileSync(plan, 'utf8').replace(
+    '- `feature/candidate` — the one being dispatched\n',
+    '- `feature/candidate` — the one being dispatched\n'
+    + '  - Touches: `App.tsx`, `AgentList.tsx`\n'
+    + '  - Scope guard: `**`\n'));
+  git(declared.repo, 'add', '-A');
+  git(declared.repo, 'commit', '-qm', 'declare the candidate files');
+  git(declared.repo, 'push', '-q', 'origin', 'main');
+  const withDecl = execFileSync('bash', [dispatch, '--offline', '--dry-run', 'f'],
+    { encoding: 'utf8', cwd: declared.repo, timeout: 30_000 });
+
+  // Compare only the in-flight lines: the worktree paths differ between the
+  // two throwaway repos, so the full output cannot be equal by construction.
+  const inFlight = (s) => s.split('\n').filter((l) => l.includes('in flight')).join('\n');
+  assert.equal(inFlight(withDecl), inFlight(withoutDecl),
+    `a candidate-side declaration must change nothing:\n${withDecl}\n---\n${withoutDecl}`);
+  // And it must not have started predicting a collision from the declaration.
+  assert.doesNotMatch(withDecl, /collid|conflict|would clash/i,
+    'nothing may be predicted about the candidate');
+
+  bare.cleanup();
+  declared.cleanup();
+});
+
+test('dispatch: the generated board artifact is never reported', () => {
+  // Every board branch rebuilds it, so including it would make every board
+  // pair look like a collision — exactly the noise `.gitattributes -merge`
+  // exists to remove. Its conflicts are settled by rebuilding, never by reading.
+  const f = repoWithInFlight('artifact');
+  f.committedWork('bug/board-work', {
+    'skills/plot/scripts/board/board-server.mjs': 'generated\n',
+    'packages/board/src/App.tsx': 'source\n',
+  });
+
+  const out = execFileSync('bash', [dispatch, '--offline', '--dry-run', 'f'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+
+  assert.match(out, /in flight: bug\/board-work holds/, 'the real source is still reported');
+  assert.match(out, /packages\/board\/src\/App\.tsx/);
+  assert.doesNotMatch(out, /board-server\.mjs/,
+    `the generated bundle must be excluded:\n${out}`);
+  f.cleanup();
+});
+
+test('dispatch: a rebased branch reports only its own files', () => {
+  // Diffing against origin/main instead of the branch's OWN merge-base
+  // attributes every commit the branch picked up from main to the branch
+  // itself. On a busy day that is the whole repo, and the report is noise on
+  // its first use. Here: main moves after the branch was cut.
+  const f = repoWithInFlight('rebased');
+  f.committedWork('bug/older-branch', { 'Mine.tsx': 'mine\n' });
+
+  // main gains a file the branch never touched.
+  fs.writeFileSync(path.join(f.repo, 'SomeoneElse.tsx'), 'theirs\n');
+  git(f.repo, 'add', '-A');
+  git(f.repo, 'commit', '-qm', 'unrelated work on main');
+  git(f.repo, 'push', '-q', 'origin', 'main');
+
+  const out = execFileSync('bash', [dispatch, '--offline', '--dry-run', 'f'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+
+  assert.match(out, /Mine\.tsx/, `the branch's own file must be reported:\n${out}`);
+  assert.doesNotMatch(out, /SomeoneElse\.tsx/,
+    `a file that only moved on main is not this branch's work:\n${out}`);
+  f.cleanup();
+});
+
+test('dispatch: the candidate is never reported as blocking itself', () => {
+  // A candidate can already have a local branch holding work — an earlier
+  // session that prepared it, or a worktree adopted rather than created. A
+  // report that did not exclude the candidate would name it as work in flight
+  // against its own dispatch, which reads as a collision with itself.
+  //
+  // The branch is prepared LOCALLY and never claimed on the remote: a claimed
+  // branch is not eligible, so `--next` would return nothing, the loop would
+  // never run, and the assertion would pass without the report being reached.
+  const f = repoWithInFlight('selfexclude');
+  f.committedWork('feature/candidate', { 'Own.tsx': 'my own work\n' });
+  assert.equal(git(f.repo, 'ls-remote', '--heads', 'origin', 'feature/candidate').trim(), '',
+    'the candidate must stay unclaimed, or dispatch never reaches the report');
+
+  const out = execFileSync('bash', [dispatch, '--offline', '--dry-run', 'f'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+  assert.match(out, /would dispatch feature\/candidate/,
+    `the candidate must still be offered, or this tests nothing:\n${out}`);
+  assert.doesNotMatch(out, /in flight: feature\/candidate/,
+    `a branch must not block its own dispatch:\n${out}`);
+  assert.doesNotMatch(out, /Own\.tsx/,
+    `the candidate's own files are not work in flight against it:\n${out}`);
+  f.cleanup();
+});
+
+test('dispatch: the real run reports too, not only --dry-run', () => {
+  // The dry run is where an operator looks first, but the real run is where
+  // the decision is actually taken — and where a fan-out of several branches
+  // makes the report worth the most.
+  const f = repoWithInFlight('realrun');
+  f.committedWork('bug/other-plan', { 'App.tsx': 'x\n' });
+
+  const out = execFileSync('bash', [dispatch, '--offline', '--no-start', 'f'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+  const lines = out.split('\n');
+  const at = lines.findIndex((l) => l.startsWith('dispatched feature/candidate'));
+  assert.ok(at >= 0, `must have dispatched:\n${out}`);
+  assert.match(lines[at + 1] ?? '', /in flight: bug\/other-plan holds App\.tsx/,
+    `the report belongs directly under the branch it qualifies:\n${out}`);
+  f.cleanup();
+});
