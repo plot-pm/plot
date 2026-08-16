@@ -23,12 +23,26 @@ interface Lane {
 }
 
 /**
+ * The phase columns a lane renders — every board phase, in board order.
+ *
+ * It used to drop Discovery, on the reasoning that the row header *was* the
+ * Discovery cell. That was only coherent while no plan could ever be in
+ * Discovery: the filter hid nothing because there was nothing to hide. Now that
+ * Draft plans land there, a row header that silently dropped them would be the
+ * same bug wearing different clothes — work visible in the column view and gone
+ * from the lane view.
+ *
+ * Exported so a test can assert the two views over ONE payload rather than
+ * re-deriving the list and agreeing with itself.
+ */
+export const LANE_PHASES = BOARD_PHASES;
+
+/**
  * Group cards into lanes. Stories keep their declared order; the catch-all goes
  * last because "belongs to no story" is the least specific thing a row can say.
  *
- * A story with no plans still gets a row. That is not an empty state to hide —
- * it reads as "shaped, nothing planned yet", which is exactly the Discovery
- * phase and the reason the column doubles as a row header.
+ * A story with no plans still gets a row — "shaped, nothing planned yet" is
+ * itself worth showing, and hiding the row would hide it.
  */
 export function buildLanes(cards: Card[], stories: StoryCard[]): Lane[] {
   const lanes: Lane[] = stories.map((s) => ({
@@ -81,9 +95,7 @@ export function Swimlanes({
   );
   const lanes = buildLanes(visible, board.stories);
 
-  // Discovery holds no plans — it is where a story lives before anything is
-  // planned — so it is the row header rather than a card column.
-  const phases = BOARD_PHASES.filter((p) => p !== 'Discovery');
+  const phases = LANE_PHASES;
 
   return (
     <div className="overflow-x-auto">
@@ -92,8 +104,11 @@ export function Swimlanes({
           className="mb-2 grid gap-3 border-b border-slate-200 pb-2 dark:border-slate-800"
           style={{ gridTemplateColumns: `14rem repeat(${phases.length}, minmax(0, 1fr))` }}
         >
+          {/* The row-label column. It named itself "Discovery" while Discovery
+              was not a card column; now that it is one, this header says what
+              the column under it actually holds. */}
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            👤 Discovery
+            Story
           </div>
           {phases.map((phase) => (
             <div
