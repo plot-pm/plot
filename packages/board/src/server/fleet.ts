@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import {
+  ELIGIBLE_NOTE,
   FleetPulseSchema,
   toBoardPhase,
   type AgentRow,
@@ -677,7 +678,7 @@ export function classify(
   }
   if (state === 'open') {
     return verdict === 'eligible'
-      ? { group: 'not-started', note: 'eligible — nobody has taken it' }
+      ? { group: 'not-started', note: ELIGIBLE_NOTE }
       : { group: 'not-started', note: 'blocked by an earlier wave' };
   }
   if (state === 'claimed') {

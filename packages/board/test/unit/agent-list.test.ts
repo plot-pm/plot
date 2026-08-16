@@ -4,15 +4,16 @@ import {
   countdown,
   waitingLabel,
   showPlanHeadings,
+  isStartable,
   GROUPS,
 } from '../../src/app/components/AgentList.js';
 import { GROUP_ORDER } from '../../src/server/fleet.js';
-import type { AgentRow } from '../../src/contract/schema.js';
+import { ELIGIBLE_NOTE, type AgentRow } from '../../src/contract/schema.js';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'plot', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
-  wave: 'w', state: 'wip', group: 'quiet', ageMinutes: 10, note: '', pr: null, branchUrl: '',
-  waitingDays: null, ...over,
+  wave: 'w', state: 'wip', phase: null, group: 'quiet', ageMinutes: 10, note: '', pr: null,
+  branchUrl: '', waitingDays: null, ...over,
 });
 
 describe('groupByPlan', () => {
@@ -149,5 +150,49 @@ describe('showPlanHeadings', () => {
 
   it('stays quiet for an empty group', () => {
     expect(showPlanHeadings(0, 0)).toBe(false);
+  });
+});
+
+describe('isStartable — which NOT STARTED rows offer work', () => {
+  const notStarted = (over: Partial<AgentRow> = {}) =>
+    row({ group: 'not-started', state: 'open', ageMinutes: null, note: ELIGIBLE_NOTE, ...over });
+
+  it('offers a branch no earlier wave blocks', () => {
+    expect(isStartable(notStarted())).toBe(true);
+  });
+
+  it('offers NOTHING on a branch blocked by an earlier wave', () => {
+    // The load-bearing negative, and the half a naive `group === 'not-started'`
+    // implementation gets wrong: the group holds both kinds. A button here
+    // would offer to skip the ordering waves exist to express, and
+    // plot-dispatch.sh refuses that branch — so the board would be inviting an
+    // action the tool declines.
+    expect(isStartable(notStarted({ note: 'blocked by an earlier wave' }))).toBe(false);
+  });
+
+  it('reads the eligible note from the contract, not from a copy of the sentence', () => {
+    // The split survives onto a row only as this note — the row carries no
+    // verdict field. A second copy of the sentence would let a reword take the
+    // button away with nothing failing, so the test asserts the SHARED
+    // constant is what the row is matched against.
+    expect(isStartable(notStarted({ note: ELIGIBLE_NOTE }))).toBe(true);
+    expect(isStartable(notStarted({ note: `${ELIGIBLE_NOTE} (probably)` }))).toBe(false);
+  });
+
+  it('offers nothing on a row that already has a branch and a claim', () => {
+    // Working and quiet rows are somebody's already. Offering to start one
+    // invites exactly the double-dispatch fleet-sees-merged-branches prevents.
+    for (const group of ['working', 'quiet', 'waiting-on-you', 'done'] as const) {
+      expect(isStartable(row({ group, state: 'open', note: ELIGIBLE_NOTE }))).toBe(false);
+    }
+  });
+
+  it('offers nothing on a deferred branch, whatever group it lands in', () => {
+    // Deferred rows are `not-started` by group — nobody is working on them —
+    // but the work was handed back deliberately, not left untaken. Starting it
+    // is a decision about whether the branch is wanted at all, which is not
+    // what this button does.
+    expect(isStartable(row({ group: 'not-started', state: 'deferred', note: ELIGIBLE_NOTE })))
+      .toBe(false);
   });
 });

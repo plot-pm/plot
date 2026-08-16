@@ -314,6 +314,25 @@ export type BranchState = z.infer<typeof BranchStateSchema>;
 export const WaveVerdictSchema = z.enum(['complete', 'eligible', 'blocked']);
 export type WaveVerdict = z.infer<typeof WaveVerdictSchema>;
 
+/**
+ * The note the server composes for a branch no earlier wave blocks — the one
+ * kind of `not-started` row a person can actually pick up.
+ *
+ * In the CONTRACT rather than in `fleet.ts`, because both sides read it: the
+ * server writes it from the wave verdict, and the Agents tab keys its Start
+ * button on it. A row carries no `verdict` field, so this sentence is the only
+ * place that verdict survives onto the row — and two copies of it would let a
+ * reword turn every startable row into a blocked-looking one, with nothing
+ * failing except the button quietly not appearing. (It cannot live in
+ * `fleet.ts`: that module imports `node:child_process`, and the client bundle
+ * must not reach it.)
+ *
+ * The better shape is a `verdict` field on `AgentRowSchema`, so the split is
+ * data rather than prose. That widens the row contract two other branches are
+ * widening today, so it is deliberately not done here.
+ */
+export const ELIGIBLE_NOTE = 'eligible — nobody has taken it';
+
 export const FleetBranchSchema = z.object({
   branch: z.string(),
   state: BranchStateSchema,
