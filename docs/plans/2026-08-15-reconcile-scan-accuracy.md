@@ -193,7 +193,7 @@ assertion ("the board sync works") into evidence.
 
 ### Section 2
 
-- `bug/scan-single-pr-plans` — section 2 recognises plan-PR-merged as a second signal
+- `bug/scan-single-pr-plans` — section 2 recognises plan-PR-merged as a second signal → #122
 
 ### Section 3
 
