@@ -11,6 +11,7 @@
 - **Approved:** 2026-08-16, jwloka, plan-PR #131 merged
 - **Started:**
 - **Delivered:**
+- **Started:** 2026-08-16, Jan Wloka, `feature/fleet-row-phase`
 
 ## Problem
 
