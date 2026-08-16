@@ -112,7 +112,12 @@ a liveness it cannot prove.
 
 <!-- One branch: the scan field and its only consumer are one change, and
      landing either alone leaves a field nobody reads or a reader with no
-     field. -->
+     field.
+
+     NOT concurrent with `bug/board-claimed-from-git`, which is in flight and
+     is editing `fleet.ts` and `fleet.test.ts` — the same two files this needs.
+     Start after that merges. Checked, not assumed: its worktree shows both
+     files modified. -->
 
 ## Notes
 
