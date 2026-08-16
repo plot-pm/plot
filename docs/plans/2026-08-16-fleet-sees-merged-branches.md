@@ -375,7 +375,7 @@ the scan stateless — re-derived from refs and history on every run.
 - `bug/fleet-merged-branch-state` — `branch_state()` recognises a
   merged-and-deleted branch from an anchored PR-merge subject reachable from
   the configured default branch; `merge_detect` in the footer; absence keeps
-  `open`; tests in `test/reconcile/fleet.test.mjs`
+  `open`; tests in `test/reconcile/fleet.test.mjs` → #129
 
 **One branch, deliberately.** An earlier cut split this into Detection and
 Coverage waves. That was wrong twice over: the change is one function in one

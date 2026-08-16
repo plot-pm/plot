@@ -21,7 +21,11 @@
 #   <slug>      limit the report to one plan (default: all active plans)
 # Output: per-plan wave report on stdout, terminated by a machine-countable
 #         summary line:
-#             summary: plans=1 waves=3 branches=5 claimed=1 eligible=2 blocked=1 deferred=1 main=main
+#             summary: plans=1 waves=3 branches=5 claimed=1 eligible=2 blocked=1 deferred=1 merge_detect=pr-merge main=main
+#         merge_detect names how merged-and-deleted branches were detected:
+#         pr-merge (exhaustive), truncated (capped walk), none (no conforming
+#         merge commits — a squash/rebase repo, where `open` says nothing about
+#         merging).
 #         Consumers that only need counts (the /plot-fleet pulse log, the
 #         board) read that one line and never re-count the body.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
@@ -113,6 +117,105 @@ if [ "$loose" = 1 ]; then
   fi
 fi
 
+# ---------------------------------------------------------------------------
+# Merged-and-deleted branches: the evidence that survives the ref
+# ---------------------------------------------------------------------------
+#
+# A branch merged by PR usually has its ref deleted at merge, and nothing local
+# survives it — `git reflog show origin/<br>` fails outright and for-each-ref
+# finds nothing. What DOES survive is the merge commit on the default branch.
+#
+# Asking the host for merged PRs (as plot-reconcile-scan.sh does) is not
+# available here: this scan is git-only on its default path, which is exactly
+# why the board can poll it every 5 s. One board already costs 80 GraphQL
+# calls/hour; a metered scan on a 5-second timer would dwarf that.
+#
+# The candidate set is what is REACHABLE from the default branch, matched by an
+# ANCHORED subject:
+#
+#     ^Merge pull request #<n> from <owner>/<branch>$
+#
+# The anchoring is the whole mechanism. A name-only grep reads a BACKWARD merge
+# — `Merge remote-tracking branch 'origin/main' into <branch>` — as evidence
+# that <branch> landed, when it means the opposite: main was pulled INTO the
+# branch. That inversion reports unfinished work as finished and opens the next
+# wave on an unlanded seam, which is strictly worse than the bug this fixes. A
+# backward merge opens with a different sentence, so it cannot match.
+#
+# TWO STRUCTURAL FILTERS WERE MEASURED AND REMOVED. Do not reintroduce either;
+# see docs/plans/2026-08-16-fleet-sees-merged-branches.md for the numbers.
+#   * A FIRST-PARENT filter looked convincing at "119 merges → 109 on the
+#     chain". Measured against the right baseline — the anchored pattern, not
+#     raw merges — it scores 108 to 108: it catches NOTHING extra, because
+#     backward merges cannot match the anchored pattern anyway. And it breaks
+#     GitFlow: a feature merged into `develop`, where `develop` later merges to
+#     the default branch, is not on the first-parent chain and would read
+#     `open` while its work is an ancestor.
+#   * A SECOND-PARENT counter-check does not discriminate: PR merges and
+#     backward merges both have a distinct second-parent tip.
+#
+# Reachability does not over-report either: a PR merged into a long-lived
+# branch that was then abandoned is not reachable from the default branch at
+# all. Reachability is itself an ancestry claim, so it cannot see work that
+# never arrived.
+#
+# The walk is bundled — ONE `git log` per run, not one per branch. branch_state
+# runs per branch and the board polls every 5 s, so the naive shape is
+# O(history × branches) where O(history + branches) is available (measured:
+# 197 ms vs 79 ms on a 2000-merge fixture). Same bundling rule
+# plot-reconcile-scan.sh applies to PR lists, with local data.
+#
+# The cap guards against a pathological history rather than buying time — the
+# walk is local and nearly free (cap 500: 7.7 ms, no cap: 11.8 ms at 2000
+# merges). It is therefore set high, and SATURATION IS REPORTED. A blind cap
+# re-creates this very bug: at 300 against 2000 merges an early merge is not
+# found and reads `open`, hitting precisely the long-hanging plans most likely
+# to suffer it.
+#
+# PLOT_MERGE_SCAN_LIMIT exists so the test suite can force saturation against a
+# small fixture — a cap of 2000 is otherwise unreachable in a test. It is a
+# seam, not a knob: nothing in Plot sets it, and lowering it in real use buys
+# nothing but the silent misses described above.
+MERGE_SCAN_LIMIT=${PLOT_MERGE_SCAN_LIMIT:-2000}
+MERGE_SUBJECTS=$(git log "origin/$MAIN" --merges \
+  --max-count="$MERGE_SCAN_LIMIT" --pretty=%s </dev/null 2>/dev/null || true)
+MERGE_SCAN_TRUNCATED=0
+if [ -n "$MERGE_SUBJECTS" ] \
+   && [ "$(printf '%s\n' "$MERGE_SUBJECTS" | grep -c .)" -ge "$MERGE_SCAN_LIMIT" ]; then
+  MERGE_SCAN_TRUNCATED=1
+fi
+
+# merge_detect names the detection source in the footer, the way
+# plot-reconcile-scan.sh names pr_source. `open` must stop meaning both "never
+# started" and "I could not tell" — that ambiguity is the defect this fix
+# exists to remove, and it would otherwise reappear one level up.
+#   pr-merge  — conforming merge commits were found and examined exhaustively
+#   truncated — the walk hit its cap; a branch merged before that point may
+#               still read `open`. Its own value, not folded into pr-merge: a
+#               capped walk detected, but not exhaustively.
+#   none      — the default branch carries no conforming merge commits at all
+#               (a squash/rebase repo), so `open` says nothing about merging.
+if printf '%s\n' "$MERGE_SUBJECTS" | grep -qE '^Merge pull request #[0-9]+ from [^/]+/.+$'; then
+  MERGE_DETECT=$([ "$MERGE_SCAN_TRUNCATED" = 1 ] && echo truncated || echo pr-merge)
+else
+  MERGE_DETECT=none
+fi
+
+# Did this branch land on the default branch? Positive evidence only — absence
+# keeps today's answer.
+#
+# The branch name is INTERPOLATED INTO AN ERE, so every metacharacter it may
+# legally contain is escaped first. Git allows `+`, `(`, `)`, `?`, `{`, `}` and
+# `.` in ref names, and unescaped each one changes what the pattern means —
+# `feature/v.1` would match `feature/vX1`, and `bug/a+b` would fail to match
+# its OWN merge subject. Both directions are wrong, and the second is the
+# quieter one: a branch that silently never matches simply keeps reading
+# `open`, which is this plan's own bug wearing a different hat.
+merged_by_subject() { # $1=branch → 0 when a conforming merge names it
+  printf '%s\n' "$MERGE_SUBJECTS" \
+    | grep -qE "^Merge pull request #[0-9]+ from [^/]+/$(printf '%s' "$1" | sed 's/[][\.*^$+?(){}|\/]/\\&/g')\$"
+}
+
 # Is this branch's PR ready to merge — open, not draft? Unknown counts as NO.
 pr_ready() {
   local br="$1" js
@@ -145,8 +248,10 @@ if [ ${#plans[@]} -eq 0 ]; then
   exit 0
 fi
 
-# A branch is merged when its remote ref is an ancestor of origin/<main>.
-# Absent ref → not merged, not claimed: the work has not been taken yet.
+# A branch is merged when its remote ref is an ancestor of origin/<main>, or —
+# once the ref is gone — when the default branch carries a conforming PR-merge
+# commit naming it (see "the evidence that survives the ref" above). An absent
+# ref with no such commit means the work has not been taken yet.
 #
 # Every git call here redirects stdin from /dev/null: this function runs inside
 # `while read ... <<< "$states"` loops, and a child process inheriting that
@@ -176,7 +281,31 @@ real_commits_beyond_main() { # $1=branch → count
 
 branch_state() {
   local br="$1"
+  # THE REF CHECK STAYS IN FRONT. DO NOT HOIST THE MERGE LOOKUP ABOVE IT.
+  #
+  # A branch name can be reused: merge `bug/flaky`, delete it, then recreate it
+  # for a second attempt — a normal thing when work is reopened. The FIRST
+  # attempt's merge subject is still on the default branch, and it is now stale
+  # evidence: it describes work that landed, while the branch of that name
+  # carries new work that has not.
+  #
+  # The merge lookup is safe only BY PLACEMENT — it lives in the no-ref arm,
+  # and a recreated branch has a ref, so it never reaches the lookup and takes
+  # the ancestry path below instead. Moving the lookup to the top reads like a
+  # cheap early answer and would silently report in-flight work as `merged`,
+  # opening the next wave on it. A test in fleet.test.mjs pins this ordering.
   if ! git show-ref -q --verify "refs/remotes/origin/$br" </dev/null 2>/dev/null; then
+    # No ref carries two meanings and this used to answer `open` for both: a
+    # branch never started, and a branch merged with its ref deleted at merge.
+    # The wave arithmetic reads `open` as OUTSTANDING, so a finished wave never
+    # completed and --next named finished work as the next thing to start.
+    #
+    # `merged` is already the state that settles a wave, so the arithmetic does
+    # not change and no new state enters the vocabulary. Where no evidence
+    # exists — squash merges, a hand-rewritten subject, a branch genuinely
+    # never started — today's `open` stands. The fix may only move a branch
+    # from `open` to `merged`, and only on positive evidence.
+    merged_by_subject "$br" && { echo "merged"; return; }
     echo "open"; return
   fi
   # A CLAIM is a branch whose only commits beyond main are claim commits —
@@ -397,10 +526,18 @@ if [ "$as_json" = 1 ]; then
     "$(json_str "$MAIN")" "$(json_str "$HEAD_SHORT")" "$json_plans"
   printf '"summary":{"plans":%d,"waves":%d,"branches":%d,"claimed":%d,' \
     "$n_plans" "$n_waves" "$n_branches" "$n_claimed"
-  printf '"eligible":%d,"blocked":%d,"deferred":%d}}\n' \
-    "$n_eligible" "$n_blocked" "$n_deferred"
+  printf '"eligible":%d,"blocked":%d,"deferred":%d,"merge_detect":"%s"}}\n' \
+    "$n_eligible" "$n_blocked" "$n_deferred" "$MERGE_DETECT"
   exit 0
 fi
 
+# A saturated merge walk is STATED, never silent. A branch merged before the
+# cap reads `open`, which is acceptable only while the scan says it stopped
+# looking — a silent cap would make the report lie in the one direction this
+# check was written to stop.
+if [ "$MERGE_SCAN_TRUNCATED" = 1 ]; then
+  echo "  note: merge scan hit its limit of $MERGE_SCAN_LIMIT — older merges were not"
+  echo "        examined; a branch merged before that point may still read as open."
+fi
 echo "Pulse complete. This report is derived — nothing was changed."
-echo "summary: plans=$n_plans waves=$n_waves branches=$n_branches claimed=$n_claimed eligible=$n_eligible blocked=$n_blocked deferred=$n_deferred main=$MAIN"
+echo "summary: plans=$n_plans waves=$n_waves branches=$n_branches claimed=$n_claimed eligible=$n_eligible blocked=$n_blocked deferred=$n_deferred merge_detect=$MERGE_DETECT main=$MAIN"
