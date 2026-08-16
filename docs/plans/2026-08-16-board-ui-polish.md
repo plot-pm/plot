@@ -111,6 +111,40 @@ outrank one with a branch that just moved.
 **A group with one plan gets no sub-heading.** Chrome that never varies is
 noise; the heading earns its place only when it separates something.
 
+**`NOT STARTED` moves above `QUIET`.** The two ask different things of a reader
+with a spare ten minutes: not-started is work they can pick up right now, quiet
+asks them to go investigate something that may already be dead. Actionable
+before diagnostic — the same "workable top to bottom" principle the group order
+already followed, applied to a pair that had it backwards. The order lives in
+two places (`GROUP_ORDER` sorts, `GROUPS` renders) and a test pins them equal,
+because a disagreement would read as rows landing in the wrong group rather than
+as two lists drifting apart.
+
+### 2a. An unstarted row shows how long it has been waiting
+
+A `not-started` row renders `—` for its age, because `ageMinutes` dates the
+branch tip and there is no branch. But the useful age exists: how long the plan
+has been *waiting to be started*, which is what makes "approved in February and
+never begun" visible at all.
+
+**It is a different clock, so it gets its own field.** Everywhere else
+`ageMinutes` means "since the branch tip moved", in minutes; this means "since
+the plan was approved", in days or months. Overloading one field with two
+meanings is exactly the ambiguity that makes `22d` (no commits for three weeks)
+unreadable beside `22d` (never begun) — so the row carries `waitingDays`
+separately and **labels it** (`waiting 22d`) rather than merging it into the age
+column.
+
+**Only rows with no branch carry it.** A branch that exists has a real tip age,
+and that is the better answer; a second age beside it would only compete.
+
+**No date means no age shown** — not zero, not "just now". The `Approved:`
+record is the source, read through `plot-plan-meta.sh` (the one parser of plan
+files) on the scan's timer, one run over the pulse's plans rather than one per
+row. Plans predating that record carry no date, and on this repo that includes
+`plot-sprint-support` — the very row that prompted this. Showing nothing there
+is the honest answer, and the same rule the PR countdown follows in §1.
+
 **Every waiting-group is grouped the same way, `DONE` included.** It is the
 group that grows fastest over a working day — seven rows from three plans by
 this evening — so it is the first to become a list one scrolls past. A rule
@@ -128,6 +162,15 @@ Today one row offers one link, and it is on the wrong word:
 The **branch name** opens the PR, while `PR #130 green` beside it is plain
 text. Both halves are surprising: you look for the PR link where the number is,
 and a branch name implies the branch.
+
+**The row reads plan first, then branch.** `repo → plan → branch`, not `repo →
+branch → plan`. It matches how the tab is read — *what does this belong to*,
+then *which slice of it* — and it is more than preference: with the branch
+first, six rows of one plan carried the plan name to the right of six branch
+names of different lengths, so the plan column frayed exactly where the grouping
+above says those rows belong together. Plan first makes them a visible column,
+reinforcing the grouping rather than duplicating it. Only the order changes; both
+elements keep their link behaviour.
 
 Three links, each landing where its text points:
 
@@ -223,6 +266,21 @@ outside the walked directories would have a row and no card.
   their most urgent row and rows keeping their age order inside a plan.
 - **A waiting-group containing one plan shows no sub-heading**, and `DONE` is
   grouped like every other group.
+- **`NOT STARTED` renders above `QUIET`** — assert it on the sorted rows, not
+  only on the constant: the constant is what a refactor moves and the order is
+  what a reader sees. **The render order and the sort order are asserted equal**,
+  since they live in two arrays that would otherwise drift.
+- **An unstarted row shows how long the plan has been waiting**, labelled
+  (`waiting 22d`) so it cannot be read as the branch-tip age beside it, and
+  **carried in its own field** rather than folded into `ageMinutes`.
+- **A row that has a branch-tip age never also shows a waiting age** — assert
+  it; the two clocks appearing together is the confusion the separate field
+  exists to prevent.
+- **No approval date means no waiting age at all** — not zero, not "just now".
+  Assert the absent case: on this repo the only not-started plan predates the
+  `Approved:` record, so this is the common path rather than the edge.
+- **The row reads `repo → plan → branch`** — assert the order; a swap like this
+  is exactly what silently reverts in a later refactor.
 - **The branch name links to the branch on the host**, for rows with and
   without a PR alike — assert a `not-started` row, since that is the class the
   rejected PR-URL derivation would have left unlinked.

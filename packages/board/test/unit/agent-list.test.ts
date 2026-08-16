@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { groupByPlan, countdown } from '../../src/app/components/AgentList.js';
+import { groupByPlan, countdown, waitingLabel, GROUPS } from '../../src/app/components/AgentList.js';
+import { GROUP_ORDER } from '../../src/server/fleet.js';
 import type { AgentRow } from '../../src/contract/schema.js';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'plot', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
   wave: 'w', state: 'wip', group: 'quiet', ageMinutes: 10, note: '', pr: null, branchUrl: '',
-  ...over,
+  waitingDays: null, ...over,
 });
 
 describe('groupByPlan', () => {
@@ -49,6 +50,40 @@ describe('groupByPlan', () => {
 
   it('returns nothing for no rows', () => {
     expect(groupByPlan([])).toEqual([]);
+  });
+});
+
+describe('group order — actionable before diagnostic', () => {
+  it('puts NOT STARTED above QUIET', () => {
+    // Work a person can pick up right now outranks work they must go
+    // investigate: not-started offers an opportunity, quiet assigns an errand.
+    const keys = GROUPS.map((g) => g.key);
+    expect(keys.indexOf('not-started')).toBeLessThan(keys.indexOf('quiet'));
+  });
+
+  it('renders groups in exactly the order the server sorts rows into', () => {
+    // Two arrays that must agree is precisely the duplication that drifts in a
+    // later refactor — and a disagreement would sort rows into one sequence and
+    // render the sections in another, which reads as rows landing in the wrong
+    // group rather than as two lists disagreeing.
+    expect(GROUPS.map((g) => g.key)).toEqual(GROUP_ORDER);
+  });
+});
+
+describe('waitingLabel', () => {
+  it('scales the unit so a wait never reads "180d"', () => {
+    // The same defect humanAge fixed for commit ages: past a couple of months,
+    // days are arithmetic the reader has to do.
+    expect(waitingLabel(3)).toBe('3d');
+    expect(waitingLabel(45)).toBe('45d');
+    expect(waitingLabel(60)).toBe('2mo');
+    expect(waitingLabel(180)).toBe('6mo');
+  });
+
+  it('says "today" rather than "0d"', () => {
+    // A plan approved this morning has not been waiting a measurable stretch,
+    // and "0d" reads like a stopped clock.
+    expect(waitingLabel(0)).toBe('today');
   });
 });
 

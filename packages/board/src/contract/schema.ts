@@ -379,6 +379,24 @@ export const AgentRowSchema = z.object({
    * for PR links. Defaults to "" so an older pulse still validates.
    */
   branchUrl: z.string().default(''),
+  /**
+   * Days since the plan was approved, for a branch nobody has started — or null.
+   *
+   * A DIFFERENT CLOCK from `ageMinutes`, and deliberately its own field.
+   * Everywhere else `ageMinutes` means "since the branch tip moved", measured in
+   * minutes; this means "since the plan was approved", measured in days or
+   * months. Overloading one field with two meanings is precisely the ambiguity
+   * that makes `22d` (no commits for three weeks) unreadable beside `22d` (never
+   * begun) — so the row labels it rather than merging it.
+   *
+   * Only `open` branches carry it: a branch that exists has a real tip age, and
+   * that is the better answer for it.
+   *
+   * null wherever the date is unavailable — a plan approved before Plot recorded
+   * `Approved:` at all, or one whose record does not parse. Not zero, not "just
+   * now": the same rule the PR countdown follows, for the same reason.
+   */
+  waitingDays: z.number().nullable().default(null),
 });
 export type AgentRow = z.infer<typeof AgentRowSchema>;
 

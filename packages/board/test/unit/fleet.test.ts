@@ -127,11 +127,21 @@ describe('rowsFromPulse', () => {
   it('orders groups by what they ask of you, not by plan', () => {
     const rows = rowsFromPulse(pulse, ages, 'plot', QUIET);
     const groups = rows.map((r) => r.group);
-    // working first (nothing to do but look), quiet next (go check), then
-    // not-started (decide). Workable top to bottom.
+    // working first (nothing to do but look), then not-started (an opportunity
+    // to take), then quiet (an errand to run). Workable top to bottom.
     expect(groups[0]).toBe('working');
     // done sits last: it asks nothing of you at all.
     expect(groups.at(-1)).toBe('done');
+  });
+
+  it('sorts an unstarted branch ABOVE a quiet one — actionable before diagnostic', () => {
+    // not-started is work a person can pick up right now; quiet asks them to go
+    // investigate something that may be dead. The previous order put the errand
+    // first. Asserted on the sort itself, not merely on the constant, because
+    // the constant is what a refactor moves and the order is what a reader sees.
+    const rows = rowsFromPulse(pulse, ages, 'plot', QUIET);
+    const groups = rows.map((r) => r.group);
+    expect(groups.indexOf('not-started')).toBeLessThan(groups.indexOf('quiet'));
   });
 
   it('strips the date prefix so the plan column stays readable', () => {
@@ -243,6 +253,52 @@ describe('rowsFromPulse', () => {
     };
     const rows = rowsFromPulse(odd, new Map(), 'plot', QUIET, null, BASE);
     expect(rows[0].branchUrl).toBe('https://github.com/plot-pm/plot/tree/feature/a%20b');
+  });
+
+  describe('waitingDays — a different clock, in its own field', () => {
+    const DAY = 86_400_000;
+    const NOW = Date.parse('2026-08-16T12:00:00Z');
+    const approved = new Map([['2026-08-15-example-plan.md', NOW - 22 * DAY]]);
+
+    it('dates an unstarted branch from the plan\'s approval', () => {
+      // The point of the field: "approved in February and never begun" is
+      // invisible while the row shows only a branch tip that does not exist.
+      const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, null, '', approved, NOW);
+      const notStarted = rows.find((r) => r.branch === 'feature/c');
+      expect(notStarted?.group).toBe('not-started');
+      expect(notStarted?.ageMinutes).toBeNull();
+      expect(notStarted?.waitingDays).toBe(22);
+    });
+
+    it('leaves it null for a branch that HAS a tip to date', () => {
+      // `ageMinutes` is the better answer wherever it exists; a second age
+      // beside it would only compete. Load-bearing: this is what keeps the two
+      // clocks from ever appearing on the same row.
+      const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, null, '', approved, NOW);
+      for (const r of rows.filter((x) => x.state !== 'open')) {
+        expect(r.waitingDays).toBeNull();
+      }
+    });
+
+    it('is null when the plan records no approval date', () => {
+      // Every plan predating the `Approved:` record — including, on this repo,
+      // the one not-started plan that motivated the field. Absent must not
+      // become zero: "approved at an unknown time" and "approved today" are
+      // different statements.
+      const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, null, '', new Map(), NOW);
+      expect(rows.find((r) => r.branch === 'feature/c')?.waitingDays).toBeNull();
+      // And with no map at all — an older cache, or a scan that could not parse.
+      const none = rowsFromPulse(pulse, ages, 'plot', QUIET, null, '', null, NOW);
+      expect(none.find((r) => r.branch === 'feature/c')?.waitingDays).toBeNull();
+    });
+
+    it('never reports a negative wait for a date in the future', () => {
+      // A mistyped `Approved:` must not render "waiting -3d", which would look
+      // like a bug in the board rather than in the plan.
+      const future = new Map([['2026-08-15-example-plan.md', NOW + 3 * DAY]]);
+      const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, null, '', future, NOW);
+      expect(rows.find((r) => r.branch === 'feature/c')?.waitingDays).toBe(0);
+    });
   });
 
   it('keeps the PR number but no url when the host reported none', () => {

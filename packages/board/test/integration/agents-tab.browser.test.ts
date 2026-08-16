@@ -25,7 +25,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'plant-tomatoes',
   planFile: '2026-03-01-plant-tomatoes.md', wave: 'w', state: 'wip',
   group: 'working', ageMinutes: 3, note: 'last commit 3 min ago', pr: null,
-  branchUrl: `${GH}feature/x`, ...over,
+  branchUrl: `${GH}feature/x`, waitingDays: null, ...over,
 });
 
 /** A pulse carrying the cases the plan's *Done when* list names. */
@@ -49,7 +49,14 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     row({
       branch: 'feature/untaken', plan: 'plant-tomatoes', group: 'not-started',
       ageMinutes: null, note: 'eligible — nobody has taken it',
-      branchUrl: `${GH}feature/untaken`,
+      branchUrl: `${GH}feature/untaken`, waitingDays: 22,
+    }),
+    // A not-started row whose plan records no approval date — every plan
+    // predating the `Approved:` field. It must show no waiting age at all.
+    row({
+      branch: 'feature/undated', plan: 'beans', group: 'not-started',
+      ageMinutes: null, note: 'eligible — nobody has taken it',
+      branchUrl: `${GH}feature/undated`, waitingDays: null,
     }),
     // A merged branch: its remote page is gone, so no branch link.
     row({
@@ -238,6 +245,71 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       await expect.poll(() => group(page, 'Done').getByRole('heading', { level: 3 }).count())
         .toBe(2);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('puts NOT STARTED above QUIET — actionable before diagnostic', async () => {
+    // Work a person can pick up now outranks work they must go investigate.
+    const page = await openAgents();
+    try {
+      const headings = await page.getByRole('heading', { level: 2 }).allTextContents();
+      const at = (label: string) => headings.findIndex((h) => h.includes(label));
+      expect(at('Not started')).toBeLessThan(at('Quiet'));
+      // And the groups before it are untouched.
+      expect(at('Waiting on you')).toBeLessThan(at('Working'));
+      expect(at('Quiet')).toBeLessThan(at('Done'));
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('shows the plan BEFORE the branch in a row', async () => {
+    // What this belongs to, then which slice of it. With the branch first,
+    // branch names of differing length left the plan column frayed across rows
+    // of one plan — the grouping undone by the layout beside it. Asserted
+    // because a swap like this silently reverts in a later refactor.
+    const page = await openAgents();
+    try {
+      const cells = await group(page, 'Waiting on you')
+        .locator('li').first()
+        .locator('a, span.font-mono').allTextContents();
+      const plan = cells.findIndex((t) => t.trim() === 'beans');
+      const branch = cells.findIndex((t) => t.trim() === 'feature/reviewed');
+      expect(plan).toBeGreaterThanOrEqual(0);
+      expect(branch).toBeGreaterThanOrEqual(0);
+      expect(plan).toBeLessThan(branch);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('labels the waiting age on an unstarted row, and shows none without a date', async () => {
+    // A different clock from the age column: that one says when the branch tip
+    // moved, this says when the plan was approved. Unlabelled, `22d` in each
+    // place would be two different facts wearing one face.
+    const page = await openAgents();
+    try {
+      const untaken = page.locator('li', { hasText: 'feature/untaken' });
+      await expect.poll(() => untaken.getByText(/waiting 22d/).count()).toBe(1);
+      // No approval date recorded — nothing rather than a zero or a "just now".
+      const undated = page.locator('li', { hasText: 'feature/undated' });
+      expect(await undated.getByText(/waiting/).count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('never puts a waiting age on a row that has a branch tip age', async () => {
+    // The two clocks must never appear on one row: `ageMinutes` is the better
+    // answer wherever a branch exists, and a second age beside it would compete.
+    const page = await openAgents();
+    try {
+      for (const branch of ['feature/beans-a', 'feature/reviewed', 'feature/landed']) {
+        const li = page.locator('li', { hasText: branch });
+        expect(await li.getByText(/waiting/).count()).toBe(0);
+      }
     } finally {
       await page.close();
     }
