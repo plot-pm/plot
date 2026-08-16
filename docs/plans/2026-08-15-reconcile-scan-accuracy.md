@@ -203,7 +203,7 @@ assertion ("the board sync works") into evidence.
 
 ### Coverage
 
-- `feature/update-board-test` — argument handling, graceful degradation, and the caller-set assertion
+- `feature/update-board-test` — argument handling, graceful degradation, and the caller-set assertion → #128
 
 <!-- Three waves, one branch each. The two scan fixes edit the same file and
      must not run concurrently; the board test is last because it is
