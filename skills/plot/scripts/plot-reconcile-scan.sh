@@ -28,6 +28,9 @@
 # Sections:
 #   1. Phase<->symlink drift    — plan phase vs active//delivered/ index
 #   2. Merged-but-not-delivered — impl branch merged, plan still Approved
+#                                 (two signals: the branch is merged into main,
+#                                  OR it was the head of a merged PR — the
+#                                  latter survives the branch being deleted)
 #   3. Stale branches           — merged/orphan remote branches, no open PR,
 #                                 plus CLAIMS (empty branches a worker took)
 #   4. Concurrent-delivery      — active plans' branch divergence vs main
@@ -44,9 +47,11 @@
 # with a `## Plot Config` line:
 #     - **Main branch:** develop
 #
-# Open-PR enumeration binds to ORIGIN's git host — gh on GitHub,
-# bb on Bitbucket — and degrades to git merge-state alone otherwise (the
-# report header states which source was used).
+# PR enumeration binds to ORIGIN's git host — gh on GitHub, bb on Bitbucket —
+# and degrades to git merge-state alone otherwise (the report header states
+# which source was used). Two bundled lists are fetched, both ONE call for the
+# whole sweep regardless of plan count: open PRs (section 3) and merged PRs
+# (section 2). --no-pr/--offline skip both.
 #
 # Exit 0 on a completed sweep (an empty section is a valid, healthy result);
 # exit 1 only when the sweep cannot run at all (not a git repo).
@@ -144,6 +149,20 @@ all_branches=$(git branch -r 2>/dev/null \
 # degraded (git merge-state only).
 PR_SOURCE="degraded"
 open_prs=""
+
+# How many MERGED PRs to fetch for the single-PR-plan check below. The default
+# page size (30) is far too small: on plot's own repo it reaches back only to
+# #90, so #40 — `idea/kanban-board-v1`, the five-week-late plan this check
+# exists to find — is invisible at the default. Too low silently misses old
+# plans, which is precisely this check's own failure mode; the cost of going
+# high is a single page-walk, not a per-plan call. Measured on plot's repo
+# (106 merged PRs): limit 200 ≈ 0.79-0.92 s, limit 500 ≈ 0.81-1.06 s — the
+# round trip dominates, so headroom is nearly free. Saturation is REPORTED
+# rather than silent (see MERGED_PR_TRUNCATED below).
+MERGED_PR_LIMIT=500
+merged_pr_heads=""       # "<number> <head>" lines, one per merged PR
+MERGED_PR_TRUNCATED=0    # 1 when the list came back full — older PRs unseen
+
 load_open_pr_branches() {
   local url slug out
   url=$(git remote get-url origin 2>/dev/null) || return 0
@@ -153,6 +172,12 @@ load_open_pr_branches() {
       slug=$(printf '%s' "$url" | sed -E 's#\.git$##; s#^.*[:/]([^/]+/[^/]+)$#\1#')
       if out=$(gh pr list -R "$slug" --state open --json headRefName --jq '.[].headRefName' 2>/dev/null); then
         PR_SOURCE="gh"; open_prs="$out"
+        # Merged counterpart, same call shape, same repo pin. Bundled: ONE
+        # call for all plans, so cost is constant in plan count.
+        if out=$(gh pr list -R "$slug" --state merged --limit "$MERGED_PR_LIMIT" \
+                   --json number,headRefName --jq '.[] | "\(.number) \(.headRefName)"' 2>/dev/null); then
+          merged_pr_heads="$out"
+        fi
       fi
       ;;
     *bitbucket*)
@@ -163,8 +188,19 @@ load_open_pr_branches() {
       elif out=$(bb pr list --state open --json 2>/dev/null | jq -r '.[].source.branch.name' 2>/dev/null); then
         PR_SOURCE="bb"; open_prs="$out"
       fi
+      if [ "$PR_SOURCE" = "bb" ]; then
+        if out=$(bb pr list --state merged --json 2>/dev/null \
+                   | jq -r '.[] | "\(.id) \(.source.branch.name)"' 2>/dev/null); then
+          merged_pr_heads="$out"
+        fi
+      fi
       ;;
   esac
+  # Did the page fill exactly? Then older merged PRs exist that we did not see.
+  if [ -n "$merged_pr_heads" ] \
+     && [ "$(printf '%s\n' "$merged_pr_heads" | grep -c .)" -ge "$MERGED_PR_LIMIT" ]; then
+    MERGED_PR_TRUNCATED=1
+  fi
 }
 if [ "$do_pr" = 1 ]; then
   load_open_pr_branches
@@ -395,23 +431,61 @@ echo
 # ---------------------------------------------------------------------------
 
 echo "== 2. Merged-but-not-delivered (candidate /plot-deliver) =="
+
+# Which merged PR has this branch as its head? Echoes the PR number, or nothing.
+# This is the signal that survives a DELETED branch: in single-PR mode the plan
+# and its implementation ride one idea branch, which is deleted at merge — so
+# `git branch -r --merged` can never match it, and the plan hangs unreported.
+# Deliberately NOT keyed on the plan's own `prs` field: `kanban-board-v1` sat
+# undelivered for five weeks carrying no PR annotation at all (`→ #40` was
+# back-filled at delivery). The missing annotation and the missing delivery
+# share a cause, so an annotation-dependent check is blind to exactly the plans
+# it exists to catch.
+merged_pr_for_branch() { # $1=branch → PR number, or empty
+  [ -n "$merged_pr_heads" ] || return 0
+  printf '%s\n' "$merged_pr_heads" | awk -v b="$1" '$2 == b { print $1; exit }'
+}
+
 mnd_out=""
 while IFS="$US" read -r f st _raw _alt _alt_raw branches prs _ptype; do
   [ -n "$f" ] || continue
   [ "$st" = approved ] || continue
   base=$(basename "$f")
   merged_any=0
+  merged_pr_hits=""
   for b in $branches; do
+    # Signal A — the ref still exists and is merged into main. Unchanged: this
+    # is how fan-out plans are caught, whose per-branch PRs merge separately.
     if printf '%s\n' "$merged_branches" | grep -qx "$b"; then merged_any=1; fi
+    # Signal B — a merged PR had this branch as its head. Catches the branch
+    # whose ref is gone. OR-ed with A, never replacing it.
+    hit=$(merged_pr_for_branch "$b")
+    if [ -n "$hit" ]; then
+      merged_any=1
+      merged_pr_hits="${merged_pr_hits:+$merged_pr_hits, }#$hit ($b)"
+    fi
   done
   if [ "$merged_any" = 1 ]; then
     slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
     mnd_out+="  $base — impl branch merged to $MAIN, plan still Approved (PRs: ${prs:-none-linked})\n"
+    if [ -n "$merged_pr_hits" ]; then
+      mnd_out+="    merged PR head: $merged_pr_hits\n"
+    fi
     mnd_out+="    consider: /plot-deliver ${slug%.md}\n"
     n_mnd=$((n_mnd + 1))
   fi
 done <<< "$plan_rows"
 if [ -n "$mnd_out" ]; then printf '%b' "$mnd_out"; else echo "  (none)"; fi
+# Degradation and truncation are STATED, never silent — a check that quietly
+# skipped is indistinguishable from a check that found nothing, and "silence
+# reads as health" is the exact defect this section was fixed for.
+if [ "$pr_reliable" != 1 ]; then
+  echo "  note: merged-PR heads not consulted (pr_source=$PR_SOURCE) — plans whose"
+  echo "        branch was deleted at merge cannot be detected in this mode."
+elif [ "$MERGED_PR_TRUNCATED" = 1 ]; then
+  echo "  note: merged-PR list hit its limit of $MERGED_PR_LIMIT — older merged PRs were"
+  echo "        not examined; a long-hanging plan may still be missed here."
+fi
 echo
 
 # ---------------------------------------------------------------------------
