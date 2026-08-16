@@ -193,6 +193,115 @@ describe('classify', () => {
     expect(fresh.note).toMatch(/last commit/);
   });
 
+  // --- unpushed commits are not "no commits yet" -----------------------------
+  //
+  // The half `local_dirty` cannot answer, by construction: dirtiness reports
+  // *someone is editing*, and committing clears it. The moment a worker finishes
+  // tidily the signal covering for it disappears — and that is exactly when the
+  // work is most complete, least backed up, and least visible.
+  //
+  // Same one-directional rule, and these tests are what hold it.
+
+  it('lifts a CLAIM holding unpushed commits, with a CLEAN worktree', () => {
+    // The exact case that produced this plan, and `localDirty` is asserted FALSE
+    // on purpose: with it true the shipped signal does the lifting and the test
+    // proves nothing about the new one.
+    const r = classify('claimed', 'eligible', QUIET + 1, QUIET, null, false, 3);
+    expect(r.group).toBe('working');
+    // The note says how many, and names the evidence as local — work nobody else
+    // can see, claimed on grounds the next person cannot verify.
+    expect(r.note).toMatch(/3 commits not pushed/);
+    expect(r.note).toMatch(/local/);
+    // And it is a COUNT, never an age: "2 commits not pushed" names an action,
+    // which no timestamp can.
+    expect(r.note).not.toMatch(/ago/);
+  });
+
+  it('lifts a stale WIP branch on unpushed commits too', () => {
+    const r = classify('wip', 'eligible', 30_300, QUIET, null, false, 1);
+    expect(r.group).toBe('working');
+    // Singular, because a note that reads "1 commits" is the kind of thing a
+    // reader stops trusting.
+    expect(r.note).toMatch(/1 commit not pushed/);
+  });
+
+  it('lifts a claim whose age is unknown — no age, but there IS evidence', () => {
+    expect(classify('claimed', 'eligible', null, QUIET, null, false, 2).group).toBe('working');
+    expect(classify('wip', 'eligible', null, QUIET, null, false, 2).group).toBe('working');
+  });
+
+  it('says BOTH facts when a branch is dirty AND ahead, unpushed first', () => {
+    // They are different facts and the pair changes the advice: *push this*
+    // versus *push this, and someone is still working*. Suppressing a true fact
+    // because a second outranks it is the displacement `deferred` used to cause
+    // to the note text.
+    const r = classify('wip', 'eligible', 30_300, QUIET, null, true, 2);
+    expect(r.group).toBe('working');
+    expect(r.note).toMatch(/2 commits not pushed/);
+    expect(r.note).toMatch(/uncommitted/);
+    // Unpushed first: finished work nobody can see is the more urgent half.
+    expect(r.note.indexOf('not pushed')).toBeLessThan(r.note.indexOf('uncommitted'));
+  });
+
+  it('leaves the DIRTY-ONLY note exactly as it shipped', () => {
+    // A branch whose only local evidence is uncommitted edits must read today
+    // what it read yesterday. Rewording it to match the new pair would have
+    // changed every existing dirty row for a branch about the other case.
+    const r = classify('wip', 'eligible', 30_300, QUIET, null, true, 0);
+    expect(r.note).toBe('uncommitted work in a local worktree');
+  });
+
+  it('changes nothing at zero ahead', () => {
+    // Zero is what every branch on a machine with no local ref reports — every
+    // detached worker, every teammate's laptop, every CI run — so it is the
+    // assertion that keeps the change additive.
+    expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null, false, 0).group).toBe('quiet');
+    expect(classify('wip', 'eligible', 200, QUIET, null, false, 0).group).toBe('quiet');
+    expect(classify('wip', 'eligible', null, QUIET, null, false, 0).group).toBe('quiet');
+  });
+
+  it('answers identically whether local_ahead is 0 or simply not passed', () => {
+    // The absent case pinned against the zero one, exactly as `local_dirty` is.
+    for (const args of [
+      ['claimed', 'eligible', QUIET + 1],
+      ['wip', 'eligible', 200],
+      ['wip', 'eligible', 5],
+      ['open', 'eligible', null],
+      ['merged', 'complete', 1],
+      ['deferred', 'eligible', null],
+    ] as const) {
+      const [state, verdict, age] = args;
+      expect(classify(state, verdict, age, QUIET, null, false, 0))
+        .toEqual(classify(state, verdict, age, QUIET, null, false));
+    }
+  });
+
+  it('never DOWNGRADES a group on unpushed commits either', () => {
+    // The one-directional rule for the new signal. Unpushed commits on a merged
+    // branch are a follow-up somebody has not pushed — true, and not a reason to
+    // unsay `done`.
+    expect(classify('merged', 'complete', 1, QUIET, null, false, 4).group).toBe('done');
+    expect(classify('open', 'eligible', null, QUIET, null, false, 4).group).toBe('not-started');
+    expect(classify('deferred', 'eligible', null, QUIET, null, false, 4).group)
+      .toBe('not-started');
+    // A branch already reading `working` on a fresh commit keeps the age note:
+    // the age is what the reader came for.
+    const fresh = classify('wip', 'eligible', 5, QUIET, null, false, 4);
+    expect(fresh.group).toBe('working');
+    expect(fresh.note).toMatch(/last commit/);
+  });
+
+  it('leaves a PR to answer even when commits are unpushed', () => {
+    // A branch with an open PR still answers about its PR — the group a PR
+    // decides is not quiet, and there is nothing to lift.
+    const pr = {
+      number: 42, head: 'feature/x', state: 'OPEN', draft: false,
+      checks: 'pending', review: '', url: '',
+    };
+    expect(classify('wip', 'eligible', 200, QUIET, pr, false, 4).group)
+      .toBe('waiting-on-machine');
+  });
+
   it('leaves a PR to answer even when the worktree is dirty', () => {
     // Once work is up for review, what it waits for is decided there. A dirty
     // worktree on a branch whose CI is running does not move it out of
@@ -773,6 +882,47 @@ describe('rowsFromPulse', () => {
       // Every branch on a machine with no worktree for it, which is nearly all
       // of them. The base fixture carries neither field.
       const rows = rowsFromPulse(pulse, ages, 'plot', QUIET);
+      expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('quiet');
+    });
+  });
+
+  describe('unpushed commits reach the row', () => {
+    // The same plumbing assertion for the second signal: a field the scan
+    // reports and nothing carries is a field nobody reads.
+    const ahead = (branch: string, n: number, dirty = false): FleetPulse => ({
+      ...pulse,
+      plans: [{
+        file: '2026-08-15-example-plan.md',
+        waves: [{
+          name: 'Implementation', verdict: 'eligible',
+          branches: [{
+            branch, state: 'wip', deferred: false, claimed: '',
+            // CLEAN on purpose: with a dirty worktree the shipped signal does
+            // the lifting and this proves nothing about the new one.
+            local_dirty: dirty, local_worktree: '', local_ahead: n,
+          }],
+        }],
+      }],
+    });
+
+    it('moves a long-quiet branch into working, and says how many', () => {
+      // `feature/d` is 240 minutes old against a 30-minute window, so the refs
+      // put it firmly in quiet and only the unpushed commits say otherwise.
+      const rows = rowsFromPulse(ahead('feature/d', 3), ages, 'plot', QUIET);
+      const row = rows.find((r) => r.branch === 'feature/d');
+      expect(row!.group).toBe('working');
+      expect(row!.note).toMatch(/3 commits not pushed/);
+    });
+
+    it('carries both facts through when the branch is dirty AND ahead', () => {
+      const rows = rowsFromPulse(ahead('feature/d', 2, true), ages, 'plot', QUIET);
+      const note = rows.find((r) => r.branch === 'feature/d')!.note;
+      expect(note).toMatch(/2 commits not pushed/);
+      expect(note).toMatch(/uncommitted/);
+    });
+
+    it('leaves a pulse reporting zero answering exactly as before', () => {
+      const rows = rowsFromPulse(ahead('feature/d', 0), ages, 'plot', QUIET);
       expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('quiet');
     });
   });
