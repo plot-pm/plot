@@ -656,6 +656,39 @@ function resolvePlanFile(opts: BuildBoardOptions, filename: string): string | nu
   return null;
 }
 
+/**
+ * The markdown behind a plan name, from EITHER source the board draws cards
+ * from — the working tree, or a plan that lives only on a prefixed branch.
+ *
+ * The second half is why this exists. Cards gained a branch source, so the
+ * board renders Discovery cards for plans under PR review; `/plan/<file>` kept
+ * resolving against the working tree alone and answered 404 for exactly those
+ * cards. One consumer, two sources, and it saw half of them: opening a
+ * Discovery plan failed with "Failed to load plan: HTTP 404" while its card sat
+ * on screen.
+ *
+ * Branch plans are read from git rather than staged to disk, because the
+ * content is already in hand — `collectBranchPlans` carries it — and a request
+ * path has no business creating temp files.
+ */
+function readPlanMarkdown(opts: BuildBoardOptions, filename: string): string | null {
+  const file = resolvePlanFile(opts, filename);
+  if (file) return fs.readFileSync(file, 'utf8');
+
+  if (!filename || filename !== path.basename(filename) || !filename.endsWith('.md')) return null;
+  const repoRoot = resolvedRepoRoot(opts);
+  const planDir = readConfig(opts, 'Plan directory', 'docs/plans/');
+  const prefixes = readConfig(opts, 'Branch prefixes', '')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (prefixes.length === 0) return null;
+  for (const plan of collectBranchPlans(repoRoot, planDir, prefixes, defaultBranchOf(opts, repoRoot))) {
+    if (path.basename(plan.path) === filename) return plan.content;
+  }
+  return null;
+}
+
 /** Minimal, theme-aware page CSS — readable plan prose, no external assets. */
 const PLAN_PAGE_STYLE = `
   :root { color-scheme: light dark; }
@@ -713,9 +746,8 @@ export function renderPlanPage(
   filename: string,
   { embed = false }: RenderPlanOptions = {},
 ): string | null {
-  const file = resolvePlanFile(opts, filename);
-  if (!file) return null;
-  const md = fs.readFileSync(file, 'utf8');
+  const md = readPlanMarkdown(opts, filename);
+  if (md === null) return null;
   const body = marked.parse(stripFrontMatter(md), { async: false });
   const heading = md.match(/^#\s+(.+)$/m);
   const title = heading ? heading[1].trim() : filename;

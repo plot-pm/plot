@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { findFreePort, startServer, fetchBoard } from './helpers.mjs';
+import { findFreePort, startServer, fetchBoard, fetchRaw } from './helpers.mjs';
 
 /** A plan on the default branch: approved, started — Development. */
 const APPROVED_PLAN = `# The board acts through plot
@@ -237,6 +237,34 @@ describe('board: a Draft plan under review appears in Discovery', () => {
       discovery.cards.some((c) => c.slug === 'arrived-late'),
       'a plan on a new branch must not be hidden by the tip cache',
     );
+  });
+
+  it('opens a Discovery plan — the card and the viewer read the same sources', async () => {
+    // The bug this pins: cards gained a branch source, `/plan/<file>` did not.
+    // A Discovery card rendered fine and clicking it answered
+    // "Failed to load plan: HTTP 404" — one consumer seeing half the sources.
+    const board = await fetchBoard(server.port);
+    const discovery = board.columns.find((c) => c.phase === 'Discovery');
+    assert.ok(discovery.cards.length > 0, 'fixture must produce a Discovery card');
+
+    for (const card of discovery.cards) {
+      const file = path.basename(card.path);
+      const res = await fetchRaw(server.port, `/plan/${encodeURIComponent(file)}`);
+      assert.equal(res.status, 200, `${file} must open, not 404`);
+      const html = res.body;
+      // Real content, not an empty shell: a 200 carrying nothing would pass a
+      // status-only assertion while showing the reader a blank page.
+      assert.match(html, /<h1>/, `${file} must render its heading`);
+    }
+  });
+
+  it('still refuses what is not a plan, from either source', async () => {
+    // The fix widened where a name may resolve, so the negative needs saying
+    // again: traversal and unknown names stay 404.
+    for (const bad of ['../../../etc/passwd', '..%2F..%2Fpackage.json', 'nope.md']) {
+      const res = await fetchRaw(server.port, `/plan/${bad}`);
+      assert.equal(res.status, 404, `${bad} must not resolve`);
+    }
   });
 
   it('leaves no staging directory behind, over repeated builds', async () => {
