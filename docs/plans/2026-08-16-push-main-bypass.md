@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-gates

@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** pr
@@ -10,7 +10,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-16, jwloka, plan-PR #127 merged
 - **Started:** 2026-08-16, jwloka, `bug/board-shows-discovery`
-- **Delivered:**
+- **Delivered:** 2026-08-16
 
 ## Problem
 

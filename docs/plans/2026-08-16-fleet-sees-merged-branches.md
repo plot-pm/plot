@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Story:** plot-gates
 - **Review:** pr
@@ -10,7 +10,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-16, jwloka, plan-PR #126 merged
 - **Started:**
-- **Delivered:**
+- **Delivered:** 2026-08-16
 - **Started:** 2026-08-16, Jan Wloka, `bug/fleet-merged-branch-state`
 
 ## Problem
