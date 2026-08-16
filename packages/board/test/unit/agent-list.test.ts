@@ -6,6 +6,11 @@ import {
   showPlanHeadings,
   isStartable,
   isLive,
+  isCollapsible,
+  noActionReason,
+  readCollapsed,
+  writeCollapsed,
+  COLLAPSED_BY_DEFAULT,
   GROUPS,
 } from '../../src/app/components/AgentList.js';
 import { GROUP_ORDER } from '../../src/server/fleet.js';
@@ -249,5 +254,117 @@ describe('isStartable — which NOT STARTED rows offer work', () => {
     // what this button does.
     expect(isStartable(row({ group: 'not-started', state: 'deferred', note: ELIGIBLE_NOTE })))
       .toBe(false);
+  });
+});
+
+describe('which groups start collapsed', () => {
+  it('folds quiet and done, and leaves every other group open', () => {
+    // BOTH halves. A blanket default — everything folded, or nothing — passes
+    // an assertion that checks only one group, and the whole point of the
+    // default is that it is the existing actionable-before-diagnostic order
+    // made effective rather than a blanket preference.
+    expect([...COLLAPSED_BY_DEFAULT].sort()).toEqual(['done', 'quiet']);
+    const open = GROUPS.map((g) => g.key).filter((k) => !COLLAPSED_BY_DEFAULT.includes(k));
+    expect(open).toEqual(['waiting-on-you', 'working', 'waiting-on-machine', 'not-started']);
+  });
+
+  it('folds the DIAGNOSTIC end of the order and nothing above it', () => {
+    // Stated against the order itself rather than against two names, so a group
+    // inserted between `not-started` and `quiet` cannot silently become
+    // collapsed-by-default.
+    const keys = GROUPS.map((g) => g.key);
+    const folded = keys.filter((k) => COLLAPSED_BY_DEFAULT.includes(k));
+    expect(folded).toEqual(keys.slice(keys.length - folded.length));
+  });
+});
+
+describe('isCollapsible — an empty group hides nothing', () => {
+  it('offers no control on an empty group', () => {
+    // The header renders `rows.length > 0 ? '(N)' : hint`, so folding an empty
+    // group would hide the hint — the explanation for the emptiness, and the
+    // one thing in there worth reading. A control on a group with nothing to
+    // hide is an offer that leads nowhere.
+    expect(isCollapsible(0)).toBe(false);
+  });
+
+  it('offers one as soon as there is a row to hide', () => {
+    expect(isCollapsible(1)).toBe(true);
+    expect(isCollapsible(7)).toBe(true);
+  });
+});
+
+describe('readCollapsed / writeCollapsed — persistence, and its default', () => {
+  /** A localStorage stand-in, so the test states the storage rather than the DOM. */
+  const store = (initial: Record<string, string> = {}) => {
+    const map = new Map(Object.entries(initial));
+    return {
+      getItem: (k: string) => map.get(k) ?? null,
+      setItem: (k: string, v: string) => { map.set(k, v); },
+      read: () => [...map.entries()],
+    };
+  };
+
+  it('applies the default when nothing is stored', () => {
+    // The load-bearing half: a first visit has no stored value, and treating
+    // that as "nothing collapsed" ships the crowded view to everyone who has
+    // not yet clicked a header.
+    expect([...readCollapsed(store())].sort()).toEqual(['done', 'quiet']);
+  });
+
+  it('survives a reload — what was written comes back', () => {
+    const s = store();
+    writeCollapsed(new Set(['working'] as const), s);
+    expect([...readCollapsed(s)]).toEqual(['working']);
+  });
+
+  it('distinguishes "nothing stored" from "everything opened"', () => {
+    // Absent and empty are different statements: `[]` is a reader who opened
+    // every group and meant it, and re-applying the default over that would
+    // undo their choice on every reload.
+    const s = store();
+    writeCollapsed(new Set(), s);
+    expect([...readCollapsed(s)]).toEqual([]);
+  });
+
+  it('falls back to the default on stored junk rather than throwing', () => {
+    // A view that renders nothing because it could not remember which sections
+    // were folded is a worse answer than one that simply forgets.
+    for (const raw of ['not json', '{"quiet":true}', '"quiet"', '17']) {
+      expect([...readCollapsed(store({ 'plot-board:agents:collapsed': raw })).values()].sort())
+        .toEqual(['done', 'quiet']);
+    }
+  });
+
+  it('drops a stored key no group answers to', () => {
+    // Stale state from a renamed group would fold nothing while looking like it
+    // had — a set that disagrees with the rendered sections.
+    const s = store({ 'plot-board:agents:collapsed': '["quiet","gone-group"]' });
+    expect([...readCollapsed(s)]).toEqual(['quiet']);
+  });
+
+  it('never touches the query string', () => {
+    // Collapse state must not be shareable: a link carrying ?collapsed=quiet,done
+    // would rebuild the recipient's view as a side effect of "have a look at
+    // this". Asserted on the KEY the state is written under — a storage key is
+    // not a query parameter, and the browser-level assertion that the URL is
+    // unchanged by toggling lives in the integration test.
+    const s = store();
+    writeCollapsed(new Set(['quiet'] as const), s);
+    expect(s.read().map(([k]) => k)).toEqual(['plot-board:agents:collapsed']);
+  });
+});
+
+describe('noActionReason — the disabled menu says why', () => {
+  it('names the ROW\'s own reason, not a generic "no actions"', () => {
+    // A disabled control without a reason is the kind that makes people guess,
+    // and the row already knows: its note is the whole explanation.
+    expect(noActionReason(row({ note: 'blocked by an earlier wave' })))
+      .toMatch(/blocked by an earlier wave/);
+    expect(noActionReason(row({ note: 'no commit for 22 days' })))
+      .toMatch(/no commit for 22 days/);
+  });
+
+  it('still says something on a row carrying no note', () => {
+    expect(noActionReason(row({ note: '' }))).toBeTruthy();
   });
 });

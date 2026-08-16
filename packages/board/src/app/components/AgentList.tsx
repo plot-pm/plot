@@ -34,6 +34,110 @@ export const GROUPS: { key: WaitingGroup; icon: string; label: string; hint: str
   { key: 'done', icon: '✅', label: 'Done', hint: 'merged' },
 ];
 
+/**
+ * The groups that start collapsed.
+ *
+ * Not a preference — the existing group order made effective. `GROUPS` is
+ * already sorted actionable-before-diagnostic, and these two are the diagnostic
+ * end: one means *go check whether this died*, the other *this is finished*.
+ * Neither needs reading on arrival, and on the live board of 2026-08-16 they
+ * cost twenty rows between them and pushed the footer — which reports when the
+ * last scan ran — off the screen.
+ *
+ * Exported for test: a blanket default passes an assertion that checks only one
+ * group, so both halves are pinned.
+ */
+export const COLLAPSED_BY_DEFAULT: WaitingGroup[] = ['quiet', 'done'];
+
+/**
+ * Where the collapse state lives.
+ *
+ * `localStorage`, and that is a deliberate departure. The board's convention for
+ * view state is the URL — `?tab=agents`, `?lanes=1`, `?plan=…`, written with
+ * `history.replaceState` — and there is no other `localStorage` in the app, so
+ * this introduces a second mechanism for what looks like the same kind of state.
+ *
+ * The distinction that justifies it: **a URL is shareable, and collapse state
+ * should not be.** Everything in the query string today is worth sending to
+ * someone — *look at this plan*, *look at the agents tab*. A link carrying
+ * `?collapsed=quiet,done` would hand my personal tidying to whoever opened it,
+ * rebuilding their view as a side effect of "have a look at this". Collapse is
+ * convenience, not subject matter.
+ *
+ * Persistence itself is not optional: this board is left running and reloaded
+ * several times an hour, and without it the reader re-configures the view every
+ * time — which teaches them not to bother.
+ */
+const COLLAPSE_KEY = 'plot-board:agents:collapsed';
+
+/**
+ * Read the stored collapse set, falling back to the default where nothing is
+ * stored.
+ *
+ * The fallback is the load-bearing half: a first visit has no stored value, and
+ * treating that as "nothing collapsed" would ship the crowded view to everyone
+ * who has not yet clicked a header. Absent and empty are therefore different —
+ * `[]` is a reader who opened everything and meant it.
+ *
+ * Every failure path yields the default rather than throwing. `localStorage`
+ * throws on access in a blocked-cookie context, and a view that renders nothing
+ * because it could not remember which sections were folded is a worse answer
+ * than one that simply forgets.
+ *
+ * Exported for test.
+ */
+export function readCollapsed(storage?: Pick<Storage, 'getItem'>): Set<WaitingGroup> {
+  const fallback = new Set(COLLAPSED_BY_DEFAULT);
+  let raw: string | null = null;
+  try {
+    raw = (storage ?? globalThis.localStorage)?.getItem(COLLAPSE_KEY) ?? null;
+  } catch {
+    return fallback;
+  }
+  if (raw === null) return fallback;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return fallback;
+    // Filtered against the known groups: a stored key from a renamed group is
+    // stale state, and carrying it forward would collapse nothing while looking
+    // like it had.
+    const known = new Set<string>(GROUPS.map((g) => g.key));
+    return new Set(parsed.filter((k): k is WaitingGroup => typeof k === 'string' && known.has(k)));
+  } catch {
+    return fallback;
+  }
+}
+
+/** Persist the collapse set. Silent on failure — see `readCollapsed`. */
+export function writeCollapsed(
+  collapsed: Set<WaitingGroup>,
+  storage?: Pick<Storage, 'setItem'>,
+): void {
+  try {
+    (storage ?? globalThis.localStorage)?.setItem(COLLAPSE_KEY, JSON.stringify([...collapsed]));
+  } catch {
+    // A reader who cannot persist still gets a working toggle for this session.
+  }
+}
+
+/**
+ * Can this group be collapsed at all?
+ *
+ * An EMPTY group never can. It hides nothing, and its header does not read
+ * `(0)` — it reads the group's hint (*still thinking, or dead?*), which is the
+ * explanation for the emptiness and exactly what a reader wants when there is
+ * nothing to list. A collapse control on a group with nothing to hide is an
+ * offer that leads nowhere, the same class of defect as a button that declines
+ * its own action — and folding it would hide the hint, which is the only thing
+ * in there worth reading.
+ *
+ * Exported for test: a blanket toggle passes "the control exists" and quietly
+ * takes the hint away.
+ */
+export function isCollapsible(rowCount: number): boolean {
+  return rowCount > 0;
+}
+
 function age(row: AgentRow): string {
   if (row.ageMinutes === null) return '—';
   if (row.ageMinutes < 60) return `${row.ageMinutes}m`;
@@ -211,6 +315,135 @@ function LiveDot() {
       data-live-dot
       className="h-1.5 w-1.5 shrink-0 self-center animate-pulse rounded-full bg-emerald-500 motion-reduce:animate-none dark:bg-emerald-400"
     />
+  );
+}
+
+/**
+ * Why this row offers no action — in the row's own words.
+ *
+ * A disabled control without a reason is the kind that makes people guess, and
+ * this row already knows: the note beside it says *blocked by an earlier wave*
+ * or *no commit for 22 days*. So the `title` says that, turning a dead
+ * affordance into an explanation rather than a generic "no actions".
+ *
+ * The note is preferred wherever there is one; the fallback covers the rows that
+ * carry none (a group whose classifier left the note empty), where naming the
+ * group is still more than nothing.
+ *
+ * Exported for test — a generic string passes any assertion that only checks a
+ * title exists.
+ */
+export function noActionReason(row: AgentRow): string {
+  return row.note ? `No action available — ${row.note}` : 'No action available on this row';
+}
+
+/**
+ * The row's actions, behind a three-dot menu at the right edge.
+ *
+ * `Start work` used to sit at the far right AFTER the age, so the line read
+ * *what · state · age · act* — the action behind the quietest number on it. And
+ * it is about to stop being alone: `board-becomes-operable` adds `Approve`, and
+ * every further action would widen a row that already carries phase, plan,
+ * branch, note, PR and age and wraps on long branch names.
+ *
+ * The menu holds only things that CHANGE something. Navigation stays in the row,
+ * where the thing is named — a `cmd`-click on a real plan or branch link is
+ * worth more than a tidier line. The menu acts; the row shows.
+ *
+ * **With no action it renders anyway, disabled.** A deliberate exception to the
+ * rule this estate applies elsewhere (*a button whose usual state is "you
+ * cannot" teaches people to ignore buttons*), and the distinction is what a
+ * control CLAIMS. A dead `Start work` lies: it names an action that does not
+ * exist here. A dimmed three-dot menu claims only *this is where actions would
+ * be*, which is true on every row.
+ *
+ * The layout argument decides it. Most rows have no action, so rendering nothing
+ * would leave the right edge ragged — and MOVING, since the pulse re-scans every
+ * five seconds and a row gaining or losing its action would shift the column
+ * under someone's eyes. That is the same objection this view raises against
+ * groups that fold themselves.
+ *
+ * `aria-disabled`, never the native `disabled`: a natively disabled element
+ * leaves the tab order and takes the explanation with it, putting it out of
+ * reach of anyone who is not hovering with a mouse.
+ */
+function RowActions({
+  row,
+  card,
+  dispatch,
+  pulse,
+  onStarting,
+}: {
+  row: AgentRow;
+  card: Card | null;
+  dispatch?: DispatchInfo;
+  pulse: number;
+  onStarting?: (active: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const canStart = Boolean(card && dispatch && isStartable(row));
+  const enabled = canStart;
+
+  // Close on Escape and on any click outside. A menu that survives a click
+  // elsewhere on a view that repaints every five seconds is a menu that ends up
+  // hovering over a row it no longer belongs to.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    const onDown = () => setOpen(false);
+    document.addEventListener('keydown', onKey);
+    // Capture phase, so the menu closes before a click lands anywhere else —
+    // and the menu's own container stops propagation rather than relying on
+    // hit-testing the target against a ref.
+    document.addEventListener('click', onDown, true);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('click', onDown, true);
+    };
+  }, [open]);
+
+  return (
+    // Fixed width whether or not anything is in it: the difference between
+    // available and not is CONTRAST, not presence, so the right edge holds
+    // still while rows gain and lose their actions.
+    <div className="relative w-5 shrink-0 text-right" onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        data-row-actions
+        aria-haspopup="menu"
+        aria-expanded={open}
+        // Never the native attribute. `aria-disabled` keeps the control
+        // focusable, so the title explaining WHY is reachable by keyboard.
+        aria-disabled={!enabled || undefined}
+        aria-label={enabled ? `Actions for ${row.branch}` : noActionReason(row)}
+        title={enabled ? `Actions for ${row.branch}` : noActionReason(row)}
+        onClick={() => { if (enabled) setOpen((v) => !v); }}
+        className={
+          enabled
+            ? 'text-xs leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'
+            : // Very dim: a row with nothing to do stays quiet, and the menu
+              // reads as scenery rather than as an offer.
+              'cursor-default text-xs leading-none text-slate-300 dark:text-slate-700'
+        }
+      >
+        ⋯
+      </button>
+      {open && enabled && card && dispatch && (
+        <div
+          role="menu"
+          className="absolute right-0 z-10 mt-1 min-w-max rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+        >
+          <div role="menuitem" className="px-2 py-1 text-left">
+            <StartWorkButton
+              card={card}
+              dispatch={dispatch}
+              pulse={pulse}
+              onStarting={onStarting}
+            />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -490,22 +723,32 @@ function Row({
           {age(row)}
         </span>
       )}
-      {/* Nothing new is built: `StartWorkButton` already exists, already
-          dispatches and already handles the outstanding-click state. It sat on
-          `PlanCard` only.
+      {/* The row's actions, behind one menu at the right edge — and the menu
+          renders on EVERY row, dimmed where there is nothing to do.
+
+          `Start work` used to sit here bare, after the age, which put the
+          action behind the quietest number on the line. It is also about to
+          stop being alone (`board-becomes-operable` adds `Approve`), and a row
+          that already carries phase, plan, branch, note, PR and age has no
+          width left to spend on a second control.
 
           On the ROW, not on the group: a `not-started` group can hold branches
           from several plans, and dispatch is per plan and wave — a group-level
-          button would have to guess which. Per row, the row has already decided.
+          control would have to guess which. Per row, the row has already
+          decided.
 
-          The obstacle is the one `board-ui-polish` met with the plan modal: the
-          button takes a `Card` and a fleet row is not one, so the card is looked
-          up by `planFile` from the board payload. A row whose plan has no card
-          gets NO button rather than a broken one — the same honest fallback the
-          plan link already makes for that case. */}
-      {card && dispatch && isStartable(row) && (
-        <StartWorkButton card={card} dispatch={dispatch} pulse={pulse} onStarting={onStarting} />
-      )}
+          The card is looked up by `planFile` from the board payload, because
+          `StartWorkButton` takes a `Card` and a fleet row is not one. A row
+          whose plan has no card gets a DISABLED menu rather than a broken
+          button — the same honest fallback the plan link makes, now with a
+          reason attached. */}
+      <RowActions
+        row={row}
+        card={card}
+        dispatch={dispatch}
+        pulse={pulse}
+        onStarting={onStarting}
+      />
     </li>
   );
 }
@@ -553,6 +796,29 @@ export function AgentList({
   // Whether the server is answering at all. Not the same question as
   // `fleet.error`, which is a server that answered to say its scan failed.
   const stale = staleSeconds !== null;
+
+  // Which groups are folded. Seeded from `localStorage` on the first render
+  // rather than in an effect: an effect would paint the crowded view once and
+  // then fold it, which is a jump on every reload of a board that gets reloaded
+  // several times an hour.
+  //
+  // Never derived from the ROWS. Collapsing is manual, always — an earlier idea
+  // was to fold groups holding nothing actionable, dynamically, and the pulse
+  // re-scans every five seconds, so rows would appear and vanish under the
+  // cursor while the page jumped. A view meant to sit beside your work must not
+  // move its own furniture. The same rule is why a row falling into a folded
+  // group changes the count and nothing else: whoever folded `quiet` was asking
+  // not to be interrupted by it.
+  const [collapsed, setCollapsed] = useState<Set<WaitingGroup>>(() => readCollapsed());
+  const toggle = (key: WaitingGroup) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      writeCollapsed(next);
+      return next;
+    });
+  };
 
   // Seconds since this payload arrived. The ages the server sent are true at the
   // moment of the poll and stale a second later, so a countdown built from them
@@ -670,15 +936,52 @@ export function AgentList({
         //
         // So: more than one plan, or any plan holding more than one row.
         const headings = showPlanHeadings(rows.length, plans.length);
+        // An empty group is never foldable — it hides nothing, and its header
+        // carries the HINT rather than `(0)`, which is the one thing in there
+        // worth reading when there is nothing to list.
+        const collapsible = isCollapsible(rows.length);
+        const isFolded = collapsible && collapsed.has(key);
+        // The count and the hint occupy the same slot, and the count SURVIVES
+        // folding: `QUIET (7)` states plainly that seven rows are hidden, while
+        // a folded header with no number reads as *nothing here* — worse than
+        // the crowding this fixes.
+        const tally = (
+          <span className="font-normal normal-case tracking-normal text-slate-400 dark:text-slate-600">
+            {rows.length > 0 ? `(${rows.length})` : hint}
+          </span>
+        );
         return (
           <section key={key}>
             <h2 className="mb-1 flex items-baseline gap-2 px-3 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
-              <span aria-hidden>{icon}</span>
-              {label}
-              <span className="font-normal normal-case tracking-normal text-slate-400 dark:text-slate-600">
-                {rows.length > 0 ? `(${rows.length})` : hint}
-              </span>
+              {collapsible ? (
+                // A real button, so the header is reachable and operable by
+                // keyboard. `aria-expanded` is what tells a screen reader the
+                // section is folded — the caret alone is a visual fact.
+                <button
+                  type="button"
+                  data-group-toggle={key}
+                  aria-expanded={!isFolded}
+                  onClick={() => toggle(key)}
+                  className="flex items-baseline gap-2 uppercase tracking-wide hover:text-slate-900 dark:hover:text-slate-100"
+                >
+                  <span aria-hidden className="text-[10px]">{isFolded ? '▸' : '▾'}</span>
+                  <span aria-hidden>{icon}</span>
+                  {label}
+                  {tally}
+                </button>
+              ) : (
+                <>
+                  <span aria-hidden>{icon}</span>
+                  {label}
+                  {tally}
+                </>
+              )}
             </h2>
+            {/* The body goes, the header stays — including its count. Removed
+                from the tree rather than hidden with CSS: a folded group should
+                cost no vertical space at all, which is the entire complaint
+                this answers. */}
+            {!isFolded && (
             <ul className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
               {rows.length > 0 ? (
                 plans.map((group) => (
@@ -727,6 +1030,7 @@ export function AgentList({
                 <li className="px-3 py-2 text-sm text-slate-400 dark:text-slate-600">none</li>
               )}
             </ul>
+            )}
           </section>
         );
       })}

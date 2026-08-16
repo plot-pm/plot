@@ -846,6 +846,47 @@ export const GROUP_ORDER: WaitingGroup[] = [
   'waiting-on-you', 'working', 'waiting-on-machine', 'not-started', 'quiet', 'done',
 ];
 
+/**
+ * Order two rows of the SAME group.
+ *
+ * Everywhere but one group this is descending commit age: the longest
+ * unattended work surfaces, which is what a reader scanning for neglect wants.
+ * A missing age coerces to `-1` and falls to the end — "we do not know" is not
+ * "ancient".
+ *
+ * `not-started` inverts, and consults a different clock entirely. Its rows have
+ * no commit at all, so every one of them tied at `-1` under the general rule and
+ * the group came out in whatever order the scan produced —
+ * `feature/plot-sprint-support`, waiting since February, sat among branches
+ * approved minutes earlier. The clock that dates them is `waitingDays`, from the
+ * plan's `Approved:` record.
+ *
+ * The DIRECTION flips because old means something else here. Elsewhere old means
+ * neglected and belongs on top; in this group it means *nobody wants it* — six
+ * months of availability is evidence of that, not urgency — while a plan
+ * approved minutes ago is the one still in the reader's head and the one a
+ * dispatch is actually likely to pick up. A row with no date at all has just
+ * arrived and has not yet been ignored by anyone, so it leads.
+ *
+ * Confined to this one group on purpose: a rule that flips direction depending
+ * on where it is applied is two rules wearing one name, and applying it
+ * generally would silently reverse `quiet`, the group that most needs
+ * oldest-first.
+ *
+ * Exported for test — the current code ties every not-started row at `-1`, so
+ * any order passes an assertion that only checks the rows are all present.
+ */
+export function compareWithinGroup(a: AgentRow, b: AgentRow): number {
+  if (a.group === 'not-started') {
+    // Ascending, and an absent date takes -1 so it sorts BELOW `today` (0)
+    // rather than tying with it. The two are different statements — "approved
+    // at an unknown time" and "approved today" — and `waitingDays` already
+    // keeps them apart by storing null for the first.
+    return (a.waitingDays ?? -1) - (b.waitingDays ?? -1);
+  }
+  return (b.ageMinutes ?? -1) - (a.ageMinutes ?? -1);
+}
+
 /** Flatten a pulse into rows, grouped by what each one asks of you. */
 export function rowsFromPulse(
   pulse: FleetPulse,
@@ -1007,7 +1048,7 @@ export function rowsFromPulse(
   rows.sort((a, b) => {
     const g = GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group);
     if (g !== 0) return g;
-    return (b.ageMinutes ?? -1) - (a.ageMinutes ?? -1);
+    return compareWithinGroup(a, b);
   });
   return rows;
 }

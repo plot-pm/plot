@@ -226,6 +226,25 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       has: page.getByRole('heading', { level: 2, name: new RegExp(label) }),
     });
 
+  /**
+   * Unfold a group, for the assertions that need to see inside one.
+   *
+   * `quiet` and `done` start COLLAPSED by default, so a test about what a quiet
+   * row renders has to open the section first — the same click a reader makes.
+   * Idempotent: it opens only what is folded, so a test can call it without
+   * knowing the default.
+   */
+  async function expand(page: Page, key: string) {
+    const toggle = page.locator(`[data-group-toggle="${key}"]`);
+    await toggle.waitFor({ timeout: 10_000 });
+    if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+  }
+
+  /** Open every group, for the tests that read the whole list. */
+  async function expandAll(page: Page) {
+    for (const key of ['quiet', 'done']) await expand(page, key);
+  }
+
   const staleBanner = (page: Page) => page.getByText(/Not reaching the board server/);
 
   const footer = (page: Page) => page.getByText(/branches across .* plans/);
@@ -263,6 +282,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   it('leaves a merged branch as plain text — its remote page is gone', async () => {
     const page = await openAgents();
     try {
+      // DONE starts collapsed, so the row has to be shown before it can be read.
+      await expand(page, 'done');
       expect(await page.getByRole('link', { name: 'feature/landed' }).count()).toBe(0);
       await expect.poll(() => page.getByText('feature/landed').count()).toBe(1);
     } finally {
@@ -335,6 +356,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     ];
     const page = await openAgents(fleet({ rows }));
     try {
+      await expand(page, 'done');
       await expect.poll(() => group(page, 'Done').getByRole('heading', { level: 3 }).count())
         .toBe(2);
     } finally {
@@ -583,70 +605,183 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
 
   const startButtons = (page: Page) => page.getByRole('button', { name: 'Start work' });
 
-  it('offers Start work on an eligible row', async () => {
-    // Nothing new is built: the button already exists on PlanCard, already
-    // dispatches, already handles the outstanding-click state. What is new is
-    // that a fleet row can reach it.
+  /** The three-dot overflow menu inside one row. */
+  const menu = (page: Page, branch: string) =>
+    rowFor(page, branch).locator('[data-row-actions]');
+
+  /** Open that row's menu and hand back the row, for the actions inside it. */
+  async function openMenu(page: Page, branch: string) {
+    await menu(page, branch).click();
+    return rowFor(page, branch);
+  }
+
+  it('offers Start work THROUGH the menu, and nowhere else', async () => {
+    // Both halves. An implementation that keeps the bare button beside the menu
+    // passes a test that only checks the action still works — and the whole
+    // point of the move is that the row's right edge holds one control of
+    // constant width, not a growing row of them.
     const page = await openAgentsWithBoard();
     try {
-      const li = rowFor(page, 'feature/untaken');
+      await expect.poll(() => menu(page, 'feature/untaken').count()).toBe(1);
+      // Closed, the action is not in the document at all.
+      expect(await startButtons(page).count()).toBe(0);
+      const li = await openMenu(page, 'feature/untaken');
       await expect.poll(() => li.getByRole('button', { name: 'Start work' }).count()).toBe(1);
+      // And it appeared HERE, not somewhere else on the page.
+      expect(await startButtons(page).count()).toBe(1);
     } finally {
       await page.close();
     }
   });
 
-  it('offers NOTHING on a row blocked by an earlier wave — not even greyed out', async () => {
-    // The assertion the whole rule exists for. A button here would offer to
-    // skip the ordering waves express, and plot-dispatch.sh refuses that branch
-    // — so the board would be inviting an action the tool declines. And no
-    // disabled control either: a button whose usual state is *you cannot*
-    // teaches people to ignore buttons. The note already says why.
+  it('renders the menu DISABLED on a row blocked by an earlier wave', async () => {
+    // The deliberate exception to this estate's rule against greyed-out
+    // controls, and it turns on what a control CLAIMS: a dead `Start work`
+    // would name an action that does not exist here, while a dimmed three-dot
+    // menu claims only *this is where actions would be*, true on every row.
     const page = await openAgentsWithBoard();
     try {
       const li = rowFor(page, 'feature/blocked');
       await expect.poll(() => li.textContent()).toContain('blocked by an earlier wave');
-      expect(await li.getByRole('button').count()).toBe(0);
+      const dots = menu(page, 'feature/blocked');
+      await expect.poll(() => dots.count()).toBe(1);
+      expect(await dots.getAttribute('aria-disabled')).toBe('true');
+      // Never the native attribute — see the focusability assertion below.
+      expect(await dots.getAttribute('disabled')).toBeNull();
+      // And activating it opens nothing. Dispatched rather than clicked: the
+      // driver's own actionability check treats `aria-disabled` as disabled and
+      // would wait forever — itself evidence the attribute is doing its job —
+      // so the event is forced past that to prove the HANDLER declines too.
+      await dots.dispatchEvent('click');
+      expect(await li.getByRole('button', { name: 'Start work' }).count()).toBe(0);
     } finally {
       await page.close();
     }
   });
 
-  it('offers nothing on a row whose plan has no board card', async () => {
+  it('keeps the disabled menu FOCUSABLE, so its explanation stays reachable', async () => {
+    // `disabled` would drop the control out of the tab order and take the
+    // reason with it — putting the explanation out of reach of anyone not
+    // hovering with a mouse. `aria-disabled` suppresses activation and keeps it.
+    const page = await openAgentsWithBoard();
+    try {
+      const dots = menu(page, 'feature/blocked');
+      await expect.poll(() => dots.count()).toBe(1);
+      await dots.focus();
+      expect(await dots.evaluate((el) => el === document.activeElement)).toBe(true);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('says WHY in the row\'s own words, not a generic "no actions"', async () => {
+    // A disabled control without a reason makes people guess, and the row
+    // already knows: the note beside it is the whole explanation.
+    const page = await openAgentsWithBoard();
+    try {
+      const blocked = menu(page, 'feature/blocked');
+      await expect.poll(() => blocked.count()).toBe(1);
+      expect(await blocked.getAttribute('title')).toContain('blocked by an earlier wave');
+      // A different row, a different reason — so the title is read from the row
+      // rather than being one string for every disabled menu.
+      await expand(page, 'quiet');
+      const quiet = menu(page, 'feature/ghost');
+      await expect.poll(() => quiet.count()).toBe(1);
+      expect(await quiet.getAttribute('title')).toContain('no commit for 16 hours');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('keeps the right edge still when a row gains or loses its action', async () => {
+    // The layout argument that decides the disabled menu at all: with most rows
+    // carrying no action, rendering nothing would leave the right edge ragged
+    // AND moving, since the pulse re-scans every five seconds.
+    const page = await openAgentsWithBoard();
+    try {
+      await expect.poll(() => menu(page, 'feature/untaken').count()).toBe(1);
+      const enabled = await menu(page, 'feature/untaken').boundingBox();
+      const disabled = await menu(page, 'feature/blocked').boundingBox();
+      expect(enabled!.width).toBe(disabled!.width);
+      // And both sit at the same right edge, which is the thing that must not
+      // move as a row's action comes and goes.
+      expect(Math.round(enabled!.x + enabled!.width))
+        .toBe(Math.round(disabled!.x + disabled!.width));
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('renders a disabled menu on a row whose plan has no board card', async () => {
     // StartWorkButton takes a Card and a row is not one, so the card is looked
     // up by planFile. A plan outside the walked directories has a row and no
-    // card — it gets no button rather than a broken one, the same honest
+    // card — it gets no ACTION rather than a broken one, the same honest
     // fallback the plan link already makes.
     const page = await openAgentsWithBoard();
     try {
       const li = rowFor(page, 'feature/ghost-ready');
       await expect.poll(() => li.textContent()).toContain(ELIGIBLE_NOTE);
-      expect(await li.getByRole('button').count()).toBe(0);
+      expect(await menu(page, 'feature/ghost-ready').getAttribute('aria-disabled')).toBe('true');
+      expect(await li.getByRole('button', { name: 'Start work' }).count()).toBe(0);
     } finally {
       await page.close();
     }
   });
 
-  it('offers nothing on rows that already have a branch and a claim', async () => {
+  it('offers no ACTION on rows that already have a branch and a claim', async () => {
     // Working, quiet and waiting rows are somebody's already. Offering to start
     // one invites exactly the double-dispatch fleet-sees-merged-branches was
-    // written to prevent.
+    // written to prevent. The menu is still there — dimmed, claiming nothing.
     const page = await openAgentsWithBoard();
     try {
-      await expect.poll(() => startButtons(page).count()).toBeGreaterThan(0);
+      await expect.poll(() => menu(page, 'feature/untaken').count()).toBe(1);
+      // Two of these rows sit in groups that start folded.
+      await expandAll(page);
       for (const branch of ['feature/beans-a', 'feature/reviewed', 'feature/landed',
         'feature/ghost', 'feature/shelved']) {
-        expect(await rowFor(page, branch).getByRole('button').count()).toBe(0);
+        expect(await menu(page, branch).getAttribute('aria-disabled')).toBe('true');
+        // Forced past the driver's actionability check — see the disabled-menu
+        // test above — so this asserts the handler declines, not merely that
+        // the attribute is present.
+        await menu(page, branch).dispatchEvent('click');
+        expect(await rowFor(page, branch).getByRole('button', { name: 'Start work' }).count())
+          .toBe(0);
       }
     } finally {
       await page.close();
     }
   });
 
-  it('offers nothing at all before the board has said whether it can dispatch', async () => {
+  it('keeps NAVIGATION in the row — the menu holds only actions', async () => {
+    // cmd-click on a real link is worth more than a tidier line, so the plan and
+    // branch names stay anchors in the row where the thing is named. The menu
+    // acts; the row shows.
+    const page = await openAgentsWithBoard();
+    try {
+      const li = rowFor(page, 'feature/untaken');
+      // The branch name, still an anchor in the row rather than an entry in the
+      // menu — so cmd-click keeps opening it on the host.
+      await expect.poll(() => li.getByRole('link', { name: 'feature/untaken' }).count()).toBe(1);
+      expect(await li.getByRole('link', { name: 'feature/untaken' }).getAttribute('href'))
+        .toContain('/tree/feature/untaken');
+      // The plan is reachable too — from the group's sub-heading here, since
+      // this group earned one and the rows stopped repeating the name.
+      expect(await group(page, 'Not started').getByRole('link', { name: 'plant-tomatoes' })
+        .count()).toBeGreaterThan(0);
+      // Opening the menu adds no links anywhere: what it holds is an action.
+      const before = await li.getByRole('link').count();
+      await openMenu(page, 'feature/untaken');
+      expect(await li.getByRole('link').count()).toBe(before);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('offers no action at all before the board has said whether it can dispatch', async () => {
     // `openAgents` does not wait for /api/board, so no cards and no dispatch
     // capability have landed. A control whose outcome is unknown is worse than
-    // no control — the same rule PlanCard follows.
+    // no control — the same rule PlanCard follows. The menu renders dimmed,
+    // which claims nothing about dispatch either way.
     const page = await browser.newPage();
     try {
       await page.route('**/api/board', (route) => route.abort('connectionrefused'));
@@ -655,6 +790,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
       await rowFor(page, 'feature/untaken').waitFor({ timeout: 10_000 });
+      expect(await menu(page, 'feature/untaken').getAttribute('aria-disabled')).toBe('true');
       expect(await startButtons(page).count()).toBe(0);
     } finally {
       await page.close();
@@ -710,6 +846,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     ];
     const page = await openAgents(fleet({ rows }));
     try {
+      // The row must be VISIBLE for "it holds still" to mean anything — a
+      // folded group hides it, which would pass this assertion for the wrong
+      // reason entirely.
+      await expand(page, 'quiet');
       await expect.poll(() => rowFor(page, 'feature/claimed-but-quiet').count()).toBe(1);
       expect(await liveDot(page, 'feature/claimed-but-quiet').count()).toBe(0);
     } finally {
@@ -777,6 +917,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
       await expect.poll(() => liveDot(page, 'feature/beans-a').count()).toBe(1);
+      // DONE is where the row is going, and it starts folded — opened FIRST, so
+      // the assertion below is about the indicator stopping rather than about
+      // the row being hidden.
+      await expand(page, 'done');
       moved = true;
       // The row survives — it is the same branch — and only the motion goes.
       await expect.poll(() => liveDot(page, 'feature/beans-a').count(), { timeout: 15_000 })
@@ -859,6 +1003,271 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(await working.locator('[data-live-dot]').count()).toBe(0);
       // Nowhere else on the page either.
       expect(await page.locator('[data-live-dot]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  // ── Dormant groups start collapsed, and remember ──────────────────────────
+  //
+  // The other half of the same question the motion above answers: how does this
+  // view behave when you leave it open beside your work? One answer is that live
+  // rows should look live; this one is that dormant rows must not cost the space
+  // the live ones need.
+
+  /** The rows a group is currently showing. */
+  const groupRows = (page: Page, label: string) => group(page, label).locator('li.flex');
+
+  /** The header of one group, whose count must survive folding. */
+  const heading = (page: Page, label: string) =>
+    group(page, label).getByRole('heading', { level: 2 });
+
+  it('starts QUIET and DONE collapsed, and every other group open', async () => {
+    // BOTH halves. A blanket default — everything folded, or nothing — passes an
+    // assertion that checks only one group, and the default is the existing
+    // actionable-before-diagnostic order made effective rather than a
+    // preference.
+    const page = await openAgents();
+    try {
+      await expect.poll(() => groupRows(page, 'Working').count()).toBeGreaterThan(0);
+      expect(await groupRows(page, 'Quiet').count()).toBe(0);
+      expect(await groupRows(page, 'Done').count()).toBe(0);
+      // And the actionable end is untouched.
+      expect(await groupRows(page, 'Waiting on you').count()).toBeGreaterThan(0);
+      expect(await groupRows(page, 'Not started').count()).toBeGreaterThan(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('keeps the COUNT on a collapsed header', async () => {
+    // A folded header with no number reads as *nothing here*, which is worse
+    // than the crowding this fixes. The count is already rendered — it simply
+    // must not be hidden with the body.
+    const page = await openAgents();
+    try {
+      await expect.poll(() => heading(page, 'Quiet').textContent()).toContain('(1)');
+      expect(await groupRows(page, 'Quiet').count()).toBe(0);
+      expect(await heading(page, 'Done').textContent()).toContain('(1)');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('gives an EMPTY group no collapse control, and keeps its hint', async () => {
+    // Both halves — a blanket toggle passes the first and quietly hides the
+    // hint. An empty group hides nothing, and the hint is the explanation for
+    // the emptiness: exactly what a reader wants when there is nothing to list.
+    const page = await openAgents();
+    try {
+      const machine = group(page, 'Waiting on a machine');
+      await expect.poll(() => machine.count()).toBe(1);
+      expect(await machine.locator('[data-group-toggle]').count()).toBe(0);
+      expect(await machine.getByRole('heading', { level: 2 }).textContent())
+        .toContain('nothing — CI will finish');
+      // And no "(0)" anywhere in that header.
+      expect(await machine.getByRole('heading', { level: 2 }).textContent()).not.toContain('(0)');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('survives a reload, and applies the default when nothing is stored', async () => {
+    // Both halves. Persistence is not optional — this board is left running and
+    // reloaded several times an hour, and without it the reader re-configures
+    // the view every time, which teaches them not to bother. And a FIRST visit
+    // must not depend on state that does not exist yet.
+    //
+    // One context for both loads, deliberately: `browser.newPage()` gives each
+    // page its own storage, which is the isolation every other test here wants
+    // and precisely what this test must not have.
+    const context = await browser.newContext();
+    try {
+      const page = await context.newPage();
+      await page.route('**/api/fleet', (route) =>
+        route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
+      await page.goto(`${baseURL}?tab=agents`);
+      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      // The default, on a context that has stored nothing.
+      await expect.poll(() => groupRows(page, 'Quiet').count()).toBe(0);
+      await expand(page, 'quiet');
+      await expect.poll(() => groupRows(page, 'Quiet').count()).toBe(1);
+
+      await page.reload();
+      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      // The reader's choice came back — not the default.
+      await expect.poll(() => groupRows(page, 'Quiet').count()).toBe(1);
+      // And the group they never touched is still folded, so the reload
+      // restored a SET rather than opening everything.
+      expect(await groupRows(page, 'Done').count()).toBe(0);
+    } finally {
+      await context.close();
+    }
+  });
+
+  it('never puts the collapse state in the URL', async () => {
+    // A shared link must not rebuild the recipient's view. Everything in the
+    // query string today is worth sending to someone — *look at this plan* —
+    // and `?collapsed=quiet,done` would hand over my personal tidying as a side
+    // effect of "have a look at this".
+    const page = await openAgents();
+    try {
+      const before = page.url();
+      await expand(page, 'quiet');
+      await expect.poll(() => groupRows(page, 'Quiet').count()).toBe(1);
+      expect(page.url()).toBe(before);
+      // Folding it again is equally silent.
+      await page.locator('[data-group-toggle="quiet"]').click();
+      await expect.poll(() => groupRows(page, 'Quiet').count()).toBe(0);
+      expect(page.url()).toBe(before);
+      expect(page.url()).not.toContain('collapsed');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('updates the count of a collapsed group WITHOUT expanding it', async () => {
+    // Auto-expanding passes a naive "the new row is visible" test and breaks the
+    // reading position. The pulse re-scans every five seconds and `quiet` is by
+    // construction the group whose changes are least urgent: whoever folded it
+    // was asking not to be interrupted by it.
+    let extra = false;
+    const one = fleet();
+    const two = fleet({
+      rows: [
+        ...fleet().rows,
+        row({
+          branch: 'feature/gone-quiet', plan: 'beans', group: 'quiet',
+          ageMinutes: 2_000, note: 'no commit for 33 hours',
+          branchUrl: `${GH}feature/gone-quiet`,
+        }),
+      ],
+    });
+    const page = await browser.newPage();
+    try {
+      await page.route('**/api/fleet', (route) =>
+        route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify(extra ? two : one),
+        }));
+      await page.goto(`${baseURL}?tab=agents`);
+      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await expect.poll(() => heading(page, 'Quiet').textContent()).toContain('(1)');
+      extra = true;
+      // The count moves…
+      await expect.poll(() => heading(page, 'Quiet').textContent(), { timeout: 15_000 })
+        .toContain('(2)');
+      // …and nothing else does.
+      expect(await groupRows(page, 'Quiet').count()).toBe(0);
+      expect(await page.locator('[data-group-toggle="quiet"]').getAttribute('aria-expanded'))
+        .toBe('false');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('never folds a group by itself while the reader has it open', async () => {
+    // The pulse re-scans every five seconds, and a view that folds itself while
+    // being read moves the line under the cursor — the same objection this plan
+    // raises against a right edge that shifts.
+    let quietened = false;
+    const before = fleet();
+    const after = fleet({
+      rows: fleet().rows.map((r) =>
+        r.group === 'working'
+          ? { ...r, group: 'quiet' as const, note: 'no commit for 3 hours', ageMinutes: 200 }
+          : r),
+    });
+    const page = await browser.newPage();
+    try {
+      await page.route('**/api/fleet', (route) =>
+        route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify(quietened ? after : before),
+        }));
+      await page.goto(`${baseURL}?tab=agents`);
+      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      // The reader opens QUIET deliberately.
+      await expand(page, 'quiet');
+      await expect.poll(() => groupRows(page, 'Quiet').count()).toBe(1);
+      quietened = true;
+      // Every working row lands in it — and it stays open, showing them.
+      await expect.poll(() => groupRows(page, 'Quiet').count(), { timeout: 15_000 }).toBe(4);
+      expect(await page.locator('[data-group-toggle="quiet"]').getAttribute('aria-expanded'))
+        .toBe('true');
+      // And WORKING, now empty, has lost its control rather than folding.
+      expect(await group(page, 'Working').locator('[data-group-toggle]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('leaves the footer reachable without scrolling past a collapsed group', async () => {
+    // The measurable form of the original complaint: QUIET (7) and DONE (13)
+    // rendered twenty rows between them, and the line reporting when the last
+    // scan ran had scrolled out of view.
+    const many = fleet({
+      rows: [
+        ...fleet().rows,
+        ...Array.from({ length: 7 }, (_, i) =>
+          row({
+            branch: `feature/dormant-${i}`, plan: 'beans', group: 'quiet',
+            ageMinutes: 30_000 + i, note: 'no commit for 22 days',
+            branchUrl: `${GH}feature/dormant-${i}`,
+          })),
+        ...Array.from({ length: 13 }, (_, i) =>
+          row({
+            branch: `feature/finished-${i}`, plan: 'beans', group: 'done',
+            state: 'merged', ageMinutes: 40_000 + i, note: 'merged', branchUrl: '',
+          })),
+      ],
+    });
+    const page = await browser.newPage();
+    try {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.route('**/api/fleet', (route) =>
+        route.fulfill({ contentType: 'application/json', body: JSON.stringify(many) }));
+      await page.goto(`${baseURL}?tab=agents`);
+      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      // The counts say the twenty rows are there and hidden.
+      await expect.poll(() => heading(page, 'Quiet').textContent()).toContain('(8)');
+      expect(await heading(page, 'Done').textContent()).toContain('(14)');
+      // And the footer is inside the viewport — the assertion the complaint was
+      // actually about, stated in pixels rather than in row counts.
+      const box = await footer(page).boundingBox();
+      expect(box!.y + box!.height).toBeLessThanOrEqual(800);
+      // Unfolding both puts it back out of reach, which is what makes the
+      // assertion above about the COLLAPSE rather than about a short fixture.
+      await expandAll(page);
+      await expect.poll(() => groupRows(page, 'Done').count()).toBe(14);
+      const opened = await footer(page).boundingBox();
+      expect(opened!.y).toBeGreaterThan(800);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('keeps QUIET leading with its OLDEST — the inversion is confined', async () => {
+    // A global change would silently reverse the group that most needs
+    // oldest-first: `quiet` asks *has this died?*, and the longest-silent branch
+    // is the one to check.
+    const page = await openAgents(fleet({
+      rows: [
+        ...fleet().rows,
+        row({
+          branch: 'feature/recently-quiet', plan: 'beans', group: 'quiet',
+          ageMinutes: 40, note: 'no commit for 40 minutes',
+          branchUrl: `${GH}feature/recently-quiet`,
+        }),
+      ],
+    }));
+    try {
+      await expand(page, 'quiet');
+      await expect.poll(() => groupRows(page, 'Quiet').count()).toBe(2);
+      const branches = await group(page, 'Quiet')
+        .locator('li a[href*="/tree/"], li span.font-mono').allTextContents();
+      // 999 minutes before 40: oldest first, unchanged.
+      expect(branches).toEqual(['feature/ghost', 'feature/recently-quiet']);
     } finally {
       await page.close();
     }

@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  classify, draftNote, humanAge, rowPhase, rowsFromPulse, rateLimitBackoffMs,
+  classify, compareWithinGroup, draftNote, humanAge, rowPhase, rowsFromPulse,
+  rateLimitBackoffMs,
 } from '../../src/server/fleet.js';
-import { toBoardPhase, type FleetPulse } from '../../src/contract/schema.js';
+import { toBoardPhase, type AgentRow, type FleetPulse } from '../../src/contract/schema.js';
 import type { PrRecord } from '../../src/server/fleet.js';
 
 // The classifier is where the tab's judgments live: which group a branch lands
@@ -849,6 +850,98 @@ describe('rowsFromPulse', () => {
       const future = new Map([['2026-08-15-example-plan.md', NOW + 3 * DAY]]);
       const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, null, '', future, NOW);
       expect(rows.find((r) => r.branch === 'feature/c')?.waitingDays).toBe(0);
+    });
+  });
+
+  describe('NOT STARTED sorts by the clock that dates it', () => {
+    // The group's rows have no commit, so the general rule tied every one of
+    // them at -1 and any order passed a test that only checked they were all
+    // present. The fixture therefore holds all three cases at once.
+    const sortable = (over: Partial<AgentRow>): AgentRow => ({
+      repo: 'plot', branch: 'feature/x', plan: 'p', planFile: 'p.md', wave: 'w',
+      state: 'open', phase: null, group: 'not-started', ageMinutes: null, note: '',
+      pr: null, branchUrl: '', waitingDays: null, ...over,
+    });
+
+    it('puts the freshest first, and an undated row ahead of both', () => {
+      // Undated leads because it has just arrived and has not yet been ignored
+      // by anyone; six months of availability is evidence that nobody wants it,
+      // not that it is urgent.
+      const rows = [
+        sortable({ branch: 'six-months', waitingDays: 180 }),
+        sortable({ branch: 'undated', waitingDays: null }),
+        sortable({ branch: 'today', waitingDays: 0 }),
+      ];
+      expect([...rows].sort(compareWithinGroup).map((r) => r.branch))
+        .toEqual(['undated', 'today', 'six-months']);
+    });
+
+    it('reads waitingDays, never the commit age that is not there', () => {
+      // The defect exactly: consulting `ageMinutes` leaves every row at -1, so
+      // the input order survives untouched and looks like a sort.
+      const rows = [
+        sortable({ branch: 'old-wait', waitingDays: 90, ageMinutes: null }),
+        sortable({ branch: 'new-wait', waitingDays: 1, ageMinutes: null }),
+      ];
+      expect([...rows].sort(compareWithinGroup).map((r) => r.branch))
+        .toEqual(['new-wait', 'old-wait']);
+    });
+
+    it('leaves every OTHER group oldest-first, and the inversion confined', () => {
+      // A global change would silently reverse `quiet` — the group that most
+      // needs oldest-first, since its whole question is "has this died?".
+      for (const group of ['quiet', 'working', 'done', 'waiting-on-you',
+        'waiting-on-machine'] as const) {
+        const rows = [
+          sortable({ branch: 'fresh', group, ageMinutes: 5 }),
+          sortable({ branch: 'stale', group, ageMinutes: 900 }),
+        ];
+        expect([...rows].sort(compareWithinGroup).map((r) => r.branch))
+          .toEqual(['stale', 'fresh']);
+      }
+    });
+
+    it('sorts the group that way through rowsFromPulse, not only in isolation', () => {
+      // The comparator is only right if the row builder actually uses it.
+      const DAY = 86_400_000;
+      const NOW = Date.parse('2026-08-16T12:00:00Z');
+      const threeUnstarted: FleetPulse = {
+        ...pulse,
+        plans: [
+          {
+            file: '2026-08-15-example-plan.md',
+            waves: [{
+              name: 'Implementation', verdict: 'eligible',
+              branches: [
+                { branch: 'feature/ancient', state: 'open', deferred: false, claimed: '' },
+                { branch: 'feature/recent', state: 'open', deferred: false, claimed: '' },
+              ],
+            }],
+          },
+          {
+            file: '2026-08-15-undated-plan.md',
+            waves: [{
+              name: 'Implementation', verdict: 'eligible',
+              branches: [
+                { branch: 'feature/nodate', state: 'open', deferred: false, claimed: '' },
+              ],
+            }],
+          },
+        ],
+      };
+      // One plan approved long ago, one approved today, one with no record.
+      const approvedMix = new Map([['2026-08-15-example-plan.md', NOW - 180 * DAY]]);
+      const rows = rowsFromPulse(
+        threeUnstarted,
+        new Map([
+          ['feature/ancient', null], ['feature/recent', null], ['feature/nodate', null],
+        ]),
+        'plot', QUIET, null, '', approvedMix, NOW,
+      ).filter((r) => r.group === 'not-started');
+      // Both branches of the dated plan share its approval date, so the
+      // assertion that carries weight is the undated row leading them.
+      expect(rows[0].branch).toBe('feature/nodate');
+      expect(rows.map((r) => r.waitingDays)).toEqual([null, 180, 180]);
     });
   });
 
