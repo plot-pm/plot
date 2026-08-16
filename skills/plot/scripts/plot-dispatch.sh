@@ -415,19 +415,31 @@ append_started_line() { # $1=file $2=date $3=who $4=branch
   awk -v line="$line" '
     { lines[++n] = $0 }
     END {
-      # The first `## Status` heading, then the last list item under it.
+      # The first `## Status` heading, then where the record belongs under it.
       for (i = 1; i <= n; i++) {
         if (lines[i] ~ /^##[ \t]*[Ss]tatus[ \t]*$/) { start = i; break }
       }
       if (!start) exit 1
+
+      # The template ships an EMPTY `- **Started:**` placeholder, and the record
+      # belongs there. Appending after the last list item instead put it below
+      # `- **Delivered:**` — the parser still read it, so nothing failed loudly,
+      # but the block listed a start after a delivery and both plans dispatched
+      # on 2026-08-16 had to be tidied by hand.
+      #
+      # Filling the placeholder is preferred; appending after the last list item
+      # remains the fallback for plans that never had one (pre-Plot-2 files).
       insert = start
       for (i = start + 1; i <= n; i++) {
         if (lines[i] ~ /^##[ \t]/) break
+        if (lines[i] ~ /^[ \t]*[-*][ \t]*\*\*Started:\*\*[ \t]*$/) { slot = i; break }
         if (lines[i] ~ /^[ \t]*[-*][ \t]/) insert = i
       }
+
       for (i = 1; i <= n; i++) {
+        if (i == slot) { print line; continue }   # replaces the empty placeholder
         print lines[i]
-        if (i == insert) print line
+        if (!slot && i == insert) print line
       }
     }
   ' "$f" > "$f.plot-tmp" || { rm -f "$f.plot-tmp"; return 1; }
