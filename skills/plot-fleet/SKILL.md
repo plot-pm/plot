@@ -29,7 +29,11 @@ merges nothing. It reports, and a human decides. The companion command that
 fanning out is a scope commitment, monitoring is not.
 
 **Input:** `$ARGUMENTS` is optional. A `<slug>` limits the pulse to one plan
-(default: all active plans). `--offline` / `--no-fetch` skip the `git fetch`
+(default: all active plans, plus any plan **delivered within the last 24
+hours** — merge and delivery are minutes apart, so a pulse that dropped a plan
+the instant it was delivered would lose the work at the moment it finished. A
+delivered plan with no `Delivered:` date does not appear at all, and `--next`
+never names a branch from one). `--offline` / `--no-fetch` skip the `git fetch`
 for a network-free pulse. `--log-pulse` appends one line per plan to its
 `## Notes`. `--loose` relaxes wave eligibility (see below) — strict is the
 default and should stay that way.
