@@ -140,6 +140,36 @@ bounded result.
 dispatch that branch explicitly; the check exists to stop the *accidental*
 case, which is the one that happened twice today.
 
+### 4. The row says blocked, because it is
+
+A held-back branch currently reads **`eligible — nobody has taken it`**, and
+that sentence makes two claims of which only one is true. *Nobody has taken it*
+is correct: no claim ref exists. *Eligible* is not — a dispatch would be
+refused, or would collide.
+
+The failure is not cosmetic, because the row is **indistinguishable from a
+genuinely free one**. On the board tonight, `feature/agent-view-phase-ui`
+(blocked by an agent editing `AgentList.tsx`) and `feature/plot-sprint-support`
+(free since February, waiting for anyone) render the identical note. One is
+waiting on a machine; the other is waiting on a person. The reader cannot tell,
+and the tab exists precisely to tell them.
+
+It is also the same mismatch this repo already rejected elsewhere: the Start
+button appears only on eligible rows, because offering an action the tool will
+decline teaches people to distrust the offer. A row that says *eligible* is
+that offer in text.
+
+So the vocabulary gains the state it is missing. `blocked by an earlier wave`
+already exists for the **within-plan** case; the **across-plan** case has no
+counterpart, which is why an accurate scan produces an inaccurate row. The note
+names what holds it — the branch, not merely the fact — because *blocked* alone
+invites the next question and the scan already has the answer.
+
+**Derived, never stored.** The pulse is stateless by design and stays so: the
+collision is re-computed from refs and worktrees on every scan, exactly like
+wave state. A branch stops reading blocked the moment the work it collided with
+lands, with nothing to clear.
+
 ## Branches
 
 ### Merge
@@ -155,6 +185,9 @@ case, which is the one that happened twice today.
   `merge-tree --write-tree` against local refs and worktrees before fanning
   out; a predicted collision skips the branch, names it and its counterpart in
   the summary, and counts toward `skipped=`
+- `feature/fleet-row-says-blocked` — the pulse reports a cross-plan collision
+  as its own state, so a held-back branch stops reading `eligible — nobody has
+  taken it`; derived per scan, never stored
 
 Two waves, and the order is deliberate: the artifact strategy is what makes any
 board branch mergeable at all, and the prediction is more useful once the
@@ -178,6 +211,15 @@ artifact stops producing a collision on every single pair.
   `skipped=`. Assert the count: a silent skip reads as "nothing was eligible".
 - **A non-colliding candidate still dispatches.** The regression that matters —
   a check that skips everything is indistinguishable from a broken fleet.
+- **A blocked branch does not read `eligible`.** Assert the note differs from a
+  genuinely free branch's: tonight `feature/agent-view-phase-ui` and
+  `feature/plot-sprint-support` rendered identically while one waited on a
+  machine and the other on a person.
+- **The blocked note names what holds it.** Assert the counterpart branch
+  appears — *blocked* alone invites a question the scan can already answer.
+- **A branch stops reading blocked once the collision lands**, with nothing
+  cleared by hand. Assert it against a second scan: a stored flag passes the
+  first assertion and fails this one.
 - **git older than 2.38 refuses rather than reporting clean.** `plot-merge-queue`
   already guards this because the old `merge-tree` answers a different question;
   the guard must travel with the prediction, not be reimplemented beside it.
