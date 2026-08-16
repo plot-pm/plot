@@ -26,6 +26,8 @@ git add skills/plot/scripts/board/board-server.mjs
 
 `test/reconcile/artifact.test.mjs` asserts this against the real artifact rather than a fixture, since the 177-line shape is what causes the failure: that disjoint-source branches leave the bundle whole and marker-free, that a merge and a rebase commit byte-identical artifacts, that it works in a clone which configured nothing, and — as a control — that without the attribute the same merge corrupts the file.
 
+One thing this deliberately does **not** change: `git merge-tree` still predicts the conflict, because `-merge` governs how git *resolves* the file rather than whether it *reports* one. `plot-merge-queue` therefore goes on flagging every board pair — now over-cautious rather than wrong, since what it names costs a rebuild instead of an afternoon of reading. Prediction is this plan's second wave; the behaviour is pinned in a test so it is recorded rather than rediscovered.
+
 The procedure is documented in `docs/definition-of-done.md`, with the short form in `CLAUDE.md` and `AGENTS.md` where an agent hitting the conflict will already have it in context.
 
 <!--
