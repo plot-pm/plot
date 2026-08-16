@@ -66,9 +66,31 @@ collected rather than joined into a path. `/plan/` learned this the hard way and
 its rule carries over: a name resolves against an allowlist, and traversal stays
 404.
 
+**Both routes share one hardened resolver, rather than the second copying the
+first.** Reading `/plan/` shows it defends against two attacks, not one, and
+only the first is obvious. Traversal is handled by the allowlist. The second is
+in a comment there: `decodeURIComponent` **throws** on a malformed `%` escape
+(`/plan/%E0%A4%A`), and an uncaught throw inside the request listener takes the
+process down — so the decode sits *inside* the try and a bad request is a 400,
+not a crash. A `/story/` route written from scratch would very plausibly get the
+allowlist right and that wrong, and one malformed URL would then kill the board.
+
+The two routes differ only in which allowlist they consult; decode, try/catch,
+400-vs-404, CSP and the `?embed=1` handling are identical. So they share a
+function. This session has already made that argument once today, when a
+duplicated note string became a shared constant — the same reasoning applies
+with more at stake.
+
 `StoryCardSchema` gains the resolved path, for the same reason `planFile` exists
 on a plan card — the consumer must not reconstruct it, because stripping and
-rebuilding a path is where the mistakes live.
+rebuilding a path is where the mistakes live. It carries `slug`, `title` and
+`status` today and nothing else, so this is the field that makes the route
+reachable at all.
+
+**A story with no file gets an empty path and renders no link** — the rule the
+plan rows already follow (`planFile: ''` renders text). The card keeps its title
+and status, which are true regardless; hiding the card would lose real
+information to avoid a broken link, when not linking suffices.
 
 **The plan card's story badge becomes the link.** It is already the place a
 reader looks for the story; today it is text.
@@ -94,6 +116,14 @@ that eight are hidden; five cards with no number reads as *there are five*.
 Applies to any column past the threshold, not to `Released` alone. Endgame will
 reach it next, and a rule with one hard-coded exception is a rule someone has to
 remember.
+
+**The threshold is measured, not decided here.** `Released` holds thirteen
+today and `Endgame` is growing; the right number depends on how tall a column
+gets before it stops being scannable, which is a question for a browser and not
+for a plan file. The implementing branch picks it against real columns and
+justifies it in the PR. Writing a number here would be a guess wearing the
+authority of a decision — the same mistake this plan's sibling made by naming a
+port before checking how one was chosen.
 
 ### 3. Approve prepares, and does not act
 
