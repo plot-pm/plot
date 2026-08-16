@@ -247,6 +247,28 @@ the operator free to start the branch, and — unlike today — tells them what
 they are deciding against. On tonight's board it would have been exactly right:
 `feature/agent-view-phase-ui` blocked, `feature/plot-sprint-support` free.
 
+**A Draft plan's branches are not eligible either, and that is the same rule.**
+Found on the live board while this plan was open: `working-rows-show-motion` was
+drafted, its plan PR still in CI, and its two branches immediately appeared
+under NOT STARTED with one reading *eligible — nobody has taken it*. Measured:
+`plot-plan-meta.sh` reports `phase: draft`, no `Approved:` record, no
+`Started:`.
+
+NOT STARTED means *discovered, planned, ready for an agent to pick up* — the
+hand-off point. A plan still under review has not reached it, and
+`plot-dispatch` would refuse those branches, so the row invites an action the
+tool declines. Exactly the mismatch the Start button avoids by appearing only on
+eligible rows.
+
+The data is already there and nothing reads it: since #140 the pulse reports
+each plan's own `phase`, deliberately as data — *"It is reported, never
+decides"*. So this is a condition in `classify()`, not a scan change.
+
+The row's own age gives the tell, honestly and by accident: the waiting age is
+measured from the `Approved:` record, so a Draft's rows render `—` while
+`plot-sprint-support` renders `6mo`. The row already knows it cannot answer; it
+just says "age unknown" instead of "not approved yet".
+
 **Derived, never stored.** The pulse is stateless by design and stays so: the
 state is re-computed from refs and worktrees on every scan, exactly like wave
 state. A branch stops reading blocked the moment the work it collided with
@@ -293,6 +315,9 @@ artifact stops producing a collision on every single pair.
   measurement would block pairs that ran fine today.
 - **Nothing is reported when nothing is claimed.** A report that always prints
   something teaches the reader to skip it.
+- **A DRAFT plan's branches do not read `eligible`.** Assert against a plan with
+  `phase: draft` and no `Approved:` record — the case seen live, and the one an
+  implementation reading only git state passes without noticing.
 - **A blocked branch does not read `eligible`.** Assert the note differs from a
   genuinely free branch's: tonight `feature/agent-view-phase-ui` and
   `feature/plot-sprint-support` rendered identically while one waited on a
