@@ -198,7 +198,7 @@ assertion ("the board sync works") into evidence.
 
 ### Section 3
 
-- `bug/scan-contained-in-pr` — section 3 separates contained-in-open-PR from orphaned
+- `bug/scan-contained-in-pr` — section 3 separates contained-in-open-PR from orphaned → #125
 
 ### Coverage
 
