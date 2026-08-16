@@ -364,6 +364,21 @@ export const AgentRowSchema = z.object({
    * then shows the number without a link rather than inventing one.
    */
   pr: z.object({ number: z.number(), url: z.string().default('') }).nullable().default(null),
+  /**
+   * Where this branch lives on the git host, or "" — the address the row's own
+   * branch name points at.
+   *
+   * Composed by the server from `git remote get-url origin`, NOT derived from
+   * the PR URL: that derivation works only for rows that have a PR, and
+   * `not-started`, `quiet` and fresh claims — the rows where "go look at the
+   * branch" is most useful — have none.
+   *
+   * "" in the two cases where no honest address exists: an origin whose host
+   * shape the board does not recognise, and a MERGED branch, whose remote page
+   * is gone. Both render as plain text, by the same rule `CardPrSchema` states
+   * for PR links. Defaults to "" so an older pulse still validates.
+   */
+  branchUrl: z.string().default(''),
 });
 export type AgentRow = z.infer<typeof AgentRowSchema>;
 
@@ -382,6 +397,18 @@ export const FleetSchema = z.object({
    * separately. null means it has never landed — not that it is fresh.
    */
   prAgeSeconds: z.number().nullable(),
+  /**
+   * Seconds until the server intends to fetch PR data again — backoff included,
+   * because it is read from the one gate the fetch actually obeys.
+   *
+   * Optional, and its absence is load-bearing. `PR_REFRESH_MS` is 60 s but backs
+   * off to 120 s when the host reports a rate limit, so a client ASSUMING 60 s
+   * would count to zero and sit there through the wait — rendering "I don't
+   * know" as "any moment now", which is the exact failure this whole view exists
+   * to remove. An older server sends nothing here, and the client must then show
+   * no PR countdown at all: the age alone is still true.
+   */
+  prNextInSeconds: z.number().nullable().default(null),
   prError: z.string().nullable(),
 });
 export type Fleet = z.infer<typeof FleetSchema>;

@@ -183,6 +183,68 @@ describe('rowsFromPulse', () => {
     expect(rows.find((r) => r.branch === 'feature/c')?.pr).toBeNull();
   });
 
+  const BASE = 'https://github.com/plot-pm/plot/tree/';
+
+  it('links a branch WITHOUT a PR — the rows the PR-URL derivation would have missed', () => {
+    // `feature/c` is `open` / not-started: no PR, and exactly the class where
+    // "go look at the branch" is most useful. Deriving the address from a PR URL
+    // would have left precisely these rows unlinked.
+    const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, null, BASE);
+    const notStarted = rows.find((r) => r.branch === 'feature/c');
+    expect(notStarted?.group).toBe('not-started');
+    expect(notStarted?.pr).toBeNull();
+    expect(notStarted?.branchUrl).toBe('https://github.com/plot-pm/plot/tree/feature/c');
+  });
+
+  it('gives a merged branch no branch link — its remote page is gone', () => {
+    const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, null, BASE);
+    const merged = rows.find((r) => r.branch === 'feature/a');
+    expect(merged?.state).toBe('merged');
+    expect(merged?.branchUrl).toBe('');
+  });
+
+  it('points the branch link and the PR link at DIFFERENT targets', () => {
+    // The defect this replaces: one link, on the wrong word — the branch name
+    // opened the PR. A test asserting merely "a link exists" passes on that bug,
+    // so the assertion has to be that the two addresses differ and that each
+    // goes where its own text says.
+    const prs = new Map<string, PrRecord>([
+      ['feature/b', {
+        number: 7, head: 'feature/b', state: 'OPEN', draft: false, checks: 'green',
+        review: '', url: 'https://example.test/pr/7',
+      }],
+    ]);
+    const row = rowsFromPulse(pulse, ages, 'plot', QUIET, prs, BASE)
+      .find((r) => r.branch === 'feature/b');
+    expect(row?.branchUrl).toBe('https://github.com/plot-pm/plot/tree/feature/b');
+    expect(row?.pr?.url).toBe('https://example.test/pr/7');
+    expect(row?.branchUrl).not.toBe(row?.pr?.url);
+  });
+
+  it('renders every branch as plain text when the origin is unrecognised', () => {
+    // No base, no guess. An empty base is what an unknown host produces, and it
+    // must not become a URL shape borrowed from a host this repo is not on.
+    const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, null, '');
+    expect(rows.every((r) => r.branchUrl === '')).toBe(true);
+  });
+
+  it('escapes a branch name into the URL without mangling its slashes', () => {
+    // `feature/a b` is legal in git and illegal in a raw URL. The slash is a
+    // path separator on both hosts and must survive; everything else is encoded.
+    const odd: FleetPulse = {
+      ...pulse,
+      plans: [{
+        file: '2026-08-15-example-plan.md',
+        waves: [{
+          name: 'w', verdict: 'eligible',
+          branches: [{ branch: 'feature/a b', state: 'open', deferred: false, claimed: '' }],
+        }],
+      }],
+    };
+    const rows = rowsFromPulse(odd, new Map(), 'plot', QUIET, null, BASE);
+    expect(rows[0].branchUrl).toBe('https://github.com/plot-pm/plot/tree/feature/a%20b');
+  });
+
   it('keeps the PR number but no url when the host reported none', () => {
     // An older `gh`/`bb` omits the field. The number is still worth showing;
     // the link is not worth guessing.
