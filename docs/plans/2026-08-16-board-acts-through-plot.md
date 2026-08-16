@@ -22,9 +22,11 @@
   reports as same-origin.
 
 Board impact: **yes, and it is the whole plan.** No plan-format change and no
-new helper script — `plot-dispatch.sh` already does the work. The board gains
-its first non-GET route, which is a change in kind rather than degree and is
-why the localhost condition is designed rather than added.
+new helper script — `plot-dispatch.sh` already does the work, and the one
+script edit is a field added to `plot-host.sh pr-list --rich` so the board
+never has to know what a host URL looks like. The board gains its first non-GET
+route, which is a change in kind rather than degree and is why the localhost
+condition is designed rather than added.
 
 That change is smaller than it sounds, and must stay that way. `handleRequest`
 opens with a blanket `if (req.method !== 'GET') return 405`, which is why no
@@ -76,8 +78,31 @@ dropped without anything in between. Carrying them through is the whole of the
 PR-link work, and the absence is a grep result rather than a reading of the
 contract.
 
-Where a row has no PR, it links nothing rather than guessing a URL — the same
-rule the fleet already follows for absent data.
+**And the href has to come from somewhere.** The board has PR *numbers* and no
+way to turn one into a link: `pr-list --rich` — what the fleet actually calls —
+projects `number, title, state, head, draft, checks, review` and drops the URL
+on both backends, while `pr-state` returns one and is not on this path. Nothing
+under `packages/board/src` distinguishes github.com from a self-hosted
+Bitbucket, and it must not learn to.
+
+So `pr-list --rich` gains `url`, one jq field per backend, taken from the same
+places `pr-state` already reads:
+
+    gh:  {…, review:(.reviewDecision // ""), url:.url}
+    bb:  {…, review:"", url:.links.html.href}
+
+This keeps `plot-host.sh` the one thing that knows what a host URL looks like
+(Principle 3). The board renders the string it is handed and constructs
+nothing. The alternatives both mean the board learning host URL shapes — by
+parsing `git remote get-url origin`, or by templating from the `Git host`
+config key, which produces a plausible github.com link and a wrong one for
+GitHub Enterprise. Inventing a URL where the adapter has the real one is how a
+link becomes confidently broken.
+
+Where a row has no PR — or the adapter hands back an empty `url`, as an older
+host CLI might — it links nothing rather than guessing. The same rule the fleet
+already follows for absent data, and the reason Bitbucket's `checks:"unknown"`
+renders as unavailable instead of green.
 
 **Acting is where the design lives.**
 
@@ -229,6 +254,37 @@ it does not know. Three defects this week were exactly that shape — a board
 update that never happened looking like a board nobody configured — so the
 board keeps saying only what git told it.
 
+**What the tests cover, and what they must never do.** `test/helpers.mjs`
+spins up the *shipped artifact* against a scratch repo and hits real endpoints,
+so the route can be tested exactly as it ships. What is tested is the route
+contract:
+
+- the blanket 405 still answers every other path and verb,
+- a cross-origin `Origin` / `Sec-Fetch-Site` is refused **403**,
+- `HOST=0.0.0.0` is refused 403 and the button renders disabled,
+- a 202 carries `{ slug, log }` with the log path the server chose,
+- and a refused request **spawned nothing** — the assertion that matters most,
+  since every other one can pass while the side effect still happened.
+
+The tests never run a real dispatch. `PLOT_SCRIPTS_DIR` already redirects the
+helper lookup, so a stub script stands in: no worktree beside the temp repo, no
+`git push` from CI. Driving the real script end-to-end would prove the wiring
+and would be slow, flaky, and network-dependent in a suite that currently is
+none of those. The wiring is covered by the fleet user test, where a human is
+watching.
+
+**Rollback is a revert, and that is by construction.** The route is purely
+additive: remove it and the board is what it was, because nothing else reads
+it and no data shape changed. Claims it already pushed stay — and are
+indistinguishable from claims `/plot-dispatch` made, which is the point of
+routing through the same script. `/plot-reconcile` already reaps abandoned
+claims and cannot tell (or need to tell) which door they came through. No
+migration, no cleanup pass, nothing to undo but the commit.
+
+A `Board dispatch: off` config key was considered and rejected: the `HOST`
+binding already decides whether the route exists, and a second switch for the
+same decision is two switches that can disagree.
+
 **Manifesto check.** Principle 1: the button changes git, and the display still
 derives from git. Principle 3: `plot-dispatch.sh` collects and acts; the board
 only asks — and where the script speaks (the missing `Worker command`), the
@@ -259,7 +315,7 @@ the attempt to have both is what surfaced the log-path design above.
 
 ### Navigation
 
-- `feature/board-artifact-links` — PR numbers on cards, links from rows and cards to plan, PR and story
+- `feature/board-artifact-links` — `url` in `plot-host.sh pr-list --rich` (both backends), PR numbers on cards, links from rows and cards to plan, PR and story
 
 ### Dispatch
 
@@ -269,10 +325,12 @@ the attempt to have both is what surfaced the log-path design above.
      run concurrently; navigation goes first because it is the half that is
      unarguable, and it ships value even if the button is never built. -->
 
-Navigation ships first deliberately. It is the half nobody has to think about,
-it is useful alone, and it keeps the board read-only — so if the dispatch half
-stalls in review, what landed is still an improvement rather than a half-built
-control panel.
+Navigation ships first deliberately — though not, as first written, because it
+is "the half nobody has to think about". It turned out to carry the plan's one
+unbuildable promise (a PR link with no URL to link to) and the only change to a
+shared helper script. The reason it goes first is the durable one: it is useful
+alone and it keeps the board read-only, so if the dispatch half stalls in
+review, what landed is an improvement rather than a half-built control panel.
 
 ## Notes
 
@@ -301,6 +359,14 @@ The same round found the opposite kind of surprise: `PlanCard` already computes
 `Design && !started`, the exact "approved but not started" state round 3 had
 derived from the script's gate. Two independent paths to one condition, with
 the code there first.
+
+The fifth round went after the half everyone had stopped looking at. Navigation
+was called "unremarkable" three rounds running, and it had a hole in it: the
+board has PR numbers, `pr-list --rich` never returns a URL, and nothing in the
+board may learn what a host URL looks like. The safe half was the one carrying
+an unbuildable link. It also added the two things the plan had never said
+anything about — what the tests assert (and that a refused request must be
+proven to have spawned nothing), and what reverting looks like.
 
 Deliberately not here: stopping workers, reading worker logs in the board, and
 anything that acts over a network. Each is a separate plan, and the last one is
