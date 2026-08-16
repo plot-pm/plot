@@ -83,6 +83,13 @@
 #   approved_raw   the approval transition record as written (`## Status`
 #                  `Approved:` or front matter `approved:` — who/when/channel,
 #                  e.g. "2026-07-30, alice, in-session"); "" if absent
+#   delivered_raw  the delivery transition record as written (`## Status`
+#                  `Delivered:` or front matter `delivered:` — a date, often
+#                  bare); "" if absent. NOT the same statement as
+#                  `phase: delivered`: a plan can carry the phase with the
+#                  record left empty (a bookkeeping fault plot-reconcile-scan
+#                  reports), and a consumer that needs a DATE must read this
+#                  rather than infer one from the phase.
 #   started_raw    implementation-start records, one raw string per
 #                  `Started:` line in `## Status` (repeatable; front matter
 #                  `started:` contributes one entry); [] if absent.
@@ -115,7 +122,7 @@ if [ ${#files[@]} -eq 0 ] && [ ${#missing[@]} -eq 0 ]; then
 fi
 
 for f in ${missing[@]+"${missing[@]}"}; do
-  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","approved_raw":"","released_raw":"","started_raw":[]}\n' \
+  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","approved_raw":"","released_raw":"","delivered_raw":"","started_raw":[]}\n' \
     "$(printf '%s' "$f" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 done
 
@@ -188,9 +195,11 @@ function reset_state() {
   fm_status = ""; fm_phase = ""; fm_type = ""
   fm_title = ""; fm_sprint = ""; fm_story = ""; fm_assignee = ""
   fm_review = ""; fm_impl = ""; fm_approved = ""; fm_started = ""; fm_released = ""
+  fm_delivered = ""
   canon_phase = ""; canon_type = ""
   canon_sprint = ""; canon_story = ""; canon_assignee = ""
   canon_review = ""; canon_impl = ""; canon_approved = ""; canon_released = ""
+  canon_delivered = ""
   h1_title = ""
   in_fm = 0; section = ""; in_comment = 0; branches_seen = 0
   delete branches; n_branches = 0
@@ -199,7 +208,7 @@ function reset_state() {
   delete deferred_of; delete claimed_of; delete ordered_b; n_waves = 0
   delete started; n_started = 0
 }
-function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, review, impl, approved, i, j, out, sorted_b, sorted_p, nb, np) {
+function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, review, impl, approved, delivered, i, j, out, sorted_b, sorted_p, nb, np) {
   if (fm_status != "" || fm_phase != "") {
     fmt = "frontmatter"
     praw = (fm_status != "") ? fm_status : fm_phase
@@ -220,6 +229,7 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   impl     = strip_placeholder((fm_impl     != "") ? fm_impl     : canon_impl)
   approved = strip_placeholder((fm_approved != "") ? fm_approved : canon_approved)
   released = strip_placeholder((fm_released != "") ? fm_released : canon_released)
+  delivered = strip_placeholder((fm_delivered != "") ? fm_delivered : canon_delivered)
   if (fm_started != "" && strip_placeholder(fm_started) != "") started[++n_started] = fm_started
   # Insertion sort + dedupe (portable: no gawk asort).
   nb = 0
@@ -266,6 +276,7 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   out = out ",\"impl_raw\":\"" jesc(impl) "\",\"impl\":\"" norm_impl(impl) "\""
   out = out ",\"approved_raw\":\"" jesc(approved) "\""
   out = out ",\"released_raw\":\"" jesc(released) "\""
+  out = out ",\"delivered_raw\":\"" jesc(delivered) "\""
   out = out ",\"started_raw\":["
   for (i = 1; i <= n_started; i++) out = out (i > 1 ? "," : "") "\"" jesc(started[i]) "\""
   out = out "]}"
@@ -292,6 +303,7 @@ in_fm {
   else if (lower ~ /^impl:/ && fm_impl == "") fm_impl = val_after_colon($0)
   else if (lower ~ /^approved:/ && fm_approved == "") fm_approved = val_after_colon($0)
   else if (lower ~ /^released:/ && fm_released == "") fm_released = val_after_colon($0)
+  else if (lower ~ /^delivered:/ && fm_delivered == "") fm_delivered = val_after_colon($0)
   else if (lower ~ /^started:/ && fm_started == "") fm_started = val_after_colon($0)
   next
 }
@@ -320,6 +332,7 @@ section == "status" {
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**impl[:*]/ && canon_impl == "") canon_impl = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**approved[:*]/ && canon_approved == "") canon_approved = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**released[:*]/ && canon_released == "") canon_released = val_after_colon($0)
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**delivered[:*]/ && canon_delivered == "") canon_delivered = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**started[:*]/) {
     _s = strip_placeholder(val_after_colon($0))
     if (_s != "") started[++n_started] = _s
