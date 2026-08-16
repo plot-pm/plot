@@ -322,9 +322,16 @@ function Row({
 
           Empty where the row has no honest phase — a plan that is rejected,
           superseded or simply unknown — rather than guessing a column. */}
-      <span className="w-24 shrink-0 truncate text-xs text-slate-500 dark:text-slate-400" title={row.phase ? `Phase: ${row.phase}` : undefined}>
-        {row.phase && <span className="sr-only">Phase: </span>}
-        {row.phase ?? ''}
+      <span
+        className="w-24 shrink-0 truncate text-xs text-slate-500 dark:text-slate-400"
+        title={row.phase ? `Phase: ${row.phase}` : undefined}
+      >
+        {row.phase && (
+          <>
+            <span className="sr-only">Phase: </span>
+            <span data-phase={row.phase}>{row.phase}</span>
+          </>
+        )}
       </span>
       {/* Plan BEFORE branch: what this belongs to, then which slice of it — the
           order in which the tab is read. It also lets rows of one plan form a

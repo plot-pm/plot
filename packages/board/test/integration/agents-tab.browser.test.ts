@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
 import { startServer } from '../helpers.mjs';
-import type { AgentRow, Fleet } from '../../src/contract/schema.js';
+import { ELIGIBLE_NOTE, type AgentRow, type Fleet } from '../../src/contract/schema.js';
 
 /**
  * The Agents tab, driven in a REAL browser against the shipped artifact.
@@ -24,8 +24,8 @@ const GH = 'https://github.com/tiny/garden/tree/';
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'plant-tomatoes',
   planFile: '2026-03-01-plant-tomatoes.md', wave: 'w', state: 'wip',
-  group: 'working', ageMinutes: 3, note: 'last commit 3 min ago', pr: null,
-  branchUrl: `${GH}feature/x`, waitingDays: null, ...over,
+  phase: 'Development', group: 'working', ageMinutes: 3, note: 'last commit 3 min ago',
+  pr: null, branchUrl: `${GH}feature/x`, waitingDays: null, ...over,
 });
 
 /** A pulse carrying the cases the plan's *Done when* list names. */
@@ -45,17 +45,37 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
       branchUrl: `${GH}feature/reviewed`,
     }),
     // A not-started row: no PR at all, and exactly the class the rejected
-    // PR-URL derivation would have left unlinked.
+    // PR-URL derivation would have left unlinked. `state: 'open'` and the
+    // eligible note make it the one row a person can actually pick up, so it
+    // is also the row that carries the Start work button.
     row({
       branch: 'feature/untaken', plan: 'plant-tomatoes', group: 'not-started',
-      ageMinutes: null, note: 'eligible — nobody has taken it',
+      state: 'open', phase: 'Design', ageMinutes: null, note: ELIGIBLE_NOTE,
       branchUrl: `${GH}feature/untaken`, waitingDays: 22,
+    }),
+    // The other half of `not-started`, and the one that must NOT get a button:
+    // a branch an earlier wave still blocks. plot-dispatch.sh refuses it, so a
+    // button here would invite an action the tool declines.
+    row({
+      branch: 'feature/blocked', plan: 'plant-tomatoes', group: 'not-started',
+      state: 'open', phase: 'Design', ageMinutes: null,
+      note: 'blocked by an earlier wave', branchUrl: `${GH}feature/blocked`,
+      waitingDays: 22,
+    }),
+    // A branch handed back: real commits inside the quiet window, under an
+    // APPROVED plan. Both halves must show — the phase has fallen back to
+    // Design (nobody is working on it) AND the badge says why (someone gave it
+    // up, rather than never having begun). Either alone is the wrong answer.
+    row({
+      branch: 'feature/shelved', plan: 'beans', group: 'not-started',
+      state: 'deferred', phase: 'Design', ageMinutes: 2,
+      note: 'last commit 2 min ago', branchUrl: `${GH}feature/shelved`,
     }),
     // A not-started row whose plan records no approval date — every plan
     // predating the `Approved:` field. It must show no waiting age at all.
     row({
       branch: 'feature/undated', plan: 'beans', group: 'not-started',
-      ageMinutes: null, note: 'eligible — nobody has taken it',
+      state: 'open', phase: 'Design', ageMinutes: null, note: ELIGIBLE_NOTE,
       branchUrl: `${GH}feature/undated`, waitingDays: null,
     }),
     // A merged branch: its remote page is gone, so no branch link.
@@ -69,6 +89,15 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
       branch: 'feature/ghost', plan: 'ghost-plan', planFile: '2099-01-01-ghost-plan.md',
       group: 'quiet', ageMinutes: 999, note: 'no commit for 16 hours',
       branchUrl: `${GH}feature/ghost`,
+    }),
+    // The same missing card, on a row that is otherwise perfectly startable.
+    // `StartWorkButton` takes a Card, and a row is not one — so this row gets
+    // NO button rather than a broken one.
+    row({
+      branch: 'feature/ghost-ready', plan: 'ghost-plan',
+      planFile: '2099-01-01-ghost-plan.md', group: 'not-started', state: 'open',
+      phase: 'Design', ageMinutes: null, note: ELIGIBLE_NOTE,
+      branchUrl: `${GH}feature/ghost-ready`,
     }),
   ];
   return {
@@ -156,6 +185,23 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     return { page, fail: () => { failing = true; }, recover: () => { failing = false; } };
   }
+
+  /**
+   * ONE agent row, by a branch name it contains.
+   *
+   * `locator('li', { hasText })` is not enough and stopped being enough the
+   * moment a second plan earned a sub-heading: `groupByPlan` wraps each plan's
+   * rows in an outer `<li>`, so the filter matches the wrapper AND the row, and
+   * every count inside it doubles. The wrapper holds no branch link of its own,
+   * so descending through one is what names a single row.
+   */
+  const rowFor = (page: Page, branch: string) =>
+    // Matched on the branch CELL's exact text, not as a substring of the row:
+    // `hasText` is a substring match and `feature/ghost` is a prefix of
+    // `feature/ghost-ready`, so a plain filter would return both rows. The
+    // cells carry no separating whitespace either, which rules out a
+    // word-boundary regex over the row's text.
+    page.locator('li.flex').filter({ has: page.getByText(branch, { exact: true }) });
 
   /** The section for one waiting-group, by its heading text. */
   const group = (page: Page, label: string) =>
@@ -322,7 +368,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // carried by colour and title, not by a second position.
     const page = await openAgents();
     try {
-      const untaken = page.locator('li', { hasText: 'feature/untaken' });
+      const untaken = rowFor(page, 'feature/untaken');
       await expect.poll(() => untaken.getByTitle(/nobody has started it/).count()).toBe(1);
       await expect.poll(() => untaken.getByTitle(/nobody has started it/).textContent())
         .toBe('22d');
@@ -333,7 +379,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() => untaken.locator('span').last().textContent()).toBe('22d');
       expect(await untaken.getByText(/waiting/).count()).toBe(0);
       // No approval date recorded — nothing rather than a zero or a "just now".
-      const undated = page.locator('li', { hasText: 'feature/undated' });
+      const undated = rowFor(page, 'feature/undated');
       expect(await undated.getByTitle(/nobody has started it/).count()).toBe(0);
     } finally {
       await page.close();
@@ -346,7 +392,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents();
     try {
       for (const branch of ['feature/beans-a', 'feature/reviewed', 'feature/landed']) {
-        const li = page.locator('li', { hasText: branch });
+        const li = rowFor(page, branch);
         expect(await li.getByText(/waiting/).count()).toBe(0);
       }
     } finally {
@@ -361,6 +407,238 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         .locator('li a[href*="/tree/"], li span.font-mono').allTextContents();
       // beans: 200 then 10; then plant-tomatoes: 50.
       expect(branches).toEqual(['feature/beans-a', 'feature/beans-b', 'feature/toms-a']);
+    } finally {
+      await page.close();
+    }
+  });
+
+  // ── The phase takes the repo's place ──────────────────────────────────────
+
+  it('shows the phase SPELLED OUT, and not truncated at its longest', async () => {
+    // Initials cannot carry this: Discovery, Design and Development all begin
+    // with D, and `DE` covers two of them. Nor can icons — PHASE_LEADERSHIP
+    // maps 👤 to three of the five phases, because it encodes who LEADS rather
+    // than which phase. So the assertion is the full word, and that the cell is
+    // wide enough for the longest one: at `w-16` "Development" rendered
+    // "Developm…", which is worse than nothing.
+    const page = await openAgents();
+    try {
+      const li = rowFor(page, 'feature/reviewed');
+      await expect.poll(() => li.textContent()).toContain('Development');
+      // Not clipped: the rendered width covers the text it holds. `scrollWidth`
+      // exceeding `clientWidth` is exactly what truncation looks like in the
+      // DOM, and it is invisible to a text assertion — `textContent` returns
+      // the full string even when the ellipsis is what the reader sees.
+      const cell = li.locator('[data-phase]');
+      expect(await cell.textContent()).toBe('Development');
+      const fits = await cell.evaluate(
+        (el) => el.scrollWidth <= (el.parentElement as HTMLElement).clientWidth,
+      );
+      expect(fits).toBe(true);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('drops the repo column — the phase took its place', async () => {
+    // A seventh cell would wrap a row that already wraps on long branch names.
+    // The repo is the right thing to give up: constant in a one-repo board and
+    // rendered nowhere else in the app. Asserted as an ABSENCE, because adding
+    // the phase beside the repo passes every other test in this file.
+    const page = await openAgents();
+    try {
+      const li = rowFor(page, 'feature/reviewed');
+      await expect.poll(() => li.textContent()).toContain('Development');
+      expect(await li.textContent()).not.toContain('garden');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('names the phase for a screen reader, which has no column position', async () => {
+    // The list is a `<li>` of `<span>`s — a visual table with no table
+    // semantics — so a row is heard as a run of words and nothing says which
+    // word is the phase. `plot` survived that on luck, reading as a repo name
+    // because it looks like one; `Development` does not announce itself.
+    //
+    // Asserted as accessible TEXT rather than as a title attribute: `title` is
+    // never shown on touch and is read inconsistently across screen readers, so
+    // it may accompany the label and not replace it.
+    const page = await openAgents();
+    try {
+      const li = rowFor(page, 'feature/reviewed');
+      await expect.poll(() => li.textContent()).toContain('Phase: Development');
+      // And it costs no space on screen — the label is for the reader who
+      // cannot see the column, not an extra word in the row.
+      //
+      // Asserted on the rendered BOX rather than on `innerText`: sr-only hides
+      // by clipping an absolutely-positioned 1px box, which Chromium still
+      // reports in `innerText` (it is not `display: none`). The box is what
+      // decides whether a sighted reader sees it.
+      const label = li.locator('span.sr-only');
+      const box = await label.boundingBox();
+      expect(box?.width ?? 99).toBeLessThanOrEqual(1);
+      expect(box?.height ?? 99).toBeLessThanOrEqual(1);
+      // The word itself is not hidden with it.
+      const word = li.locator('[data-phase]');
+      expect(await word.textContent()).toBe('Development');
+      expect((await word.boundingBox())?.width ?? 0).toBeGreaterThan(1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('leaves the cell empty where no phase is honest', async () => {
+    // A plan that is rejected, superseded or simply unknown has no column, and
+    // the row says nothing rather than guessing one.
+    const page = await openAgents(
+      fleet({ rows: fleet().rows.map((r) => ({ ...r, phase: null })) }),
+    );
+    try {
+      const li = rowFor(page, 'feature/reviewed');
+      await expect.poll(() => li.textContent()).not.toContain('Phase:');
+      for (const word of ['Discovery', 'Design', 'Development', 'Endgame', 'Released']) {
+        expect(await li.textContent()).not.toContain(word);
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  // ── A deferred branch reads Design AND says it was handed back ────────────
+
+  it('shows a deferred branch its phase AND the badge — each alone is wrong', async () => {
+    // Both halves, asserted together. Bare Design is indistinguishable from a
+    // branch nobody ever started; the badge alone would leave a month-old
+    // branch reading Development while nobody is working on it and the question
+    // of whether it is wanted is back on the table.
+    const page = await openAgents();
+    try {
+      const li = rowFor(page, 'feature/shelved');
+      await expect.poll(() => li.textContent()).toContain('deferred');
+      expect(await li.textContent()).toContain('Design');
+      expect(await li.textContent()).not.toContain('Development');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('keeps the row\'s own note — `deferred` does not replace it', async () => {
+    // The defect this pins: classify() used to return `note: 'deferred'`
+    // unconditionally, so a branch started and then shelved lost whatever else
+    // it had to say. The badge carries that fact; the note keeps its own.
+    const page = await openAgents();
+    try {
+      const li = rowFor(page, 'feature/shelved');
+      await expect.poll(() => li.textContent()).toContain('last commit 2 min ago');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('never reads WORKING for a deferred branch with a fresh commit', async () => {
+    // The one place intent outranks git. WORKING claims *an agent is on this
+    // right now*, which is false for work someone handed back — however recent
+    // the last commit. `feature/shelved` is two minutes old and belongs in
+    // NOT STARTED.
+    const page = await openAgents();
+    try {
+      await expect.poll(() => group(page, 'Not started').getByText('feature/shelved').count())
+        .toBe(1);
+      expect(await group(page, 'Working').getByText('feature/shelved').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('puts no badge on a branch nobody handed back', async () => {
+    const page = await openAgents();
+    try {
+      const li = rowFor(page, 'feature/untaken');
+      await expect.poll(() => li.textContent()).toContain('Design');
+      expect(await li.textContent()).not.toContain('deferred');
+    } finally {
+      await page.close();
+    }
+  });
+
+  // ── Start work, on the rows that can actually be started ──────────────────
+
+  const startButtons = (page: Page) => page.getByRole('button', { name: 'Start work' });
+
+  it('offers Start work on an eligible row', async () => {
+    // Nothing new is built: the button already exists on PlanCard, already
+    // dispatches, already handles the outstanding-click state. What is new is
+    // that a fleet row can reach it.
+    const page = await openAgentsWithBoard();
+    try {
+      const li = rowFor(page, 'feature/untaken');
+      await expect.poll(() => li.getByRole('button', { name: 'Start work' }).count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('offers NOTHING on a row blocked by an earlier wave — not even greyed out', async () => {
+    // The assertion the whole rule exists for. A button here would offer to
+    // skip the ordering waves express, and plot-dispatch.sh refuses that branch
+    // — so the board would be inviting an action the tool declines. And no
+    // disabled control either: a button whose usual state is *you cannot*
+    // teaches people to ignore buttons. The note already says why.
+    const page = await openAgentsWithBoard();
+    try {
+      const li = rowFor(page, 'feature/blocked');
+      await expect.poll(() => li.textContent()).toContain('blocked by an earlier wave');
+      expect(await li.getByRole('button').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('offers nothing on a row whose plan has no board card', async () => {
+    // StartWorkButton takes a Card and a row is not one, so the card is looked
+    // up by planFile. A plan outside the walked directories has a row and no
+    // card — it gets no button rather than a broken one, the same honest
+    // fallback the plan link already makes.
+    const page = await openAgentsWithBoard();
+    try {
+      const li = rowFor(page, 'feature/ghost-ready');
+      await expect.poll(() => li.textContent()).toContain(ELIGIBLE_NOTE);
+      expect(await li.getByRole('button').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('offers nothing on rows that already have a branch and a claim', async () => {
+    // Working, quiet and waiting rows are somebody's already. Offering to start
+    // one invites exactly the double-dispatch fleet-sees-merged-branches was
+    // written to prevent.
+    const page = await openAgentsWithBoard();
+    try {
+      await expect.poll(() => startButtons(page).count()).toBeGreaterThan(0);
+      for (const branch of ['feature/beans-a', 'feature/reviewed', 'feature/landed',
+        'feature/ghost', 'feature/shelved']) {
+        expect(await rowFor(page, branch).getByRole('button').count()).toBe(0);
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('offers nothing at all before the board has said whether it can dispatch', async () => {
+    // `openAgents` does not wait for /api/board, so no cards and no dispatch
+    // capability have landed. A control whose outcome is unknown is worse than
+    // no control — the same rule PlanCard follows.
+    const page = await browser.newPage();
+    try {
+      await page.route('**/api/board', (route) => route.abort('connectionrefused'));
+      await page.route('**/api/fleet', (route) =>
+        route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
+      await page.goto(`${baseURL}?tab=agents`);
+      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await rowFor(page, 'feature/untaken').waitFor({ timeout: 10_000 });
+      expect(await startButtons(page).count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -645,7 +923,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // card. `PlanModal` takes a Card, so an empty modal is the alternative.
     const page = await openAgentsWithBoard();
     try {
-      const link = page.getByRole('link', { name: 'ghost-plan' });
+      // `.first()`: the plan has two rows in different groups, each naming it.
+      const link = page.getByRole('link', { name: 'ghost-plan' }).first();
       expect(await link.getAttribute('href')).toBe('/plan/2099-01-01-ghost-plan.md');
       await link.click();
       // The click navigates (to a 404 for this fixture) rather than opening a
