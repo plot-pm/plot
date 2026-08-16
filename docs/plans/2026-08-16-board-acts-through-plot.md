@@ -16,9 +16,10 @@
 
 - Board rows and cards link to what they name: the plan (in the existing
   viewer), the pull request, and the story.
-- A plan card in Design or Development carries **Start work** — it runs
+- A plan card whose plan is approved carries **Start work** — it runs
   `plot-dispatch.sh` for that plan, exactly as `/plot-dispatch` does. Available
-  only while the board is bound to localhost.
+  only while the board is bound to localhost, and only for requests the browser
+  reports as same-origin.
 
 Board impact: **yes, and it is the whole plan.** No plan-format change and no
 new helper script — `plot-dispatch.sh` already does the work. The board gains
@@ -138,6 +139,31 @@ most for. Keying on the column would hide it from exactly those plans, so the
 button follows the phase the script actually checks, in whichever column the
 card happens to sit.
 
+The card already computes this. `PlanCard` renders its **Ready** badge on
+`card.phase === 'Design' && card.started === false` — precisely "approved but
+not started". The button reuses that condition and adds Development cards,
+which are approved and started. Nothing new on `CardSchema`, and the badge and
+the button cannot disagree, because they are the same expression.
+
+**Start work is a `<button>`, never an anchor.** Open is an anchor on purpose —
+it has a URL, and cmd/ctrl/middle-click must open the plan natively. Start work
+has no URL and must never be openable in a new tab, prefetched, or bookmarked;
+it is a state change, not a destination. A real button also gives keyboard
+activation and a native `disabled`, so the *starting…* state is a real disabled
+control rather than a simulated one.
+
+    <button type="button" disabled={starting} aria-busy={starting}>
+      {starting ? 'starting…' : 'Start work'}
+    </button>
+
+**The wait has a bound.** If the pulse never confirms — the claim lost its
+race, no branch was eligible, the script failed — the button stops after about
+three pulses (~12 s: enough for a worktree create plus a push, short of leaving
+someone staring) and says **"no change — see log"** with the path. It does not
+guess which of the three happened. The script already wrote the truth to the
+log; inventing a reason in the UI would be the board asserting something it
+does not know, which is the failure mode this whole design is arranged against.
+
 **A double click is safe but not quiet.** Two clicks, or two tabs, fire two
 runs at one slug; the claim race handles the danger (the loser's non-fast-
 forward push is rejected and its worktree removed), so nothing is corrupted.
@@ -158,6 +184,35 @@ authentication is the category of decision where amateur schemes fail quietly.
 When the board legitimately needs to act over a network, that is a plan with an
 auth design in it — not a flag.
 
+**But the binding answers reachability, and the browser is not a network
+question.** Any website the user happens to visit can issue
+
+    fetch('http://localhost:7777/api/dispatch', {method:'POST', mode:'no-cors', …})
+
+and the browser will send it. The server sees a request from localhost and
+accepts. The attacker cannot read the reply — and does not need to: the
+worktree exists and the claim is pushed before the response is written. Textual
+CSRF, and the one hole the binding argument cannot cover on its own. No route
+in the server validates `Origin` today, because until now no route did anything.
+
+The route therefore requires that the request came from the board itself:
+
+    if (req.headers['sec-fetch-site'] &&
+        req.headers['sec-fetch-site'] !== 'same-origin')     → 403
+    if (req.headers.origin &&
+        req.headers.origin !== `http://localhost:${PORT}`)   → 403
+
+Both headers are set by the browser and cannot be forged by page JavaScript,
+which is exactly why they are worth checking and a token is not. This is not
+the auth scheme the plan refuses to invent — it invents nothing, stores nothing,
+and shares no secret. It only insists that a state-changing request came from
+the page allowed to make it.
+
+It also settles a road not taken: `GET /api/dispatch?slug=…` would have avoided
+the 405 question entirely and been strictly worse — a verb that lies, fireable
+by a prefetcher or a link, and not even nominally protected by the preflight
+rules that constrain cross-site POSTs.
+
 **Only start, never stop.** The asymmetry is real: a start is reversible for the
 price of `--stop`, while a stop kills a running session and whatever it had not
 committed. `--status` and `--stop` stay in the terminal, where the person
@@ -176,8 +231,12 @@ board keeps saying only what git told it.
 
 **Manifesto check.** Principle 1: the button changes git, and the display still
 derives from git. Principle 3: `plot-dispatch.sh` collects and acts; the board
-only asks. Principle 5: nothing project-specific. Principle 12: the outcome is
-read back from a pulse rather than assumed from a 202.
+only asks — and where the script speaks (the missing `Worker command`), the
+board quotes rather than paraphrases. Principle 5: nothing project-specific;
+the `Origin` check names the board's own port, not a deployment. Principle 12:
+the outcome is read back from a pulse rather than assumed from a 202, and when
+the pulse says nothing the board says *nothing changed* rather than inferring a
+cause.
 
 ### Open Questions
 
@@ -204,7 +263,7 @@ the attempt to have both is what surfaced the log-path design above.
 
 ### Dispatch
 
-- `feature/board-start-work` — `POST /api/dispatch` allow-listed ahead of the 405 guard, localhost-only, spawn-and-202 with a slug-keyed log; Start work on cards whose plan phase is `approved`
+- `feature/board-start-work` — `POST /api/dispatch` allow-listed ahead of the 405 guard, localhost-bound and same-origin-checked, spawn-and-202 with a slug-keyed log; Start work on cards whose plan phase is `approved`
 
 <!-- Two waves, one branch each. Both touch the board bundle, so they cannot
      run concurrently; navigation goes first because it is the half that is
@@ -223,14 +282,25 @@ corrected to *acting through the orchestrator rather than in the board*, which
 is what put the button on the plan card and the decision-making in
 `plot-dispatch.sh`.
 
-Interrogated over three rounds before approval. What the rounds changed came
-almost entirely from reading `plot-dispatch.sh` and `index.ts` rather than from
-reasoning about the design: the blanket 405 that had to be preserved instead of
-removed, the phase gate that answered an open question outright, the
-`start_worker` return-1-is-not-an-error case, and the 202/summary contradiction
-that could not survive contact with a network write on a single-threaded
-server. The consistent lesson of this story holds again — the plan's model of
-the code and the code disagreed in four places, and only looking found them.
+Interrogated over four rounds before approval. What the rounds changed came
+almost entirely from reading `plot-dispatch.sh`, `index.ts` and `PlanCard.tsx`
+rather than from reasoning about the design: the blanket 405 that had to be
+preserved instead of removed, the phase gate that answered an open question
+outright, the `start_worker` return-1-is-not-an-error case, and the 202/summary
+contradiction that could not survive contact with a network write on a
+single-threaded server.
+
+The fourth round found the one thing the design was actually wrong about rather
+than vague on. "The binding is the authorisation" reads as a complete argument
+and is not: it reasons about who can *reach* the port and says nothing about
+what a browser will *send* on a visited page's behalf. The fix is small and the
+gap was invisible from inside the plan's own framing — which is the argument
+for interrogating a plan whose security reasoning sounds finished.
+
+The same round found the opposite kind of surprise: `PlanCard` already computes
+`Design && !started`, the exact "approved but not started" state round 3 had
+derived from the script's gate. Two independent paths to one condition, with
+the code there first.
 
 Deliberately not here: stopping workers, reading worker logs in the board, and
 anything that acts over a network. Each is a separate plan, and the last one is
