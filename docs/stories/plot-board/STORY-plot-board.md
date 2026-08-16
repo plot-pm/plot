@@ -269,6 +269,40 @@ that closes the loop, and it has not been built yet.
   Not obviously the fleet scan's job to fix — it is branch-oriented by design —
   so this may belong to whatever renders the Discovery/Design columns from the
   plan's own PR rather than from `## Branches`.
+
+  **Superseded the same day by the entry below** — the agent view was only the
+  half of this I looked at first. The plan itself is missing from the board
+  too, which is the larger fact.
+- ⏸️ **A plan under PR review is on no board column at all — Draft is
+  structurally unreachable.** Follow-up question, 2026-08-16: *isn't a draft
+  plan exactly the discovery work we are doing, and is that why Discovery is
+  always empty?* Checked against the running board rather than the code, and
+  the answer came out in three layers, the first two of which I had wrong.
+  **A draft plan is Design, not Discovery.** `toBoardPhase('draft') →
+  'Design'`, explicitly. **Discovery is empty by construction**, not by
+  accident: `Swimlanes.tsx` filters it out of the plan columns
+  (`BOARD_PHASES.filter((p) => p !== 'Discovery')`) because in this model
+  Discovery is where a *story* lives before any plan exists for it. Writing the
+  plan file is the act of leaving Discovery. Both correct as designed.
+  **But #126 is in neither column.** Queried live: Design holds 2 cards
+  (`opus5-longhorizon-hardening`, `plot-sprint-support`), Development 3,
+  Endgame 1, Released 7, Discovery 0 — and neither #126 nor #121 appears
+  anywhere. The board reads plan files from the working tree on the default
+  branch, and a `Review: pr` plan lives only on its idea branch until approval
+  merges it. Confirmed exhaustively: of every plan file on `main`, **not one is
+  in phase Draft** — Draft is not rare on the board, it is unreachable.
+  So the column marked 👤 *human-led*, where a person's attention is the scarce
+  resource, is missing precisely the plans that need attention. And the failure
+  is selective rather than total: plans reviewed `in-session` or already
+  approved *are* shown, so Design looks populated and complete while the two
+  plans under active review are absent. A column that is wrong-but-plausible is
+  worse than one that is visibly empty.
+  Worth noting what this is not: not a fleet-scan bug (that view is
+  branch-oriented by design), and not the phase mapping (which is right). It is
+  that "what plans exist" is sourced from one branch's working tree, while
+  plans under PR review deliberately live elsewhere — the same
+  git-is-the-database question as [[fleet-sees-merged-branches]], one level up:
+  the default branch is not the whole database.
 - ⏸️ **Does the board stay one-repo?** The design keeps every data function
   repo-parameterised, and tab 2 is meant to go cross-repo — "what are my agents
   waiting for" is a question about a person, not a repository. Not decided.
