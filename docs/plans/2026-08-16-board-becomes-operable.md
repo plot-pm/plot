@@ -222,6 +222,7 @@ error.
 
 - `feature/board-column-overflow` — recent-first truncation with a visible count
   and a control for the rest, by phase date, for any column past the threshold
+  → #155
 
 ### Action
 
