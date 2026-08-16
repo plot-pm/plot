@@ -540,6 +540,7 @@ export function App() {
               pulse={pulse}
               onStarting={onStarting}
               onOpenPlan={setOpenPlan}
+              onOpenStory={onOpenStory}
               highlight={validHighlight}
             />
           ) : (

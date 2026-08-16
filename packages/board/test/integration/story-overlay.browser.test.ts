@@ -214,6 +214,38 @@ describe('story overlay: opening a story from the board', () => {
     }
   });
 
+  it('a swimlane row header opens its story — the other place one is named', async () => {
+    const page = await openBoard();
+    try {
+      // The lane view names a story as a ROW HEADER, which led nowhere for the
+      // same reason the badge did. Both now point at the story's own file.
+      await page.getByLabel('Story lanes').check();
+      const header = page.getByRole('link', { name: 'Berry patch' });
+      await header.waitFor({ timeout: 10_000 });
+      expect(await header.getAttribute('href')).toBe('/story/berry-patch');
+
+      await header.click();
+      const dialog = page.getByRole('dialog');
+      await dialog.waitFor({ state: 'visible', timeout: 5_000 });
+      expect(await dialog.getByRole('heading', { name: 'Story' }).count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('a lane naming a story with no file is plain text, not a link', async () => {
+    const page = await openBoard();
+    try {
+      // `orphan-bed` gets its own lane — dropping it would make work vanish —
+      // but the header names no artefact, so it links to none.
+      await page.getByLabel('Story lanes').check();
+      await expect.poll(() => page.getByText('orphan-bed').count()).toBeGreaterThan(0);
+      expect(await page.getByRole('link', { name: 'orphan-bed' }).count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
   it('`Show in board` from the story overlay filters the board to that story', async () => {
     const page = await openBoard();
     try {
