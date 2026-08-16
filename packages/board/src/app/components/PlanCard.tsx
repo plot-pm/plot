@@ -85,6 +85,13 @@ export function PlanCard({ card, showSprint, showStory, onOpen, onGoToStory }: P
             <Badge variant="story">{card.story}</Badge>
           )
         )}
+        {/* Optional is not the same as invisible. Rendering nothing for a plan
+            with no story makes "belongs to none" indistinguishable from "the
+            badge is switched off" — an absence that reads as a non-answer.
+            Neutral, not a warning colour: naming no story is a legitimate
+            choice, and colouring it like a defect would re-create the
+            obligation a story lint was deliberately dropped to avoid. */}
+        {showStory && !card.story && <Badge variant="neutral">no story</Badge>}
         {card.waveSummary && card.waveSummary.branches > 0 && (
           // Answers the question a tile is actually asked: how much work is
           // left, and is anyone on it? Deferred branches are excluded from the
