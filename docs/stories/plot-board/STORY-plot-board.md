@@ -127,6 +127,27 @@ that closes the loop, and it has not been built yet.
   would have stopped the board rather than reloading it. Checking what actually
   starts the board was the whole difference between a one-word change and a
   feature.
+- ⏸️ **`pnpm board` starts another board instead of adopting the running one.**
+  Found 2026-08-16 while chasing why the quota kept draining *after* #123 had
+  landed and `--watch` was in place: `ps` showed **seven** independent
+  board-servers on seven ports, started 13:48, 13:55, 14:05, 15:10 (×2) and
+  15:27 (×2). Nobody chooses seven boards; they accumulate, one per `pnpm
+  board` in a new terminal, and each keeps polling forever because nothing ever
+  stops them.
+  Measured after killing the five stale ones — three idle minutes with no
+  `gh` calls of my own: **80 GraphQL calls/hour per board.** That is #123
+  working exactly as designed (720/h at the old 5 s cadence → 80/h at 60 s plus
+  backoff). Seven boards make it **560/h**, or ~4500 across a working day —
+  enough to exhaust 5000 on its own, with no agent or human call involved.
+  So the earlier diagnosis was right but partial: the stale bundle explained
+  the *second* exhaustion; process pile-up explains the drain that outlived the
+  fix. One board is harmless, seven are not, and the difference is invisible
+  from inside any one of them.
+  The shape of the fix is known from elsewhere in this repo: exclusion through
+  something observable. Dispatch claims a branch by pushing a ref; `pnpm board`
+  should claim its port — adopt a live server (or say which one is already
+  serving) rather than opening another. Until then, `ps aux | grep
+  board-server` before starting one.
 - ⏸️ **The checked-in artifact collides on every parallel branch** — three
   merges in one afternoon (#117, #118, #119), each conflicting in
   `board-server.mjs` and only there, while every source file merged cleanly.
