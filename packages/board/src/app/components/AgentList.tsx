@@ -154,6 +154,66 @@ export function isStartable(row: AgentRow): boolean {
   return row.group === 'not-started' && row.state === 'open' && row.note === ELIGIBLE_NOTE;
 }
 
+/**
+ * Does this row get the live indicator?
+ *
+ * Group membership and nothing else. `working` has three entrances of differing
+ * strength — an uncommitted worktree, a commit inside the quiet window, a bare
+ * claim with no commits yet — and it is tempting to grade the animation by which
+ * one applied. Rejected: **membership IS the statement**, and it is true for all
+ * three. Each is a reason the fleet considers the branch live, the note beside
+ * the row already says WHICH reason, and a second vocabulary made of speeds
+ * would encode in motion what the text states plainly — while being unreadable
+ * in isolation and invisible in a screenshot, which this board takes seriously
+ * enough to have written into its rule for colour.
+ *
+ * The claim is therefore narrow and true by construction: this row is in
+ * WORKING, re-derived every scan. Unlike the countdown that kept ticking after
+ * its server died, it asserts no future event — it stops the moment the row
+ * leaves the group, which is exactly when the work stopped or moved on.
+ *
+ * Exported for test: a confidence-graded implementation passes a test that
+ * checks only one of the three notes, so all three are pinned here.
+ */
+export function isLive(row: AgentRow): boolean {
+  return row.group === 'working';
+}
+
+/**
+ * The live indicator: a small dot breathing between two opacities.
+ *
+ * Tailwind's own `animate-pulse` with `motion-reduce:animate-none`. This is the
+ * board's FIRST animation, so the smallest possible introduction is the right
+ * one — no new CSS file, no keyframe of our own, and the reduced-motion variant
+ * arrives with the utility rather than needing its own media query.
+ *
+ * A pulse rather than a spinner, on a plain count: WORKING regularly holds
+ * several rows — four agents ran in parallel on 2026-08-16 — and four rotating
+ * spinners in a column is flicker, not information. Rotation also implies
+ * *progress toward completion*, which nothing here measures; a pulse implies
+ * *aliveness*, which is the claim being made.
+ *
+ * BEFORE the row rather than inside the note, because the note is where the row
+ * states its facts and motion there competes with reading them. A leading dot
+ * needs no column of its own and scales from one row to eight.
+ *
+ * `aria-hidden`, because it is decoration on top of information and never the
+ * carrier of it. A screen reader already gets the group heading and the row's
+ * own text; the same rule the contract sets for colour — *carried as a symbol
+ * AND a word, never as colour alone* — and this passes it by design rather than
+ * by luck. Under reduced motion the dot STAYS and only the animation stops:
+ * removing the element would lose the marker along with the movement.
+ */
+function LiveDot() {
+  return (
+    <span
+      aria-hidden
+      data-live-dot
+      className="h-1.5 w-1.5 shrink-0 self-center animate-pulse rounded-full bg-emerald-500 motion-reduce:animate-none dark:bg-emerald-400"
+    />
+  );
+}
+
 export interface AgentListProps {
   fleet: Fleet;
   /**
@@ -291,6 +351,16 @@ function Row({
 
   return (
     <li className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-slate-200/60 px-3 py-2 text-sm last:border-0 dark:border-slate-800">
+      {/* The live indicator, on `working` rows only. `self-center` because the
+          row aligns on the text baseline and a dot carries no text to align —
+          on the baseline it would sit low against the words beside it.
+
+          Rendered as null elsewhere rather than as an empty placeholder cell: a
+          reserved column would give every group a gap in the shape of an
+          indicator it does not have, which is a quieter version of the same
+          false claim. The rows are flex-wrapped, so nothing depends on the
+          columns lining up across groups. */}
+      {isLive(row) && <LiveDot />}
       {/* The phase takes the REPO's place rather than adding a seventh cell to
           a row that already wraps on `feature/opus5-hardening-challenge-budget`.
           The repo is the right thing to give up: constant in a one-repo board,
