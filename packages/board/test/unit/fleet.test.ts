@@ -595,6 +595,42 @@ describe('rowsFromPulse', () => {
     checks: 'green', review: '', url: 'https://host/pr/99', ...over,
   }) as never;
 
+  // The wiring, which the classify tests above cannot reach: the phase has to
+  // travel from the PLAN onto each of its rows. `classify` answering correctly
+  // is worth nothing if `rowsFromPulse` never hands it the phase.
+  it('carries the PLAN phase onto its own rows', () => {
+    const drafted: FleetPulse = {
+      ...pulse,
+      plans: [{ ...pulse.plans[0], phase: 'draft' }],
+    };
+    const rows = rowsFromPulse(drafted, ages, 'plot', QUIET);
+    const open = rows.find((r) => r.branch === 'feature/c')!;
+    expect(open.note).toBe(DRAFT_PLAN_NOTE);
+    // And the approved pulse still reads eligible, so the assertion above is
+    // about the phase rather than about this fixture.
+    const approved = rowsFromPulse(
+      { ...pulse, plans: [{ ...pulse.plans[0], phase: 'approved' }] }, ages, 'plot', QUIET);
+    expect(approved.find((r) => r.branch === 'feature/c')!.note).toBe(ELIGIBLE_NOTE);
+  });
+
+  it('stops saying it the moment the plan is approved — nothing to clear', () => {
+    // DERIVED, NEVER STORED. The pulse is stateless by design, and this is the
+    // assertion that holds it: a stored flag passes the test above and fails
+    // this one.
+    //
+    // Two scans of the SAME fixture, differing only in the plan's phase — which
+    // is what approving a plan changes. The row must follow on the next scan,
+    // with nothing cleared by hand.
+    const scan = (phase: string) => rowsFromPulse(
+      { ...pulse, plans: [{ ...pulse.plans[0], phase }] }, ages, 'plot', QUIET)
+      .find((r) => r.branch === 'feature/c')!;
+    expect(scan('draft').note).toBe(DRAFT_PLAN_NOTE);
+    expect(scan('approved').note).toBe(ELIGIBLE_NOTE);
+    // And back again: re-deriving means the answer follows the input in BOTH
+    // directions, which a flag that is only ever set would fail.
+    expect(scan('draft').note).toBe(DRAFT_PLAN_NOTE);
+  });
+
   it('shows an open PR whose branch no plan names', () => {
     // Two PRs once sat waiting to be merged while WAITING ON YOU read "none":
     // the pulse walks branches a plan lists, and a fix branch opened outside a
