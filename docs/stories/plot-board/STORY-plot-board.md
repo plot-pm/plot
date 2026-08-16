@@ -111,6 +111,24 @@ that closes the loop, and it has not been built yet.
   `plot-merge-queue`'s `git merge-tree` prediction should run *before* dispatch
   rather than before merge — is the open question.
 
+- ⏸️ **The data to fix the Draft-in-NOT-STARTED bug landed an hour after it was
+  found, and nothing reads it.** Since #140 the pulse reports each plan's own
+  `phase` — deliberately as data only: *"It is reported, never decides"*,
+  *"nothing here decides which column"*. That split is right (scripts collect,
+  consumers interpret), but it means the fix is now smaller than the finding
+  below suggests: no new field, no scan change, just a condition in `classify()`.
+
+  Seen again 2026-08-16, minutes after `working-rows-show-motion` was drafted:
+  its two branches appeared under NOT STARTED, one reading *eligible — nobody
+  has taken it*, while `plot-plan-meta.sh` reports `phase: draft`, no
+  `Approved:` record and no `Started:`. Its plan PR had not even finished CI.
+
+  The waiting age is the tell, and it is honest by accident: `plot-sprint-support`
+  shows `6mo` while the draft's rows show `—`, because the waiting age is
+  measured from the `Approved:` record and a Draft has none. So the row already
+  *knows* it cannot answer — it just renders that as "age unknown" rather than
+  "not approved yet".
+
 - ⏸️ **A DRAFT plan's branches sit in NOT STARTED, inviting a dispatch that
   would be refused.** Spotted 2026-08-16 from a screenshot: minutes after
   `board-tells-the-truth` was written, its two branches appeared reading
