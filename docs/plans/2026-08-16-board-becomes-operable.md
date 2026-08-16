@@ -215,7 +215,7 @@ error.
 ### Navigation
 
 - `feature/board-story-overlay` — `/story/<slug>` route, path on the story card,
-  badge becomes a link, overlay with *Show in board* and *Open in new tab*
+  badge becomes a link, overlay with *Show in board* and *Open in new tab* → #151
 
 ### Density
 
