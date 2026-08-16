@@ -11,8 +11,11 @@ import {
   type Column,
   type CardPr,
   type SprintCard,
-  type StoryCard, summariseWaves } from '../contract/schema.js';
-import { prsByNumber } from './fleet.js';
+  type StoryCard,
+  type FleetPulse,
+  type PlanMeta,
+  type WaveSummary } from '../contract/schema.js';
+import { prsByNumber, pulseFor } from './fleet.js';
 
 /**
  * Where to look. `repoRoot` is the adopting project (source of plans / sprints
@@ -123,6 +126,53 @@ function collectPlanFiles(repoRoot: string, planDir: string): string[] {
     }
   }
   return files;
+}
+
+/**
+ * Condense a plan's wave state for its card, reading each source where that
+ * source is authoritative.
+ *
+ * Shape comes from the plan (`waves`, `branches`, `deferred`): the plan file is
+ * what says how the work is divided, and it says so whether or not git can be
+ * read. Occupancy comes from the PULSE (`claimed`, `eligible`): a claim is an
+ * empty `plot: claim <branch>` commit pushed as a ref, so the plan's `claimed`
+ * annotation is a note *about* a claim that nobody writes — which is why the
+ * card's count was not merely stale but permanently 0.
+ *
+ * A missing pulse omits both counts rather than reporting zeros. `claimed: 0`
+ * must not be the same rendering as "git has not been read yet"; that
+ * indistinguishability IS the bug.
+ *
+ * `eligible` counts branches that could be started right now: still `open` (not
+ * claimed, not merged), in a wave the scan judged `eligible`. A blocked wave's
+ * open branches are outstanding work but not startable work, and conflating
+ * them would answer a different question than the one a tile is asked.
+ */
+export function summariseFromPulse(meta: PlanMeta, pulse: FleetPulse | null): WaveSummary {
+  let branches = 0, deferred = 0;
+  for (const w of meta.waves) {
+    for (const b of w.branches) {
+      if (b.deferred) deferred += 1;
+      else branches += 1;
+    }
+  }
+  const summary: WaveSummary = { waves: meta.waves.length, branches, deferred };
+
+  // The pulse names plans by basename (symlink-resolved), while meta.file is an
+  // absolute real path — so the basename is the join key both sides agree on.
+  const plan = pulse?.plans.find((p) => p.file === path.basename(meta.file));
+  if (!plan) return summary;
+
+  let claimed = 0, eligible = 0;
+  for (const wave of plan.waves) {
+    for (const b of wave.branches) {
+      if (b.state === 'claimed') claimed += 1;
+      else if (b.state === 'open' && wave.verdict === 'eligible') eligible += 1;
+    }
+  }
+  summary.claimed = claimed;
+  summary.eligible = eligible;
+  return summary;
 }
 
 /** slug from a date-prefixed plan filename (YYYY-MM-DD-<slug>.md). */
@@ -256,6 +306,11 @@ export function buildBoard(opts: BuildBoardOptions): Board {
   // until the first fetch lands, which costs a card its link and never a wrong
   // one.
   const prLinks = prsByNumber(opts);
+  // Claims live in git refs, so the card's occupancy counts are read from the
+  // same cached pulse the Agents tab classifies from — one source, so a card
+  // and a row can no longer disagree about whether work is in flight. null on a
+  // cold cache, and the counts are then omitted rather than zeroed.
+  const pulse = pulseFor(opts);
   const cards: Card[] = [];
   for (const meta of readPlanMeta(opts.scriptsDir, files)) {
     // `started` decides the Design/Development boundary, so it is read BEFORE
@@ -281,9 +336,12 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // Kept for the tile's Ready/In-progress badge; the column now says the same
     // thing, but a Development card still benefits from the explicit flag.
     if (meta.phase === 'approved') card.started = started;
-    // Only carry wave state where it says something — a pre-wave plan or a
-    // single unnamed wave adds noise to the tile rather than information.
-    if (meta.waves.length > 1) card.waveSummary = summariseWaves(meta.waves);
+    // Computed for every plan that HAS waves, single-wave ones included. The
+    // old `> 1` guard was right about "2 waves · 3 branches" being noise on a
+    // one-wave plan and wrong about the rest: whether anyone is working on a
+    // single-wave plan's one branch is the same question, and this repo's plans
+    // are mostly single-wave. What the tile renders stays a display decision.
+    if (meta.waves.length > 0) card.waveSummary = summariseFromPulse(meta, pulse);
     cards.push(card);
   }
 

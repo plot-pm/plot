@@ -41,6 +41,39 @@ export function isApproved(card: Card): boolean {
   return isReadyToStart(card) || (card.phase === 'Development' && card.started === true);
 }
 
+/**
+ * The wave badge's text, or "" when there is nothing worth saying.
+ *
+ * Answers the question a tile is actually asked — how much work is left, and is
+ * anyone on it? — from two halves with different rules:
+ *
+ * **Shape** (`N waves · M branches`) only where shape says something. "1 waves ·
+ * 1 branches" is noise, so it is kept to multi-wave plans. Deferred branches are
+ * already excluded upstream: they are not outstanding.
+ *
+ * **Occupancy** (`claimed`, `ready`) renders for every plan that has it,
+ * single-wave included — that question is worth answering whether a plan has one
+ * branch or nine.
+ *
+ * Both occupancy counts are optional, and **absent means unknown, never zero**.
+ * A board whose git scan has not landed omits them rather than asserting that
+ * nothing is claimed — the two must not render alike, since that
+ * indistinguishability is the defect this whole change exists to remove. `> 0`
+ * excludes `undefined` along with 0, so a card says nothing rather than
+ * something it cannot support.
+ *
+ * Exported for test: this is display logic with real edge cases (a single-wave
+ * plan with nothing claimed has nothing to show at all), and an empty badge on
+ * screen is exactly the kind of thing prose promises and code forgets.
+ */
+export function waveBadgeText(s: NonNullable<Card['waveSummary']>): string {
+  const parts: string[] = [];
+  if (s.waves > 1) parts.push(`${s.waves} waves · ${s.branches} branches`);
+  if ((s.claimed ?? 0) > 0) parts.push(`${s.claimed} claimed`);
+  if ((s.eligible ?? 0) > 0) parts.push(`${s.eligible} ready`);
+  return parts.join(' · ');
+}
+
 export interface PlanCardProps {
   card: Card;
   /** Show the sprint badge (suppressed when a sprint filter is active). */
@@ -136,14 +169,8 @@ export function PlanCard({
             choice, and colouring it like a defect would re-create the
             obligation a story lint was deliberately dropped to avoid. */}
         {showStory && !card.story && <Badge variant="neutral">no story</Badge>}
-        {card.waveSummary && card.waveSummary.branches > 0 && (
-          // Answers the question a tile is actually asked: how much work is
-          // left, and is anyone on it? Deferred branches are excluded from the
-          // count — they are not outstanding.
-          <Badge variant="neutral">
-            {card.waveSummary.waves} waves · {card.waveSummary.branches} branches
-            {card.waveSummary.claimed > 0 && ` · ${card.waveSummary.claimed} claimed`}
-          </Badge>
+        {card.waveSummary && card.waveSummary.branches > 0 && waveBadgeText(card.waveSummary) && (
+          <Badge variant="neutral">{waveBadgeText(card.waveSummary)}</Badge>
         )}
       </div>
       <div className="mt-2 font-mono text-xs text-slate-400 dark:text-slate-500">{card.path}</div>
