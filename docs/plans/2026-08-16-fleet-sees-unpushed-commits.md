@@ -147,7 +147,7 @@ action belongs to a specific machine.
 
 - `bug/fleet-sees-unpushed-commits` — `local_ahead` in the scan's JSON;
   `classify()` lifts a branch out of quiet when commits exist locally that the
-  remote lacks; the row says how many, distinctly from `local_dirty`
+  remote lacks; the row says how many, distinctly from `local_dirty` → #149
 
 One branch: this is one field, one classifier rule and one row string, on top
 of a mechanism already built and shipped.
