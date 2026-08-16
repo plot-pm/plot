@@ -111,6 +111,41 @@ that closes the loop, and it has not been built yet.
   `plot-merge-queue`'s `git merge-tree` prediction should run *before* dispatch
   rather than before merge — is the open question.
 
+- ⏸️ **WAITING ON A MACHINE has never once been populated**, and three separate
+  causes keep it that way. Asked 2026-08-16 after the group sat empty through an
+  evening in which roughly a dozen CI runs completed.
+
+  **One entrance, and a draft PR cannot reach it.** Only `pr.checks ===
+  'pending'` routes there (`fleet.ts:664`). But `fleet.ts:928` short-circuits
+  every draft PR to `waiting-on-you` before `classify` runs, so a draft with CI
+  in flight never arrives. That matters more than it sounds: `/plot-idea`
+  creates every plan PR as a draft, so on a planning-heavy day *most* PRs are
+  drafts.
+
+  The sharp form of it — and this is more precise than the earlier reading that
+  the checks were simply discarded: `draftNote` **does** read `pr.checks` and
+  writes them into the text, so the row says *"PR #146, draft, CI running"*
+  while sitting in the group that means *a person must act*. **The note and the
+  group contradict each other on the same line.** The note was fixed; the
+  routing was not.
+
+  **The window is narrow but not impossibly so.** Measured across five runs:
+  35 s, 141 s, 144 s and two that never started. PR data refreshes every
+  60–120 s, so a 35-second run is genuinely likely to be missed — but a
+  144-second one should appear in at least one poll. Timing alone does not
+  explain an empty group.
+
+  **And the operator was the waiter.** Every CI run that evening was awaited in
+  a blocking loop and merged the moment it went green. The group exists so that
+  *nobody* waits; waiting by hand keeps it empty by construction. The habit is
+  the finding, not just the code.
+
+  A fourth case is correct as it stands: GitHub reports `action_required` for
+  workflows it will not start without human approval. Those have `checks:
+  'none'` and route to WAITING ON YOU with the note *"no checks"*, which is
+  exactly right — nobody is waiting on a machine that has not been allowed to
+  start.
+
 - ⏸️ **The data to fix the Draft-in-NOT-STARTED bug landed an hour after it was
   found, and nothing reads it.** Since #140 the pulse reports each plan's own
   `phase` — deliberately as data only: *"It is reported, never decides"*,
