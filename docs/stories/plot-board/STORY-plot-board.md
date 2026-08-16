@@ -69,6 +69,16 @@ that closes the loop, and it has not been built yet.
 
 ## Open Points
 
+- ⏸️ **`discovery.test.mjs` is timing-dependent and flakes in CI** — observed
+  2026-08-16 on PR #131 (run 31968882967): `a plans dir NESTED in an unrelated
+  repo borrows nothing from it` failed, and the *same commit* passed on rerun
+  with no change. Not a mystery: the suite spawns real git repos and waits on a
+  filesystem-watch-driven re-read — locally its cases take 1.6 s and 2.0 s,
+  9.2 s for the file. A wait tuned to an idle machine is a wait that expires on
+  a loaded runner. It gates CI, so it will fail again, and each time it costs a
+  diagnosis to rule out a real regression. The fix is to wait on the condition
+  rather than on the clock; the durations are the evidence for which cases.
+
 - ⏸️ **Step 4 has no test case in this repo** — story swimlanes need stories, and
   until this file existed there were none. This story is now the first one; a
   single swimlane still does not prove the layout works with several.
