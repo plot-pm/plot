@@ -92,11 +92,23 @@ The scan prints a per-plan wave report and ends with one machine-countable
 line. **Read the counts from that footer — never re-count the body:**
 
 ```
-summary: plans=1 waves=4 branches=6 claimed=0 eligible=1 blocked=3 deferred=0 main=main
+summary: plans=1 waves=4 branches=6 claimed=0 eligible=1 blocked=3 deferred=0 merge_detect=pr-merge main=main
 ```
 
 `eligible` counts branches a worker could pick up *right now*: in an eligible
 wave, not already claimed, not deferred, not merged.
+
+`merge_detect` says how a branch whose ref was deleted at merge was recognised,
+so an `open` can be weighed rather than trusted blindly:
+
+| Value | Meaning |
+|-------|---------|
+| `pr-merge` | Conforming merge commits found and examined exhaustively — `open` means the branch really has no merge |
+| `truncated` | The merge walk hit its cap; a branch merged before that point may still read `open` |
+| `none` | The default branch carries no conforming merge commits at all (a squash/rebase repo) — `open` says nothing about whether work merged |
+
+Under `truncated` or `none`, do not read `open` as "not started" when advising
+the next action — say what the scan could not see.
 
 ### 2. Report State
 
