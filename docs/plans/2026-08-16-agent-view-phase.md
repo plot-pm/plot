@@ -142,20 +142,20 @@ bend the state to encode it.
 
 ### Where the phase sits
 
-**After the repo column** — the repo stays where it is, constant today but
-present so the list needs no rebuilding when a second repo appears.
+**It takes the repo column's place**, rather than adding a seventh cell to a
+row that already carries plan, branch, note, PR and age — and wraps when a
+branch is called `feature/opus5-hardening-challenge-budget`.
 
-Its own column, not `w-16` like the repo: "Development" is 11 characters and
-would truncate at that width, and a phase reading "Developm…" is worse than
-none.
+The repo is the right thing to give up. It is constant in a one-repo board (its
+own comment says so: *"Constant today, and visually quiet"*), it is rendered
+**nowhere else** in the app, and a column that shows the same word on every row
+is the definition of chrome that never varies — the argument this plan's
+sibling used to drop a plan heading. The board's cards keep repo context if a
+second repo ever appears; the agents list is about what is moving, not about
+where it lives.
 
-**Where it sits relative to plan and branch is deliberately left open.**
-`board-ui-polish` has just moved the plan *before* the branch, so same-plan rows
-form a column; a sketch of `repo → branch → phase → PR → plan` would move it
-back. Both readings are defensible — *what is this a slice of* versus *what is
-this branch, and how far along* — and the honest way to choose is to look at a
-row that actually has a phase in it. Ship the phase after the repo, then
-decide.
+Wider than the repo's `w-16`, which fits 8–9 characters at `text-xs`:
+"Development" is 11 and would render "Developm…", worse than nothing.
 
 Note for whoever revisits it: the PR marker is **not** a separate cell today.
 It is rendered inside `note`, which is linkified where the text contains
@@ -185,7 +185,19 @@ The waiting-group headings are a different case and already right: ⚠️ 🤖 �
 💤 📋 ✅ are one symbol per group, each unique, each already paired with its
 label.
 
-### An age for NOT STARTED, on its own clock
+### An age for NOT STARTED, on its own clock — shipped early
+
+**Delivered ahead of this plan, in `board-ui-polish`**, because it was asked for
+directly while that branch was open. The reasoning below is kept as the record
+of *why* the field is separate rather than as work outstanding; the code is on
+`main` and the assertions are in its suite.
+
+One thing changed in the building. The design below argues for a distinct field,
+and that still holds — but it first rendered as a distinct *badge* beside an age
+column reading `—`, which put two answers to "how old is this" in one row, one
+of them empty. The field stayed; the second position did not. The waiting age
+now takes the age column when there is no commit age, with colour and title
+carrying the distinction.
 
 A `not-started` row has no branch, so no tip to date, and renders `—`. But it
 has an age that matters more than a commit's: **how long it has been waiting to
@@ -220,22 +232,61 @@ hold branches from several plans, and dispatch is per plan and wave — a group
 level button would have to guess which. Per row, the answer is already decided
 by the row.
 
-**It appears only on `not-started` rows.** A row in `working` or `quiet`
-already has a branch and a claim; offering to start it would invite the exact
-double-dispatch that `fleet-sees-merged-branches` was written to prevent.
+**It appears only on `not-started` rows that are `eligible`.** Two things live
+in that group: `eligible — nobody has taken it` and `blocked by an earlier
+wave`. A button on the second would offer to skip the ordering waves exist to
+express — and `plot-dispatch` refuses that branch for the same reason, so the
+board would be inviting an action the tool declines.
+
+No greyed-out control on blocked rows either: a button whose usual state is
+"you cannot" teaches people to ignore buttons. The note already says *blocked by
+an earlier wave*, which is the whole explanation.
+
+And never on `working` or `quiet` rows, which already have a branch and a
+claim; offering to start one invites the exact double-dispatch that
+`fleet-sees-merged-branches` was written to prevent.
+
+### DONE loses the work at the moment it finishes
+
+Raised while looking at the tab: five plans were delivered today, together
+naming eight branches, and `DONE` showed **one**.
+
+Measured rather than guessed — `plot-fleet-scan.sh` reads
+`docs/plans/active/` only, and delivering a plan moves its symlink to
+`delivered/`. The plan leaves the pulse in that instant, taking every branch
+with it. The pulse now sees two plans where the repo has sixteen.
+
+The intent is defensible: a delivered plan is not being worked on, so it does
+not belong in a view of work in flight. The effect is not. Merge and delivery
+are minutes apart in practice, so **work disappears at the moment it becomes
+finished** — and `DONE` is left showing whichever branch happens to sit in the
+gap. A group that is full by accident is worse than one that is empty by rule.
+
+So the pulse also reads recently delivered plans, **bounded by time rather than
+by count**. "What finished today" empties itself as the day passes; "the last
+five" shows five whether the newest is an hour old or six months. The board's
+own `Released` column has the same problem waiting for it, and the same answer
+applies there.
+
+This is the same distinction that surfaced twice today in other clothes — a
+merged branch with no plan vanishes when its ref is deleted, and `Released` and
+`Done` differ because plans and branches run on different clocks. Each time the
+question is whether this tab is a **state** or a **journal**. It is a state,
+and a state view still has to hold the last few minutes of it.
 
 ## Branches
 
 ### Data
 
-- `feature/fleet-row-phase` — the pulse carries plan phase and the approval
-  date onto each row; `AgentRow` gains the derived phase and a waiting-age
-  field; row-level derivation composes `toBoardPhase` with the branch state
+- `feature/fleet-row-phase` — the pulse carries plan phase onto each row and
+  also reads recently delivered plans; `AgentRow` gains the derived phase;
+  row-level derivation composes `toBoardPhase` with the branch state
+  (the waiting-age field shipped early in `board-ui-polish`)
 
 ### Display
 
-- `feature/agent-view-phase-ui` — rows show their phase; `not-started` rows
-  show their waiting age; `StartWorkButton` on `not-started` rows
+- `feature/agent-view-phase-ui` — the phase replaces the repo cell; `deferred`
+  badge; `StartWorkButton` on eligible rows
 
 Two waves, and this one is a genuine dependency rather than a habit: the
 display wave asserts against fields the data wave introduces, and a UI test
@@ -250,11 +301,6 @@ written first would assert against a shape that does not exist yet.
   `Approved`, zero `Started:` records, real commits on the branch → the row
   reads **Development**, not Design. This is the assertion that fails silently
   if someone later simplifies the derivation to read the plan file alone.
-- **`not-started` rows show a waiting age** from `Approved:`, in its own field
-  and visibly a different clock from a commit age. Assert that a 22-day commit
-  gap and a 22-day wait do not render identically.
-- **A plan with no `Approved:` record shows no waiting age** — not zero, not
-  "just now".
 - **A deferred branch falls back a phase and shows why.** A branch with real
   commits under an approved plan reads **Design** with a `deferred` badge — not
   Development (nobody is working on it) and not bare Design (that would be
@@ -267,13 +313,19 @@ written first would assert against a shape that does not exist yet.
 - **A deferred branch never reads WORKING**, even with a commit inside the
   quiet window. This is the one place intent outranks git, so it needs the test
   that a fresh commit does not pull it in.
-- **The phase follows the repo column**, in its own column wide enough for
-  "Development" — assert the longest phase name is not truncated.
+- **The phase REPLACES the repo column**, wide enough for "Development" —
+  assert the longest phase name is not truncated, and that the repo no longer
+  renders in an agent row.
+- **A recently delivered plan still appears in DONE**, and an old one does not.
+  Assert both halves against a fixture whose delivery dates straddle the window:
+  a test that only checks "delivered plans appear" passes with no bound at all.
 - **The phase is spelled out.** Assert the full word appears in the row's text,
   so an icon-only or initial-only rendering cannot pass: three phases begin
   with D, and `PHASE_LEADERSHIP` maps 👤 to three of the five.
-- **The Start button appears only on `not-started` rows**, and a row whose plan
-  has no board card gets no button rather than a broken one.
+- **The Start button appears only on `eligible` rows.** Assert it is absent on
+  a `blocked by an earlier wave` row — that is the case where the board would
+  otherwise offer an action `plot-dispatch` refuses. And a row whose plan has no
+  board card gets no button rather than a broken one.
 - **`toBoardPhase` has exactly one implementation.** Assert that the row
   derivation calls it rather than restating the mapping; a second copy is how
   the two views drift apart.
@@ -299,3 +351,24 @@ its *phase* legible.
 Recorded first as an open point in
 [`plot-board`](../stories/plot-board/STORY-plot-board.md) on 2026-08-16, from
 two requests that looked separate and shared one missing field.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "Part of this plan shipped early in board-ui-polish — how to handle?", "a": "Mark as delivered, keep the reasoning as the record of why the field is separate", "category": "technical-implementation"},
+    {"q": "not-started holds eligible AND blocked rows — where does the Start button go?", "a": "Eligible only; a button on a blocked row would offer to skip the ordering waves express, and plot-dispatch refuses it anyway", "category": "domain-workflows"},
+    {"q": "Which plan first — this one or board-becomes-operable?", "a": "This one: the phase is the field other features reference (Approve only on Draft cards)", "category": "tradeoffs-ordering"},
+    {"q": "Where does the phase go in an already-full row?", "a": "It REPLACES the repo cell — repo is constant, rendered nowhere else, and a row with seven cells wraps on long branch names", "category": "ux-layout"},
+    {"q": "DONE showed one branch where five delivered plans named eight — why?", "a": "The pulse reads active/ only, so delivery removes a plan instantly. Read recently delivered plans too, bounded by TIME rather than count", "category": "domain-data"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": true, "architecture": true, "implementation": true},
+    "domain": {"rules": true, "workflows": true, "data": true},
+    "ux": {"happyPath": true, "edgeCases": false, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
