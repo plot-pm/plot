@@ -32,7 +32,9 @@
 #                                  OR it was the head of a merged PR — the
 #                                  latter survives the branch being deleted)
 #   3. Stale branches           — merged/orphan remote branches, no open PR,
-#                                 plus CLAIMS (empty branches a worker took)
+#                                 plus CLAIMS (empty branches a worker took);
+#                                 a branch contained in an open PR is listed
+#                                 as in flight and does NOT count as stale
 #   4. Concurrent-delivery      — active plans' branch divergence vs main
 #   5. Needs attention          — malformed / non-conforming / orphaned plans
 #
@@ -148,7 +150,9 @@ all_branches=$(git branch -r 2>/dev/null \
 # remote would silently enumerate the wrong repo's PRs). Unknown host →
 # degraded (git merge-state only).
 PR_SOURCE="degraded"
-open_prs=""
+open_prs=""            # head branch names, one per open PR
+open_pr_heads=""       # "<number> <head>" lines, same PRs — section 3 names the
+                       # PR a branch is contained in, which needs the number.
 
 # How many MERGED PRs to fetch for the single-PR-plan check below. The default
 # page size (30) is far too small: on plot's own repo it reaches back only to
@@ -163,6 +167,13 @@ MERGED_PR_LIMIT=500
 merged_pr_heads=""       # "<number> <head>" lines, one per merged PR
 MERGED_PR_TRUNCATED=0    # 1 when the list came back full — older PRs unseen
 
+# Drop the leading PR number from "<number> <head>" lines. A branch name may
+# contain spaces in principle, so take everything AFTER the first field rather
+# than the second field alone.
+pr_head_branches() { # $1="<number> <head>" lines → head lines
+  printf '%s\n' "$1" | sed -n 's/^[0-9][0-9]*  *//p'
+}
+
 load_open_pr_branches() {
   local url slug out
   url=$(git remote get-url origin 2>/dev/null) || return 0
@@ -170,8 +181,12 @@ load_open_pr_branches() {
     *github.com*)
       # Pin gh to origin's repo so a second GitHub remote can't win.
       slug=$(printf '%s' "$url" | sed -E 's#\.git$##; s#^.*[:/]([^/]+/[^/]+)$#\1#')
-      if out=$(gh pr list -R "$slug" --state open --json headRefName --jq '.[].headRefName' 2>/dev/null); then
-        PR_SOURCE="gh"; open_prs="$out"
+      # number AND head in one call: the head alone answers "is this branch the
+      # PR's head", the number is needed to name the PR a branch is contained
+      # in (section 3). Still ONE call — the extra field is free.
+      if out=$(gh pr list -R "$slug" --state open --json number,headRefName \
+                 --jq '.[] | "\(.number) \(.headRefName)"' 2>/dev/null); then
+        PR_SOURCE="gh"; open_pr_heads="$out"; open_prs=$(pr_head_branches "$out")
         # Merged counterpart, same call shape, same repo pin. Bundled: ONE
         # call for all plans, so cost is constant in plan count.
         if out=$(gh pr list -R "$slug" --state merged --limit "$MERGED_PR_LIMIT" \
@@ -183,9 +198,16 @@ load_open_pr_branches() {
     *bitbucket*)
       # bb >=3.1 (agent-skills#18) is gh-symmetric for this call; older bb
       # rejects the field argument and falls back to the full-object form.
-      if out=$(bb pr list --state open --json headRefName --jq '.[].headRefName' 2>/dev/null); then
-        PR_SOURCE="bb"; open_prs="$out"
-      elif out=$(bb pr list --state open --json 2>/dev/null | jq -r '.[].source.branch.name' 2>/dev/null); then
+      # Full-object form FIRST here, unlike gh: it is the only bb shape known
+      # to carry the PR id, and Bitbucket names it `.id`, not `.number` (see
+      # the merged list below). The field-list form is kept as the fallback —
+      # it answers "is this branch a PR head" but not "which PR", so section 3
+      # degrades to the head test alone rather than naming a wrong PR.
+      if out=$(bb pr list --state open --json 2>/dev/null \
+                 | jq -r '.[] | "\(.id) \(.source.branch.name)"' 2>/dev/null) \
+         && [ -n "$out" ]; then
+        PR_SOURCE="bb"; open_pr_heads="$out"; open_prs=$(pr_head_branches "$out")
+      elif out=$(bb pr list --state open --json headRefName --jq '.[].headRefName' 2>/dev/null); then
         PR_SOURCE="bb"; open_prs="$out"
       fi
       if [ "$PR_SOURCE" = "bb" ]; then
@@ -328,6 +350,32 @@ claim_disposition() { # $1=branch → "abandoned" | "unresolved"
     esac
   done
   echo "unresolved"
+}
+
+# Is this branch an ANCESTOR of some open PR's head — work in flight on a
+# stack, rather than work nobody picked up? Echoes the PR number of the first
+# such PR, or nothing. Asking only "is it the head" (the test above) misses
+# every branch below the top of a stack: on this repo's own history seven of
+# eight `stale=` entries were branches contained in one open PR, which is
+# enough false noise to make a person stop reading the section.
+#
+# Cost is one merge-base per candidate per open PR — branches x open PRs, both
+# small, and only reached by branches that already failed the head test.
+contained_in_open_pr() { # $1=branch → PR number, or empty
+  local br="$1" n head
+  [ -n "$open_pr_heads" ] || return 1
+  git show-ref -q --verify "refs/remotes/origin/$br" </dev/null 2>/dev/null || return 1
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    n=${line%% *}
+    head=${line#* }
+    [ "$head" = "$br" ] && continue   # itself; the head test already ran
+    git show-ref -q --verify "refs/remotes/origin/$head" </dev/null 2>/dev/null || continue
+    if git merge-base --is-ancestor "origin/$br" "origin/$head" </dev/null 2>/dev/null; then
+      echo "$n"; return 0
+    fi
+  done <<< "$open_pr_heads"
+  return 1
 }
 
 # Does a dated plan file have a symlink pointing at it from a given index dir?
@@ -495,6 +543,7 @@ echo
 echo "== 3. Stale branches =="
 stale_out=""
 claims_out=""
+contained_out=""
 while IFS= read -r b; do
   [ -n "$b" ] || continue
   case "$b" in
@@ -536,6 +585,25 @@ while IFS= read -r b; do
     stale_out+="  origin/$b — merged into $MAIN, no open PR → deletion candidate\n"
     stale_out+="    fix: git push origin --delete $b\n"
   else
+    # Ahead of main and not a PR head — but is it BELOW one? A branch contained
+    # in an open PR is work in flight on a stack, and calling it an orphan is
+    # the section's loudest false answer. Only asked here, in the unmerged arm:
+    # a merged branch is an ancestor of main and therefore of every open PR
+    # head branched from it, so asking earlier would swallow the whole
+    # deletion-candidate class.
+    #
+    # ORDERING — this comes AFTER the claim check above, and the obvious reason
+    # is the wrong one. An empty claim is an ancestor of nothing: its claim
+    # commit puts it one commit AHEAD of the branch point, so the ancestry runs
+    # the other way. The real case is that once a worker builds on its claim,
+    # the claim commit becomes part of the working branch — typically the head
+    # of the PR it opens. Such a claim IS legitimately contained in an open PR,
+    # and must still be reported as a claim, because that is the more specific
+    # fact. Claim first, containment second.
+    if contained_pr=$(contained_in_open_pr "$b"); then
+      contained_out+="  origin/$b — contained in open PR #$contained_pr → not orphaned\n"
+      continue   # not stale: it does not count toward stale=
+    fi
     stale_out+="  origin/$b — ahead of $MAIN, no open PR → orphan (needs judgment)\n"
     stale_out+="    inspect: git log --oneline origin/$MAIN..origin/$b\n"
   fi
@@ -546,6 +614,14 @@ if [ -n "$claims_out" ]; then
   echo
   echo "  -- claims (empty branches taken by a worker) --"
   printf '%b' "$claims_out"
+fi
+# Printed rather than silent: the section stays honest about what it examined
+# and rejected. A scan that quietly drops findings is what this plan was
+# written to fix — "silence reads as health".
+if [ -n "$contained_out" ]; then
+  echo
+  echo "  -- contained in an open PR (work in flight, not stale) --"
+  printf '%b' "$contained_out"
 fi
 echo
 

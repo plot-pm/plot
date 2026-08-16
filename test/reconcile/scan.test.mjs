@@ -266,6 +266,8 @@ let sprTmp, sprRepo, sprBin;
 
 // Stub gh: answers the two bundled list calls the scan makes and records each
 // invocation's argv so the limit and repo pin can be asserted, not assumed.
+// Both list calls answer in "<number> <head>" lines — the shape the scan's
+// --jq produces for `--json number,headRefName`.
 function makeGhStub(dir, mergedLines, { openLines = '' } = {}) {
   const argvLog = path.join(dir, 'gh.argv');
   const emit = (lines) =>
@@ -512,4 +514,225 @@ test('scan: a delivered plan with no PR annotation is unresolvable, not silent',
   const line = report.split('\n').find((l) => l.includes('alpha.md') && l.includes('cannot resolve'));
   assert.ok(line, 'a delivered plan without a PR reference must be reported, not skipped');
   assert.match(line, /no PR annotation/);
+});
+
+// ---------------------------------------------------------------------------
+// Contained in an open PR versus orphaned (section 3).
+//
+// A THIRD fixture: like the single-PR one it needs a github.com origin and a
+// gh on PATH, but it needs OPEN PRs rather than merged ones, and a branch
+// stack. The shape reproduced here is the one that made seven of eight `stale=`
+// entries false on this repo — branches sitting below the head of one open PR.
+// The scan asked only "is this branch the PR's head"; being contained in one
+// was invisible, so ordinary stacked work read as abandoned.
+// ---------------------------------------------------------------------------
+
+let cipTmp, cipRepo, cipBin;
+
+function runContainedScan(openLines, extraArgs = []) {
+  cipBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-cip-'));
+  makeGhStub(cipBin, '', { openLines });
+  return execFileSync('bash', [scan, '--no-fetch', ...extraArgs], {
+    encoding: 'utf8',
+    cwd: cipRepo,
+    env: { ...process.env, PATH: `${cipBin}:${process.env.PATH}` },
+  });
+}
+
+// The section-3 body only — every assertion below is about branch classifica-
+// tion, and the summary footer repeats the words "stale" and "claims". Slicing
+// first is what keeps a footer match from passing for a report line.
+function section3(out) {
+  const lines = out.split('\n');
+  const start = lines.findIndex((l) => /^== 3\. Stale branches/.test(l));
+  const end = lines.findIndex((l, i) => i > start && /^== 4\./.test(l));
+  assert.ok(start >= 0 && end > start, 'section 3 must be present');
+  return lines.slice(start + 1, end);
+}
+
+before(() => {
+  cipTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-cip-repo-'));
+  const origin = path.join(cipTmp, 'origin.git');
+  cipRepo = path.join(cipTmp, 'repo');
+  git(cipTmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(cipTmp, 'clone', '-q', origin, cipRepo);
+  git(cipRepo, 'config', 'user.email', 'test@example.invalid');
+  git(cipRepo, 'config', 'user.name', 'Plot Test');
+  git(cipRepo, 'config', 'commit.gpgsign', 'false');
+  git(cipRepo, 'remote', 'set-url', 'origin', 'https://github.com/plot-pm/fixture.git');
+  git(cipRepo, 'remote', 'add', 'store', origin);
+
+  const w = (rel, content) => {
+    const p = path.join(cipRepo, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content);
+  };
+
+  w('CLAUDE.md', `# Fixture project
+
+## Plot Config
+
+- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+- **Plan directory:** plans/
+- **Active index:** plans/active/
+- **Delivered index:** plans/delivered/
+`);
+  w('plans/2026-01-20-stack.md', `# Stack
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/stack-base\` — lower slice, ancestor of the PR head
+- \`feature/stack-top\` — upper slice, the PR head
+- \`bug/empty-claim\` — claimed, no work yet
+- \`bug/worked-claim\` — the same claim with work on it
+- \`bug/really-orphan\` — nobody's
+`);
+  fs.mkdirSync(path.join(cipRepo, 'plans', 'active'), { recursive: true });
+  fs.mkdirSync(path.join(cipRepo, 'plans', 'delivered'), { recursive: true });
+  fs.symlinkSync('../2026-01-20-stack.md', path.join(cipRepo, 'plans', 'active', 'stack.md'));
+  git(cipRepo, 'add', '-A');
+  git(cipRepo, 'commit', '-q', '-m', 'plans');
+
+  // feature/stack-base: real work, unmerged, head of NO PR.
+  git(cipRepo, 'checkout', '-q', '-b', 'feature/stack-base');
+  w('base.txt', 'base\n');
+  git(cipRepo, 'add', 'base.txt');
+  git(cipRepo, 'commit', '-q', '-m', 'base slice');
+  // feature/stack-top: builds on it and IS the head of open PR #200, so base
+  // is contained in that PR.
+  git(cipRepo, 'checkout', '-q', '-b', 'feature/stack-top');
+  w('top.txt', 'top\n');
+  git(cipRepo, 'add', 'top.txt');
+  git(cipRepo, 'commit', '-q', '-m', 'top slice');
+
+  // bug/empty-claim: a bare claim commit. bug/worked-claim carries that same
+  // commit plus real work and is the head of open PR #201 — so the empty claim
+  // IS an ancestor of an open PR head. This is the ordering case: claim first.
+  git(cipRepo, 'checkout', '-q', 'main');
+  git(cipRepo, 'checkout', '-q', '-b', 'bug/empty-claim');
+  git(cipRepo, 'commit', '-q', '--allow-empty', '-m', 'plot: claim bug/empty-claim');
+  git(cipRepo, 'checkout', '-q', '-b', 'bug/worked-claim');
+  w('work.txt', 'work\n');
+  git(cipRepo, 'add', 'work.txt');
+  git(cipRepo, 'commit', '-q', '-m', 'worker output');
+
+  // bug/really-orphan: real work, unmerged, ancestor of nothing.
+  git(cipRepo, 'checkout', '-q', 'main');
+  git(cipRepo, 'checkout', '-q', '-b', 'bug/really-orphan');
+  w('orphan.txt', 'wip\n');
+  git(cipRepo, 'add', 'orphan.txt');
+  git(cipRepo, 'commit', '-q', '-m', 'orphan wip');
+
+  const branches = ['feature/stack-base', 'feature/stack-top', 'bug/empty-claim',
+                    'bug/worked-claim', 'bug/really-orphan'];
+  git(cipRepo, 'checkout', '-q', 'main');
+  git(cipRepo, 'push', '-q', 'store', 'main', ...branches);
+  git(cipRepo, 'fetch', '-q', 'store');
+  for (const b of ['main', ...branches]) {
+    git(cipRepo, 'update-ref', `refs/remotes/origin/${b}`, `refs/remotes/store/${b}`);
+  }
+  git(cipRepo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+});
+after(() => {
+  fs.rmSync(cipTmp, { recursive: true, force: true });
+  if (cipBin) fs.rmSync(cipBin, { recursive: true, force: true });
+});
+
+const OPEN_PRS = '200 feature/stack-top\n201 bug/worked-claim';
+
+test('scan: the fixture really is a stack — the premise, not the fixture, is pinned', () => {
+  // If stack-base ever stopped being an ancestor of the PR head, the tests
+  // below would pass for the wrong reason.
+  git(cipRepo, 'merge-base', '--is-ancestor',
+      'origin/feature/stack-base', 'origin/feature/stack-top');
+  git(cipRepo, 'merge-base', '--is-ancestor',
+      'origin/bug/empty-claim', 'origin/bug/worked-claim');
+});
+
+test('scan: a branch contained in an open PR is reported as contained, not orphaned', () => {
+  const body = section3(runContainedScan(OPEN_PRS));
+  const hits = body.filter((l) => l.includes('feature/stack-base'));
+  assert.equal(hits.length, 1, `expected one stack-base line, got:\n${hits.join('\n')}`);
+  assert.match(hits[0], /contained in open PR #200 → not orphaned$/);
+  assert.doesNotMatch(hits[0], /orphan \(needs judgment\)/);
+});
+
+test('scan: a contained branch does not count toward stale=', () => {
+  const out = runContainedScan(OPEN_PRS);
+  const footer = out.trim().split('\n').at(-1);
+  // bug/really-orphan alone. Before the fix feature/stack-base counted too.
+  assert.match(footer, /\bstale=1\b/);
+  assert.match(footer, /\bclaims=1\b/);
+});
+
+test('scan: a genuine orphan is still called an orphan', () => {
+  // The fix must not turn the section off: a branch that is an ancestor of no
+  // open PR head keeps its verdict.
+  const body = section3(runContainedScan(OPEN_PRS));
+  const hits = body.filter((l) => l.includes('bug/really-orphan') && !l.includes('inspect:'));
+  assert.equal(hits.length, 1, `expected one really-orphan line, got:\n${hits.join('\n')}`);
+  assert.match(hits[0], /ahead of main, no open PR → orphan \(needs judgment\)$/);
+});
+
+test('scan: the claim check wins over containment for a claim with work on it', () => {
+  // THE ORDERING. bug/empty-claim is an ancestor of bug/worked-claim, the head
+  // of open PR #201 — so containment WOULD fire on it. It must still report as
+  // a claim, the more specific fact. Running the containment test first makes
+  // this line read "contained in open PR #201" and drops claims= to 0, silently.
+  const body = section3(runContainedScan(OPEN_PRS));
+  const hits = body.filter((l) => l.includes('bug/empty-claim') && !l.includes('inspect:'));
+  assert.equal(hits.length, 1, `expected one empty-claim line, got:\n${hits.join('\n')}`);
+  assert.match(hits[0], /still claimed, no commits/);
+  assert.doesNotMatch(hits[0], /contained in open PR/);
+});
+
+test('scan: the head of an open PR is not listed at all — neither stale nor contained', () => {
+  // feature/stack-top and bug/worked-claim are PR heads: live work, skipped
+  // before either verdict. Containment must not resurrect them as findings.
+  const body = section3(runContainedScan(OPEN_PRS));
+  assert.equal(body.filter((l) => l.includes('feature/stack-top')).length, 0);
+  assert.equal(body.filter((l) => l.includes('bug/worked-claim')).length, 0);
+});
+
+test('scan: with no open PRs, containment invents nothing and the stack is orphaned', () => {
+  // Guards the other direction: the containment branch must depend on the open
+  // PR list, not on branch shape. With an empty list every unmerged branch is
+  // an orphan again — the pre-fix answer, now only for the pre-fix input.
+  const out = runContainedScan('');
+  const body = section3(out);
+  assert.equal(body.filter((l) => l.includes('contained in open PR')).length, 0);
+  const base = body.filter((l) => l.includes('feature/stack-base') && !l.includes('inspect:'));
+  assert.equal(base.length, 1);
+  assert.match(base[0], /→ orphan \(needs judgment\)$/);
+});
+
+test('scan: open-PR heads are fetched with their numbers, in one bundled call', () => {
+  // The number is what lets section 3 name the PR. Fetching it must not cost a
+  // second host call — the field rides along on the call already being made.
+  cipBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-cip-'));
+  const argvLog = makeGhStub(cipBin, '', { openLines: OPEN_PRS });
+  execFileSync('bash', [scan, '--no-fetch'], {
+    encoding: 'utf8', cwd: cipRepo,
+    env: { ...process.env, PATH: `${cipBin}:${process.env.PATH}` },
+  });
+  const openCalls = fs.readFileSync(argvLog, 'utf8').split('\n')
+    .filter((l) => l.includes('--state open'));
+  assert.equal(openCalls.length, 1, `expected 1 open-PR call, got ${openCalls.length}`);
+  assert.match(openCalls[0], /--json number,headRefName/);
+  assert.match(openCalls[0], /-R plot-pm\/fixture/);
+});
+
+test('scan: containment is skipped, not guessed, when PR state is unavailable', () => {
+  // --offline makes no host call, so there is no open-PR list to test against.
+  // The scan must fall back to the old verdict rather than assert containment
+  // it did not check.
+  const out = runContainedScan(OPEN_PRS, ['--offline']);
+  const body = section3(out);
+  assert.equal(body.filter((l) => l.includes('contained in open PR')).length, 0);
+  assert.match(out, /PR state: skipped \(--no-pr\)/);
 });
