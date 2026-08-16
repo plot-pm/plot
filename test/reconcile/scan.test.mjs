@@ -249,3 +249,234 @@ test('scan: refuses to run outside a git repository', () => {
     fs.rmSync(bare, { recursive: true, force: true });
   }
 });
+
+// ---------------------------------------------------------------------------
+// Single-PR plans (section 2, second signal).
+//
+// A SEPARATE fixture, because this one needs what the fixture above
+// deliberately lacks: a github.com origin URL and a gh on PATH, so the scan
+// takes its gh branch instead of reporting DEGRADED. The shape reproduced here
+// is the one that hung undetected for five weeks — plan and implementation on
+// ONE idea branch, its PR merged, the branch DELETED at merge, and the plan
+// recording no PR number at all. The old check iterated `git branch -r
+// --merged` looking for a ref that no longer exists, so it could never hit.
+// ---------------------------------------------------------------------------
+
+let sprTmp, sprRepo, sprBin;
+
+// Stub gh: answers the two bundled list calls the scan makes and records each
+// invocation's argv so the limit and repo pin can be asserted, not assumed.
+function makeGhStub(dir, mergedLines, { openLines = '' } = {}) {
+  const argvLog = path.join(dir, 'gh.argv');
+  const emit = (lines) =>
+    lines.split('\n').filter(Boolean).map((l) => `printf '%s\\n' ${JSON.stringify(l)}`).join('\n');
+  fs.writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}
+case "$*" in
+  *"--state merged"*) ${emit(mergedLines) || 'true'} ;;
+  *"--state open"*)   ${emit(openLines) || 'true'} ;;
+esac
+exit 0
+`);
+  fs.chmodSync(path.join(dir, 'gh'), 0o755);
+  return argvLog;
+}
+
+function runSinglePrScan(mergedLines, extraArgs = []) {
+  sprBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-gh-'));
+  const argvLog = makeGhStub(sprBin, mergedLines);
+  const out = execFileSync('bash', [scan, '--no-fetch', ...extraArgs], {
+    encoding: 'utf8',
+    cwd: sprRepo,
+    env: { ...process.env, PATH: `${sprBin}:${process.env.PATH}` },
+  });
+  return { out, argv: fs.existsSync(argvLog) ? fs.readFileSync(argvLog, 'utf8') : '' };
+}
+
+// One report line at a time. Whole-output regexes have fooled this suite three
+// times by matching across separate findings or into the summary footer.
+const lineMatching = (out, re) => out.split('\n').filter((l) => re.test(l));
+
+before(() => {
+  sprTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-spr-'));
+  const origin = path.join(sprTmp, 'origin.git');
+  sprRepo = path.join(sprTmp, 'repo');
+  git(sprTmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(sprTmp, 'clone', '-q', origin, sprRepo);
+  git(sprRepo, 'config', 'user.email', 'test@example.invalid');
+  git(sprRepo, 'config', 'user.name', 'Plot Test');
+  git(sprRepo, 'config', 'commit.gpgsign', 'false');
+  // The scan reads origin's URL to pick its host adapter; point it at
+  // github.com while keeping the real local path as a second remote to push to.
+  git(sprRepo, 'remote', 'set-url', 'origin', 'https://github.com/plot-pm/fixture.git');
+  git(sprRepo, 'remote', 'add', 'store', origin);
+
+  const w = (rel, content) => {
+    const p = path.join(sprRepo, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content);
+  };
+
+  w('CLAUDE.md', `# Fixture project
+
+## Plot Config
+
+- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+- **Plan directory:** plans/
+- **Active index:** plans/active/
+- **Delivered index:** plans/delivered/
+`);
+
+  // The single-PR plan: its branch is NEVER pushed (deleted at merge), and it
+  // records no PR number — the two facts that together defeated the old check.
+  w('plans/2026-01-10-solo.md', `# Solo
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`idea/solo\` — plan + impl, one PR
+`);
+  // A fan-out plan whose branch still exists and is merged — the pre-existing
+  // signal. It must keep being found by the branch check alone.
+  w('plans/2026-01-11-fanout.md', `# Fanout
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/fanout\` — impl → #7
+`);
+  // An Approved plan whose branch is neither merged nor a merged-PR head.
+  // Guards against the new signal manufacturing findings.
+  w('plans/2026-01-12-live.md', `# Live
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+
+## Branches
+
+- \`bug/live\` — in flight
+`);
+
+  fs.mkdirSync(path.join(sprRepo, 'plans', 'active'), { recursive: true });
+  fs.mkdirSync(path.join(sprRepo, 'plans', 'delivered'), { recursive: true });
+  for (const [link, target] of [['solo.md', '../2026-01-10-solo.md'],
+                                ['fanout.md', '../2026-01-11-fanout.md'],
+                                ['live.md', '../2026-01-12-live.md']]) {
+    fs.symlinkSync(target, path.join(sprRepo, 'plans', 'active', link));
+  }
+
+  git(sprRepo, 'add', '-A');
+  git(sprRepo, 'commit', '-q', '-m', 'plans');
+
+  // feature/fanout: merged AND still on origin (existing signal intact).
+  git(sprRepo, 'checkout', '-q', '-b', 'feature/fanout');
+  w('fanout.txt', 'done\n');
+  git(sprRepo, 'add', 'fanout.txt');
+  git(sprRepo, 'commit', '-q', '-m', 'fanout impl');
+  git(sprRepo, 'checkout', '-q', 'main');
+  git(sprRepo, 'merge', '-q', '--no-ff', '--no-edit', 'feature/fanout');
+
+  // bug/live: unmerged work, still on origin.
+  git(sprRepo, 'checkout', '-q', '-b', 'bug/live');
+  w('live.txt', 'wip\n');
+  git(sprRepo, 'add', 'live.txt');
+  git(sprRepo, 'commit', '-q', '-m', 'live wip');
+  git(sprRepo, 'checkout', '-q', 'main');
+
+  // idea/solo is deliberately never pushed — the ref is gone, as after a
+  // merge-and-delete. Only the merged PR list can testify that it landed.
+  git(sprRepo, 'push', '-q', 'store', 'main', 'feature/fanout', 'bug/live');
+  git(sprRepo, 'fetch', '-q', 'store');
+  // Re-point the remote-tracking refs the scan reads (origin/*) at what we
+  // pushed, since origin's URL is now a github.com placeholder.
+  for (const b of ['main', 'feature/fanout', 'bug/live']) {
+    git(sprRepo, 'update-ref', `refs/remotes/origin/${b}`, `refs/remotes/store/${b}`);
+  }
+  git(sprRepo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+});
+after(() => {
+  fs.rmSync(sprTmp, { recursive: true, force: true });
+  if (sprBin) fs.rmSync(sprBin, { recursive: true, force: true });
+});
+
+test('scan: section 2 finds a single-PR plan whose branch was deleted at merge', () => {
+  const { out } = runSinglePrScan('40 idea/solo');
+  const hits = lineMatching(out, /2026-01-10-solo\.md/);
+  assert.equal(hits.length, 1, `expected exactly one solo finding, got:\n${hits.join('\n')}`);
+  assert.match(hits[0], /impl branch merged to main, plan still Approved/);
+  // The plan records no PR number — the finding must not depend on one.
+  assert.match(hits[0], /\(PRs: none-linked\)/);
+  const head = lineMatching(out, /merged PR head:/);
+  assert.equal(head.length, 1);
+  assert.match(head[0], /#40 \(idea\/solo\)/);
+  assert.equal(lineMatching(out, /consider: \/plot-deliver solo$/).length, 1);
+});
+
+test('scan: the deleted branch is genuinely absent — the old check could not match it', () => {
+  // Pins the premise of the fix rather than trusting the fixture: if idea/solo
+  // ever gained a ref, this test would pass for the wrong reason.
+  assert.throws(() => git(sprRepo, 'rev-parse', '--verify', 'refs/remotes/origin/idea/solo'));
+  const merged = git(sprRepo, 'branch', '-r', '--merged', 'origin/main');
+  assert.doesNotMatch(merged, /idea\/solo/);
+});
+
+test('scan: fan-out plans keep being found by the branch signal alone', () => {
+  // Merged-PR list omits feature/fanout entirely — the existing merged-branch
+  // check must still report it, proving the two signals are OR-ed, not swapped.
+  const { out } = runSinglePrScan('40 idea/solo');
+  const hits = lineMatching(out, /2026-01-11-fanout\.md/);
+  assert.equal(hits.length, 1, `expected exactly one fanout finding, got:\n${hits.join('\n')}`);
+  assert.match(hits[0], /impl branch merged to main, plan still Approved \(PRs: 7\)/);
+});
+
+test('scan: an unmerged plan branch produces no section-2 finding', () => {
+  const { out } = runSinglePrScan('40 idea/solo');
+  assert.equal(lineMatching(out, /2026-01-12-live\.md/).length, 0);
+});
+
+test('scan: a merged PR head that no plan names invents nothing', () => {
+  // An unrelated merged PR must not create a finding, nor attach itself to one.
+  const { out } = runSinglePrScan('40 idea/solo\n41 feature/unrelated');
+  assert.equal(lineMatching(out, /feature\/unrelated/).length, 0);
+  assert.equal(lineMatching(out, /merged PR head:/).length, 1);
+});
+
+test('scan: merged-PR fetch is one bundled call, repo-pinned, with a raised limit', () => {
+  // Per-plan pr-state calls would cost 0.61 s each; this must stay constant in
+  // plan count. The limit must exceed gh's default page of 30, or old plans —
+  // this check's own failure mode — go silently unseen.
+  const { argv } = runSinglePrScan('40 idea/solo');
+  const mergedCalls = argv.split('\n').filter((l) => l.includes('--state merged'));
+  assert.equal(mergedCalls.length, 1, `expected 1 merged-PR call, got ${mergedCalls.length}`);
+  assert.match(mergedCalls[0], /-R plot-pm\/fixture/);
+  const limit = Number(mergedCalls[0].match(/--limit (\d+)/)?.[1]);
+  assert.ok(limit > 30, `limit ${limit} must exceed gh's default page size of 30`);
+});
+
+test('scan: --offline makes no host call and says the check was skipped', () => {
+  const { out, argv } = runSinglePrScan('40 idea/solo', ['--offline']);
+  assert.equal(argv, '', 'no gh call may happen under --offline');
+  // Absent-because-skipped must be stated, not silent: a quiet "(none)" here is
+  // exactly the "silence reads as health" defect this section was fixed for.
+  assert.equal(lineMatching(out, /2026-01-10-solo\.md/).length, 0);
+  const note = lineMatching(out, /merged-PR heads not consulted/);
+  assert.equal(note.length, 1);
+  assert.match(note[0], /pr_source=off/);
+});
+
+test('scan: section-2 counts in the summary footer stay exact', () => {
+  const { out } = runSinglePrScan('40 idea/solo');
+  const last = out.trim().split('\n').at(-1);
+  // solo (merged-PR head) + fanout (merged branch) = 2; live is in flight.
+  assert.match(last, /\bmerged_not_delivered=2\b/);
+});
