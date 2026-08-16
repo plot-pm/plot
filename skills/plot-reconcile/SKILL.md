@@ -76,7 +76,33 @@ It reads `origin/*` refs plus the configured plan directory and emits five secti
 
 1. **Phase↔symlink drift** — a plan whose phase disagrees with which index dir (`active/` vs `delivered/`) its symlink lives in. The `Delivered` + still-in-`active/` case is the classic half-delivery failure mode.
 2. **Merged-but-not-delivered** — a plan still `Approved` whose impl branch (resolved from the `## Branches` `→ #NNN` links) is already merged to the main branch. Candidate `/plot-deliver`.
-3. **Stale branches** — remote branches under a configured prefix with no open PR: merged into the main branch → deletion candidates; ahead of it → orphans needing judgment. The main branch and `release/*` are never listed.
+3. **Stale branches** — remote branches under a configured prefix with no open PR: merged into the main branch → deletion candidates; ahead of it → orphans needing judgment, unless the branch is *contained in an open PR* (see below). The main branch and `release/*` are never listed.
+### Contained in an open PR (inside section 3)
+
+A branch that is an **ancestor of some open PR's head** is work in flight on a
+stack, not abandoned work. The scan lists it separately and it does **not**
+count toward `stale=`:
+
+```
+  -- contained in an open PR (work in flight, not stale) --
+  origin/feature/stack-base — contained in open PR #200 → not orphaned
+```
+
+Being the head of an open PR was always recognised; being *below* one was not,
+so every branch under the top of a stack read as an orphan.
+
+This test runs **after** the claim check, and the obvious justification for
+that order is wrong. An empty claim is an ancestor of nothing — its claim
+commit puts it one commit *ahead* of the branch point. The real case is the
+reverse: once a worker builds on its claim, the claim commit becomes part of
+the working branch, which is typically the head of the PR it opens. Such a
+claim is legitimately contained in an open PR, and must still be reported as a
+**claim**, because that is the more specific fact.
+
+Containment is only asked for *unmerged* branches. A merged branch is an
+ancestor of the main branch, and therefore of every open PR branched from it —
+asking earlier would swallow the whole deletion-candidate class.
+
 ### Claims (inside section 3)
 
 A branch whose only commits beyond main are **empty `plot: claim …` markers**
