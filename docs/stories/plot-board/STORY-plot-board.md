@@ -95,7 +95,16 @@ that closes the loop, and it has not been built yet.
   1), so the plan parser cannot know it unless someone writes it down twice,
   which is the second source of truth Plot exists to avoid. `claimed: 0` means
   "I looked somewhere claims are not kept", and looks exactly like "nobody is
-  working". Blocked while `feature/board-start-work` edits `board.ts`.
+  working".
+
+  It is bigger than one wrong number. `WaveSummarySchema` carries
+  `waves / branches / claimed / deferred` and **no `eligible`** — which is also
+  why the plan's open question about disabling *Start work* when nothing can
+  start has no answer today. The fleet scan already computes both: it reports
+  `verdict=eligible` per wave and a `claimed` count in its summary. So the fix
+  for all three is one change of source, not three features — build
+  `waveSummary` from the pulse the Agents tab already reads, instead of from
+  the plan parser. Blocked while `feature/board-start-work` edits `board.ts`.
 - ✅ **A freshly claimed branch reads as QUIET** — fixed in #118 — observed 2026-08-16, seven
   minutes after dispatching `feature/board-artifact-links`. `classify()` in
   `fleet.ts` short-circuits `state === 'claimed'` straight to
