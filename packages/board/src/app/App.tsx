@@ -61,7 +61,7 @@ const FLEET_POLL_MS = 4_000;
  * are already saying the numbers are old from the first failure. Only the
  * *posture* waits.
  */
-const DIM_AFTER_FAILURES = 8;
+export const DIM_AFTER_FAILURES = 8;
 
 /**
  * How fast the board re-reads git while a Start work click is outstanding.
