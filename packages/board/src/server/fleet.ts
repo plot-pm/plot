@@ -878,9 +878,10 @@ export const GROUP_ORDER: WaitingGroup[] = [
  */
 export function compareWithinGroup(a: AgentRow, b: AgentRow): number {
   if (a.group === 'not-started') {
-    // Ascending, undated first: `Infinity` for a dated row would put it after
-    // every other dated row rather than before them, so the undated case gets
-    // the smallest value there is instead.
+    // Ascending, and an absent date takes -1 so it sorts BELOW `today` (0)
+    // rather than tying with it. The two are different statements — "approved
+    // at an unknown time" and "approved today" — and `waitingDays` already
+    // keeps them apart by storing null for the first.
     return (a.waitingDays ?? -1) - (b.waitingDays ?? -1);
   }
   return (b.ageMinutes ?? -1) - (a.ageMinutes ?? -1);
