@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { groupByPlan, countdown, waitingLabel, GROUPS } from '../../src/app/components/AgentList.js';
+import {
+  groupByPlan,
+  countdown,
+  waitingLabel,
+  showPlanHeadings,
+  GROUPS,
+} from '../../src/app/components/AgentList.js';
 import { GROUP_ORDER } from '../../src/server/fleet.js';
 import type { AgentRow } from '../../src/contract/schema.js';
 
@@ -104,5 +110,26 @@ describe('countdown', () => {
 
   it('is null when the age is unknown', () => {
     expect(countdown(null, 4)).toBeNull();
+  });
+});
+
+describe('showPlanHeadings', () => {
+  // Both halves of the rule, and each is the case the other version got wrong.
+  it('labels several plans, so two names cannot run together unlabelled', () => {
+    expect(showPlanHeadings(2, 2)).toBe(true);
+  });
+
+  it('labels one plan holding several rows, instead of printing its name on each', () => {
+    // The case that motivated grouping: six QUIET rows of one plan. `plans > 1`
+    // said no heading, so the plan name appeared six times down the column.
+    expect(showPlanHeadings(6, 1)).toBe(true);
+  });
+
+  it('stays quiet for a single row, where a heading separates and saves nothing', () => {
+    expect(showPlanHeadings(1, 1)).toBe(false);
+  });
+
+  it('stays quiet for an empty group', () => {
+    expect(showPlanHeadings(0, 0)).toBe(false);
   });
 });
