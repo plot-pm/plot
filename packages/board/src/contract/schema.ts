@@ -236,6 +236,23 @@ export const StoryCardSchema = z.object({
   slug: z.string(),
   title: z.string(),
   status: z.string(),
+  /**
+   * Repo-relative path to the story's own file, e.g.
+   * docs/stories/plot-board/STORY-plot-board.md — or "" where the board found
+   * no file for it.
+   *
+   * Carried for the same reason `Card.path` is: the consumer must not
+   * reconstruct it. A story slug is a directory name AND a filename component
+   * (`<slug>/STORY-<slug>.md`), so rebuilding it client-side means encoding
+   * that convention twice and letting the copies drift.
+   *
+   * "" is the honest answer for a plan naming a story nobody has written, and
+   * it renders as no link at all — the rule plan rows already follow for
+   * `planFile: ''`. The card keeps its title and status, which are true
+   * regardless; hiding it would lose real information to avoid a broken link.
+   * Defaulted so output from an older server still validates.
+   */
+  path: z.string().default(''),
 });
 export type StoryCard = z.infer<typeof StoryCardSchema>;
 

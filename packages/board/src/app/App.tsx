@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { Board, Card, Fleet } from '../contract/schema.js';
+import type { Board, Card, Fleet, StoryCard } from '../contract/schema.js';
 import { AgentList } from './components/AgentList.js';
 import { BoardView } from './components/Board.js';
 import { Swimlanes } from './components/Swimlanes.js';
 import { PlanModal } from './components/PlanModal.js';
+import { StoryModal } from './components/StoryModal.js';
 import { MultiSelect } from './components/ui/MultiSelect.js';
 import {
   NO_SPRINT,
@@ -53,6 +54,11 @@ export function App() {
   const [sprintSel, setSprintSel] = useState<string[]>(() => readList('sprint'));
   const [storySel, setStorySel] = useState<string[]>(() => readList('story'));
   const [openPlan, setOpenPlan] = useState<Card | null>(null);
+  // The story overlay. Two pieces of state rather than a discriminated union
+  // because the two are opened from different places — but never BOTH: opening
+  // one closes the other, so an overlay above an overlay (two Close buttons,
+  // one ambiguous Escape) cannot happen.
+  const [openStory, setOpenStory] = useState<StoryCard | null>(null);
   // A plan click made before the board's cards landed, held until they do.
   const [pendingPlan, setPendingPlan] = useState('');
   // The card the reader was just sent to, named in the URL so the landing is
@@ -310,6 +316,57 @@ export function App() {
     setHighlight(card.slug);
   }, []);
 
+  /**
+   * The story card for a slug, or undefined.
+   *
+   * A plan can name a story with no file — a typo, or one not yet written —
+   * and that plan gets no `Open story` button and no badge link rather than an
+   * action that 404s. The same rule the swimlane's orphan lane already follows.
+   */
+  const storyFor = useCallback(
+    (slug: string | undefined): StoryCard | undefined =>
+      slug ? board?.stories.find((s) => s.slug === slug) : undefined,
+    [board],
+  );
+
+  /**
+   * Open a story, REPLACING whatever overlay is open rather than stacking on it.
+   *
+   * An overlay above an overlay gives two Close buttons and an ambiguous
+   * Escape, for the sake of keeping context the header already names.
+   * Replacement is predictable, and the way back is the same click in reverse.
+   */
+  const onOpenStory = useCallback((story: StoryCard) => {
+    setOpenPlan(null);
+    setOpenStory(story);
+  }, []);
+
+  /** The mirror image: a plan opened from the story overlay replaces it. */
+  const onOpenPlanFromStory = useCallback((card: Card) => {
+    setOpenStory(null);
+    setOpenPlan(card);
+  }, []);
+
+  /**
+   * Close the overlay, switch to the board, and filter to this story — the
+   * story's answer to the plan modal's *Show in board*.
+   *
+   * No `?plan=` highlight, because a story is not one card: the filter IS the
+   * landing. Everything else matches the plan modal's version, including
+   * clearing the agents tab from the URL.
+   */
+  const onShowStoryInBoard = useCallback((story: StoryCard) => {
+    setOpenStory(null);
+    setTab('board');
+    const url = new URL(location.href);
+    url.searchParams.delete('tab');
+    url.searchParams.delete('plan');
+    setStorySel([story.slug]);
+    url.searchParams.set('story', story.slug);
+    history.replaceState(null, '', url);
+    setHighlight('');
+  }, []);
+
   const onSprint = (values: string[]) => {
     setSprintSel(values);
     writeList('sprint', values);
@@ -480,6 +537,7 @@ export function App() {
               onStarting={onStarting}
               onOpenPlan={setOpenPlan}
               onGoToStory={onGoToStory}
+              onOpenStory={onOpenStory}
               highlight={validHighlight}
             />
           )
@@ -487,11 +545,25 @@ export function App() {
           <p className="text-sm text-slate-500">Loading…</p>
         )}
       </main>
+      {/* Exactly one overlay at a time — `onOpenStory` clears the plan and
+          `onOpenPlanFromStory` clears the story, so these two conditions are
+          never true together. */}
       {openPlan && (
         <PlanModal
           card={openPlan}
+          story={storyFor(openPlan.story)}
           onClose={() => setOpenPlan(null)}
           onShowInBoard={onShowInBoard}
+          onOpenStory={onOpenStory}
+        />
+      )}
+      {openStory && (
+        <StoryModal
+          story={openStory}
+          cards={allCards}
+          onClose={() => setOpenStory(null)}
+          onShowInBoard={onShowStoryInBoard}
+          onOpenPlan={onOpenPlanFromStory}
         />
       )}
     </div>

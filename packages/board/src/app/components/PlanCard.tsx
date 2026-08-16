@@ -1,8 +1,8 @@
 import type { MouseEvent } from 'react';
-import type { Card, DispatchInfo, Phase } from '../../contract/schema.js';
+import type { Card, DispatchInfo, Phase, StoryCard } from '../../contract/schema.js';
 import { Badge, typeVariant } from './ui/badge.js';
 import { cn } from '../lib/utils.js';
-import { planHref } from '../lib/plan.js';
+import { planHref, storyHref } from '../lib/plan.js';
 import { StartWorkButton } from './StartWorkButton.js';
 
 // Colour only ever REPEATS what the column header already says in symbol and
@@ -99,6 +99,14 @@ export interface PlanCardProps {
    */
   onGoToStory?: (story: string) => void;
   /**
+   * The story card for `card.story`, when the board collected one. Absent for a
+   * plan with no story and for one naming a story nobody has written — the
+   * badge then stays plain text (or a lane jump), never a link that 404s.
+   */
+  story?: StoryCard;
+  /** Open the story in the in-board overlay (plain left-click only). */
+  onOpenStory?: (story: StoryCard) => void;
+  /**
    * Mark this card as the one just arrived at — a ring, and the anchor the
    * board scrolls to. Transient: it says *here you are*, not *this is selected*,
    * so it clears on the next interaction rather than persisting as a filter.
@@ -115,9 +123,14 @@ export function PlanCard({
   onStarting,
   onOpen,
   onGoToStory,
+  story,
+  onOpenStory,
   highlighted = false,
 }: PlanCardProps) {
   const href = planHref(card);
+  // The story's own page, or "" — a story with no file gets no link, the same
+  // rule plan rows follow for `planFile: ''`.
+  const storyPage = story ? storyHref(story) : '';
 
   // The Open control is a real anchor so cmd/ctrl/shift/middle-click open the
   // plan page natively (new tab, etc.). Only a plain primary click is
@@ -155,11 +168,33 @@ export function PlanCard({
         {isReadyToStart(card) && <Badge variant="neutral">Ready</Badge>}
         {showSprint && card.sprint && <Badge variant="sprint">{card.sprint}</Badge>}
         {showStory && card.story && (
-          // A real anchor to the lane's fragment, so cmd/ctrl/middle-click and
-          // "copy link address" behave. The plain click is intercepted only to
-          // switch the board into lane layout first — a fragment cannot scroll
-          // to a row that is not rendered yet.
-          onGoToStory ? (
+          // Three renderings, in order of how much the badge can offer.
+          //
+          // The badge NAMES the story on the card, at triage time — which is a
+          // different question from the modal's `Open story` button, where you
+          // GO once you have stopped triaging. Both exist deliberately; this is
+          // the naming half, and it links to the story ARTEFACT because that is
+          // what the name refers to.
+          //
+          // A real anchor throughout, so cmd/ctrl/middle-click and "copy link
+          // address" behave; only the plain click is intercepted.
+          storyPage && onOpenStory && story ? (
+            <a
+              href={storyPage}
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                e.preventDefault();
+                onOpenStory(story);
+              }}
+              className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1"
+              title={`Open the ${card.story} story`}
+            >
+              <Badge variant="story" className="hover:underline">{card.story}</Badge>
+            </a>
+          ) : onGoToStory ? (
+            // No story FILE to open — a typo, or a story nobody has written
+            // yet. The lane jump is still true and still useful, so the badge
+            // keeps it rather than going inert.
             <a
               href={`#story-${encodeURIComponent(card.story)}`}
               onClick={(e) => {
