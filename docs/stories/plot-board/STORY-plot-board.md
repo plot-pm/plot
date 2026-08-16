@@ -86,6 +86,16 @@ that closes the loop, and it has not been built yet.
   pushed-work case uses. The age data exists: a claim IS a commit (the empty
   `plot: claim <branch>`). Deliberately not folded into the Navigation wave,
   which touches the same file — that PR should stay one thing.
+- ⏸️ **`/plot-dispatch` starts work without recording that it did** — observed
+  2026-08-16: `board-acts-through-plot` sat in DESIGN badged *Ready* while its
+  first wave was claimed and an agent was editing it. The card was rendered
+  correctly; the booking was missing. `plot-dispatch.sh` creates the worktree,
+  pushes the claim and starts the worker, but writes no `Started:` record —
+  `/plot-implement` does that in its step 5, and dispatch never got the
+  equivalent. So the two tabs of one board disagreed by design: Agents reads
+  git refs and saw the claim, Board reads the plan through
+  `toBoardPhase(phase, started)` and saw nothing started. Fixed by hand for this
+  plan; the gap in dispatch remains.
 - ⏸️ **`same branch` work is invisible to the fleet until pushed** — same
   session, same screenshot: `feature/push-main-bypass` sat under NOT STARTED
   reading *"eligible — nobody has taken it"* while five commits existed for it
