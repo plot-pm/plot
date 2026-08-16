@@ -131,11 +131,39 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     return page;
   }
 
+  /**
+   * Open the Agents tab, then hand back a switch that makes `/api/fleet` fail.
+   *
+   * The dead-server case cannot be stated as a payload — that is the entire
+   * defect. `fleet.error` is the server ANSWERING to say its scan failed; this
+   * is the server answering nothing, so it has to be produced at the network
+   * boundary, by aborting the request the way an unreachable port does.
+   *
+   * The route is installed once and reads a mutable flag rather than being
+   * re-registered, so a poll in flight at the moment of the switch cannot slip
+   * past an unrouted window and land a success the test did not intend.
+   */
+  async function openAgentsWithFailSwitch(
+    payload: Fleet = fleet(),
+  ): Promise<{ page: Page; fail: () => void; recover: () => void }> {
+    let failing = false;
+    const page = await browser.newPage();
+    await page.route('**/api/fleet', (route) =>
+      failing
+        ? route.abort('connectionrefused')
+        : route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
+    await page.goto(`${baseURL}?tab=agents`);
+    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    return { page, fail: () => { failing = true; }, recover: () => { failing = false; } };
+  }
+
   /** The section for one waiting-group, by its heading text. */
   const group = (page: Page, label: string) =>
     page.locator('section').filter({
       has: page.getByRole('heading', { level: 2, name: new RegExp(label) }),
     });
+
+  const staleBanner = (page: Page) => page.getByText(/Not reaching the board server/);
 
   const footer = (page: Page) => page.getByText(/branches across .* plans/);
 
@@ -417,6 +445,162 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       };
       const first = await read();
       await expect.poll(read, { timeout: 6_000 }).not.toBe(first);
+    } finally {
+      await page.close();
+    }
+  });
+
+  // ── A dead server says so, rather than looking alive ──────────────────────
+  //
+  // The incident these pin: on 2026-08-16 two screenshots were reported as
+  // regressions ("the heading is still there", "the link is still missing").
+  // Both were the frozen last render of a page whose server had stopped. Three
+  // hypotheses — stale bundle, JSX guard, minification — were spent before
+  // anyone checked what was running. Every assertion below is one that would
+  // have ended that in a glance.
+
+  it('says the server is unreachable after ONE failed fetch', async () => {
+    // ONE, not two. A two-strikes implementation passes a test written against
+    // two failures, which is why this counts them: the poll is 4 s, so a
+    // two-strikes rule would leave the page confident for up to 8 s — and the
+    // whole cost of this bug was a page that looked confident.
+    //
+    // The outcomes are asymmetric and that is what settles it: a false alarm
+    // shows a banner that clears itself on the next poll, while a missed dead
+    // server costs a misdiagnosis.
+    const { page, fail } = await openAgentsWithFailSwitch();
+    try {
+      let failures = 0;
+      page.on('requestfailed', (r) => { if (r.url().includes('/api/fleet')) failures += 1; });
+      fail();
+      await staleBanner(page).waitFor({ timeout: 10_000 });
+      expect(failures).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('stops the countdown rather than clamping it at "next in 0s"', async () => {
+    // The current behaviour clamps, and "next in 0s" reads as *about to
+    // refresh* — the precise opposite of the truth, held indefinitely. The
+    // assertion is the absence of a countdown, not a frozen one: a number held
+    // at 3 is still a prediction, and no refresh is coming.
+    const { page, fail } = await openAgentsWithFailSwitch();
+    try {
+      expect(await footer(page).textContent()).toMatch(/next in \d+s/);
+      fail();
+      await staleBanner(page).waitFor({ timeout: 10_000 });
+      await expect.poll(async () => (await footer(page).textContent()) ?? '')
+        .not.toMatch(/next in/);
+      expect(await footer(page).textContent()).not.toContain('next in 0s');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('freezes the ages instead of ageing against a scan that is not happening', async () => {
+    // The assertion a banner-only test passes without: `ageSeconds + tick` kept
+    // climbing under the old code, and a number that keeps moving is the most
+    // convincing part of a dead page. Read twice across more than a poll
+    // interval — a frozen clock and a slow one are only distinguishable over
+    // time.
+    const { page, fail } = await openAgentsWithFailSwitch();
+    try {
+      const scanned = async () =>
+        Number(/scanned (\d+)s ago/.exec((await footer(page).textContent()) ?? '')?.[1]);
+      fail();
+      await staleBanner(page).waitFor({ timeout: 10_000 });
+      const frozen = await scanned();
+      expect(Number.isFinite(frozen)).toBe(true);
+      await page.waitForTimeout(5_000);
+      expect(await scanned()).toBe(frozen);
+      // And it says so, so a reader does not have to watch it to find out.
+      expect(await footer(page).textContent()).toContain('frozen');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('keeps the last payload on screen — degrade, do not hide', async () => {
+    // It is still the best information available; blanking it would destroy
+    // what the reader came for. What changes is the confidence around it.
+    const { page, fail } = await openAgentsWithFailSwitch();
+    try {
+      fail();
+      await staleBanner(page).waitFor({ timeout: 10_000 });
+      await expect.poll(() => page.getByRole('link', { name: 'feature/reviewed' }).count()).toBe(1);
+      expect(await page.getByRole('link', { name: 'PR #130' }).count()).toBe(1);
+      expect(await group(page, 'Working').getByRole('heading', { level: 3 }).count()).toBe(2);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('recovers on the next successful fetch, with no reload, and the clock resumes', async () => {
+    // The assertion a set-only implementation fails: a stale flag that is never
+    // cleared passes every test that only checks it gets set. With a
+    // first-failure threshold this is what keeps a hiccup from stranding the
+    // view in permanent distrust.
+    //
+    // The clock resuming is asserted separately from the banner clearing,
+    // because stopping a timer is easy to do irreversibly.
+    const { page, fail, recover } = await openAgentsWithFailSwitch();
+    try {
+      const before = page.url();
+      fail();
+      await staleBanner(page).waitFor({ timeout: 10_000 });
+      recover();
+      await expect.poll(() => staleBanner(page).count(), { timeout: 15_000 }).toBe(0);
+      // Same page, never reloaded: the polling never stopped, so the page can
+      // observe its own recovery.
+      expect(page.url()).toBe(before);
+
+      const read = async () => {
+        const t = (await footer(page).textContent()) ?? '';
+        return Number(/scanned \d+s ago · next in (\d+)s/.exec(t)?.[1]);
+      };
+      await expect.poll(read, { timeout: 10_000 }).not.toBeNaN();
+      const first = await read();
+      await expect.poll(read, { timeout: 8_000 }).not.toBe(first);
+      expect(await footer(page).textContent()).not.toContain('frozen');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('keeps the first-load message distinct from the staleness message', async () => {
+    // Never-had-an-answer is a different statement from no-longer-trusted, and
+    // merging them would let an empty view claim staleness it cannot have. A
+    // tab whose very first fetch fails has nothing to be stale ABOUT.
+    const page = await browser.newPage();
+    try {
+      await page.route('**/api/fleet', (route) => route.abort('connectionrefused'));
+      await page.goto(`${baseURL}?tab=agents`);
+      await page.getByText('Loading…').waitFor({ timeout: 10_000 });
+      // No pulse ever arrived, so there is no "last heard" moment to report.
+      expect(await staleBanner(page).count()).toBe(0);
+      // And no rows are invented to be stale about.
+      expect(await footer(page).count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('reports a failed SCAN separately from an unreachable server', async () => {
+    // Two different failures, and both can be true at once — a scan that broke,
+    // then a process that died. The server reporting its own scan failure
+    // requires a server that answered; the other says nothing came back at all.
+    // Collapsing them would tell the reader the wrong thing to go check.
+    const { page, fail } = await openAgentsWithFailSwitch(
+      fleet({ error: 'plot-fleet-scan.sh exited 1' }),
+    );
+    try {
+      await page.getByText(/Last scan failed/).waitFor({ timeout: 10_000 });
+      expect(await staleBanner(page).count()).toBe(0);
+      fail();
+      await staleBanner(page).waitFor({ timeout: 10_000 });
+      // The scan error is still shown: the newer failure does not erase it.
+      expect(await page.getByText(/Last scan failed/).count()).toBe(1);
     } finally {
       await page.close();
     }

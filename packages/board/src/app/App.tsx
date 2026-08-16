@@ -69,6 +69,16 @@ export function App() {
   // How many Start work clicks are outstanding. Only used to decide the poll
   // rate: a live control deserves a live view, and only while it is live.
   const [starting, setStarting] = useState(0);
+  // When the fleet endpoint last answered, and whether it has failed since.
+  //
+  // The pair exists because a dead server is invisible from inside the payload:
+  // `fleet.error` is the server REPORTING a failed scan, which requires a
+  // server that answered. A server that answers nothing leaves the last payload
+  // on screen looking exactly as trustworthy as it did a second before it died
+  // — which is what happened on 2026-08-16 and cost a three-hypothesis
+  // misdiagnosis of a page that was simply not connected to anything.
+  const [fleetHeardAt, setFleetHeardAt] = useState<number | null>(null);
+  const [fleetUnreachable, setFleetUnreachable] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -102,10 +112,31 @@ export function App() {
       const data = (await res.json()) as Fleet | { error: string };
       if (!('rows' in data)) throw new Error(data.error);
       setFleet(data);
+      // Recovery is automatic, and it has to be: with a first-failure threshold
+      // a single hiccup would otherwise strand the view in permanent distrust
+      // until someone reloaded. The polling never stopped, so the page can
+      // observe its own recovery — asking the reader to confirm one is ceremony.
+      setFleetHeardAt(Date.now());
+      setFleetUnreachable(false);
     } catch {
-      // Keep the last good fleet on screen with its age rather than blanking
-      // it: the endpoint carries its own `error` field for scan failures, and
-      // a dropped poll is not evidence that the fleet stopped.
+      // The fetch did not reach the server. Keep the last good fleet on screen
+      // — it is still the best information available, and blanking it would
+      // destroy what the reader came for — but stop vouching for it.
+      //
+      // The FIRST failure is enough. The two outcomes are not symmetric: what a
+      // false alarm costs is a banner that clears itself four seconds later,
+      // while a dead server that looks healthy costs a misdiagnosis. It cost
+      // one on 2026-08-16, when two screenshots of a frozen page were reported
+      // as regressions that did not exist on the live board.
+      //
+      // Two pieces of state rather than one, because they answer two questions
+      // and a single timestamp cannot answer both: `fleetHeardAt` is WHEN the
+      // last answer arrived, and it must survive the failure — it is the number
+      // the banner reports. `fleetUnreachable` is WHETHER a fetch has failed
+      // since. Deriving the second from the first ("stale once the last success
+      // is older than N") would reintroduce a threshold the plan rejected, and
+      // would call a view stale during the ordinary gap between two polls.
+      setFleetUnreachable(true);
     }
   }, []);
 
@@ -125,6 +156,41 @@ export function App() {
     const id = setInterval(() => void loadFleet(), FLEET_POLL_MS);
     return () => clearInterval(id);
   }, [tab, loadFleet]);
+
+  // Ages the "last heard" number while the server is unreachable.
+  //
+  // The ONE clock that must keep running when everything else freezes, and the
+  // asymmetry is the point: every other number describes a scan that is not
+  // happening, so advancing them states something false. This one describes the
+  // SILENCE, which is genuinely getting longer with every second — the reader
+  // wants to know whether it has been four seconds or four minutes, and those
+  // are very different situations.
+  //
+  // Runs only while unreachable and only with the tab open, so a healthy board
+  // pays nothing for it.
+  //
+  // Each tick RECOMPUTES the age from the wall clock rather than incrementing a
+  // counter, so a throttled background timer still reports true elapsed time
+  // instead of the number of ticks it managed to fire. A page left on a dead
+  // server for an hour has to say an hour, not "as many seconds as the browser
+  // felt like waking me".
+  //
+  // Null is the whole vocabulary of "not stale": the component reads the
+  // absence of a number as the statement that there is nothing to report, so a
+  // healthy board never has to reason about a flag and a number agreeing.
+  const [fleetStaleSeconds, setFleetStaleSeconds] = useState<number | null>(null);
+  useEffect(() => {
+    if (tab !== 'agents' || !fleetUnreachable || fleetHeardAt === null) {
+      setFleetStaleSeconds(null);
+      return;
+    }
+    const since = () => Math.max(0, Math.round((Date.now() - fleetHeardAt) / 1_000));
+    // Immediately, not on the first tick: the banner must appear with the
+    // failure rather than a second after it.
+    setFleetStaleSeconds(since());
+    const id = setInterval(() => setFleetStaleSeconds(since()), 1_000);
+    return () => clearInterval(id);
+  }, [tab, fleetUnreachable, fleetHeardAt]);
 
   const onLanes = (next: boolean) => {
     setLanes(next);
@@ -375,6 +441,7 @@ export function App() {
             <AgentList
               fleet={fleet}
               pollSeconds={FLEET_POLL_MS / 1000}
+              staleSeconds={fleetStaleSeconds}
               onOpenPlan={onOpenPlanFile}
             />
           ) : (
