@@ -28,6 +28,14 @@
 #         merging).
 #         Consumers that only need counts (the /plot-fleet pulse log, the
 #         board) read that one line and never re-count the body.
+#         --json additionally carries, per PLAN, `phase` (the plan's own
+#         lifecycle state, verbatim from plot-plan-meta.sh) and `started` (how
+#         many `Started:` records it holds) — the half of a row's phase that
+#         git cannot answer. Which column a row reads is composed from that
+#         pair AND the branch state one layer up; this script decides nothing.
+#         The plan set also includes plans delivered inside a rolling 24 h
+#         window (see "the last day of finished work"), so work does not
+#         disappear at the moment it becomes finished.
 #         --json additionally carries, per branch, what THIS MACHINE knows and
 #         the refs do not: `local_dirty` (a local worktree has uncommitted
 #         changes) and `local_worktree` (where it is checked out here). Both are
@@ -94,6 +102,7 @@ git rev-parse --git-dir >/dev/null 2>&1 || { echo "not a git repository" >&2; ex
 
 PLAN_DIR=$(cfg "Plan directory" "docs/plans/")
 ACTIVE_DIR=$(cfg "Active index" "docs/plans/active/")
+DELIVERED_DIR=$(cfg "Delivered index" "docs/plans/delivered/")
 PREFIX_RE=$(cfg "Branch prefixes" "idea/, feature/, bug/, docs/, infra/" \
   | tr -d ' ' | tr ',' '\n' | sed 's#/$##' | grep -v '^$' | paste -sd'|' -)
 [ -n "$PREFIX_RE" ] || PREFIX_RE="idea|feature|bug|docs|infra"
@@ -295,10 +304,93 @@ pr_ready() {
   printf '%s' "$js" | grep -q '"draft":false'
 }
 
+# ---------------------------------------------------------------------------
+# Recently delivered plans: the last day of finished work
+# ---------------------------------------------------------------------------
+#
+# The pulse read `active/` only, so a plan left the view the INSTANT it was
+# delivered — taking every branch with it. Measured on this repo: five plans
+# delivered in one day named eight branches between them, and DONE showed one,
+# because delivery and merge are minutes apart and only whichever branch
+# happened to sit in the gap survived. A group that is full by accident is
+# worse than one that is empty by rule.
+#
+# A ROLLING 24 HOURS, not the calendar day. Literally "delivered today" is
+# easier to explain and wrong at exactly the wrong moment: a plan delivered at
+# 23:50 vanishes ten minutes later, mid-session, while the branches it names
+# are still on screen. 24 is also the one freshness bound this repo already
+# uses (`Claim stale after`), so it is one unit to learn rather than two.
+#
+# THE WINDOW FILTERS BEFORE THE PARSE. Measured: ~57 ms per plan through
+# plot-plan-meta.sh against a scan that already runs 500–1050 ms, so parsing
+# fourteen delivered plans to discard thirteen would roughly double the pulse —
+# and that cost grows with the archive, which only ever gets larger, while the
+# answer stays the size of a day's work. So the cheap signal comes first (the
+# delivered symlink's own mtime) and only the candidates it admits are parsed.
+#
+# The pre-filter may OVER-ADMIT AND PAY A PARSE; it may never exclude. A
+# checkout can freshen an old file, so the `Delivered:` record keeps the last
+# word — but nothing mtime rules out could have been delivered inside the
+# window. On a fresh clone or a CI worktree every file shares one checkout
+# timestamp and ALL of them are admitted: correct, merely slower, once. Reaching
+# for `git log` per plan to avoid that would spend a git call to save a parse.
+DELIVERED_WINDOW_HOURS=$(cfg "Claim stale after" "24")
+case "$DELIVERED_WINDOW_HOURS" in (*[!0-9]*|'') DELIVERED_WINDOW_HOURS=24 ;; esac
+
+# A plan whose delivered symlink was touched inside the window. `find -newermt`
+# is not portable to every BSD find in the wild, so the cutoff is computed and
+# compared with `stat` — one stat per file, no parse.
+delivered_candidates() {
+  local cutoff now link mtime
+  now=$(date +%s)
+  cutoff=$((now - DELIVERED_WINDOW_HOURS * 3600))
+  for link in "$DELIVERED_DIR"*.md; do
+    [ -e "$link" ] || continue
+    # -L: the SYMLINK's target is what delivery rewrote, and stat on the link
+    # itself reports when the link was created — which is also delivery. Follow
+    # it so a plan edited after delivery still admits.
+    mtime=$(stat -f %m "$link" 2>/dev/null || stat -c %Y "$link" 2>/dev/null || echo 0)
+    case "$mtime" in (*[!0-9]*|'') mtime=0 ;; esac
+    [ "$mtime" -ge "$cutoff" ] && printf '%s\n' "$link"
+  done
+}
+
+# Does this plan's `Delivered:` record fall inside the window? The RECORD
+# decides — mtime only chose who got asked.
+#
+# "No date, no row." A delivered plan with an empty record does not appear at
+# all: no date means no membership in any window, the same rule the waiting age
+# already follows. Showing it always would create the one row that can never
+# age out of DONE, and the missing record is a bookkeeping fault
+# plot-reconcile-scan.sh exists to report — a view that quietly compensates
+# for it makes the fault harder to see.
+delivered_in_window() { # $1=plan meta JSON → 0 when inside
+  printf '%s' "$1" | python3 -c '
+import json, sys, time
+d = json.load(sys.stdin)
+raw = (d.get("delivered_raw") or "").strip()
+if not raw:
+    sys.exit(1)
+# The leading YYYY-MM-DD only; the rest is provenance for a human. A record
+# whose date does not parse is dropped rather than coerced.
+import re
+m = re.match(r"(\d{4})-(\d{2})-(\d{2})", raw)
+if not m:
+    sys.exit(1)
+try:
+    at = time.mktime((int(m.group(1)), int(m.group(2)), int(m.group(3)),
+                      0, 0, 0, 0, 0, -1))
+except (ValueError, OverflowError):
+    sys.exit(1)
+window = float(sys.argv[1]) * 3600
+sys.exit(0 if (time.time() - at) <= window else 1)
+' "$DELIVERED_WINDOW_HOURS" 2>/dev/null
+}
+
 # Resolve which plans to report on.
 plans=()
 if [ -n "$slug" ]; then
-  for cand in "$PLAN_DIR"*"$slug".md "$ACTIVE_DIR$slug.md"; do
+  for cand in "$PLAN_DIR"*"$slug".md "$ACTIVE_DIR$slug.md" "$DELIVERED_DIR$slug.md"; do
     [ -e "$cand" ] && { plans+=("$(cd "$(dirname "$cand")" && pwd)/$(basename "$cand")"); break; }
   done
 else
@@ -306,6 +398,21 @@ else
     [ -e "$link" ] || continue
     plans+=("$link")
   done
+  # Delivered candidates are appended, so the active plans keep their position
+  # and order — a reader's list does not reshuffle when something is delivered.
+  # They are still CANDIDATES here: the record check runs inside the plan loop,
+  # where the parse it needs has already happened for free.
+  #
+  # --next and --list-eligible skip them entirely rather than filter later.
+  # Their question is "what may a worker claim", and a delivered plan answers
+  # nothing to it: even an `open` branch under one is work somebody decided was
+  # not needed. Naming one would send a dispatcher at finished work.
+  if [ "$next_only" != 1 ]; then
+    while IFS= read -r link; do
+      [ -n "$link" ] || continue
+      plans+=("$link")
+    done <<< "$(delivered_candidates)"
+  fi
 fi
 
 if [ ${#plans[@]} -eq 0 ]; then
@@ -436,6 +543,41 @@ for plan in "${plans[@]}"; do
   json_waves=""
   meta=$("$script_dir/plot-plan-meta.sh" "$plan" --prefixes "$PREFIX_RE" 2>/dev/null) || continue
   [ -n "$meta" ] || continue
+
+  # The plan's own phase, carried onto the pulse so a consumer can derive a row
+  # phase from the PAIR — plan state AND branch git state. It is reported, never
+  # interpreted: this script collects and reports, and which column a row reads
+  # is a judgment that belongs one layer up (Manifesto Principle 3).
+  #
+  # `started` travels with it because `approved` alone is two phases, and the
+  # distinction is a COUNT of `Started:` records rather than a boolean the plan
+  # file states.
+  plan_facts=$(printf '%s' "$meta" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print(d.get("phase", ""))
+print(len(d.get("started_raw", [])))
+' 2>/dev/null) || plan_facts=$'\n0'
+  plan_phase=$(printf '%s\n' "$plan_facts" | sed -n 1p)
+  plan_started=$(printf '%s\n' "$plan_facts" | sed -n 2p)
+  case "$plan_started" in (*[!0-9]*|'') plan_started=0 ;; esac
+
+  # The delivered window's SECOND half: mtime admitted this file, the RECORD
+  # decides. Applied only to plans that came in through the delivered index — an
+  # ACTIVE plan carrying `Phase: Delivered` is drift, and the view that would
+  # reveal it must not be the one that hides it.
+  #
+  # Two exits, and both matter:
+  #   * the record's date has aged out of the window — ordinary expiry;
+  #   * there is NO record — "no date, no row". `reconcile-scan-accuracy.md` is
+  #     the live example; showing it would create the one row that can never
+  #     age out of DONE.
+  # Both leave before a single git call is spent on the plan's branches.
+  case "$plan" in
+    "$DELIVERED_DIR"*)
+      delivered_in_window "$meta" || continue ;;
+  esac
+
   n_plans=$((n_plans + 1))
   plan_target=$(readlink "$plan" 2>/dev/null && echo "" || true)
   plan_files+=("$plan")
@@ -557,6 +699,10 @@ for i, w in enumerate(d.get("waves", [])):
   if [ "$as_json" = 1 ]; then
     plan_base=$(basename "$(readlink "$plan" 2>/dev/null || echo "$plan")")
     json_plans+="${json_plans:+,}{\"file\":\"$(json_str "$plan_base")\""
+    # The plan's own phase and its Started: COUNT, reported verbatim. The board
+    # composes them with each branch's git state into a row phase; nothing here
+    # decides which column anything reads.
+    json_plans+=",\"phase\":\"$(json_str "$plan_phase")\",\"started\":$plan_started"
     json_plans+=",\"waves\":[$json_waves]}"
   fi
   [ "$quiet" = 1 ] || echo
