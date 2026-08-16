@@ -350,6 +350,31 @@ export type WaveVerdict = z.infer<typeof WaveVerdictSchema>;
  */
 export const ELIGIBLE_NOTE = 'eligible — nobody has taken it';
 
+/**
+ * The note for a branch whose PLAN has not been approved yet.
+ *
+ * A third thing `not-started` holds, beside "nobody has taken it" and "blocked
+ * by an earlier wave" — and the one the row had no word for. Seen live twice:
+ * a plan drafted minutes earlier, its plan PR still in CI, and its branches
+ * immediately reading *eligible — nobody has taken it*, indistinguishable from
+ * work that had been waiting since February.
+ *
+ * NOT STARTED means *discovered, planned, ready for an agent to pick up* — the
+ * hand-off point. A plan still under review has not reached it, and
+ * `plot-dispatch` would refuse those branches, so the row was offering an
+ * action the tool declines. That is the same mismatch the Start button already
+ * avoids by appearing only on eligible rows, which is why this note lives
+ * beside `ELIGIBLE_NOTE` and is matched the same way: `isStartable` keys on the
+ * eligible sentence, so a row carrying this one loses its button by
+ * construction rather than by a second rule that could drift.
+ *
+ * It names the PHASE rather than merely saying *blocked*, because the reader's
+ * next question is *blocked by what*, and the answer here is not another branch
+ * — it is a review that has not finished. Naming it also tells them what would
+ * unblock it, which "blocked" alone does not.
+ */
+export const DRAFT_PLAN_NOTE = 'plan not approved yet — still in review';
+
 export const FleetBranchSchema = z.object({
   branch: z.string(),
   state: BranchStateSchema,

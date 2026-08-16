@@ -3,7 +3,9 @@ import {
   classify, compareWithinGroup, draftNote, humanAge, rowPhase, rowsFromPulse,
   rateLimitBackoffMs,
 } from '../../src/server/fleet.js';
-import { toBoardPhase, type AgentRow, type FleetPulse } from '../../src/contract/schema.js';
+import {
+  DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, toBoardPhase, type AgentRow, type FleetPulse,
+} from '../../src/contract/schema.js';
 import type { PrRecord } from '../../src/server/fleet.js';
 
 // The classifier is where the tab's judgments live: which group a branch lands
@@ -290,6 +292,115 @@ describe('classify', () => {
     const fresh = classify('wip', 'eligible', 5, QUIET, null, false, 4);
     expect(fresh.group).toBe('working');
     expect(fresh.note).toMatch(/last commit/);
+  });
+
+  // --- a DRAFT plan's branches are not eligible -----------------------------
+  //
+  // The second half of the vocabulary gap. `blocked by an earlier wave` covers
+  // the WITHIN-plan case; a plan that has not been approved at all had no
+  // counterpart, so an accurate scan produced an inaccurate row.
+  //
+  // Seen live twice on 2026-08-16: a plan drafted minutes earlier, its plan PR
+  // still in CI, its branches immediately under NOT STARTED reading `eligible —
+  // nobody has taken it`. `plot-dispatch` would refuse every one of them.
+  //
+  // This is the half an implementation reading only GIT state misses entirely:
+  // a drafted plan's branches are `open` with no ref, bit-identical to a branch
+  // of an approved plan nobody has started. Only the plan's phase separates
+  // them, which is why these tests pass a phase and the ones above do not.
+
+  it('does not call a DRAFT plan\'s branch eligible', () => {
+    // The motivating case. Same git state as a genuinely free branch — `open`,
+    // no ref, an eligible wave — and the plan's phase is the only thing that
+    // differs.
+    const r = classify('open', 'eligible', null, QUIET, null, false, 0, 'draft');
+    expect(r.note).not.toBe(ELIGIBLE_NOTE);
+    expect(r.note).not.toMatch(/nobody has taken it/);
+  });
+
+  it('gives a drafted branch a DIFFERENT note from a genuinely free one', () => {
+    // The assertion the live board failed: the two rendered identically while
+    // one waited on a review and the other on a person. Identical git state,
+    // and the notes must still differ — a test that only checks the drafted row
+    // in isolation passes against an implementation that changed both.
+    const drafted = classify('open', 'eligible', null, QUIET, null, false, 0, 'draft');
+    const free = classify('open', 'eligible', null, QUIET, null, false, 0, 'approved');
+    expect(free.note).toBe(ELIGIBLE_NOTE);
+    expect(drafted.note).not.toBe(free.note);
+  });
+
+  it('names the review rather than merely saying blocked', () => {
+    // *Blocked* alone invites the next question, and the answer here is not
+    // another branch — it is a review that has not finished. Naming it also says
+    // what would unblock the row.
+    const r = classify('open', 'eligible', null, QUIET, null, false, 0, 'draft');
+    expect(r.note).toBe(DRAFT_PLAN_NOTE);
+    expect(r.note).toMatch(/approved|review/);
+  });
+
+  it('keeps a drafted branch in not-started rather than moving it', () => {
+    // The group is still exactly right — nobody has taken it, and nobody
+    // should. Moving the row elsewhere would hide work that is genuinely
+    // coming, which is the opposite of what the tab is for. So the phase
+    // narrows the NOTE and nothing else.
+    expect(classify('open', 'eligible', null, QUIET, null, false, 0, 'draft').group)
+      .toBe('not-started');
+  });
+
+  it('lets an earlier wave keep the first word on a drafted plan', () => {
+    // Both statements are true of a Draft plan's later waves, and the wave one
+    // is more specific: it names a branch that must land, where the draft note
+    // names a review. Saying the weaker of two true things is how a note stops
+    // being worth reading.
+    const r = classify('open', 'blocked', null, QUIET, null, false, 0, 'draft');
+    expect(r.note).toMatch(/earlier wave/);
+  });
+
+  it('narrows nothing for any phase but draft', () => {
+    // Only the literal `draft` may change an answer. Every other phase — and
+    // the empty string an older pulse sends — must read exactly as before,
+    // which is what keeps this additive.
+    for (const phase of ['approved', 'delivered', 'released', 'rejected', 'weird', '']) {
+      expect(classify('open', 'eligible', null, QUIET, null, false, 0, phase).note)
+        .toBe(ELIGIBLE_NOTE);
+    }
+  });
+
+  it('answers identically whether the phase is "" or simply not passed', () => {
+    // The absent case pinned against the empty one, exactly as `local_dirty`
+    // and `local_ahead` are. Every caller predating the field passes nothing,
+    // and "no phase reported" must not become a different answer from "the
+    // caller did not say".
+    for (const args of [
+      ['open', 'eligible', null],
+      ['open', 'blocked', null],
+      ['claimed', 'eligible', QUIET + 1],
+      ['wip', 'eligible', 200],
+      ['merged', 'complete', 1],
+      ['deferred', 'eligible', null],
+    ] as const) {
+      const [state, verdict, age] = args;
+      expect(classify(state, verdict, age, QUIET, null, false, 0, ''))
+        .toEqual(classify(state, verdict, age, QUIET, null, false, 0));
+    }
+  });
+
+  it('changes no state but `open` on a draft plan', () => {
+    // A drafted plan whose branches already carry work is drift worth SEEING,
+    // not smoothing over — the same rule `rowPhase` follows where a plan's
+    // bookkeeping lags its git state. The phase may only answer for a branch
+    // that does not exist yet.
+    for (const args of [
+      ['claimed', 'eligible', QUIET + 1],
+      ['wip', 'eligible', 5],
+      ['wip', 'eligible', 200],
+      ['merged', 'complete', 1],
+      ['deferred', 'eligible', null],
+    ] as const) {
+      const [state, verdict, age] = args;
+      expect(classify(state, verdict, age, QUIET, null, false, 0, 'draft'))
+        .toEqual(classify(state, verdict, age, QUIET, null, false, 0, 'approved'));
+    }
   });
 
   it('leaves a PR to answer even when commits are unpushed', () => {
