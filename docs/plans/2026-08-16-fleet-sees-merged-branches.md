@@ -2,13 +2,13 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Story:** plot-gates
 - **Review:** pr
 - **Impl:** own branches
 - **Assignee:** jwloka
-- **Approved:**
+- **Approved:** 2026-08-16, jwloka, plan-PR #126 merged
 - **Started:**
 - **Delivered:**
 
