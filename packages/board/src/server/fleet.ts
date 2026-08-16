@@ -142,6 +142,8 @@ interface CacheEntry {
    * A plan with no `Approved:` record is absent rather than zero.
    */
   approvedAt: Map<string, number>;
+  /** Plan filename per idea branch — see `ideaPlanFiles`. */
+  ideaPlans: Map<string, string>;
   /**
    * PR data is cached BESIDE the pulse, with its own timestamp and error — the
    * two sources fail independently. The host can be down while git is fine, and
@@ -222,6 +224,41 @@ async function branchAges(opts: BuildBoardOptions): Promise<Map<string, number |
  * unknown time" and "approved just now" are different statements, and the row
  * shows nothing rather than the wrong one.
  */
+/**
+ * The plan file each idea branch carries, keyed by branch name.
+ *
+ * An idea branch introduces a plan that lives ON that branch, so the pulse —
+ * which reads the default branch — never sees the filename. Without it the row
+ * has a plan NAME and no way to open it, which is how two grouped rows ended up
+ * with headings that were plain text beside a linked one.
+ *
+ * Read from git, one `ls-tree` per idea branch: they are few (two here), the
+ * refs are local, and this runs on the pulse's own timer rather than per
+ * request. Resolving by slug rather than by "the one file not on main" keeps it
+ * a lookup instead of a diff.
+ */
+async function ideaPlanFiles(opts: BuildBoardOptions): Promise<Map<string, string>> {
+  const found = new Map<string, string>();
+  const planDir = await planDirectory(opts);
+  const refs = await run('git',
+    ['for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin/idea/*'],
+    opts.repoRoot);
+  const branches = refs.split('\n')
+    .map((l) => l.trim().replace(/^origin\//, ''))
+    .filter(Boolean);
+  for (const branch of branches) {
+    const slug = /^idea\/(.+)$/.exec(branch)?.[1];
+    if (!slug) continue;
+    const out = await run('git',
+      ['ls-tree', '-r', '--name-only', `origin/${branch}`, '--', planDir], opts.repoRoot);
+    const hit = out.split('\n')
+      .map((l) => l.trim())
+      .find((l) => l.endsWith(`${slug}.md`));
+    if (hit) found.set(branch, path.basename(hit));
+  }
+  return found;
+}
+
 async function approvalDates(
   opts: BuildBoardOptions,
   pulse: FleetPulse,
@@ -413,6 +450,12 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     entry.ages = await branchAges(opts);
     entry.branchUrlBase = await readBranchUrlBase(opts);
     entry.approvedAt = await approvalDates(opts, parsed);
+    // From the REFS, not from `entry.prs`. The PR map is filled on its own
+    // 60 s timer, so at the first git refresh it is still null — the list came
+    // back empty and nothing recomputed it, because this timer does not watch
+    // that one. Two clocks, one dependency: the same shape that pinned the
+    // countdown at zero earlier today.
+    entry.ideaPlans = await ideaPlanFiles(opts);
     entry.at = Date.now();
     entry.error = null;
   } catch (err) {
@@ -433,6 +476,7 @@ function ensureCache(opts: BuildBoardOptions): CacheEntry {
   entry = {
     pulse: null, ages: new Map(), at: null, error: null, branchUrlBase: '',
     approvedAt: new Map(),
+    ideaPlans: new Map(),
     prs: null, prsByNumber: null, prAt: null, prError: null,
     // 0, so the first fetch happens immediately rather than a minute in.
     prNextAt: 0,
@@ -640,6 +684,7 @@ export function rowsFromPulse(
   urlBase = '',
   approvedAt?: Map<string, number> | null,
   now = Date.now(),
+  ideaPlans?: Map<string, string> | null,
 ): AgentRow[] {
   const rows: AgentRow[] = [];
   for (const plan of pulse.plans) {
@@ -738,7 +783,12 @@ export function rowsFromPulse(
     rows.push({
       repo,
       plan: ideaSlug,
-      planFile: '',
+      // Resolvable since the plan viewer learned to read branch plans: before
+      // that this was deliberately blank, because linking to a file the route
+      // would 404 on is worse than plain text. The route reads both sources
+      // now, so the caution is obsolete — and leaving it in cost the grouped
+      // rows their only way to open the plan.
+      planFile: ideaPlans?.get(branch) ?? '',
       wave: '',
       state: 'wip',
       group,
@@ -785,7 +835,7 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
     error: entry.error,
     rows: entry.pulse
       ? rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, entry.prs,
-        entry.branchUrlBase, entry.approvedAt, now)
+        entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans)
       : [],
     summary: entry.pulse?.summary ?? EMPTY_SUMMARY,
     prAgeSeconds: entry.prAt === null ? null : Math.round((now - entry.prAt) / 1000),

@@ -247,26 +247,31 @@ function Row({
       ) : (
         <span className="font-mono text-[13px] text-slate-800 dark:text-slate-200">{row.branch}</span>
       )}
-      {/* How long this has been waiting to be started. LABELLED, because it is a
-          different clock from the age column on the right: that one says when
-          the branch tip last moved, this says when the plan was approved. An
-          unlabelled `22d` in each place would be two different facts wearing one
-          face. Absent where no approval date is recorded — nothing rather than a
-          zero. */}
-      {row.waitingDays !== null && (
-        <span
-          className="text-xs text-amber-700 dark:text-amber-500"
-          title="Approved this long ago, and nobody has started it"
-        >
-          waiting {waitingLabel(row.waitingDays)}
-        </span>
-      )}
       <span className="ml-auto text-xs text-slate-500 dark:text-slate-400">
         <Note row={row} />
       </span>
-      <span className="w-10 shrink-0 text-right text-xs tabular-nums text-slate-400 dark:text-slate-500">
-        {age(row)}
-      </span>
+      {/* ONE age column, answering "how old is this" once.
+          
+          A row with no branch has no tip to date, so the column read "—" while
+          a second badge mid-row carried the answer: two places for one
+          question, one of them empty. The waiting age takes the column when
+          there is no commit age, and the distinction that matters — a plan
+          approved 6mo ago is not a branch untouched for 6mo — is carried by
+          colour and title rather than by a second position.
+          
+          Still nothing where no approval date is recorded: absent, not zero. */}
+      {row.ageMinutes === null && row.waitingDays !== null ? (
+        <span
+          className="w-10 shrink-0 text-right text-xs tabular-nums text-amber-700 dark:text-amber-500"
+          title="Approved this long ago, and nobody has started it"
+        >
+          {waitingLabel(row.waitingDays)}
+        </span>
+      ) : (
+        <span className="w-10 shrink-0 text-right text-xs tabular-nums text-slate-400 dark:text-slate-500">
+          {age(row)}
+        </span>
+      )}
     </li>
   );
 }
