@@ -252,6 +252,7 @@ suppressing activation.
   start collapsed with their counts still visible; the state persists in
   `localStorage`; NOT STARTED sorts by waiting age, freshest first; row actions
   move into a three-dot overflow menu, dimmed and explained where none apply
+  → #153
 
 Two branches, useful independently — one touches a row, the other a section
 header — but **sequential, motion first**. They edit the same component, and
