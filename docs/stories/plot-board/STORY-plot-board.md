@@ -69,6 +69,41 @@ that closes the loop, and it has not been built yet.
 
 ## Open Points
 
+- ⏸️ **A board whose server died looks like a board that is working** — the one
+  failure the whole tab exists to prevent, in its own chrome. Cost a real
+  diagnosis on 2026-08-16: two screenshots reported a regression ("the nameless
+  heading is still there", "the group's plan link is still missing") and both
+  were the frozen last render of a page whose server had stopped. On the live
+  board neither was true.
+
+  Three things combine, and each is defensible alone:
+
+  - **The Agents tab never consults `fleet.error`.** `AgentList` reads it only
+    to decide the pre-first-scan message (line 326); after that the error state
+    has no rendering. `App.tsx` line 383 shows *"Failed to load board"* — but
+    that branch renders the **Board**, so the Agents tab keeps drawing its last
+    payload while the sibling tab reports the outage.
+  - **The clock keeps running.** `tick` advances every second whenever
+    `pollSeconds !== null`, and `pollSeconds` is the constant `FLEET_POLL_MS /
+    1000` — never null while the tab is open. A failed fetch changes nothing.
+    So `scanNextInSeconds − tick` counts to 0 and clamps ("next in 0s", reading
+    as *about to refresh* rather than *stopped*), while `ageSeconds + tick` ages
+    on, describing a scan that is not happening.
+  - **Rows stay confident.** Every branch, PR and note keeps its normal styling,
+    so nothing distinguishes a two-second-old truth from a two-hour-old one.
+
+  The comment at line 313 already states the rule this breaks: *"a counter
+  ticking toward a refresh that is not coming is exactly the false statement the
+  countdowns exist to remove."* The guard implements it for a closed tab and
+  misses a dead server — the same absence-ambiguity class as the rest of this
+  story, one layer up: **stopped polling** and **polling and failing** are
+  indistinguishable to the reader.
+
+  Related, and part of the same fix: the board picks its port at startup, so a
+  bookmarked tab can point at a port nothing serves. That is how the dead page
+  above arose (`:7930` bookmarked, live server on `:7777`), and it makes "is
+  this board alive?" a question the reader cannot answer from the page.
+
 - ⏸️ **`discovery.test.mjs` is timing-dependent and flakes in CI** — observed
   2026-08-16 on PR #131 (run 31968882967): `a plans dir NESTED in an unrelated
   repo borrows nothing from it` failed, and the *same commit* passed on rerun
