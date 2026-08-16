@@ -91,6 +91,23 @@ while the board card keeps saying Design until someone records the start. That
 divergence is *itself information*: it means the plan's bookkeeping is behind,
 which is worth seeing rather than smoothing over.
 
+**"git wins" is not symmetric, and the delivered row is where that shows.** A
+commit landing on a branch under a plan already marked `delivered` does not
+pull the row back to Development. The table above already says so —
+`delivered | (any) | Endgame` — but only by omission, and the rule as stated
+invites the opposite reading.
+
+The asymmetry is right because the two cases are not mirror images. The
+`opus5` case is an **absence**: a missing `Started:` record is nobody having
+written something down, and a commit is evidence that outranks it. A commit
+after delivery is a **contradiction of a recorded decision** — a human wrote
+`Delivered:`, and a follow-up fix does not repeal it. Treating every late
+commit as a phase reversal would send a plan visibly backwards for a typo fix,
+which teaches readers to distrust the column. The commit is not hidden: the
+row's age still shows something moved, which is the honest report — *this plan
+is delivered, and something touched it recently* — without restating it as a
+phase the plan is not in.
+
 `toBoardPhase` stays the single definition of the mapping and gains no second
 implementation. The row-level derivation composes it with the branch state
 rather than reimplementing it.
@@ -208,10 +225,30 @@ Two constraints for whoever revisits it, both measured rather than assumed:
   *which phase* — an icon-only column would collapse exactly the three that
   matter most here.
 
-Whatever replaces the word later must keep what the contract already requires
-of the board's labels: *"Carried as a symbol AND a word, never as colour
-alone: roughly one man in twelve distinguishes red from green poorly, and the
-same page shows up in greyscale screenshots."*
+**The word travels alone, and the contract's symbol rule does not bind here.**
+Worth stating, because reading that rule loosely would argue the opposite. It
+is the doc comment on `PHASE_LEADERSHIP` — *"Carried as a symbol AND a word,
+never as colour alone"* — and it exists to stop **colour** from being the only
+carrier, for the reader who cannot separate red from green and for the
+greyscale screenshot. A word is already that non-colour channel. The rule also
+sits on the one map this plan has ruled out: 👤 covers Discovery, Design and
+Endgame, so borrowing its icons would collapse the distinction the column
+exists to draw. Board and swimlanes pair icon with word because they render
+`PHASE_LEADERSHIP`; this column does not, and inventing a second five-icon
+vocabulary would put two meanings on every phase — *which phase* and *who
+leads* — for decoration.
+
+**A screen reader needs the label the layout implies.** The list is a `<li>`
+of `<span>`s — a visual table with no semantics, so column position conveys
+nothing and each row is heard as a run of words. Today that survives on luck:
+`plot` reads as a repo name because it looks like one. `Development` does not
+announce itself as a phase. So the cell carries an `sr-only` label before the
+word. `title` is what the neighbouring cells use (branch at line 243, waiting
+age at 266) and it is the weaker instrument — never shown on touch, read
+inconsistently across screen readers — so it may accompany the label but not
+replace it. The deeper fix is to make the fake table a real one, which is
+larger than this plan and belongs to
+[`plot-board`](../stories/plot-board/STORY-plot-board.md).
 
 The waiting-group headings are a different case and already right: ⚠️ 🤖 ⏳
 💤 📋 ✅ are one symbol per group, each unique, each already paired with its
@@ -318,6 +355,14 @@ the file remains the decider; mtime is a pre-filter that may over-admit and must
 never exclude — a checkout can freshen an old file, so the parse still has the
 last word, but nothing that mtime rules out could have been delivered today.
 
+On a fresh clone or a CI worktree every file carries the same checkout
+timestamp, so the pre-filter admits **all** of them. That is the acceptable
+direction, and worth naming here rather than discovering later: the result
+stays correct and only the saving is lost, on a run that happens once. Reaching
+for `git log` per plan to avoid it would spend a git call to save a parse —
+plausibly the whole optimisation, to fix a case that costs nothing when it is
+wrong.
+
 **A delivered plan with no `Delivered:` date does not appear.** Not
 hypothetical: `docs/plans/delivered/reconcile-scan-accuracy.md` is in the
 delivered index today with an empty record. No date means no membership in any
@@ -397,6 +442,16 @@ written first would assert against a shape that does not exist yet.
 - **The phase is spelled out.** Assert the full word appears in the row's text,
   so an icon-only or initial-only rendering cannot pass: three phases begin
   with D, and `PHASE_LEADERSHIP` maps 👤 to three of the five.
+- **The phase cell carries an `sr-only` label.** Assert the accessible name
+  says *phase*, not just `Development` — a bare word in a `<span>` row conveys
+  its meaning by column position, which a screen reader does not have.
+- **A delivered plan with a fresh commit still reads Endgame.** Assert it does
+  not fall back to Development: "git wins" is about absent records, not about
+  overruling a recorded delivery, and the symmetric implementation passes every
+  other test in this list.
+- **A fresh clone still answers correctly.** Assert that when every plan file
+  shares one mtime the delivered window is still respected — the pre-filter may
+  admit everything, but the `Delivered:` record must still exclude the old.
 - **The Start button appears only on `eligible` rows.** Assert it is absent on
   a `blocked by an earlier wave` row — that is the case where the board would
   otherwise offer an action `plot-dispatch` refuses. And a row whose plan has no
@@ -429,7 +484,7 @@ two requests that looked separate and shared one missing field.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 2,
+  "round": 3,
   "questionHistory": [
     {"q": "Part of this plan shipped early in board-ui-polish — how to handle?", "a": "Mark as delivered, keep the reasoning as the record of why the field is separate", "category": "technical-implementation"},
     {"q": "not-started holds eligible AND blocked rows — where does the Start button go?", "a": "Eligible only; a button on a blocked row would offer to skip the ordering waves express, and plot-dispatch refuses it anyway", "category": "domain-workflows"},
@@ -439,13 +494,17 @@ two requests that looked separate and shared one missing field.
     {"q": "Reading 14 delivered plans costs ~800ms on a 500-1050ms scan — where does the window filter?", "a": "Before the parse: mtime pre-filter admits candidates, the Delivered: record decides. Cost scales with a day's work, not with the archive", "category": "nonfunctional-performance"},
     {"q": "reconcile-scan-accuracy.md is in delivered/ with an EMPTY Delivered: field — what does the row do?", "a": "Does not appear. No date, no window — same rule as the waiting age. Showing it creates a row that can never age out, and hides a bookkeeping fault reconcile-scan exists to report", "category": "ux-edgecases"},
     {"q": "Calendar day or rolling window?", "a": "Rolling 24h: a 23:50 delivery must not vanish at 00:00 mid-session, and 24 is the number the repo already uses (Claim stale after)", "category": "ux-edgecases"},
-    {"q": "A draft PR's failing CI renders as just 'draft' — where does the fix go?", "a": "Into this plan's data wave: same file, same function, same defect class (a row stating time and withholding state). fleet.ts:768 asks pr.draft BEFORE checks, collapsing green and red drafts into one note", "category": "ux-errors"}
+    {"q": "A draft PR's failing CI renders as just 'draft' — where does the fix go?", "a": "Into this plan's data wave: same file, same function, same defect class (a row stating time and withholding state). fleet.ts:768 asks pr.draft BEFORE checks, collapsing green and red drafts into one note", "category": "ux-errors"},
+    {"q": "The plan cites the contract's 'symbol AND word' rule, but that rule sits on PHASE_LEADERSHIP — the map this plan rules out. Contradiction?", "a": "Word only, and say why: the rule targets COLOUR as sole carrier, and a word is already the non-colour channel. A second five-icon vocabulary would put two meanings on every phase", "category": "ux-accessibility"},
+    {"q": "The list is <li>+<span> — no table semantics. 'plot' reads as a repo by luck; 'Development' does not announce itself as a phase.", "a": "sr-only label on the cell. title is what neighbouring cells use but is weaker (absent on touch, inconsistent across readers) — it may accompany, not replace. Real table semantics belong to the story", "category": "ux-accessibility"},
+    {"q": "'git wins' — so does a fresh commit under a DELIVERED plan pull the row back to Development?", "a": "No. The asymmetry is the point: opus5 is an ABSENCE (no Started: record) which evidence outranks; a late commit contradicts a RECORDED decision. Endgame stays, the age shows the commit", "category": "domain-rules"},
+    {"q": "On a fresh clone every file shares one mtime, so the pre-filter admits everything. Acceptable?", "a": "Yes — the safe direction. Result stays correct, only the saving is lost, once. git log per plan would spend a git call to save a parse", "category": "nonfunctional-scalability"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
     "technical": {"stack": true, "architecture": true, "implementation": true},
     "domain": {"rules": true, "workflows": true, "data": true},
-    "ux": {"happyPath": true, "edgeCases": true, "errors": true, "accessibility": false},
+    "ux": {"happyPath": true, "edgeCases": true, "errors": true, "accessibility": true},
     "nonFunctional": {"security": false, "performance": true, "scalability": true},
     "tradeOffs": true
   }
