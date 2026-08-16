@@ -12,8 +12,23 @@ import clientHtml from '../../dist/client/index.html';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-const PORT = Number(process.env.PORT ?? 7777);
+/**
+ * The port to ASK for — not necessarily the one served. `PORT=0` asks the OS to
+ * assign one during `listen()`, which is the only way to get a port that is
+ * bound the instant it is known. The default stays 7777 on purpose: a dev board
+ * on a random address is not bookmarkable, and `pnpm board` would land somewhere
+ * new every time.
+ */
+const REQUESTED_PORT = Number(process.env.PORT ?? 7777);
 const HOST = process.env.HOST ?? 'localhost';
+
+/**
+ * The port actually bound, known only inside the `listen` callback. Everything
+ * that needs to NAME this server's address reads this — never REQUESTED_PORT,
+ * which under `PORT=0` is the literal 0 and would make the /api/dispatch
+ * same-origin allowlist read `http://localhost:0` and refuse every browser.
+ */
+let boundPort = REQUESTED_PORT;
 
 /**
  * Plans come from the current repo (CWD); helper scripts ship next to this
@@ -26,7 +41,7 @@ const opts: BuildBoardOptions = {
 };
 
 function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
-  const url = new URL(req.url ?? '/', `http://${HOST}:${PORT}`);
+  const url = new URL(req.url ?? '/', `http://${HOST}:${boundPort}`);
 
   // Allow-listed AHEAD of the blanket 405 below, rather than by weakening it.
   // Per-route method checks would be the more conventional shape, and are
@@ -35,7 +50,9 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   // Exactly one path-and-verb pair slips past; /api/board, /api/fleet and
   // /plan/* stay protected precisely as they are today.
   if (url.pathname === '/api/dispatch' && req.method === 'POST') {
-    void handleDispatch(req, res, { ...opts, host: HOST, port: PORT }).catch((err) => {
+    // `boundPort`, not the requested one: under PORT=0 they differ, and this
+    // port is the same-origin allowlist for the endpoint that spawns processes.
+    void handleDispatch(req, res, { ...opts, host: HOST, port: boundPort }).catch((err) => {
       console.error('Error dispatching:', err);
       if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
@@ -133,12 +150,39 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 }
 
 const server = http.createServer(handleRequest);
-server.listen(PORT, HOST, () => {
-  console.log(`Plot board: http://localhost:${PORT}`);
+
+/**
+ * The failed bind IS the check.
+ *
+ * Asking beforehand whether the port is free would rebuild the very race this
+ * server was changed to remove: between the answer and the `listen()` the port
+ * belongs to nobody. `EADDRINUSE` is the OS answering the same question at the
+ * only moment it cannot go stale — and a second `pnpm board` then names the
+ * running one and exits 0 rather than dying with a stack trace that says a port
+ * is taken without saying by what, or where to go instead.
+ *
+ * It reports and stops; it never kills the running board. Several worktrees run
+ * side by side, and a `pnpm board` in one terminal shooting down another's is a
+ * worse failure than the one being fixed.
+ */
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.log(`Plot board already running at http://localhost:${REQUESTED_PORT}`);
+    process.exit(0);
+  }
+  throw err;
+});
+
+server.listen(REQUESTED_PORT, HOST, () => {
+  // Read the port from the server rather than from the constant: with PORT=0
+  // the OS assigned it during this very listen, and nothing else knows it.
+  const addr = server.address();
+  if (addr && typeof addr === 'object') boundPort = addr.port;
+  console.log(`Plot board: http://localhost:${boundPort}`);
   if (HOST === '0.0.0.0') {
     try {
       const tsIp = execFileSync('tailscale', ['ip', '-4'], { encoding: 'utf8' }).trim();
-      if (tsIp) console.log(`  tailscale:  http://${tsIp}:${PORT}`);
+      if (tsIp) console.log(`  tailscale:  http://${tsIp}:${boundPort}`);
     } catch {
       /* tailscale not running or not installed */
     }

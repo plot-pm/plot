@@ -5,7 +5,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import net from 'node:net';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -15,36 +14,27 @@ export const REPO_ROOT = path.resolve(here, '../../..');
 export const SCRIPTS_DIR = path.join(REPO_ROOT, 'skills/plot/scripts');
 export const ARTIFACT = path.join(SCRIPTS_DIR, 'board/board-server.mjs');
 
-/** Find a free TCP port. */
-export function findFreePort() {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.listen(0, '127.0.0.1', () => {
-      const addr = srv.address();
-      if (!addr || typeof addr === 'string') {
-        srv.close();
-        reject(new Error('could not get port'));
-        return;
-      }
-      const { port } = addr;
-      srv.close(() => resolve(port));
-    });
-    srv.on('error', reject);
-  });
-}
-
 /**
  * Start the built artifact with cwd = the scratch repo. PLOT_SCRIPTS_DIR points
  * the server at this repo's real helper scripts (the artifact ships next to
  * them in production, but in a scratch repo they live elsewhere).
+ *
+ * `PORT=0`: the OS assigns during the server's own `listen()`, so there is no
+ * moment when a port is known-free but unbound. The predecessor of this helper
+ * bound port 0, read the number, CLOSED, and handed it to this process to bind
+ * later — a time-of-check-to-time-of-use race that CI, running test files in
+ * parallel on one machine, lost often enough to gate a plan PR on a flake.
+ *
+ * The bound port comes back the way it always could have: the readiness line
+ * this helper already waits on carries it.
  */
-export function startServer(cwd, port, env = {}) {
+export function startServer(cwd, env = {}) {
   return new Promise((resolve, reject) => {
     const proc = spawn('node', [ARTIFACT], {
       cwd,
       env: {
         ...process.env,
-        PORT: String(port),
+        PORT: '0',
         PLOT_SCRIPTS_DIR: SCRIPTS_DIR,
         PLOT_REPO_ROOT: cwd,
         ...env,
@@ -52,6 +42,7 @@ export function startServer(cwd, port, env = {}) {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const stderr = [];
+    let stdout = '';
     let done = false;
     const timer = setTimeout(() => {
       if (!done) {
@@ -60,11 +51,13 @@ export function startServer(cwd, port, env = {}) {
       }
     }, 5000);
     proc.stdout.on('data', (chunk) => {
-      if (!done && chunk.toString().includes('http://localhost:')) {
-        done = true;
-        clearTimeout(timer);
-        resolve({ port, kill: () => proc.kill('SIGTERM') });
-      }
+      if (done) return;
+      stdout += chunk.toString();
+      const match = /http:\/\/localhost:(\d+)/.exec(stdout);
+      if (!match) return;
+      done = true;
+      clearTimeout(timer);
+      resolve({ port: Number(match[1]), kill: () => proc.kill('SIGTERM') });
     });
     proc.stderr.on('data', (chunk) => stderr.push(chunk.toString()));
     proc.on('error', (err) => {

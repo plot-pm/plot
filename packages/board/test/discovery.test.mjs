@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { findFreePort, startServer, fetchBoard, fetchRaw } from './helpers.mjs';
+import { startServer, fetchBoard, fetchRaw } from './helpers.mjs';
 
 /** A plan on the default branch: approved, started — Development. */
 const APPROVED_PLAN = `# The board acts through plot
@@ -152,7 +152,7 @@ describe('board: a Draft plan under review appears in Discovery', () => {
 
   before(async () => {
     fixture = makeRepoUnderReview();
-    server = await startServer(fixture.repo, await findFreePort());
+    server = await startServer(fixture.repo);
     board = await fetchBoard(server.port);
   });
 
@@ -293,7 +293,7 @@ describe('board: a repo with no prefixed branches behaves exactly as before', ()
     const name = '2026-08-10-board-acts-through-plot.md';
     fs.writeFileSync(path.join(plans, name), APPROVED_PLAN, 'utf8');
     fs.symlinkSync(path.join(plans, name), path.join(plans, 'active', name));
-    server = await startServer(tmp, await findFreePort());
+    server = await startServer(tmp);
   });
 
   after(() => {
@@ -352,7 +352,7 @@ describe('board: a plans dir NESTED in an unrelated repo borrows nothing from it
       'utf8',
     );
     fs.writeFileSync(path.join(plans, '2026-08-10-board-acts-through-plot.md'), APPROVED_PLAN, 'utf8');
-    server = await startServer(nested, await findFreePort());
+    server = await startServer(nested);
   });
 
   after(() => {

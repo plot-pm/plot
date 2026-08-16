@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { findFreePort, startServer, fetchBoard } from './helpers.mjs';
+import { startServer, fetchBoard } from './helpers.mjs';
 
 // Two branches in one wave: one claimed, one free. The plan file annotates
 // NEITHER — exactly as real plans have it, since `/plot-dispatch` claims by
@@ -92,7 +92,7 @@ describe('board: a claimed branch is claimed on the card', () => {
 
   before(async () => {
     fixture = makeClaimedRepo();
-    server = await startServer(fixture.repo, await findFreePort());
+    server = await startServer(fixture.repo);
     // The pulse is warmed in the background at start-up, so the first board
     // response can legitimately precede it. Poll briefly rather than sleeping a
     // fixed amount — and if the counts never arrive, the assertions below fail
@@ -161,7 +161,7 @@ describe('board: no pulse means no counts, never zero counts', () => {
     const name = '2026-08-16-board-reads-git.md';
     fs.writeFileSync(path.join(plans, name), PLAN, 'utf8');
     fs.symlinkSync(path.join(plans, name), path.join(plans, 'active', name));
-    server = await startServer(tmp, await findFreePort());
+    server = await startServer(tmp);
   });
 
   after(() => {
