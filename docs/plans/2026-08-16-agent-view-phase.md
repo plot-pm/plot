@@ -87,24 +87,38 @@ So the phase is derived from the pair:
 `Started:` line is only an absence — the same principle that made
 `fleet-sees-merged-branches` read merge commits rather than plan annotations.
 
-### `deferred` is a badge, not a phase — and the one exception to "git wins"
+### `deferred` sends the row back a phase, with a badge saying why
 
-A `<!-- deferred: -->` annotation says *this branch is deliberately not being
-built*. It is an author's **intent**, not a git observation, and the two must
-not be collapsed:
+A `<!-- deferred: -->` annotation is not "paused, resuming later". The
+vocabulary is explicit about what it means: *"branch isn't needed"* and
+*"worker gave the branch up deliberately"* (`parallel-agent-fleet`), and
+`plot-deliver` **skips deferred branches** in its completeness gate — a plan
+delivers without them.
 
-- **The phase stays whatever it was.** A deferred branch still belongs to an
-  approved plan, and postponing it does not move it through the lifecycle. It
-  keeps its Discovery / Design / Development reading and gains a **`deferred`
-  badge** beside it. Giving it a phase *of its own* would claim it sits
-  somewhere in the pipeline; suppressing the phase would lose information that
-  is still true.
-- **It can never read WORKING.** This is the single place where intent
-  outranks git: WORKING means *an agent is working on this right now*, and for
-  work someone deliberately shelved that is false even when the last commit is
-  minutes old. `waiting-on-you`, Design, Discovery, `quiet`, `not-started` all
-  remain reachable — only WORKING is excluded, and the exclusion is about the
-  claim the group makes, not about the age of the commit.
+So the work was handed back, and the row returns to where it is decided whether
+the branch is wanted at all:
+
+| Plan phase | Deferred row reads |
+|---|---|
+| draft | **Discovery** |
+| approved | **Design** |
+| delivered / released | unchanged — the plan is past deciding |
+
+Plus a **`deferred` badge**, which carries the part the phase cannot: *this did
+not fall back because nobody started it, but because someone gave it up.*
+Without the badge, a deferred branch is indistinguishable from one that was
+never begun; without the phase change, a branch with month-old commits keeps
+reading **Development** while no one is working on it and the question is back
+on the table.
+
+An earlier draft of this section kept the phase and added only the badge. That
+was too conservative: it treated `deferred` as a pause, and the vocabulary
+says it is a return.
+
+**It can never read WORKING**, and this is the one place intent outranks git.
+WORKING means *an agent is working on this right now*, which is false for work
+someone gave up even if the last commit is minutes old. The exclusion is about
+the claim the group makes, not the age of the commit.
 
 Today's code gets half of this right and half wrong, which is why it is worth
 stating. `plot-fleet-scan.sh` line 407 replaces the git state outright
@@ -196,11 +210,15 @@ written first would assert against a shape that does not exist yet.
   gap and a 22-day wait do not render identically.
 - **A plan with no `Approved:` record shows no waiting age** — not zero, not
   "just now".
-- **A deferred branch keeps its state and gains a badge.** Assert the case
-  today's code gets wrong: a branch with real, recent commits *and* a
-  `<!-- deferred: -->` annotation must not read `not-started`, and its note
-  must still carry the commit information rather than being replaced by the
-  word `deferred`.
+- **A deferred branch falls back a phase and shows why.** A branch with real
+  commits under an approved plan reads **Design** with a `deferred` badge — not
+  Development (nobody is working on it) and not bare Design (that would be
+  indistinguishable from never-started). Assert both halves; each alone is the
+  wrong answer.
+- **The note is not replaced by the word `deferred`.** Today `classify()`
+  returns `{ group: 'not-started', note: 'deferred' }` unconditionally, so
+  whatever the row had to say is displaced. The badge carries that fact; the
+  note keeps its own.
 - **A deferred branch never reads WORKING**, even with a commit inside the
   quiet window. This is the one place intent outranks git, so it needs the test
   that a fresh commit does not pull it in.
