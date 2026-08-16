@@ -384,7 +384,7 @@ and a state view still has to hold the last few minutes of it.
 
 ### Data
 
-- `feature/fleet-row-phase` — the pulse carries plan phase onto each row and
+- `feature/fleet-row-phase` → #140 — the pulse carries plan phase onto each row and
   also reads recently delivered plans (rolling 24 h, mtime-prefiltered, no date
   no row); `AgentRow` gains the derived phase; row-level derivation composes
   `toBoardPhase` with the branch state; a draft PR's note carries its check
