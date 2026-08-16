@@ -84,9 +84,23 @@ that closes the loop, and it has not been built yet.
   an agent that has been reading for three minutes. Two branches dispatched
   minutes earlier sat correctly in WORKING at the same moment, because their
   claim commits were themselves fresh. The row self-corrects on the agent's
-  first commit. Whether a resumed branch should be distinguishable before
-  that — and from what signal, since a local pid is exactly what the fleet
-  deliberately does not have — is the open half of this question.
+  first commit.
+
+  **And the group is wrong, not merely incomplete** — worth stating plainly,
+  because the first reading of this was too forgiving. The note (*"no commit
+  for 21 hours"*) is true. QUIET, however, means *go check whether it died*,
+  and following that instruction finds a live agent with two modified files.
+  A group that asks you to investigate where there is nothing to investigate
+  is a wrong answer, exactly as `merged` and fresh `claimed` were before it.
+
+  There IS an unread signal. `git worktree list` shows the worktree and the
+  scan runs on the same machine, so *"a worktree exists for this branch and
+  its tree is dirty"* is locally knowable while the refs say nothing. That
+  cuts against the fleet deriving state from refs precisely so it works for
+  detached workers on other machines — which is why this stays a question
+  rather than an obvious fix: a worktree signal would be true only for the
+  machine doing the looking, and the fleet's whole point is that it is not
+  the only machine.
 - ⏸️ **A running board does not pick up a rebuilt bundle** — cost the user two
   false readings today. The DATA reloads fine (server scan 5 s, client poll
   4 s), but `clientHtml` is inlined into the bundle at build time and the
