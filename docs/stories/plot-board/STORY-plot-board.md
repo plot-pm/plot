@@ -358,6 +358,30 @@ that closes the loop, and it has not been built yet.
   a deleted ref is not missing work ([[fleet-sees-merged-branches]]), and the
   default branch is not all the plans. Manifesto Principle 1 says git *is* the
   database — the board reads one branch's working tree.
+- ⏸️ **The Agents tab knows *when* a branch moved, never *what phase* it is
+  in.** Raised 2026-08-16 as two requests that turn out to share one missing
+  field: WORKING should say whether a row is Discovery, Design or Development
+  work, and NOT STARTED should mean *discovered, planned, ready for an agent*.
+  `classify()` is purely temporal — a commit inside the quiet window is
+  `working`, outside it `quiet`, regardless of the plan's phase. That is the
+  right answer for *is anything moving* and cannot answer *moving on what*.
+  Verified rather than assumed: `AgentRow` carries `branch`, `plan`, `wave`,
+  `state`, `group` and **no phase**, and `plot-fleet-scan.sh --json` reports
+  plan *filenames* with no phase either — while `plot-plan-meta.sh` has parsed
+  it all along. The data exists and stops one layer short.
+  The `same branch` case shows why this is not cosmetic: `board-ui-polish` had
+  its plan written, interrogated and approved **on the branch an agent then
+  built on**. One row, one branch, two phases in sequence — and the tab cannot
+  tell them apart, so "someone is working" covers both *a human is still
+  deciding what this should be* and *an agent is writing the code*.
+  The Start button that belongs with it is **not** a new control:
+  `StartWorkButton` exists and works, taking `card` / `dispatch` / `pulse`. It
+  sits on `PlanCard` only. Moving it into the agent view hits the same obstacle
+  as the plan modal in `board-ui-polish` — it needs a `Card`, and a fleet row is
+  not one; the card must be looked up by `planFile`.
+  Deliberately not started: `board-ui-polish` is mid-implementation in exactly
+  these files. Three parallel branches stayed collision-free today only because
+  nobody widened a scope after the fan-out began.
 - ⏸️ **Does the board stay one-repo?** The design keeps every data function
   repo-parameterised, and tab 2 is meant to go cross-repo — "what are my agents
   waiting for" is a question about a person, not a repository. Not decided.
