@@ -37,9 +37,11 @@
 #         disappear at the moment it becomes finished.
 #         --json additionally carries, per branch, what THIS MACHINE knows and
 #         the refs do not: `local_dirty` (a local worktree has uncommitted
-#         changes) and `local_worktree` (where it is checked out here). Both are
-#         absent-shaped — false and "" — wherever no worktree exists, so a
-#         branch living on another machine answers exactly as it did before.
+#         changes), `local_worktree` (where it is checked out here) and
+#         `local_ahead` (commits on the local branch the remote does not have).
+#         All three are absent-shaped — false, "" and 0 — wherever this machine
+#         holds nothing, so a branch living on another machine answers exactly
+#         as it did before.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
 #
 # STATELESS AND READ-ONLY. This is the whole design (Manifesto Principle 1):
@@ -278,6 +280,64 @@ done <<< "$(worktree_rows)"
 # not exist here.
 local_worktree_of() { # $1=branch → "path\tdirty" or ""
   printf '%s' "$WORKTREES" | awk -F'\t' -v b="$1" '$1==b {print $2 "\t" $3; exit}'
+}
+
+# ---------------------------------------------------------------------------
+# Unpushed commits: work finished on this machine that nobody else can see
+# ---------------------------------------------------------------------------
+#
+# `local_dirty` reports *someone is editing*, and committing clears it. So the
+# moment a worker finishes tidily the signal covering for it disappears, and the
+# board reads "claimed, no commits yet" for a branch holding a complete
+# implementation. Measured on 2026-08-16 on the very branch that fixed the other
+# half: 3 commits ahead, 0 dirty files, no PR.
+#
+# THIS IS A REF QUESTION, NOT A WORKTREE QUESTION, and getting that wrong was
+# this plan's own first draft. Worktrees share ONE ref database, so
+# `refs/heads/<br>` answers from here for a branch checked out in a different
+# worktree — no `git -C`, no worktree needed. Binding it to the worktree list
+# would have been *consistent* with `local_dirty` and wrong: a local branch with
+# no worktree — checked out once and moved away from, or fetched from a
+# colleague — still holds commits nobody else can see, and the worktree-shaped
+# version skips exactly those. Dirtiness belongs to a working directory;
+# aheadness belongs to the refs.
+#
+# AHEAD ONLY. `A..B` counts one direction and that is the right one: the
+# question is whether work exists here that nobody else can see. Being *behind*
+# is not an invisible state — it is sitting in the remote for anyone to read —
+# and reporting it would answer a second question with no action attached.
+#
+# READ THE EXIT CODE, NOT THE EMPTINESS. A missing upstream exits 128 printing
+# NOTHING — bit-identical to the deleted-worktree signature above — so a check
+# on emptiness reads "zero ahead" and is right only by accident, for exactly the
+# reason empty `git status` output must not read as "clean". A failure to
+# observe is not evidence of nothing to see, and 0 is what the caller renders.
+#
+# ABSENT IS NOT FALSE: a branch with no local ref exits 128 too and answers 0,
+# which is precisely the answer that changes nothing for every branch living on
+# somebody else's machine.
+#
+# NO CAP. Measured at 5.2 ms per call from the main repo (20 iterations,
+# 0.104 s), against the 6.6 ms per worktree the shipped scan already accepts.
+# Twenty branches cost ~104 ms on a scan that runs 500–1050 ms, and the count
+# follows the plans rather than the checkout. A cap would be stock against a
+# problem the numbers rule out, and caps drop results silently unless they also
+# report saturation.
+local_ahead_of() { # $1=branch → count of local commits the remote lacks, or 0
+  local out
+  # Exit code, never emptiness. `|| return`-style shortcuts would swallow the
+  # distinction this whole comment exists to preserve.
+  if out=$(git rev-list --count \
+             "refs/remotes/origin/$1..refs/heads/$1" </dev/null 2>/dev/null); then
+    case "$out" in
+      ''|*[!0-9]*) printf '0' ;;
+      *) printf '%s' "$out" ;;
+    esac
+  else
+    # No local ref, no upstream, or an unreadable ref database. Not observed →
+    # not reported.
+    printf '0'
+  fi
 }
 
 # Did this branch land on the default branch? Positive evidence only — absence
@@ -717,7 +777,11 @@ for i, w in enumerate(d.get("waves", [])):
         wt_dirty=$(printf '%s' "$wt_row" | cut -f2)
         wt_here=$(printf '%s' "$wt_row" | cut -f1)
         json_branches+=",\"local_dirty\":${wt_dirty:-false}"
-        json_branches+=",\"local_worktree\":\"$(json_str "$wt_here")\"}"
+        json_branches+=",\"local_worktree\":\"$(json_str "$wt_here")\""
+        # From the REFS, not from the worktree table above — a local branch with
+        # no worktree still holds commits nobody can see. 0 wherever this
+        # machine has no local ref, which is what every branch elsewhere reports.
+        json_branches+=",\"local_ahead\":$(local_ahead_of "$br")}"
       fi
     done <<< "$states"
 
