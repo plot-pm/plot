@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Story:** plot-board
 - **Review:** pr
@@ -10,7 +10,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-16, jwloka, plan-PR #131 merged
 - **Started:** 2026-08-16, Jan Wloka, `feature/agent-view-phase-ui`
-- **Delivered:**
+- **Delivered:** 2026-08-16
 - **Started:** 2026-08-16, Jan Wloka, `feature/fleet-row-phase`
 
 ## Problem
