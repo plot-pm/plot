@@ -64,17 +64,21 @@ export type PlanMeta = z.infer<typeof PlanMetaSchema>;
  * differ from the plan's four lifecycle states by asking *who leads* rather
  * than *what has happened*:
  *
- *   Discovery    shaping a story          👤 human-led
- *   Design       Draft, and Approved with no Started: record   👤 human-led
- *   Development  Approved WITH a Started: record               🤖 agent-led
- *   Endgame      Delivered, not yet Released                   👤 human-led
+ *   Discovery    Draft — the plan is still being found          👤 human-led
+ *   Design       Approved with no Started: record               👤 human-led
+ *   Development  Approved WITH a Started: record                🤖 agent-led
+ *   Endgame      Delivered, not yet Released                    👤 human-led
  *   Released     done
  *
- * `Approved` therefore spans a boundary: a plan nobody has started sits at the
- * end of Design, one with work in flight is in Development. That distinction —
- * human-led versus agent-led — is what the whole four-phase model turns on, and
- * the board already had the data for it (`started`) without reading it as a
- * phase change.
+ * Design therefore means exactly one thing — designed, not yet started. Draft
+ * belongs in Discovery instead: while a plan is under review the work is
+ * deciding what the plan should be, which is a spike carried in a plan file,
+ * and approval is where that ends.
+ *
+ * `Approved` spans a boundary: a plan nobody has started sits at the end of
+ * Design, one with work in flight is in Development. That distinction —
+ * human-led versus agent-led — is what the whole model turns on, and the board
+ * already had the data for it (`started`) without reading it as a phase change.
  *
  * Development ends at the MERGE, not at the release: Delivered means the code
  * landed and the agents are done, so what remains is verification and signoff.
@@ -248,7 +252,11 @@ export type Board = z.infer<typeof BoardSchema>;
 export function toBoardPhase(helperPhase: string, started = false): Phase | null {
   switch (helperPhase) {
     case 'draft':
-      return 'Design';
+      // Draft IS discovery: a plan under review is the investigation deciding
+      // whether there is a commitment at all, and approval is the moment that
+      // investigation ends. Mapping it to Design put unfinished designs beside
+      // finished ones and left Discovery a column nothing could ever reach.
+      return 'Discovery';
     case 'approved':
       // The one place the board reads a plan state as two phases. Without a
       // Started: record the plan is Ready — designed, waiting for a person to

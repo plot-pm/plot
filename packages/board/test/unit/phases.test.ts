@@ -18,8 +18,18 @@ describe('toBoardPhase', () => {
     expect(toBoardPhase('delivered', true)).toBe('Endgame');
   });
 
-  it('keeps Draft in Design and Released in Released', () => {
-    expect(toBoardPhase('draft')).toBe('Design');
+  it('reads Draft as Discovery — the phase where the plan is still being found', () => {
+    // Draft IS the discovery phase: a plan under review is the investigation
+    // deciding whether there is a commitment, and approval is where discovery
+    // ends. Mapping it to Design put finished designs and unfinished ones in
+    // one column, and left Discovery a column that could never hold anything.
+    expect(toBoardPhase('draft')).toBe('Discovery');
+    // `started` must not move it: a Draft plan has no Started: record, and a
+    // stray flag must not promote one out of Discovery.
+    expect(toBoardPhase('draft', true)).toBe('Discovery');
+  });
+
+  it('keeps Released in Released', () => {
     expect(toBoardPhase('released')).toBe('Released');
   });
 

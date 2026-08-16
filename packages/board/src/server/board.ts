@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { marked } from 'marked';
 import {
@@ -126,6 +127,203 @@ function collectPlanFiles(repoRoot: string, planDir: string): string[] {
     }
   }
   return files;
+}
+
+/**
+ * A plan file that lives on a branch rather than in the working tree.
+ *
+ * `path` is the plan's IDENTITY — its repo-relative path, the same string a
+ * working-tree plan carries, and the one a card must show. `content` is the
+ * blob as git holds it; it is written to a scratch file only for as long as the
+ * parser needs one, because `plot-plan-meta.sh` takes paths rather than stdin.
+ */
+interface BranchPlan {
+  path: string;
+  content: string;
+}
+
+/**
+ * Run a git command against the repo, or return "" if it fails.
+ *
+ * Every call here reads LOCAL refs. `git ls-remote` is deliberately not used
+ * anywhere in this file: it costs ~459 ms against ~8 ms for `for-each-ref`
+ * (measured on this repo), and the board's board endpoint is polled every few
+ * seconds — the network call would make a poll loop depend on the git host
+ * being reachable. The local mirror is also already correct, because the fleet
+ * scan fetches on its own timer: `refs/remotes/origin/*` is as fresh as the
+ * pulse the Agents tab renders from.
+ */
+function git(repoRoot: string, args: string[]): string {
+  try {
+    return execFileSync('git', args, {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Remote-tracking refs under the configured branch prefixes, minus the default
+ * branch. Prefixes come from `## Plot Config` (`idea/, feature/, bug/, …`), so
+ * nothing here hardcodes `idea/` — an adopting project renames its prefixes and
+ * the board follows.
+ *
+ * `feature/` and `bug/` are searched as well as `idea/`, deliberately: an
+ * `Impl: same branch` plan rides its work branch, so its Draft phase would be
+ * invisible for exactly the same reason if the net were narrowed to idea
+ * branches.
+ */
+function prefixedBranches(
+  repoRoot: string,
+  prefixes: string[],
+  defaultBranch: string,
+): { branch: string; sha: string }[] {
+  if (prefixes.length === 0) return [];
+  // `repoRoot` must BE the repository, not merely sit inside one. git resolves
+  // upwards from the cwd, so a plans directory nested in an unrelated checkout
+  // would otherwise inherit that checkout's branches and stage plan files from
+  // them — cards for work belonging to a different project entirely. Cheap to
+  // check (~2 ms) and it fails the safe way: no branches, behaving exactly as
+  // a repo with none.
+  const top = git(repoRoot, ['rev-parse', '--show-toplevel']).trim();
+  if (!top) return [];
+  try {
+    if (fs.realpathSync(top) !== fs.realpathSync(repoRoot)) return [];
+  } catch {
+    return [];
+  }
+  const patterns = prefixes.map((p) => `refs/remotes/origin/${p}*`);
+  // The tip SHA comes back in the SAME call as the name — free here, and what
+  // lets the cache below skip everything when no branch has moved.
+  const out = git(repoRoot, ['for-each-ref', '--format=%(refname:short)\t%(objectname)', ...patterns]);
+  const branches: { branch: string; sha: string }[] = [];
+  for (const line of out.split('\n')) {
+    const [ref, sha] = line.trim().split('\t');
+    if (!ref || !sha) continue;
+    const branch = ref.replace(/^origin\//, '');
+    if (!branch || branch === defaultBranch) continue;
+    branches.push({ branch, sha });
+  }
+  return branches;
+}
+
+/**
+ * The default branch, resolved WITHOUT the network — same order as
+ * `plot-fleet-scan.sh`, which is the script this file's git reading has to
+ * agree with: the `Main branch` config key, then the local `origin/HEAD`
+ * symbolic ref, then `main`.
+ *
+ * Deliberately not `plot-host.sh default-branch`: on GitHub that shells out to
+ * `gh repo view`, and the board's plan walk runs on every /api/board request.
+ * The one place a host CLI belongs is the PR fetch, which has its own slow
+ * timer for exactly this reason.
+ */
+function defaultBranchOf(opts: BuildBoardOptions, repoRoot: string): string {
+  const configured = readConfig(opts, 'Main branch', '');
+  if (configured) return configured;
+  const symbolic = git(repoRoot, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])
+    .trim()
+    .replace(/^origin\//, '');
+  return symbolic || 'main';
+}
+
+/** Plan-file paths in a tree — regular blobs only, never the active/ symlinks. */
+function planPathsInTree(repoRoot: string, ref: string, planDir: string): Set<string> {
+  const paths = new Set<string>();
+  // `-r` to recurse; the full ls-tree format is needed for the MODE, which is
+  // what separates a plan file from the symlink pointing at it. A 120000 entry
+  // holds its target's path as content, so parsing one would hand
+  // plot-plan-meta.sh a line of text where a plan should be — and would also
+  // double-count every plan that is indexed under active/.
+  const out = git(repoRoot, ['ls-tree', '-r', ref, '--', planDir]);
+  for (const line of out.split('\n')) {
+    const m = /^(\d{6}) blob [0-9a-f]+\t(.+)$/.exec(line);
+    if (!m) continue;
+    if (m[1] !== '100644' && m[1] !== '100755') continue;
+    if (!m[2].endsWith('.md')) continue;
+    paths.add(m[2]);
+  }
+  return paths;
+}
+
+/**
+ * Plan files that exist on a prefixed branch and NOT on the default branch.
+ *
+ * That set is the Draft plans, and it needs no new convention to be true: a
+ * plan under review lives on its own branch until the plan PR merges, and
+ * everything else on that branch matches the default branch because the branch
+ * was cut from it. Nothing is inferred from the branch NAME beyond where to
+ * look — the phase is still read out of the file by `plot-plan-meta.sh`,
+ * exactly as for a working-tree plan.
+ *
+ * Returns the plan CONTENT rather than a file: staging is the caller's problem,
+ * and keeping it out of here is what lets the result be cached across requests.
+ */
+function readBranchPlans(
+  repoRoot: string,
+  planDir: string,
+  branches: { branch: string; sha: string }[],
+  defaultBranch: string,
+): BranchPlan[] {
+  const onDefault = planPathsInTree(repoRoot, `origin/${defaultBranch}`, planDir);
+  const plans: BranchPlan[] = [];
+  // De-duplicate by canonical path, matching collectPlanFiles's contract: two
+  // branches cut from the same point carry the same plan file, and a card per
+  // branch would report one plan as several.
+  const seen = new Set<string>();
+  for (const { branch } of branches) {
+    for (const relPath of planPathsInTree(repoRoot, `origin/${branch}`, planDir)) {
+      if (onDefault.has(relPath) || seen.has(relPath)) continue;
+      const content = git(repoRoot, ['show', `origin/${branch}:${relPath}`]);
+      // An unreadable blob yields "" — skipped rather than parsed, so a branch
+      // the board cannot read costs a card and never produces a blank one.
+      if (!content) continue;
+      seen.add(relPath);
+      plans.push({ path: relPath, content });
+    }
+  }
+  return plans;
+}
+
+/**
+ * Branch plans, re-read only when a branch tip has actually moved.
+ *
+ * Each `git` invocation costs ~55 ms of process spawn regardless of how little
+ * work it does, so reading eight branches' trees is ~0.5 s — on a path the
+ * client polls every few seconds. The refs, though, barely move: a plan branch
+ * changes when someone pushes to it, which is minutes apart at best.
+ *
+ * So the tip SHAs (which `for-each-ref` already returned, in the one call that
+ * has to happen anyway) are the cache key. An unchanged fleet of branches costs
+ * exactly that one call; a moved one re-reads everything. The key covers branch
+ * names as well as SHAs, so a branch appearing or disappearing invalidates too.
+ *
+ * Keyed by repo, because the module is shared and the board takes its root as a
+ * parameter — the same reason `fleet.ts` keys its cache that way.
+ */
+const branchPlanCache = new Map<string, { key: string; plans: BranchPlan[] }>();
+
+function collectBranchPlans(
+  repoRoot: string,
+  planDir: string,
+  prefixes: string[],
+  defaultBranch: string,
+): BranchPlan[] {
+  const branches = prefixedBranches(repoRoot, prefixes, defaultBranch);
+  if (branches.length === 0) {
+    branchPlanCache.delete(repoRoot);
+    return [];
+  }
+  const key = branches.map((b) => `${b.branch}@${b.sha}`).join(' ');
+  const cached = branchPlanCache.get(repoRoot);
+  if (cached && cached.key === key) return cached.plans;
+  const plans = readBranchPlans(repoRoot, planDir, branches, defaultBranch);
+  branchPlanCache.set(repoRoot, { key, plans });
+  return plans;
 }
 
 /**
@@ -301,6 +499,52 @@ export function buildBoard(opts: BuildBoardOptions): Board {
 
   const repoRoot = resolvedRepoRoot(opts);
   const files = collectPlanFiles(repoRoot, planDir);
+
+  // Plans under review are not in the working tree at all: a plan PR keeps its
+  // file on its own branch until it merges, so of every plan file on the
+  // default branch, none is in phase Draft. Reading only the filesystem is
+  // therefore not merely incomplete — it makes Draft unreachable, which is why
+  // the Discovery column could never fill.
+  //
+  // The staging directory is created per build and removed in the `finally`
+  // below: the parser needs real paths, and nothing outside this function may
+  // ever see one.
+  const prefixes = readConfig(opts, 'Branch prefixes', '')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  let stageDir: string | null = null;
+  // The canonical path per staged file, so the card can be given its identity
+  // back after parsing. `meta.file` would otherwise be the staging path, and
+  // PlanCard renders `card.path` verbatim.
+  const canonicalPath = new Map<string, string>();
+  const staged: string[] = [];
+  try {
+    if (prefixes.length > 0) {
+      const branchPlans = collectBranchPlans(
+        repoRoot, planDir, prefixes, defaultBranchOf(opts, repoRoot),
+      );
+      if (branchPlans.length > 0) {
+        stageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-branch-'));
+        branchPlans.forEach((plan, i) => {
+          // Written under a numbered subdirectory rather than as a renamed
+          // file, so the BASENAME survives intact: two branches can carry
+          // same-named plans, and a mangled name would be a second thing to
+          // undo. The canonical path is restored after parsing either way.
+          const dir = path.join(stageDir!, String(i));
+          const file = path.join(dir, path.basename(plan.path));
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(file, plan.content, 'utf8');
+          canonicalPath.set(file, plan.path);
+          staged.push(file);
+        });
+      }
+    }
+  } catch {
+    // A repo with no git, no origin, or no readable refs simply contributes no
+    // branch plans. Additive and silent when empty — the common case for an
+    // adopting project, and it must behave exactly as before.
+  }
   // Links come from the host adapter's own `url`, read out of the fleet's PR
   // cache — the board holds no rule for turning a number into an address. null
   // until the first fetch lands, which costs a card its link and never a wrong
@@ -312,19 +556,35 @@ export function buildBoard(opts: BuildBoardOptions): Board {
   // cold cache, and the counts are then omitted rather than zeroed.
   const pulse = pulseFor(opts);
   const cards: Card[] = [];
-  for (const meta of readPlanMeta(opts.scriptsDir, files)) {
+  let metas: PlanMeta[];
+  try {
+    metas = readPlanMeta(opts.scriptsDir, [...files, ...staged]);
+  } finally {
+    // The staged copies exist only for the duration of that one parse. Removed
+    // in a `finally` so a parser failure cannot leave temp directories behind
+    // on a path the server walks every few seconds.
+    if (stageDir) fs.rmSync(stageDir, { recursive: true, force: true });
+  }
+  for (const meta of metas) {
+    // A plan's identity is its canonical path, never wherever it was staged for
+    // parsing. Restored here, BEFORE anything is derived from it, so the slug
+    // and `card.path` are the same strings a working-tree plan would produce —
+    // otherwise a Discovery card would render `/var/folders/…/probe.md`, which
+    // fails silently and merely looks untidy.
+    const canonical = canonicalPath.get(meta.file);
+    const relPath = canonical ?? path.relative(repoRoot, meta.file);
     // `started` decides the Design/Development boundary, so it is read BEFORE
     // the phase rather than attached to the card afterwards.
     const started = meta.started_raw.length > 0;
     const phase = toBoardPhase(meta.phase, started);
     if (!phase) continue;
-    const slug = planSlug(meta.file);
+    const slug = planSlug(relPath);
     const card: Card = {
       slug,
       title: meta.title || slug,
       type: meta.type || 'unknown',
       phase,
-      path: path.relative(repoRoot, meta.file),
+      path: relPath,
       prs: meta.prs.map((number): CardPr => ({
         number,
         url: prLinks?.get(number)?.url ?? '',
