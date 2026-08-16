@@ -295,6 +295,11 @@ export function buildBoard(opts: BuildBoardOptions): Board {
   return {
     generatedAt: new Date().toISOString(),
     columns,
+    // Unavailable until the server says otherwise: this walker reads plans and
+    // knows nothing about the socket the board is bound to, and "can I start
+    // work" is a question about that socket. index.ts overwrites it at response
+    // time, where the binding is known.
+    dispatch: { available: false, reason: '' },
     checklist: readChecklist(repoRoot, readConfig(opts, 'Release directory', 'docs/releases/')),
     sprints: collectSprints(repoRoot, sprintDir),
     stories: collectStories(repoRoot, storyDir),

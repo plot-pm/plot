@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { buildBoard, renderPlanPage, type BuildBoardOptions } from './board.js';
 import { buildFleet } from './fleet.js';
+import { dispatchAvailability, handleDispatch } from './dispatch.js';
 // Inlined at build time by esbuild's text loader — the artifact is a single
 // self-contained file, served from memory (no filesystem static serving, so no
 // path-traversal surface).
@@ -25,17 +26,35 @@ const opts: BuildBoardOptions = {
 };
 
 function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
+  const url = new URL(req.url ?? '/', `http://${HOST}:${PORT}`);
+
+  // Allow-listed AHEAD of the blanket 405 below, rather than by weakening it.
+  // Per-route method checks would be the more conventional shape, and are
+  // rejected for the reason this repo rejects prose MUSTs: a check every future
+  // route has to remember is a rule, while a default that refuses is a gate.
+  // Exactly one path-and-verb pair slips past; /api/board, /api/fleet and
+  // /plan/* stay protected precisely as they are today.
+  if (url.pathname === '/api/dispatch' && req.method === 'POST') {
+    void handleDispatch(req, res, { ...opts, host: HOST, port: PORT }).catch((err) => {
+      console.error('Error dispatching:', err);
+      if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+    });
+    return;
+  }
+
   if (req.method !== 'GET') {
     res.writeHead(405);
     res.end('Method Not Allowed');
     return;
   }
 
-  const url = new URL(req.url ?? '/', `http://${HOST}:${PORT}`);
-
   if (url.pathname === '/api/board') {
     try {
-      const board = buildBoard(opts);
+      // Whether Start work will act is a fact about this SERVER's binding, not
+      // about any plan, so it is attached here — where the binding is known —
+      // rather than threaded through the plan walker.
+      const board = { ...buildBoard(opts), dispatch: dispatchAvailability(HOST) };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(board));
     } catch (err) {

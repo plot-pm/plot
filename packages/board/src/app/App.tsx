@@ -23,6 +23,18 @@ import {
 const POLL_MS = 30_000;
 const FLEET_POLL_MS = 4_000;
 
+/**
+ * How fast the board re-reads git while a Start work click is outstanding.
+ *
+ * The plan's bound is "about three pulses (~12 s)", which is the FLEET's rate —
+ * the board's own 30 s poll would make the same three pulses a minute and a
+ * half of staring. Rather than raise the resting rate (30 s is right for a view
+ * of artifacts that move in days), a pending start temporarily borrows the live
+ * rate and gives it back the moment nothing is starting. The board still learns
+ * the outcome the same way: by re-reading git.
+ */
+const STARTING_POLL_MS = FLEET_POLL_MS;
+
 type Tab = 'board' | 'agents';
 
 export function App() {
@@ -41,6 +53,13 @@ export function App() {
   const [sprintSel, setSprintSel] = useState<string[]>(() => readList('sprint'));
   const [storySel, setStorySel] = useState<string[]>(() => readList('story'));
   const [openPlan, setOpenPlan] = useState<Card | null>(null);
+  // Counts board refreshes, not seconds. A Start work button waits for the row
+  // to move, and what moves the row is a re-read of git — so re-reads are the
+  // thing worth counting.
+  const [pulse, setPulse] = useState(0);
+  // How many Start work clicks are outstanding. Only used to decide the poll
+  // rate: a live control deserves a live view, and only while it is live.
+  const [starting, setStarting] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -52,7 +71,16 @@ export function App() {
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      // Bumped even on a failed poll: the button is counting attempts to learn
+      // the outcome, and an attempt that failed still did not confirm anything.
+      // Without this a dropped poll would leave the button spinning forever.
+      setPulse((n) => n + 1);
     }
+  }, []);
+
+  const onStarting = useCallback((active: boolean) => {
+    setStarting((n) => Math.max(0, n + (active ? 1 : -1)));
   }, []);
 
   const loadFleet = useCallback(async () => {
@@ -72,12 +100,13 @@ export function App() {
     }
   }, []);
 
-  // Load once, then poll — no manual refresh needed.
+  // Load once, then poll — no manual refresh needed. The rate goes live while a
+  // start is outstanding and drops back on its own; nothing else changes.
   useEffect(() => {
     void load();
-    const id = setInterval(() => void load(), POLL_MS);
+    const id = setInterval(() => void load(), starting > 0 ? STARTING_POLL_MS : POLL_MS);
     return () => clearInterval(id);
-  }, [load]);
+  }, [load, starting]);
 
   // The fleet only polls while its tab is open: a background 4 s poll would
   // cost the same as a foreground one and answer a question nobody is asking.
@@ -225,6 +254,8 @@ export function App() {
               board={board}
               sprintSel={validSprintSel}
               storySel={validStorySel}
+              pulse={pulse}
+              onStarting={onStarting}
               onOpenPlan={setOpenPlan}
             />
           ) : (
@@ -232,6 +263,8 @@ export function App() {
               board={board}
               sprintSel={validSprintSel}
               storySel={validStorySel}
+              pulse={pulse}
+              onStarting={onStarting}
               onOpenPlan={setOpenPlan}
               onGoToStory={onGoToStory}
             />

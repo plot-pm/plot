@@ -1,8 +1,9 @@
 import type { MouseEvent } from 'react';
-import type { Card, Phase } from '../../contract/schema.js';
+import type { Card, DispatchInfo, Phase } from '../../contract/schema.js';
 import { Badge, typeVariant } from './ui/badge.js';
 import { cn } from '../lib/utils.js';
 import { planHref } from '../lib/plan.js';
+import { StartWorkButton } from './StartWorkButton.js';
 
 // Colour only ever REPEATS what the column header already says in symbol and
 // word — it must not be the sole carrier of the human/agent distinction.
@@ -14,12 +15,48 @@ const PHASE_ACCENT: Record<Phase, string> = {
   Released: 'border-l-orange-500',
 };
 
+/**
+ * Approved, and nobody has started it — the exact state `plot-dispatch.sh`
+ * requires and the exact state the **Ready** badge already described. The board
+ * splits `approved` across two columns (Design without a Started record,
+ * Development with one), so neither column alone answers "is this plan
+ * approved"; `started === false` in Design does, and the card was already
+ * computing it.
+ *
+ * Exported so the badge and the Start work button are the SAME expression and
+ * cannot drift into disagreeing about what Ready means.
+ */
+export function isReadyToStart(card: Card): boolean {
+  return card.phase === 'Design' && card.started === false;
+}
+
+/**
+ * Approved, in whichever column the card sits. `plot-dispatch.sh` hard-gates on
+ * phase `approved` and refuses every other one — Draft exits 1 with "Review it,
+ * then: /plot-approve" — so keying the button on a COLUMN would put it on plans
+ * where it could only fail, and hide it from approved-but-unstarted plans,
+ * which is the first-dispatch case the button is most for.
+ */
+export function isApproved(card: Card): boolean {
+  return isReadyToStart(card) || (card.phase === 'Development' && card.started === true);
+}
+
 export interface PlanCardProps {
   card: Card;
   /** Show the sprint badge (suppressed when a sprint filter is active). */
   showSprint: boolean;
   /** Show the story badge (suppressed when a story filter is active). */
   showStory: boolean;
+  /**
+   * Whether this server will act on Start work, and why not. Absent where the
+   * board has not said — the button then does not render at all, rather than
+   * offering a control whose outcome is unknown.
+   */
+  dispatch?: DispatchInfo;
+  /** Bumps once per board refresh; the Start work button counts these. */
+  pulse?: number;
+  /** A Start work click became outstanding (true) or settled (false). */
+  onStarting?: (active: boolean) => void;
   /** Open the plan in the in-board modal (plain left-click only). */
   onOpen: (card: Card) => void;
   /**
@@ -30,7 +67,16 @@ export interface PlanCardProps {
   onGoToStory?: (story: string) => void;
 }
 
-export function PlanCard({ card, showSprint, showStory, onOpen, onGoToStory }: PlanCardProps) {
+export function PlanCard({
+  card,
+  showSprint,
+  showStory,
+  dispatch,
+  pulse = 0,
+  onStarting,
+  onOpen,
+  onGoToStory,
+}: PlanCardProps) {
   const href = planHref(card);
 
   // The Open control is a real anchor so cmd/ctrl/shift/middle-click open the
@@ -59,9 +105,7 @@ export function PlanCard({ card, showSprint, showStory, onOpen, onGoToStory }: P
             column. The distinction is now the column itself — a card in
             Development IS started — so only the waiting half still needs
             saying, and only where it is not already obvious. */}
-        {card.phase === 'Design' && card.started === false && (
-          <Badge variant="neutral">Ready</Badge>
-        )}
+        {isReadyToStart(card) && <Badge variant="neutral">Ready</Badge>}
         {showSprint && card.sprint && <Badge variant="sprint">{card.sprint}</Badge>}
         {showStory && card.story && (
           // A real anchor to the lane's fragment, so cmd/ctrl/middle-click and
@@ -128,6 +172,20 @@ export function PlanCard({ card, showSprint, showStory, onOpen, onGoToStory }: P
               #{pr.number}
             </span>
           ),
+        )}
+        {/* The button sits on the PLAN card, not on an agent row, and that is
+            not cosmetic: plot-dispatch.sh takes a SLUG, then asks
+            plot-fleet-scan.sh --next which branch is eligible. A button on a
+            branch row would promise "start this one" and deliver "start
+            whichever is next" — a lie the layout would tell on the board's
+            behalf. */}
+        {dispatch && isApproved(card) && (
+          <StartWorkButton
+            card={card}
+            dispatch={dispatch}
+            pulse={pulse}
+            onStarting={onStarting}
+          />
         )}
         {card.assignee && (
           <span className="ml-auto text-xs text-slate-500 dark:text-slate-400">

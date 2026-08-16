@@ -7,13 +7,25 @@ export interface BoardViewProps {
   board: Board;
   sprintSel: string[];
   storySel: string[];
+  /** Bumps once per board refresh; the Start work button counts these. */
+  pulse: number;
+  /** A Start work click became outstanding (true) or settled (false). */
+  onStarting: (active: boolean) => void;
   /** Open a plan in the in-board modal. */
   onOpenPlan: (card: Card) => void;
   /** Switch to lane layout and scroll to a story's row. */
   onGoToStory: (story: string) => void;
 }
 
-export function BoardView({ board, sprintSel, storySel, onOpenPlan, onGoToStory }: BoardViewProps) {
+export function BoardView({
+  board,
+  sprintSel,
+  storySel,
+  pulse,
+  onStarting,
+  onOpenPlan,
+  onGoToStory,
+}: BoardViewProps) {
   const showSprint = sprintSel.length === 0;
   const showStory = storySel.length === 0;
 
@@ -64,6 +76,9 @@ export function BoardView({ board, sprintSel, storySel, onOpenPlan, onGoToStory 
                     card={card}
                     showSprint={showSprint}
                     showStory={showStory}
+                    dispatch={board.dispatch}
+                    pulse={pulse}
+                    onStarting={onStarting}
                     onOpen={onOpenPlan}
                     onGoToStory={onGoToStory}
                   />
