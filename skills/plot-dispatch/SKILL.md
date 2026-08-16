@@ -9,7 +9,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 0.3.0
+  version: 0.4.0
 compatibility: >-
   Designed for Claude Code and Cursor. Requires git with worktree support and
   python3. Starting workers needs a `Worker command` in Plot Config; without
@@ -40,7 +40,7 @@ or `--status` / `--stop <branch>` to inspect or stop running workers.
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
 | 1. Preflight | Small | Phase check + one script call |
-| 2. Dry run and confirm | Mid | How many agents is a judgment about cost and review capacity |
+| 2. Dry run and confirm | Mid | How many agents is a judgment about cost and review capacity; the `in flight:` lines are facts to relay, and whether a shared file matters is the user's call |
 | 3. Fan out | Small | The script does the work; claims are atomic |
 | 4. Report | Small | Read the footer counts; relay a failed `Started:` booking verbatim |
 
@@ -75,6 +75,36 @@ Then ask how many to start. Do not assume "all eligible" is what the user
 wants — each worker costs tokens and produces a PR someone must review. Name
 the real constraint: *"4 branches are eligible. Each becomes a PR. How many do
 you want running?"* Use `--max N` to honour the answer.
+
+#### Read the `in flight:` lines
+
+A candidate line may be followed by what other branches already hold:
+
+```
+would dispatch feature/agent-view-phase-ui → …
+  in flight: bug/board-shows-staleness holds App.tsx, AgentList.tsx
+```
+
+Waves are a **within-plan** ordering. A correctly eligible branch can still name
+a file an agent has open on a *different plan's* branch, and no plan can declare
+that alone. These lines are that missing fact, read from local refs and
+worktrees — including unpushed commits and uncommitted changes, which no remote
+knows about.
+
+**They report; they do not judge.** Nothing about the candidate's own files is
+predicted, so the overlap is not computed and dispatch refuses nothing. Surface
+the lines to the user and let them decide; a shared file is often fine, and
+saying "these collide" would be claiming a certainty nothing here has. If a
+candidate looks genuinely contested, the useful move is `--max N` or naming the
+branch to hold back, not a refusal.
+
+No lines means nothing is held — the report stays silent rather than printing
+reassurance nobody would keep reading.
+
+The report is capped at 8 branches and 6 files each, with the remainder counted
+(`(+4 more)`, `…and 5 more branches`). When you see an overflow line, the fleet
+is busy enough that `/plot-fleet <slug>` is the better view — say so rather than
+re-deriving the omitted rows yourself.
 
 ### 3. Fan Out
 
