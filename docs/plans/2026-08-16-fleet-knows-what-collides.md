@@ -16,6 +16,7 @@
 - **Approved:** 2026-08-16, jwloka, plan-PR #142 merged
 - **Started:** 2026-08-16, Jan Wloka, `infra/board-artifact-merge`
 - **Delivered:**
+- **Started:** 2026-08-17, Jan Wloka, `feature/dispatch-reports-work-in-flight`
 
 ## Problem
 
