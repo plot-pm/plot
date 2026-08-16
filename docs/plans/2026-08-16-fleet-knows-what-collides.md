@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-board
@@ -16,8 +16,8 @@
 - **Approved:** 2026-08-16, jwloka, plan-PR #142 merged
 - **Started:** 2026-08-16, Jan Wloka, `infra/board-artifact-merge`
 - **Started:** 2026-08-17, Jan Wloka, `feature/dispatch-reports-work-in-flight`
-- **Delivered:**
 - **Started:** 2026-08-17, Jan Wloka, `feature/fleet-row-says-blocked`
+- **Delivered:** 2026-08-17
 
 ## Problem
 
