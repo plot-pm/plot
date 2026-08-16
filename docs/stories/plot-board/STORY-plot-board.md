@@ -85,6 +85,32 @@ that closes the loop, and it has not been built yet.
 > that did it. Resolved entries keep their original text — the finding is the
 > record of why the fix exists.
 
+- ⏸️ **The pulse orders waves within a plan and knows nothing about file
+  overlap between plans.** Its wave ordering is stateless and correct — merge
+  wave 1 and `--next` names wave 2 on the following run, with no flag to set
+  and no bookkeeping to forget. That is the design working.
+
+  What it cannot see is which *files* a branch will touch. Observed 2026-08-16:
+  the moment `feature/fleet-row-phase` merged, `--next` offered
+  `feature/agent-view-phase-ui` — while `bug/board-shows-staleness`, from a
+  different plan, had `AgentList.tsx` open in an agent's worktree. Both branches
+  edit that same file. The pulse says *eligible* and is right about waves;
+  nothing in the model represents the collision.
+
+  Two kinds, and they differ in severity:
+  - **Source overlap** (this case) — two plans naming the same module. Real
+    conflicts, resolvable but wasteful.
+  - **The built artifact** — `skills/plot/scripts/board/board-server.mjs` is
+    rebuilt by *every* board branch, so every pair collides in a minified
+    bundle where the conflict cannot be meaningfully resolved. That is the
+    separate open point below, and it is the binding constraint on parallel
+    board work today.
+
+  A human currently supplies the check by reading worktrees before dispatching.
+  Whether the plan format should be able to declare touched paths — or whether
+  `plot-merge-queue`'s `git merge-tree` prediction should run *before* dispatch
+  rather than before merge — is the open question.
+
 - ⏸️ **A DRAFT plan's branches sit in NOT STARTED, inviting a dispatch that
   would be refused.** Spotted 2026-08-16 from a screenshot: minutes after
   `board-tells-the-truth` was written, its two branches appeared reading
