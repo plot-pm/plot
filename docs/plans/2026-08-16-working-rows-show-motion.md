@@ -77,7 +77,12 @@ when the row leaves — which is exactly when the work stopped or moved on.
 
 ### A pulsing dot, not a spinner
 
-A small dot before the row, breathing gently between two opacities.
+A small dot before the row, breathing gently between two opacities —
+Tailwind's own `animate-pulse` with `motion-reduce:animate-none`, not a
+hand-written keyframe. This is the board's first animation, so the smallest
+possible introduction is the right one: no new CSS file, no keyframe
+definition, and the reduced-motion variant comes with the utility rather than
+needing its own media query.
 
 Spinners were considered and dropped on a plain count: `WORKING` regularly holds
 several rows — four agents ran in parallel this evening — and four rotating
@@ -137,10 +142,25 @@ least urgent. Someone who collapsed it was asking not to be interrupted by it,
 and a view that reopens itself mid-read moves the line under the cursor — the
 same reason collapsing is manual.
 
-**The state persists in `localStorage`.** Someone who opens `QUIET` usually
-wants it to stay open — and this board is left running and reloaded often,
-several times an hour during development. Without persistence the reader
-re-configures the view every time, which teaches them not to bother.
+**The state persists in `localStorage`, and that is a deliberate departure.**
+The board already has a convention for view state and it is the **URL**:
+`?tab=agents`, `?lanes=1`, `?plan=…`, written with `history.replaceState`.
+There is no `localStorage` anywhere in the app today, so this introduces a
+second mechanism for what looks like the same kind of state — exactly the
+duplication this codebase otherwise refuses (`toBoardPhase` has one
+implementation; the eligible note became a shared constant rather than a
+repeated string).
+
+The distinction that justifies it: **a URL is shareable, and collapse state
+should not be.** Everything currently in the query string is worth sending to
+someone — *look at this plan*, *look at the agents tab*, *look at the
+swimlanes*. A link carrying `?collapsed=quiet,done` would hand my personal
+tidying to whoever opens it, rebuilding their view as a side effect of "have a
+look at this". Collapse is convenience, not subject matter.
+
+Persistence itself is not optional: this board is left running and reloaded
+several times an hour during development. Without it the reader re-configures
+the view every time, which teaches them not to bother.
 
 **Collapsing is manual, never automatic.** An earlier option was to fold groups
 that hold nothing actionable, dynamically. Rejected: the pulse re-scans every
@@ -161,8 +181,15 @@ its own furniture.
   start collapsed with their counts still visible; the state persists in
   `localStorage`
 
-Two branches, and they are independent: one touches a row, the other a section
-header. Either is useful without the other.
+Two branches, useful independently — one touches a row, the other a section
+header — but **sequential, motion first**. They edit the same component, and
+this repo has paid three times today for two agents in one file, even at
+different lines. Motion is the smaller change (one element, one utility class),
+so it goes first and the collapse branch rebases onto it.
+
+The `sr-only` label and the dot must not compete: a screen reader hears the
+group heading and the row's own text, so the dot is decorative and gets
+`aria-hidden`. The animation carries nothing a reader without it would miss.
 
 ## Done when
 
@@ -188,6 +215,13 @@ header. Either is useful without the other.
 - **The state survives a reload.** Assert via `localStorage`, and assert the
   default applies when nothing is stored — a first visit must not depend on
   state that does not exist yet.
+- **Collapse state never reaches the URL.** Assert the query string is
+  unchanged by toggling: a shared link must not rebuild the recipient's view.
+- **An empty `WORKING` group animates nothing.** Trivial by construction — the
+  dot sits on a row — but assert it, so nobody later moves the animation to the
+  group header where it would run against zero rows.
+- **The dot is `aria-hidden`.** It is decorative; the group heading and the
+  row's text already carry the meaning.
 - **Nothing collapses by itself.** Assert that a group whose rows all become
   quiet stays open if the reader opened it: the pulse re-scans every five
   seconds, and a view that folds itself while being read moves the line under
@@ -234,14 +268,17 @@ in the same file is the collision this repo has paid for twice today.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {"q": "Should the animation be graded by confidence? WORKING has three entrances of differing strength.", "a": "No — one animation for the group. Membership IS the statement and it is true for all three; the note already says which reason, and speed is unreadable in isolation and invisible in a screenshot", "category": "ux-happyPath"},
     {"q": "Spinner or pulse?", "a": "Pulsing dot before the row. WORKING regularly holds several rows — four agents ran in parallel this evening — and four rotating spinners is flicker. Rotation also implies progress toward completion, which nothing here measures", "category": "ux-happyPath"},
     {"q": "prefers-reduced-motion, with no existing convention in the board?", "a": "Built in from the start. Two lines of CSS; motion triggers nausea for some readers, and animation must never be the only carrier of a fact — the rule the contract already sets for colour", "category": "ux-accessibility"},
     {"q": "The header renders `rows.length > 0 ? '(N)' : hint` — what happens to EMPTY groups on collapse?", "a": "Empty groups never collapse. They hide nothing, and the hint is the information one wants when there is nothing to list. A control on a group with nothing to hide is an offer leading nowhere", "category": "ux-edgeCases"},
     {"q": "A row falls into a COLLAPSED group — visible how?", "a": "The count changes, nothing else. No flash, no auto-expand: quiet is by construction the least urgent group, and a view that reopens itself mid-read moves the line under the cursor", "category": "ux-edgeCases"},
-    {"q": "Pause the animation when the tab is hidden?", "a": "No. Pure CSS costs nothing and browsers throttle background tabs already; the poll cycle is the expensive part and keeps running regardless", "category": "nonfunctional-performance"}
+    {"q": "Pause the animation when the tab is hidden?", "a": "No. Pure CSS costs nothing and browsers throttle background tabs already; the poll cycle is the expensive part and keeps running regardless", "category": "nonfunctional-performance"},
+    {"q": "The board keeps view state in the URL (?tab, ?lanes, ?plan) and uses no localStorage anywhere. The plan mandates localStorage — a second mechanism for the same kind of state?", "a": "localStorage, but say why: a URL is SHAREABLE and collapse state should not be. Everything in the query string is worth sending to someone; ?collapsed=quiet,done would rebuild the recipient's view as a side effect of 'have a look at this'", "category": "technical-architecture"},
+    {"q": "Where does the keyframe live, given the board has no animations at all?", "a": "Tailwind's animate-pulse with motion-reduce:animate-none — no new CSS file, no keyframe definition, and the reduced-motion variant comes with the utility. Smallest possible way to introduce the first animation", "category": "technical-stack"},
+    {"q": "Both branches touch AgentList.tsx. Dispatch in parallel?", "a": "Sequential, motion first. Same component, and this repo paid three times today for two agents in one file even at different lines. Motion is smaller; collapse rebases onto it", "category": "tradeoffs-ordering"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
