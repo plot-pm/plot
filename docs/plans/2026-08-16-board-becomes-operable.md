@@ -11,6 +11,7 @@
 - **Approved:** 2026-08-16, jwloka, plan-PR #146 merged
 - **Started:** 2026-08-17, Jan Wloka, `feature/board-story-overlay`
 - **Delivered:**
+- **Started:** 2026-08-17, Jan Wloka, `feature/board-column-overflow`
 
 ## Problem
 
