@@ -235,7 +235,7 @@ fix; determinism is.
 - `bug/board-binds-port-zero` — `PORT=0` binds zero and reports the assigned
   port (default 7777 unchanged); `findFreePort` is deleted and all 28 call
   sites across 8 test files read the started server's port; a second
-  `pnpm board` names the running one and exits
+  `pnpm board` names the running one and exits → #143
 
 **One at a time, and the reason is the artifact, not the sources.** Checked at
 dispatch: `agent-view-phase`'s Data wave holds `fleet.ts`, `schema.ts`,
