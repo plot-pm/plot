@@ -26,12 +26,29 @@ describe('classify', () => {
     expect(blocked.note).toMatch(/earlier wave/);
   });
 
-  it('treats a claim with no commits as quiet, not as working', () => {
-    // The group that matters most: a claim with no progress is either a worker
-    // still thinking or a dead one, and only a human can tell which.
+  // A claim with no progress is either a worker still thinking or a dead one,
+  // and this used to send BOTH to `quiet` on the grounds that only a human can
+  // tell them apart. Watching a real dispatch disproved the premise: for the
+  // first minutes every healthy agent looks exactly like this — it is reading
+  // the plan — so `quiet`, which means "go check whether it died", was being
+  // said about the normal opening of every dispatch. Age separates them, and
+  // the age is known because a claim IS a commit.
+  it('calls a fresh claim working — it is the normal start of a dispatch', () => {
     const r = classify('claimed', 'eligible', 3, QUIET);
-    expect(r.group).toBe('quiet');
+    expect(r.group).toBe('working');
     expect(r.note).toMatch(/no commits/);
+  });
+
+  it('calls a claim that stayed silent past the quiet window quiet', () => {
+    const r = classify('claimed', 'eligible', QUIET + 1, QUIET);
+    expect(r.group).toBe('quiet');
+    expect(r.note).toMatch(/still no commits/);
+  });
+
+  // Without an age there is nothing to judge, and guessing `working` would
+  // assert liveness the data does not support.
+  it('falls back to quiet when a claim has no age', () => {
+    expect(classify('claimed', 'eligible', null, QUIET).group).toBe('quiet');
   });
 
   it('calls a recent commit working and a stale one quiet', () => {
@@ -251,8 +268,10 @@ describe('classify with PR data', () => {
   });
 
   it('falls back to git state when no PR exists', () => {
-    // The step-1 behaviour must survive untouched for branches without a PR.
+    // The git-only behaviour must survive untouched for branches without a PR —
+    // including for claims, which now answer by age like everything else.
     expect(classify('wip', 'eligible', 3, QUIET, null).group).toBe('working');
-    expect(classify('claimed', 'eligible', 3, QUIET, null).group).toBe('quiet');
+    expect(classify('claimed', 'eligible', 3, QUIET, null).group).toBe('working');
+    expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null).group).toBe('quiet');
   });
 });
