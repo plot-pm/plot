@@ -134,6 +134,8 @@ pnpm run typecheck        # typechecks @plot-pm/board
 
 **The board is first-class.** Keeping it working — and considering board impact when planning changes to the plan format, template, helper scripts, or `docs/plans` layout — is part of the [Definition of Done](docs/definition-of-done.md), gated in CI.
 
+**On a conflict in `board-server.mjs`, do not read the diff.** It is generated output marked `-merge` in `.gitattributes`, so git keeps one version whole rather than splicing markers into it. Take **either** side, run `pnpm build:board`, and commit the result — the rebuild overwrites whichever side was kept, so the choice cannot matter. Never phrase it as "take ours": *ours* inverts between `git merge` and `git rebase`. Full procedure: [Definition of Done › Resolving a board artifact conflict](docs/definition-of-done.md#resolving-a-board-artifact-conflict).
+
 **Fleet user test:** [docs/fleet-user-test.md](docs/fleet-user-test.md) — a
 guided run of `/plot-fleet`, `/plot-dispatch`, and `/plot-merge-queue` in a
 real project, covering what the automated flows deliberately cannot (agent
