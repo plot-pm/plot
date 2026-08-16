@@ -173,8 +173,29 @@ button the second question still costs a manual tab switch and filter, which is
 the friction this plan set out to remove.
 
 Everything needed is already wired in `App.tsx`: `setTab`, `setStorySel`,
-`setOpenPlan`, and the URL sync that follows them. The button composes them; it
-introduces no new state.
+`setOpenPlan`, and the URL sync that follows them.
+
+**The filter alone is not enough, so the card is highlighted too.** A story
+filter narrows the board to that story — but `plot-board` has nine plans, so
+landing there still leaves you scanning a column for your card. The button
+therefore also names the plan in the URL (`?plan=<slug>`, the same
+`writeList`-style sync the story and sprint filters already use), and the
+matching card scrolls into view with a highlight ring.
+
+Naming it in the URL rather than passing it as state is what makes the landing
+shareable and survivable: a reload keeps you on the card, and the link can be
+handed to someone else. The highlight is transient — it marks *where you just
+arrived*, not a selection, so it clears on the next interaction rather than
+persisting as a second kind of filter.
+
+`prefers-reduced-motion` suppresses the scroll animation, not the scroll: the
+point is arriving at the card, and only the movement is the accessibility
+concern.
+
+**A `?plan=` that matches nothing is ignored** — a stale link, or a plan since
+delivered out of the filtered set. The board renders normally rather than
+showing an empty filtered column, which would read as "this story has no
+plans".
 
 `PlanModal` takes a `Card`, and a fleet row is not one — the row carries
 `planFile`, and the card must be looked up from the board data by that file.
@@ -214,7 +235,13 @@ outside the walked directories would have a row and no card.
   rather than guessing a URL shape.
 - **Clicking a plan opens `PlanModal` in place** — no navigation — and the
   modal's "Show in board" button lands on the board tab filtered to that plan's
-  story.
+  story, **with the card scrolled into view and highlighted**. Assert the
+  highlight, not merely the tab switch: the filter alone was the version that
+  left you scanning a nine-card column.
+- **`?plan=<slug>` survives a reload** and lands on the same highlighted card,
+  and **a `?plan=` matching nothing is ignored** — the board renders normally
+  rather than showing an empty filtered column, which would read as "this story
+  has no plans".
 - **A row whose plan has no board card keeps the plain `/plan/<file>` link**
   and does not open an empty modal. Assert it; this is the case that appears
   only in repos unlike this one.
