@@ -7,6 +7,10 @@ export interface SwimlanesProps {
   board: Board;
   sprintSel: string[];
   storySel: string[];
+  /** Bumps once per board refresh; the Start work button counts these. */
+  pulse: number;
+  /** A Start work click became outstanding (true) or settled (false). */
+  onStarting: (active: boolean) => void;
   onOpenPlan: (card: Card) => void;
 }
 
@@ -61,7 +65,14 @@ export function buildLanes(cards: Card[], stories: StoryCard[]): Lane[] {
   return lanes;
 }
 
-export function Swimlanes({ board, sprintSel, storySel, onOpenPlan }: SwimlanesProps) {
+export function Swimlanes({
+  board,
+  sprintSel,
+  storySel,
+  pulse,
+  onStarting,
+  onOpenPlan,
+}: SwimlanesProps) {
   const showSprint = sprintSel.length === 0;
   const visible = board.columns.flatMap((c) => c.cards).filter(
     (c) =>
@@ -140,6 +151,9 @@ export function Swimlanes({ board, sprintSel, storySel, onOpenPlan }: SwimlanesP
                         // The row already says which story this is; repeating it
                         // on every card is noise.
                         showStory={false}
+                        dispatch={board.dispatch}
+                        pulse={pulse}
+                        onStarting={onStarting}
                         onOpen={onOpenPlan}
                       />
                     ))}

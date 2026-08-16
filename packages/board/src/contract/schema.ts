@@ -204,9 +204,30 @@ export const StoryCardSchema = z.object({
 });
 export type StoryCard = z.infer<typeof StoryCardSchema>;
 
+/**
+ * Whether the server will act on a Start work click, and why not.
+ *
+ * A statement about the SERVER, not about any plan — which is why it rides on
+ * the board document rather than on a card. The route refuses a non-localhost
+ * binding with 403; without this the button could only learn that by being
+ * clicked, and a control that looks live and then refuses is a worse answer
+ * than one that says up front what it cannot do.
+ *
+ * Defaults to unavailable so an older server (which sends no such field) makes
+ * a newer client hide the button rather than offer one that 404s.
+ */
+export const DispatchInfoSchema = z.object({
+  available: z.boolean(),
+  /** Empty when available; a human sentence otherwise. */
+  reason: z.string().default(''),
+});
+export type DispatchInfo = z.infer<typeof DispatchInfoSchema>;
+
 export const BoardSchema = z.object({
   generatedAt: z.string(),
   columns: z.array(ColumnSchema),
+  /** See DispatchInfoSchema — a server capability, not plan data. */
+  dispatch: DispatchInfoSchema.default({ available: false, reason: '' }),
   /**
    * Newest release checklist, for the Endgame column: what is left before
    * signoff. null when no checklist exists or none could be parsed — the board
