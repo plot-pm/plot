@@ -140,6 +140,38 @@ instead of it.
 The same shape as the `no story` badge on plan cards — mark the thing, do not
 bend the state to encode it.
 
+### A draft PR's red CI is invisible
+
+Found while checking this plan's own PR, which is the case: `#131` reports
+`checks: failing` from the host adapter and the board renders only
+`PR #131, draft`.
+
+The cause is an ordering, not an omission. `fleet.ts` line 768 asks `pr.draft`
+**before** anything asks about checks:
+
+```ts
+const { group, note } = pr.draft
+  ? { group: 'waiting-on-you' as const, note: `PR #${pr.number}, draft` }
+  : classify('wip', 'eligible', ageMinutes, quietMinutes, pr);
+```
+
+Both halves were argued and both are right about their own question. `classify`
+declines to claim a *green* draft — "a draft is still the author's, not yours" —
+and the shortcut is right that a draft belongs in `waiting-on-you` regardless,
+since the author is the reader. What neither noticed is that the shortcut
+answers for **every** draft, so a green draft and a red one produce the
+identical row. The group happens to be correct; the note loses the only fact
+that changes what the author should do next.
+
+The fix keeps the draft framing and lets the checks speak inside it —
+`PR #131, draft, checks failing`. Group unchanged: a failing draft is still
+waiting on its author, and moving it would claim a review nobody asked for.
+
+It sits in this plan because it is the same function, the same file and the same
+defect class the plan already treats: a row that states a time and withholds the
+state. It is also a regression introduced hours ago in `board-ui-polish`, so it
+is small and its blast radius is one ternary.
+
 ### Where the phase sits
 
 **It takes the repo column's place**, rather than adding a seventh cell to a
@@ -268,6 +300,34 @@ five" shows five whether the newest is an hour old or six months. The board's
 own `Released` column has the same problem waiting for it, and the same answer
 applies there.
 
+**A rolling 24 hours, not the calendar day.** Literally "delivered today" is
+easier to explain and wrong at exactly the wrong moment: a plan delivered at
+23:50 vanishes ten minutes later, mid-session, while the branches it names are
+still on screen. The window is also the one number this repo already uses for a
+freshness bound — `Claim stale after: 24` — so it is one unit to learn rather
+than two.
+
+**The window filters before the parse, not after.** Measured: 18 plan files
+cost 1.03 s through `plot-plan-meta.sh`, ~57 ms each, against a scan that
+already runs 500–1050 ms. Parsing all 14 delivered plans to then discard 13 of
+them would roughly double the pulse — and that cost grows with the archive,
+which only ever gets larger, while the answer it produces stays the size of a
+day's work. So the cheap signal comes first (the delivered symlink's own
+mtime), and only the candidates it admits are parsed. The `Delivered:` record in
+the file remains the decider; mtime is a pre-filter that may over-admit and must
+never exclude — a checkout can freshen an old file, so the parse still has the
+last word, but nothing that mtime rules out could have been delivered today.
+
+**A delivered plan with no `Delivered:` date does not appear.** Not
+hypothetical: `docs/plans/delivered/reconcile-scan-accuracy.md` is in the
+delivered index today with an empty record. No date means no membership in any
+window, following the rule this plan already states for the waiting age — *no
+date, no age*. The alternative, showing it always, creates the one row that can
+never age out of DONE. The missing record is a bookkeeping fault that
+`plot-reconcile-scan.sh` is built to report; a view that quietly compensates
+for it makes the fault harder to see, which is the opposite of what this tab is
+for.
+
 This is the same distinction that surfaced twice today in other clothes — a
 merged branch with no plan vanishes when its ref is deleted, and `Released` and
 `Done` differ because plans and branches run on different clocks. Each time the
@@ -279,9 +339,10 @@ and a state view still has to hold the last few minutes of it.
 ### Data
 
 - `feature/fleet-row-phase` — the pulse carries plan phase onto each row and
-  also reads recently delivered plans; `AgentRow` gains the derived phase;
-  row-level derivation composes `toBoardPhase` with the branch state
-  (the waiting-age field shipped early in `board-ui-polish`)
+  also reads recently delivered plans (rolling 24 h, mtime-prefiltered, no date
+  no row); `AgentRow` gains the derived phase; row-level derivation composes
+  `toBoardPhase` with the branch state; a draft PR's note carries its check
+  state (the waiting-age field shipped early in `board-ui-polish`)
 
 ### Display
 
@@ -319,6 +380,20 @@ written first would assert against a shape that does not exist yet.
 - **A recently delivered plan still appears in DONE**, and an old one does not.
   Assert both halves against a fixture whose delivery dates straddle the window:
   a test that only checks "delivered plans appear" passes with no bound at all.
+- **The window is rolling, not the calendar day.** Assert a plan delivered 23
+  hours ago is present and one delivered 25 hours ago is not — a day-boundary
+  implementation passes a "delivered today" test and fails this one.
+- **A delivered plan with an empty `Delivered:` record does not appear.**
+  `reconcile-scan-accuracy.md` is the live example; assert the absence, because
+  the failure mode is a row that is never old enough to leave.
+- **The mtime pre-filter never excludes a plan the parse would admit.** Assert a
+  plan whose file mtime is stale but whose `Delivered:` record is inside the
+  window still appears — the pre-filter is allowed to over-admit and pay a
+  parse, never to drop a real answer. Without this the optimisation silently
+  becomes the rule.
+- **A draft PR with failing checks says so.** Assert the note carries the check
+  state alongside `draft`, and that the group stays `waiting-on-you` — asserting
+  only the group passes against today's code, which is the bug.
 - **The phase is spelled out.** Assert the full word appears in the row's text,
   so an icon-only or initial-only rendering cannot pass: three phases begin
   with D, and `PHASE_LEADERSHIP` maps 👤 to three of the five.
@@ -354,20 +429,24 @@ two requests that looked separate and shared one missing field.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {"q": "Part of this plan shipped early in board-ui-polish — how to handle?", "a": "Mark as delivered, keep the reasoning as the record of why the field is separate", "category": "technical-implementation"},
     {"q": "not-started holds eligible AND blocked rows — where does the Start button go?", "a": "Eligible only; a button on a blocked row would offer to skip the ordering waves express, and plot-dispatch refuses it anyway", "category": "domain-workflows"},
     {"q": "Which plan first — this one or board-becomes-operable?", "a": "This one: the phase is the field other features reference (Approve only on Draft cards)", "category": "tradeoffs-ordering"},
     {"q": "Where does the phase go in an already-full row?", "a": "It REPLACES the repo cell — repo is constant, rendered nowhere else, and a row with seven cells wraps on long branch names", "category": "ux-layout"},
-    {"q": "DONE showed one branch where five delivered plans named eight — why?", "a": "The pulse reads active/ only, so delivery removes a plan instantly. Read recently delivered plans too, bounded by TIME rather than count", "category": "domain-data"}
+    {"q": "DONE showed one branch where five delivered plans named eight — why?", "a": "The pulse reads active/ only, so delivery removes a plan instantly. Read recently delivered plans too, bounded by TIME rather than count", "category": "domain-data"},
+    {"q": "Reading 14 delivered plans costs ~800ms on a 500-1050ms scan — where does the window filter?", "a": "Before the parse: mtime pre-filter admits candidates, the Delivered: record decides. Cost scales with a day's work, not with the archive", "category": "nonfunctional-performance"},
+    {"q": "reconcile-scan-accuracy.md is in delivered/ with an EMPTY Delivered: field — what does the row do?", "a": "Does not appear. No date, no window — same rule as the waiting age. Showing it creates a row that can never age out, and hides a bookkeeping fault reconcile-scan exists to report", "category": "ux-edgecases"},
+    {"q": "Calendar day or rolling window?", "a": "Rolling 24h: a 23:50 delivery must not vanish at 00:00 mid-session, and 24 is the number the repo already uses (Claim stale after)", "category": "ux-edgecases"},
+    {"q": "A draft PR's failing CI renders as just 'draft' — where does the fix go?", "a": "Into this plan's data wave: same file, same function, same defect class (a row stating time and withholding state). fleet.ts:768 asks pr.draft BEFORE checks, collapsing green and red drafts into one note", "category": "ux-errors"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
     "technical": {"stack": true, "architecture": true, "implementation": true},
     "domain": {"rules": true, "workflows": true, "data": true},
-    "ux": {"happyPath": true, "edgeCases": false, "errors": false, "accessibility": false},
-    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "ux": {"happyPath": true, "edgeCases": true, "errors": true, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": true, "scalability": true},
     "tradeOffs": true
   }
 }
