@@ -98,6 +98,25 @@ export function countdown(ageSeconds: number | null, intervalSeconds: number): n
   return Math.max(0, intervalSeconds - ageSeconds);
 }
 
+/**
+ * Does a plan sub-heading earn its place in this group?
+ *
+ * Two ways it can, and neither count alone catches both:
+ *
+ *   - it SEPARATES — the group holds more than one plan, so unlabelled rows
+ *     would run two different names together;
+ *   - it SAVES REPETITION — some plan holds more than one row, so without a
+ *     heading its name prints on every one of them.
+ *
+ * `plans > 1` alone was the first rule and missed the case that motivated the
+ * grouping (six rows of ONE plan, name printed six times). `rows > plans` alone
+ * fixes that and breaks the mirror (two plans, one row each, separating
+ * nothing labelled). Exported so both cases can be pinned without a browser.
+ */
+export function showPlanHeadings(rowCount: number, planCount: number): boolean {
+  return planCount > 1 || rowCount > planCount;
+}
+
 export interface AgentListProps {
   fleet: Fleet;
   /**
@@ -115,7 +134,21 @@ export interface AgentListProps {
   onOpenPlan?: (planFile: string) => boolean;
 }
 
-function Row({ row, onOpenPlan }: { row: AgentRow; onOpenPlan?: AgentListProps['onOpenPlan'] }) {
+function Row({
+  row,
+  onOpenPlan,
+  planInHeading = false,
+}: {
+  row: AgentRow;
+  onOpenPlan?: AgentListProps['onOpenPlan'];
+  /**
+   * True when a sub-heading above these rows already names the plan. The row
+   * then omits it rather than printing the same name on every line — the
+   * heading exists to save that repetition, so repeating it anyway would leave
+   * the group wordier than it was before grouping.
+   */
+  planInHeading?: boolean;
+}) {
   // Same convention as the card's Open control: a real anchor, so
   // cmd/ctrl/shift/middle-click open natively, and only a plain primary click is
   // intercepted. `onOpenPlan` returns false when the board holds no matching
@@ -143,7 +176,7 @@ function Row({ row, onOpenPlan }: { row: AgentRow; onOpenPlan?: AgentListProps['
           the reader the thing they came to watch. The href stays real so a
           modified click still opens the page, and so a plan with no board card
           simply navigates. */}
-      {row.planFile ? (
+      {planInHeading ? null : row.planFile ? (
         <a
           href={`/plan/${encodeURIComponent(row.planFile)}`}
           onClick={handlePlan}
@@ -249,15 +282,26 @@ export function AgentList({ fleet, pollSeconds, onOpenPlan }: AgentListProps) {
     return <p className="text-sm text-slate-500">Waiting for the first fleet scan…</p>;
   }
 
-  // The git countdown answers *when can this display change*, not *when does git
-  // get re-read*: /api/fleet reads a cache the server rescans on its own timer,
-  // so the client's poll is the only thing the client can honestly count toward.
-  const gitNext = pollSeconds === null ? null : countdown(fleet.ageSeconds + tick, pollSeconds);
+  // Both countdowns come from the SERVER, because both are the server's own
+  // gates. An earlier version computed this one from the client's poll interval
+  // and it read "next in 0s" permanently: `ageSeconds` dates the server's scan
+  // (5 s timer) while the client polls every 4 s, so `interval − age` was
+  // reliably negative and the clamp did the rest. Subtracting one clock's age
+  // from another clock's interval produces a number that is never right.
+  //
+  // `== null` rather than `=== null`: a server that predates the field sends
+  // nothing, and whether that arrives as null or undefined depends on whether
+  // the response was parsed through the schema. Both mean "not reported", and
+  // treating undefined as a number renders "next in NaNs".
+  const gitNext =
+    pollSeconds === null || fleet.scanNextInSeconds == null
+      ? null
+      : Math.max(0, fleet.scanNextInSeconds - tick);
   // The PR countdown comes from the SERVER, because only the server knows its
   // own backoff. Absent (an older server) means no countdown at all — a client
   // assuming 60 s would count to zero and sit there through a 120 s wait.
   const prNext =
-    pollSeconds === null || fleet.prNextInSeconds === null
+    pollSeconds === null || fleet.prNextInSeconds == null
       ? null
       : Math.max(0, fleet.prNextInSeconds - tick);
 
@@ -277,9 +321,19 @@ export function AgentList({ fleet, pollSeconds, onOpenPlan }: AgentListProps) {
         // become a list one scrolls past. A rule with an exception for the group
         // nobody reads is a rule someone has to remember.
         const plans = groupByPlan(rows);
-        // Chrome that never varies is noise: the sub-heading earns its place
-        // only when it separates something.
-        const showPlanHeadings = plans.length > 1;
+        // A sub-heading earns its place when it SEPARATES plans or SAVES
+        // repetition — and neither count alone catches both.
+        //
+        // `plans.length > 1` was the first rule and fails the case that
+        // motivated the grouping: six QUIET rows of ONE plan got no heading, so
+        // the plan name printed six times down the column — more chrome than
+        // one heading above six shorter rows. `rows.length > plans.length`
+        // fixes that and breaks the mirror case: two plans with one row each
+        // separate nothing, and two different names would run together
+        // unlabelled.
+        //
+        // So: more than one plan, or any plan holding more than one row.
+        const headings = showPlanHeadings(rows.length, plans.length);
         return (
           <section key={key}>
             <h2 className="mb-1 flex items-baseline gap-2 px-3 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
@@ -293,7 +347,7 @@ export function AgentList({ fleet, pollSeconds, onOpenPlan }: AgentListProps) {
               {rows.length > 0 ? (
                 plans.map((group) => (
                   <li key={group.plan}>
-                    {showPlanHeadings && (
+                    {headings && (
                       <h3 className="border-b border-slate-200/60 bg-slate-50 px-3 py-1 text-[11px] font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
                         {group.plan}
                         <span className="ml-1.5 font-normal text-slate-400 dark:text-slate-600">
@@ -303,7 +357,12 @@ export function AgentList({ fleet, pollSeconds, onOpenPlan }: AgentListProps) {
                     )}
                     <ul>
                       {group.rows.map((r) => (
-                        <Row key={`${r.repo}/${r.branch}`} row={r} onOpenPlan={onOpenPlan} />
+                        <Row
+                          key={`${r.repo}/${r.branch}`}
+                          row={r}
+                          onOpenPlan={onOpenPlan}
+                          planInHeading={headings}
+                        />
                       ))}
                     </ul>
                   </li>

@@ -83,6 +83,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     },
     prAgeSeconds: 74,
     prNextInSeconds: 46,
+    scanNextInSeconds: 3,
     prError: null,
     ...over,
   };
@@ -335,6 +336,25 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const text = await footer(page).textContent();
       expect(text).toMatch(/scanned \d+s ago · next in \d+s/);
       expect(text).toMatch(/PR data \d+s ago · next in \d+s/);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('shows NO git countdown when the server does not report its scan interval', async () => {
+    // The mirror of the PR case below, and it caught a real bug twice over.
+    // First the countdown was computed from the CLIENT's 4 s poll against
+    // `ageSeconds`, which dates the SERVER's 5 s scan — reliably negative, so
+    // it read "next in 0s" permanently. Then the fix used `=== null`, and a
+    // payload that never went through the schema sends `undefined`, which
+    // rendered "next in NaNs". Both are worse than showing nothing.
+    const page = await openAgents(fleet({ scanNextInSeconds: null }));
+    try {
+      const text = (await footer(page).textContent()) ?? '';
+      expect(text).toMatch(/scanned \d+s ago/);
+      expect(text).not.toContain('NaN');
+      // Exactly one countdown remains: the PR's.
+      expect(text.match(/next in/g) ?? []).toHaveLength(1);
     } finally {
       await page.close();
     }

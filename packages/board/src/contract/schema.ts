@@ -427,6 +427,19 @@ export const FleetSchema = z.object({
    * no PR countdown at all: the age alone is still true.
    */
   prNextInSeconds: z.number().nullable().default(null),
+  /**
+   * Seconds until the server rescans git — the companion to `ageSeconds`, and
+   * for the same reason `prNextInSeconds` exists.
+   *
+   * The client cannot compute this from its own poll interval, and trying to
+   * was a real bug: `ageSeconds` dates the SERVER's scan (5 s timer) while the
+   * client polls every 4 s, so `interval − age` was reliably negative and the
+   * countdown sat at "next in 0s" forever. Two clocks, one subtraction.
+   *
+   * Null on an older server, and the client then shows the age without a
+   * countdown — the same honest degradation as the PR side.
+   */
+  scanNextInSeconds: z.number().nullable().default(null),
   prError: z.string().nullable(),
 });
 export type Fleet = z.infer<typeof FleetSchema>;
