@@ -36,28 +36,59 @@ agent view sends you out of the app while the board keeps you in it.
 
 ## Design
 
-All three are frontend-only. Nothing in the pulse contract, the schema, or any
-script changes — which is why this plan is reviewed in-session and rides its
-work branch rather than opening an idea branch.
+Mostly display, with **two additive fields** the display cannot honestly do
+without: the PR refresh interval (§1) and the repo's branch URL (§3). Both are
+optional, both degrade to showing less rather than to guessing, and neither
+changes an existing field's meaning — so the pulse's shape holds and older
+payloads still validate.
 
-### 1. Count down to the next refresh
+Named here rather than discovered during implementation, because "frontend
+only" was the reason this plan takes the lightest ceremony, and that claim has
+to survive contact with what it actually needs. It still does: no script logic
+moves, and the two fields are values the server already knows.
 
-`FLEET_POLL_MS = 4_000` already governs the fleet poll, so the countdown is
-derived, not invented: seconds remaining until the next tick, beside the
-existing age.
+One thing is deliberately **out**: a link on `green` to the CI run. That needs
+a checks URL carried through `plot-host.sh` and the pulse — a different kind of
+change, and the point at which this stops being a display plan. Recorded in
+§3 as a follow-up.
 
-Keep `scanned Ns ago`. The two answer different questions and the pair is the
-point — *how old is this* and *when does it change* — and the existing comment
-in `AgentList` makes that argument for git-vs-PR ages already.
+### 1. Count down to the next refresh — both counters
 
-The PR age keeps its own reading: `PR_REFRESH_MS` is 60 s with backoff to
-120 s, so a single countdown covering both would be wrong for one of them. Show
-the countdown for the fleet poll only; PR data keeps `· PR data Ns ago`.
+Every age in the footer counts **up**, and both get a companion counting down:
 
-**Stop the countdown when the tab is hidden.** `App.tsx` already stops polling
-when the agents tab is not open (*"a background 4 s poll would…"*), so a
-counter that keeps ticking would count toward a refresh that is not coming —
-the same class of lie this plan is fixing.
+```
+scanned 1s ago · next in 3s   ·   PR data 74s ago · next in 46s
+```
+
+Keep the ages. The two readings answer different questions and the pair is the
+point — *how old is this* and *when does it change* — the same argument
+`AgentList` already makes for keeping git and PR ages apart.
+
+**The git countdown is derived from `FLEET_POLL_MS = 4_000`**, which the client
+owns. One nuance worth writing down rather than discovering later: that poll
+reads a **server-side cache** which the server rescans on its own 5 s timer
+(*"/api/fleet reads a cache the server refreshes on its own timer; it never
+runs a scan per request"*). So the countdown answers *when can this display
+change*, not *when does git get re-read*. That is the right question for a
+reader watching a fan-out, and it is the only one the client can answer
+honestly.
+
+**The PR countdown needs a new field, and must not guess without it.**
+`PR_REFRESH_MS` is 60 s with backoff to 120 s when the host reports a rate
+limit, and the fleet payload carries `prAgeSeconds` but **no interval** — so a
+client assuming 60 s would count to zero and sit there while the server waited
+out a 120 s backoff. That is exactly the failure this plan exists to remove: a
+display that renders *"I don't know"* as *"any moment now"*.
+
+So `FleetSchema` gains one optional field — the seconds until the next PR
+refresh, as the server currently intends it, backoff included. Additive, and
+the server already knows the number. **When it is absent, show no PR countdown
+at all** (an older server, or a board built before this change): the age alone
+is still true, and omitting is the honest degradation.
+
+**Stop both countdowns when the tab is hidden.** `App.tsx` already stops
+polling when the agents tab is not open, so a counter that kept ticking would
+count toward a refresh that is not coming.
 
 ### 2. Group rows by plan, inside each waiting-group
 
@@ -80,7 +111,53 @@ outrank one with a branch that just moved.
 **A group with one plan gets no sub-heading.** Chrome that never varies is
 noise; the heading earns its place only when it separates something.
 
-### 3. Clicking a plan opens the modal, with a way through to the board
+**Every waiting-group is grouped the same way, `DONE` included.** It is the
+group that grows fastest over a working day — seven rows from three plans by
+this evening — so it is the first to become a list one scrolls past. A rule
+with an exception for the group nobody reads is a rule someone has to remember;
+one rule for all of them is simply how the view works.
+
+### 3. Every link goes where its text says
+
+Today one row offers one link, and it is on the wrong word:
+
+```tsx
+<a href={row.pr.url} title={`PR #${row.pr.number}`}>{row.branch}</a>
+```
+
+The **branch name** opens the PR, while `PR #130 green` beside it is plain
+text. Both halves are surprising: you look for the PR link where the number is,
+and a branch name implies the branch.
+
+Three links, each landing where its text points:
+
+| Text | Goes to |
+|---|---|
+| `bug/board-shows-discovery` | the branch on the git host |
+| `PR #130` | the pull request |
+| `green` | the CI run — **not in this plan**, see below |
+
+**The branch link needs a repo URL, which the board does not have.** Deriving
+it from the PR URL (`…/pull/130` → `…/tree/<branch>`) was rejected: it only
+works for rows that *have* a PR, and the rows without one — `not-started`,
+`quiet`, fresh claims — are exactly where "go look at the branch" is most
+useful. So the URL comes from `git remote get-url origin`, once per board read,
+not per row, with the host's branch form (`/tree/<branch>` on GitHub,
+`/branch/<branch>` on Bitbucket) chosen by the same gh/bb distinction the rest
+of the board already makes.
+
+**A merged branch gets no link.** Its remote page is gone — since today, that
+is every row in `DONE` — and the existing rule in this file is explicit that a
+missing address means plain text rather than an invented one. The `merged`
+state already says where the work went.
+
+**`green` stays plain text, and that is a deliberate stop.** The fleet row
+carries `{number, url}` and **no checks URL**; adding one means a new field
+through `plot-host.sh`, the pulse, and the schema — a different kind of change
+from the rest of this plan, which touches display only. Recorded as a follow-up
+rather than smuggled in.
+
+### 4. Clicking a plan opens the modal, with a way through to the board
 
 `PlanModal` renders the plan's markdown in a sandboxed iframe — it is a plan
 *viewer*, not the card. So the click should open it in place (no navigation),
@@ -113,13 +190,28 @@ outside the walked directories would have a row and no card.
 
 ## Done when
 
-- **The footer counts down** to the next fleet refresh, alongside the existing
-  `scanned Ns ago`, and **stops when the agents tab is not open** — assert the
-  hidden-tab case, since a counter running against a stopped poll is the same
-  kind of false statement the display is meant to remove.
+- **Both footer ages gain a countdown**, beside the existing `scanned Ns ago`
+  and `PR data Ns ago`, and **both stop when the agents tab is not open** —
+  assert the hidden-tab case, since a counter running against a stopped poll is
+  the same kind of false statement the display exists to remove.
+- **No PR countdown is shown when the server does not report its interval.**
+  Assert the absent-field case explicitly: a client that assumed 60 s would
+  count to zero and sit there through a 120 s backoff, rendering "I don't know"
+  as "any moment now".
 - **Rows are grouped by plan within each waiting-group**, with plans ordered by
   their most urgent row and rows keeping their age order inside a plan.
-- **A waiting-group containing one plan shows no sub-heading.**
+- **A waiting-group containing one plan shows no sub-heading**, and `DONE` is
+  grouped like every other group.
+- **The branch name links to the branch on the host**, for rows with and
+  without a PR alike — assert a `not-started` row, since that is the class the
+  rejected PR-URL derivation would have left unlinked.
+- **A merged branch's name is plain text**, no link. Its remote page is gone.
+- **`PR #<n>` is the link to the pull request.** Assert that the branch link
+  and the PR link have different targets — today they are the same one on the
+  wrong word, which a test asserting "a link exists" would not catch.
+- **The repo URL is read once per board read, not per row**, and a repo whose
+  origin is unrecognised (no gh/bb form) renders every branch as plain text
+  rather than guessing a URL shape.
 - **Clicking a plan opens `PlanModal` in place** — no navigation — and the
   modal's "Show in board" button lands on the board tab filtered to that plan's
   story.
