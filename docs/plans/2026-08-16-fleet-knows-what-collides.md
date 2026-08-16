@@ -17,6 +17,7 @@
 - **Started:** 2026-08-16, Jan Wloka, `infra/board-artifact-merge`
 - **Started:** 2026-08-17, Jan Wloka, `feature/dispatch-reports-work-in-flight`
 - **Delivered:**
+- **Started:** 2026-08-17, Jan Wloka, `feature/fleet-row-says-blocked`
 
 ## Problem
 
