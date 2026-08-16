@@ -9,7 +9,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 0.2.0
+  version: 0.3.0
 compatibility: >-
   Designed for Claude Code and Cursor. Requires git with worktree support and
   python3. Starting workers needs a `Worker command` in Plot Config; without
@@ -42,7 +42,7 @@ or `--status` / `--stop <branch>` to inspect or stop running workers.
 | 1. Preflight | Small | Phase check + one script call |
 | 2. Dry run and confirm | Mid | How many agents is a judgment about cost and review capacity |
 | 3. Fan out | Small | The script does the work; claims are atomic |
-| 4. Report | Small | Read the footer counts |
+| 4. Report | Small | Read the footer counts; relay a failed `Started:` booking verbatim |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor).
 
@@ -89,6 +89,20 @@ the skipped branch is reported, not retried.
 
 `--no-start` prepares worktrees and claims without starting anything, for when
 you want to drive the sessions yourself.
+
+Once the fan-out is done the script **records one `Started:` line per branch it
+claimed**, in `/plot-implement`'s shape, on the **default branch** — through a
+disposable `plot/start-<slug>` branch pushed with `plot-push-main.sh`. It is
+written on the default branch because that is where the board reads plans from;
+a record committed to whatever branch the dispatcher happened to be on would be
+invisible, and the plan would keep reading as *Ready* while agents edit its
+branches.
+
+If that push fails — offline, refused, beaten to the ref — **the fan-out
+stands**: worktrees exist and claims are pushed, and those are the real state.
+The script says the record is missing and carries on. Record it by hand, or
+re-run the dispatch once the push works; a re-run adopts the existing worktrees
+and books nothing it did not newly claim.
 
 ### 4. Report
 
