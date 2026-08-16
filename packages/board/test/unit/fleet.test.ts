@@ -124,6 +124,55 @@ describe('rowsFromPulse', () => {
     ['feature/b', 4], ['feature/a', 90], ['feature/d', 240],
   ]);
 
+  const pr = (over: Record<string, unknown> = {}) => ({
+    number: 99, head: 'bug/loose-fix', state: 'OPEN', draft: false,
+    checks: 'green', review: '', url: 'https://host/pr/99', ...over,
+  }) as never;
+
+  it('shows an open PR whose branch no plan names', () => {
+    // Two PRs once sat waiting to be merged while WAITING ON YOU read "none":
+    // the pulse walks branches a plan lists, and a fix branch opened outside a
+    // plan is not one. An open PR is waiting on somebody regardless.
+    const prs = new Map([['bug/loose-fix', pr()]]);
+    const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, prs);
+    const loose = rows.find((r) => r.branch === 'bug/loose-fix');
+    expect(loose).toBeDefined();
+    expect(loose!.group).toBe('waiting-on-you');
+    // No plan names it, and inventing one would be worse than the gap.
+    expect(loose!.plan).toBe('');
+    expect(loose!.planFile).toBe('');
+  });
+
+  it('populates WAITING ON A MACHINE — a group that had never once filled', () => {
+    // Its only entry point is an open PR whose checks are running, and the
+    // branches carrying PR state were exactly the ones missing from the rows.
+    // Both halves of the emptiness, in one assertion.
+    const prs = new Map([['bug/loose-fix', pr({ checks: 'pending' })]]);
+    const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, prs);
+    expect(rows.find((r) => r.branch === 'bug/loose-fix')!.group).toBe('waiting-on-machine');
+  });
+
+  it('leaves a merged PR with no plan out — finished work is not waiting', () => {
+    // The narrowing that keeps `done` from filling with housekeeping.
+    const prs = new Map([['bug/loose-fix', pr({ state: 'MERGED' })]]);
+    const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, prs);
+    expect(rows.some((r) => r.branch === 'bug/loose-fix')).toBe(false);
+  });
+
+  it('does not duplicate a branch a plan already names', () => {
+    const prs = new Map([['feature/b', pr({ head: 'feature/b' })]]);
+    const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, prs);
+    expect(rows.filter((r) => r.branch === 'feature/b')).toHaveLength(1);
+  });
+
+  it('encodes an unplanned branch URL per segment, not whole', () => {
+    // `encodeURIComponent(branch)` yields `bug%2Floose-fix` — a link that 404s.
+    const prs = new Map([['bug/loose-fix', pr()]]);
+    const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, prs, 'https://host/tree/');
+    const loose = rows.find((r) => r.branch === 'bug/loose-fix');
+    expect(loose!.branchUrl).toBe('https://host/tree/bug/loose-fix');
+  });
+
   it('orders groups by what they ask of you, not by plan', () => {
     const rows = rowsFromPulse(pulse, ages, 'plot', QUIET);
     const groups = rows.map((r) => r.group);

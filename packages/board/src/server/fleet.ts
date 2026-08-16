@@ -688,6 +688,56 @@ export function rowsFromPulse(
       }
     }
   }
+
+  // A branch no plan names is still work waiting on a person.
+  //
+  // The pulse walks the branches a plan lists under `## Branches`, which is what
+  // makes this a FLEET view rather than a branch listing — main, release
+  // branches and stale worktree refs stay out of it. But a fix branch opened
+  // outside a plan carries the one thing this tab exists to surface, and could
+  // not show it: two PRs sat waiting to be merged while WAITING ON YOU read
+  // "none", and the pulse reported 8 branches where origin had 20.
+  //
+  // OPEN only, deliberately. A merged PR with no plan is finished work, and
+  // letting it in would fill `done` with housekeeping nobody reads. The rule is
+  // narrow on purpose: an open PR is waiting on somebody, whether or not a plan
+  // claims it.
+  //
+  // No new host call — `prs` is the map the board already fetches on its own
+  // slow timer, keyed by head branch.
+  const planned = new Set(rows.map((r) => r.branch));
+  for (const [branch, pr] of prs ?? []) {
+    if (pr.state !== 'OPEN' || planned.has(branch)) continue;
+    const ageMinutes = ages.get(branch) ?? null;
+    // `state: 'wip'` is the honest git answer: the branch exists and carries
+    // work. It also lets `classify` reach its PR arm, which is where an open
+    // PR's checks decide between waiting-on-you and waiting-on-machine — the
+    // group that had never once been populated, because the branches carrying
+    // CI state were the ones missing from this list.
+    const { group, note } = classify('wip', 'eligible', ageMinutes, quietMinutes, pr);
+    rows.push({
+      repo,
+      // No plan names it, and inventing one would be worse than the gap: the
+      // row says so, and the display shows an empty plan cell.
+      plan: '',
+      planFile: '',
+      wave: '',
+      state: 'wip',
+      group,
+      ageMinutes,
+      note,
+      branch,
+      // Encoded per path SEGMENT, matching the planned rows above: a branch
+      // name always contains a slash, and encoding it whole yields `bug%2Ffix`
+      // — a link that 404s on the host.
+      branchUrl: urlBase
+        ? `${urlBase}${branch.split('/').map(encodeURIComponent).join('/')}`
+        : '',
+      pr: { number: pr.number, url: pr.url ?? '' },
+      waitingDays: null,
+    });
+  }
+
   rows.sort((a, b) => {
     const g = GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group);
     if (g !== 0) return g;
