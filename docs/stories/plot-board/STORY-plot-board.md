@@ -189,7 +189,7 @@ that closes the loop, and it has not been built yet.
   pushed-work case uses. The age data exists: a claim IS a commit (the empty
   `plot: claim <branch>`). Deliberately not folded into the Navigation wave,
   which touches the same file — that PR should stay one thing.
-- ⏸️ **`/plot-dispatch` starts work without recording that it did** — observed
+- ✅ **`/plot-dispatch` starts work without recording that it did** — fixed in #124: dispatch books a `Started:` line on the default branch after the claim, through a disposable branch and `plot-push-main.sh`, and a failed booking never unwinds the fan-out. — observed
   2026-08-16: `board-acts-through-plot` sat in DESIGN badged *Ready* while its
   first wave was claimed and an agent was editing it. The card was rendered
   correctly; the booking was missing. `plot-dispatch.sh` creates the worktree,
@@ -208,7 +208,7 @@ that closes the loop, and it has not been built yet.
   pushes a claim and `/plot-implement` under `Impl: same branch` does not, so
   that flow produces work the board cannot see. Whether `/plot-implement`
   should push the branch at start is undecided.
-- ⏸️ **Section 2 reports a plan when ONE branch merged, not when all did** —
+- ✅ **Section 2 reports a plan when ONE branch merged, not when all did** — fixed in #122 —
   seen 2026-08-16 the moment #122 landed: the scan named
   `reconcile-scan-accuracy` (two waves still open) and `board-reads-git` (one
   branch still in flight) alongside `push-main-bypass`, which genuinely is
@@ -234,7 +234,7 @@ that closes the loop, and it has not been built yet.
   it. It also explains the ref that had to be restored by hand earlier today
   to unblock a wave — symptom, not cause. Tracked with the evidence in
   [`release-closes-the-loop`](../../plans/2026-08-16-release-closes-the-loop.md).
-- ⏸️ **`packages/board/src/server/fleet.ts` holds a literal NUL byte** (offset
+- ✅ **`packages/board/src/server/fleet.ts` held a literal NUL byte** — fixed: written as the `\0` escape, verified with `node` to produce the identical byte, and gated by a test that walks `src/` and `test/` for raw NULs. The gate was proven to fail by putting the byte back, because a test that has never been red proves nothing. Originally (offset
   5007, line 126) — `` `${opts.repoRoot}\x00${opts.scriptsDir}` ``, the cache-key
   separator. The *choice* is right: NUL cannot occur in a path, so it is the one
   separator that can never be ambiguous. Writing it as a raw byte instead of the
@@ -273,8 +273,17 @@ that closes the loop, and it has not been built yet.
   **Superseded the same day by the entry below** — the agent view was only the
   half of this I looked at first. The plan itself is missing from the board
   too, which is the larger fact.
-- ⏸️ **A plan under PR review is on no board column at all — Draft is
-  structurally unreachable.** Follow-up question, 2026-08-16: *isn't a draft
+- 🔄 **A plan under PR review is on no board column at all — Draft is
+  structurally unreachable.** **Half fixed in #130**, and the halves are worth
+  keeping apart: the BOARD now maps `draft → Discovery` and sources plan files
+  from the prefixed branches, so a Draft plan under review appears in its own
+  column. The PULSE still does not — measured after #130: it reports **3 plans
+  where the repo has 16**, because `plot-fleet-scan.sh` reads
+  `docs/plans/active/` in the local working tree only. A Draft plan therefore
+  shows in the Agents tab exactly when you happen to stand on its own idea
+  branch. Same question one layer over, tracked in
+  [`agent-view-phase`](../../plans/2026-08-16-agent-view-phase.md) (#131) as its
+  first wave. Follow-up question, 2026-08-16: *isn't a draft
   plan exactly the discovery work we are doing, and is that why Discovery is
   always empty?* Checked against the running board rather than the code, and
   the answer came out in three layers, the first two of which I had wrong.
