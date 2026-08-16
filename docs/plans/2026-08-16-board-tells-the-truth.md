@@ -227,7 +227,7 @@ fix; determinism is.
 
 - `bug/board-shows-staleness` — a failed fetch marks the payload stale in the
   Agents tab; the countdown stops rather than clamping at zero; the ages stop
-  advancing; the last payload stays on screen
+  advancing; the last payload stays on screen → #141
 
 ### Ports
 
