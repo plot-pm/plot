@@ -92,13 +92,50 @@ plan rows already follow (`planFile: ''` renders text). The card keeps its title
 and status, which are true regardless; hiding the card would lose real
 information to avoid a broken link, when not linking suffices.
 
-**The plan card's story badge becomes the link.** It is already the place a
-reader looks for the story; today it is text.
+**The plan modal gains an `Open story` action, beside `Show in board`.** This is
+the primary route, and an earlier draft got it wrong by making only the badge a
+link. A badge is a label: it says *which* story this plan belongs to, and a
+reader has to discover that the text happens to be clickable. A named button in
+the header is where people already look for things to do — the modal's own
+header is `Show in board`, `Open in new tab`, `Close`, and this joins them.
 
-**The overlay carries the same two actions the plan modal has** — *Show in
-board* (switch to the board tab, filter to that story) and *Open in new tab*.
-Symmetry matters more than novelty here: a reader who has learned the plan modal
-should not have to learn a second set of controls.
+It appears only when the story resolves to a file; a plan whose story has no
+file keeps the badge and shows no button, rather than offering an action that
+404s.
+
+**The badge becomes a link as well.** Not instead — the two answer different
+questions. The badge is where the story is *named*, on the card, at triage
+time; the button is where you *go*, in the modal, once you have stopped
+triaging. That split is the same one the worktree path already makes: *"a row
+is a triage line and is already full, while a filesystem path is what you want
+once you have decided to go look."*
+
+**The overlay's header mirrors the plan modal's exactly** — *Show in board*
+(switch to the board tab, filter to that story), *Open in new tab*, *Close*.
+Three, not two: an earlier draft miscounted by forgetting `Close`, which is a
+poor omission in an argument about symmetry. Symmetry matters more than novelty
+here: a reader who has learned the plan modal should not have to learn a second
+set of controls.
+
+**The body is the story's own, and that is where the analogy stops.** The plan
+modal grew a body section after this plan was first written — the worktree paths
+under *"Checked out on this machine"* — and its rationale generalises: the
+header answers *where do I go*, the body answers *what now*. A story has no
+worktree, so it inherits the header and needs its own body.
+
+What belongs there is the thing the story card cannot say: **which plans make it
+up, and what phase each is in.** The board already holds every fact — each plan
+card carries `story` and `phase` — and the story card carries only `slug`,
+`title` and `status`, which never answers *what is this made of*. The STORY file
+has a hand-maintained "Current Plan" section, but hand-maintained is precisely
+the problem: four of twelve open points in `plot-board` were stale when swept
+this evening, because nothing marks an item resolved when its plan lands. A
+derived list cannot drift.
+
+**Opening a story from a plan modal replaces it, and does not stack.** An
+overlay above an overlay gives two close buttons and an ambiguous Escape for the
+sake of keeping context that the header already names. Replacement is
+predictable, and the way back is the same click in reverse.
 
 ### 2. Long columns show the recent and offer the rest
 
@@ -169,8 +206,20 @@ is the one a reviewer should look at last, when the rest is settled.
 
 ## Done when
 
-- **A story opens from its badge**, in an overlay, and *Show in board* lands on
-  the board filtered to that story.
+- **A story opens from an `Open story` button in the plan modal**, and from its
+  badge, and *Show in board* lands on the board filtered to that story. Assert
+  the button: a badge-only implementation satisfies "a story can be opened" and
+  leaves the action invisible to anyone scanning the header for something to do.
+- **`Open story` is absent when the story has no file** — no button rather than
+  one that 404s, the same rule as the badge.
+- **The overlay's header matches the plan modal's**, all three controls. Assert
+  by comparison rather than by listing, so the two cannot drift apart.
+- **The overlay lists the story's plans with their phases**, derived from the
+  board's own cards rather than parsed from the STORY file's prose. Assert
+  against a fixture whose hand-written section disagrees with the plan data —
+  the derived list must win, since drift is the reason it is derived.
+- **Opening a story from an open plan modal replaces it**, leaving exactly one
+  overlay and one Close.
 - **`/story/<slug>` resolves against the collected stories**, and traversal
   (`../../etc/passwd`, encoded variants) stays 404. Assert the negatives; the
   `/plan/` route has them and this route is the same shape.
