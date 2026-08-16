@@ -85,7 +85,28 @@ that closes the loop, and it has not been built yet.
 > that did it. Resolved entries keep their original text — the finding is the
 > record of why the fix exists.
 
-- ⏸️ **A board whose server died looks like a board that is working** — the one
+- ⏸️ **A DRAFT plan's branches sit in NOT STARTED, inviting a dispatch that
+  would be refused.** Spotted 2026-08-16 from a screenshot: minutes after
+  `board-tells-the-truth` was written, its two branches appeared reading
+  *"eligible — nobody has taken it"* — while the plan was still Draft and its
+  PR not even marked ready for review.
+
+  Measured, and simpler than expected: `plot-fleet-scan.sh` contains **zero**
+  references to a plan's phase. It walks every active plan's waves whether the
+  plan is Draft or Approved, so a plan still under discussion advertises work
+  as ready to pick up. `plot-dispatch` would refuse those branches, which makes
+  the row an invitation to an action the tool declines — the same mismatch the
+  Start button avoids by appearing only on eligible rows.
+
+  NOT STARTED is meant to mean *discovered, planned, ready for an agent* — the
+  hand-off point. A Draft plan has not reached it.
+
+  Belongs with [`agent-view-phase`](../../plans/2026-08-16-agent-view-phase.md),
+  which is teaching the scan exactly this plan-phase-to-row connection: there
+  for the row's **label**, here for its **group**. Not folded in mid-flight —
+  that plan's Data wave is in an agent's hands right now.
+
+- 📋 **A board whose server died looks like a board that is working** — the one
   failure the whole tab exists to prevent, in its own chrome. Cost a real
   diagnosis on 2026-08-16: two screenshots reported a regression ("the nameless
   heading is still there", "the group's plan link is still missing") and both
@@ -120,15 +141,27 @@ that closes the loop, and it has not been built yet.
   above arose (`:7930` bookmarked, live server on `:7777`), and it makes "is
   this board alive?" a question the reader cannot answer from the page.
 
-- ⏸️ **`discovery.test.mjs` is timing-dependent and flakes in CI** — observed
-  2026-08-16 on PR #131 (run 31968882967): `a plans dir NESTED in an unrelated
-  repo borrows nothing from it` failed, and the *same commit* passed on rerun
-  with no change. Not a mystery: the suite spawns real git repos and waits on a
-  filesystem-watch-driven re-read — locally its cases take 1.6 s and 2.0 s,
-  9.2 s for the file. A wait tuned to an idle machine is a wait that expires on
-  a loaded runner. It gates CI, so it will fail again, and each time it costs a
-  diagnosis to rule out a real regression. The fix is to wait on the condition
-  rather than on the clock; the durations are the evidence for which cases.
+- 📋 **`discovery.test.mjs` flakes in CI — a port race, not a timing one.**
+  Observed 2026-08-16 on PR #131 (run 31968882967): `a plans dir NESTED in an
+  unrelated repo borrows nothing from it` failed, and the *same commit* passed
+  on rerun.
+
+  **The first diagnosis here was wrong and is corrected rather than deleted**,
+  because the wrong version is instructive. It said the suite "waits on a
+  filesystem-watch-driven re-read" and blamed the 9.2 s runtime. There are
+  **no sleeps in the file**; the runtime comes from real `git init`/`commit`
+  calls, and it is not the problem. The actual mechanism is `helpers.mjs:19`:
+  `findFreePort()` binds port 0, reads the number, **closes**, and hands it to
+  a different process that binds it later. Between `close()` and `listen()` the
+  port belongs to nobody, and CI runs test files in parallel.
+
+  That makes it the same defect as `EADDRINUSE` on `pnpm board` and as a tab
+  bookmarked on a dead port: **a port chosen at one moment and used at
+  another**. Three symptoms, one root. Planned as
+  [`board-tells-the-truth`](../../plans/2026-08-16-board-tells-the-truth.md).
+
+  The lesson worth keeping: the plausible mechanism was accepted for hours
+  because it *explained the symptom*. Only reading `helpers.mjs` disproved it.
 
 - ⏸️ **Step 4 has no test case in this repo** — story swimlanes need stories, and
   until this file existed there were none. This story is now the first one; a
