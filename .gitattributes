@@ -1,0 +1,30 @@
+# The board bundle is generated output: `pnpm build:board` reproduces it from
+# `packages/board/`. It is 177 lines of ~4,500 characters, so git's line-based
+# merge lands every board change in the same handful of enormous lines — two
+# branches touching entirely disjoint sources still collide there, and the
+# resulting diff cannot be read, let alone resolved.
+#
+# `-merge` tells git not to blend the two versions. It keeps one side whole and
+# reports the conflict, WITHOUT writing conflict markers into the file. The
+# artifact therefore stays valid, buildable JavaScript through a conflict, and
+# the resolution is to rebuild rather than to read:
+#
+#     git checkout --ours skills/plot/scripts/board/board-server.mjs   # either side
+#     pnpm build:board
+#     git add skills/plot/scripts/board/board-server.mjs
+#
+# Which side you keep cannot matter, because the rebuild overwrites it. Do not
+# phrase the resolution as "take ours": under `git merge` ours is the branch
+# being merged into, under `git rebase` it is the upstream, and this repo
+# rebases routinely.
+#
+# This is an attribute, not a custom merge driver (`merge=rebuild`), on purpose.
+# `.gitattributes` is versioned and travels with the repo; a driver DEFINITION
+# lives in each clone's `git config`, so on CI and fresh clones the attribute
+# would name a driver that does not exist and git would silently fall back to a
+# normal merge. See docs/definition-of-done.md › Resolving a board artifact
+# conflict.
+#
+# The CI no-diff gate is what keeps this honest: resolve by keeping a stale
+# artifact and forget to rebuild, and the build fails.
+skills/plot/scripts/board/board-server.mjs -merge
