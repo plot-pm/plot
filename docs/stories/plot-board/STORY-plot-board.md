@@ -110,6 +110,14 @@ that closes the loop, and it has not been built yet.
   working. A watcher on the artifact that restarts the server would remove the
   trap; until then, restarting after a rebuild is the rule — and rules are what
   this repo keeps finding out are not enough.
+
+  It has now cost more than confusion. The PR-refresh fix landed in #123 and
+  the board kept running the pre-#123 bundle, so it went on firing every 5 s
+  and **exhausted the GraphQL quota a second time the same afternoon**
+  (`used 5002/5000`, 27 minutes to reset, blocking `gh` for everything else).
+  The fix for the rate limit was already merged; the process holding the port
+  had never heard of it. A trap that quietly reverts a landed fix is worth more
+  than a note.
 - ⏸️ **The checked-in artifact collides on every parallel branch** — three
   merges in one afternoon (#117, #118, #119), each conflicting in
   `board-server.mjs` and only there, while every source file merged cleanly.
