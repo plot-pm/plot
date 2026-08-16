@@ -191,6 +191,66 @@ hits for a sub-branch merged into a `feature/big` that never landed.
 Reachability is itself an ancestry claim, so it cannot see work that never
 arrived.
 
+### Read the history once per run, not once per branch
+
+`branch_state()` is called per branch — 14 per run on this repo today — and the
+board polls the scan every 5 s. The naive shape runs `git log` inside that
+loop, re-walking the whole history for every branch: O(history × branches)
+where O(history + branches) is available.
+
+Invisible at this repo's size, decisive at the size Plot is meant to reach.
+Measured on a purpose-built 2000-merge / 4001-commit fixture, 14 branches:
+
+```
+                     496 commits      4001 commits
+one call per branch    81 ms             197 ms
+one call per run       58 ms              79 ms
+```
+
+So the subjects are read once and matched in-shell:
+
+```sh
+subjects=$(git log "origin/$MAIN" --merges --max-count="$MERGE_SCAN_LIMIT" --pretty=%s)
+# per branch:
+printf '%s\n' "$subjects" | grep -qE "^Merge pull request #[0-9]+ from [^/]+/$br$"
+```
+
+This is the bundling rule `plot-reconcile-scan.sh` already applies to PR lists
+("ONE call for all plans, so cost is constant in plan count") — same argument,
+local data.
+
+**The cap must report saturation, or it re-creates this very bug.** A blind cap
+was tested and it fails exactly where it hurts: with `--max-count=300` against
+2000 merges, a branch merged early is **not found** and reads `open` — the
+defect this plan exists to remove, reintroduced for precisely the long-hanging
+plans most likely to suffer it.
+
+`plot-reconcile-scan.sh` already resolved this tension for its merged-PR list,
+and its comment reads as if written for this decision: *"Too low silently
+misses old plans, which is precisely this check's own failure mode."* Its
+answer is neither "cap" nor "no cap" but **cap generously and report
+saturation** (`MERGED_PR_LIMIT=500` with `MERGED_PR_TRUNCATED` printing a
+note). The same shape applies here, with one asymmetry: that list pays a
+network round trip per page, so its cap buys real time, while this walk is
+local and nearly free. Measured on the 2000-merge fixture:
+
+```
+cap 500  :  7.7 ms
+cap 2000 : 12.3 ms
+no cap   : 11.8 ms
+```
+
+The cap saves ~4 ms across an entire history — inside the noise. It therefore
+exists as a guard against a pathological history, not as an optimisation, and
+should be set high (`MERGE_SCAN_LIMIT=2000`, an order of magnitude above this
+repo's 119). When the walk comes back full, say so:
+
+    note: merge scan hit its limit of <n> — older merges were not examined;
+          a branch merged before that point may still read as open.
+
+A silent cap would make the scan lie in the one direction this plan was written
+to stop.
+
 ### Which branch counts as "landed"
 
 `MAIN` is already resolved as `Main branch` config → `origin/HEAD` →
@@ -236,13 +296,47 @@ remove, reappearing one level up. The summary footer therefore names the
 detection source, in the shape `plot-reconcile-scan.sh` already uses for
 `pr_source=gh|bb|degraded`:
 
-    summary: … merge_detect=pr-merge|none …
+    summary: … merge_detect=pr-merge|truncated|none …
+
+`truncated` is its own value rather than folded into `pr-merge`: a capped walk
+did detect, but not exhaustively, and a reader deciding whether to trust an
+`open` needs those apart.
 
 `none` when the default branch carries no conforming merge commits at all —
 the squash/rebase repo — so a reader can tell "nothing was merged" from
 "this repo does not leave the evidence I look for". Following
 `bug/scan-contained-in-pr`: where evidence is unavailable, skip rather than
 guess, and say that you skipped.
+
+### Ordering: the ref check must stay in front
+
+A branch name can be reused. Merge `bug/flaky`, delete it, then create
+`bug/flaky` again for a second attempt — a normal thing to do when work is
+reopened — and the merge subject from the *first* attempt is still on the
+default branch. That evidence is now stale: it describes work that landed,
+while the branch of the same name carries new work that has not.
+
+Fixture-tested, and the answer is reassuring but fragile:
+
+```
+ref exists?         yes
+work on main?       NO — in flight
+merge-subject hits: 1     ← stale evidence from attempt 1
+```
+
+Today this is **correct by placement**. The merge lookup belongs in the no-ref
+arm, and a recreated branch has a ref, so it never reaches the lookup — it
+takes the existing ancestry path and reports `wip`. Nothing new is required.
+
+But nothing states the dependency either, and a refactor that hoists the merge
+check to the top of `branch_state()` — a natural tidying move, since it reads
+like a cheap early answer — would silently report in-flight work as `merged`
+and open the next wave on it. So the ordering is pinned by a test rather than
+left to survive on placement.
+
+This is the same ordering hazard `bug/scan-contained-in-pr` documented one
+script over ("Claim first, containment second. Do not reorder these"), and it
+earns the same treatment: state the constraint, and let a test hold it.
 
 ### Plan annotations are not consulted
 
@@ -299,6 +393,21 @@ test wave would formalise a step that does not happen in practice.
   fixture whose default branch is `develop` (no branch named `main` present at
   all) and assert detection works. `MAIN` resolution already exists; this pins
   that detection uses it rather than a hardcoded `main`.
+- **A reused branch name does not inherit the old merge's verdict.** Merge a
+  branch, delete it, recreate it with new unmerged work, and assert it reads
+  `wip` — not `merged`. Correct today only because the ref check precedes the
+  merge lookup; the test is what keeps a refactor from quietly inverting it.
+- **The history is read once per run, not once per branch.** Count the `git
+  log` invocations (the suite already logs argv for the PR-call assertion in
+  `scan.test.mjs`) and assert the merge walk happens once regardless of branch
+  count. Without this, the O(history × branches) shape returns unnoticed —
+  it is invisible in a small fixture, which is exactly why a fixture cannot
+  catch it by timing.
+- **A saturated walk is reported, never silent.** With `MERGE_SCAN_LIMIT`
+  forced low against a history that exceeds it, assert the note appears. This
+  is the assertion that stops the cap from re-creating the bug: a branch beyond
+  the limit reads `open`, which is acceptable only while the scan says it
+  stopped looking.
 - A branch with no merge commit still reports `open` — no third state, no
   guessing — and `merge_detect=none` appears in the footer when the default
   branch offers no conforming merges at all.
@@ -327,14 +436,16 @@ condition where a card can spring back to *eligible* after its work merged.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 2,
+  "round": 3,
   "questionHistory": [
     {"q": "How robust must the merge signal be, given no local ref trace survives?", "a": "Text plus structural counter-check — proposed second-parent check tested and found non-discriminating; replaced by first-parent filter in round 1, which round 2 then removed as well", "category": "technical-architecture"},
     {"q": "Should the fix consult plan → #N annotations?", "a": "No — git only; board-reads-git proved live that merged branches carry no annotation", "category": "technical-architecture"},
     {"q": "Is silently keeping `open` acceptable when no evidence exists?", "a": "Keep `open` but report the degradation via merge_detect in the footer", "category": "nonfunctional-observability"},
     {"q": "Keep Detection/Coverage as separate waves?", "a": "Collapse to one branch — no parallelism gained, and the last three bug branches shipped tests with the code", "category": "tradeoffs-decomposition"},
     {"q": "What if the repo is on develop or next rather than main?", "a": "Overturned round 1: first-parent adds 0 traps caught over the anchored pattern (108 = 108) and breaks GitFlow (feature via develop reads open). Reachability + anchored subject instead; abandoned-stack case fixture-tested as safe", "category": "technical-architecture"},
-    {"q": "Which branch counts as landed when a repo has both develop and main?", "a": "The one configured default branch (Main branch → origin/HEAD → main). GitFlow sets Main branch: develop; release merges to production main are the Released phase, out of scope", "category": "domain-workflows"}
+    {"q": "Which branch counts as landed when a repo has both develop and main?", "a": "The one configured default branch (Main branch → origin/HEAD → main). GitFlow sets Main branch: develop; release merges to production main are the Released phase, out of scope", "category": "domain-workflows"},
+    {"q": "One git log per branch, or one per run, given the board polls every 5s?", "a": "Bundle and cap. Measured 197ms vs 79ms at 2000 merges; cap set high (2000) and saturation REPORTED, since a blind 300-cap was tested and silently missed an early merge — recreating this plan's own bug", "category": "nonfunctional-performance"},
+    {"q": "A merged-then-deleted branch name reused for new work carries stale merge evidence — how to handle?", "a": "Correct today by placement (ref check precedes merge lookup); pin the ordering with a test so a refactor cannot invert it silently", "category": "technical-implementation"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
