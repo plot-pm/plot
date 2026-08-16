@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-board
@@ -11,7 +11,8 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-16, jwloka, plan-PR #145 merged
 - **Started:** 2026-08-17, Jan Wloka, `feature/working-rows-pulse`
-- **Delivered:**
+- **Started:** 2026-08-17, Jan Wloka, `feature/agent-groups-collapse`
+- **Delivered:** 2026-08-17
 
 ## Problem
 
