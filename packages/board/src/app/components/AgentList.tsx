@@ -342,9 +342,10 @@ export function AgentList({ fleet, pollSeconds, staleSeconds = null, onOpenPlan 
   // kept running against a scan that had stopped happening. `stale` is the
   // second reason to stop — the poll is still going out, but nothing is coming
   // back, so every number this clock advances is one the server has not
-  // confirmed. It resumes on its own when the fetches land again; the effect
-  // re-runs and `generatedAt` changes, so a recovered view starts from the new
-  // payload rather than from where the frozen one left off.
+  // confirmed. It resumes on its own when the fetches land again: `stale` flips
+  // back, the effect re-runs and resets the count, so a recovered view ticks
+  // from the payload that just arrived rather than from where the frozen one
+  // left off.
   const [tick, setTick] = useState(0);
   useEffect(() => {
     setTick(0);
