@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Story:** plot-board
@@ -13,6 +13,7 @@
 - **Approved:** 2026-08-14, jwloka, plan-PR #70 merged
 - **Started:** 2026-08-14, jwloka, `feature/parallel-fleet-tracer`
 - **Delivered:** 2026-08-14
+- **Released:** 2026-08-15, v2.1.0
 
 ## Approval
 

@@ -88,9 +88,12 @@ case "$op" in
       esac
     done
     if [ "$be" = "github" ]; then
-      out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url 2>/dev/null)" \
-        && jq -c '{number:.number,state:.state,draft:.isDraft,url:.url}' <<<"$out" \
-        || echo '{"number":0,"state":"NONE","draft":false,"url":""}'
+      # mergeCommit is what lets a caller ask "which release contains this?" —
+      # `git tag --contains <sha>` answers exactly, where dates cannot. It is ""
+      # for anything unmerged, which is the honest answer rather than a guess.
+      out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit 2>/dev/null)" \
+        && jq -c '{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // "")}' <<<"$out" \
+        || echo '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}'
     else
       if [[ "$ref" =~ ^[0-9]+$ ]]; then
         out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json 2>/dev/null)" \

@@ -213,7 +213,8 @@ set -- "$PLAN_DIR"/[0-9]*.md
 if [ -f "${1:-}" ]; then
   plan_rows=$("$script_dir/plot-plan-meta.sh" "$@" --prefixes "$PREFIX_RE" 2>/dev/null \
     | jq -r '[.file, .phase, .phase_raw, .phase_alt, .phase_alt_raw,
-              (.branches | join(" ")), (.prs | map(tostring) | join(","))] | join("\u001f")')
+              (.branches | join(" ")), (.prs | map(tostring) | join(",")),
+              (.type // "")] | join("\u001f")')
 fi
 
 # Branches (space-joined) recorded for a plan file, from the parsed rows.
@@ -304,7 +305,7 @@ symlinked_from() { # $1=index_dir $2=dated_basename
   return 1
 }
 
-n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0
+n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0; n_unrel=0
 
 # ---------------------------------------------------------------------------
 # 1. Phase <-> symlink drift  (plot-managed plans only)
@@ -314,7 +315,7 @@ n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0
 drift_out=""
 attention_out=""
 
-while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs; do
+while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs _ptype; do
   [ -n "$f" ] || continue
   base=$(basename "$f")
 
@@ -395,7 +396,7 @@ echo
 
 echo "== 2. Merged-but-not-delivered (candidate /plot-deliver) =="
 mnd_out=""
-while IFS="$US" read -r f st _raw _alt _alt_raw branches prs; do
+while IFS="$US" read -r f st _raw _alt _alt_raw branches prs _ptype; do
   [ -n "$f" ] || continue
   [ "$st" = approved ] || continue
   base=$(basename "$f")
@@ -506,6 +507,65 @@ echo "== 5. Needs attention (malformed / non-conforming / orphaned) =="
 if [ -n "$attention_out" ]; then printf '%b' "$attention_out"; else echo "  (none)"; fi
 echo
 
+# ---------------------------------------------------------------------------
+# 6. Delivered plans whose work is already inside a release tag.
+#
+# The fourth phase went unreached for sixteen releases because nothing compared
+# these two facts: /plot-release ships a version, and the plans describing that
+# version stay at Delivered. Neither side is wrong on its own, so neither side
+# complained.
+#
+# The question is "which release tag contains this plan's merge commit", and
+# git answers it exactly. It is deliberately NOT a date comparison: the
+# delivery date records when a plan was BOOKED, not when its code merged (one
+# plan here sat five months between the two), and two tags in this repo share a
+# date, so day resolution cannot separate them even in principle.
+echo "== 6. Delivered but already released (candidate /plot-release) =="
+unrel_out=""
+while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype; do
+  [ -n "$f" ] || continue
+  [ "$st" = delivered ] || continue
+  # docs/infra plans end at Delivered: /plot-deliver already tells their authors
+  # "live on main — no release needed". Reporting them here would contradict a
+  # message Plot itself sends, on every sweep, forever.
+  case "$ptype" in docs|infra) continue ;; esac
+
+  base=$(basename "$f")
+  if [ -z "$prs" ]; then
+    # "Cannot tell" and "nothing wrong" must not look the same — that
+    # indistinguishability is the whole finding this section exists for.
+    unrel_out+="  $base — delivered, but no PR annotation → cannot resolve a version\n"
+    unrel_out+="    inspect: add → #N to its Branches section, then re-run\n"
+    n_unrel=$((n_unrel + 1))
+    continue
+  fi
+
+  last_pr="${prs##*,}"
+  sha=$("$script_dir/plot-host.sh" pr-state "$last_pr" </dev/null 2>/dev/null \
+        | jq -r '.mergeCommit // empty' 2>/dev/null)
+  # No grep fallback. An earlier draft searched commit messages for "#N", which
+  # matched any commit MENTIONING the PR rather than its merge — and reported
+  # v2.2.0 for a plan that shipped in v1.7.0. A wrong version in a transition
+  # record is a claim nobody re-checks, so an unanswerable case says so instead.
+  if [ -z "$sha" ]; then
+    unrel_out+="  $base — delivered, but PR #$last_pr has no merge commit → cannot resolve\n"
+    unrel_out+="    inspect: gh pr view $last_pr --json state,mergeCommit\n"
+    n_unrel=$((n_unrel + 1))
+    continue
+  fi
+
+  tag=$(git tag --contains "$sha" 2>/dev/null \
+        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | head -1)
+  [ -n "$tag" ] || continue   # genuinely not released yet — nothing to report
+
+  slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
+  unrel_out+="  $base — shipped in $tag, plan still Delivered\n"
+  unrel_out+="    consider: /plot-release (records Phase: Released, ${slug%.md})\n"
+  n_unrel=$((n_unrel + 1))
+done <<< "$plan_rows"
+if [ -n "$unrel_out" ]; then printf '%b' "$unrel_out"; else echo "  (none)"; fi
+echo
+
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel pr_source=$PR_SOURCE main=$MAIN"
 exit 0
