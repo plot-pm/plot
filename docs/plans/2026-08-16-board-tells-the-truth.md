@@ -17,6 +17,7 @@
 - **Approved:** 2026-08-16, jwloka, plan-PR #138 merged
 - **Started:**
 - **Delivered:**
+- **Started:** 2026-08-16, Jan Wloka, `bug/board-shows-staleness`
 
 ## Problem
 
