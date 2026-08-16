@@ -5,6 +5,7 @@ import {
   waitingLabel,
   showPlanHeadings,
   isStartable,
+  isLive,
   GROUPS,
 } from '../../src/app/components/AgentList.js';
 import { GROUP_ORDER } from '../../src/server/fleet.js';
@@ -150,6 +151,60 @@ describe('showPlanHeadings', () => {
 
   it('stays quiet for an empty group', () => {
     expect(showPlanHeadings(0, 0)).toBe(false);
+  });
+});
+
+describe('isLive — which rows carry the pulsing indicator', () => {
+  /**
+   * The three entrances to WORKING, verbatim from `classify()` in fleet.ts.
+   * They differ in strength — a dirty worktree is the strongest evidence there
+   * is, a bare claim the weakest — and that difference is deliberately NOT
+   * rendered.
+   */
+  const WORKING_NOTES = [
+    'uncommitted work in a local worktree',
+    'last commit 3 min ago',
+    'claimed, no commits yet',
+  ];
+
+  it('gives all three WORKING notes the SAME answer', () => {
+    // The load-bearing assertion, and the one a confidence-graded
+    // implementation fails: it would pass a test checking only the dirty
+    // worktree. Membership is the statement and it is true for all three — the
+    // note already says which reason, so a second vocabulary made of speeds
+    // would encode in motion what the text states plainly.
+    const answers = WORKING_NOTES.map((note) => isLive(row({ group: 'working', note })));
+    expect(answers).toEqual([true, true, true]);
+    expect(new Set(answers).size).toBe(1);
+  });
+
+  it('leaves every other group still', () => {
+    // Asserted as a negative across the whole vocabulary rather than on one
+    // group: `working` is the only claim the board can make honestly, and a
+    // blanket indicator passes any test that only checks a working row.
+    for (const group of GROUPS.map((g) => g.key).filter((k) => k !== 'working')) {
+      expect(isLive(row({ group }))).toBe(false);
+    }
+  });
+
+  it('leaves a QUIET row still even when it carries a fresh claim', () => {
+    // The near-miss the plan names. A quiet row can hold a claim and a recent
+    // note and still be quiet — the group is what decides, because the group is
+    // the only thing the pulse re-derives every scan.
+    expect(isLive(row({ group: 'quiet', state: 'wip', note: 'claimed, no commits yet' })))
+      .toBe(false);
+    expect(isLive(row({ group: 'quiet', ageMinutes: 1, note: 'last commit 1 min ago' })))
+      .toBe(false);
+  });
+
+  it('follows the GROUP rather than the state or the age', () => {
+    // A deferred branch with a two-minute-old commit is `not-started` by group
+    // — the one place intent outranks git. The indicator must follow the group,
+    // or it would claim an agent is on work somebody handed back.
+    expect(isLive(row({ group: 'not-started', state: 'deferred', ageMinutes: 2 }))).toBe(false);
+    // And a working row with no age at all still counts: a fresh claim has no
+    // commit to date, and that is one of the three entrances.
+    expect(isLive(row({ group: 'working', ageMinutes: null }))).toBe(true);
   });
 });
 
