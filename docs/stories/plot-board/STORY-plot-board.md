@@ -75,6 +75,17 @@ that closes the loop, and it has not been built yet.
 - ⏸️ **What counts as "working" without a local pid?** Answered provisionally for
   step 1 (tip commit newer than `Fleet quiet after`, default 30 min) but the
   default is a guess only real use can correct.
+- ⏸️ **The checked-in artifact collides on every parallel branch** — three
+  merges in one afternoon (#117, #118, #119), each conflicting in
+  `board-server.mjs` and only there, while every source file merged cleanly.
+  It is a 690 KB build output, so git has nothing sensible to merge: two
+  branches that both ran `pnpm build:board` produce different bytes for the
+  same intent. Resolution is mechanical — rebuild, `git add`, done — but it is
+  paid per branch per merge, and it is the direct cost of the decision that
+  `pnpm board` must work with no install step. Worth revisiting if fleet work
+  on the board becomes routine; a merge driver that rebuilds instead of
+  diffing would remove the manual step without giving up the checked-in
+  artifact.
 - 🔄 **A card's `claimed` count is always 0** — observed 2026-08-16 alongside
   the QUIET finding. `waveSummary` is built from `plot-plan-meta.sh`, which
   reads `claimed` from a *plan-file annotation nobody writes*; the fleet scan
