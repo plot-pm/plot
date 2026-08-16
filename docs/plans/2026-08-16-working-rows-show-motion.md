@@ -96,6 +96,11 @@ static. Two lines of CSS, and the reason is not politeness: motion triggers
 nausea for some readers, and this view is meant to be left open on a second
 screen.
 
+**No visibility handling.** A pure CSS animation costs effectively nothing, and
+browsers already throttle background tabs. Pausing it via the Page Visibility
+API would add a mechanism for a problem the platform solves — and the poll
+cycle, which is the expensive part, keeps running anyway.
+
 The state stays fully legible without it — group, note and age all say what the
 row is doing. The animation is decoration on top of information, never the
 carrier of it, which is the rule the contract already sets for colour: *"carried
@@ -117,6 +122,20 @@ were costing twenty rows this evening.
 plainly that seven rows are hidden; a collapsed header without a number reads
 as *nothing here*, which is the failure this must not introduce. The count is
 already rendered, so it simply must not be hidden with the body.
+
+**An empty group never collapses**, and the header explains why: it renders
+`rows.length > 0 ? '(N)' : hint`, so an empty `QUIET` shows *still thinking, or
+dead?* rather than `(0)`. The hint is the *explanation for emptiness*, not a
+subtitle — and it is exactly what a reader wants when there is nothing to list.
+A collapse control on a group with nothing to hide is an offer that leads
+nowhere, the same class of defect as a button that declines its own action.
+
+**A row falling into a collapsed group changes the count and nothing else.**
+`QUIET (7)` becomes `QUIET (8)`. No flash, no auto-expand: the pulse re-scans
+every five seconds, and `quiet` is by construction the group whose changes are
+least urgent. Someone who collapsed it was asking not to be interrupted by it,
+and a view that reopens itself mid-read moves the line under the cursor — the
+same reason collapsing is manual.
 
 **The state persists in `localStorage`.** Someone who opens `QUIET` usually
 wants it to stay open — and this board is left running and reloaded often,
@@ -173,6 +192,12 @@ header. Either is useful without the other.
   quiet stays open if the reader opened it: the pulse re-scans every five
   seconds, and a view that folds itself while being read moves the line under
   the cursor.
+- **An empty group renders no collapse control**, and still shows its hint
+  rather than `(0)`. Assert both — a blanket toggle passes the first half of
+  this and quietly hides the hint.
+- **A row entering a collapsed group updates the count without expanding it.**
+  Assert the group is still collapsed afterwards: auto-expanding passes a naive
+  "the new row is visible" test and breaks the reading position.
 - **The footer is reachable without scrolling past a collapsed group.** The
   measurable form of the original complaint.
 - `pnpm run test:board`, `pnpm run typecheck`, `pnpm test`, `pnpm run validate`
@@ -201,3 +226,30 @@ row lighting up when its commit age resets or its group flips. That is a
 different and larger idea (it needs the previous payload retained client-side),
 and it answers "what just changed" rather than "what is alive". Worth its own
 plan if the pulse proves useful.
+
+Ordering: both branches touch `AgentList.tsx`, which
+[`agent-view-phase`](2026-08-16-agent-view-phase.md)'s Display wave holds while
+it is in flight. Approved but not dispatched until that merges — a fourth agent
+in the same file is the collision this repo has paid for twice today.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "Should the animation be graded by confidence? WORKING has three entrances of differing strength.", "a": "No — one animation for the group. Membership IS the statement and it is true for all three; the note already says which reason, and speed is unreadable in isolation and invisible in a screenshot", "category": "ux-happyPath"},
+    {"q": "Spinner or pulse?", "a": "Pulsing dot before the row. WORKING regularly holds several rows — four agents ran in parallel this evening — and four rotating spinners is flicker. Rotation also implies progress toward completion, which nothing here measures", "category": "ux-happyPath"},
+    {"q": "prefers-reduced-motion, with no existing convention in the board?", "a": "Built in from the start. Two lines of CSS; motion triggers nausea for some readers, and animation must never be the only carrier of a fact — the rule the contract already sets for colour", "category": "ux-accessibility"},
+    {"q": "The header renders `rows.length > 0 ? '(N)' : hint` — what happens to EMPTY groups on collapse?", "a": "Empty groups never collapse. They hide nothing, and the hint is the information one wants when there is nothing to list. A control on a group with nothing to hide is an offer leading nowhere", "category": "ux-edgeCases"},
+    {"q": "A row falls into a COLLAPSED group — visible how?", "a": "The count changes, nothing else. No flash, no auto-expand: quiet is by construction the least urgent group, and a view that reopens itself mid-read moves the line under the cursor", "category": "ux-edgeCases"},
+    {"q": "Pause the animation when the tab is hidden?", "a": "No. Pure CSS costs nothing and browsers throttle background tabs already; the poll cycle is the expensive part and keeps running regardless", "category": "nonfunctional-performance"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": true, "architecture": true, "implementation": true},
+    "domain": {"rules": true, "workflows": false, "data": false},
+    "ux": {"happyPath": true, "edgeCases": true, "errors": false, "accessibility": true},
+    "nonFunctional": {"security": false, "performance": true, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
