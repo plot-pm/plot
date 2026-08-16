@@ -75,6 +75,15 @@ that closes the loop, and it has not been built yet.
 - ⏸️ **What counts as "working" without a local pid?** Answered provisionally for
   step 1 (tip commit newer than `Fleet quiet after`, default 30 min) but the
   default is a guess only real use can correct.
+- ⏸️ **A running board does not pick up a rebuilt bundle** — cost the user two
+  false readings today. The DATA reloads fine (server scan 5 s, client poll
+  4 s), but `clientHtml` is inlined into the bundle at build time and the
+  server holds it in memory, so `pnpm build:board` changes nothing until the
+  process is restarted. A fix landing in `classify` was therefore invisible in
+  the board that was already open, which reads exactly like the fix not
+  working. A watcher on the artifact that restarts the server would remove the
+  trap; until then, restarting after a rebuild is the rule — and rules are what
+  this repo keeps finding out are not enough.
 - ⏸️ **The checked-in artifact collides on every parallel branch** — three
   merges in one afternoon (#117, #118, #119), each conflicting in
   `board-server.mjs` and only there, while every source file merged cleanly.
