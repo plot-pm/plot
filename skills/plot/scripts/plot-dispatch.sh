@@ -9,7 +9,9 @@
 #   --offline   skip `git fetch`
 #   --max N     dispatch at most N branches this run (default: all eligible)
 #   <slug>      the plan to fan out
-# Output: one line per branch, terminated by a machine-countable summary:
+# Output: one line per branch, each optionally followed by an indented
+#         `in flight:` line naming a branch that already holds files, then a
+#         machine-countable summary:
 #             summary: dispatched=2 reused=0 skipped=1 started=2
 #
 # THIS IS THE ONE SCRIPT IN THE FLEET THAT WRITES. Everything else
@@ -475,6 +477,127 @@ start_worker() {
   return 0
 }
 
+# ---------------------------------------------------------------------------
+# What is already in flight
+# ---------------------------------------------------------------------------
+#
+# Before fanning out, say which branches already hold which files. Waves are a
+# WITHIN-PLAN ordering; a correctly eligible branch can still name a file an
+# agent has open on a different plan's branch, and nothing in the wave model
+# represents that. Assembling the answer by hand took five commands and had to
+# be done twice on 2026-08-16 — this turns it into a line of output.
+#
+# IT REPORTS AND REFUSES NOTHING. Every branch is dispatched exactly as before;
+# the operator reads the report and decides. Two designs that would have judged
+# instead were tried on paper and killed by measurement:
+#
+#   - `git merge-tree` compares two EXISTING commits, and dispatch CREATES the
+#     candidate branch. At check time it is identical to the default branch, so
+#     the comparison reports clean for every candidate, forever. A check that
+#     always passes is worse than none: it turns a known gap into a false
+#     assurance. (merge-tree still earns its place where both commits exist —
+#     re-dispatch and plot-merge-queue.)
+#   - A `Touches:` field per branch, intersected with the measured side. The
+#     scope guards in real briefs are `packages/board/**`,
+#     `packages/board/src/app/**` and `plot-fleet-scan.sh` — the first CONTAINS
+#     the second, so two branches that ran in parallel without touching each
+#     other would read as colliding. Three of four briefs use `**` globs, so the
+#     false positive is the normal case. It would also rest on an unverified
+#     self-declaration, and a comparison is only as good as its weaker half.
+#
+# So only the MEASURED side is read, and nothing on the candidate side is
+# consulted at all — not the plan text, not a declaration, nothing.
+#
+# LOCAL REFS AND WORKTREES, NOT THE REMOTE. This is where refs-are-truth bends,
+# for a measured reason: the collision that blocked a dispatch on 2026-08-16
+# lived in an UNPUSHED commit — committed, clean worktree, remote ref holding
+# only the claim, invisible to any remote-based check. Uncommitted work is
+# invisible to refs entirely. Both are readable here and only here, and that is
+# sound rather than a violation because dispatch is inherently machine-specific:
+# it creates worktrees on THIS machine. A check that ignored what this machine
+# knows would be blind precisely where it acts.
+
+# Files a branch holds in commits of its own, against ITS OWN MERGE-BASE.
+#
+# Not against origin/<main>. A branch rebased onto a newer main is not "behind"
+# it, and diffing against the tip would attribute every commit the branch picked
+# up from main to the branch itself — on a busy day that is the whole repo, and
+# the report becomes noise on its first use.
+committed_files() { # $1=branch → paths, one per line
+  local br="$1" base
+  base=$(git merge-base "$br" "origin/$MAIN" </dev/null 2>/dev/null) || return 0
+  [ -n "$base" ] || return 0
+  git diff --name-only "$base" "$br" </dev/null 2>/dev/null
+}
+
+# Files a branch holds only in its worktree — no ref carries these, so they are
+# invisible to every ref-based check including this script's own.
+uncommitted_files() { # $1=worktree → paths, one per line
+  local wt="$1"
+  [ -d "$wt" ] || return 0
+  git -C "$wt" status --porcelain </dev/null 2>/dev/null | awk '
+    {
+      # Porcelain v1: XY then a space then the path. A rename prints
+      # "old -> new"; the new path is the one on disk.
+      line = substr($0, 4)
+      i = index(line, " -> ")
+      if (i > 0) line = substr(line, i + 4)
+      gsub(/^"|"$/, "", line)
+      if (line != "") print line
+    }'
+}
+
+# The generated board bundle is excluded from every report. Every board branch
+# rebuilds it, so including it would make every board pair look like a
+# collision — which is precisely the noise `.gitattributes -merge` exists to
+# remove. Its conflicts are settled by rebuilding, never by reading.
+ARTIFACT_PATH="skills/plot/scripts/board/board-server.mjs"
+
+# The worktree for a branch, by the same name-flattening rule dispatch uses.
+worktree_for() { # $1=branch
+  printf '%s/plot-wt-%s' "$wt_root" "$(printf '%s' "$1" | tr '/' '-')"
+}
+
+# Every local branch that holds files, with what it holds.
+#
+# LOCAL branches, because worktrees share one ref database: `git rev-parse`
+# answers from the main repo for a branch checked out elsewhere, so a sibling
+# agent's unpushed commits are readable from here without visiting its worktree.
+#
+# Emits "branch<TAB>file,file,…" per branch that holds at least one file.
+# A branch holding nothing emits nothing — a bare claim marker is an empty
+# commit, and reporting "holds " with no files would be worse than silence.
+work_in_flight() { # $1=branch to exclude (the candidate)
+  local exclude="${1:-}" br files
+  # bash 3.2 on macOS: no `declare -A`, so this accumulates into a plain string
+  # rather than a map. Sorted output keeps the report stable between runs.
+  git for-each-ref --format='%(refname:short)' refs/heads/ </dev/null 2>/dev/null \
+  | while read -r br; do
+      [ -n "$br" ] || continue
+      [ "$br" = "$exclude" ] && continue
+      [ "$br" = "$MAIN" ] && continue
+      files=$( { committed_files "$br"; uncommitted_files "$(worktree_for "$br")"; } \
+        | grep -v -x -F "$ARTIFACT_PATH" \
+        | sort -u \
+        | tr '\n' ',' | sed 's/,$//' )
+      [ -n "$files" ] || continue
+      printf '%s\t%s\n' "$br" "$files"
+    done
+}
+
+# Print the in-flight report for one candidate, indented under its line.
+#
+# Silent when nothing is held. A report that always prints something teaches
+# the reader to skip it, and then it is worth nothing on the day it matters.
+report_in_flight() { # $1=candidate branch
+  local line br files
+  work_in_flight "$1" | while IFS=$'\t' read -r br files; do
+    # Commas to ", " for reading; the machine-countable summary is the footer,
+    # so this line is allowed to be prose.
+    echo "  in flight: $br holds $(printf '%s' "$files" | sed 's/,/, /g')"
+  done
+}
+
 # A dry run changes nothing, so nothing can go stale — read the whole eligible
 # set once. (`--next` would loop forever here: without a claim it keeps
 # returning the same branch.)
@@ -482,6 +605,7 @@ if [ "$dry_run" = 1 ]; then
   while read -r br; do
     [ -n "$br" ] || continue
     echo "would dispatch $br → $wt_root/plot-wt-$(printf '%s' "$br" | tr '/' '-')"
+    report_in_flight "$br"
     n_dispatched=$((n_dispatched + 1))
   done < <("$script_dir/plot-fleet-scan.sh" $offline --list-eligible "$slug" 2>/dev/null)
   echo "summary: dispatched=$n_dispatched reused=0 skipped=0 started=0"
@@ -508,13 +632,20 @@ while :; do
 
   if [ "$dry_run" = 1 ]; then
     echo "would dispatch $branch → $wt"
+    report_in_flight "$branch"
     n_dispatched=$((n_dispatched + 1))
     continue
   fi
 
+  # BEFORE the worktree exists. Once dispatch has created this candidate's
+  # worktree and claim, the candidate is itself work in flight, and a report
+  # taken afterwards would describe the fan-out rather than what preceded it.
+  in_flight=$(report_in_flight "$branch")
+
   # Adopt an existing worktree rather than duplicating it.
   if git worktree list --porcelain | grep -qx "worktree $wt"; then
     echo "reusing existing worktree for $branch → $wt"
+    [ -n "$in_flight" ] && printf '%s\n' "$in_flight"
     n_reused=$((n_reused + 1))
   else
     git worktree add -q -b "$branch" "$wt" "origin/$MAIN" 2>/dev/null || {
@@ -542,6 +673,10 @@ while :; do
         commit -q --allow-empty -m "plot: claim $branch" 2>/dev/null
     if git -C "$wt" push -q -u origin "$branch" 2>/dev/null; then
       echo "dispatched $branch → $wt"
+      # Reported AFTER the claim, never before: a branch another dispatcher won
+      # is not this run's to describe. The facts themselves were read before the
+      # worktree existed, so the claim cannot have polluted them.
+      [ -n "$in_flight" ] && printf '%s\n' "$in_flight"
       n_dispatched=$((n_dispatched + 1))
       # AFTER the claim push, never before. A Started: record for a branch
       # another dispatcher won would be a lie in the file, and the claim is the
