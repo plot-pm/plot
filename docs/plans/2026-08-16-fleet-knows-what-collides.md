@@ -14,7 +14,7 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-16, jwloka, plan-PR #142 merged
-- **Started:**
+- **Started:** 2026-08-16, Jan Wloka, `infra/board-artifact-merge`
 - **Delivered:**
 
 ## Problem
