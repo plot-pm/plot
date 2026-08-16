@@ -141,11 +141,49 @@ describe('rowsFromPulse', () => {
       expect(quiet[i - 1].ageMinutes ?? -1).toBeGreaterThanOrEqual(quiet[i].ageMinutes ?? -1);
     }
   });
+
+  it('carries the plan FILENAME beside the display name, so a row can link', () => {
+    // `plan` is lossy on purpose (the date prefix is noise in a column), which
+    // is exactly why the filename travels separately rather than being
+    // reconstructed by whatever needs to build a /plan/ href.
+    const rows = rowsFromPulse(pulse, ages, 'plot', QUIET);
+    expect(rows[0].plan).toBe('example-plan');
+    expect(rows[0].planFile).toBe('2026-08-15-example-plan.md');
+  });
+
+  it('carries the host URL verbatim, and null where there is no PR', () => {
+    const prs = new Map<string, PrRecord>([
+      ['feature/b', {
+        number: 7, head: 'feature/b', state: 'OPEN', draft: false, checks: 'green',
+        review: '', url: 'https://example.test/pr/7',
+      }],
+    ]);
+    const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, prs);
+    expect(rows.find((r) => r.branch === 'feature/b')?.pr)
+      .toEqual({ number: 7, url: 'https://example.test/pr/7' });
+    // No PR is the common case, not a degraded one — and it must be null rather
+    // than a fabricated address.
+    expect(rows.find((r) => r.branch === 'feature/c')?.pr).toBeNull();
+  });
+
+  it('keeps the PR number but no url when the host reported none', () => {
+    // An older `gh`/`bb` omits the field. The number is still worth showing;
+    // the link is not worth guessing.
+    const prs = new Map<string, PrRecord>([
+      ['feature/b', {
+        number: 7, head: 'feature/b', state: 'OPEN', draft: false, checks: 'green',
+        review: '', url: '',
+      }],
+    ]);
+    const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, prs);
+    expect(rows.find((r) => r.branch === 'feature/b')?.pr).toEqual({ number: 7, url: '' });
+  });
 });
 
 describe('classify with PR data', () => {
   const pr = (over: Partial<PrRecord> = {}): PrRecord => ({
-    number: 42, head: 'feature/x', draft: false, checks: 'green', review: '', ...over,
+    number: 42, head: 'feature/x', state: 'OPEN', draft: false, checks: 'green', review: '',
+    url: 'https://example.test/pr/42', ...over,
   });
 
   it('sends a green PR to waiting-on-you', () => {

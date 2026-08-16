@@ -274,3 +274,68 @@ describe('board: Approved splits into Ready vs In progress via Started records',
     assert.equal(board.checklist, null);
   });
 });
+
+// The card carries the PR numbers a plan names, and NO url it made up itself.
+// A scratch repo has no git remote and no host CLI to ask, which is precisely
+// the condition under which a board that templated addresses would produce a
+// confident, wrong link — so this suite pins the honest answer.
+const WITH_PRS = `# Ship the widget
+
+## Status
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/widget-core\` → #113
+- \`feature/widget-ui\` → #114
+`;
+
+describe('board: PR numbers reach the card, links never get invented', () => {
+  let tmp, server;
+  before(async () => {
+    tmp = makeRepo({ plans: [
+      { name: '2026-08-16-ship-the-widget.md', content: WITH_PRS },
+      { name: '2026-08-16-no-prs-here.md', content: DRAFT },
+    ] });
+    server = await startServer(tmp, await findFreePort());
+  });
+  after(() => {
+    server?.kill();
+    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('carries every PR number the plan names, in order', async () => {
+    // Before this change plot-plan-meta.sh parsed `prs` and board.ts dropped
+    // them on the floor — the numbers existed and nothing carried them.
+    const board = await fetchBoard(server.port);
+    const card = board.columns
+      .flatMap((c) => c.cards)
+      .find((c) => c.slug === 'ship-the-widget');
+    assert.ok(card, 'the plan should render as a card');
+    assert.deepEqual(card.prs.map((p) => p.number), [113, 114]);
+  });
+
+  it('leaves url empty rather than composing one from a number', async () => {
+    // The assertion that matters: with no host to ask, every url is "". A
+    // board that knew how to build a github.com address would fail here, and
+    // would ship broken links to every GitHub Enterprise and self-hosted
+    // Bitbucket user.
+    const board = await fetchBoard(server.port);
+    const card = board.columns
+      .flatMap((c) => c.cards)
+      .find((c) => c.slug === 'ship-the-widget');
+    assert.deepEqual(card.prs.map((p) => p.url), ['', '']);
+  });
+
+  it('gives a plan with no PRs an empty list, not a missing field', async () => {
+    // A consumer should be able to map over `prs` unconditionally. Absent would
+    // make "names no PRs" and "older board" indistinguishable at the boundary.
+    const board = await fetchBoard(server.port);
+    const card = board.columns
+      .flatMap((c) => c.cards)
+      .find((c) => c.slug === 'no-prs-here');
+    assert.ok(card, 'the PR-less plan should render as a card');
+    assert.deepEqual(card.prs, []);
+  });
+});

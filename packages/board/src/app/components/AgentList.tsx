@@ -33,8 +33,37 @@ function Row({ row }: { row: AgentRow }) {
       {/* Constant today, and visually quiet. It exists now so the list does not
           need rebuilding when a second repo appears. */}
       <span className="w-16 shrink-0 truncate text-xs text-slate-400 dark:text-slate-600">{row.repo}</span>
-      <span className="font-mono text-[13px] text-slate-800 dark:text-slate-200">{row.branch}</span>
-      <span className="text-xs text-slate-500 dark:text-slate-400">{row.plan}</span>
+      {/* The branch names its PR, so the branch is what carries the link. A
+          branch with no open PR is not a failure — most rows in `not-started`
+          have none — so it simply stays plain text. */}
+      {row.pr && row.pr.url ? (
+        <a
+          href={row.pr.url}
+          target="_blank"
+          rel="noreferrer"
+          className="font-mono text-[13px] text-blue-600 hover:underline dark:text-blue-400"
+          title={`PR #${row.pr.number}`}
+        >
+          {row.branch}
+        </a>
+      ) : (
+        <span className="font-mono text-[13px] text-slate-800 dark:text-slate-200">{row.branch}</span>
+      )}
+      {/* Opens the plan viewer in a new tab. The Agents tab is a live view that
+          polls every 4 s — navigating away from it in place would cost the
+          reader the thing they came to watch. */}
+      {row.planFile ? (
+        <a
+          href={`/plan/${encodeURIComponent(row.planFile)}`}
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+        >
+          {row.plan}
+        </a>
+      ) : (
+        <span className="text-xs text-slate-500 dark:text-slate-400">{row.plan}</span>
+      )}
       <span className="ml-auto text-xs text-slate-500 dark:text-slate-400">{row.note}</span>
       <span className="w-10 shrink-0 text-right text-xs tabular-nums text-slate-400 dark:text-slate-500">
         {age(row)}

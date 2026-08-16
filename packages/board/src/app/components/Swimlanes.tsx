@@ -104,7 +104,11 @@ export function Swimlanes({ board, sprintSel, storySel, onOpenPlan }: SwimlanesP
           lanes.map((lane) => (
             <div
               key={lane.key}
-              className="mb-3 grid gap-3 border-b border-slate-100 pb-3 last:border-0 dark:border-slate-900"
+              // The link target a card's story badge points at. `scroll-mt`
+              // keeps the row clear of the sticky header when a fragment jumps
+              // here, so the lane lands visible rather than tucked underneath.
+              id={`story-${lane.key}`}
+              className="mb-3 grid scroll-mt-4 gap-3 border-b border-slate-100 pb-3 last:border-0 dark:border-slate-900"
               style={{ gridTemplateColumns: `14rem repeat(${phases.length}, minmax(0, 1fr))` }}
             >
               <div className="pr-2">
