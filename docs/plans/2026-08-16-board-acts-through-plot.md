@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-board
@@ -14,6 +14,7 @@
 - **Approved:** 2026-08-16, jwloka, plan-PR #113 merged
 - **Started:** 2026-08-16, jwloka, `feature/board-artifact-links`
 - **Started:** 2026-08-16, jwloka, `feature/board-start-work`
+- **Delivered:** 2026-08-16
 
 ## Approval
 
