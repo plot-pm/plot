@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import {
+  DRAFT_PLAN_NOTE,
   ELIGIBLE_NOTE,
   FleetPulseSchema,
   toBoardPhase,
@@ -644,6 +645,21 @@ export function classify(
    * reports.
    */
   localAhead = 0,
+  /**
+   * The PLAN's own lifecycle phase, verbatim from `plot-plan-meta.sh` — see
+   * `FleetPlanSchema.phase`. Used for exactly one thing, below: to stop a
+   * DRAFT plan's branches reading `eligible`.
+   *
+   * The pulse has carried this since #140, deliberately as data — *"It is
+   * reported, never decides"* — and nothing read it. Deciding with it is this
+   * layer's job, which is why the condition is here and not in the scan.
+   *
+   * Defaults to "" so every caller predating the field is unchanged: an unknown
+   * phase must answer exactly as before rather than guess that a plan is a
+   * draft. Only the literal `draft` narrows an answer; every other value,
+   * including "", falls through.
+   */
+  planPhase = '',
 ): { group: WaitingGroup; note: string } {
   // A deferred branch is not-started because nobody is working on it — the
   // group is about the claim the row makes, not about the age of its last
@@ -685,9 +701,23 @@ export function classify(
     }
   }
   if (state === 'open') {
-    return verdict === 'eligible'
-      ? { group: 'not-started', note: ELIGIBLE_NOTE }
-      : { group: 'not-started', note: 'blocked by an earlier wave' };
+    // An earlier wave keeps the first word. Both statements are true of a
+    // Draft plan's later waves, and the wave one is the more specific: it names
+    // a branch that must land, where the draft note names a review. Saying the
+    // weaker of two true things is how a note stops being worth reading.
+    if (verdict !== 'eligible') return { group: 'not-started', note: 'blocked by an earlier wave' };
+    // The DRAFT case. `eligible` is a wave verdict — an answer about ordering
+    // WITHIN a plan — and it is correct here: no earlier wave is outstanding.
+    // The row's sentence claims more than that, and the extra claim is what is
+    // false: a plan under review has not reached the hand-off point, and
+    // `plot-dispatch` refuses its branches.
+    //
+    // The group does NOT change. `not-started` is still exactly right — nobody
+    // has taken it, and nobody should — so this narrows the note and nothing
+    // else. Moving the row somewhere else would hide work that is genuinely
+    // coming, which is the opposite of what the tab is for.
+    if (planPhase === 'draft') return { group: 'not-started', note: DRAFT_PLAN_NOTE };
+    return { group: 'not-started', note: ELIGIBLE_NOTE };
   }
   if (state === 'claimed') {
     // A claim IS a commit — the empty `plot: claim <branch>` push — so its age
@@ -906,7 +936,12 @@ export function rowsFromPulse(
         const age = ages.get(b.branch) ?? null;
         const pr = prs?.get(b.branch) ?? null;
         const { group, note } = classify(
-          b.state, wave.verdict, age, quietMinutes, pr, b.local_dirty, b.local_ahead);
+          b.state, wave.verdict, age, quietMinutes, pr, b.local_dirty, b.local_ahead,
+          // The plan's own phase, which the pulse has carried since #140 and
+          // nothing read. It is the half git cannot answer: every branch of a
+          // drafted plan is `open` with no ref, exactly like a branch of an
+          // approved plan nobody has started.
+          plan.phase);
         rows.push({
           repo,
           branch: b.branch,

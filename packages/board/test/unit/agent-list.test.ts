@@ -14,7 +14,7 @@ import {
   GROUPS,
 } from '../../src/app/components/AgentList.js';
 import { GROUP_ORDER } from '../../src/server/fleet.js';
-import { ELIGIBLE_NOTE, type AgentRow } from '../../src/contract/schema.js';
+import { DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, type AgentRow } from '../../src/contract/schema.js';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'plot', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
@@ -245,6 +245,19 @@ describe('isStartable — which NOT STARTED rows offer work', () => {
     for (const group of ['working', 'quiet', 'waiting-on-you', 'done'] as const) {
       expect(isStartable(row({ group, state: 'open', note: ELIGIBLE_NOTE }))).toBe(false);
     }
+  });
+
+  it('offers NOTHING on a branch whose plan is still a Draft', () => {
+    // The other half of the same rule, and the reason the draft note is a
+    // sibling of ELIGIBLE_NOTE rather than a suffix on it: `plot-dispatch`
+    // refuses a drafted plan's branches exactly as it refuses a wave-blocked
+    // one, so the button must not appear on either.
+    //
+    // It comes out right by CONSTRUCTION — `isStartable` matches the eligible
+    // sentence, so any other note loses the button without a second rule to
+    // keep in step. Pinned anyway: that is a property worth failing loudly if
+    // someone later loosens the match to a substring.
+    expect(isStartable(notStarted({ note: DRAFT_PLAN_NOTE }))).toBe(false);
   });
 
   it('offers nothing on a deferred branch, whatever group it lands in', () => {
