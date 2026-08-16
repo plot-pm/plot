@@ -121,7 +121,7 @@ that closes the loop, and it has not been built yet.
   on the board becomes routine; a merge driver that rebuilds instead of
   diffing would remove the manual step without giving up the checked-in
   artifact.
-- 🔄 **A card's `claimed` count is always 0** — observed 2026-08-16 alongside
+- ✅ **A card's `claimed` count is always 0** — fixed in #123 — observed 2026-08-16 alongside
   the QUIET finding. `waveSummary` is built from `plot-plan-meta.sh`, which
   reads `claimed` from a *plan-file annotation nobody writes*; the fleet scan
   reads it from *git refs*, where claims actually live. So the same board asks
@@ -137,7 +137,7 @@ that closes the loop, and it has not been built yet.
   why the plan's open question about disabling *Start work* when nothing can
   start has no answer today. The fleet scan already computes both: it reports
   `verdict=eligible` per wave and a `claimed` count in its summary. So the fix
-  for all three is one change of source, not three features — build
+  for all three was one change of source, not three features — build
   `waveSummary` from the pulse the Agents tab already reads, instead of from
   the plan parser. Blocked while `feature/board-start-work` edits `board.ts`.
 - ✅ **A freshly claimed branch reads as QUIET** — fixed in #118 — observed 2026-08-16, seven
