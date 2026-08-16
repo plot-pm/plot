@@ -63,7 +63,7 @@ Scripts in `skills/plot/scripts/` that any model tier can use:
 | `plot-dispatch.sh` | Worktree fan-out: one worktree + claim + detached worker per eligible branch; `--dry-run`/`--no-start`/`--max N`; idempotent — re-running adopts rather than duplicates |
 | `plot-merge-queue.sh` | Merge order + `git merge-tree` conflict prediction per plan; flags branches that collide with one ahead of them in the queue |
 | `plot-fleet-scan.sh` | Read-only wave/claim state per plan (complete/eligible/blocked + machine-countable footer); `--next` names one claimable branch (exit 1 = nothing to start); stateless — re-derived from git refs every run |
-| `board/board-server.mjs` | Local Kanban status board — built artifact of `@plot-pm/board` (`packages/board`); run via `pnpm board`, rebuild via `pnpm build:board` |
+| `board/board-server.mjs` | Local Kanban status board — built artifact of `@plot-pm/board` (`packages/board`); run via `pnpm board`, rebuild via `pnpm build:board`. `pnpm board` runs under `node --watch`, so a rebuild takes effect in the running board — without it, a merged fix stays invisible to an open board and reads exactly like the fix not working |
 
 Design split (Manifesto Principle 3): **skills interpret and adapt; scripts collect and report.**
 

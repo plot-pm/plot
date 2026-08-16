@@ -101,7 +101,7 @@ that closes the loop, and it has not been built yet.
   rather than an obvious fix: a worktree signal would be true only for the
   machine doing the looking, and the fleet's whole point is that it is not
   the only machine.
-- ⏸️ **A running board does not pick up a rebuilt bundle** — cost the user two
+- ✅ **A running board does not pick up a rebuilt bundle** — fixed: `pnpm board` runs under `node --watch` — cost the user two
   false readings today. The DATA reloads fine (server scan 5 s, client poll
   4 s), but `clientHtml` is inlined into the bundle at build time and the
   server holds it in memory, so `pnpm build:board` changes nothing until the
@@ -118,6 +118,15 @@ that closes the loop, and it has not been built yet.
   The fix for the rate limit was already merged; the process holding the port
   had never heard of it. A trap that quietly reverts a landed fix is worth more
   than a note.
+
+  **Fixed by one word.** `node --watch` is built in and restarts the process
+  when the artifact changes — verified by touching the file against a running
+  board: one restart event, HTTP 200 immediately after. `pnpm board` now uses
+  it. Notable that the fix was a flag rather than the watcher-plus-supervisor
+  this entry had imagined: `pnpm board` runs a bare `node`, so `process.exit`
+  would have stopped the board rather than reloading it. Checking what actually
+  starts the board was the whole difference between a one-word change and a
+  feature.
 - ⏸️ **The checked-in artifact collides on every parallel branch** — three
   merges in one afternoon (#117, #118, #119), each conflicting in
   `board-server.mjs` and only there, while every source file merged cleanly.

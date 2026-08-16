@@ -11,7 +11,7 @@
   },
   "scripts": {
     "test": "skills add . --list",
-    "board": "node skills/plot/scripts/board/board-server.mjs",
+    "board": "node --watch skills/plot/scripts/board/board-server.mjs",
     "board:dev": "pnpm --filter @plot-pm/board dev",
     "build:board": "pnpm --filter @plot-pm/board build",
     "typecheck": "pnpm --filter @plot-pm/board typecheck",
