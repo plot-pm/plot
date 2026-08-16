@@ -69,6 +69,22 @@ that closes the loop, and it has not been built yet.
 
 ## Open Points
 
+> **Nothing marks a point resolved when its plan lands.** Swept 2026-08-16 and
+> found four of twelve stale — two fixed and merged (#136, #130), one approved
+> and waiting (#131) — while `plot-story-lint.sh` reported `0 findings`, because
+> it checks the estate's *structure*, not whether a `⏸️` has been overtaken by a
+> plan. So the section only ever grows, and "what is still open?" becomes
+> unanswerable without opening each entry.
+>
+> Two of the four candidates in that sweep turned out NOT to be resolved,
+> which is the argument for reading each one rather than matching headlines:
+> the containment half of the PR-#57 point is still live, and the
+> `Impl: same branch` point is about a flow that pushes no ref at all.
+>
+> Markers: `⏸️` open · `📋` planned, not yet built · `✅` resolved, with the PR
+> that did it. Resolved entries keep their original text — the finding is the
+> record of why the fix exists.
+
 - ⏸️ **A board whose server died looks like a board that is working** — the one
   failure the whole tab exists to prevent, in its own chrome. Cost a real
   diagnosis on 2026-08-16: two screenshots reported a regression ("the nameless
@@ -292,7 +308,11 @@ that closes the loop, and it has not been built yet.
   `\0` in a template literal produces the identical byte, so the fix is
   behaviour-preserving and one character wide. Only occurrence in the repo
   (all tracked `.ts/.tsx/.mjs/.js/.sh/.md` scanned).
-- ⏸️ **Design work on an idea branch is invisible to the board.** Asked
+- ✅ **Design work on an idea branch is invisible to the board.**
+  Resolved by [#130](https://github.com/plot-pm/plot/pull/130), delivered
+  2026-08-16: a Draft plan living only on an idea branch now renders as a
+  Discovery card. Only the *gap* half needed fixing — the WAITING ON YOU half
+  below was correct as it stood. Original finding kept. Asked
   2026-08-16 during a four-round `/challenge-the-plan` on #126: shouldn't that
   session have shown up under WAITING ON YOU, then WORKING? Checked, and the
   answer is *no* twice, for two different reasons — one right, one a gap.
@@ -412,8 +432,12 @@ that closes the loop, and it has not been built yet.
   a deleted ref is not missing work ([[fleet-sees-merged-branches]]), and the
   default branch is not all the plans. Manifesto Principle 1 says git *is* the
   database — the board reads one branch's working tree.
-- ⏸️ **The Agents tab knows *when* a branch moved, never *what phase* it is
-  in.** Raised 2026-08-16 as two requests that turn out to share one missing
+- 📋 **The Agents tab knows *when* a branch moved, never *what phase* it is
+  in.** Planned as
+  [`agent-view-phase`](../../plans/2026-08-16-agent-view-phase.md), approved
+  2026-08-16 via plan-PR #131 after three interrogation rounds. Not dispatched
+  yet — `fleet-sees-local-work` holds four of its files uncommitted. Original
+  finding kept. Raised 2026-08-16 as two requests that turn out to share one missing
   field: WORKING should say whether a row is Discovery, Design or Development
   work, and NOT STARTED should mean *discovered, planned, ready for an agent*.
   `classify()` is purely temporal — a commit inside the quiet window is
@@ -436,7 +460,11 @@ that closes the loop, and it has not been built yet.
   Deliberately not started: `board-ui-polish` is mid-implementation in exactly
   these files. Three parallel branches stayed collision-free today only because
   nobody widened a scope after the fan-out began.
-- ⏸️ **A branch no plan names is invisible, including its open PR.** Seen
+- ✅ **A branch no plan names is invisible, including its open PR.**
+  Resolved by [#136](https://github.com/plot-pm/plot/pull/136), merged
+  2026-08-16: an open PR on a branch no plan claims now gets its own row, and
+  an `idea/<slug>` branch is grouped under the plan it carries. Original
+  finding kept below. Seen
   2026-08-16 with two PRs waiting to be merged and `WAITING ON YOU` reading
   *none*. Measured: the pulse reports **8 branches where origin has 20**.
   The mechanism is by design — `plot-fleet-scan.sh` walks the branches a plan
@@ -455,6 +483,13 @@ that closes the loop, and it has not been built yet.
   writing plans, which Plot's own ceremony rules permit. The tab silently
   assumes every branch worth watching belongs to a plan.
 - ⏸️ **The fleet calls a branch quiet while its PR is open one level up.**
+  **Still open, and half of it is not** — worth stating, because the two halves
+  arrived together and only one has been fixed. #136 gave PR #57 its row; the
+  six slices still read *"no commit for 22 days"*. Re-verified 2026-08-16 after
+  #136 merged: `git merge-base --is-ancestor` says all six ARE contained in PR
+  #57's head, and `git ls-remote` still finds no ref named
+  `docs/model-provenance.md`. Both halves below are live.
+
   Asked 2026-08-16 from a screenshot: why does `feature/opus5-longhorizon-hardening`
   sit in WAITING ON YOU while six `opus5-hardening-*` rows sit in QUIET? They
   are **different branches** — the plan names the six slices, and the seventh is
