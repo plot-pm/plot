@@ -249,6 +249,35 @@ test('delivered window: --next never names a branch from a delivered plan', (t) 
   assert.equal(picked, 'feature/live-one');
 });
 
+test('delivered window: the mtime pre-filter reads a real time on this platform', (t) => {
+  // A DIRECT assertion, because the failure mode is silent in the worst way.
+  // The first implementation read the mtime as `stat -f %m || stat -c %Y`, and
+  // on GNU coreutils `-f` is a valid flag meaning *file system status* — so it
+  // SUCCEEDS with a filesystem report, never falls through, and the mtime reads
+  // as zero. Every delivered plan was then excluded on Linux while macOS was
+  // green, and the symptom was an empty DONE group rather than an error.
+  //
+  // The window tests above catch it too, but only as "nothing appeared", which
+  // names no cause. This one says which half is broken. Asserted against the
+  // real script rather than a copy: a copy would have been just as wrong.
+  const { tmp, repo } = makeRepo();
+  t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+  // The function is lifted out of the script rather than the script being run:
+  // sourcing it would execute the whole scan. The extraction failing is itself
+  // a signal — the function was renamed or reshaped, and this test must be
+  // looked at rather than silently skipped.
+  const src = fs.readFileSync(scan, 'utf8').match(/^file_mtime\(\)[\s\S]*?\n}$/m);
+  assert.ok(src, 'file_mtime() not found in plot-fleet-scan.sh — has it been renamed?');
+  const probe = `set -uo pipefail\n${src[0]}\nfile_mtime "$1"`;
+  const out = execFileSync('bash', ['-c', probe, 'probe', path.join(repo, 'CLAUDE.md')],
+    { encoding: 'utf8' }).trim();
+  assert.match(out, /^\d+$/, `file_mtime must return epoch seconds, got: ${JSON.stringify(out)}`);
+  // And it must be a plausible time rather than a filesystem block count.
+  const secondsAgo = Date.now() / 1000 - Number(out);
+  assert.ok(secondsAgo >= 0 && secondsAgo < 3600,
+    `file_mtime returned an implausible time (${secondsAgo}s ago)`);
+});
+
 test('pulse: each plan carries its own phase, verbatim', (t) => {
   // The half of a row's phase git cannot answer. Reported, never interpreted:
   // which column a row reads is composed one layer up (Manifesto Principle 3),

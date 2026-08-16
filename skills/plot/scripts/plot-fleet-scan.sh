@@ -336,6 +336,28 @@ pr_ready() {
 DELIVERED_WINDOW_HOURS=$(cfg "Claim stale after" "24")
 case "$DELIVERED_WINDOW_HOURS" in (*[!0-9]*|'') DELIVERED_WINDOW_HOURS=24 ;; esac
 
+# Modification time of a path, in epoch seconds, following symlinks — or "" when
+# it cannot be read.
+#
+# BSD (`stat -f %m`) and GNU (`stat -c %Y`) spell this differently, and the
+# fallback CANNOT be written as `bsd || gnu`: on GNU coreutils `-f` is a valid
+# flag meaning *file system status*, so it SUCCEEDS with a filesystem report
+# instead of failing over. That reads as a mtime of zero and quietly excludes
+# every delivered plan on Linux, which is exactly what CI caught — the answer
+# was wrong in the safe-looking direction (nothing shown) rather than the loud
+# one. So the OUTPUT is validated rather than the exit code: whichever form
+# yields digits is the one that was understood.
+file_mtime() { # $1=path → epoch seconds, or ""
+  local m
+  for m in "$(stat -f %m "$1" 2>/dev/null)" "$(stat -c %Y "$1" 2>/dev/null)"; do
+    case "$m" in
+      ''|*[!0-9]*) ;;
+      *) printf '%s' "$m"; return 0 ;;
+    esac
+  done
+  return 1
+}
+
 # A plan whose delivered symlink was touched inside the window. `find -newermt`
 # is not portable to every BSD find in the wild, so the cutoff is computed and
 # compared with `stat` — one stat per file, no parse.
@@ -345,11 +367,11 @@ delivered_candidates() {
   cutoff=$((now - DELIVERED_WINDOW_HOURS * 3600))
   for link in "$DELIVERED_DIR"*.md; do
     [ -e "$link" ] || continue
-    # -L: the SYMLINK's target is what delivery rewrote, and stat on the link
-    # itself reports when the link was created — which is also delivery. Follow
-    # it so a plan edited after delivery still admits.
-    mtime=$(stat -f %m "$link" 2>/dev/null || stat -c %Y "$link" 2>/dev/null || echo 0)
-    case "$mtime" in (*[!0-9]*|'') mtime=0 ;; esac
+    # `stat` follows the symlink, which is what we want: the TARGET is the plan,
+    # and a plan edited after delivery must still admit. An unreadable time
+    # ADMITS rather than excludes — the pre-filter may only over-admit, and the
+    # `Delivered:` record has the last word either way.
+    mtime=$(file_mtime "$link") || { printf '%s\n' "$link"; continue; }
     [ "$mtime" -ge "$cutoff" ] && printf '%s\n' "$link"
   done
 }
