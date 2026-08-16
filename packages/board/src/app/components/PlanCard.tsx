@@ -98,6 +98,12 @@ export interface PlanCardProps {
    * than becoming a link that goes nowhere.
    */
   onGoToStory?: (story: string) => void;
+  /**
+   * Mark this card as the one just arrived at — a ring, and the anchor the
+   * board scrolls to. Transient: it says *here you are*, not *this is selected*,
+   * so it clears on the next interaction rather than persisting as a filter.
+   */
+  highlighted?: boolean;
 }
 
 export function PlanCard({
@@ -109,6 +115,7 @@ export function PlanCard({
   onStarting,
   onOpen,
   onGoToStory,
+  highlighted = false,
 }: PlanCardProps) {
   const href = planHref(card);
 
@@ -123,10 +130,17 @@ export function PlanCard({
 
   return (
     <article
+      // What `?plan=<slug>` scrolls to. `scroll-mt` keeps the card clear of the
+      // header when it lands.
+      id={`plan-${card.slug}`}
+      data-highlighted={highlighted ? 'true' : undefined}
       className={cn(
-        'rounded-md border border-l-4 bg-white p-3 shadow-sm',
+        'scroll-mt-20 rounded-md border border-l-4 bg-white p-3 shadow-sm',
         'border-slate-200 dark:border-slate-700 dark:bg-slate-900',
         PHASE_ACCENT[card.phase],
+        // A ring rather than a background: the left border already carries the
+        // phase, and a second colour fill would compete with it.
+        highlighted && 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-950',
       )}
     >
       <div className="text-sm font-medium leading-snug text-slate-900 dark:text-slate-100">

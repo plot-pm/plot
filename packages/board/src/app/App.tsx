@@ -53,6 +53,15 @@ export function App() {
   const [sprintSel, setSprintSel] = useState<string[]>(() => readList('sprint'));
   const [storySel, setStorySel] = useState<string[]>(() => readList('story'));
   const [openPlan, setOpenPlan] = useState<Card | null>(null);
+  // A plan click made before the board's cards landed, held until they do.
+  const [pendingPlan, setPendingPlan] = useState('');
+  // The card the reader was just sent to, named in the URL so the landing is
+  // shareable and survives a reload. Transient by intent: it marks *where you
+  // arrived*, not a selection, so it clears on the next interaction rather than
+  // persisting as a second kind of filter.
+  const [highlight, setHighlight] = useState<string>(
+    () => new URLSearchParams(location.search).get('plan') ?? '',
+  );
   // Counts board refreshes, not seconds. A Start work button waits for the row
   // to move, and what moves the row is a re-read of git — so re-reads are the
   // thing worth counting.
@@ -148,13 +157,107 @@ export function App() {
     });
   }, []);
 
+  /**
+   * The board card for a plan FILENAME, or null.
+   *
+   * A fleet row is not a card: it carries `planFile`, and `PlanModal` takes a
+   * `Card`, so the card has to be looked up from the board data. Null is a real
+   * answer rather than a degraded one — a plan outside the walked directories
+   * has a row and no card — and the caller then leaves the plain `/plan/<file>`
+   * link alone instead of opening an empty modal.
+   */
+  const cardForPlanFile = useCallback(
+    (planFile: string): Card | null => {
+      if (!board || !planFile) return null;
+      const basename = (p: string) => p.split(/[/\\]/).pop() ?? '';
+      return board.columns
+        .flatMap((c) => c.cards)
+        .find((c) => basename(c.path) === basename(planFile)) ?? null;
+    },
+    [board],
+  );
+
+  /**
+   * Open a fleet row's plan in the modal; report whether it did.
+   *
+   * A false answer lets the row's anchor navigate to the plain plan page, which
+   * is the honest fallback when the board holds no card for that plan.
+   *
+   * "The board has not loaded yet" is NOT "this plan has no card", and the two
+   * must not behave alike: a click in the first seconds of the tab would
+   * otherwise navigate away from a live view for a plan the board is about to
+   * have. So the click is REMEMBERED instead — the effect below opens the modal
+   * the moment the cards land, and the reader keeps the view they came to watch.
+   */
+  const onOpenPlanFile = useCallback(
+    (planFile: string): boolean => {
+      const card = cardForPlanFile(planFile);
+      if (card) {
+        setOpenPlan(card);
+        return true;
+      }
+      if (!board) {
+        setPendingPlan(planFile);
+        return true;
+      }
+      return false;
+    },
+    [board, cardForPlanFile],
+  );
+
+  // The deferred half of the click above. Once the board arrives, either the
+  // card is there and the modal opens, or it is not and the request is dropped
+  // — a click that resolves to nothing beats one that navigated away.
+  useEffect(() => {
+    if (!pendingPlan || !board) return;
+    const card = cardForPlanFile(pendingPlan);
+    setPendingPlan('');
+    if (card) setOpenPlan(card);
+  }, [pendingPlan, board, cardForPlanFile]);
+
+  /**
+   * Close the modal, switch to the board, filter to the plan's story, and land
+   * on the card itself.
+   *
+   * The filter alone was the version that left you scanning a column: this repo
+   * has nine plans under one story. So the plan is also named in the URL —
+   * `?plan=<slug>`, the same `writeList`-style sync the story and sprint filters
+   * use — which is what makes the landing shareable and survivable, and the card
+   * scrolls into view highlighted.
+   *
+   * The scroll is deferred a frame for the same reason the story jump is: the
+   * filter has to render before the element it aims at exists.
+   */
+  const onShowInBoard = useCallback((card: Card) => {
+    setOpenPlan(null);
+    setTab('board');
+    const url = new URL(location.href);
+    url.searchParams.delete('tab');
+    // A plan with no story filters to nothing — so it does not filter at all.
+    // The highlight is what finds the card either way.
+    if (card.story) {
+      setStorySel([card.story]);
+      url.searchParams.set('story', card.story);
+    }
+    url.searchParams.set('plan', card.slug);
+    history.replaceState(null, '', url);
+    setHighlight(card.slug);
+  }, []);
+
   const onSprint = (values: string[]) => {
     setSprintSel(values);
     writeList('sprint', values);
+    // The highlight marks where you just arrived. The next interaction is the
+    // reader moving on, so it goes — otherwise it would read as a selection and
+    // become a second, invisible filter.
+    setHighlight('');
+    writeList('plan', []);
   };
   const onStory = (values: string[]) => {
     setStorySel(values);
     writeList('story', values);
+    setHighlight('');
+    writeList('plan', []);
   };
 
   // Sprint options come from the directory AND from inline plan values, so the
@@ -189,6 +292,31 @@ export function App() {
 
   const hasSprints = sprintChoices.length > 0;
   const hasStories = (board?.stories.length ?? 0) > 0;
+
+  // A `?plan=` matching nothing is IGNORED. A stale link, or a plan since
+  // delivered out of the filtered set, must render the board normally — an empty
+  // filtered column reads as "this story has no plans", which is a different and
+  // false statement. Validated against the cards the board actually returned,
+  // exactly as the sprint and story selections are.
+  const validHighlight = allCards.some((c) => c.slug === highlight) ? highlight : '';
+
+  // Scroll to the highlighted card once it exists. Deferred a frame for the same
+  // reason the story jump is: the element is not in the document until the tab
+  // and filter have rendered, and a scroll to nothing looks exactly like a
+  // broken link. `prefers-reduced-motion` suppresses the ANIMATION, not the
+  // scroll — arriving at the card is the point; only the movement is the
+  // accessibility concern.
+  useEffect(() => {
+    if (!validHighlight || tab !== 'board') return;
+    const smooth = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const id = requestAnimationFrame(() => {
+      document.getElementById(`plan-${validHighlight}`)?.scrollIntoView({
+        block: 'center',
+        behavior: smooth ? 'smooth' : 'auto',
+      });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [validHighlight, tab, lanes, board]);
 
   return (
     <div className="mx-auto min-h-screen max-w-[1600px] px-4 py-4">
@@ -240,7 +368,15 @@ export function App() {
       <main>
         {tab === 'agents' ? (
           fleet ? (
-            <AgentList fleet={fleet} />
+            // The poll rate is the client's own, and it is passed rather than
+            // re-declared so the countdown cannot drift from the interval it
+            // counts toward. null when the tab is not open — and it always is
+            // here, which is why the hidden case is asserted at the component.
+            <AgentList
+              fleet={fleet}
+              pollSeconds={FLEET_POLL_MS / 1000}
+              onOpenPlan={onOpenPlanFile}
+            />
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>
           )
@@ -257,6 +393,7 @@ export function App() {
               pulse={pulse}
               onStarting={onStarting}
               onOpenPlan={setOpenPlan}
+              highlight={validHighlight}
             />
           ) : (
             <BoardView
@@ -267,13 +404,20 @@ export function App() {
               onStarting={onStarting}
               onOpenPlan={setOpenPlan}
               onGoToStory={onGoToStory}
+              highlight={validHighlight}
             />
           )
         ) : (
           <p className="text-sm text-slate-500">Loading…</p>
         )}
       </main>
-      {openPlan && <PlanModal card={openPlan} onClose={() => setOpenPlan(null)} />}
+      {openPlan && (
+        <PlanModal
+          card={openPlan}
+          onClose={() => setOpenPlan(null)}
+          onShowInBoard={onShowInBoard}
+        />
+      )}
     </div>
   );
 }
