@@ -6,7 +6,8 @@
 
 - **Phase:** Draft
 - **Type:** feature | bug | docs | infra
-- **Sprint:** <!-- optional, filled when plan is added to a sprint -->
+- **Story:** <!-- optional, story slug (docs/stories/<slug>/) — the durable intent this plan serves -->
+- **Sprint:** <!-- optional, filled when plan is added to a sprint — a time-boxed selection of planned work -->
 - **Review:** <!-- pr | in-session | ballot — how is this plan reviewed & approved? -->
 - **Impl:** <!-- own branches | same branch | other repo | none — where does implementation happen? -->
 <!-- Transition records — written by the workflow commands, not by hand:

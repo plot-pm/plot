@@ -75,6 +75,101 @@ that closes the loop, and it has not been built yet.
 - ⏸️ **What counts as "working" without a local pid?** Answered provisionally for
   step 1 (tip commit newer than `Fleet quiet after`, default 30 min) but the
   default is a guess only real use can correct.
+
+  Observed 2026-08-16, and it bounds what #118 could fix: a branch claimed
+  **21 hours ago** and *resumed* today reads as QUIET while an agent is
+  actively working on it. #118 separates fresh claims from stale ones by the
+  age of the claim commit, which is right for a first dispatch and blind to a
+  resumption — the claim is old, the work is new, and git holds no record of
+  an agent that has been reading for three minutes. Two branches dispatched
+  minutes earlier sat correctly in WORKING at the same moment, because their
+  claim commits were themselves fresh. The row self-corrects on the agent's
+  first commit.
+
+  **And the group is wrong, not merely incomplete** — worth stating plainly,
+  because the first reading of this was too forgiving. The note (*"no commit
+  for 21 hours"*) is true. QUIET, however, means *go check whether it died*,
+  and following that instruction finds a live agent with two modified files.
+  A group that asks you to investigate where there is nothing to investigate
+  is a wrong answer, exactly as `merged` and fresh `claimed` were before it.
+
+  There IS an unread signal. `git worktree list` shows the worktree and the
+  scan runs on the same machine, so *"a worktree exists for this branch and
+  its tree is dirty"* is locally knowable while the refs say nothing. That
+  cuts against the fleet deriving state from refs precisely so it works for
+  detached workers on other machines — which is why this stays a question
+  rather than an obvious fix: a worktree signal would be true only for the
+  machine doing the looking, and the fleet's whole point is that it is not
+  the only machine.
+- ⏸️ **A running board does not pick up a rebuilt bundle** — cost the user two
+  false readings today. The DATA reloads fine (server scan 5 s, client poll
+  4 s), but `clientHtml` is inlined into the bundle at build time and the
+  server holds it in memory, so `pnpm build:board` changes nothing until the
+  process is restarted. A fix landing in `classify` was therefore invisible in
+  the board that was already open, which reads exactly like the fix not
+  working. A watcher on the artifact that restarts the server would remove the
+  trap; until then, restarting after a rebuild is the rule — and rules are what
+  this repo keeps finding out are not enough.
+- ⏸️ **The checked-in artifact collides on every parallel branch** — three
+  merges in one afternoon (#117, #118, #119), each conflicting in
+  `board-server.mjs` and only there, while every source file merged cleanly.
+  It is a 690 KB build output, so git has nothing sensible to merge: two
+  branches that both ran `pnpm build:board` produce different bytes for the
+  same intent. Resolution is mechanical — rebuild, `git add`, done — but it is
+  paid per branch per merge, and it is the direct cost of the decision that
+  `pnpm board` must work with no install step. Worth revisiting if fleet work
+  on the board becomes routine; a merge driver that rebuilds instead of
+  diffing would remove the manual step without giving up the checked-in
+  artifact.
+- 🔄 **A card's `claimed` count is always 0** — observed 2026-08-16 alongside
+  the QUIET finding. `waveSummary` is built from `plot-plan-meta.sh`, which
+  reads `claimed` from a *plan-file annotation nobody writes*; the fleet scan
+  reads it from *git refs*, where claims actually live. So the same board asks
+  two sources about one fact and gets two answers — the Agents tab saw the
+  claim, the card said `claimed: 0`. A claim is a git ref by design (Principle
+  1), so the plan parser cannot know it unless someone writes it down twice,
+  which is the second source of truth Plot exists to avoid. `claimed: 0` means
+  "I looked somewhere claims are not kept", and looks exactly like "nobody is
+  working".
+
+  It is bigger than one wrong number. `WaveSummarySchema` carries
+  `waves / branches / claimed / deferred` and **no `eligible`** — which is also
+  why the plan's open question about disabling *Start work* when nothing can
+  start has no answer today. The fleet scan already computes both: it reports
+  `verdict=eligible` per wave and a `claimed` count in its summary. So the fix
+  for all three is one change of source, not three features — build
+  `waveSummary` from the pulse the Agents tab already reads, instead of from
+  the plan parser. Blocked while `feature/board-start-work` edits `board.ts`.
+- ✅ **A freshly claimed branch reads as QUIET** — fixed in #118 — observed 2026-08-16, seven
+  minutes after dispatching `feature/board-artifact-links`. `classify()` in
+  `fleet.ts` short-circuits `state === 'claimed'` straight to
+  `{group: 'quiet', note: 'claimed, no commits yet'}`, regardless of age. The
+  note is accurate; the group is wrong. QUIET's own subtitle is *go check
+  whether it died*, and a branch claimed minutes ago has just started. This is
+  the merged-branch defect again — right state, wrong story — and the fix
+  probably means letting `claimed` flow through the same age comparison the
+  pushed-work case uses. The age data exists: a claim IS a commit (the empty
+  `plot: claim <branch>`). Deliberately not folded into the Navigation wave,
+  which touches the same file — that PR should stay one thing.
+- ⏸️ **`/plot-dispatch` starts work without recording that it did** — observed
+  2026-08-16: `board-acts-through-plot` sat in DESIGN badged *Ready* while its
+  first wave was claimed and an agent was editing it. The card was rendered
+  correctly; the booking was missing. `plot-dispatch.sh` creates the worktree,
+  pushes the claim and starts the worker, but writes no `Started:` record —
+  `/plot-implement` does that in its step 5, and dispatch never got the
+  equivalent. So the two tabs of one board disagreed by design: Agents reads
+  git refs and saw the claim, Board reads the plan through
+  `toBoardPhase(phase, started)` and saw nothing started. Fixed by hand for this
+  plan; the gap in dispatch remains.
+- ⏸️ **`same branch` work is invisible to the fleet until pushed** — same
+  session, same screenshot: `feature/push-main-bypass` sat under NOT STARTED
+  reading *"eligible — nobody has taken it"* while five commits existed for it
+  locally. The scan derives everything from remote refs (Principle 1), so this
+  is correct behaviour and correct semantics — in a fleet of detached workers,
+  a local branch is nobody's business but its machine's. But `/plot-dispatch`
+  pushes a claim and `/plot-implement` under `Impl: same branch` does not, so
+  that flow produces work the board cannot see. Whether `/plot-implement`
+  should push the branch at start is undecided.
 - ⏸️ **Does the board stay one-repo?** The design keeps every data function
   repo-parameterised, and tab 2 is meant to go cross-repo — "what are my agents
   waiting for" is a question about a person, not a repository. Not decided.

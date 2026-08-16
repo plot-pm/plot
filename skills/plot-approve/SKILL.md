@@ -165,14 +165,30 @@ a merge commit merely coincides with it in the `pr` flow.
      git fetch origin <default>
      git checkout -b plot/approve-<slug> origin/<default>
      # edit the plan file, commit
-     git push origin plot/approve-<slug>:<default>
-     git push origin --delete plot/approve-<slug> 2>/dev/null || true
+     ../plot/scripts/plot-push-main.sh plot/approve-<slug> <default>
      ```
 
-     **Branch protection fallback:** if that push is rejected, open a
-     micro-PR instead (`plot-host.sh pr-create` from
-     `plot/approve-<slug>`, then `pr-merge`) — never leave the merged
-     plan stranded at `Phase: Draft` on the default branch.
+     The helper pushes and **says what happened to the push** — which a
+     bare `git push` cannot, because a protected-but-not-enforced repo
+     waves the push through with exit 0 and only a notice on stderr. It
+     prints one of:
+
+     - `push: clean` — landed, protection had nothing to say.
+     - `push: bypassed` — landed, but protection was waived; it names
+       the rules stepped over and the checks that did not run. **Nothing
+       to undo** — carry the report into the summary so a missing CI run
+       is not a mystery later.
+     - `push: unknown` — landed, and the remote said something the
+       helper does not recognise. Report it verbatim.
+     - `push: rejected` (exit 1) — the push was refused.
+
+     **Branch protection fallback:** only on `rejected`, open a micro-PR
+     instead (`plot-host.sh pr-create` from `plot/approve-<slug>`, then
+     `pr-merge`) — never leave the merged plan stranded at
+     `Phase: Draft` on the default branch.
+
+     Every other outcome exits 0 because the commit is on the default
+     branch and there is nothing to retry.
    - `same branch` flow: on the work branch, in place
    - direct flow: on the current branch
 

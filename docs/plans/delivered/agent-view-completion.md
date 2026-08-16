@@ -1,0 +1,1 @@
+../2026-08-15-agent-view-completion.md

@@ -162,6 +162,54 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
     }
   });
 
+  // ── Start work ────────────────────────────────────────────────────────────
+  //
+  // Rendering only. No click: a click would run the real plot-dispatch.sh
+  // against the fixture, and this suite must create no worktree and push
+  // nothing. The route contract is pinned in test/dispatch.test.mjs with a stub.
+
+  it('Start work is a real <button>, never an anchor', async () => {
+    const page = await openBoard();
+    try {
+      // It has no URL and must never be openable in a new tab, prefetched, or
+      // bookmarked — it is a state change, not a destination.
+      const card = page.locator('article', { hasText: 'Fix the leaky soaker hose' });
+      const control = card.getByRole('button', { name: 'Start work' });
+      await control.waitFor({ timeout: 10_000 });
+      expect(await control.evaluate((el) => el.tagName)).toBe('BUTTON');
+      expect(await card.getByRole('link', { name: 'Start work' }).count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('a Draft plan carries no Start work button', async () => {
+    const page = await openBoard();
+    try {
+      // plot-dispatch.sh refuses every phase but approved — Draft exits 1 with
+      // "Review it, then: /plot-approve" — so a button here could only fail.
+      const draft = page.locator('article', { hasText: 'Plant heirloom tomatoes' });
+      expect(await draft.getByRole('button', { name: 'Start work' }).count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('the approved-but-unstarted card (in Design) is the one that gets it', async () => {
+    const page = await openBoard();
+    try {
+      // "Development" means approved AND started; an approved plan nobody has
+      // begun renders under Design. Keying on the COLUMN would hide the button
+      // from exactly the first-dispatch case it is most for — so the button and
+      // the Ready badge are the same expression.
+      const card = page.locator('article', { hasText: 'Fix the leaky soaker hose' });
+      await expect.poll(() => card.getByText('Ready').count()).toBe(1);
+      expect(await card.getByRole('button', { name: 'Start work' }).count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
   it('"Open in new tab" opens the full plan page with a working back-to-board link', async () => {
     const page = await openBoard();
     try {

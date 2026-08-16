@@ -202,7 +202,7 @@ test('scan: summary footer carries machine-countable finding counts', () => {
   // active plans (sigma has no branch).
   const last = report.trim().split('\n').at(-1);
   assert.equal(last,
-    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=3 concurrent=2 pr_source=degraded main=main');
+    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=3 concurrent=2 unreleased_delivered=1 pr_source=degraded main=main');
 });
 
 test('scan: --offline skips git-host PR enumeration and reports pr_source=off', () => {
@@ -479,4 +479,37 @@ test('scan: section-2 counts in the summary footer stay exact', () => {
   const last = out.trim().split('\n').at(-1);
   // solo (merged-PR head) + fanout (merged branch) = 2; live is in flight.
   assert.match(last, /\bmerged_not_delivered=2\b/);
+});
+
+// --- Section 6: delivered plans already inside a release tag ---------------
+//
+// The fourth phase went unreached for sixteen releases because nothing
+// compared two facts: a version shipped, and the plans describing it stayed at
+// Delivered. Neither side was wrong alone, so neither complained.
+
+test('scan: the US separator never leaks into a report line', () => {
+  // Adding `type` as an eighth field broke section 2 until every read loop
+  // named it: an unread trailing field lands in the last one READ, separator
+  // and all, printing "(PRs: 1\x1Ffeature)". Same class as the tab-collapse
+  // bugs this suite has caught twice — pinned so a ninth field cannot repeat it.
+  const report = execFileSync('bash', [scan, '--no-pr'], { encoding: 'utf8', cwd: repo });
+  assert.ok(!report.includes('\x1f'),
+    'no report line may contain the field separator');
+});
+
+test('scan: section 6 exists and the footer counts it', () => {
+  const report = execFileSync('bash', [scan, '--no-pr'], { encoding: 'utf8', cwd: repo });
+  assert.match(report, /^== 6\. Delivered but already released/m);
+  const footer = report.trim().split('\n').at(-1);
+  assert.match(footer, /unreleased_delivered=\d+/,
+    'the sweep stays machine-countable — every section contributes a counter');
+});
+
+test('scan: a delivered plan with no PR annotation is unresolvable, not silent', () => {
+  // "Cannot tell" and "nothing wrong" must not look the same — that
+  // indistinguishability is the whole reason this section exists.
+  const report = execFileSync('bash', [scan, '--no-pr'], { encoding: 'utf8', cwd: repo });
+  const line = report.split('\n').find((l) => l.includes('alpha.md') && l.includes('cannot resolve'));
+  assert.ok(line, 'a delivered plan without a PR reference must be reported, not skipped');
+  assert.match(line, /no PR annotation/);
 });

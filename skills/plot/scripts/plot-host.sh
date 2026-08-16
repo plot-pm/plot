@@ -18,9 +18,14 @@
 #                                 create a PR, print its URL
 #   pr-merge <number> [--squash] [--delete-branch]
 #                                 merge the PR
-#   pr-list [--state open|merged|closed|all]
+#   pr-list [--state open|merged|closed|all] [--limit N] [--rich]
 #                                 JSON lines: {"number":N,"title":"...",
 #                                 "state":"...","head":"..."}
+#                                 --rich adds: draft, checks, review, url —
+#                                 `url` so a consumer never has to construct
+#                                 one (it is "" only if the host omits it)
+#                                 --limit raises the host CLI's default page of
+#                                 30, which --state all exhausts immediately
 #   pr-body <number> --body B     replace the PR description
 #
 # Backend resolution: $PLOT_HOST (github|bitbucket) wins — useful for tests —
@@ -88,9 +93,12 @@ case "$op" in
       esac
     done
     if [ "$be" = "github" ]; then
-      out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url 2>/dev/null)" \
-        && jq -c '{number:.number,state:.state,draft:.isDraft,url:.url}' <<<"$out" \
-        || echo '{"number":0,"state":"NONE","draft":false,"url":""}'
+      # mergeCommit is what lets a caller ask "which release contains this?" —
+      # `git tag --contains <sha>` answers exactly, where dates cannot. It is ""
+      # for anything unmerged, which is the honest answer rather than a guess.
+      out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit 2>/dev/null)" \
+        && jq -c '{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // "")}' <<<"$out" \
+        || echo '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}'
     else
       if [[ "$ref" =~ ^[0-9]+$ ]]; then
         out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json 2>/dev/null)" \
@@ -159,18 +167,82 @@ case "$op" in
 
   pr-list)
     state="open"
+    rich=0
+    # `gh pr list` and `bb pr list` both cap at 30 by default. That is invisible
+    # with --state open (few repos have 30 open PRs) and bites immediately with
+    # --state all, where the newest 30 crowd out every older merged PR. A caller
+    # that wants history says how much; the default stays the host's, so no
+    # existing caller's result changes.
+    limit=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --state) state="${2:?}"; shift 2 ;;
+        --limit) limit="${2:?}"; shift 2 ;;
+        --rich) rich=1; shift ;;
         *) die "pr-list: unknown arg $1" ;;
       esac
     done
+    limit_args=()
+    [ -n "$limit" ] && limit_args=(--limit "$limit")
     if [ "$be" = "github" ]; then
-      gh pr list --state "$state" --json number,title,state,headRefName \
-        | jq -c '.[] | {number:.number,title:.title,state:.state,head:.headRefName}'
+      if [ "$rich" = 1 ]; then
+        # `checks` has FOUR states, and two of them mean "a person is the
+        # blocker" rather than "a machine is busy":
+        #
+        #   none     — empty rollup. GitHub starts no workflows for bot PRs
+        #              until a human approves the run. Reporting this as pending
+        #              would show CI running while nothing runs, and nobody
+        #              would look.
+        #   failing  — includes ACTION_REQUIRED, which is the same situation
+        #              seen from the other side: the run exists but waits on a
+        #              human. It is deliberately NOT pending.
+        #   pending  — genuinely queued or in progress. Only this one means a
+        #              machine is working.
+        #   green    — everything concluded successfully.
+        #
+        # One red check among green ones counts red: `any` is checked before
+        # the pending branch, so a mixed rollup never reads as "still running".
+        #
+        # `review` stays informational: a repo that does not review through the
+        # host emits "" here, and no consumer may turn that into a gate.
+        # `url` comes from the host, never from a consumer. A board or a report
+        # that templated github.com from a config key would produce a plausible
+        # link and a wrong one for GitHub Enterprise or self-hosted Bitbucket —
+        # this script is the ONE place that knows what a host URL looks like
+        # (Principle 3), and pr-state already reads it from exactly here.
+        gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
+          --json number,title,state,headRefName,isDraft,statusCheckRollup,reviewDecision,url \
+          | jq -c '.[] | {
+              number:.number, title:.title, state:.state, head:.headRefName,
+              draft:.isDraft,
+              checks:(
+                if (.statusCheckRollup|length) == 0 then "none"
+                elif any(.statusCheckRollup[]; (.conclusion // .state) as $c
+                         | $c=="FAILURE" or $c=="ERROR" or $c=="CANCELLED"
+                           or $c=="TIMED_OUT" or $c=="ACTION_REQUIRED") then "failing"
+                elif any(.statusCheckRollup[]; (.conclusion // .state) as $c
+                         | $c=="PENDING" or $c=="IN_PROGRESS" or $c=="QUEUED"
+                           or $c=="WAITING" or $c==null) then "pending"
+                else "green" end),
+              review:(.reviewDecision // ""),
+              url:.url
+            }'
+      else
+        gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
+          --json number,title,state,headRefName \
+          | jq -c '.[] | {number:.number,title:.title,state:.state,head:.headRefName}'
+      fi
     else
-      bb pr list --state "$state" --json \
-        | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name}'
+      # Bitbucket carries no check rollup through `bb pr list`. Rather than
+      # guess, --rich reports checks:"unknown" — a consumer must render that as
+      # "unavailable", never as green. An honest gap beats an invented answer.
+      if [ "$rich" = 1 ]; then
+        bb pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} --json \
+          | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",review:"",url:(.links.html.href // "")}'
+      else
+        bb pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} --json \
+          | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name}'
+      fi
     fi
     ;;
 

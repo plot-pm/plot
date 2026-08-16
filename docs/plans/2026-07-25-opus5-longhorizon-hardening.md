@@ -7,7 +7,7 @@
 - **Phase:** Approved
 - **Type:** feature
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
-- **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
+- **Story:** plot-gates
 
 ## Approval
 

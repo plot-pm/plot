@@ -75,13 +75,39 @@ describe('summariseWaves — what a board card shows', () => {
     // Optional: pre-wave plans and older helper output must still produce a
     // valid card.
     const card = CardSchema.parse({
-      slug: 'x', title: 'X', type: 'feature', phase: 'Approved', path: 'docs/plans/x.md',
+      slug: 'x', title: 'X', type: 'feature', phase: 'Development', path: 'docs/plans/x.md',
       waveSummary: { waves: 2, branches: 3, claimed: 1, deferred: 0 },
     });
     expect(card.waveSummary?.claimed).toBe(1);
     const bare = CardSchema.parse({
-      slug: 'y', title: 'Y', type: 'docs', phase: 'Draft', path: 'docs/plans/y.md',
+      slug: 'y', title: 'Y', type: 'docs', phase: 'Design', path: 'docs/plans/y.md',
     });
     expect(bare.waveSummary).toBeUndefined();
+  });
+});
+
+describe('CardSchema — pull requests', () => {
+  const base = { slug: 'x', title: 'X', type: 'feature', path: 'docs/plans/x.md' };
+
+  it('carries each PR as a number plus the host-supplied url', () => {
+    const card = CardSchema.parse({
+      ...base, phase: 'Endgame',
+      prs: [{ number: 113, url: 'https://example.test/pr/113' }],
+    });
+    expect(card.prs).toEqual([{ number: 113, url: 'https://example.test/pr/113' }]);
+  });
+
+  it('accepts a PR with no url — the board renders no link rather than guessing', () => {
+    // The host adapter is the only thing that knows a PR's address. Where it
+    // reports none (older CLI, PR data not fetched yet), the number stands
+    // alone. A URL composed here would be wrong on GitHub Enterprise and on
+    // every self-hosted Bitbucket.
+    const card = CardSchema.parse({ ...base, phase: 'Development', prs: [{ number: 9 }] });
+    expect(card.prs[0]).toEqual({ number: 9, url: '' });
+  });
+
+  it('defaults to no PRs, so a plan that names none is not a degraded card', () => {
+    const card = CardSchema.parse({ ...base, phase: 'Design' });
+    expect(card.prs).toEqual([]);
   });
 });

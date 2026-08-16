@@ -490,3 +490,73 @@ test('fleet: --loose DOES open a wave when the host reports a ready PR', () => {
   fs.rmSync(shim, { recursive: true, force: true });
   fs.rmSync(t, { recursive: true, force: true });
 });
+
+// --- --json: the machine rendering -----------------------------------------
+//
+// The scan's prose is a HUMAN interface, not a contract (Manifesto Principle
+// 3). That is exactly why `--json` exists: the board must not screen-scrape
+// lines like "  Tracer — eligible", where a wording change would silently
+// break it. Two properties matter, and the second matters more.
+
+test('--json leaves the human report byte-identical', () => {
+  const prose = execFileSync('bash', [scan, '--offline'], { encoding: 'utf8', cwd: repo });
+  // Same run, same repo, no --json: adding a machine mode must not reshape the
+  // rendering people read. This is the regression that protects the change.
+  const again = execFileSync('bash', [scan, '--offline'], { encoding: 'utf8', cwd: repo });
+  assert.equal(again, prose, 'the prose report must be stable across runs');
+  const json = execFileSync('bash', [scan, '--offline', '--json'], { encoding: 'utf8', cwd: repo });
+  assert.doesNotMatch(json, /^plot-fleet pulse/m, '--json must not emit the prose banner');
+  assert.doesNotMatch(json, /Pulse complete/, '--json must not emit the prose footer');
+});
+
+test('--json emits one parseable object carrying the derived state', () => {
+  const out = execFileSync('bash', [scan, '--offline', '--json'], { encoding: 'utf8', cwd: repo });
+  const doc = JSON.parse(out); // throws → test fails, which is the assertion
+
+  assert.equal(doc.main, 'main');
+  assert.ok(Array.isArray(doc.plans), 'plans must be an array');
+
+  const fleet = doc.plans.find((p) => p.file.includes('2026-01-01-fleet.md'));
+  assert.ok(fleet, 'the wave-structured plan must appear');
+
+  const names = fleet.waves.map((w) => w.name);
+  assert.deepEqual(names, ['Tracer', 'Implementation', 'Wave 3'],
+    'wave order and names come from the plan, unchanged');
+
+  const byName = (n) => fleet.waves.find((w) => w.name === n);
+  assert.equal(byName('Tracer').verdict, 'complete');
+  assert.equal(byName('Implementation').verdict, 'eligible');
+  assert.equal(byName('Wave 3').verdict, 'blocked');
+
+  // The state vocabulary is the script's INTERNAL one, not the prose labels:
+  // "wip", never "in progress". The board must not parse a human label.
+  const impl = byName('Implementation').branches;
+  const find = (b) => impl.find((x) => x.branch === b);
+  assert.equal(find('feature/claimed-one').state, 'claimed');
+  assert.equal(find('feature/unclaimed').state, 'open');
+  assert.equal(find('feature/dropped').state, 'deferred');
+  assert.equal(find('feature/dropped').deferred, true);
+  assert.ok(find('feature/claimed-one').claimed.includes('session-1'),
+    'the claim note travels with the branch');
+
+  // House style, matching plot-plan-meta.sh: `branch`, and "" (not null) for
+  // an absent claim. Two JSON conventions in one repo is the thing to avoid.
+  assert.equal(find('feature/unclaimed').claimed, '');
+
+  assert.equal(doc.summary.plans, 2, 'both fixture plans are counted');
+  assert.equal(doc.summary.deferred, 1);
+  assert.equal(doc.summary.blocked, 1);
+});
+
+test('--json composes with other flags rather than implying them', () => {
+  // A flag that silently changed network behaviour would make the board's data
+  // depend on HOW it asked rather than WHAT it asked for.
+  const a = execFileSync('bash', [scan, '--offline', '--json'], { encoding: 'utf8', cwd: repo });
+  const b = execFileSync('bash', [scan, '--json', '--offline'], { encoding: 'utf8', cwd: repo });
+  assert.deepEqual(JSON.parse(a), JSON.parse(b), 'flag order must not matter');
+
+  // --next is a different output mode and wins: it prints one branch name.
+  const next = execFileSync('bash', [scan, '--offline', '--json', '--next'],
+    { encoding: 'utf8', cwd: repo }).trim();
+  assert.doesNotMatch(next, /[{}]/, '--next stays a bare branch name, not JSON');
+});

@@ -9,8 +9,10 @@ import {
   type Board,
   type Card,
   type Column,
+  type CardPr,
   type SprintCard,
   type StoryCard, summariseWaves } from '../contract/schema.js';
+import { prsByNumber } from './fleet.js';
 
 /**
  * Where to look. `repoRoot` is the adopting project (source of plans / sprints
@@ -34,6 +36,47 @@ function resolvedRepoRoot(opts: BuildBoardOptions): string {
     return fs.realpathSync(opts.repoRoot);
   } catch {
     return opts.repoRoot;
+  }
+}
+
+/**
+ * Count a release checklist: `- [x]` over `- [ ]`.
+ *
+ * This is a SECOND contract surface — a markdown shape no other script reads,
+ * the class of dependency that let a broken board call sit unnoticed for five
+ * months. It earns its place only because the Endgame column asks *what is left
+ * before signoff*, which "Delivered" does not answer, and because the parse is
+ * small enough to pin completely with tests.
+ *
+ * Deliberately strict: only list items at the start of a line, only `x` (any
+ * case) as done. Anything else is not counted rather than guessed at — a wrong
+ * `15/27` looks exactly as authoritative as a right one.
+ */
+export function countChecklist(text: string): { done: number; total: number } | null {
+  let done = 0;
+  let total = 0;
+  for (const line of text.split('\n')) {
+    const m = /^\s*[-*]\s+\[([ xX])\]\s/.exec(line);
+    if (!m) continue;
+    total += 1;
+    if (m[1] !== ' ') done += 1;
+  }
+  return total > 0 ? { done, total } : null;
+}
+
+/**
+ * The newest release checklist, or null. A missing, empty or unparseable file
+ * produces no badge — never a guessed number.
+ */
+function readChecklist(repoRoot: string, releaseDir: string): { done: number; total: number } | null {
+  try {
+    const dir = path.join(repoRoot, releaseDir);
+    const files = fs.readdirSync(dir).filter((f) => /-checklist\.md$/.test(f)).sort();
+    const newest = files.at(-1);
+    if (!newest) return null;
+    return countChecklist(fs.readFileSync(path.join(dir, newest), 'utf8'));
+  } catch {
+    return null;
   }
 }
 
@@ -208,9 +251,17 @@ export function buildBoard(opts: BuildBoardOptions): Board {
 
   const repoRoot = resolvedRepoRoot(opts);
   const files = collectPlanFiles(repoRoot, planDir);
+  // Links come from the host adapter's own `url`, read out of the fleet's PR
+  // cache — the board holds no rule for turning a number into an address. null
+  // until the first fetch lands, which costs a card its link and never a wrong
+  // one.
+  const prLinks = prsByNumber(opts);
   const cards: Card[] = [];
   for (const meta of readPlanMeta(opts.scriptsDir, files)) {
-    const phase = toBoardPhase(meta.phase);
+    // `started` decides the Design/Development boundary, so it is read BEFORE
+    // the phase rather than attached to the card afterwards.
+    const started = meta.started_raw.length > 0;
+    const phase = toBoardPhase(meta.phase, started);
     if (!phase) continue;
     const slug = planSlug(meta.file);
     const card: Card = {
@@ -219,11 +270,17 @@ export function buildBoard(opts: BuildBoardOptions): Board {
       type: meta.type || 'unknown',
       phase,
       path: path.relative(repoRoot, meta.file),
+      prs: meta.prs.map((number): CardPr => ({
+        number,
+        url: prLinks?.get(number)?.url ?? '',
+      })),
     };
     if (meta.sprint) card.sprint = meta.sprint;
     if (meta.story) card.story = meta.story;
     if (meta.assignee) card.assignee = meta.assignee;
-    if (phase === 'Approved') card.started = meta.started_raw.length > 0;
+    // Kept for the tile's Ready/In-progress badge; the column now says the same
+    // thing, but a Development card still benefits from the explicit flag.
+    if (meta.phase === 'approved') card.started = started;
     // Only carry wave state where it says something — a pre-wave plan or a
     // single unnamed wave adds noise to the tile rather than information.
     if (meta.waves.length > 1) card.waveSummary = summariseWaves(meta.waves);
@@ -238,6 +295,12 @@ export function buildBoard(opts: BuildBoardOptions): Board {
   return {
     generatedAt: new Date().toISOString(),
     columns,
+    // Unavailable until the server says otherwise: this walker reads plans and
+    // knows nothing about the socket the board is bound to, and "can I start
+    // work" is a question about that socket. index.ts overwrites it at response
+    // time, where the binding is known.
+    dispatch: { available: false, reason: '' },
+    checklist: readChecklist(repoRoot, readConfig(opts, 'Release directory', 'docs/releases/')),
     sprints: collectSprints(repoRoot, sprintDir),
     stories: collectStories(repoRoot, storyDir),
   };

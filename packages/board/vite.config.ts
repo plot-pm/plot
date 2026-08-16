@@ -19,6 +19,15 @@ function boardApi() {
         try {
           const { buildBoard } = await server.ssrLoadModule('/src/server/board.ts');
           const board = buildBoard({ repoRoot, scriptsDir });
+          // The dev server mirrors /api/board only — it has no POST
+          // /api/dispatch to answer. Say so, so Start work renders disabled
+          // WITH a reason rather than silently inert: a control that offers
+          // nothing and explains nothing is the failure mode the whole route
+          // is arranged against.
+          board.dispatch = {
+            available: false,
+            reason: 'the dev server serves board data only — run `pnpm board` to start work',
+          };
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify(board));
         } catch (err) {

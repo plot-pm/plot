@@ -48,6 +48,10 @@ export const PlanMetaSchema = z.object({
   review: z.string().default('NONE'),
   impl: z.string().default('NONE'),
   approved_raw: z.string().default(''),
+  // Empty until /plot-release records it. Defaulted so a plan written
+  // before the field existed still parses — the board must never fail on
+  // an old plan file.
+  released_raw: z.string().default(''),
   started_raw: z.array(z.string()).default([]),
   error: z.string().optional(),
 });
@@ -55,9 +59,44 @@ export type PlanMeta = z.infer<typeof PlanMetaSchema>;
 
 // ─── Board output: what GET /api/board returns ───────────────────────────────
 
-/** The four lifecycle phases the board renders as columns, in order. */
-export const BOARD_PHASES = ['Draft', 'Approved', 'Delivered', 'Released'] as const;
+/**
+ * The columns the board renders, in order. These are the WORKFLOW phases, which
+ * differ from the plan's four lifecycle states by asking *who leads* rather
+ * than *what has happened*:
+ *
+ *   Discovery    shaping a story          👤 human-led
+ *   Design       Draft, and Approved with no Started: record   👤 human-led
+ *   Development  Approved WITH a Started: record               🤖 agent-led
+ *   Endgame      Delivered, not yet Released                   👤 human-led
+ *   Released     done
+ *
+ * `Approved` therefore spans a boundary: a plan nobody has started sits at the
+ * end of Design, one with work in flight is in Development. That distinction —
+ * human-led versus agent-led — is what the whole four-phase model turns on, and
+ * the board already had the data for it (`started`) without reading it as a
+ * phase change.
+ *
+ * Development ends at the MERGE, not at the release: Delivered means the code
+ * landed and the agents are done, so what remains is verification and signoff.
+ * A column is a partition, so Delivered belongs to Endgame alone.
+ */
+export const BOARD_PHASES = [
+  'Discovery', 'Design', 'Development', 'Endgame', 'Released',
+] as const;
 export type Phase = (typeof BOARD_PHASES)[number];
+
+/**
+ * Who leads each column. Carried as a symbol AND a word, never as colour alone:
+ * roughly one man in twelve distinguishes red from green poorly, and the same
+ * page shows up in greyscale screenshots. Colour may only repeat what these say.
+ */
+export const PHASE_LEADERSHIP: Record<Phase, { icon: string; who: string }> = {
+  Discovery: { icon: '👤', who: 'human-led' },
+  Design: { icon: '👤', who: 'human-led' },
+  Development: { icon: '🤖', who: 'agent-led' },
+  Endgame: { icon: '👤', who: 'human-led' },
+  Released: { icon: '✓', who: 'done' },
+};
 
 /** Sprint lifecycle phases (parsed from sprint files, not plan files). */
 export const SPRINT_PHASES = ['Planning', 'Committed', 'Active', 'Closed'] as const;
@@ -94,6 +133,24 @@ export function summariseWaves(waves: PlanMeta['waves']): WaveSummary {
   return { waves: waves.length, branches, claimed, deferred };
 }
 
+/**
+ * A pull request as a card names it: the number the plan wrote down, and the
+ * link the HOST gave us for it.
+ *
+ * `url` is empty whenever the board does not know one — the PR data has not
+ * landed yet, or the host CLI reported none. The board never fills that gap:
+ * nothing under `packages/board/src` may learn that a PR number plus a repo
+ * makes a github.com address, because the same arithmetic produces a confidently
+ * wrong link for GitHub Enterprise or a self-hosted Bitbucket. An empty `url`
+ * renders as plain text, exactly as Bitbucket's `checks:"unknown"` renders as
+ * unavailable rather than green.
+ */
+export const CardPrSchema = z.object({
+  number: z.number(),
+  url: z.string().default(''),
+});
+export type CardPr = z.infer<typeof CardPrSchema>;
+
 export const CardSchema = z.object({
   slug: z.string(),
   title: z.string(),
@@ -109,6 +166,12 @@ export const CardSchema = z.object({
   started: z.boolean().optional(),
   /** Repo-relative path, e.g. docs/plans/2026-07-12-kanban-board-v1.md */
   path: z.string(),
+  /**
+   * The plan's pull requests, in the order `plot-plan-meta.sh` reports them
+   * (sorted, unique). Defaults to empty — a plan that names none is the common
+   * case, not a degraded one.
+   */
+  prs: z.array(CardPrSchema).default([]),
   /**
    * Glanceable wave state for a card: how many waves, how much outstanding
    * work, how much of it is taken. Deliberately a summary rather than the
@@ -141,9 +204,36 @@ export const StoryCardSchema = z.object({
 });
 export type StoryCard = z.infer<typeof StoryCardSchema>;
 
+/**
+ * Whether the server will act on a Start work click, and why not.
+ *
+ * A statement about the SERVER, not about any plan — which is why it rides on
+ * the board document rather than on a card. The route refuses a non-localhost
+ * binding with 403; without this the button could only learn that by being
+ * clicked, and a control that looks live and then refuses is a worse answer
+ * than one that says up front what it cannot do.
+ *
+ * Defaults to unavailable so an older server (which sends no such field) makes
+ * a newer client hide the button rather than offer one that 404s.
+ */
+export const DispatchInfoSchema = z.object({
+  available: z.boolean(),
+  /** Empty when available; a human sentence otherwise. */
+  reason: z.string().default(''),
+});
+export type DispatchInfo = z.infer<typeof DispatchInfoSchema>;
+
 export const BoardSchema = z.object({
   generatedAt: z.string(),
   columns: z.array(ColumnSchema),
+  /** See DispatchInfoSchema — a server capability, not plan data. */
+  dispatch: DispatchInfoSchema.default({ available: false, reason: '' }),
+  /**
+   * Newest release checklist, for the Endgame column: what is left before
+   * signoff. null when no checklist exists or none could be parsed — the board
+   * shows no badge rather than a guessed count.
+   */
+  checklist: z.object({ done: z.number(), total: z.number() }).nullable(),
   sprints: z.array(SprintCardSchema),
   stories: z.array(StoryCardSchema),
 });
@@ -153,17 +243,135 @@ export type Board = z.infer<typeof BoardSchema>;
  * Map a helper `phase` value to a board column, or null if the plan should not
  * appear on the board (rejected / superseded / unknown / legacy plans).
  */
-export function toBoardPhase(helperPhase: string): Phase | null {
+export function toBoardPhase(helperPhase: string, started = false): Phase | null {
   switch (helperPhase) {
     case 'draft':
-      return 'Draft';
+      return 'Design';
     case 'approved':
-      return 'Approved';
+      // The one place the board reads a plan state as two phases. Without a
+      // Started: record the plan is Ready — designed, waiting for a person to
+      // begin. With one, an agent is working.
+      return started ? 'Development' : 'Design';
     case 'delivered':
-      return 'Delivered';
+      return 'Endgame';
     case 'released':
       return 'Released';
     default:
       return null;
   }
 }
+
+// --- Fleet: what agents are doing, and what they wait for -------------------
+//
+// A different time axis from the board above: minutes rather than days,
+// processes rather than artifacts. Kept in the same contract file because both
+// are things the server promises the client, but deliberately its own document
+// — forcing them together would answer each question halfway.
+
+/** The scan's INTERNAL vocabulary, not the prose labels people read. */
+export const BranchStateSchema = z.enum(['open', 'wip', 'merged', 'claimed', 'deferred']);
+export type BranchState = z.infer<typeof BranchStateSchema>;
+
+export const WaveVerdictSchema = z.enum(['complete', 'eligible', 'blocked']);
+export type WaveVerdict = z.infer<typeof WaveVerdictSchema>;
+
+export const FleetBranchSchema = z.object({
+  branch: z.string(),
+  state: BranchStateSchema,
+  deferred: z.boolean(),
+  /** Claim note from the plan, or "" — never null (house style). */
+  claimed: z.string(),
+});
+export type FleetBranch = z.infer<typeof FleetBranchSchema>;
+
+export const FleetWaveSchema = z.object({
+  name: z.string(),
+  verdict: WaveVerdictSchema,
+  branches: z.array(FleetBranchSchema),
+});
+
+export const FleetPlanSchema = z.object({
+  file: z.string(),
+  waves: z.array(FleetWaveSchema),
+});
+
+/** The raw `plot-fleet-scan.sh --json` document, parsed. */
+export const FleetPulseSchema = z.object({
+  main: z.string(),
+  head: z.string(),
+  plans: z.array(FleetPlanSchema),
+  summary: z.object({
+    plans: z.number(),
+    waves: z.number(),
+    branches: z.number(),
+    claimed: z.number(),
+    eligible: z.number(),
+    blocked: z.number(),
+    deferred: z.number(),
+  }),
+});
+export type FleetPulse = z.infer<typeof FleetPulseSchema>;
+
+/**
+ * Groups are ordered by what they ask OF YOU, not by plan: review it, nothing,
+ * nothing, go check whether it died, decide whether to start it. Sorted this
+ * way the list is workable top to bottom, and when only `working` is populated
+ * you can walk away.
+ */
+export const WaitingGroupSchema = z.enum([
+  'waiting-on-you',
+  'working',
+  'waiting-on-machine',
+  'quiet',
+  'not-started',
+  'done',
+]);
+export type WaitingGroup = z.infer<typeof WaitingGroupSchema>;
+
+export const AgentRowSchema = z.object({
+  /** Constant today. Present so the second repo is an addition, not a rebuild. */
+  repo: z.string(),
+  branch: z.string(),
+  /** Display name: the plan file without its date prefix or `.md`. */
+  plan: z.string(),
+  /**
+   * The plan's FILENAME (basename, with date prefix and extension) — what
+   * `/plan/<file>` needs. Kept beside `plan` rather than reconstructed from it,
+   * because stripping the date is lossy and no consumer should have to guess
+   * it back. Defaults to "" so an older pulse still validates; a row with none
+   * renders its plan as plain text.
+   */
+  planFile: z.string().default(''),
+  wave: z.string(),
+  state: BranchStateSchema,
+  group: WaitingGroupSchema,
+  /** Minutes since the branch tip, or null when there is no branch yet. */
+  ageMinutes: z.number().nullable(),
+  note: z.string(),
+  /**
+   * The open PR for this branch, if the host reported one. `url` may be "" even
+   * when `number` is set — an older host CLI reports no address — and the row
+   * then shows the number without a link rather than inventing one.
+   */
+  pr: z.object({ number: z.number(), url: z.string().default('') }).nullable().default(null),
+});
+export type AgentRow = z.infer<typeof AgentRowSchema>;
+
+export const FleetSchema = z.object({
+  generatedAt: z.string(),
+  /** Seconds since the cached scan completed — the tab shows this. */
+  ageSeconds: z.number(),
+  /** False until the first scan lands: "not ready yet", never an empty fleet. */
+  ready: z.boolean(),
+  /** Last scan error, if any. A failed refresh never clears a good result. */
+  error: z.string().nullable(),
+  rows: z.array(AgentRowSchema),
+  summary: FleetPulseSchema.shape.summary,
+  /**
+   * PR data ages separately from the pulse, because the two sources fail
+   * separately. null means it has never landed — not that it is fresh.
+   */
+  prAgeSeconds: z.number().nullable(),
+  prError: z.string().nullable(),
+});
+export type Fleet = z.infer<typeof FleetSchema>;

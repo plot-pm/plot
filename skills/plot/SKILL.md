@@ -9,7 +9,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 2.0.1
+  version: 2.2.0
 compatibility: Designed for Claude Code and Cursor. Requires git. Host operations (PRs, default branch) go through plot-host.sh (GitHub or Bitbucket).
 ---
 
@@ -204,7 +204,7 @@ The Release phase includes an RC verification loop. Individual plans don't track
 |------------|---------|
 | `git checkout main` | `git checkout -b plot/<action> origin/main` (disposable branch) |
 | Reading files from main | `git fetch origin main` then `git show origin/main:<path>` |
-| Pushing updates to main | `git push origin <branch>:main` (direct push) or create+merge a PR |
+| Pushing updates to main | `scripts/plot-push-main.sh <branch> main` (direct push, and reports whether protection was bypassed) or create+merge a PR |
 | Switching to an existing branch | You're likely already on it in a worktree; otherwise `git checkout -b <name> origin/<name>` |
 
 This applies to all spoke commands. `git checkout -b <new-branch> origin/main` is fine — it creates a new branch without checking out main.
@@ -327,8 +327,12 @@ git checkout -b plot/fix-phase-<slug> origin/main
 # Fix the Phase field in docs/plans/YYYY-MM-DD-<slug>.md
 git add docs/plans/YYYY-MM-DD-<slug>.md
 git commit -m "plot: fix phase for <slug>"
-git push origin plot/fix-phase-<slug>:main
+scripts/plot-push-main.sh plot/fix-phase-<slug> main
 ```
+
+If the helper reports `rejected` (exit 1), open a micro-PR from
+`plot/fix-phase-<slug>` and merge it. A `bypassed` or `unknown` report
+means the fix landed — pass it on, don't retry.
 
 ### Orphan implementation branch
 

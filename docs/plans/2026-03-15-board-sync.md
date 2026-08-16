@@ -4,10 +4,11 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Story:** plot-board
 - **Delivered:** 2026-08-15
+- **Released:** 2026-04-30, v1.0.0
 
 ## Approval
 

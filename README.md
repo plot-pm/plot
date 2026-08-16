@@ -138,6 +138,8 @@ decision record; plans carry the approved, actionable units.
 | Story | Status | About |
 |-------|--------|-------|
 | [plot-board](docs/stories/plot-board/STORY-plot-board.md) | active | Making parallel work visible — the board, the fleet, and the agent view |
+| [plot-gates](docs/stories/plot-gates/STORY-plot-gates.md) | active | Rules that do not enforce themselves — converting Plot's stated requirements into checkable ones |
+| [plot-planning-model](docs/stories/plot-planning-model/STORY-plot-planning-model.md) | active | How Plot cuts work into pieces — stories, plans, waves, sprints and what each one answers |
 
 ## Design
 

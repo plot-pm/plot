@@ -1,5 +1,122 @@
 # plot
 
+## 2.3.0
+
+### Minor Changes
+
+- [#108](https://github.com/plot-pm/plot/pull/108) [`576bde8`](https://github.com/plot-pm/plot/commit/576bde8d50d152eee8a179989a51700a7b7247a4) Thanks [@jwloka](https://github.com/jwloka)! - The board shows the four workflow phases instead of the four plan states.
+
+  Columns are now **Discovery · Design · Development · Endgame · Released**, which asks _who leads_ rather than _what has happened_: three phases are human-led and exactly one — Development — is agent-led.
+
+  **`Approved` spans a phase boundary**, and that is the substantive change. A plan with no `Started:` record sits at the end of Design, waiting for a person to begin; one with a record is in Development, where an agent is working. The board already carried that data as a Ready/In-progress badge and simply did not read it as a phase change. The badge stays only for the waiting half, since a card in Development is started by definition.
+
+  **Development ends at the merge.** A column is a partition, so Delivered belongs to Endgame alone: the code landed, the agents are done, and what remains — verification and signoff — is human-led.
+
+  Endgame cards carry the release checklist count (`22/27`), parsed from the newest `docs/releases/*-checklist.md`. "Delivered" does not answer what the column asks. A missing or unparseable file yields no badge rather than a guessed number, and the parser is pinned by tests over nested, malformed and prose-mentioning-brackets cases.
+
+  Leadership is carried by a **symbol and a word**, with colour only repeating it — roughly one man in twelve distinguishes red from green poorly, and boards turn up in greyscale screenshots.
+
+  `BOARD_PHASES` changes shape, which is a breaking change for `/api/board` consumers. All four inside this repo move with it: the client, both test suites, and the dev-server middleware.
+
+- [#109](https://github.com/plot-pm/plot/pull/109) [`a2d67f5`](https://github.com/plot-pm/plot/commit/a2d67f5e32faf684b914db3f9d6c1339dcbd1ad4) Thanks [@jwloka](https://github.com/jwloka)! - Stories become swimlanes — one row per story, plans in the column their phase puts them in.
+
+  Off by default and offered only where it can show something: with no stories, lanes would render a single "(no story)" row, which is the board with a wasted column. It is a **layout of the same board**, not a third tab — the question is still "where does this work stand", grouped by story as well as phase.
+
+  The Discovery column doubles as the row header, carrying the story's title, slug, status and plan count. A story with no plans keeps its row: "shaped, nothing planned yet" _is_ the Discovery phase, and hiding the row would hide the one thing the header exists to show.
+
+  Two cases the lane builder refuses to lose. A plan naming a story with **no file** — a typo, or a story not yet written — gets its own row labelled as such, because dropping it would make work vanish from the board. And a test pins the invariant that lanes **partition** the cards: counted twice would double-report work, dropped would hide it.
+
+  Found by looking at the result: a row is as tall as its fullest cell, and the rest stay empty. Harmless in columns, multiplied across rows — one lane with four Endgame cards pushed the next story below the fold. Cells now cap and scroll internally, so every lane stays reachable without collapsing what it holds.
+
+- [#106](https://github.com/plot-pm/plot/pull/106) [`f52fd43`](https://github.com/plot-pm/plot/commit/f52fd43573789975155558f486e751aaba245acf) Thanks [@jwloka](https://github.com/jwloka)! - The Agents tab fills its two empty groups: PR state now says whether a person or a machine is the blocker.
+
+  `plot-host.sh pr-list --rich` carries check status and review decision, so the board never talks to the host itself — Principle 3 keeps that knowledge in one place, and a board shelling out to `gh` would silently become GitHub-only.
+
+  **Check state has four cases, and two of them mean a person is the blocker.** A PR with an _empty_ rollup is neither green nor running: GitHub starts no workflow for a bot PR until a human approves the run, which happened in this repo today. Reporting that as pending would show "CI running" indefinitely while nothing ran, and nobody would look — so it lands in _waiting on you_ with the note **no checks**, saying why it is not green rather than implying it is. `ACTION_REQUIRED` is the same situation from the other side and is likewise not pending. One red check among green ones counts red.
+
+  Where the host cannot report checks at all (Bitbucket), the answer is `unknown` and the row says _unavailable_. An honest gap beats an invented verdict.
+
+  **Review state is shown and never gates.** A row carries _awaiting review_, _changes requested_ or _approved_ as a note beside its age, because an agent waiting on a review is exactly what the person reading the tab can resolve. But membership comes from checks alone: approved is approved with or without a review — a recorded approval is the plan's `Approved:` record, not a host review — and nothing downstream may treat the note as a condition.
+
+  **The two sources cache separately, each with its own age and error.** Git and the host fail independently, so a `gh` hiccup must not stale git data that was available the whole time. The footer reports both ages; a failed PR fetch keeps the last good map rather than blanking it, which would look like state changing instead of data missing.
+
+- [#112](https://github.com/plot-pm/plot/pull/112) [`4dd8699`](https://github.com/plot-pm/plot/commit/4dd8699a35f8cd196e7f0d08811327b0dc43da13) Thanks [@jwloka](https://github.com/jwloka)! - `/plot-release` records the release in the plans it shipped.
+
+  Plot's fourth phase had never been reached — not once across sixteen versioned releases. Step 4 hands off to the project's own release machinery, which is correct, and nothing came back afterwards: the version shipped, the tag landed, and the plans describing that work sat at Delivered forever.
+
+  New step 5b closes it. For each delivered plan it resolves the version **from git rather than from dates** — the last `→ #N` annotation, its merge commit, and the release tag containing it. The delivery date records when a plan was _booked_, not when its code merged; those can be months apart, and two tags may share a date, so day resolution cannot separate them even in principle.
+
+  Three things it deliberately refuses to do. It **skips docs/infra plans**, because `/plot-deliver` already told their authors they are live on merge. It **leaves unresolvable plans alone** and says so — an invented version in a transition record is a claim nobody re-checks. And it **does not move the symlink**: `delivered/` means "no longer active", not "phase is exactly Delivered".
+
+  The step ends with a gate in the shape `/plot-deliver` step 7b established, because this is a multi-file write followed by a push — worse than delivery's, since it touches N plans and a partial write leaves some released and some not with nothing to say which. `unreleased_delivered=0` from the real sweep clears it; anything else is a hard stop.
+
+  It reports what it did **not** mark, with the reason. A silently skipped plan looks identical to a plan with nothing to do — precisely the confusion that hid this for sixteen releases.
+
+- [#111](https://github.com/plot-pm/plot/pull/111) [`4e97318`](https://github.com/plot-pm/plot/commit/4e9731830d9918fd7e26eaf50c7d7a566c177682) Thanks [@jwloka](https://github.com/jwloka)! - The reconcile sweep finds delivered plans that already shipped.
+
+  Plot's fourth phase had **never been reached** — not once across sixteen versioned releases. Nothing compared the two facts: `/plot-release` ships a version, and the plans describing that version stay at Delivered. Neither side is wrong alone, so neither complained.
+
+  Section 6 asks the question git can answer exactly: _which release tag contains this plan's merge commit?_ Deliberately **not** a date comparison — the delivery date records when a plan was booked, not when its code merged (one plan here sat five months between the two), and two tags in this repo share a date, so day resolution cannot separate them even in principle. `plot-host.sh pr-state` now carries `mergeCommit` so the adapter, not the caller, owns that lookup.
+
+  docs/infra plans are skipped by type: `/plot-deliver` already tells their authors "live on main — no release needed", and reporting them would contradict a message Plot itself sends, on every sweep, forever. A plan with no PR annotation is reported as **unresolvable** rather than skipped — "cannot tell" and "nothing wrong" must not look the same, which is the confusion this whole section exists to end.
+
+  The six delivered plans in this repo are back-filled with the versions that actually shipped them (v1.0.0 through v2.2.0, and one correctly still unreleased). `plot-plan-meta.sh` gains `released_raw` so the version is readable rather than re-derivable.
+
+  Found while building it: adding a field to the parsed rows leaked the field separator into section 2's output, because one read loop still named seven fields. A test now pins that no report line may contain it — the same class as the tab-collapse bugs this suite has caught twice.
+
+## 2.2.0
+
+### Minor Changes
+
+- [#103](https://github.com/plot-pm/plot/pull/103) [`06cd57f`](https://github.com/plot-pm/plot/commit/06cd57f649884b9dc3adcd98dd5a247a95041463) Thanks [@jwloka](https://github.com/jwloka)! - The board serves `/api/fleet`: what agents are doing, and what they wait for.
+
+  Branch state was only ever visible as terminal output — real, but gone the moment the scrollback rolled. The endpoint turns `plot-fleet-scan.sh --json` into rows grouped by **the reason each one is waiting**, because each group implies a different action: review it, nothing, nothing, go check whether it died, decide whether to start it. Sorted that way the list is workable top to bottom, and when only _working_ is populated you can walk away.
+
+  **It never runs the scan.** Measured: 0.5–1.05 s per scan against a 4 s client poll, on a single-threaded server — that would block the event loop roughly a quarter of the time. The server refreshes a cache on its own timer using the async `execFile`, and every request reads the cache plus its age. Client poll rate and scan duration are decoupled, so twenty plans give you a _staler_ tab, not a _slower_ board.
+
+  Two failure modes are handled as deliberate design rather than as edge cases. Until the first scan lands the endpoint reports `ready: false` — "not ready yet", never an empty fleet. And a failed refresh **never overwrites a good result**: the tab keeps the last pulse, its age, and the error. Replacing real state with emptiness because one scan failed is what makes a monitoring view untrustworthy.
+
+  The `waiting-on-machine` group is defined but empty at this step — it needs PR data. It is still rendered, because an absent group reads as "nothing is waiting on CI", a claim this step cannot make.
+
+  **Known limit, worth stating:** this is git-only, so unpushed local work is invisible. An agent editing files without pushing shows as `not-started`.
+
+- [#102](https://github.com/plot-pm/plot/pull/102) [`b11ddbe`](https://github.com/plot-pm/plot/commit/b11ddbec1b9353c37b8c256e6261ed2f51e60a35) Thanks [@jwloka](https://github.com/jwloka)! - `plot-fleet-scan.sh --json` emits the pulse as one machine-readable object.
+
+  The scan's prose is a **human** interface — mechanical enumeration a person reads, per Principle 3. That is precisely why it is not a contract: anything consuming lines like `  Tracer — eligible` breaks the day someone improves the wording. The board is about to consume exactly this data, so the scan gains a second rendering rather than a second reader.
+
+  `--json` serialises the derivation the script already performs. Wave verdicts, per-branch state, claim notes and the summary counters come out as they exist internally: `open` · `wip` · `merged` · `claimed` · `deferred`, and `complete` · `eligible` · `blocked`. Deliberately **not** the prose labels — no consumer should parse `in progress`, a string that exists only to be read. Field names follow `plot-plan-meta.sh` (`branch`, and `""` rather than `null` for an absent claim), because two JSON conventions in one repo is worse than either.
+
+  It is an output mode and nothing more: it composes with `--offline`, `--no-fetch` and `--loose` rather than implying any of them, so the data depends on what the caller asked for rather than how. `--next` still wins — a different question with a one-line answer.
+
+  The test that matters here is not the one that parses the JSON. It is the one asserting the **human report stays byte-identical**: a machine mode is worth adding only if it leaves the thing people read untouched, and that is verifiable rather than assertable — the prose was diffed against its pre-change output, not merely against itself.
+
+- [#104](https://github.com/plot-pm/plot/pull/104) [`12310cb`](https://github.com/plot-pm/plot/commit/12310cba677be3c8755a10af6058c5e4d2e6f747) Thanks [@jwloka](https://github.com/jwloka)! - The board has a second tab: **Agents** — what each branch is waiting for.
+
+  Artifacts move in days, agents in minutes. Forcing both onto one surface answers each question halfway, so they become two tabs — which also lets them poll at different rates: the board every 30 s, the fleet every 4 s, and only while its tab is open. That poll is cheap because `/api/fleet` reads a server-refreshed cache rather than running a scan per request.
+
+  Rows are grouped by **the reason each one waits**, because each group implies a different action: review it · nothing · nothing · go check whether it died · decide whether to start it · nothing at all. Sorted that way the list is workable top to bottom, and when only _working_ is populated you can walk away.
+
+  Every group renders even when empty, `waiting on a machine` included — it needs PR data that does not exist yet, and an absent group would read as "nothing is waiting on CI", a claim this step cannot make. The footer carries the pulse age, so a stale view says so rather than looking live.
+
+  Two things were wrong the moment the tab was first rendered, and neither would have failed a test that was not looking at a screen:
+
+  - **Merged branches sat under _quiet_.** Technically right — no recent commit — and the wrong answer: "go check whether it died" is not a prompt for work that landed. Merged work now has its own **done** group, which asks nothing of you.
+  - **A note read `no commit for 30300 min`.** Minutes are the right unit for the first hour and arithmetic the reader has to do after that. Ages now scale to hours and days.
+
+- [#98](https://github.com/plot-pm/plot/pull/98) [`9d5521c`](https://github.com/plot-pm/plot/commit/9d5521c04dbf9c1ca1586051758ea65b000b1e96) Thanks [@jwloka](https://github.com/jwloka)! - `/plot-implement` sets new implementation PRs to **Ready** on a project board.
+
+  The board-sync plan promised a five-step mapping from Plot events to board columns. Four were built; the third — _new implementation PRs land in Ready_ — was not, so those PRs sat in whatever column GitHub assigned them until `/plot-deliver` moved them to Done. The middle of the lifecycle was invisible on the board, which is the part a board exists to show.
+
+  It was missed for a structural reason worth recording. The plan was written for Plot 1, where `/plot-approve` created the implementation branches itself, so the mapping table put the Ready transition there. Plot 2 split that apart: approval only records the approval, and `/plot-implement` starts the work. The step did not go missing so much as its home moved out from under it — and nothing failed, because a board update that never happens looks exactly like a board nobody configured.
+
+  The status is set at the one moment the PR both exists and has not been worked on: when the implementing session creates it. That is already the moment the brief asks for the `→ #<number>` annotation, so it is one more line of bookkeeping at a point the session is stopping anyway, rather than a new obligation somewhere else.
+
+  <!--
+  bumps:
+    skills:
+      plot-implement: minor
+  -->
+
 ## 2.1.0
 
 ### Minor Changes
