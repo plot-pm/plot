@@ -127,6 +127,24 @@ export interface AgentListProps {
    */
   pollSeconds: number | null;
   /**
+   * Seconds since the last fetch that reached the server, or null while it is
+   * still being reached.
+   *
+   * A DIFFERENT failure from `fleet.error`, and the reason this is a prop
+   * rather than a field. `fleet.error` is the server reporting that its own
+   * scan failed — a payload arrived, saying so. This is no payload at all: the
+   * server is not answering, and nothing inside a document the client never
+   * received can say that. It cost a misdiagnosis on 2026-08-16, when a page
+   * whose server had died kept drawing its last pulse with a countdown clamped
+   * at "next in 0s" and ages that went on advancing.
+   *
+   * Non-null on the FIRST failed fetch. The two outcomes are not symmetric: a
+   * hiccup that briefly reads "last heard 4s ago" costs nothing and clears
+   * itself on the next poll, while a dead server that looks healthy for two
+   * poll intervals costs a diagnosis.
+   */
+  staleSeconds?: number | null;
+  /**
    * Open a plan in the board's own modal. Absent — or returning false — where
    * the board has no card for that plan, and the plan name then stays a plain
    * link to `/plan/<file>` rather than opening an empty modal.
@@ -306,23 +324,42 @@ function Note({ row }: { row: AgentRow }) {
   );
 }
 
-export function AgentList({ fleet, pollSeconds, onOpenPlan }: AgentListProps) {
+export function AgentList({ fleet, pollSeconds, staleSeconds = null, onOpenPlan }: AgentListProps) {
+  // Whether the server is answering at all. Not the same question as
+  // `fleet.error`, which is a server that answered to say its scan failed.
+  const stale = staleSeconds !== null;
+
   // Seconds since this payload arrived. The ages the server sent are true at the
   // moment of the poll and stale a second later, so a countdown built from them
   // alone would jump by the poll interval rather than tick. This is the only
   // clock the client adds, and it runs ONLY while something is polling: a
   // counter ticking toward a refresh that is not coming is exactly the false
   // statement the countdowns exist to remove.
+  //
+  // A dead server is that same false statement one layer up, and this is where
+  // it was missing: the rule was written for a CLOSED TAB (`pollSeconds ===
+  // null`) and a tab left open on a dead server keeps polling, so the clock
+  // kept running against a scan that had stopped happening. `stale` is the
+  // second reason to stop — the poll is still going out, but nothing is coming
+  // back, so every number this clock advances is one the server has not
+  // confirmed. It resumes on its own when the fetches land again; the effect
+  // re-runs and `generatedAt` changes, so a recovered view starts from the new
+  // payload rather than from where the frozen one left off.
   const [tick, setTick] = useState(0);
   useEffect(() => {
     setTick(0);
-    if (pollSeconds === null) return;
+    if (pollSeconds === null || stale) return;
     const id = setInterval(() => setTick((n) => n + 1), 1_000);
     return () => clearInterval(id);
-  }, [pollSeconds, fleet.generatedAt]);
+  }, [pollSeconds, stale, fleet.generatedAt]);
 
   // Degrade, do not hide: before the first scan lands this says so rather than
   // showing an empty list, which would read as "no agents are working".
+  //
+  // Deliberately BEFORE the staleness check and deliberately unchanged by it: a
+  // tab that has never had an answer cannot have one it no longer trusts. The
+  // two are different statements, and merging them would make an empty view
+  // claim data it never held.
   if (!fleet.ready && !fleet.error) {
     return <p className="text-sm text-slate-500">Waiting for the first fleet scan…</p>;
   }
@@ -338,20 +375,48 @@ export function AgentList({ fleet, pollSeconds, onOpenPlan }: AgentListProps) {
   // nothing, and whether that arrives as null or undefined depends on whether
   // the response was parsed through the schema. Both mean "not reported", and
   // treating undefined as a number renders "next in NaNs".
+  //
+  // `stale` removes the countdown rather than freezing it, because a frozen
+  // number is still a prediction. "next in 3s" held at 3 says a refresh is
+  // three seconds away, and no refresh is coming; the clamp the code already
+  // had said the same thing louder, sitting at "next in 0s" — which reads as
+  // *about to happen* — for as long as the server stayed down. There is no
+  // honest number here, so there is no number.
   const gitNext =
-    pollSeconds === null || fleet.scanNextInSeconds == null
+    pollSeconds === null || stale || fleet.scanNextInSeconds == null
       ? null
       : Math.max(0, fleet.scanNextInSeconds - tick);
   // The PR countdown comes from the SERVER, because only the server knows its
   // own backoff. Absent (an older server) means no countdown at all — a client
   // assuming 60 s would count to zero and sit there through a 120 s wait.
   const prNext =
-    pollSeconds === null || fleet.prNextInSeconds == null
+    pollSeconds === null || stale || fleet.prNextInSeconds == null
       ? null
       : Math.max(0, fleet.prNextInSeconds - tick);
 
   return (
     <div className="space-y-4">
+      {/* The dead-server banner, ABOVE the scan-failure one and separate from
+          it. Two different failures: the server saying its scan broke, and the
+          server saying nothing at all. Both can be true — a scan that failed,
+          then a process that died — and the reader needs to know which they are
+          looking at, so neither replaces the other.
+
+          It names the number that was missing on 2026-08-16: how long ago the
+          last answer arrived. The frozen page gave no way to tell it apart from
+          a live one, and three hypotheses were spent before anyone checked what
+          was actually running. */}
+      {stale && (
+        <p
+          role="status"
+          className="rounded-md bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:bg-rose-950/40 dark:text-rose-300"
+        >
+          Not reaching the board server — last heard {staleSeconds}s ago. The
+          numbers below are frozen at that moment and are no longer being
+          checked.
+        </p>
+      )}
+
       {fleet.error && (
         <p className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
           Last scan failed: {fleet.error}
@@ -448,7 +513,12 @@ export function AgentList({ fleet, pollSeconds, onOpenPlan }: AgentListProps) {
             under twelve visible rows. */}
         {fleet.rows.length} branches across{' '}
         {new Set(fleet.rows.map((r) => r.plan).filter(Boolean)).size} plans · scanned{' '}
-        {fleet.ageSeconds + tick}s ago
+        {/* `tick` stops while stale, so this age freezes rather than ageing
+            against a scan that is not happening — the defect itself, since an
+            age that keeps climbing is the most confident-looking part of a dead
+            page. The word says so too: a number that has stopped moving is
+            indistinguishable from a slow one until it is labelled. */}
+        {fleet.ageSeconds + tick}s ago{stale && ' (frozen)'}
         {gitNext !== null && ` · next in ${gitNext}s`}
         {fleet.prAgeSeconds !== null && ` · PR data ${fleet.prAgeSeconds + tick}s ago`}
         {fleet.prAgeSeconds !== null && prNext !== null && ` · next in ${prNext}s`}
