@@ -2,13 +2,13 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Story:** plot-board
 - **Review:** pr
 - **Impl:** own branches
 - **Assignee:** jwloka
-- **Approved:**
+- **Approved:** 2026-08-16, jwloka, plan-PR #131 merged
 - **Started:**
 - **Delivered:**
 
@@ -466,6 +466,19 @@ written first would assert against a shape that does not exist yet.
 - macOS ships bash 3.2: no `declare -A`, no bash-4-only constructs.
 
 ## Notes
+
+**Approved but NOT dispatched, deliberately — 2026-08-16.**
+`fleet-sees-local-work` is mid-implementation on `bug/fleet-sees-local-work`
+and holds four of the files this plan's data wave opens, not the two the note
+below predicted: `fleet.ts`, `plot-fleet-scan.sh`, `schema.ts` and
+`test/unit/fleet.test.ts`. `schema.ts` is the sharp one — both plans widen
+`AgentRowSchema`, that plan with `localWorktree`/`localDirty` and this one with
+`phase`.
+
+The hold cannot be lifted by a merge-queue check, because it has no ref to
+check: that branch has **no PR**, one unpushed commit and eight uncommitted
+files. The collision is real and invisible to git — which is, exactly, the
+blindness that plan exists to fix. Dispatch this one once its PR merges.
 
 **Ordering: `board-ui-polish` must merge first.** It is mid-implementation in
 `AgentList.tsx`, `schema.ts` and `App.tsx`, and it is adding fields to
