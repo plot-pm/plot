@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-08-16, jwloka, plan-PR #113 merged
+- **Started:** 2026-08-16, jwloka, `feature/board-artifact-links`
 
 ## Approval
 
