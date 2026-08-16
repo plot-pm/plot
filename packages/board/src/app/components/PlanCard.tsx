@@ -93,12 +93,6 @@ export interface PlanCardProps {
   /** Open the plan in the in-board modal (plain left-click only). */
   onOpen: (card: Card) => void;
   /**
-   * Jump to this card's story swimlane. Absent where there is nowhere to jump —
-   * the board layout has no lanes — and the story badge stays plain text rather
-   * than becoming a link that goes nowhere.
-   */
-  onGoToStory?: (story: string) => void;
-  /**
    * The story card for `card.story`, when the board collected one. Absent for a
    * plan with no story and for one naming a story nobody has written — the
    * badge then stays plain text (or a lane jump), never a link that 404s.
@@ -122,7 +116,6 @@ export function PlanCard({
   pulse = 0,
   onStarting,
   onOpen,
-  onGoToStory,
   story,
   onOpenStory,
   highlighted = false,
@@ -168,16 +161,20 @@ export function PlanCard({
         {isReadyToStart(card) && <Badge variant="neutral">Ready</Badge>}
         {showSprint && card.sprint && <Badge variant="sprint">{card.sprint}</Badge>}
         {showStory && card.story && (
-          // Three renderings, in order of how much the badge can offer.
-          //
-          // The badge NAMES the story on the card, at triage time — which is a
-          // different question from the modal's `Open story` button, where you
+          // The badge NAMES the story on the card, at triage time — a different
+          // question from the modal's `Open story` button, which is where you
           // GO once you have stopped triaging. Both exist deliberately; this is
-          // the naming half, and it links to the story ARTEFACT because that is
-          // what the name refers to.
+          // the naming half, and it points at the story ARTEFACT, because that
+          // is what the name refers to.
           //
-          // A real anchor throughout, so cmd/ctrl/middle-click and "copy link
-          // address" behave; only the plain click is intercepted.
+          // A real anchor, so cmd/ctrl/middle-click and "copy link address"
+          // behave; only the plain click is intercepted for the overlay.
+          //
+          // A story with no FILE renders no link at all — the rule plan rows
+          // already follow for `planFile: ''`, and the reason the lane-jump
+          // fallback that used to sit here is gone: a badge that is sometimes a
+          // story and sometimes a scroll position teaches nothing, and the
+          // swimlane view still reaches every lane on its own.
           storyPage && onOpenStory && story ? (
             <a
               href={storyPage}
@@ -188,22 +185,6 @@ export function PlanCard({
               }}
               className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1"
               title={`Open the ${card.story} story`}
-            >
-              <Badge variant="story" className="hover:underline">{card.story}</Badge>
-            </a>
-          ) : onGoToStory ? (
-            // No story FILE to open — a typo, or a story nobody has written
-            // yet. The lane jump is still true and still useful, so the badge
-            // keeps it rather than going inert.
-            <a
-              href={`#story-${encodeURIComponent(card.story)}`}
-              onClick={(e) => {
-                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
-                e.preventDefault();
-                onGoToStory(card.story!);
-              }}
-              className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1"
-              title={`Go to the ${card.story} swimlane`}
             >
               <Badge variant="story" className="hover:underline">{card.story}</Badge>
             </a>

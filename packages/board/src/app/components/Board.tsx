@@ -13,9 +13,14 @@ export interface BoardViewProps {
   onStarting: (active: boolean) => void;
   /** Open a plan in the in-board modal. */
   onOpenPlan: (card: Card) => void;
-  /** Switch to lane layout and scroll to a story's row. */
-  onGoToStory: (story: string) => void;
-  /** Open a story in the in-board overlay — what a card's story badge does. */
+  /**
+   * Open a story in the in-board overlay — what a card's story badge does.
+   *
+   * It replaced a jump to the story's swimlane row. The badge names an
+   * ARTEFACT, and pointing that name at a scroll position taught a reader that
+   * the same badge sometimes opened a document and sometimes moved the page.
+   * The `Story lanes` toggle still reaches every lane.
+   */
   onOpenStory?: (story: StoryCard) => void;
   /** Slug of the card just arrived at, or "" — see PlanCard's `highlighted`. */
   highlight?: string;
@@ -28,7 +33,6 @@ export function BoardView({
   pulse,
   onStarting,
   onOpenPlan,
-  onGoToStory,
   onOpenStory,
   highlight = '',
 }: BoardViewProps) {
@@ -89,7 +93,6 @@ export function BoardView({
                     pulse={pulse}
                     onStarting={onStarting}
                     onOpen={onOpenPlan}
-                    onGoToStory={onGoToStory}
                     story={card.story ? storyBySlug.get(card.story) : undefined}
                     onOpenStory={onOpenStory}
                     highlighted={card.slug === highlight}

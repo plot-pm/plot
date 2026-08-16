@@ -214,12 +214,19 @@ export function App() {
     history.replaceState(null, '', url);
   };
 
-  // A story badge on a card in column layout has nowhere to scroll to — lanes
-  // are what render a story as a row. So the jump turns lanes on FIRST, then
-  // scrolls on the next frame, once the row it is aiming at exists. Without the
-  // deferral the element is not in the document yet and the jump silently does
-  // nothing, which looks exactly like a broken link.
-  const onGoToStory = useCallback((story: string) => {
+  /**
+   * Scroll a story's swimlane row into view, switching to lane layout first.
+   *
+   * The scroll is deferred a frame because lanes are what render a story as a
+   * row: without the deferral the element is not in the document yet and the
+   * jump silently does nothing, which looks exactly like a broken link.
+   *
+   * Called only while lanes are already on. It used to be the story badge's
+   * click handler; the badge now opens the story ARTEFACT, which is what its
+   * name refers to — a badge that sometimes opens a document and sometimes
+   * moves the page teaches a reader nothing.
+   */
+  const scrollToStoryLane = useCallback((story: string) => {
     setLanes(true);
     const url = new URL(location.href);
     url.searchParams.set('lanes', '1');
@@ -355,17 +362,24 @@ export function App() {
    * landing. Everything else matches the plan modal's version, including
    * clearing the agents tab from the URL.
    */
-  const onShowStoryInBoard = useCallback((story: StoryCard) => {
-    setOpenStory(null);
-    setTab('board');
-    const url = new URL(location.href);
-    url.searchParams.delete('tab');
-    url.searchParams.delete('plan');
-    setStorySel([story.slug]);
-    url.searchParams.set('story', story.slug);
-    history.replaceState(null, '', url);
-    setHighlight('');
-  }, []);
+  const onShowStoryInBoard = useCallback(
+    (story: StoryCard) => {
+      setOpenStory(null);
+      setTab('board');
+      const url = new URL(location.href);
+      url.searchParams.delete('tab');
+      url.searchParams.delete('plan');
+      setStorySel([story.slug]);
+      url.searchParams.set('story', story.slug);
+      history.replaceState(null, '', url);
+      setHighlight('');
+      // In lane layout the story HAS a row, so land on it. Only there: forcing
+      // lanes on a reader who chose columns would answer a question they did
+      // not ask, and the filter alone is already the landing.
+      if (lanes) scrollToStoryLane(story.slug);
+    },
+    [lanes, scrollToStoryLane],
+  );
 
   const onSprint = (values: string[]) => {
     setSprintSel(values);
@@ -536,7 +550,6 @@ export function App() {
               pulse={pulse}
               onStarting={onStarting}
               onOpenPlan={setOpenPlan}
-              onGoToStory={onGoToStory}
               onOpenStory={onOpenStory}
               highlight={validHighlight}
             />

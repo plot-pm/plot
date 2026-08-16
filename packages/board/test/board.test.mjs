@@ -141,10 +141,18 @@ describe('board: contract fields + frontmatter visibility', () => {
     assert.deepEqual(board.sprints[0], { slug: 'alpha-week', title: 'Alpha week', phase: 'Active' });
   });
 
-  it('discovers stories with title + status', async () => {
+  it('discovers stories with title + status + the path that makes them openable', async () => {
     const board = await fetchBoard(server.port);
     assert.equal(board.stories.length, 1);
-    assert.deepEqual(board.stories[0], { slug: 'kanban-board', title: 'Kanban board', status: 'active' });
+    // `path` is repo-relative and carried rather than reconstructed: the slug is
+    // both a directory name and part of the filename, so rebuilding it client
+    // side would encode that convention twice.
+    assert.deepEqual(board.stories[0], {
+      slug: 'kanban-board',
+      title: 'Kanban board',
+      status: 'active',
+      path: 'docs/stories/kanban-board/STORY-kanban-board.md',
+    });
   });
 });
 
