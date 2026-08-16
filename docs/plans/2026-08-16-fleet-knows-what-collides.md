@@ -288,7 +288,7 @@ lands, with nothing to clear.
 
 - `feature/dispatch-reports-work-in-flight` — before fanning out,
   `plot-dispatch` prints which claimed branches hold which files, read from
-  local refs and worktrees; it starts everything as before and refuses nothing
+  local refs and worktrees; it starts everything as before and refuses nothing → #156
 - `feature/fleet-row-says-blocked` — the pulse reports work-in-flight as its
   own row state, so a held-back branch stops reading `eligible — nobody has
   taken it`; derived per scan, never stored → #154 — delivers the DRAFT half
