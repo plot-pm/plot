@@ -1,0 +1,1 @@
+../2026-08-17-working-shows-the-agent.md
