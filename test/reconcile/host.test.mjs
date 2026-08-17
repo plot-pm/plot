@@ -4,7 +4,7 @@
 // argument mapping + output normalization per backend, fully offline.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { mkdtempSync, writeFileSync, readFileSync, chmodSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,18 +13,40 @@ import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const adapter = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-host.sh');
 
-function makeStubs({ ghJson = '{}', bbJson = '{}' } = {}) {
+// `fail` makes a stub exit non-zero with a chosen stderr message — the ONLY
+// way to reproduce the case this adapter now has to tell apart, because `gh`
+// exits 1 for a lookup miss AND for a transport failure and puts the whole
+// difference in its stderr. Measured against a real gh on 2026-08-17.
+// `ghFail: ''` is a REAL case, not an absent one — a CLI that fails and says
+// nothing — so the switch is `!= null`, never truthiness. Reading '' as "do not
+// fail" would silently turn that test into an assertion about success.
+function makeStubs({ ghJson = '{}', bbJson = '{}', ghFail = null, bbFail = null } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-'));
-  const stub = (name, json) => {
+  const stub = (name, json, fail) => {
     const argvFile = path.join(dir, `${name}.argv`);
-    writeFileSync(
-      path.join(dir, name),
-      `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > "${argvFile}"\nprintf '%s' '${json.replace(/'/g, `'\\''`)}'\n`,
-    );
+    const body = fail != null
+      ? `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > "${argvFile}"\n` +
+        (fail === '' ? '' : `printf '%s\\n' '${fail.replace(/'/g, `'\\''`)}' >&2\n`) +
+        `exit 1\n`
+      : `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > "${argvFile}"\n` +
+        `printf '%s' '${json.replace(/'/g, `'\\''`)}'\n`;
+    writeFileSync(path.join(dir, name), body);
     chmodSync(path.join(dir, name), 0o755);
     return argvFile;
   };
-  return { dir, ghArgv: stub('gh', ghJson), bbArgv: stub('bb', bbJson) };
+  return { dir, ghArgv: stub('gh', ghJson, ghFail), bbArgv: stub('bb', bbJson, bbFail) };
+}
+
+// Like `run`, but for the cases where the adapter is expected to FAIL: returns
+// the exit code and both streams instead of throwing, so a test can assert the
+// code, the silence on stdout, and the message on stderr as three separate
+// facts. The first two are the contract; the third is what makes it useful.
+function runAllowFail(args, { env = {}, stubs }) {
+  const res = spawnSync('bash', [adapter, ...args], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, ...env },
+  });
+  return { code: res.status, stdout: res.stdout, stderr: res.stderr };
 }
 
 function run(args, { env = {}, stubs }) {
@@ -49,6 +71,66 @@ test('host: pr-state github maps gh --json and normalizes', () => {
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(out, { number: 7, state: 'OPEN', draft: true, url: 'https://example.test/pr/7', mergeCommit: '' });
   assert.deepEqual(argvOf(stubs.ghArgv), ['pr', 'view', '7', '--json', 'number,state,isDraft,url,mergeCommit']);
+});
+
+// A TRANSPORT FAILURE AND A LOOKUP MISS ARE TWO ANSWERS, AND THEY USED TO BE
+// ONE. Both make `gh` exit 1; before this the adapter caught both with a single
+// `|| echo '{"state":"NONE"}'` and exited 0. On 2026-08-17 GitHub returned 503
+// all afternoon and every branch read as having no PR — wrong in the reassuring
+// direction, which is the worst one.
+test('host: a transport failure exits non-zero and prints nothing on stdout', () => {
+  const stubs = makeStubs({ ghFail: 'error connecting to api.github.com: 503 Service Unavailable' });
+  const res = runAllowFail(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.notEqual(res.code, 0, 'a failure the adapter could not classify must not exit 0');
+  assert.equal(res.stdout.trim(), '', 'stdout must be empty — a parseable NONE would be a false answer');
+  assert.match(res.stderr, /503/, "the host's own words reach the caller");
+});
+
+// The PAIRING that matters: a fix that exits non-zero on "no PR found" breaks
+// every caller that branches on `state`, and passes the assertion above.
+test('host: a lookup miss still exits 0 with state NONE', () => {
+  const stubs = makeStubs({ ghFail: 'no pull requests found for branch "feature/nope"' });
+  const res = runAllowFail(['pr-state', 'feature/nope'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.code, 0, 'a miss is an ANSWER, not a failure');
+  assert.deepEqual(JSON.parse(res.stdout), {
+    number: 0, state: 'NONE', draft: false, url: '', mergeCommit: '',
+  });
+});
+
+// Bitbucket runs the same rule through the same helper — one place decides, so
+// the two backends cannot drift into disagreeing about what silence means.
+test('host: bitbucket separates the two the same way', () => {
+  const miss = makeStubs({ bbFail: 'no pull requests found' });
+  const missRes = runAllowFail(['pr-state', '9'], { env: { PLOT_HOST: 'bitbucket' }, stubs: miss });
+  assert.equal(missRes.code, 0);
+  assert.equal(JSON.parse(missRes.stdout).state, 'NONE');
+
+  const down = makeStubs({ bbFail: 'could not resolve host: api.bitbucket.org' });
+  const downRes = runAllowFail(['pr-state', '9'], { env: { PLOT_HOST: 'bitbucket' }, stubs: down });
+  assert.notEqual(downRes.code, 0);
+  assert.equal(downRes.stdout.trim(), '');
+});
+
+// An UNRECOGNISED message reports "cannot ask" rather than "no PR". The rule is
+// an allowlist of miss-phrasings, not a blocklist of failures: a blocklist goes
+// stale into SILENCE the first time the CLI rewords itself, and silence here is
+// indistinguishable from a branch that genuinely has no PR.
+test('host: an unrecognised failure is treated as transport, not as a miss', () => {
+  const stubs = makeStubs({ ghFail: 'something nobody has seen before' });
+  const res = runAllowFail(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.notEqual(res.code, 0, 'unknown failures must fail loudly, never quietly answer NONE');
+});
+
+// The THIRD case, and the one that is neither: a failure carrying no diagnostic
+// at all. It reads as a miss — a transport failure is loud by nature, while
+// silence is what a miss looks like through a CLI that does not explain itself.
+// Asserted so the exception cannot be removed as an oversight: doing so would
+// give every caller of a quiet or wrapped CLI a permanent "cannot ask".
+test('host: a failure with no message at all still reads as a miss', () => {
+  const stubs = makeStubs({ ghFail: '' });
+  const res = runAllowFail(['pr-state', 'feature/nope'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.code, 0);
+  assert.equal(JSON.parse(res.stdout).state, 'NONE');
 });
 
 test('host: pr-state bitbucket normalizes DECLINED to CLOSED', () => {

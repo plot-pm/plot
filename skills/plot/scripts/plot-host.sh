@@ -69,6 +69,66 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 die() { echo "plot-host: $*" >&2; exit 1; }
 
+# A LOOKUP MISS AND A TRANSPORT FAILURE ARE TWO ANSWERS, AND THE CLI GIVES ONE
+# EXIT CODE FOR BOTH.
+#
+# Measured 2026-08-17, against a real `gh`:
+#
+#   gh pr view no-such-branch   → exit 1, stderr "no pull requests found for ..."
+#   gh pr view 1 (host unreachable) → exit 1, stderr "none of the git remotes ..."
+#
+# So the exit code cannot decide it and stderr is the only place the difference
+# survives. Before this, both fell into one `|| echo '{"state":"NONE"}'` — and
+# the board, reading NONE with exit 0, could not tell "this branch has no PR"
+# from "GitHub answered 503". On 2026-08-17 GitHub returned 503 all afternoon
+# and every branch read as having no PR, which is the reassuring direction to be
+# wrong in and therefore the worst one.
+#
+# The RULE, and the direction it fails in: a miss is recognised by its message,
+# and everything else is a transport failure. An unrecognised miss-phrasing
+# therefore reports "cannot ask" — noisy but honest — rather than "no PR",
+# which would be silent and false. A blocklist here would go stale into silence
+# the first time the CLI rewords itself.
+#
+# `LC_ALL=C` on the match: the CLI localises its messages, and a matcher that
+# only works in English would silently reclassify every miss as an outage for
+# anyone else.
+is_lookup_miss() {
+  LC_ALL=C grep -qiE 'no (pull request|pullrequest)s? (found|match)|could not find.*pull request|not found' <<<"$1"
+}
+
+# Emits the miss payload on a genuine miss and exits non-zero on anything else,
+# after putting the CLI's own words on stderr. Callers get: stdout parseable or
+# empty, exit code decisive.
+# A FAILURE WITH NO DIAGNOSTIC AT ALL IS TREATED AS A MISS, and that is a
+# deliberate exception to the allowlist above rather than an oversight.
+#
+# Three things can arrive here, not two:
+#
+#   a recognised miss phrasing  → miss    (the CLI said so)
+#   an unrecognised message     → failure (something happened; report it)
+#   NO message whatsoever       → miss    (this line)
+#
+# A transport failure is loud by nature — a socket error, an HTTP status, an
+# auth message. Silence is what a lookup miss has always looked like through a
+# CLI that does not explain itself, and `test/reconcile/host.test.mjs` has
+# pinned that expectation since before this change. Reading empty stderr as an
+# outage would give every caller of a quiet or wrapped CLI a permanent
+# "cannot ask" for branches that simply have no PR.
+#
+# The cost is stated rather than hidden: a transport failure that manages to say
+# nothing at all is still reported as NONE. That is the one case this change
+# does not fix, and it is narrower than the one it does.
+host_miss_or_fail() {
+  local err="$1" payload="$2"
+  if [ -z "$err" ] || is_lookup_miss "$err"; then
+    echo "$payload"
+    return 0
+  fi
+  echo "plot-host: $err" >&2
+  return 3
+}
+
 backend() {
   if [ -n "${PLOT_HOST:-}" ]; then
     case "$PLOT_HOST" in
@@ -117,20 +177,38 @@ case "$op" in
       # mergeCommit is what lets a caller ask "which release contains this?" —
       # `git tag --contains <sha>` answers exactly, where dates cannot. It is ""
       # for anything unmerged, which is the honest answer rather than a guess.
-      out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit 2>/dev/null)" \
-        && jq -c '{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // "")}' <<<"$out" \
-        || echo '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}'
+      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit 2>/tmp/plot-host-err.$$)"; then
+        rm -f "/tmp/plot-host-err.$$"
+        jq -c '{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // "")}' <<<"$out"
+      else
+        err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+        host_miss_or_fail "$err" \
+          '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
+      fi
     else
       if [[ "$ref" =~ ^[0-9]+$ ]]; then
-        out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json 2>/dev/null)" \
-          && jq -c '{number:.id,state:(if .state=="DECLINED" then "CLOSED" else .state end),draft:(.draft // false),url:.links.html.href}' <<<"$out" \
-          || echo '{"number":0,"state":"NONE","draft":false,"url":""}'
+        if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json 2>/tmp/plot-host-err.$$)"; then
+          rm -f "/tmp/plot-host-err.$$"
+          jq -c '{number:.id,state:(if .state=="DECLINED" then "CLOSED" else .state end),draft:(.draft // false),url:.links.html.href}' <<<"$out"
+        else
+          err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+          host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":""}' || exit $?
+        fi
       else
-        out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state all --json 2>/dev/null)" \
-          && jq -c --arg b "$ref" '[.[] | select(.source.branch.name==$b)][0] // null
+        # The list CALL succeeding and the branch being absent FROM the list are
+        # two different things, and only the second is a miss: an empty list that
+        # arrived is evidence, an list that never arrived is not. The `jq` NONE
+        # below is therefore kept (it reads a real answer) while the failure path
+        # goes through `host_miss_or_fail` like the others.
+        if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state all --json 2>/tmp/plot-host-err.$$)"; then
+          rm -f "/tmp/plot-host-err.$$"
+          jq -c --arg b "$ref" '[.[] | select(.source.branch.name==$b)][0] // null
                | if .==null then {number:0,state:"NONE",draft:false,url:""}
-                 else {number:.id,state:(if .state=="DECLINED" then "CLOSED" else .state end),draft:(.draft // false),url:.links.html.href} end' <<<"$out" \
-          || echo '{"number":0,"state":"NONE","draft":false,"url":""}'
+                 else {number:.id,state:(if .state=="DECLINED" then "CLOSED" else .state end),draft:(.draft // false),url:.links.html.href} end' <<<"$out"
+        else
+          err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+          host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":""}' || exit $?
+        fi
       fi
     fi
     ;;
