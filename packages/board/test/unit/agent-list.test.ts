@@ -23,6 +23,7 @@ import {
   changedRows,
   isActive,
   isUnpushed,
+  waitingTone,
   activityPace,
   groupPace,
   ACTIVITY_MARK_PLACE,
@@ -304,6 +305,46 @@ describe('isUnpushed — finished work nobody else can see', () => {
     const both = row({ localDirty: true, localAhead: 3 });
     expect(isActive(both)).toBe(true);
     expect(isUnpushed(both)).toBe(true);
+  });
+});
+
+describe('waitingTone — only one of the three is loud', () => {
+  it('gives `needs you` the strong colour and nothing else', () => {
+    // The section is mostly `time`: measured, this session's pulse held 43 rows
+    // with multi-wave plans routinely showing two blocked rows per eligible
+    // one. A section where every row is coloured has coloured nothing, so only
+    // the state a person can END gets the loud colour.
+    const you = waitingTone('you');
+    expect(you).toContain('amber');
+    expect(waitingTone('click')).not.toContain('amber');
+    expect(waitingTone('time')).not.toContain('amber');
+  });
+
+  it('leaves a startable row looking like every other row', () => {
+    // THE pairing. `ready to start` is available, and taking it is optional —
+    // a colour of its own would make the section shout twice and mean once.
+    // An implementation colouring all three passes "is `you` loud?" and fails
+    // here.
+    expect(waitingTone('click')).toBe(waitingTone(null));
+  });
+
+  it('makes `waiting its turn` the quietest of the three', () => {
+    // Nothing to do, ever, and the most common state in a multi-wave plan.
+    expect(waitingTone('time')).not.toBe(waitingTone(null));
+    expect(waitingTone('time')).toContain('slate-400');
+  });
+
+  it('animates nothing — colour is a property, motion is an accusation', () => {
+    // `board-watches-for-stuck-branches` settled that motion marks an
+    // UNANSWERED REQUEST. A Draft plan minutes old is not that; it is the
+    // ordinary state of a plan just written, and animating it would interrupt
+    // a reader about their own work in progress. The escalation for a Draft
+    // that has sat for days is specified in the plan and deliberately unbuilt:
+    // 30 of this repo's 31 approved plans were approved the day they were
+    // drafted, so the state it would mark has never occurred here.
+    for (const w of ['you', 'click', 'time', null] as const) {
+      expect(waitingTone(w)).not.toMatch(/animate/);
+    }
   });
 });
 
@@ -1118,8 +1159,13 @@ describe('the activity mark is a track with a travelling dot', () => {
 });
 
 describe('isStartable — which NOT STARTED rows offer work', () => {
+  // A startable row: the FIELD says `click`, and the note is kept beside it
+  // because that is what the server sends — but nothing here reads it.
   const notStarted = (over: Partial<AgentRow> = {}) =>
-    row({ group: 'not-started', state: 'open', ageMinutes: null, note: ELIGIBLE_NOTE, ...over });
+    row({
+      group: 'not-started', state: 'open', ageMinutes: null,
+      waitingOn: 'click', note: ELIGIBLE_NOTE, ...over,
+    });
 
   it('offers a branch no earlier wave blocks', () => {
     expect(isStartable(notStarted())).toBe(true);
@@ -1131,16 +1177,24 @@ describe('isStartable — which NOT STARTED rows offer work', () => {
     // would offer to skip the ordering waves exist to express, and
     // plot-dispatch.sh refuses that branch — so the board would be inviting an
     // action the tool declines.
-    expect(isStartable(notStarted({ note: 'blocked by an earlier wave' }))).toBe(false);
+    expect(isStartable(notStarted({ waitingOn: 'time', note: 'blocked by Truth' }))).toBe(false);
   });
 
-  it('reads the eligible note from the contract, not from a copy of the sentence', () => {
-    // The split survives onto a row only as this note — the row carries no
-    // verdict field. A second copy of the sentence would let a reword take the
-    // button away with nothing failing, so the test asserts the SHARED
-    // constant is what the row is matched against.
-    expect(isStartable(notStarted({ note: ELIGIBLE_NOTE }))).toBe(true);
-    expect(isStartable(notStarted({ note: `${ELIGIBLE_NOTE} (probably)` }))).toBe(false);
+  it('reads the FIELD, and no wording of the note can change its answer', () => {
+    // This test used to assert the opposite mechanism — that the row is matched
+    // against the shared `ELIGIBLE_NOTE` constant — and its own reason for
+    // existing was that "a reword would take the button away with nothing
+    // failing". The reword arrived: the same change that added `waitingOn` gave
+    // the blocked note the wave's name.
+    //
+    // So the reason survives and the mechanism is inverted. The note is now
+    // prose for humans and decides nothing: a row with the WRONG note is still
+    // startable, and a row with the right note is not startable without the
+    // field. Those two are the assertion — a rule still reading the sentence
+    // passes neither.
+    expect(isStartable(notStarted({ waitingOn: 'click', note: 'anything at all' }))).toBe(true);
+    expect(isStartable(notStarted({ waitingOn: 'time', note: ELIGIBLE_NOTE }))).toBe(false);
+    expect(isStartable(notStarted({ waitingOn: null, note: ELIGIBLE_NOTE }))).toBe(false);
   });
 
   it('offers nothing on a row that already has a branch and a claim', () => {
@@ -1157,11 +1211,11 @@ describe('isStartable — which NOT STARTED rows offer work', () => {
     // refuses a drafted plan's branches exactly as it refuses a wave-blocked
     // one, so the button must not appear on either.
     //
-    // It comes out right by CONSTRUCTION — `isStartable` matches the eligible
-    // sentence, so any other note loses the button without a second rule to
-    // keep in step. Pinned anyway: that is a property worth failing loudly if
-    // someone later loosens the match to a substring.
-    expect(isStartable(notStarted({ note: DRAFT_PLAN_NOTE }))).toBe(false);
+    // It comes out right by CONSTRUCTION — a Draft plan's first wave is
+    // `waitingOn: 'you'`, and only `click` is startable, so there is no second
+    // rule to keep in step. Pinned anyway: worth failing loudly if someone
+    // later widens the predicate to "anything in not-started".
+    expect(isStartable(notStarted({ waitingOn: 'you', note: DRAFT_PLAN_NOTE }))).toBe(false);
   });
 
   it('offers nothing on a deferred branch, whatever group it lands in', () => {

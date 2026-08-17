@@ -54,7 +54,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     // is also the row that carries the Start work button.
     row({
       branch: 'feature/untaken', plan: 'plant-tomatoes', group: 'not-started',
-      state: 'open', phase: 'Design', ageMinutes: null, note: ELIGIBLE_NOTE,
+      state: 'open', phase: 'Design', ageMinutes: null, waitingOn: 'click' as const, note: ELIGIBLE_NOTE,
       branchUrl: `${GH}feature/untaken`, waitingDays: 22,
     }),
     // The other half of `not-started`, and the one that must NOT get a button:
@@ -63,7 +63,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     row({
       branch: 'feature/blocked', plan: 'plant-tomatoes', group: 'not-started',
       state: 'open', phase: 'Design', ageMinutes: null,
-      note: 'blocked by an earlier wave', branchUrl: `${GH}feature/blocked`,
+      waitingOn: 'time' as const, note: 'blocked by Truth', branchUrl: `${GH}feature/blocked`,
       waitingDays: 22,
     }),
     // A branch handed back: real commits inside the quiet window, under an
@@ -79,7 +79,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     // predating the `Approved:` field. It must show no waiting age at all.
     row({
       branch: 'feature/undated', plan: 'beans', group: 'not-started',
-      state: 'open', phase: 'Design', ageMinutes: null, note: ELIGIBLE_NOTE,
+      state: 'open', phase: 'Design', ageMinutes: null, waitingOn: 'click' as const, note: ELIGIBLE_NOTE,
       branchUrl: `${GH}feature/undated`, waitingDays: null,
     }),
     // A merged branch: its remote page is gone, so no branch link.
@@ -100,7 +100,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     row({
       branch: 'feature/ghost-ready', plan: 'ghost-plan',
       planFile: '2099-01-01-ghost-plan.md', group: 'not-started', state: 'open',
-      phase: 'Design', ageMinutes: null, note: ELIGIBLE_NOTE,
+      phase: 'Design', ageMinutes: null, waitingOn: 'click' as const, note: ELIGIBLE_NOTE,
       branchUrl: `${GH}feature/ghost-ready`,
     }),
   ];
@@ -808,7 +808,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgentsWithBoard();
     try {
       const li = rowFor(page, 'feature/blocked');
-      await expect.poll(() => li.textContent()).toContain('blocked by an earlier wave');
+      // NAMES THE WAVE now — *blocked by which one?* is the reader's next
+      // question, and the fixture's row says `blocked by Truth`.
+      await expect.poll(() => li.textContent()).toContain('blocked by Truth');
       const dots = menu(page, 'feature/blocked');
       await expect.poll(() => dots.count()).toBe(1);
       expect(await dots.getAttribute('aria-disabled')).toBe('true');

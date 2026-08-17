@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
 import {
-  ELIGIBLE_NOTE,
   type AgentRow,
+  type WaitingOn,
   type Card,
   type DispatchInfo,
   type Fleet,
@@ -643,21 +643,80 @@ export function showsWaveFold(group: PlanGroup): boolean {
  * buttons, and the note already says *blocked by an earlier wave*, which is the
  * whole explanation.
  *
- * The row carries no `verdict` field, so the split survives onto it only as the
- * note the server composed — matched against the shared `ELIGIBLE_NOTE`
- * constant rather than against a copy of the sentence, so a reword moves both
- * sides at once. `state === 'open'` is the branch that exists as a plan line
- * and nothing more, which is what there is to start.
+ * READS THE FIELD, not the sentence. Until `waitingOn` existed this compared
+ * `note === ELIGIBLE_NOTE` — the "parser for a format nobody declared" shape
+ * #175 removed from the PR cell, and the one that fails SILENTLY: a reworded
+ * note does not break the button, it makes it quietly stop appearing. The same
+ * change that added the field also sharpened a neighbouring note (*blocked by
+ * an earlier wave* gained the wave's name), which is exactly the drift this was
+ * always one edit away from.
+ *
+ * `state === 'open'` is kept beside it: `waitingOn: 'click'` already implies it
+ * server-side, and asserting it here costs nothing and documents that a row
+ * with a ref is not a row to start.
  *
  * Never on `working` or `quiet` rows, which already have a branch and a claim:
  * offering to start one invites the double-dispatch `fleet-sees-merged-branches`
- * was written to prevent. The group check is what excludes them.
+ * was written to prevent. `waitingOn` is null everywhere outside `not-started`,
+ * so those rows are excluded by construction rather than by a group check that
+ * could drift from the server's own answer.
  *
  * Exported for test — the negative (a blocked row gets nothing) is the half a
  * naive implementation gets wrong.
  */
 export function isStartable(row: AgentRow): boolean {
-  return row.group === 'not-started' && row.state === 'open' && row.note === ELIGIBLE_NOTE;
+  return row.waitingOn === 'click' && row.state === 'open';
+}
+
+/**
+ * The note's colour, by what the row is waiting for.
+ *
+ * ONLY ONE OF THE THREE IS LOUD, and that is the whole design. `needs you` is
+ * the state a person can end; the other two are stated, not shouted:
+ *
+ *   `you`    amber — a person must act, and nothing in git will change it
+ *   `click`  the ordinary note colour — available, and taking it is optional
+ *   `time`   dimmer still — nothing to do, ever, and the most common state in
+ *            a multi-wave plan
+ *
+ * A section where every row is coloured has coloured nothing. Measured for
+ * scale: this session's pulse held 43 rows, with multi-wave plans routinely
+ * showing two blocked rows for every eligible one — so `time` is the state the
+ * section is mostly made of, and making it quiet is what lets `you` read.
+ *
+ * COLOUR IS ADDED BESIDE THE WORDS, NEVER INSTEAD OF THEM. The notes already
+ * say the right things and are simply invisible until read; this makes them
+ * visible at distance. A reader with no colour perception loses nothing — the
+ * sentence is the same one that is there today. The contract states the rule
+ * for `pr.state` already: *carried as a symbol AND a word, never as colour
+ * alone.*
+ *
+ * NOTHING ANIMATES HERE. `board-watches-for-stuck-branches` established that
+ * motion marks an unanswered request — something waiting on you that will keep
+ * waiting. A Draft plan minutes old is not that; it is the ordinary state of a
+ * plan just written, and animating it would interrupt a reader about their own
+ * work in progress. The escalation for a Draft that has sat for DAYS is
+ * specified in the plan and deliberately not built: measured before approval,
+ * 30 of this repo's 31 approved plans were approved the same day they were
+ * drafted and one took a single day, so the state it would mark has never
+ * occurred here. Choosing a threshold would mean inventing the first case it is
+ * meant to measure, and a wrong one trains the reader to ignore the cue.
+ *
+ * Exported for test: the pairing that matters is that a `click` row and a row
+ * outside the section are NOT distinguishable by colour — only `you` is.
+ */
+export function waitingTone(waitingOn: WaitingOn | null): string {
+  switch (waitingOn) {
+    case 'you':
+      return 'text-amber-700 dark:text-amber-400';
+    case 'time':
+      return 'text-slate-400 dark:text-slate-600';
+    default:
+      // `click`, and every row outside NOT STARTED, keep the note's ordinary
+      // colour. Giving `click` one of its own would make the section shout
+      // twice and mean once.
+      return 'text-slate-500 dark:text-slate-400';
+  }
 }
 
 /**
@@ -2655,7 +2714,10 @@ function PlanRow({
     <li
       role="row"
       data-plan-row={group.plan}
-      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-slate-200/60 px-3 py-2 text-sm last:border-0 sm:grid ${ROW_TRACKS} sm:items-baseline sm:gap-x-3 dark:border-slate-800`}
+      // NO BORDER: the plan row heads a group that draws one line under
+      // itself and its branches together. A rule here would fall between
+      // a plan and its own first branch.
+      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2 text-sm sm:grid ${ROW_TRACKS} sm:items-baseline sm:gap-x-3`}
     >
       {/* The activity mark, hanging in the row's own `relative` box the way it
           does on a branch row — no track, no shift. It reaches the plan row
@@ -2668,10 +2730,28 @@ function PlanRow({
           state here. A plan row shows a mark exactly when one of its branches
           is being written to. */}
       {active && <ActivityMark pace="fast" />}
-      {/* Phase: empty. A plan row's phase would be the plan's phase, which is
-          Approved for everything in this section — a column showing one word on
-          every row is the chrome the phase cell replaced the repo to avoid. */}
-      <span role="gridcell" className="min-w-0 shrink-0 truncate text-xs" />
+      {/* THE PLAN'S PHASE, stated here and nowhere else in the group.
+          
+          This cell was empty on the argument that a plan row's phase "is
+          Approved for everything in this section" — a column showing one word
+          on every row. That stopped being true when the section learned to hold
+          Draft plans: `Discovery` and `Design` now sit side by side here, and
+          they are the difference between *needs your approval* and *ready to
+          start*. The phase is a property of the PLAN, so the plan row is where
+          it belongs; the branches beneath inherit it and no longer repeat it.
+          
+          Read from the group's rows rather than from a plan field, because a
+          row is what carries `phase` — and they agree by construction, all
+          being branches of one plan. */}
+      <span
+        role="gridcell"
+        className="min-w-0 shrink-0 truncate text-xs text-slate-500 dark:text-slate-400"
+        title={group.rows[0]?.phase ? `Phase: ${group.rows[0].phase}` : undefined}
+      >
+        {group.rows[0]?.phase && (
+          <span data-phase={group.rows[0].phase}>{group.rows[0].phase}</span>
+        )}
+      </span>
       {/* The plan, in the plan track — and it is a HEADING as well as a cell,
           because the rows below it are its branches. The expander wraps the
           name rather than sitting beside it: a separate caret would need a
@@ -2750,6 +2830,7 @@ function Row({
   onStarting,
   marked = false,
   active = false,
+  inPlanGroup = false,
 }: {
   row: AgentRow;
   onOpenPlan?: AgentListProps['onOpenPlan'];
@@ -2760,6 +2841,15 @@ function Row({
    * the group wordier than it was before grouping.
    */
   planInHeading?: boolean;
+  /**
+   * True when this row sits inside a plan group that draws its own separator.
+   *
+   * A plan and its branches are ONE block on this board, so the rule belongs to
+   * the group: a row drawing its own inside one puts a line between a plan and
+   * its first branch, which is the pair that must NOT be divided. Everywhere
+   * else the row is the unit and keeps its border.
+   */
+  inPlanGroup?: boolean;
   /** This row's plan as a board card, or null where the board has none. */
   card?: Card | null;
   /** Whether this server will act on Start work, and why not. */
@@ -2811,7 +2901,13 @@ function Row({
     <li
       role="row"
       data-agent-row
-      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-slate-200/60 px-3 py-2 text-sm last:border-0 sm:grid ${ROW_TRACKS} sm:items-baseline sm:gap-x-3 dark:border-slate-800`}
+      // Inside a plan group the RULE belongs to the group, which draws one line
+      // under the plan and its branches together. A row drawing its own there
+      // would put a line between a plan and its first branch — the defect this
+      // replaces. Everywhere else the row is the unit, and keeps its own.
+      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2 text-sm sm:grid ${ROW_TRACKS} sm:items-baseline sm:gap-x-3 ${
+        inPlanGroup ? '' : 'border-b border-slate-200/60 last:border-0 dark:border-slate-800'
+      }`}
     >
       {/* The live indicator, on `working` rows only. `self-center` because the
           row aligns on the text baseline and a dot carries no text to align —
@@ -2895,7 +2991,12 @@ function Row({
         className="min-w-0 shrink-0 truncate text-xs text-slate-500 dark:text-slate-400"
         title={row.phase ? `Phase: ${row.phase}` : undefined}
       >
-        {row.phase && (
+        {/* NOT inside a plan group. The phase is a property of the PLAN, and
+            the branch merely inherits it — so in a group the plan row states it
+            once and the branches beneath do not repeat it down a column. Same
+            bargain `planInHeading` already makes one cell along, and the cell
+            still renders so the tracks hold their width. */}
+        {!inPlanGroup && row.phase && (
           <>
             <span className="sr-only sm:hidden">Phase: </span>
             <span data-phase={row.phase}>{row.phase}</span>
@@ -3005,7 +3106,12 @@ function Row({
         {note && (
           <span
             data-row-note
-            className="min-w-0 truncate text-xs text-slate-500 max-sm:whitespace-normal dark:text-slate-400"
+            // The waiting-state travels as an attribute as well as a colour:
+            // a test asserting the colour alone would pass against a rule
+            // keyed on the note's WORDING, which is the shape this change
+            // exists to remove.
+            data-waiting-on={row.waitingOn ?? undefined}
+            className={`min-w-0 truncate text-xs max-sm:whitespace-normal ${waitingTone(row.waitingOn)}`}
             title={note}
           >
             {note}
@@ -3022,7 +3128,21 @@ function Row({
           colour and title rather than by a second position.
           
           Still nothing where no approval date is recorded: absent, not zero. */}
-      {row.ageMinutes === null && row.waitingDays !== null ? (
+      {/* IN A PLAN GROUP the waiting clock belongs to the PLAN ROW, which
+          states it once. Every branch of a plan shares one `waitingDays` — it
+          dates the plan's own `Approved:` record — so repeating it down the
+          column says the same number three times and reads like three
+          measurements.
+
+          Only the INHERITED clock is suppressed. A deferred branch in the same
+          group carries a real `ageMinutes` of its own, and that survives: an
+          earlier version of this section erased a shelved branch's age and PR,
+          and `fleet.ts` still carries the warning — *a branch started and then
+          shelved read as never begun*. A property of the plan is repetition; a
+          property of the branch is information. */}
+      {inPlanGroup && row.ageMinutes === null ? (
+        <span role="gridcell" className="shrink-0 text-right text-xs tabular-nums" />
+      ) : row.ageMinutes === null && row.waitingDays !== null ? (
         <span
           role="gridcell"
           className="shrink-0 text-right text-xs tabular-nums text-amber-700 dark:text-amber-500"
@@ -3503,7 +3623,26 @@ export function AgentList({
                     const foldable = showsWaveFold(group);
                     const expanded = foldable ? openPlans.has(group.plan) : null;
                     return (
-                      <li role="rowgroup" key={group.plan}>
+                      // THE RULE BELONGS TO THE GROUP, NOT TO ITS ROWS.
+                      //
+                      // A plan and its branches are one thing on this board, and
+                      // the border used to be drawn by every row including the
+                      // plan's own — so the line fell BETWEEN a plan and its
+                      // first branch, and no line fell between one plan and the
+                      // next. Each visual block therefore held one plan's
+                      // branches and the following plan's heading: the separator
+                      // was dividing exactly the wrong pair.
+                      //
+                      // `last:border-0` could not save it, because the plan row
+                      // is never the last child of its own group.
+                      //
+                      // Drawn here, once per plan, and the rows inside drop
+                      // theirs (see `PlanRow` / `Row`, keyed on `inPlanGroup`).
+                      <li
+                        role="rowgroup"
+                        key={group.plan}
+                        className="border-b border-slate-200/60 last:border-0 dark:border-slate-800"
+                      >
                         <PlanRow
                           group={group}
                           onOpenPlan={onOpenPlan}
@@ -3530,6 +3669,7 @@ export function AgentList({
                                 key={rowKey(r)}
                                 row={r}
                                 onOpenPlan={onOpenPlan}
+                                inPlanGroup
                                 // The plan row above names it, so the branch
                                 // rows do not repeat it — the same bargain a
                                 // sub-heading makes with the rows beneath it.

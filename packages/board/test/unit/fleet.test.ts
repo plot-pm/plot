@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   classify, compareWithinGroup, draftNote, humanAge, prState, rowPhase, rowsFromPulse,
   rateLimitBackoffMs,
+  prAsksNobody,
+  waitingOnFor,
 } from '../../src/server/fleet.js';
 import {
   AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, toBoardPhase,
@@ -14,6 +16,170 @@ import type { PrRecord } from '../../src/server/fleet.js';
 // than through HTTP — a wrong group is a wrong answer no plumbing can fix.
 
 const QUIET = 30;
+
+describe('a live worker keeps its row in WORKING', () => {
+  // The reported defect, measured 2026-08-17: two agents ran for a quarter of
+  // an hour with WORKING empty while WAITING ON YOU showed their branches.
+  // Both sections were lying, in opposite directions.
+  const greenPr = { number: 9, url: '', draft: false, state: 'OPEN', checks: 'green',
+    mergeable: 'mergeable', failing_checks: [] } as never;
+  const conflictPr = { number: 9, url: '', draft: false, state: 'OPEN', checks: 'none',
+    mergeable: 'conflicting', failing_checks: [] } as never;
+
+  it('keeps a WIP branch in working while its worker runs', () => {
+    // THE assertion. A worker's first real commit takes the branch out of
+    // `claimed` and into `wip` — so the old rule, which only asked about a
+    // worker inside the `claimed` arm, dropped the row at the exact moment it
+    // proved it was working.
+    const r = classify('wip', 'eligible', 500, 60, null, false, 0, 'approved', 'running', null, 7);
+    expect(r.group).toBe('working');
+    expect(r.note).toContain('pid 7');
+  });
+
+  it('lifts an OPEN branch into working when its worktree is dirty', () => {
+    // The second kind of active work, and the one a dispatch worker never
+    // explains: a person editing in this checkout. `open` means git has no ref
+    // — which is what a branch nobody created looks like AND what a branch
+    // created only locally looks like. The scan can tell them apart, and the
+    // row must not say *nobody has taken it* while carrying the activity mark
+    // that means *someone is writing here*.
+    const r = classify('open', 'eligible', null, 60, null, true, 0, 'approved', 'none', null, 0, false);
+    expect(r.group).toBe('working');
+    expect(r.note).toContain('uncommitted');
+  });
+
+  it('lifts an OPEN branch into working when its worktree is LOCKED', () => {
+    const r = classify('open', 'eligible', null, 60, null, false, 0, 'approved', 'none', null, 0, true);
+    expect(r.group).toBe('working');
+  });
+
+  it('does NOT lift an open branch that is merely AHEAD', () => {
+    // THE pairing. Unpushed commits are finished work sitting still — they earn
+    // the unpushed mark, not a claim that someone is at the keyboard. An
+    // implementation OR-ing all three local signals passes both assertions
+    // above and puts an untouched branch in WORKING.
+    const r = classify('open', 'eligible', null, 60, null, false, 3, 'approved', 'none', null, 0, false);
+    expect(r.group).toBe('not-started');
+  });
+
+  it('leaves a clean open branch exactly where it was', () => {
+    const r = classify('open', 'eligible', null, 60, null, false, 0, 'approved', 'none', null, 0, false);
+    expect(r.group).toBe('not-started');
+  });
+
+  it('keeps a claimed branch in working while its worker runs', () => {
+    // Unchanged from before — the rule moved, it did not narrow.
+    const r = classify('claimed', 'eligible', 5, 60, null, false, 0, 'approved', 'running', null, 7);
+    expect(r.group).toBe('working');
+  });
+
+  it('does NOT rescue a merged branch', () => {
+    // A branch that landed is done whatever its worktree still holds. The arm's
+    // own condition excludes it, and that is asserted rather than assumed.
+    const r = classify('merged', 'complete', 5, 60, null, false, 0, 'approved', 'running', null, 7);
+    expect(r.group).not.toBe('working');
+  });
+
+  it('lets a green PR pass to working while a worker runs', () => {
+    // The agent opened its PR and kept working. A green PR asks nothing of
+    // anybody, so the row belongs where the work is.
+    const r = classify('wip', 'eligible', 5, 60, greenPr, false, 0, 'approved', 'running', null, 7);
+    expect(r.group).toBe('working');
+  });
+
+  it('still hands a CONFLICTING PR to you, worker or no worker', () => {
+    // THE pairing that matters. A fix that simply put the worker check first
+    // passes every assertion above and takes a row that genuinely needs a
+    // rebase out of the section that would have shown it.
+    const r = classify('wip', 'eligible', 5, 60, conflictPr, false, 0, 'approved', 'running', null, 7);
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toContain('conflicts');
+  });
+
+  it('still hands a stopped worker to you, whatever its PR says', () => {
+    for (const w of ['failed', 'finished', 'ended'] as const) {
+      const r = classify('wip', 'eligible', 5, 60, greenPr, false, 0, 'approved', w, null, 7);
+      expect(r.group).toBe('waiting-on-you');
+    }
+  });
+});
+
+describe('prAsksNobody — an allowlist, never a blocklist', () => {
+  const mk = (over: Record<string, unknown>) => ({
+    number: 1, url: '', draft: false, state: 'OPEN', checks: 'green',
+    mergeable: 'mergeable', failing_checks: [], ...over,
+  } as never);
+
+  it('says yes only for green and pending', () => {
+    expect(prAsksNobody(mk({}))).toBe(true);
+    expect(prAsksNobody(mk({ checks: 'pending' }))).toBe(true);
+  });
+
+  it('says no for every state that is somebody errand', () => {
+    // `conflicts` wants a rebase, `failing` a look, `none` a click, `unknown`
+    // asking again. A blocklist would silently start claiming "nobody is
+    // blocked" the first time a state is added — quiet, not loud.
+    expect(prAsksNobody(mk({ mergeable: 'conflicting' }))).toBe(false);
+    expect(prAsksNobody(mk({ checks: 'failing' }))).toBe(false);
+    expect(prAsksNobody(mk({ checks: 'none' }))).toBe(false);
+    expect(prAsksNobody(mk({ mergeable: 'unknown' }))).toBe(false);
+  });
+
+  it('treats a draft as asking nobody — it is still the agent own', () => {
+    expect(prAsksNobody(mk({ draft: true, checks: 'none' }))).toBe(true);
+  });
+});
+
+describe('waitingOnFor — what a NOT STARTED row is waiting for', () => {
+  it('answers null for every row outside not-started', () => {
+    // The question does not arise there. A row being worked on, or waiting on
+    // CI, is not waiting for one of these three things — and null is what stops
+    // the colour rendering anywhere but the one section it belongs to.
+    for (const g of ['working', 'waiting-on-you', 'waiting-on-machine', 'quiet', 'done'] as const) {
+      expect(waitingOnFor(g, 'open', 'eligible', 'approved')).toBe(null);
+    }
+  });
+
+  it('reads an eligible branch of an approved plan as a click', () => {
+    expect(waitingOnFor('not-started', 'open', 'eligible', 'approved')).toBe('click');
+  });
+
+  it('reads a Draft plan FIRST wave as waiting on you', () => {
+    expect(waitingOnFor('not-started', 'open', 'eligible', 'draft')).toBe('you');
+  });
+
+  it('reads a Draft plan LATER wave as waiting on time, not on you', () => {
+    // THE assertion the plan singles out. A Draft plan holds every one of its
+    // branches, and this repo's plans routinely have four waves — colouring
+    // each would put four loud rows on the board for ONE pending approval, and
+    // the later three would still be blocked the instant after it was granted.
+    //
+    // It comes out right because the wave verdict is tested BEFORE the phase.
+    // An implementation checking the phase first passes every other assertion
+    // here and gets exactly this one wrong.
+    expect(waitingOnFor('not-started', 'open', 'blocked', 'draft')).toBe('time');
+  });
+
+  it('reads a blocked wave of an approved plan as waiting on time', () => {
+    expect(waitingOnFor('not-started', 'open', 'blocked', 'approved')).toBe('time');
+  });
+
+  it('reads a deferred branch as waiting on you, whatever the verdict', () => {
+    // Deferred joins Draft: both wait on a PERSON with no clock running. They
+    // differ in which action — approve versus un-shelve — and the note beside
+    // the colour already says which.
+    expect(waitingOnFor('not-started', 'deferred', 'eligible', 'approved')).toBe('you');
+    expect(waitingOnFor('not-started', 'deferred', 'blocked', 'draft')).toBe('you');
+  });
+
+  it('answers null for a state that is neither open nor deferred', () => {
+    // `wip`, `claimed`, `merged` do not reach not-started through the open arm,
+    // and a value here would colour a row whose sentence says something else.
+    for (const s of ['wip', 'claimed', 'merged'] as const) {
+      expect(waitingOnFor('not-started', s, 'eligible', 'approved')).toBe(null);
+    }
+  });
+});
 
 describe('classify', () => {
   it('puts an unclaimed branch of an eligible wave in not-started', () => {
@@ -193,8 +359,18 @@ describe('classify', () => {
     // true, and not a reason to unsay `done`. Same for not-started and for the
     // groups a PR decides.
     expect(classify('merged', 'complete', 1, QUIET, null, true).group).toBe('done');
-    expect(classify('open', 'eligible', null, QUIET, null, true).group).toBe('not-started');
     expect(classify('deferred', 'eligible', null, QUIET, null, true).group).toBe('not-started');
+    // `open` is NOT in this list, and its absence is the rule being stated
+    // precisely rather than loosely. `not-started` → `working` is not a
+    // DOWNGRADE — it is the lift this test's own name allows. An `open` branch
+    // with a dirty worktree was created locally and is being edited: git has no
+    // ref for it, which looks identical to a branch nobody ever made. The row
+    // used to say *nobody has taken it* while carrying the activity mark that
+    // means *someone is writing here* — one row, two contradictory statements.
+    //
+    // `merged` and `deferred` stay: unsaying `done` after a merge would be a
+    // real downgrade, and a shelved branch is a decision rather than a state.
+    expect(classify('open', 'eligible', null, QUIET, null, true).group).toBe('working');
     // A branch already reading `working` keeps the note it had: a recent commit
     // is the stronger statement, and replacing it with "uncommitted work" would
     // hide the age the reader came for.
@@ -358,8 +534,10 @@ describe('classify', () => {
     // lock is observable only on the machine doing the looking, so it may add an
     // answer and never take one away.
     expect(classify('merged', 'complete', 1, QUIET, ...LOCKED).group).toBe('done');
-    expect(classify('open', 'eligible', null, QUIET, ...LOCKED).group).toBe('not-started');
     expect(classify('deferred', 'eligible', null, QUIET, ...LOCKED).group).toBe('not-started');
+    // Same correction as the dirty case above: a lock on an `open` branch is
+    // somebody writing to it right now, and lifting is not downgrading.
+    expect(classify('open', 'eligible', null, QUIET, ...LOCKED).group).toBe('working');
     // A branch already reading `working` on a fresh commit keeps the age note:
     // the age is what the reader came for.
     const fresh = classify('wip', 'eligible', 5, QUIET, ...LOCKED);
@@ -1873,7 +2051,15 @@ describe('the row carries the PR condition as fields', () => {
         }],
       } as never,
       new Map(), 'plot', QUIET);
-    expect(blocked[0].note).toMatch(/earlier wave/);
+    // NAMES THE WAVE. This asserted `/earlier wave/` until the wave's name
+    // reached the note — *blocked by which one?* is the reader's unavoidable
+    // next question, and the server is the only place that can answer it.
+    // Asserted against the fixture's own wave name rather than the literal, so
+    // renaming the fixture cannot leave a passing test measuring nothing.
+    expect(blocked[0].note).toBe(`blocked by ${pulse.plans[0].waves[0].name}`);
+    // And the field says it too, so nothing downstream has to read the prose.
+    expect(blocked[0].waitingOn).toBe('time');
+    expect(blocked[0].blockedBy).toBe(pulse.plans[0].waves[0].name);
 
     const claimed = rowsFromPulse(
       {

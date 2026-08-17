@@ -25,7 +25,7 @@ const GH = 'https://github.com/tiny/garden/tree/';
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
   wave: 'w', state: 'open', phase: 'Design', group: 'not-started', ageMinutes: null,
-  note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
+  waitingOn: 'click' as const, note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
   localDirty: false, localLocked: false, stuck: null, repair: null,
   ...over,
 });
@@ -35,17 +35,17 @@ function fleet(): Fleet {
     // The plan that printed three identical rows for one wait.
     row({
       plan: 'activity-shows-itself', planFile: '2026-08-17-activity-shows-itself.md',
-      branch: 'feature/activity-marker-glows', waitingDays: 1, note: ELIGIBLE_NOTE,
+      branch: 'feature/activity-marker-glows', waitingDays: 1, waitingOn: 'click' as const, note: ELIGIBLE_NOTE,
     }),
     row({
       plan: 'activity-shows-itself', planFile: '2026-08-17-activity-shows-itself.md',
       branch: 'feature/group-shows-inner-activity', waitingDays: 1,
-      note: 'blocked by an earlier wave',
+      waitingOn: 'time' as const, note: 'blocked by Truth',
     }),
     row({
       plan: 'activity-shows-itself', planFile: '2026-08-17-activity-shows-itself.md',
       branch: 'feature/unpushed-work-shows-still', waitingDays: 1,
-      note: 'blocked by an earlier wave',
+      waitingOn: 'time' as const, note: 'blocked by Truth',
     }),
     // One unstarted wave, waiting since February.
     row({
@@ -281,6 +281,95 @@ describe('NOT STARTED renders one row per plan', () => {
       const branchCell = await branchRow.locator('[role="gridcell"]').nth(2).boundingBox();
       expect(planCell!.x).toBeCloseTo(branchCell!.x, 0);
       expect(planCell!.width).toBeCloseTo(branchCell!.width, 0);
+    } finally {
+      await page.close();
+    }
+  });
+  it('colours only the rows a person can release, and only in this section', async () => {
+    // The half a class-name assertion cannot settle: that the browser RESOLVED
+    // a different colour for `you` than for the other two, and that a row
+    // outside NOT STARTED gets no waiting-state at all.
+    const page = await open();
+    try {
+      await page.locator('[data-wave-toggle="activity-shows-itself"]').click();
+      const noteOf = (branch: string) =>
+        section(page).locator('li[data-agent-row]')
+          .filter({ has: page.locator(`[data-branch="${branch}"]`) })
+          .locator('[data-row-note]');
+
+      const eligible = noteOf('feature/activity-marker-glows');
+      const blocked = noteOf('feature/group-shows-inner-activity');
+      await eligible.waitFor({ timeout: 5_000 });
+
+      // The FIELD reaches the DOM, so a rule keyed on the note's wording cannot
+      // masquerade as this passing.
+      expect(await eligible.getAttribute('data-waiting-on')).toBe('click');
+      expect(await blocked.getAttribute('data-waiting-on')).toBe('time');
+
+      const colourOf = (loc: typeof eligible) =>
+        loc.evaluate((el) => getComputedStyle(el).color);
+      const eligibleColour = await colourOf(eligible);
+      const blockedColour = await colourOf(blocked);
+      // Blocked is the quietest — the most common state in a multi-wave plan,
+      // and the least actionable.
+      expect(blockedColour).not.toBe(eligibleColour);
+
+      // NOTHING ANIMATES. Motion marks an unanswered request; an ordinary
+      // Draft is not one.
+      for (const loc of [eligible, blocked]) {
+        expect(await loc.evaluate((el) => getComputedStyle(el).animationName)).toBe('none');
+      }
+    } finally {
+      await page.close();
+    }
+  });
+  it('draws the separator BETWEEN plans, never between a plan and its branch', async () => {
+    // The reported defect: every row drew its own rule, including the plan
+    // row — so the line fell between a plan and its first branch, and no line
+    // fell between one plan and the next. Each visual block therefore held one
+    // plan's branches and the FOLLOWING plan's heading: the separator divided
+    // exactly the wrong pair, and `last:border-0` could not save it because a
+    // plan row is never the last child of its own group.
+    const page = await open();
+    try {
+      await page.locator('[data-wave-toggle="activity-shows-itself"]').click();
+      const branchRow = section(page).locator('li[data-agent-row]')
+        .filter({ has: page.locator('[data-branch="feature/activity-marker-glows"]') });
+      await branchRow.waitFor({ timeout: 5_000 });
+
+      const widthOf = (loc: ReturnType<typeof branchRow.first>) =>
+        loc.evaluate((el) => getComputedStyle(el).borderBottomWidth);
+
+      // Neither the plan row nor a branch row inside the group draws one...
+      expect(await widthOf(planRow(page, 'activity-shows-itself'))).toBe('0px');
+      expect(await widthOf(branchRow)).toBe('0px');
+      // ...the GROUP does, once, around the pair.
+      const group = section(page).locator('li[role="rowgroup"]').first();
+      expect(await widthOf(group)).not.toBe('0px');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('states phase and the waiting clock ONCE, on the plan row', async () => {
+    // Both are properties of the PLAN that a branch merely inherits: every
+    // branch of one plan shares one `waitingDays`, dating the plan's own
+    // `Approved:` record. Repeating them down the column says one number three
+    // times and reads like three measurements.
+    const page = await open();
+    try {
+      await page.locator('[data-wave-toggle="activity-shows-itself"]').click();
+      const branchRow = section(page).locator('li[data-agent-row]')
+        .filter({ has: page.locator('[data-branch="feature/activity-marker-glows"]') });
+      await branchRow.waitFor({ timeout: 5_000 });
+
+      // The branch row's phase cell is empty — the cell still RENDERS, so the
+      // six tracks hold their width and the columns stay aligned.
+      expect(await branchRow.locator('[data-phase]').count()).toBe(0);
+      expect(await branchRow.locator('[role="gridcell"]').count())
+        .toBe(await planRow(page, 'activity-shows-itself').locator('[role="gridcell"]').count());
+      // And the plan row still carries the clock the branches gave up.
+      expect(await planRow(page, 'activity-shows-itself').textContent()).toMatch(/d|mo|today/);
     } finally {
       await page.close();
     }

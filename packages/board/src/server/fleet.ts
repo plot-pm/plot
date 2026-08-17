@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import {
+  BLOCKED_NOTE,
+  blockedNote,
   DRAFT_PLAN_NOTE,
   ELIGIBLE_NOTE,
   FleetPulseSchema,
@@ -12,6 +14,7 @@ import {
   type Phase,
   type StuckRun,
   type WaitingGroup,
+  type WaitingOn,
   type WorkerState,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
@@ -871,6 +874,73 @@ export function rowPhase(planPhase: string, state: BranchState): Phase | null {
  * indistinguishable from an empty one, and `waiting-on-machine` showing nothing
  * must mean "no CI is running", not "the board cannot tell".
  */
+/**
+ * What a NOT-STARTED row is waiting for — the field the colour reads.
+ *
+ * A SEPARATE function rather than a fourth return value on `classify`, which
+ * already takes nine parameters and answers a different question: `classify`
+ * decides which SECTION a row belongs to, this decides what a row in one
+ * section is waiting for. Splitting them keeps each one testable against its
+ * own inputs, and keeps this one pure enough to assert exhaustively.
+ *
+ * It takes the same inputs `classify` uses for the same rows, so the two cannot
+ * disagree — and the group is passed in rather than re-derived, so a row that
+ * `classify` placed elsewhere gets `null` by construction instead of by a
+ * matching rule that could drift.
+ *
+ * The order is the same as `classify`'s and that is deliberate: an earlier wave
+ * outranks a Draft plan, because both are true of a Draft plan's later waves
+ * and the wave is the more specific statement. Saying the weaker of two true
+ * things is how a note stops being worth reading — and the colour must not
+ * contradict the note beside it.
+ *
+ * DEFERRED joins DRAFT under `you`. Both wait on a person with no clock
+ * running; they differ in which action — approve versus un-shelve — and the
+ * note already says which.
+ */
+/**
+ * Does this PR ask NOTHING of a person right now?
+ *
+ * The question a live worker's row needs answered, and it is narrower than
+ * "is the PR fine": `green` and `pending` are states in which nobody is
+ * blocked — the checks passed, or a machine is still running them. Everything
+ * else in the enum is somebody's errand: `conflicts` wants a rebase, `failing`
+ * wants a look, `none` wants a click, `unknown` wants asking again.
+ *
+ * An ALLOWLIST, deliberately, and the same shape `prState` itself uses: a
+ * blocklist of errand-states would silently start claiming "nobody is blocked"
+ * the first time a new state is added, which is the direction that goes quiet
+ * rather than loud.
+ *
+ * A DRAFT never qualifies. A draft is still its author's, and here the author
+ * is the agent — so a green draft with a live worker is the clearest WORKING
+ * row there is, and must not be diverted by this predicate's caller.
+ */
+export function prAsksNobody(pr: PrRecord): boolean {
+  if (pr.draft) return true;
+  const s = prState(pr);
+  return s === 'green' || s === 'pending';
+}
+
+export function waitingOnFor(
+  group: WaitingGroup,
+  state: BranchState,
+  verdict: string,
+  planPhase: string | null,
+): WaitingOn | null {
+  if (group !== 'not-started') return null;
+  // A shelved branch waits on a person, exactly as a Draft plan does — and it
+  // reaches `not-started` by its own route, never through the `open` arm below.
+  if (state === 'deferred') return 'you';
+  if (state !== 'open') return null;
+  // An earlier wave first: true of a Draft plan's later waves too, and the more
+  // specific of the two. Their predecessors would still block them the instant
+  // the approval landed, so `time` is what those rows are actually waiting for.
+  if (verdict !== 'eligible') return 'time';
+  if (planPhase === 'draft') return 'you';
+  return 'click';
+}
+
 export function classify(
   state: BranchState,
   verdict: string,
@@ -979,7 +1049,22 @@ export function classify(
   // A PR outranks the git state for work in flight: once a branch has one,
   // what it waits for is decided there, not by commit age. Merged and
   // not-yet-pushed branches keep their git answer.
-  if (pr && state !== 'merged' && state !== 'open') {
+  // A LIVE WORKER OVERTAKES A PR THAT NEEDS NOTHING.
+  //
+  // This arm answers before any worker question, and that is right for a PR
+  // that is a person's errand — conflicts, failing checks, no checks, a state
+  // the host cannot read. Those want you even while an agent is mid-run.
+  //
+  // It was NOT right for the rest. An agent that opened its PR and kept working
+  // was pulled into `waiting-on-you` by a green or pending PR that asks nothing
+  // of anybody, and WORKING went empty while two agents ran — measured
+  // 2026-08-17. So a running worker skips this arm exactly where the PR has no
+  // errand in it, and nowhere else.
+  //
+  // Drafts are excluded from the skip on purpose: a draft is still the author's
+  // and the author here is the agent, so a green draft with a live worker is
+  // the clearest possible WORKING row.
+  if (pr && state !== 'merged' && state !== 'open' && !(worker === 'running' && prAsksNobody(pr))) {
     const note = reviewNote(pr);
     // THE CONFLICT OUTRANKS THE CHECKS, and it has to be said before the switch
     // rather than inside it, because the value it corrects is `none`.
@@ -1047,11 +1132,34 @@ export function classify(
     }
   }
   if (state === 'open') {
+    // WORK IN A LOCAL WORKTREE OUTRANKS "nobody has started this".
+    //
+    // `open` means git has no ref for the branch — which is what a branch that
+    // was never created looks like, AND what a branch created only locally
+    // looks like. The second is somebody working, and the scan can tell: it
+    // reports `local_dirty` / `local_locked` from the worktree.
+    //
+    // Without this the row said *eligible — nobody has taken it* while carrying
+    // the activity mark that means *someone is writing here*. One row, two
+    // statements, and they contradict each other — measured 2026-08-17 on a
+    // branch being edited at that moment.
+    //
+    // `local_ahead` is deliberately NOT part of this. Unpushed commits are
+    // finished work sitting still; they earn the unpushed mark, not a claim
+    // that someone is at the keyboard. The same split `isActive` makes on the
+    // client, made here for the same reason.
+    //
+    // Ordered ABOVE the wave verdict on purpose: someone editing a branch of a
+    // blocked wave is still someone editing. The board reports what is, not
+    // what the ordering says should be.
+    if (localDirty || localLocked) {
+      return workingLocally(localDirty, 0, localLocked);
+    }
     // An earlier wave keeps the first word. Both statements are true of a
     // Draft plan's later waves, and the wave one is the more specific: it names
     // a branch that must land, where the draft note names a review. Saying the
     // weaker of two true things is how a note stops being worth reading.
-    if (verdict !== 'eligible') return { group: 'not-started', note: 'blocked by an earlier wave' };
+    if (verdict !== 'eligible') return { group: 'not-started', note: BLOCKED_NOTE };
     // The DRAFT case. `eligible` is a wave verdict — an answer about ordering
     // WITHIN a plan — and it is correct here: no earlier wave is outstanding.
     // The row's sentence claims more than that, and the extra claim is what is
@@ -1087,6 +1195,33 @@ export function classify(
   // change exists to remove. `ended` joins them saying exactly what it knows:
   // it stopped, and the status was not recorded.
   if (state !== 'merged') {
+    // A RUNNING WORKER PUTS THE ROW IN WORKING, WHATEVER ELSE IS TRUE OF IT.
+    //
+    // This used to sit inside the `state === 'claimed'` arm below, and the
+    // effect was that an agent LOST its place in WORKING at the moment it
+    // proved it was working: the first real commit takes a branch out of
+    // `claimed` and into `wip`, and opening a PR sends it to `waiting-on-you`
+    // from the PR arm 120 lines above — before anything asks about a worker.
+    //
+    // Measured on 2026-08-17: two agents ran for a quarter of an hour with
+    // WORKING empty, while WAITING ON YOU showed their branches. Both sections
+    // were lying in opposite directions.
+    //
+    // Placed here, beside the other three worker verdicts, because the whole
+    // point of this arm is that a worker's own state outranks reasoning from
+    // commit age — and `running` is the strongest evidence of the four. The
+    // three below say a person is needed; this one says nobody is.
+    //
+    // `merged` still excludes itself, by the arm's own condition: a branch that
+    // landed is done regardless of what its worktree still holds.
+    //
+    // The PR arm above is now the ONE thing that can still outrank a live
+    // worker, and deliberately: a PR with conflicts or failing checks is a
+    // person's errand even while an agent is mid-run. That is a narrower claim
+    // than the old ordering made, and it is the one this change keeps.
+    if (worker === 'running') {
+      return { group: 'working', note: `worker running (pid ${workerPid})` };
+    }
     if (worker === 'failed') {
       return {
         group: 'waiting-on-you',
@@ -1104,16 +1239,11 @@ export function classify(
   }
 
   if (state === 'claimed') {
-    // A RUNNING worker is direct evidence, and it outranks the clock in both
-    // directions the clock gets wrong: a claim older than the quiet window is
-    // not abandoned while its worker is alive, and a fresh claim reads working
-    // for a reason better than its age. The pid is the scan's, not re-derived
-    // here — `kill -0 0` succeeds against the whole process group, so a pid of
-    // `0` read on this side would be alive forever. The scan already rejected
-    // it, and `running` can therefore never arrive carrying one.
-    if (worker === 'running') {
-      return { group: 'working', note: `worker running (pid ${workerPid})` };
-    }
+    // `running` is handled ABOVE, for every unmerged state rather than for this
+    // one — a live worker is direct evidence and outranks the clock in both
+    // directions the clock gets wrong. The pid is the scan's, never re-derived
+    // here: `kill -0 0` succeeds against the whole process group, so a pid of
+    // `0` read on this side would be alive forever.
     // NO KNOWN WORKER, and the two ways of not knowing are different answers.
     //
     // Neither downgrades the group — absent is not false, and `plot-dispatch`
@@ -1466,6 +1596,19 @@ export function rowsFromPulse(
 ): AgentRow[] {
   const rows: AgentRow[] = [];
   for (const plan of pulse.plans) {
+    // WHICH earlier wave is blocking — the plan's FIRST incomplete one, read
+    // once per plan rather than searched per row.
+    //
+    // The first, not the nearest: a row three waves down is released by its
+    // predecessors in order, so the one a reader can do something about is the
+    // one at the front of the queue. Naming a nearer wave that is itself
+    // blocked would answer *blocked by which one* with another blocked thing.
+    //
+    // Empty name → null, never "": a plan with no `###` sub-headings has an
+    // unnamed wave, and the row then keeps the old sentence (*blocked by an
+    // earlier wave*) rather than printing `blocked by ``.
+    const blocker = plan.waves.find((w) => w.verdict !== 'complete');
+    const blockerName = blocker?.name?.trim() ? blocker.name.trim() : null;
     for (const wave of plan.waves) {
       for (const b of wave.branches) {
         const age = ages.get(b.branch) ?? null;
@@ -1486,6 +1629,19 @@ export function rowsFromPulse(
           // the only one that can go stale before the next poll. Like its two
           // neighbours it may only lift a row out of quiet.
           b.local_locked);
+        // Derived once, read twice below — and derived from `group` rather than
+        // re-deciding it, so a row `classify` placed outside `not-started`
+        // cannot pick up a waiting-state by a rule that drifted apart from it.
+        const waitingOn = waitingOnFor(group, b.state, wave.verdict, plan.phase);
+        // The blocking wave's NAME goes into the sentence too, not only into
+        // the field. `classify` cannot do it — the name lives on the plan's
+        // wave list, which that function has never been given — so the note is
+        // refined here, at the one place both are in hand.
+        //
+        // Through `blockedNote` rather than by concatenation: the unnamed form
+        // stays a single declared constant, so a future reader can see which
+        // spellings exist instead of finding three assembled variants.
+        const rowNote = waitingOn === 'time' ? blockedNote(blockerName) : note;
         rows.push({
           repo,
           branch: b.branch,
@@ -1498,7 +1654,7 @@ export function rowsFromPulse(
           phase: rowPhase(plan.phase, b.state),
           group,
           ageMinutes: age,
-          note: b.claimed ? `${note} · ${b.claimed}` : note,
+          note: b.claimed ? `${rowNote} · ${b.claimed}` : rowNote,
           // The link the row could not offer before, and now the condition too.
           // `url` is the adapter's string or "", never anything this file
           // composed; `state` and `draft` are the same facts the note spells
@@ -1548,6 +1704,15 @@ export function rowsFromPulse(
           localDirty: b.local_dirty,
           localLocked: b.local_locked,
           localAhead: b.local_ahead,
+          // WHAT THIS ROW IS WAITING FOR, as a value — computed from the same
+          // inputs `classify` just used, so the colour and the sentence beside
+          // it cannot disagree. See `waitingOnFor`.
+          waitingOn,
+          // And by WHICH wave, where that is the answer. Only the server can
+          // say: `verdict` lives on the wave, the row carries only its own
+          // name. Null on every row that is not blocked, and on a blocked row
+          // whose blocker has no name.
+          blockedBy: waitingOn === 'time' ? blockerName : null,
           // WHETHER IT CAN MOVE — a fact ADDED beside the group, never folded
           // into it. `classify` above answered what this branch IS; nothing it
           // can say means *this cannot advance without someone doing
@@ -1688,6 +1853,12 @@ export function rowsFromPulse(
       // branch has nothing unpushed on the strength of never having looked is
       // the same invented observation, one field along.
       localAhead: 0,
+      // A PLANLESS branch has no plan to be waiting on, and no wave to be
+      // blocked by. Null is the answer rather than a value, and it is the same
+      // answer `waitingOnFor` gives every row outside `not-started` — which
+      // this row always is, since it reaches the board through the PR map.
+      waitingOn: null,
+      blockedBy: null,
       // A PLANLESS branch is not in the pulse, so no conflict set was ever
       // computed for it and `conflictsKnown` is false — which is *not looked
       // at*, never *clean*. The one state reachable from PR data alone is
