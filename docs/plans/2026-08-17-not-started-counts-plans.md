@@ -209,7 +209,7 @@ drift this section exists to surface.
   plan with the plan's clock and a wave summary derived from its own
   rows, the branches folded beneath it and expandable; the section sorts
   by `waitingDays`, oldest first; deferred branches keep their own rows
-  under their plan; the indicator sits with the plan
+  under their plan; the indicator sits with the plan → #191
 
 ## Done when
 
