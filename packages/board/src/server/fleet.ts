@@ -1004,6 +1004,27 @@ export function classify(
     if (pr.mergeable === 'conflicting') {
       return { group: 'waiting-on-you', note: withNote(`PR #${pr.number}, conflicts`, note) };
     }
+    // UNKNOWN MERGEABILITY, AND THE NOTE SAYS WHICH FACT IS MISSING.
+    //
+    // Below `conflicting` and above the `checks` switch, mirroring `prState` —
+    // the row's word and its sentence must not be able to disagree.
+    //
+    // *cannot say whether it merges* rather than *checks unavailable*, because
+    // the two are not equally actionable and one label for both is the pattern
+    // this repo has spent the day removing: a missing `mergeable` sends a reader
+    // to check for a rebase, a missing `checks` sends them nowhere but back
+    // later. The checks may well be fine on this row — reporting them as
+    // unavailable would be a second false statement layered on the first.
+    //
+    // `!== 'mergeable'` rather than `=== 'unknown'`, matching `prState` exactly:
+    // the row's word and its sentence are derived separately and must agree on
+    // every input, including an adapter that omitted the field.
+    if (pr.mergeable !== 'mergeable') {
+      return {
+        group: 'waiting-on-you',
+        note: withNote(`PR #${pr.number}, cannot say whether it merges`, note),
+      };
+    }
     switch (pr.checks) {
       case 'pending':
         return { group: 'waiting-on-machine', note: withNote(`PR #${pr.number}, CI running`, note) };
@@ -1015,7 +1036,11 @@ export function classify(
         return { group: 'waiting-on-you', note: withNote(`PR #${pr.number}, no checks`, note) };
       case 'unknown':
         // The host cannot report checks (Bitbucket). Unavailable, not green.
-        return { group: 'waiting-on-you', note: withNote(`PR #${pr.number}, checks unavailable`, note) };
+        //
+        // *cannot read the checks*, paired with *cannot say whether it merges*
+        // above so the two absences are distinguishable in the sentence. This
+        // one is the less actionable of the pair: nothing to do yet, look again.
+        return { group: 'waiting-on-you', note: withNote(`PR #${pr.number}, cannot read the checks`, note) };
       case 'green':
         if (pr.draft) break; // a draft is still the author's, not yours
         return { group: 'waiting-on-you', note: withNote(`PR #${pr.number} green`, note) };
@@ -1253,13 +1278,20 @@ export function draftNote(pr: PrRecord): string {
   // Same precedence as `classify`, and for the same reason: a conflicting draft
   // reports an empty rollup, so reading `checks` first would say *no checks* on
   // every one of them. A draft is not exempt from needing a rebase.
+  //
+  // `unknown` mergeability sits directly below `conflicting`, exactly as in
+  // `prState` and `classify`. Without it a draft whose mergeability could not be
+  // read falls to its `checks`, and a green one then says nothing extra — the
+  // silence that means *not ready for you, but otherwise fine* on a row where
+  // the host declined to say so.
   const checks =
     pr.mergeable === 'conflicting' ? 'conflicts'
-      : pr.checks === 'failing' ? 'checks failing'
-        : pr.checks === 'pending' ? 'CI running'
-          : pr.checks === 'none' ? 'no checks'
-            : pr.checks === 'unknown' ? 'checks unavailable'
-              : '';
+      : pr.mergeable !== 'mergeable' ? 'cannot say whether it merges'
+        : pr.checks === 'failing' ? 'checks failing'
+          : pr.checks === 'pending' ? 'CI running'
+            : pr.checks === 'none' ? 'no checks'
+              : pr.checks === 'unknown' ? 'cannot read the checks'
+                : '';
   return withNote(checks ? `${base}, ${checks}` : base, reviewNote(pr));
 }
 
@@ -1281,9 +1313,30 @@ export function draftNote(pr: PrRecord): string {
  * the missing checks are its consequence, and a row that reports the consequence
  * has told the truth and hidden the reason.
  *
- * Only the literal `conflicting` promotes. `unknown` mergeability — Bitbucket,
- * or a PR GitHub has not finished computing — falls through to whatever `checks`
- * can say, because absent is not a conflict any more than it is a clearance.
+ * Only the literal `conflicting` promotes to `conflicts`. `unknown`
+ * mergeability is not a conflict — but it is not a clearance either, and that
+ * second half is what this function used to omit.
+ *
+ * UNKNOWN MERGEABILITY YIELDS `unknown`, BEFORE `checks` IS CONSULTED AT ALL.
+ * Measured on PR #57, which read `green` in the agents row for 22 days while
+ * the host said `mergeable=CONFLICTING`: under load GitHub returns `UNKNOWN`
+ * for the lazily-computed mergeability while `statusCheckRollup` — a plain
+ * stored field — still answers `green`. Falling through to `checks` then puts
+ * the one word a reader acts on without checking onto a branch that cannot
+ * merge. `green` says *this is fine, move on*; `pending` invites waiting and
+ * `unknown` invites asking, so a stale `green` is worse than a stale anything.
+ *
+ * `checks` is not consulted to break the tie, and that is the point rather than
+ * an omission: the two fields answer DIFFERENT QUESTIONS, and a green check
+ * says nothing about whether a branch merges. Twenty-two days of green on a
+ * conflicting branch is the proof.
+ *
+ * This is not only an outage case. Bitbucket reports `mergeable: "unknown"` on
+ * every row, permanently — `bb` cannot answer the question — so `unknown` there
+ * is the correct answer forever. The defect has not shipped on that host only
+ * because the same adapter hard-codes `checks: "unknown"` as well, so the wrong
+ * answer and the right one coincide by accident. Teaching that adapter real
+ * checks would otherwise have shipped this defect on every Bitbucket row.
  *
  * `draft` is NOT consulted here. It is its own field on the row for the reason
  * `AgentPr` states: a draft has CI like anything else, and answering both
@@ -1291,6 +1344,16 @@ export function draftNote(pr: PrRecord): string {
  */
 export function prState(pr: PrRecord): 'green' | 'pending' | 'failing' | 'none' | 'conflicts' | 'unknown' {
   if (pr.mergeable === 'conflicting') return 'conflicts';
+  // BELOW `conflicting`, never above it: a host that knows the branch conflicts
+  // must still say so, and reordering these two lines loses the cause.
+  //
+  // Anything that is not one of the two ANSWERS counts, not just the literal
+  // word: an adapter predating the field, and a word from a future host, are
+  // both in exactly the position Bitbucket is in. The ingest normalizes absent
+  // to `'unknown'` already, so this is belt-and-braces there — but `prState` is
+  // exported and called directly, and a pure function that says `green` on a
+  // record it was handed without the field would be a defect one call site away.
+  if (pr.mergeable !== 'mergeable') return 'unknown';
   switch (pr.checks) {
     case 'green': return 'green';
     case 'pending': return 'pending';

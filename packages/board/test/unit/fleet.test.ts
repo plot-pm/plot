@@ -374,7 +374,7 @@ describe('classify', () => {
     // overwrite that sentence.
     const pr = {
       number: 42, head: 'feature/x', state: 'OPEN', draft: false,
-      checks: 'pending' as const, review: '', url: '',
+      checks: 'pending' as const, mergeable: 'mergeable', review: '', url: '',
     };
     const r = classify('wip', 'eligible', 30_300, QUIET, pr, false, 0,
       '', 'elsewhere', '', '', true);
@@ -524,7 +524,7 @@ describe('classify', () => {
     // decides is not quiet, and there is nothing to lift.
     const pr = {
       number: 42, head: 'feature/x', state: 'OPEN', draft: false,
-      checks: 'pending', review: '', url: '',
+      checks: 'pending', mergeable: 'mergeable', review: '', url: '',
     };
     expect(classify('wip', 'eligible', 200, QUIET, pr, false, 4).group)
       .toBe('waiting-on-machine');
@@ -537,7 +537,7 @@ describe('classify', () => {
     // lift.
     const pr = {
       number: 42, head: 'feature/x', state: 'OPEN', draft: false,
-      checks: 'pending', review: '', url: '',
+      checks: 'pending', mergeable: 'mergeable', review: '', url: '',
     };
     expect(classify('wip', 'eligible', 200, QUIET, pr, true).group)
       .toBe('waiting-on-machine');
@@ -772,7 +772,7 @@ describe('classify — whether a worker is actually running', () => {
     // for exactly this, and the ordering is what this pins.
     const pr: PrRecord = {
       number: 7, head: 'feature/x', state: 'OPEN', draft: false,
-      checks: 'pending', review: '', url: '',
+      checks: 'pending', mergeable: 'mergeable', review: '', url: '',
     };
     const r = classify('wip', 'eligible', 3, QUIET, pr, false, 0, '', 'failed', '1');
     expect(r.group).toBe('waiting-on-machine');
@@ -780,9 +780,12 @@ describe('classify — whether a worker is actually running', () => {
 });
 
 describe('draftNote — a draft PR that is red must say so', () => {
+  // `mergeable: 'mergeable'` stated rather than omitted — unreadable
+  // mergeability outranks every checks verdict below, so an omitted field would
+  // send every case here down the *cannot say whether it merges* arm.
   const pr = (over: Partial<PrRecord> = {}): PrRecord => ({
     number: 131, head: 'idea/x', state: 'OPEN', draft: true, checks: 'green',
-    review: '', url: '', ...over,
+    mergeable: 'mergeable', review: '', url: '', ...over,
   });
 
   it('carries the check state inside the draft framing', () => {
@@ -793,7 +796,7 @@ describe('draftNote — a draft PR that is red must say so', () => {
     expect(draftNote(pr({ checks: 'failing' }))).toMatch(/checks failing/);
     expect(draftNote(pr({ checks: 'pending' }))).toMatch(/CI running/);
     expect(draftNote(pr({ checks: 'none' }))).toMatch(/no checks/);
-    expect(draftNote(pr({ checks: 'unknown' }))).toMatch(/unavailable/);
+    expect(draftNote(pr({ checks: 'unknown' }))).toMatch(/cannot read the checks/);
   });
 
   it('says nothing extra for a green draft', () => {
@@ -802,6 +805,22 @@ describe('draftNote — a draft PR that is red must say so', () => {
     // unfinished. Every other value is a reason to look, so every other value
     // is said.
     expect(draftNote(pr({ checks: 'green' }))).toBe('PR #131, draft');
+  });
+
+  it('says so when a green draft is one nobody can confirm merges', () => {
+    // The same silence, one input away from being wrong: without this the note
+    // for an unreadable draft is identical to a clean green one — and here the
+    // silence means *not ready for you, but otherwise fine* on a row where the
+    // host declined to say whether it merges at all.
+    expect(draftNote(pr({ checks: 'green', mergeable: 'unknown' })))
+      .toBe('PR #131, draft, cannot say whether it merges');
+  });
+
+  it('keeps conflicts above cannot-say in the draft note too', () => {
+    // The three folds — prState, classify and this one — must agree on every
+    // input, and this is the pair that separates a host that found out from one
+    // that could not.
+    expect(draftNote(pr({ checks: 'green', mergeable: 'conflicting' }))).toMatch(/draft, conflicts/);
   });
 
   it('still annotates the review state, as every other note does', () => {
@@ -839,7 +858,7 @@ describe('rowsFromPulse', () => {
 
   const pr = (over: Record<string, unknown> = {}) => ({
     number: 99, head: 'bug/loose-fix', state: 'OPEN', draft: false,
-    checks: 'green', review: '', url: 'https://host/pr/99', ...over,
+    checks: 'green', mergeable: 'mergeable', review: '', url: 'https://host/pr/99', ...over,
   }) as never;
 
   // The wiring, which the classify tests above cannot reach: the phase has to
@@ -1536,9 +1555,14 @@ describe('rateLimitBackoffMs — slow down for a quota, not for a blip', () => {
 });
 
 describe('classify with PR data', () => {
+  // `mergeable: 'mergeable'` is stated rather than omitted, and that is
+  // load-bearing: unreadable mergeability now outranks every `checks` verdict
+  // below, so a factory that left the field out would send every test in this
+  // block down the `cannot say whether it merges` arm and assert nothing about
+  // the checks each one is named for.
   const pr = (over: Partial<PrRecord> = {}): PrRecord => ({
     number: 42, head: 'feature/x', state: 'OPEN', draft: false, checks: 'green', review: '',
-    url: 'https://example.test/pr/42', ...over,
+    mergeable: 'mergeable', url: 'https://example.test/pr/42', ...over,
   });
 
   it('sends a green PR to waiting-on-you', () => {
@@ -1562,11 +1586,45 @@ describe('classify with PR data', () => {
     expect(r.note).toMatch(/no checks/);
   });
 
-  it('treats unknown check state as unavailable, never as green', () => {
-    // Bitbucket carries no rollup. An honest gap beats an invented verdict.
+  it('says WHICH fact is missing: the checks', () => {
+    // Bitbucket carries no rollup. An honest gap beats an invented verdict —
+    // and the sentence names the checks specifically, because this is the LESS
+    // actionable of the two absences: nothing to do yet, look again later.
     const r = classify('wip', 'eligible', 3, QUIET, pr({ checks: 'unknown' }));
     expect(r.group).toBe('waiting-on-you');
-    expect(r.note).toMatch(/unavailable/);
+    expect(r.note).toMatch(/cannot read the checks/);
+    expect(r.note).not.toMatch(/whether it merges/);
+  });
+
+  it('says WHICH fact is missing: the mergeability', () => {
+    // The live shape from PR #57: the checks were fine and the mergeability was
+    // what could not be read. One label for both is the pattern this repo has
+    // spent the day removing — a missing `mergeable` sends a reader to check
+    // for a rebase, and reporting the checks as unavailable here would be a
+    // second false statement layered on the first.
+    const r = classify('wip', 'eligible', 3, QUIET, pr({ checks: 'green', mergeable: 'unknown' }));
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toMatch(/cannot say whether it merges/);
+    expect(r.note).not.toMatch(/cannot read the checks/);
+    // And above all it must not carry the reassuring word.
+    expect(r.note).not.toMatch(/green/);
+  });
+
+  it('still says conflicts when the host knows, rather than cannot say', () => {
+    // `conflicting` outranks `unknown` — the host that DID find out is heard.
+    const r = classify('wip', 'eligible', 3, QUIET, pr({ checks: 'green', mergeable: 'conflicting' }));
+    expect(r.note).toMatch(/conflicts/);
+    expect(r.note).not.toMatch(/cannot say/);
+  });
+
+  it('sends a DRAFT with unreadable mergeability to you, not to its author', () => {
+    // The `green` arm defers a draft to its author. This arm does not, for the
+    // reason the `conflicting` arm above does not: a draft nobody can confirm
+    // merges is the author's errand, and it is stated rather than implied by
+    // the silence a green draft gets.
+    const r = classify('wip', 'eligible', 3, QUIET, pr({ draft: true, checks: 'green', mergeable: 'unknown' }));
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toMatch(/cannot say whether it merges/);
   });
 
   it('sends failing checks to waiting-on-you, not to a machine', () => {
@@ -1650,14 +1708,77 @@ describe('prState', () => {
     expect(prState(pr({ checks: 'none', mergeable: 'mergeable' }))).toBe('none');
   });
 
-  it('never reports unknown mergeability as clean', () => {
-    // Bitbucket's path, and GitHub's not-yet-computed one. Absent is not false:
-    // the state falls back to what checks can say rather than claiming a merge.
-    expect(prState(pr({ checks: 'green', mergeable: 'unknown' }))).toBe('green');
-    expect(prState(pr({ checks: 'none', mergeable: 'unknown' }))).toBe('none');
-    // And a record from before the field existed answers the same way — an
-    // absent field is exactly the position a host that cannot say is in.
-    expect(prState(pr({ checks: 'none', mergeable: undefined }))).toBe('none');
+  it('says unknown — not green — for the live shape from PR #57', () => {
+    // THE MEASURED DEFECT, exactly as reported. On 2026-08-17 PR #57 read
+    // `green` in the agents row while the host said the branch could not merge:
+    //
+    //   plot-host:  checks="green"   mergeable="conflicting"
+    //   gh:         mergeable=CONFLICTING   mergeStateStatus=DIRTY
+    //
+    // Under load GitHub returns UNKNOWN for the lazily-computed mergeability
+    // while `statusCheckRollup` — a plain stored field — still answers, so this
+    // is the pair `prState` actually received. It fell through to `checks` and
+    // put the one word a reader acts on without checking onto a branch that had
+    // been unmergeable for 22 days.
+    expect(prState(pr({ checks: 'green', mergeable: 'unknown' }))).toBe('unknown');
+  });
+
+  it('says unknown for EVERY checks value when mergeability is unknown', () => {
+    // The pairing that matters: an implementation special-casing only `green`
+    // passes the assertion above and leaves `pending`, `failing`, `none` and the
+    // rest claiming more than the host said. `checks` is not consulted at all
+    // here — the two fields answer DIFFERENT questions, and a green check says
+    // nothing about whether a branch merges.
+    for (const checks of ['green', 'pending', 'failing', 'none', 'unknown', 'something-new']) {
+      expect(prState(pr({ checks, mergeable: 'unknown' }))).toBe('unknown');
+    }
+  });
+
+  it('says unknown for a record written before the field existed', () => {
+    // An absent field is exactly the position a host that cannot say is in. The
+    // ingest normalizes it, but `prState` is exported and called directly, so
+    // the pure function must not answer `green` on a record handed to it raw.
+    expect(prState(pr({ checks: 'green', mergeable: undefined }))).toBe('unknown');
+    expect(prState(pr({ checks: 'green', mergeable: '' }))).toBe('unknown');
+  });
+
+  it('still says conflicts when the host knows the branch conflicts', () => {
+    // The cheap fix is to reorder the two lines and lose the cause. `conflicts`
+    // names WHY; `unknown` says only that nobody could find out, and a host that
+    // did find out must still be heard.
+    expect(prState(pr({ checks: 'green', mergeable: 'conflicting' }))).toBe('conflicts');
+    expect(prState(pr({ checks: 'none', mergeable: 'conflicting' }))).toBe('conflicts');
+  });
+
+  it('still says green for a mergeable branch whose checks passed', () => {
+    // The common case, and the one a careless fix destroys: reporting `unknown`
+    // whenever `mergeable` is not `conflicting` passes every assertion above and
+    // makes the board useless — every row on every host would say *cannot say*.
+    expect(prState(pr({ checks: 'green', mergeable: 'mergeable' }))).toBe('green');
+    expect(prState(pr({ checks: 'pending', mergeable: 'mergeable' }))).toBe('pending');
+    expect(prState(pr({ checks: 'failing', mergeable: 'mergeable' }))).toBe('failing');
+  });
+
+  it('reads a Bitbucket row as unknown, permanently', () => {
+    // The adapter's LITERAL, verbatim from plot-host.sh: `bb` has no run listing
+    // and cannot answer either question, so it emits both as unknown on every
+    // row. That is the CLI's limit rather than deferred work, so `unknown` is
+    // the permanently correct answer there — and the defect stayed invisible on
+    // that host only because the wrong answer and the right one coincided.
+    expect(prState(pr({ checks: 'unknown', mergeable: 'unknown' }))).toBe('unknown');
+    // And it stays unknown if the adapter ever learns to report checks: the
+    // mergeability it still cannot answer is what decides.
+    expect(prState(pr({ checks: 'green', mergeable: 'unknown' }))).toBe('unknown');
+  });
+
+  it('remains a pure function over the two facts it already receives', () => {
+    // No contract change and no new field: the same record in, the same word
+    // out, with nothing read from anywhere else.
+    const record = pr({ checks: 'green', mergeable: 'unknown' });
+    const before = JSON.stringify(record);
+    expect(prState(record)).toBe(prState(record));
+    expect(JSON.stringify(record)).toBe(before);
+    expect(prState.length).toBe(1);
   });
 
   it('reports a check verdict it does not recognise as unknown', () => {
@@ -1819,15 +1940,23 @@ describe('the note says conflicts too', () => {
     }
   });
 
-  it('leaves every non-conflicting note exactly as it was', () => {
+  it('leaves every KNOWN-mergeable note exactly as it was', () => {
     // The pairing: a change that says `conflicts` everywhere passes the two
     // assertions above.
     expect(classify('wip', 'eligible', 3, QUIET, pr({ mergeable: 'mergeable' })).note)
       .toMatch(/no checks/);
-    expect(classify('wip', 'eligible', 3, QUIET, pr({ mergeable: 'unknown' })).note)
-      .toMatch(/no checks/);
     expect(classify('wip', 'eligible', 3, QUIET,
       pr({ mergeable: 'mergeable', checks: 'green' })).note).toMatch(/#42 green/);
+  });
+
+  it('does not say "no checks" for a branch nobody could confirm merges', () => {
+    // This assertion USED to read `.toMatch(/no checks/)` — it encoded the
+    // defect being fixed. `mergeable: 'unknown'` fell through to `checks`, so a
+    // row whose mergeability the host could not compute reported whatever the
+    // rollup happened to hold, up to and including `green`.
+    const r = classify('wip', 'eligible', 3, QUIET, pr({ mergeable: 'unknown' }));
+    expect(r.note).toMatch(/cannot say whether it merges/);
+    expect(r.note).not.toMatch(/no checks/);
   });
 });
 
@@ -1891,6 +2020,50 @@ describe('rowsFromPulse carries stuck detection onto the row', () => {
   it('leaves a healthy row with no stuck fact at all', () => {
     // A watcher that flags everything flags nothing.
     expect(rowFor().stuck).toBeNull();
+  });
+
+  it('sees a host-reported conflict whose checks read green', () => {
+    // `prState` is what the detector is handed, so the fold decides what the
+    // watcher can see at all. This is the live shape from PR #57 as the host
+    // finally reported it — `mergeable: conflicting` with a rollup that still
+    // said `green` — and `merge-tree` predicted nothing, so `conflicts` is
+    // empty: the host says *this does not merge* without saying where.
+    //
+    // Reported as a plain `conflict` and never `artifact-conflict`: that
+    // distinction rests on the SET being exactly one known file, and here there
+    // is no set at all.
+    const stuck = rowFor({}, failingPr({ checks: 'green', mergeable: 'conflicting' })).stuck;
+    expect(stuck?.state).toBe('conflict');
+    expect(stuck?.conflicts).toEqual([]);
+  });
+
+  it('does NOT claim a branch is stuck when the host could not say', () => {
+    // THE HONEST COST OF THIS FIX, asserted rather than left to be discovered.
+    //
+    // `mergeable: unknown` now yields `unknown`, so `prState === 'failing'` no
+    // longer fires for a row whose mergeability could not be read — a branch
+    // that today reports `ci-failing` reports nothing while GitHub is down.
+    //
+    // That is the correct trade and not a regression to route around: a stuck
+    // verdict derived from a pulse the host could not answer is a guess, and
+    // `stuck` is the one field a later wave is licensed to act on. The row
+    // still SAYS *cannot say whether it merges*, so nothing is hidden from the
+    // reader — only the machine-actionable claim is withheld. The state is
+    // re-read every 60 s, so the next readable pulse restores the verdict.
+    const stuck = rowFor({}, failingPr({ checks: 'failing', mergeable: 'unknown' })).stuck;
+    expect(stuck).toBeNull();
+    expect(rowFor({}, failingPr({ checks: 'failing', mergeable: 'unknown' })).note)
+      .toMatch(/cannot say whether it merges/);
+  });
+
+  it('still reports local evidence while the host is unreadable', () => {
+    // The pairing: suppressing the host-derived verdict must not suppress the
+    // ones this machine observed itself. An unreadable `mergeable` says nothing
+    // about a conflict `merge-tree` predicted or a commit that was never pushed.
+    const unreadable = { checks: 'failing', mergeable: 'unknown' };
+    expect(rowFor({ conflicts: ['src/app.ts'] }, failingPr(unreadable)).stuck?.state)
+      .toBe('conflict');
+    expect(rowFor({ local_ahead: 2 }, failingPr(unreadable)).stuck?.state).toBe('unpushed');
   });
 
   it('does not change the group, the state or the note of a stuck row', () => {

@@ -27,6 +27,9 @@ import {
   LOCK_ECHO_MS,
   rowKey,
   watchedState,
+  isObservation,
+  hostCannotReportCi,
+  HOST_CANNOT_REPORT_HINT,
   type WatchedState,
   type PlanGroup,
 } from '../../src/app/components/AgentList.js';
@@ -1072,6 +1075,126 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     // reading `row.pr.state` unguarded throws on precisely these.
     expect(() => changedRows(new Map(), [row({ pr: null })])).not.toThrow();
     expect(watchedState(row({ pr: null }))).toBe(null);
+  });
+
+  it('does NOT flash on green → unknown → green', () => {
+    // THE ASSERTION THIS FIX EXISTS FOR. Once `prState` reports unreadable
+    // mergeability honestly, a GitHub 503 turns every row `green → unknown` and
+    // the next pulse turns it back. There were four such outages in one
+    // afternoon on 2026-08-17: eight flashes per row for nothing that happened.
+    //
+    // Both halves are asserted against the same row. Suppressing only the way
+    // IN leaves the recovery flashing, which is the same light show one pulse
+    // later — and it is the half a fix reaching for `if (now === 'unknown')`
+    // alone gets wrong.
+    const prior = observed(withState('a', 'green'));
+    const outage = changedRows(prior, [withState('a', 'unknown')]);
+    expect(outage.changed.size).toBe(0);
+    const recovered = changedRows(outage.next, [withState('a', 'green')]);
+    expect(recovered.changed.size).toBe(0);
+  });
+
+  it('flashes a change that HAPPENED during the outage, once it can be seen', () => {
+    // The pairing: suppressing the transition must not lose the fact. The
+    // memory carries `green` across the unreadable pulse rather than storing
+    // `unknown`, so `failing` arriving after the outage is still a change
+    // against the last thing anybody actually knew.
+    //
+    // An implementation that stores `unknown` passes the assertion above and
+    // fails this one — it would compare `failing` against `unknown`, suppress
+    // that too, and swallow the change entirely.
+    const prior = observed(withState('a', 'green'));
+    const outage = changedRows(prior, [withState('a', 'unknown')]);
+    expect([...changedRows(outage.next, [withState('a', 'failing')]).changed])
+      .toEqual(['plot/a']);
+  });
+
+  it('stays silent for a row that has ONLY ever been unknown', () => {
+    // Every Bitbucket row, permanently: `bb` cannot report either fact, so the
+    // adapter emits `unknown` forever. A rule that remembered `unknown` as a
+    // value would be silent here anyway — but one that treated the FIRST
+    // unknown as a value and later compared a real state against it would flash
+    // the whole host the moment anything became readable.
+    const first = changedRows(new Map(), [withState('a', 'unknown')]);
+    expect(first.changed.size).toBe(0);
+    expect(first.next.has('plot/a')).toBe(false);
+    expect(changedRows(first.next, [withState('a', 'unknown')]).changed.size).toBe(0);
+  });
+
+  it('still flashes every real transition', () => {
+    // A fix that suppresses too much removes the signal the marker exists for.
+    // `pending → failing` is the plan's named case; the rest are asserted with
+    // it so a blanket suppression cannot pass.
+    const pairs: [WatchedState, WatchedState][] = [
+      ['pending', 'failing'],
+      ['green', 'conflicts'],
+      ['failing', 'green'],
+      [null, 'pending'],
+      ['conflicts', null],
+    ];
+    for (const [before, after] of pairs) {
+      const prior = observed(withState('a', before));
+      expect([...changedRows(prior, [withState('a', after)]).changed])
+        .toEqual(['plot/a']);
+    }
+  });
+
+  it('names the rule as its own function rather than inlining the word', () => {
+    // `unknown` is a fact about the OBSERVATION; every other value is a fact
+    // about the world. Exported so the distinction is assertable rather than
+    // buried in a comparison.
+    expect(isObservation('unknown')).toBe(true);
+    for (const s of ['green', 'pending', 'failing', 'none', 'conflicts', null] as WatchedState[]) {
+      expect(isObservation(s)).toBe(false);
+    }
+  });
+});
+
+describe('the empty WAITING ON A MACHINE section names the host\'s limit', () => {
+  const withState = (branch: string, state: WatchedState) =>
+    row({ branch, pr: state === null ? null
+      : { number: 1, url: '', draft: false, state } });
+
+  it('says the host cannot report CI when NO PR anywhere could be read', () => {
+    // Measured: the Bitbucket adapter emits `checks:"unknown",
+    // mergeable:"unknown"` on every row because `bb` has no run listing. That
+    // section is therefore permanently empty there, and its default hint —
+    // *nothing — CI will finish* — is a claim the host cannot support.
+    expect(hostCannotReportCi([withState('a', 'unknown'), withState('b', 'unknown')]))
+      .toBe(true);
+  });
+
+  it('keeps the ordinary hint when even one PR answered', () => {
+    // ALL, never ANY. One `unknown` among readable rows is a single PR
+    // mid-outage or a single cross-host repo, and the section is then empty for
+    // the ordinary reason — *nothing is on CI right now* is true and useful.
+    expect(hostCannotReportCi([withState('a', 'unknown'), withState('b', 'green')]))
+      .toBe(false);
+  });
+
+  it('claims nothing from a board with no PRs at all', () => {
+    // The pairing: `every()` on an empty list is `true`, so an implementation
+    // without the length guard would announce a host limit on a fresh board
+    // where nothing has been observed — concluding from an absence of evidence,
+    // which is the exact mistake this hint exists to correct.
+    expect(hostCannotReportCi([])).toBe(false);
+    expect(hostCannotReportCi([withState('a', null), withState('b', null)])).toBe(false);
+  });
+
+  it('ignores rows that have no PR to report', () => {
+    // `not-started`, `quiet` and every fresh claim carry no PR. They are not
+    // evidence about the host either way, so they neither establish the limit
+    // nor rescue the section from it.
+    expect(hostCannotReportCi([withState('a', 'unknown'), withState('b', null)]))
+      .toBe(true);
+  });
+
+  it('withdraws the claim rather than merely rewording it', () => {
+    // The default hint promises CI will finish. The replacement must not: an
+    // empty section that still implies a machine is working is the failure this
+    // corrects, whatever words it uses.
+    expect(HOST_CANNOT_REPORT_HINT).not.toMatch(/will finish/);
+    expect(HOST_CANNOT_REPORT_HINT).toMatch(/cannot/);
   });
 
   it('keys a row by repo AND branch', () => {
