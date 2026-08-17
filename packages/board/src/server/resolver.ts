@@ -77,7 +77,7 @@ import type { BuildBoardOptions } from './board.js';
  * only through a spawn could only be tested by watching for the absence of a
  * side effect, which is the assertion most likely to pass for the wrong reason.
  */
-export function mayResolve(stuck: Stuck | null | undefined): boolean {
+export function mayResolve(stuck: Stuck | null | undefined): stuck is Stuck {
   if (!stuck) return false;
   if (stuck.state !== 'artifact-conflict') return false;
   // The set travels with the state, so it can be COUNTED rather than trusted —
@@ -130,6 +130,41 @@ const inFlight = new Map<string, Repair>();
 const lastOutcome = new Map<string, Repair>();
 
 /**
+ * Inputs that already produced a `not-observed` refusal, by branch.
+ *
+ * **Retry when the input changes, not when the clock ticks.** The pulse fires
+ * every 5 s and the branch stays `artifact-conflict` throughout, so a refusal
+ * that leaves the input untouched is restarted by the very next pulse — measured
+ * on 2026-08-17 as five identical log entries in a row, one per pulse, each
+ * reaching into the same worktree.
+ *
+ * Scoped to `not-observed` alone, and that scope is the argument rather than a
+ * convenience. The other outcomes may all legitimately differ on a second run
+ * against the same board-side input: `tests-failed` and `build-failed` depend on
+ * a suite, `push-failed` on a remote that moves, `worktree-busy` and
+ * `already-in-flight` on state that clears the moment their owner finishes,
+ * `not-artifact-only` on a merge whose result the refs can change. A repair
+ * suppressed for one of those would be a repair never retried after the world
+ * fixed itself. `not-observed` is the one whose cause is entirely inside this
+ * input: nothing was read, and re-reading the same input reads nothing again.
+ */
+const notObserved = new Map<string, string>();
+
+/**
+ * What the resolver would act on, as one comparable value.
+ *
+ * The decision rests on the state and the set — the same two fields
+ * {@link mayResolve} consults — so those are what "unchanged input" means. This
+ * is deliberately NOT a commit SHA: the board never handed this layer one, and a
+ * fingerprint invented from data this function cannot see would be a guess about
+ * change rather than a reading of it. Under-detecting change is the safe
+ * direction here anyway, since it only means one more honest refusal.
+ */
+function inputFingerprint(stuck: Stuck): string {
+  return JSON.stringify([stuck.state, stuck.conflicts]);
+}
+
+/**
  * How long a finished repair keeps saying so. Long enough to be seen across a
  * few 4 s polls and a glance away; short enough that it reads as a report of
  * something that just happened rather than as a state the branch is in.
@@ -153,6 +188,7 @@ export function repairFor(branch: string, now = Date.now()): Repair | null {
 export function resetRepairs(): void {
   inFlight.clear();
   lastOutcome.clear();
+  notObserved.clear();
 }
 
 /**
@@ -220,6 +256,15 @@ export function startRepair(
   // in between would otherwise start another one on the same worktree.
   if (inFlight.has(branch)) return false;
 
+  // THE THIRD FENCE: a `not-observed` refusal is not retried until the input
+  // changes. Without it the pulse re-runs the identical repair every 5 s and the
+  // log fills with identical entries — five of them, measured — none carrying
+  // information the one before it lacked. `mayResolve` passed, so this branch
+  // still LOOKS repairable; that is exactly why the clock alone must not be
+  // enough to try again.
+  const fingerprint = inputFingerprint(stuck);
+  if (notObserved.get(branch) === fingerprint) return false;
+
   const log = repairLogPath(opts.repoRoot, branch);
   const script = path.join(opts.scriptsDir, 'plot-resolve-artifact.sh');
 
@@ -229,6 +274,18 @@ export function startRepair(
   const settle = (code: number | null) => {
     inFlight.delete(branch);
     const read = readOutcome(log);
+    // The refusal that must not repeat on unchanged input, remembered against
+    // the input that produced it. Recorded ONLY for the script's own declared
+    // `not-observed` — a run whose log could not be read falls back to the exit
+    // code, which cannot distinguish this refusal from any other failure, and
+    // suppressing on that guess would silence repairs that should retry.
+    if (read?.outcome === 'refused' && read.reason === 'not-observed') {
+      notObserved.set(branch, fingerprint);
+    } else {
+      // Any other ending clears the note: the world moved, and the next pulse
+      // is entitled to a fresh reading.
+      notObserved.delete(branch);
+    }
     lastOutcome.set(branch, {
       branch,
       state: 'finished',

@@ -225,3 +225,118 @@ describe('every repair is reported — running, pushed and abandoned alike', () 
     expect(startRepair('feature/a', stuck({}), opts)).toBe(true);
   });
 });
+
+// RETRY WHEN THE INPUT CHANGES, NOT WHEN THE CLOCK TICKS.
+//
+// The pulse fires every 5 s and the branch stays `artifact-conflict` throughout,
+// so a refusal that leaves the input untouched is restarted by the very next
+// pulse. Measured on 2026-08-17: five identical entries in the log, one per
+// pulse, each reaching into the same worktree — a loop with no new information
+// between iterations.
+describe('a not-observed refusal does not repeat on unchanged input', () => {
+  let repoRoot: string;
+  let started: string[];
+  let exit: ((code: number | null) => void) | null;
+  let opts: Parameters<typeof startRepair>[2];
+
+  /** Finish the in-flight repair the way the script would have, via its log. */
+  function finishWith(branch: string, outcome: string, reason: string, code: number) {
+    fs.writeFileSync(repairLogPath(repoRoot, branch),
+      `summary: branch=${branch} outcome=${outcome} reason=${reason}\n`);
+    exit!(code);
+  }
+
+  beforeEach(() => {
+    resetRepairs();
+    started = [];
+    exit = null;
+    repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-resolver-'));
+    opts = {
+      repoRoot,
+      scriptsDir: '/scripts',
+      spawnRepair: ({ branch, onExit }) => { started.push(branch); exit = onExit; },
+    };
+  });
+
+  // THE MEASURED SYMPTOM, as an assertion: the second pulse with unchanged input
+  // produces no second attempt.
+  it('refuses the next pulse after a not-observed refusal', () => {
+    expect(startRepair('feature/a', stuck({}), opts)).toBe(true);
+    finishWith('feature/a', 'refused', 'not-observed', 1);
+
+    expect(startRepair('feature/a', stuck({}), opts)).toBe(false);
+    expect(startRepair('feature/a', stuck({}), opts)).toBe(false);
+    // The load-bearing assertion — the pulses SPAWNED NOTHING. Five identical
+    // log entries was the symptom; one is the fix.
+    expect(started).toEqual(['feature/a']);
+  });
+
+  // AND IT IS NOT A PERMANENT BLOCK. Suppressing until a restart would turn one
+  // transient refusal into a branch that is never repaired again — the opposite
+  // failure, and the harder one to notice.
+  // THE SUPPRESSION IS ON A VALUE, NOT AN IDENTITY. Every pulse builds a fresh
+  // `Stuck` object, so a check comparing references would suppress nothing at
+  // all and the loop would survive the fix looking repaired.
+  it('suppresses an equal-but-distinct input object', () => {
+    startRepair('feature/a', stuck({}), opts);
+    finishWith('feature/a', 'refused', 'not-observed', 1);
+
+    expect(startRepair('feature/a', stuck({}), opts)).toBe(false);
+    expect(started).toEqual(['feature/a']);
+  });
+
+  // AND IT IS NOT A PERMANENT BLOCK. Suppressing until a restart would turn one
+  // transient refusal into a branch that is never repaired again — the opposite
+  // failure, and the harder one to notice. The input this decision rests on is
+  // the state and the set, so a change to either is a new reading.
+  it('retries once the observed set changes', () => {
+    startRepair('feature/a', stuck({}), opts);
+    finishWith('feature/a', 'refused', 'not-observed', 1);
+    expect(startRepair('feature/a', stuck({}), opts)).toBe(false);
+
+    // The board re-observed the branch and the artifact is no longer alone in
+    // the set. `mayResolve` refuses that outright, so it cannot show a retry —
+    // what it shows is that the NOTE is cleared rather than sticky: once the set
+    // returns to artifact-only, the repair is available again.
+    startRepair('feature/a', stuck({ state: 'conflict', conflicts: [OTHER] }), opts);
+    expect(started).toEqual(['feature/a']);
+
+    // A fresh reading of the repairable case, after a run that ended otherwise.
+    resetRepairs();
+    startRepair('feature/a', stuck({}), opts);
+    finishWith('feature/a', 'pushed', 'artifact-conflict-resolved', 0);
+    expect(startRepair('feature/a', stuck({}), opts)).toBe(true);
+  });
+
+  // SCOPED TO not-observed ALONE. Every other outcome may legitimately differ on
+  // a second run: a suite can pass, a remote can stop moving, a busy worktree's
+  // owner can finish. Suppressing those would be a repair never retried after
+  // the world fixed itself.
+  it('does not suppress after any other outcome', () => {
+    const cases: Array<[string, string, number]> = [
+      ['abandoned', 'tests-failed', 1],
+      ['abandoned', 'build-failed', 1],
+      ['refused', 'not-artifact-only', 1],
+      ['refused', 'worktree-busy', 1],
+      ['pushed', 'artifact-conflict-resolved', 0],
+    ];
+    for (const [outcome, reason, code] of cases) {
+      resetRepairs();
+      started = [];
+      startRepair('feature/a', stuck({}), opts);
+      finishWith('feature/a', outcome, reason, code);
+      expect(startRepair('feature/a', stuck({}), opts),
+        `${outcome}/${reason} must not suppress the next repair`).toBe(true);
+      expect(started).toEqual(['feature/a', 'feature/a']);
+    }
+  });
+
+  // A LOG THAT COULD NOT BE READ IS NOT A not-observed REFUSAL. The exit code
+  // alone cannot tell one failure from another, and suppressing on that guess
+  // would silence repairs that should retry.
+  it('does not suppress when the outcome could not be read', () => {
+    startRepair('feature/a', stuck({}), opts);
+    exit!(1);
+    expect(startRepair('feature/a', stuck({}), opts)).toBe(true);
+  });
+});
