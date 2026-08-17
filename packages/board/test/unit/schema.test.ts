@@ -171,3 +171,31 @@ describe('AgentRowSchema.pr', () => {
     }
   });
 });
+
+describe('rounds — absent is not zero, on both sides of the contract', () => {
+  const meta = { file: 'docs/plans/x.md', format: 'canonical', phase: 'draft' };
+  const card = {
+    slug: 'x', title: 'X', type: 'feature', phase: 'Discovery', path: 'docs/plans/x.md',
+  } as const;
+
+  it('carries a round the helper reported', () => {
+    expect(PlanMetaSchema.parse({ ...meta, rounds: 2 }).rounds).toBe(2);
+    expect(CardSchema.parse({ ...card, rounds: 2 }).rounds).toBe(2);
+  });
+
+  it('leaves rounds undefined when the helper omitted it — never 0', () => {
+    // The distinction this field exists for. `plot-plan-meta.sh` omits the key
+    // for a plan with no metadata block; a `.default(0)` here would silently
+    // convert "nobody has looked" into "interrogated and found nothing", which
+    // are opposite statements about the plan.
+    expect(PlanMetaSchema.parse(meta).rounds).toBeUndefined();
+    expect(CardSchema.parse(card).rounds).toBeUndefined();
+  });
+
+  it('keeps a recorded 0 distinguishable from an absent one', () => {
+    // Both are legitimate and they are not the same answer: a block reporting
+    // 0 means the skill ran, an absent key means it never did.
+    expect(PlanMetaSchema.parse({ ...meta, rounds: 0 }).rounds).toBe(0);
+    expect(CardSchema.parse({ ...card, rounds: 0 }).rounds).toBe(0);
+  });
+});

@@ -352,3 +352,100 @@ describe('board: PR numbers reach the card, links never get invented', () => {
     assert.deepEqual(card.prs, []);
   });
 });
+
+// The interrogation count travels from the plan file, through the helper, onto
+// the card — and its ABSENCE travels just as deliberately.
+//
+// The block below is the real shape `/plot:challenge-the-plan` writes: a
+// multi-line HTML comment, which the parser otherwise treats as non-content.
+// That is why this is asserted end-to-end rather than at the schema alone.
+const INTERROGATED = `# A well-questioned draft
+
+## Status
+- **Phase:** Draft
+- **Type:** feature
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 3,
+  "questionHistory": [
+    {"q": "Does the badge appear past Discovery?", "a": "No — the count is history once the plan is approved", "category": "ux-happyPath"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "ux": {"happyPath": true}
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
+`;
+
+const INTERROGATED_APPROVED = `# A well-questioned approved plan
+
+## Status
+- **Phase:** Approved
+- **Type:** feature
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 4
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
+`;
+
+describe('board: a card carries its interrogation round, or carries nothing', () => {
+  let tmp, server;
+  before(async () => {
+    tmp = makeRepo({ plans: [
+      { name: '2026-08-17-questioned-draft.md', content: INTERROGATED },
+      { name: '2026-08-17-questioned-approved.md', content: INTERROGATED_APPROVED },
+      { name: '2026-08-17-never-questioned.md', content: DRAFT },
+    ] });
+    server = await startServer(tmp);
+  });
+  after(() => {
+    server?.kill();
+    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  const cardOf = (board, slug) =>
+    board.columns.flatMap((c) => c.cards).find((c) => c.slug === slug);
+
+  it('reads the round out of the real metadata block', async () => {
+    const board = await fetchBoard(server.port);
+    const card = cardOf(board, 'questioned-draft');
+    assert.ok(card, 'the plan should render as a card');
+    assert.equal(card.rounds, 3);
+  });
+
+  it('omits rounds entirely for a plan with no block', async () => {
+    // Absent, never 0 — the two are opposite claims about the plan, and the
+    // card must not be able to render the wrong one.
+    const board = await fetchBoard(server.port);
+    const card = cardOf(board, 'never-questioned');
+    assert.ok(card, 'the plan should render as a card');
+    assert.equal(card.rounds, undefined);
+    assert.equal('rounds' in card, false);
+  });
+
+  it('still carries the count on a non-Draft card — the BADGE is what is Draft-only', async () => {
+    // The server reports what the plan records; whether to SHOW it is a display
+    // decision (roundsBadgeText), kept on the client where the other badge
+    // rules live. Splitting it the other way would put a display rule in the
+    // data layer and make the field mean different things per column.
+    const board = await fetchBoard(server.port);
+    const card = cardOf(board, 'questioned-approved');
+    assert.ok(card, 'the plan should render as a card');
+    assert.equal(card.rounds, 4);
+    assert.notEqual(card.phase, 'Discovery');
+  });
+
+  it('does not disturb the neighbouring fields', async () => {
+    // plot-plan-meta.sh is the plan-format contract: the block must cost the
+    // plan nothing else.
+    const board = await fetchBoard(server.port);
+    const card = cardOf(board, 'questioned-draft');
+    assert.equal(card.title, 'A well-questioned draft');
+    assert.equal(card.type, 'feature');
+    assert.equal(card.phase, 'Discovery');
+  });
+});

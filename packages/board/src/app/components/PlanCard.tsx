@@ -96,6 +96,35 @@ export function waveBadgeText(s: NonNullable<Card['waveSummary']>): string {
   return parts.join(' · ');
 }
 
+/**
+ * The interrogation badge's text, or "" when there is nothing honest to say.
+ *
+ * Two conditions, and neither is decoration:
+ *
+ * **Draft only.** Past Discovery the count is history — the design question it
+ * answers has been settled by approval, and a number nobody acts on is exactly
+ * the crowding this board keeps removing. `isDraft` is reused rather than
+ * re-tested so the badge and the Approve button cannot drift about what Draft
+ * means.
+ *
+ * **Absent shows nothing.** `undefined` means no interrogation is recorded, and
+ * it must never render as `0 rounds` — that would read as *interrogated and
+ * found nothing*, the opposite claim. `?? 0` would erase precisely the
+ * distinction the contract carries the field as optional to preserve, so the
+ * check is on `undefined` itself.
+ *
+ * A recorded 0 still renders, and that is the same rule from the other side: the
+ * block exists, so the plan HAS been through the skill, and saying so is true.
+ *
+ * Exported for test — "only Draft cards, and no badge where nothing is known"
+ * are the two assertions the plan names, and both are this one expression.
+ */
+export function roundsBadgeText(card: Card): string {
+  if (!isDraft(card)) return '';
+  if (card.rounds === undefined) return '';
+  return card.rounds === 1 ? '1 round' : `${card.rounds} rounds`;
+}
+
 export interface PlanCardProps {
   card: Card;
   /** Show the sprint badge (suppressed when a sprint filter is active). */
@@ -232,6 +261,13 @@ export function PlanCard({
         {showStory && !card.story && <Badge variant="neutral">no story</Badge>}
         {card.waveSummary && card.waveSummary.branches > 0 && waveBadgeText(card.waveSummary) && (
           <Badge variant="neutral">{waveBadgeText(card.waveSummary)}</Badge>
+        )}
+        {/* How hard this plan has been questioned — a Discovery-column answer to
+            "has anyone pushed on this yet?", which is the one thing a reader of
+            a Draft card cannot see without opening the file. No badge where the
+            plan records no interrogation: silence, not a zero. */}
+        {roundsBadgeText(card) && (
+          <Badge variant="neutral">{roundsBadgeText(card)}</Badge>
         )}
       </div>
       <div className="mt-2 font-mono text-xs text-slate-400 dark:text-slate-500">{card.path}</div>
