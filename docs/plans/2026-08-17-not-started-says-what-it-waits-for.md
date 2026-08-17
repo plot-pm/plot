@@ -196,12 +196,26 @@ here: it must come from something the board already measures. The row
 carries the age it needs — a plan approved in minutes and one untouched
 for a week are distinguishable without inventing a constant.
 
-Pick the threshold from the repo's own history of Draft-to-Approved
-times, state the measurement in the implementation, and make it a named
-constant with the evidence beside it. If that history turns out too thin
-to support a number, say so and ship the colour alone rather than
-inventing one — a wrong threshold trains the reader to ignore the cue,
-which costs more than not having it.
+**Measured before approval, and the history does not support a
+threshold.** Every plan in this repo carrying an `Approved:` record — 31
+of them — was approved on the day it was drafted, bar one that took a
+single day:
+
+```
+30 plans   0 days
+ 1 plan    1 day
+```
+
+So the state this escalation would mark **has never occurred here**.
+Choosing a number would mean inventing the first case it is meant to
+measure, and a wrong threshold trains the reader to ignore the cue, which
+costs more than not having it.
+
+**The fallback this plan set for itself therefore applies: ship the
+colour alone.** The escalation stays specified above rather than deleted,
+because the reasoning holds and the day a Draft does sit for a week the
+threshold can be taken from that observation instead of from a guess.
+Until then, `needs you` is a colour, and nothing in this section moves.
 
 The distinction that survives: **colour says what a row is; motion says
 it has been waiting on you too long.** The first is a property, the
@@ -213,8 +227,9 @@ second is an accusation, and only the second earns the scarce channel.
 
 - `feature/not-started-says-what-it-waits-for` — the server computes the
   waiting-state and the blocking wave's name onto the row; the board
-  renders them as colour beside the words, colours only a Draft plan's
-  first wave, and escalates to motion once a Draft has waited too long
+  renders them as colour beside the words and colours only a Draft plan's
+  first wave. No animation: the repo's history shows no long-waiting
+  Draft to calibrate one against
 
 ## Done when
 
@@ -251,13 +266,11 @@ second is an accusation, and only the second earns the scarce channel.
   plan shows one loud wave and three quiet ones. The pairing: colouring
   every row of the plan passes a "does a Draft plan show needs-you?"
   assertion and puts four loud rows on the board for one approval.
-- **A long-waiting Draft escalates from colour to motion**, and the
-  threshold is a named constant with its measurement recorded beside it.
-  Assert a fresh Draft does **not** animate — the ordinary state of a
-  plan written minutes ago is not an incident.
-- **If the repo's history cannot support a threshold, the colour ships
-  alone.** A guessed number trains the reader to ignore the cue, which
-  costs more than not having it.
+- **Nothing in this section animates.** Measured before approval: 31
+  plans carry an `Approved:` record, 30 approved the same day and one
+  after a single day, so the long-waiting Draft this escalation would
+  mark has never occurred in this repo. The plan's own fallback applies —
+  the colour ships alone. Assert no `animate-*` anywhere in the section.
 - `pnpm run test:board`, `pnpm run typecheck`, `pnpm test`,
   `pnpm run validate` all pass.
 - `pnpm build:board` run in the implementing worktree and the artifact
