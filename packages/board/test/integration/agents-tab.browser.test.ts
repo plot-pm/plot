@@ -2157,6 +2157,231 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
+  // ── A row marks itself when its PR status changes ─────────────────────────
+  //
+  // The RULE is pinned in test/unit/agent-list.test.ts, where `changedRows` is
+  // a pure function over (prior, current) — vitest runs `environment: 'node'`,
+  // so what belongs here is only what genuinely needs a page: that the mark
+  // appears on a real transition, that it clears itself, that reduced motion
+  // keeps it, and that it announces nothing.
+
+  /**
+   * The Agents tab with a payload that can be SWAPPED between polls.
+   *
+   * A transition cannot be stated as one payload — that is the entire point of
+   * the feature. The route reads a mutable variable rather than being
+   * re-registered, so a poll in flight at the moment of the swap cannot slip
+   * past an unrouted window.
+   */
+  async function openAgentsSwappable(
+    first: Fleet,
+    opts: { reducedMotion?: 'reduce' | 'no-preference' } = {},
+  ): Promise<{ page: Page; swap: (next: Fleet) => void }> {
+    let current = first;
+    const context = await browser.newContext(
+      opts.reducedMotion ? { reducedMotion: opts.reducedMotion } : {});
+    const page = await context.newPage();
+    await page.route('**/api/fleet', (route) =>
+      route.fulfill({ contentType: 'application/json', body: JSON.stringify(current) }));
+    await page.goto(`${baseURL}?tab=agents`);
+    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    return { page, swap: (next: Fleet) => { current = next; } };
+  }
+
+  /** One fleet holding one row, whose PR carries `state` (or no PR at all). */
+  const oneRow = (state: 'green' | 'pending' | 'failing' | 'conflicts' | null,
+                  over: Partial<AgentRow> = {}) =>
+    fleet({ rows: [row({
+      branch: 'feature/watched', plan: 'beans', group: 'waiting-on-you',
+      ageMinutes: 20, note: 'awaiting review', branchUrl: `${GH}feature/watched`,
+      pr: state === null ? null
+        : { number: 200, url: `${GH}../pull/200`, draft: false, state },
+      ...over,
+    })] });
+
+  const mark = (page: Page, branch: string) =>
+    rowFor(page, branch).locator('[data-change-mark]');
+
+  it('marks NOTHING on the first pulse, with rows already carrying states', async () => {
+    // Fires on every page load and every board restart. A naive implementation
+    // gets this wrong in the loudest possible way — every row at once.
+    const { page } = await openAgentsSwappable(oneRow('conflicts'));
+    try {
+      await expect.poll(() => rowFor(page, 'feature/watched').count()).toBe(1);
+      // Given time for several polls to land, so this is not merely early.
+      await page.waitForTimeout(1_500);
+      expect(await mark(page, 'feature/watched').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('marks a row whose PR status changes, and clears itself after ~3s', async () => {
+    // Both halves in one run, because the clearing is what makes it a MARKER
+    // rather than a state — and a mark that waits for the next pulse to clear
+    // would sit lit forever on a board whose server died, which is exactly when
+    // nothing is changing.
+    const { page, swap } = await openAgentsSwappable(oneRow('pending'));
+    try {
+      await expect.poll(() => rowFor(page, 'feature/watched').count()).toBe(1);
+      expect(await mark(page, 'feature/watched').count()).toBe(0);
+      swap(oneRow('failing'));
+      await expect.poll(() => mark(page, 'feature/watched').count(),
+        { timeout: 10_000 }).toBe(1);
+      // And it goes out on its OWN timer while the payload keeps arriving
+      // unchanged — no further transition clears it.
+      await expect.poll(() => mark(page, 'feature/watched').count(),
+        { timeout: 10_000 }).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  // The RESTART rule is asserted in test/unit/agent-list.test.ts, on a fake
+  // clock, and deliberately not here: `FLEET_POLL_MS` is 4s while a mark lives
+  // 3s, so two changes on consecutive polls can never overlap. A browser test
+  // claiming to watch a restart is really watching a second mark replace an
+  // expired first — it passes with the restart removed, which was checked.
+
+  it('marks a row that changed SECTION, at its new location', async () => {
+    // The common case rather than the exotic one: `pr.state` helps decide the
+    // group, so a change frequently moves the row. The pairing that matters —
+    // an implementation keyed on position loses the prior value exactly here.
+    const { page, swap } = await openAgentsSwappable(
+      oneRow('pending', { group: 'waiting-on-machine' }));
+    try {
+      await expect.poll(() => rowFor(page, 'feature/watched').count()).toBe(1);
+      swap(oneRow('conflicts', { group: 'waiting-on-you' }));
+      await expect.poll(() => mark(page, 'feature/watched').count(),
+        { timeout: 10_000 }).toBe(1);
+      // On the row where it NOW sits, which is the other section.
+      const marked = group(page, 'Waiting on you').locator('[data-change-mark]');
+      expect(await marked.count()).toBe(1);
+      expect(await group(page, 'Waiting on a machine')
+        .locator('[data-change-mark]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('marks a PR APPEARING on a row that had none', async () => {
+    // `null → pending`, and the half that separates *never seen* from *seen
+    // with no PR*: the row is observed WITHOUT a PR first, so its first PR is a
+    // transition rather than a first sighting.
+    const { page, swap } = await openAgentsSwappable(oneRow(null));
+    try {
+      await expect.poll(() => rowFor(page, 'feature/watched').count()).toBe(1);
+      await page.waitForTimeout(1_000);
+      expect(await mark(page, 'feature/watched').count()).toBe(0);
+      swap(oneRow('pending'));
+      await expect.poll(() => mark(page, 'feature/watched').count(),
+        { timeout: 10_000 }).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('marks ten simultaneous changes with ten marks', async () => {
+    // A move on the default branch flips many PRs to `conflicts` at once. No
+    // threshold and no suppression: a rule that went quiet exactly when the
+    // most changed would be least informative at its most eventful moment.
+    const many = (state: 'green' | 'conflicts') => fleet({
+      rows: Array.from({ length: 10 }, (_, i) => row({
+        branch: `feature/m${i}`, plan: 'beans', group: 'waiting-on-you',
+        ageMinutes: 20 + i, note: 'awaiting review', branchUrl: `${GH}feature/m${i}`,
+        pr: { number: 300 + i, url: `${GH}../pull/${300 + i}`, draft: false, state },
+      })),
+    });
+    const { page, swap } = await openAgentsSwappable(many('green'));
+    try {
+      await expect.poll(() => group(page, 'Waiting on you')
+        .locator('li[data-agent-row]').count()).toBe(10);
+      swap(many('conflicts'));
+      await expect.poll(() => page.locator('[data-change-mark]').count(),
+        { timeout: 10_000 }).toBe(10);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('does NOT mark a row whose PR status held, however much else moved', async () => {
+    // The note and the commit age change; the watched value does not. The
+    // marker is about that value alone.
+    const { page, swap } = await openAgentsSwappable(
+      oneRow('green', { note: 'awaiting review', ageMinutes: 20 }));
+    try {
+      await expect.poll(() => rowFor(page, 'feature/watched').count()).toBe(1);
+      swap(oneRow('green', { note: 'last commit 1 min ago', ageMinutes: 1 }));
+      // The new note really did land, or this asserts nothing.
+      await expect.poll(() => rowFor(page, 'feature/watched').innerText(),
+        { timeout: 10_000 }).toContain('last commit 1 min ago');
+      expect(await mark(page, 'feature/watched').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('KEEPS the mark under reduced motion, and stops only the animation', async () => {
+    // Both halves. A fix that hides the mark under `motion-reduce` passes a
+    // motion-only assertion and loses the information along with the movement —
+    // the same rule `LiveDot` follows.
+    const { page, swap } = await openAgentsSwappable(
+      oneRow('pending'), { reducedMotion: 'reduce' });
+    try {
+      await expect.poll(() => rowFor(page, 'feature/watched').count()).toBe(1);
+      swap(oneRow('conflicts'));
+      const el = mark(page, 'feature/watched');
+      await expect.poll(() => el.count(), { timeout: 10_000 }).toBe(1);
+      // Still visible, and carrying a background — the information survives.
+      const seen = await el.evaluate((e) => {
+        const s = getComputedStyle(e);
+        return { animation: s.animationName, bg: s.backgroundColor };
+      });
+      expect(seen.animation).toBe('none');
+      expect(seen.bg).not.toBe('rgba(0, 0, 0, 0)');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('announces nothing — the mark is decoration over text that already changed', async () => {
+    // A screen reader reaches the new value by reading the row. An `aria-live`
+    // region firing on every CI transition across every row would be an
+    // interruption rather than an aid.
+    const { page, swap } = await openAgentsSwappable(oneRow('pending'));
+    try {
+      await expect.poll(() => rowFor(page, 'feature/watched').count()).toBe(1);
+      swap(oneRow('conflicts'));
+      const el = mark(page, 'feature/watched');
+      await expect.poll(() => el.count(), { timeout: 10_000 }).toBe(1);
+      expect(await el.getAttribute('aria-hidden')).toBe('true');
+      // And no live region was introduced anywhere on the page to carry it.
+      expect(await page.locator('[aria-live]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('leaves the LIVE DOT alone — two marks, two meanings', async () => {
+    // #176 settled that distinction and keeping them separate is a requirement:
+    // the dot means *something is alive, end unknown* and lives for hours; this
+    // means *this just changed* and lives for seconds.
+    const { page, swap } = await openAgentsSwappable(
+      oneRow('pending', { group: 'working' }));
+    try {
+      await expect.poll(() => rowFor(page, 'feature/watched').count()).toBe(1);
+      const li = rowFor(page, 'feature/watched');
+      expect(await li.locator('[data-live-dot]').count()).toBe(1);
+      swap(oneRow('conflicts', { group: 'working' }));
+      await expect.poll(() => mark(page, 'feature/watched').count(),
+        { timeout: 10_000 }).toBe(1);
+      // Both present, and they are different elements.
+      expect(await li.locator('[data-live-dot]').count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
   // ── Below 640px the row becomes a card ────────────────────────────────────
 
   /** The agents tab at one viewport width. */
