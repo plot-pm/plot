@@ -255,7 +255,7 @@ poll is four seconds away and will find it unlocked. Reporting beats blocking.
   `.plot/state/last-pulse.json`, read at startup beside an immediate rescan, and
   served with its age through #141's existing stale rendering
 - `bug/scan-reports-a-locked-worktree` — a worktree holding `index.lock` becomes
-  its own signal rather than being skipped in silence
+  its own signal rather than being skipped in silence → #170
 
 **Two waves, and the ordering was earned rather than assumed.** An earlier draft
 put all three in one wave: they touch different files — the server's lifecycle,
