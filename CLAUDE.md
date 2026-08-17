@@ -158,17 +158,35 @@ adherence to prose, message clarity, real detached workers).
 
 Every skill MUST have a `metadata.version` field in its SKILL.md frontmatter.
 
-**When a skill is changed, increment its version** (semver):
+**Do not edit versions by hand.** Declare the bump in your changeset and let the
+release process apply it:
+
+```markdown
+<!--
+bumps:
+  skills:
+    plot-dispatch: minor
+-->
+```
+
+Choose the level the way semver asks:
 
 - **Patch** (`x.y.Z`): bug fixes, wording improvements, minor clarifications
 - **Minor** (`x.Y.0`): new sections, new patterns, expanded coverage
 - **Major** (`X.0.0`): structural reorganization, removed sections, breaking workflow changes
 
-**When any skill version is bumped, bump the plugin version** in all 3 metadata files (`package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`):
+CI validates that every skill named in a `bumps:` block is a real directory
+under `skills/` — a typo fails the build rather than silently bumping nothing.
+The plugin version in the three metadata files (`package.json`,
+`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`) follows from
+the same release, at least as high as the largest skill bump in it.
 
-- Skill patch → plugin patch (at minimum)
-- Skill minor → plugin minor (at minimum)
-- Skill major → plugin major
+> This section described manual bumps until 2026-08-17, when the practice was
+> measured against it: the last six changes to the plugin version all came from
+> `release:` commits and none from a feature commit. A rule that every
+> contributor is asked to follow and nobody has followed for six releases is a
+> rule that misleads — and it did, five times in one evening, through agents
+> instructed from this file.
 
 ## Commit Conventions
 
