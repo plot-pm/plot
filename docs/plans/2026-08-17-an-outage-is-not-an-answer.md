@@ -173,7 +173,7 @@ and the footer already wraps. **The cheapest correct fix is to remove the
 
 - `bug/plot-host-exits-nonzero-when-it-cannot-ask` — a transport failure
   exits non-zero with empty stdout; lookup misses keep `exit 0`; the
-  board reads the code instead of inferring from emptiness
+  board reads the code instead of inferring from emptiness → #200
 
 ### Message
 
