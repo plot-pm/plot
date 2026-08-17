@@ -55,9 +55,13 @@ export interface StuckInput {
   /** Commits this machine holds that the remote does not. */
   localAhead: number;
   /**
-   * What the host says about the PR, or null where there is none. `failing` is
-   * the only value that means anything here, and it means *report the
-   * evidence*, not *this is broken*.
+   * What the host says about the PR, or null where there is none.
+   *
+   * TWO of the six values mean anything here, and they mean different things.
+   * `conflicts` is the host's own mergeability verdict, which can see what a
+   * local prediction from stale refs cannot. `failing` means *report the
+   * evidence*, never *this is broken* — the row states facts and a person
+   * concludes. Every other value leaves the branch unstuck.
    */
   prState?: 'green' | 'pending' | 'failing' | 'none' | 'conflicts' | 'unknown' | null;
   /** The branch's changed paths — evidence carried onto a `ci-failing` row. */
