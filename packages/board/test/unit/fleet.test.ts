@@ -4,7 +4,8 @@ import {
   rateLimitBackoffMs,
 } from '../../src/server/fleet.js';
 import {
-  DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, toBoardPhase, type AgentRow, type FleetPulse,
+  AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, toBoardPhase,
+  type AgentRow, type FleetPulse,
 } from '../../src/contract/schema.js';
 import type { PrRecord } from '../../src/server/fleet.js';
 
@@ -1827,5 +1828,103 @@ describe('the note says conflicts too', () => {
       .toMatch(/no checks/);
     expect(classify('wip', 'eligible', 3, QUIET,
       pr({ mergeable: 'mergeable', checks: 'green' })).note).toMatch(/#42 green/);
+  });
+});
+
+// The WIRING for stuck detection, which the pure-function tests in
+// `stuck.test.ts` cannot reach: the scan's conflict set, the PR's condition and
+// the branch's local commits all have to travel onto the row, and the row's
+// existing answers have to survive it untouched.
+describe('rowsFromPulse carries stuck detection onto the row', () => {
+  const ARTIFACT = 'skills/plot/scripts/board/board-server.mjs';
+
+  const branch = (over: Record<string, unknown> = {}) => ({
+    branch: 'feature/x', state: 'wip', deferred: false, claimed: '',
+    local_dirty: false, local_locked: false, local_worktree: '', local_ahead: 0,
+    worker: 'elsewhere', worker_pid: '', worker_exit: '',
+    conflicts: [], conflicts_known: true, changed_paths: [],
+    ...over,
+  }) as never;
+
+  const pulseWith = (over: Record<string, unknown> = {}): FleetPulse => ({
+    main: 'main',
+    head: 'abc1234',
+    plans: [{
+      file: '2026-08-17-p.md', phase: 'approved',
+      waves: [{ name: 'One', verdict: 'eligible', branches: [branch(over)] }],
+    }],
+    summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+  });
+
+  const ages = new Map<string, number | null>([['feature/x', 3]]);
+  const rowFor = (
+    over: Record<string, unknown> = {},
+    prs?: Map<string, PrRecord> | null,
+  ) => rowsFromPulse(pulseWith(over), ages, 'plot', QUIET, prs)[0];
+
+  const failingPr = (over: Record<string, unknown> = {}) => new Map<string, PrRecord>([
+    ['feature/x', {
+      number: 7, head: 'feature/x', state: 'OPEN', draft: false,
+      checks: 'failing', mergeable: 'mergeable', review: '', url: 'u',
+      failing_checks: ['Install Playwright browser'], ...over,
+    } as PrRecord],
+  ]);
+
+  it('reports an artifact-only conflict and a mixed one differently', () => {
+    expect(rowFor({ conflicts: [ARTIFACT] }).stuck?.state).toBe('artifact-conflict');
+    expect(rowFor({ conflicts: [ARTIFACT, 'src/app.ts'] }).stuck?.state).toBe('conflict');
+  });
+
+  it('reports unpushed work with its count', () => {
+    const stuck = rowFor({ local_ahead: 2 }).stuck;
+    expect(stuck?.state).toBe('unpushed');
+    expect(stuck?.localAhead).toBe(2);
+  });
+
+  it('reports a failing check with its evidence, not a verdict', () => {
+    const stuck = rowFor({ changed_paths: ['docs/a.md'] }, failingPr()).stuck;
+    expect(stuck?.state).toBe('ci-failing');
+    expect(stuck?.failingChecks).toEqual(['Install Playwright browser']);
+    expect(stuck?.changedPaths).toEqual(['docs/a.md']);
+  });
+
+  it('leaves a healthy row with no stuck fact at all', () => {
+    // A watcher that flags everything flags nothing.
+    expect(rowFor().stuck).toBeNull();
+  });
+
+  it('does not change the group, the state or the note of a stuck row', () => {
+    // A stuck branch KEEPS the group it belongs to; this adds a fact about it.
+    // Folding stuckness into the group would put a conflicting PR and an
+    // unpushed rebase under one heading, which is the shape this row keeps
+    // splitting apart.
+    const healthy = rowFor();
+    const conflicted = rowFor({ conflicts: ['src/app.ts'] });
+    expect(conflicted.group).toBe(healthy.group);
+    expect(conflicted.state).toBe(healthy.state);
+    expect(conflicted.note).toBe(healthy.note);
+    expect(conflicted.phase).toBe(healthy.phase);
+    expect(conflicted.stuck?.state).toBe('conflict');
+  });
+
+  it('does not read an unobserved conflict set as clean', () => {
+    // Absent is not clean — the flag is what separates "merges cleanly" from
+    // "nobody could ask", and both arrive as an empty list.
+    expect(rowFor({ conflicts: ['src/app.ts'], conflicts_known: false }).stuck).toBeNull();
+  });
+
+  it('reports a merged branch as not stuck whatever else is true', () => {
+    expect(rowFor({ state: 'merged', conflicts: ['src/app.ts'], local_ahead: 4 }).stuck)
+      .toBeNull();
+  });
+
+  it('validates against the row contract', () => {
+    // The row travels over HTTP, so the schema is what the client will parse.
+    for (const over of [
+      {}, { conflicts: [ARTIFACT] }, { conflicts: [ARTIFACT, 'x'] }, { local_ahead: 1 },
+    ]) {
+      expect(() => AgentRowSchema.parse(rowFor(over))).not.toThrow();
+    }
+    expect(() => AgentRowSchema.parse(rowFor({}, failingPr()))).not.toThrow();
   });
 });

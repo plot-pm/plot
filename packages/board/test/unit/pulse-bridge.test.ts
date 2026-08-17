@@ -26,6 +26,12 @@ const PULSE: FleetPulse = {
         branch: 'feature/a', state: 'claimed', deferred: false, claimed: 'claimed: someone',
         local_dirty: false, local_worktree: '', local_ahead: 0, local_locked: false,
         worker: 'elsewhere', worker_pid: '', worker_exit: '',
+        // Written out rather than left to the schema's defaults, because this
+        // fixture is compared WHOLE: `toEqual` against a parsed pulse fails the
+        // moment a field is added, and a fixture that names every field is what
+        // makes the round-trip assertion mean "everything" rather than
+        // "everything I remembered".
+        conflicts: [], conflicts_known: false, changed_paths: [],
       }],
     }],
   }],

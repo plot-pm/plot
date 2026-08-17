@@ -10,9 +10,11 @@ import {
   type Fleet,
   type FleetPulse,
   type Phase,
+  type StuckRun,
   type WaitingGroup,
   type WorkerState,
 } from '../contract/schema.js';
+import { stuckState, summarizeStuck } from './stuck.js';
 import type { BuildBoardOptions } from './board.js';
 import { readBridge, writeBridge } from './pulse-bridge.js';
 
@@ -97,6 +99,26 @@ export interface PrRecord {
   /** APPROVED · CHANGES_REQUESTED · REVIEW_REQUIRED · "" — informational only. */
   review: string;
   /**
+   * WHICH checks failed, by name — the detail `checks` collapses into the single
+   * word `failing`.
+   *
+   * `failing` names a symptom and withholds which machine produced it. On
+   * 2026-08-17 a markdown-only branch failed `validate` because the Playwright
+   * CDN answered `403 — this service is not available in your location`, and
+   * reaching that sentence took ten minutes of opening logs — from a row that
+   * already held the check name and did not say it.
+   *
+   * NAMES ONLY, and nothing interprets them. A heuristic mapping a failing check
+   * to the paths a branch changed was explicitly rejected: that table is
+   * unmaintained by construction and goes silently wrong the first time a
+   * workflow is restructured.
+   *
+   * Absent on an older adapter and on Bitbucket, normalized to [] — which reads
+   * as *no names available*, never as *nothing failed*: `checks` is what says
+   * whether anything failed, and these two fields answer different questions.
+   */
+  failing_checks?: string[];
+  /**
    * The PR's web URL, verbatim from the host adapter — the board constructs no
    * URL of its own, so it can never turn a self-hosted Bitbucket into a
    * github.com link. "" where the host CLI omits it (an older `gh`/`bb`), which
@@ -177,6 +199,13 @@ interface CacheEntry {
    * indexes — rather than a second `pr-list` call on the board path.
    */
   prsByNumber: Map<number, PrRecord> | null;
+  /**
+   * Recent CI runs per branch, for the FAILING branches only — see
+   * `refreshRuns`. Filled on the PR timer beside the PR map, because it is the
+   * same metered clock and the same source; a branch absent from it simply has
+   * no history to show.
+   */
+  runs: Map<string, StuckRun[]>;
   prAt: number | null;
   prError: string | null;
   /**
@@ -398,6 +427,87 @@ export function rateLimitBackoffMs(message: string, now = Date.now()): number | 
   return null;
 }
 
+/**
+ * How many of a branch's own recent runs to fetch.
+ *
+ * Small on purpose. The question the history answers is *has this branch been
+ * failing, or did it just start* — decided by the last few runs, and the
+ * 2026-08-17 case was decided by the previous one alone (green two minutes
+ * before the `403`). A longer list costs the same call and gives a reader more
+ * to scroll past.
+ */
+const RUN_HISTORY_LIMIT = 5;
+
+/**
+ * The most FAILING branches to ask about in one PR refresh.
+ *
+ * Each is a separate REST call, so this is the one place the new evidence can
+ * cost real budget. Failing branches are rare by construction — a fleet with
+ * twelve of them has a bigger problem than a missing history — and the cap
+ * bounds the pathological case rather than the normal one.
+ *
+ * A branch past the cap gets an empty history, which renders as *unavailable*:
+ * the same honest degradation Bitbucket already gets, and never a claim that a
+ * branch has not failed before.
+ */
+const RUN_FETCH_MAX = 8;
+
+/**
+ * A branch's own recent CI runs, for the branches whose PR already reports a
+ * failure — the third line of the evidence a `ci-failing` row carries.
+ *
+ * ONLY FOR FAILING BRANCHES, and that restriction is what makes this affordable.
+ * The board exhausted a 5000/hour GraphQL budget on 2026-08-16 by asking a
+ * cheap question too often; this asks an expensive question rarely, on the
+ * PR timer (60 s) rather than the git one (5 s), and only where a failure has
+ * already been observed. A fleet with nothing failing issues no calls at all.
+ *
+ * FAILURE IS SILENT AND EMPTY, never partial-looking. A host that cannot answer
+ * (Bitbucket has no run listing, an old `gh` lacks the flags) leaves the branch
+ * with no history, which the row renders as *unavailable* — the same rule every
+ * other absent signal here follows. It must never read as *this branch has
+ * never failed before*.
+ */
+async function refreshRuns(
+  opts: BuildBoardOptions,
+  entry: CacheEntry,
+  prs: Map<string, PrRecord>,
+): Promise<void> {
+  const runs = new Map<string, StuckRun[]>();
+  const failing = [...prs.entries()]
+    .filter(([, pr]) => pr.checks === 'failing')
+    .slice(0, RUN_FETCH_MAX);
+  for (const [branch] of failing) {
+    try {
+      const out = await run('bash',
+        [path.join(opts.scriptsDir, 'plot-host.sh'), 'runs', branch,
+          '--limit', String(RUN_HISTORY_LIMIT)],
+        opts.repoRoot);
+      const list: StuckRun[] = [];
+      for (const line of out.split('\n')) {
+        if (!line.trim()) continue;
+        const r = JSON.parse(line) as Partial<StuckRun>;
+        list.push({
+          workflow: r.workflow ?? '',
+          conclusion: r.conclusion ?? '',
+          startedAt: r.startedAt ?? '',
+          url: r.url ?? '',
+        });
+      }
+      if (list.length > 0) runs.set(branch, list);
+    } catch {
+      // One branch's history is unavailable; the other two evidence lines
+      // stand. Its LAST GOOD history is kept below rather than dropped — the
+      // same rule the PR map and the pulse follow, and for the same reason: a
+      // row losing a line it had a minute ago looks like the branch changing
+      // rather than like a fetch failing.
+      const previous = entry.runs.get(branch);
+      if (previous) runs.set(branch, previous);
+    }
+  }
+  entry.runs = runs;
+}
+
 async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
   try {
     const out = await run('bash',
@@ -419,6 +529,11 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
       // here so `prState` never has to distinguish "the adapter is old" from
       // "the host cannot say" — neither is a claim that the branch merges.
       if (typeof pr.mergeable !== 'string' || !pr.mergeable) pr.mergeable = 'unknown';
+      // Newer still, and its absent value is [] rather than undefined — one
+      // absent-value shape for every consumer, the rule the two above follow.
+      // [] does NOT mean nothing failed: `checks` answers that, and an adapter
+      // that cannot name the failures has not claimed there were none.
+      if (!Array.isArray(pr.failing_checks)) pr.failing_checks = [];
       // A merged or declined PR must NOT reach `classify` by head: it would
       // answer for a branch whose git state has already answered, and reopen a
       // question the merge closed. Numbers are indexed regardless — a link to a
@@ -428,6 +543,7 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
     }
     entry.prs = map;
     entry.prsByNumber = byNumber;
+    await refreshRuns(opts, entry, map);
     entry.prAt = Date.now();
     entry.prNextAt = entry.prAt + PR_REFRESH_MS;
     entry.prError = null;
@@ -514,7 +630,7 @@ function ensureCache(opts: BuildBoardOptions): CacheEntry {
     pulse: null, ages: new Map(), at: null, error: null, branchUrlBase: '',
     approvedAt: new Map(),
     ideaPlans: new Map(),
-    prs: null, prsByNumber: null, prAt: null, prError: null,
+    prs: null, prsByNumber: null, runs: new Map(), prAt: null, prError: null,
     // 0, so the first fetch happens immediately rather than a minute in.
     prNextAt: 0,
     timer: null, prTimer: null, running: false, prRunning: false,
@@ -1213,6 +1329,13 @@ export function rowsFromPulse(
   approvedAt?: Map<string, number> | null,
   now = Date.now(),
   ideaPlans?: Map<string, string> | null,
+  /**
+   * Recent CI runs per branch, for the failing ones — see `refreshRuns`. Last in
+   * the parameter list because it is the newest, so every existing caller is
+   * unchanged: a caller with nothing to say about a branch's history is a caller
+   * that did not look, and the row then shows the other two evidence lines.
+   */
+  runs?: Map<string, StuckRun[]> | null,
 ): AgentRow[] {
   const rows: AgentRow[] = [];
   for (const plan of pulse.plans) {
@@ -1296,6 +1419,29 @@ export function rowsFromPulse(
           // to it.
           localDirty: b.local_dirty,
           localLocked: b.local_locked,
+          // WHETHER IT CAN MOVE — a fact ADDED beside the group, never folded
+          // into it. `classify` above answered what this branch IS; nothing it
+          // can say means *this cannot advance without someone doing
+          // something*, which is how five branches sat stuck for an afternoon
+          // while every row read normal.
+          //
+          // The group, the state and the note are untouched. A stuck branch
+          // keeps the group it belongs to; bending the group to encode
+          // stuckness would put a conflicting PR and an unpushed rebase under
+          // one heading, which is the shape this row keeps splitting apart.
+          //
+          // Null for a healthy branch, and that is most of them: a watcher that
+          // flags everything flags nothing.
+          stuck: stuckState({
+            state: b.state,
+            conflicts: b.conflicts,
+            conflictsKnown: b.conflicts_known,
+            localAhead: b.local_ahead,
+            prState: pr ? prState(pr) : null,
+            changedPaths: b.changed_paths,
+            failingChecks: pr?.failing_checks ?? [],
+            runHistory: runs?.get(b.branch) ?? [],
+          }),
         });
       }
     }
@@ -1401,6 +1547,24 @@ export function rowsFromPulse(
       // PR's age would invent an observation this machine never made.
       localDirty: false,
       localLocked: false,
+      // A PLANLESS branch is not in the pulse, so no conflict set was ever
+      // computed for it and `conflictsKnown` is false — which is *not looked
+      // at*, never *clean*. The one state reachable from PR data alone is
+      // therefore `ci-failing`, and it carries the evidence it has: the failing
+      // check names and whatever history was fetched.
+      //
+      // Its changed paths are absent for the same reason, and absent is what
+      // renders. Reporting two of three evidence lines is honest; inventing the
+      // third from a diff this function has no way to run is not.
+      stuck: stuckState({
+        state: 'wip',
+        conflicts: [],
+        conflictsKnown: false,
+        localAhead: 0,
+        prState: prState(pr),
+        failingChecks: pr.failing_checks ?? [],
+        runHistory: runs?.get(branch) ?? [],
+      }),
     });
   }
 
@@ -1426,16 +1590,21 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
   const repo = path.basename(opts.repoRoot);
   const now = Date.now();
   const ageSeconds = entry.at === null ? 0 : Math.round((now - entry.at) / 1000);
+  const rows = entry.pulse
+    ? rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, entry.prs,
+      entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans, entry.runs)
+    : [];
   return {
     generatedAt: new Date().toISOString(),
     ageSeconds,
     ready: entry.pulse !== null,
     error: entry.error,
-    rows: entry.pulse
-      ? rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, entry.prs,
-        entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans)
-      : [],
+    rows,
     summary: entry.pulse?.summary ?? EMPTY_SUMMARY,
+    // COUNTED FROM THE ROWS, never tallied beside the decision that made them.
+    // A counter incremented in parallel with a classification is a second
+    // implementation of it, and the two drift the first time a state is added.
+    stuck: summarizeStuck(rows.map((r) => r.stuck)),
     prAgeSeconds: entry.prAt === null ? null : Math.round((now - entry.prAt) / 1000),
     // The server's own intention, backoff included — never the nominal 60 s.
     // `prNextAt` is the single gate the fetch obeys, so reporting it is

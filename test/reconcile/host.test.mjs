@@ -289,3 +289,100 @@ test('host: pr-list without --rich is unchanged', () => {
   const out = JSON.parse(run(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(Object.keys(out).sort(), ['head', 'number', 'state', 'title']);
 });
+
+test('host: pr-list --rich names WHICH checks failed', () => {
+  // `checks:"failing"` names a symptom and withholds which machine produced it.
+  // On 2026-08-17 a markdown-only branch failed `validate` because the
+  // Playwright CDN answered 403, and reaching that sentence took ten minutes of
+  // opening logs — from a payload that already held the check name.
+  //
+  // The names come from the SAME response `checks` is computed from: no extra
+  // call, no new permission, just a field that was being thrown away.
+  const stubs = makeStubs({
+    ghJson: JSON.stringify([{
+      number: 5, title: 't', state: 'OPEN', headRefName: 'feature/x', isDraft: false,
+      statusCheckRollup: [
+        { name: 'validate', conclusion: 'FAILURE' },
+        { name: 'lint', conclusion: 'SUCCESS' },
+      ],
+      mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null,
+      url: 'https://example.test/pr/5',
+    }]),
+  });
+  const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(out.checks, 'failing');
+  assert.deepEqual(out.failing_checks, ['validate']);
+});
+
+test('host: pr-list --rich reports no names when nothing failed', () => {
+  // [] here means *nothing failed*, and `checks` says so too. The two fields
+  // answer different questions and must be read together — an empty list is
+  // never on its own a claim that the branch is green.
+  const stubs = makeStubs({
+    ghJson: JSON.stringify([{
+      number: 6, title: 't', state: 'OPEN', headRefName: 'feature/y', isDraft: false,
+      statusCheckRollup: [{ name: 'validate', conclusion: 'SUCCESS' }],
+      mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null,
+      url: 'https://example.test/pr/6',
+    }]),
+  });
+  const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(out.checks, 'green');
+  assert.deepEqual(out.failing_checks, []);
+});
+
+test('host: pr-list --rich on bitbucket reports no names rather than inventing them', () => {
+  // Bitbucket carries no check rollup at all, so `checks` is already `unknown`.
+  // An honest gap beats an invented answer, and [] must render as *unavailable*
+  // rather than as *nothing failed*.
+  const stubs = makeStubs({
+    bbJson: JSON.stringify([{
+      id: 3, title: 't', state: 'OPEN', source: { branch: { name: 'feature/z' } },
+      links: { html: { href: 'https://example.test/pr/3' } },
+    }]),
+  });
+  const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
+  assert.equal(out.checks, 'unknown');
+  assert.deepEqual(out.failing_checks, []);
+});
+
+test('host: runs reports a branch OWN recent runs, newest first', () => {
+  // The third line of the evidence a failing check is reported with. What
+  // proved the 2026-08-17 `403` transient was the history — the same branch had
+  // been green two minutes earlier — and a real failure presents identically,
+  // which is exactly why this reports and never concludes.
+  const stubs = makeStubs({
+    ghJson: JSON.stringify([
+      { workflowName: 'CI', conclusion: 'failure', status: 'completed', startedAt: '2026-08-17T10:19:00Z', url: 'u2' },
+      { workflowName: 'CI', conclusion: 'success', status: 'completed', startedAt: '2026-08-17T10:17:00Z', url: 'u1' },
+    ]),
+  });
+  const out = run(['runs', 'feature/x', '--limit', '2'], { env: { PLOT_HOST: 'github' }, stubs })
+    .trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(out.map((r) => r.conclusion), ['failure', 'success']);
+  assert.equal(out[0].startedAt, '2026-08-17T10:19:00Z');
+  assert.deepEqual(argvOf(stubs.ghArgv), [
+    'run', 'list', '--branch', 'feature/x', '--limit', '2',
+    '--json', 'workflowName,conclusion,status,startedAt,url',
+  ]);
+});
+
+test('host: runs reports an in-flight run by its status, never as a conclusion', () => {
+  // A run still going has no conclusion. Reporting "" would read as a verdict
+  // nobody reached; the status is what is true about it.
+  const stubs = makeStubs({
+    ghJson: JSON.stringify([
+      { workflowName: 'CI', conclusion: null, status: 'in_progress', startedAt: '2026-08-17T10:20:00Z', url: 'u3' },
+    ]),
+  });
+  const out = JSON.parse(run(['runs', 'feature/x'], { env: { PLOT_HOST: 'github' }, stubs }).trim());
+  assert.equal(out.conclusion, 'in_progress');
+});
+
+test('host: runs on bitbucket reports nothing rather than something invented', () => {
+  // bb has no run listing. Empty renders as *unavailable* — never as *this
+  // branch has never failed before*.
+  const stubs = makeStubs({ bbJson: '[]' });
+  assert.equal(run(['runs', 'feature/x'], { env: { PLOT_HOST: 'bitbucket' }, stubs }).trim(), '');
+  assert.equal(argvOf(stubs.bbArgv), null);
+});
