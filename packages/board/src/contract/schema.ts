@@ -1116,6 +1116,31 @@ export const AgentRowSchema = z.object({
    */
   localLocked: z.boolean().default(false),
   /**
+   * Commits this checkout holds that its remote does not — FINISHED WORK NOBODY
+   * ELSE CAN SEE.
+   *
+   * Deliberately NOT part of the activity predicate, and the distinction is the
+   * whole reason this field is its own: `localDirty` and `localLocked` mean
+   * *someone is writing*, and this means the opposite — someone wrote, stopped,
+   * and the result never left the machine. A branch nobody has touched for
+   * hours can be ahead, and OR-ing this into activity would render that
+   * stillness as motion.
+   *
+   * It is not nothing, either, and this repo has the receipt: on 2026-08-17 a
+   * rebase that stayed local read from outside exactly like an agent that had
+   * stopped, and cost PR #177 half an hour of dead CI. That is why it earns a
+   * mark of its own rather than silence.
+   *
+   * A COUNT rather than a boolean: `2 commits ahead` and `40 commits ahead` are
+   * different situations, and the number is free — the scan already has it.
+   *
+   * Shares the local-only limit of the two fields above (`fleet.ts:702` — *"true
+   * only on the machine doing the looking"*), and defaults to 0 for the same
+   * reason the others default to false: absent is not zero, it is unobserved,
+   * and an unobserved row is marked nothing rather than marked clean.
+   */
+  localAhead: z.number().default(0),
+  /**
    * Why this branch cannot move, or null — a fact ADDED to the row, never a
    * replacement for one.
    *

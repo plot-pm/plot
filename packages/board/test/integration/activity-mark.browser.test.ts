@@ -39,7 +39,7 @@ const row =(over: Partial<AgentRow> = {}): AgentRow => ({
   planFile: '2026-03-01-plant-tomatoes.md', wave: 'w', state: 'wip',
   phase: 'Development', group: 'working', ageMinutes: 3, note: 'last commit 3 min ago',
   pr: null, branchUrl: `${GH}feature/x`, waitingDays: null,
-  localDirty: false, localLocked: false, stuck: null, repair: null, ...over,
+  localDirty: false, localLocked: false, localAhead: 0, stuck: null, repair: null, ...over,
 });
 
 const fleet = (rows: AgentRow[]): Fleet => ({
@@ -469,6 +469,58 @@ describe('the activity mark glows, and travels without arriving', () => {
       ['[data-activity-mark]', '[data-live-dot]']
         .map((s) => el.querySelector(s))).size);
     expect(distinct).toBe(2);
+  });
+
+  it('renders the unpushed mark beside the activity mark, both distinct', async () => {
+    // The measured shape of a working agent: uncommitted edits AND commits it
+    // has not pushed. Two facts, and the row says both — an implementation
+    // rendering one OR the other loses whichever it tests second.
+    const page = await open([
+      row({
+        branch: 'feature/dirty-and-ahead', localDirty: true, localAhead: 3,
+        group: 'working', branchUrl: `${GH}feature/dirty-and-ahead`,
+      }),
+    ]);
+    const li = rowFor(page, 'feature/dirty-and-ahead');
+    await expect.poll(() => li.locator('[data-activity-mark]').count()).toBe(1);
+    expect(await li.locator('[data-unpushed-mark]').count()).toBe(1);
+    const distinct = await li.evaluate((el) => new Set(
+      ['[data-activity-mark]', '[data-unpushed-mark]']
+        .map((s) => el.querySelector(s))).size);
+    expect(distinct).toBe(2);
+  });
+
+  it('separates the unpushed mark from the activity mark by GLOW, not motion', async () => {
+    // Stillness IS the message: this branch holds finished work that stopped,
+    // so a moving or glowing mark would say the one thing measurably untrue.
+    // The pairing that matters — an implementation reusing `ActivityMark`'s
+    // element passes "is there a mark?" and says *someone is here* about a
+    // branch nobody has touched.
+    const page = await open([
+      row({
+        branch: 'feature/still', localAhead: 2, localDirty: false, localLocked: false,
+        // `waiting-on-machine`, NOT `quiet`: QUIET is in COLLAPSED_BY_DEFAULT, so a
+        // row placed there renders inside a folded section and this assertion waits
+        // 30 s for an element that is not on the page — a timeout that reads like a
+        // hang rather than a failed claim. The fixture helper documents the same trap.
+        group: 'waiting-on-machine', branchUrl: `${GH}feature/still`,
+      }),
+    ]);
+    const li = rowFor(page, 'feature/still');
+    await expect.poll(() => li.locator('[data-unpushed-mark]').count()).toBe(1);
+    // No activity mark: unpushed is not activity, and the predicate that
+    // decides the two must not have been OR-ed together.
+    expect(await li.locator('[data-activity-mark]').count()).toBe(0);
+    // Nothing animates and nothing glows — asserted on the computed style
+    // rather than on a class name, so a refactor that keeps the class and
+    // changes what it does cannot pass.
+    const inner = li.locator('[data-unpushed-mark] > span');
+    const style = await inner.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { animation: cs.animationName, shadow: cs.boxShadow };
+    });
+    expect(style.animation).toBe('none');
+    expect(style.shadow === 'none' || style.shadow === '').toBe(true);
   });
 
   // ── What it says, and to whom ─────────────────────────────────────────────

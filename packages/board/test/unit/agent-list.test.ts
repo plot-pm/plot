@@ -22,6 +22,7 @@ import {
   ChangeMarks,
   changedRows,
   isActive,
+  isUnpushed,
   activityPace,
   groupPace,
   ACTIVITY_MARK_PLACE,
@@ -270,6 +271,41 @@ describe('isLive — which rows carry the pulsing indicator', () => {
   });
 });
 
+describe('isUnpushed — finished work nobody else can see', () => {
+  it('marks a row holding commits the remote has not seen', () => {
+    expect(isUnpushed(row({ localAhead: 1 }))).toBe(true);
+    expect(isUnpushed(row({ localAhead: 40 }))).toBe(true);
+  });
+
+  it('does NOT mark a row that is merely being written to', () => {
+    // THE pairing. `local_ahead` is finished work sitting STILL; `localDirty`
+    // and `localLocked` mean someone is writing. An implementation that OR-ed
+    // all three into one predicate passes every positive assertion and marks a
+    // branch nobody has touched for hours as though someone were at it.
+    expect(isUnpushed(row({ localDirty: true }))).toBe(false);
+    expect(isUnpushed(row({ localLocked: true }))).toBe(false);
+    expect(isUnpushed(row({ group: 'working' }))).toBe(false);
+  });
+
+  it('reads 0 as UNOBSERVED, never as clean', () => {
+    // Same rule the two booleans follow: the field defaults to 0 because a scan
+    // that never looked at a worktree reports absence, not emptiness. Both
+    // collapse to "no mark" — the row says nothing rather than saying clean.
+    expect(isUnpushed(row({}))).toBe(false);
+    expect(isUnpushed(row({ localAhead: 0 }))).toBe(false);
+  });
+
+  it('is independent of isActive — a row can be both', () => {
+    // The measured shape of a working agent: uncommitted edits AND commits it
+    // has not pushed. Asserted as two separate answers because the row renders
+    // two separate marks, and an implementation testing them in sequence loses
+    // whichever it tests second.
+    const both = row({ localDirty: true, localAhead: 3 });
+    expect(isActive(both)).toBe(true);
+    expect(isUnpushed(both)).toBe(true);
+  });
+});
+
 describe('isActive — which rows are actually being written to', () => {
   it('marks a row holding a lock, and a row with uncommitted work', () => {
     // The two entrances, and they are ORs rather than a sequence: someone is
@@ -308,14 +344,20 @@ describe('isActive — which rows are actually being written to', () => {
     // sitting still as motion. A branch nobody has touched for hours that holds
     // one unpushed commit must read as UNMARKED.
     //
-    // Asserted through the row's real shape: `local_ahead` is not forwarded
-    // onto `AgentRow` at all, so a row carrying unpushed commits and nothing
-    // else is indistinguishable here from an idle one — which is the correct
-    // answer for this wave. The unpushed mark is a later wave's own signal.
-    const ahead = row({ group: 'working', localDirty: false, localLocked: false });
+    // Asserted against the field itself, now that `localAhead` reaches the row:
+    // the wave that added the unpushed mark forwarded it, exactly as this test's
+    // earlier form anticipated ("a later wave's own signal"). What that form
+    // asserted — that `local_ahead` is ABSENT from the row — was a statement
+    // about the plumbing of the day and stopped being true; what it MEANT is
+    // asserted here and does not expire: however many unpushed commits a row
+    // holds, `isActive` is false.
+    //
+    // Kept as its own test rather than folded into `isUnpushed`'s block: this
+    // one guards the predicate that must NOT see the field, and a fix that ORs
+    // the three signals together fails here and nowhere else.
+    const ahead = row({ group: 'working', localDirty: false, localLocked: false, localAhead: 3 });
     expect(isActive(ahead)).toBe(false);
-    expect(Object.keys(ahead)).not.toContain('localAhead');
-    expect(AgentRowSchema.parse({ ...ahead, local_ahead: 3 })).not.toHaveProperty('localAhead');
+    expect(isUnpushed(ahead)).toBe(true);
   });
 
   it('leaves an UNOBSERVED row unmarked, and never crashes on one', () => {
