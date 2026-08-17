@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-board
@@ -11,7 +11,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-17, Jan Wloka, plan-PR #179 merged
 - **Started:** 2026-08-17, Jan Wloka, `feature/rows-mark-real-activity`
-- **Delivered:**
+- **Delivered:** 2026-08-17
 - **Started:** 2026-08-17, Jan Wloka, `feature/activity-marker-glows`
 - **Started:** 2026-08-17, Jan Wloka, `feature/group-shows-inner-activity`
 
