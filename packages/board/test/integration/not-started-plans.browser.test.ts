@@ -273,12 +273,18 @@ describe('NOT STARTED renders one row per plan', () => {
       const branchRow = section(page).locator('li[data-agent-row]')
         .filter({ has: page.locator('[data-branch="feature/activity-marker-glows"]') });
       await branchRow.waitFor({ timeout: 5_000 });
-      // Cell 3 is the BRANCH track on both: the branch name on a branch row, the
+      // Cell 4 is the BRANCH track on both: the branch name on a branch row, the
       // wave summary on a plan row. If the tracks agreed only by accident, these
       // two would differ.
+      //
+      // FOUR, not three: the marks earned a track of their own at the front, so
+      // every index after it moved by one. Indexed rather than named because
+      // the cells carry no hook — and a stale index here would keep passing
+      // while measuring a different column, which is the quietest way for a
+      // test to stop meaning what its comment says.
       const planCell = await planRow(page, 'activity-shows-itself')
-        .locator('[role="gridcell"]').nth(2).boundingBox();
-      const branchCell = await branchRow.locator('[role="gridcell"]').nth(2).boundingBox();
+        .locator('[role="gridcell"]').nth(3).boundingBox();
+      const branchCell = await branchRow.locator('[role="gridcell"]').nth(3).boundingBox();
       expect(planCell!.x).toBeCloseTo(branchCell!.x, 0);
       expect(planCell!.width).toBeCloseTo(branchCell!.width, 0);
     } finally {

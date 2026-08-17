@@ -10,6 +10,8 @@ import {
   type StuckState,
   type WaitingGroup,
 } from '../../contract/schema.js';
+import { ApproveButton } from './ApproveButton.js';
+import { isDraft } from './PlanCard.js';
 import { StartWorkButton } from './StartWorkButton.js';
 
 /**
@@ -251,7 +253,29 @@ export function waitingLabel(days: number): string {
  * the branch sooner — middle elision keeps both ends and `title` keeps the
  * whole name.
  */
-export const ROW_TRACKS = 'grid-cols-[6rem_10rem_1fr_14rem_2.5rem_1.25rem]';
+// A TRACK OF THEIR OWN for the marks, first and 1.5rem wide.
+//
+// They used to hang in the row's left PADDING via `sm:absolute sm:left-0`,
+// on the argument that six columns should not move to make room for a mark
+// most rows never carry. That held while there was one mark. There are now
+// five — live dot, change wash, activity track, unpushed bar, stuck cue —
+// and a row can wear several at once: measured on screen, two of them
+// overlapped and both hung half outside the section's own border, because
+// `left-0` is the row's edge and the section's border sits inside it.
+//
+// 1rem for the marks, and 5rem for the phase beside it — neither number is a
+// preference, both are what the breakpoint had left.
+//
+// A seventh track costs twice: its own width AND a sixth gap. The fixed tracks
+// plus gaps must stay under `CARD_BELOW_PX` (640px), and 1.5rem of marks with
+// the phase at 6rem came to 652px. So the phase gave up 1rem — it holds one
+// word (`Development` is the longest and truncates either way) where the marks
+// column holds a 12px mark that had nowhere legal to sit at all. The fixed tracks may total at most 540px before the grid needs more
+// than the 640px `CARD_BELOW_PX` it turns into a card at; 1.5rem crossed that
+// by exactly 8px. The test that caught it predicted this day in its own
+// comment. 16px still holds the widest mark (a 12px track) inside the panel,
+// which is what the column is for; the slack either side is what was spent.
+export const ROW_TRACKS = 'grid-cols-[1rem_5rem_10rem_1fr_14rem_2.5rem_1.25rem]';
 
 /**
  * The PR a row carries, derived from the row rather than imported.
@@ -1781,7 +1805,15 @@ export const ACTIVITY_MARK_PLACE = {
   // FIRST LINE's own box (`sm:top-2` is the row's `py-2`, `h-5` is one line of
   // `text-sm`) rather than to the row's centre — a row carrying a status line
   // is twice as tall, and `top-1/2` would put the mark between its two lines.
-  row: 'relative flex h-5 w-3 shrink-0 items-center self-center sm:absolute sm:left-0 sm:top-2',
+  // IN THE FIRST TRACK, not hanging in the row's padding. `sm:absolute
+  // sm:left-0` put the mark at the row's edge — which is OUTSIDE the section's
+  // border, so every mark straddled the panel edge, and two marks on one row
+  // overlapped because absolute boxes do not make room for each other.
+  //
+  // In the flow they stack: `flex-col` with a small gap, centred in a 1.5rem
+  // column. `h-full` rather than `h-5` so a two-line row (one carrying a stuck
+  // status) centres its marks against the whole cell.
+  row: 'relative flex w-full shrink-0 flex-col items-center justify-center gap-1 self-stretch py-2',
   // In a HEADING the mark simply FLOWS. The `<h2>` is a flex row and the mark
   // takes its place after the tally like any other child — there is no grid
   // here to stay out of, and no `relative` box to hang in.
@@ -1799,7 +1831,7 @@ export const ACTIVITY_MARK_PLACE = {
   heading: 'relative flex h-3 w-3 shrink-0 items-center self-center',
 } as const;
 
-function ActivityMark({ pace, place = 'row' }: { pace: ActivityPace; place?: 'row' | 'heading' }) {
+function ActivityMark({ pace, place = 'row', inTrack = false }: { pace: ActivityPace; place?: 'row' | 'heading'; inTrack?: boolean }) {
   const fast = pace === 'fast';
   return (
     <span
@@ -1849,7 +1881,10 @@ function ActivityMark({ pace, place = 'row' }: { pace: ActivityPace; place?: 'ro
       // row and is wrong on exactly the rows carrying the most information.
       // Anything measuring itself against the ROW's height is suspect; this
       // measured itself against the row and meant the line.
-      className={ACTIVITY_MARK_PLACE[place]}
+      // In the marks TRACK the parent cell already positions and sizes; the
+      // mark is then just a 12px box in the flow. Outside it (the heading) the
+      // placement map still applies.
+      className={inTrack ? 'relative flex h-2 w-3 shrink-0 items-center' : ACTIVITY_MARK_PLACE[place]}
     >
       {/* The TRACK the dot rides: a faint 2px rule, centred on the line box by
           the flex above. Dim on purpose — what reads from a distance is a
@@ -1933,7 +1968,7 @@ export function isUnpushed(row: AgentRow): boolean {
  * The title carries the same local-only limit its field does: this is what THIS
  * checkout can see, and a branch worked on elsewhere reports nothing here.
  */
-function UnpushedMark({ ahead }: { ahead: number }) {
+function UnpushedMark({ ahead, inTrack = false }: { ahead: number; inTrack?: boolean }) {
   return (
     <span
       aria-hidden
@@ -1948,7 +1983,7 @@ function UnpushedMark({ ahead }: { ahead: number }) {
       // activity mark — reusing its placement map rather than restating the
       // string, so a change to the row's padding moves both marks together
       // instead of moving one and stranding the other.
-      className={ACTIVITY_MARK_PLACE.row}
+      className={inTrack ? 'relative flex h-1 w-3 shrink-0 items-center' : ACTIVITY_MARK_PLACE.row}
     >
       {/* A flat rule at FULL opacity where the activity track sits at 25%, and
           with no dot riding it. Against the activity mark the difference reads
@@ -2123,6 +2158,8 @@ function StuckCell({
   row: AgentRow;
   card: Card | null;
   dispatch?: DispatchInfo;
+  /** Whether this server will act on Approve, and why not — the plan-PR half. */
+  approve?: DispatchInfo;
   pulse: number;
   onStarting?: (active: boolean) => void;
 }) {
@@ -2367,17 +2404,44 @@ function RowActions({
   row,
   card,
   dispatch,
+  approve,
   pulse,
   onStarting,
 }: {
   row: AgentRow;
   card: Card | null;
   dispatch?: DispatchInfo;
+  /** Whether this server will act on Approve, and why not — the plan-PR half. */
+  approve?: DispatchInfo;
   pulse: number;
   onStarting?: (active: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const canStart = Boolean(card && dispatch && isStartable(row));
+  // THE OTHER ACT A ROW CAN OFFER, and the reason this menu had to stop asking
+  // only about starting.
+  //
+  // Measured: `enabled` was `canStart && serverWillAct`, so the menu opened
+  // only where `Start work` was possible — and a Draft plan's row is never
+  // startable, by construction. Its one available act is approving, and the
+  // menu was therefore dead on exactly the rows that had something to do. The
+  // same plan's CARD offered the button all along: one board, two answers.
+  //
+  // `isDraft(card)` is the card's own gate, reused rather than re-derived from
+  // the row's phase — `plot-approve.sh` accepts phase `draft` and refuses every
+  // other one, and two spellings of that rule would drift.
+  // THE ROW MUST AGREE WITH THE CARD, and this is where forgetting that shows.
+  //
+  // `isDraft(card)` alone put an Approve button on a branch BLOCKED by an
+  // earlier wave: its plan is genuinely Draft, so the card said yes — while the
+  // row itself is waiting on time and has nothing a person can act on. That is
+  // the plan-level answer applied to a branch-level row, which is the confusion
+  // this section spent the evening separating.
+  //
+  // `waitingOn === 'you'` is the row's own word for *a person must act*: a
+  // Draft plan's FIRST wave, or a shelved branch. A blocked row says `time` and
+  // is excluded by construction rather than by a second rule that could drift.
+  const canApprove = Boolean(card && approve && isDraft(card) && row.waitingOn === 'you');
   // The menu opens only if something inside it could ACT.
   //
   // `canStart` answers "is this row startable"; it does not answer "will the
@@ -2391,7 +2455,10 @@ function RowActions({
   // rather than reading as a bug. Same pattern the row already uses for a row
   // with nothing to do.
   const serverWillAct = dispatch?.available ?? false;
-  const enabled = canStart && serverWillAct;
+  const approveWillAct = approve?.available ?? false;
+  // ANY act, not one named act. The menu opens if something inside it could
+  // change the world; which something it is, is the menu's own business.
+  const enabled = (canStart && serverWillAct) || (canApprove && approveWillAct);
   const reason =
     canStart && !serverWillAct && dispatch?.reason ? dispatch.reason : noActionReason(row);
 
@@ -2445,19 +2512,38 @@ function RowActions({
       >
         ⋯
       </button>
-      {open && enabled && card && dispatch && (
+      {/* `card` only — NOT `card && dispatch`. Requiring dispatch here was the
+          second half of the same defect the gate above had: a Draft plan's row
+          has nothing to dispatch, so the body rendered empty even once the menu
+          could open. Each ITEM asks for what it needs, and an item whose
+          precondition is missing simply is not there. */}
+      {open && enabled && card && (
         <div
           role="menu"
           className="absolute right-0 z-10 mt-1 min-w-max rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
         >
-          <div role="menuitem" className="px-2 py-1 text-left">
-            <StartWorkButton
-              card={card}
-              dispatch={dispatch}
-              pulse={pulse}
-              onStarting={onStarting}
-            />
-          </div>
+          {canStart && dispatch && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <StartWorkButton
+                card={card}
+                dispatch={dispatch}
+                pulse={pulse}
+                onStarting={onStarting}
+              />
+            </div>
+          )}
+          {/* Approving a plan and starting a branch are MUTUALLY EXCLUSIVE by
+              construction — `isStartable` needs `waitingOn: 'click'`, which a
+              Draft plan's row never has, and `isDraft` needs phase Discovery,
+              which a startable row never has. They are written as two
+              independent items rather than as an if/else so that neither
+              becomes the other's fallback: if that ever changes, the menu shows
+              both instead of silently picking one. */}
+          {canApprove && approve && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <ApproveButton card={card} approve={approve} onApproving={onStarting} />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -2515,6 +2601,13 @@ export interface AgentListProps {
    * outcome is unknown. Same rule `PlanCard` follows.
    */
   dispatch?: DispatchInfo;
+  /**
+   * Whether this server will act on Approve, and why not — the plan-PR half of
+   * acting, and the half this tab was never given. `board.approve` reached the
+   * CARDS from the day it shipped; a row whose one available act was approving
+   * got a dead menu while the same plan's card offered the button.
+   */
+  approve?: DispatchInfo;
   /** Bumps once per BOARD refresh; the Start work button counts these. */
   pulse?: number;
   /** A Start work click became outstanding (true) or settled (false). */
@@ -2729,7 +2822,12 @@ function PlanRow({
           are by definition not in WORKING, so the slow pace has no case to
           state here. A plan row shows a mark exactly when one of its branches
           is being written to. */}
-      {active && <ActivityMark pace="fast" />}
+      {/* The same unconditional marks cell the branch rows carry — a plan row
+          without one would land its remaining cells a column left of theirs,
+          which is exactly the alignment the tracks exist to hold. */}
+      <span role="gridcell" className={ACTIVITY_MARK_PLACE.row}>
+        {active && <ActivityMark pace="fast" inTrack />}
+      </span>
       {/* THE PLAN'S PHASE, stated here and nowhere else in the group.
           
           This cell was empty on the argument that a plan row's phase "is
@@ -2826,6 +2924,7 @@ function Row({
   planInHeading = false,
   card = null,
   dispatch,
+  approve,
   pulse = 0,
   onStarting,
   marked = false,
@@ -2854,6 +2953,8 @@ function Row({
   card?: Card | null;
   /** Whether this server will act on Start work, and why not. */
   dispatch?: DispatchInfo;
+  /** Whether this server will act on Approve, and why not — the plan-PR half. */
+  approve?: DispatchInfo;
   /** Bumps once per board refresh; the Start work button counts these. */
   pulse?: number;
   /** A Start work click became outstanding (true) or settled (false). */
@@ -2938,16 +3039,29 @@ function Row({
           `isActive` itself is untouched. Widening happens HERE, at the render,
           where the second path is visibly a second statement rather than a
           quietly loosened predicate — and where the pace keeps the two apart. */}
-      {(active || isLive(row)) && (
-        <ActivityMark pace={active ? 'fast' : activityPace(row)} />
-      )}
-      {/* FINISHED WORK NOBODY ELSE CAN SEE — a separate question from the one
-          above, asked separately. Not an `else`, and not folded into the
-          condition: a row can be written to AND hold unpushed commits at the
-          same moment, and either shape would lose whichever it tested second.
-          Two facts, two marks, rendered independently. */}
-      {isUnpushed(row) && <UnpushedMark ahead={row.localAhead} />}
-      {isLive(row) && <LiveDot />}
+      {/* THE MARKS, in a track of their own — and the CELL is unconditional
+          while everything in it is conditional.
+          
+          That split is the whole reason this works as a column. A row without
+          marks must still occupy the track, or its remaining six cells shift
+          one column left and the board loses the alignment `agent-rows-line-up`
+          paid for. So the container always renders; what is inside it does not.
+          
+          Stacked rather than overlaid: a row can carry several marks at once —
+          measured on screen, the activity track and the unpushed bar collided
+          when both hung absolutely at `left-0`. */}
+      <span role="gridcell" className={ACTIVITY_MARK_PLACE.row}>
+        {(active || isLive(row)) && (
+          <ActivityMark pace={active ? 'fast' : activityPace(row)} inTrack />
+        )}
+        {/* FINISHED WORK NOBODY ELSE CAN SEE — a separate question from the one
+            above, asked separately. Not an `else`, and not folded into the
+            condition: a row can be written to AND hold unpushed commits at the
+            same moment, and either shape would lose whichever it tested second.
+            Two facts, two marks, rendered independently. */}
+        {isUnpushed(row) && <UnpushedMark ahead={row.localAhead} inTrack />}
+        {isLive(row) && <LiveDot />}
+      </span>
       {/* The phase takes the REPO's place rather than adding a seventh cell to
           a row that already wraps on `feature/opus5-hardening-challenge-budget`.
           The repo is the right thing to give up: constant in a one-repo board,
@@ -3181,6 +3295,7 @@ function Row({
         row={row}
         card={card}
         dispatch={dispatch}
+        approve={approve}
         pulse={pulse}
         onStarting={onStarting}
       />
@@ -3324,6 +3439,7 @@ export function AgentList({
   onOpenPlan,
   cardForPlanFile,
   dispatch,
+  approve,
   pulse = 0,
   onStarting,
 }: AgentListProps) {
@@ -3676,6 +3792,7 @@ export function AgentList({
                                 planInHeading
                                 card={cardForPlanFile?.(r.planFile) ?? null}
                                 dispatch={dispatch}
+                                approve={approve}
                                 pulse={pulse}
                                 onStarting={onStarting}
                                 marked={marked.has(rowKey(r))}
@@ -3730,6 +3847,7 @@ export function AgentList({
                           // are startable ever use it.
                           card={cardForPlanFile?.(r.planFile) ?? null}
                           dispatch={dispatch}
+                          approve={approve}
                           pulse={pulse}
                           onStarting={onStarting}
                           // By the row's own identity, so a row that changed

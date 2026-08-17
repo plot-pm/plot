@@ -23,3 +23,15 @@ node_modules/
 # A checked-in pulse would be one clone telling another what its branches are
 # doing.
 .plot/state/
+
+# A dispatched worker's own traces, written into ITS worktree by
+# `plot-dispatch.sh`: the pid it started, the exit code it ended with, and the
+# console log in between. Machine-local for the same reason as `.plot/state/` —
+# a checked-in pid describes a process on one laptop.
+#
+# Untracked and unignored is the worst of both: they show up in `git status`,
+# and a `git add -A` in a worker's worktree carries someone's console log into
+# the repo. Caught once, before it landed.
+.plot-worker.pid
+.plot-worker.exit
+.plot-worker.log

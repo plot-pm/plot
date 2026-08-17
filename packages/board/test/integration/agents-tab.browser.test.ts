@@ -545,10 +545,18 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // carried by colour and title, not by a second position.
     const page = await openAgents();
     try {
-      const untaken = rowFor(page, 'feature/untaken');
-      await expect.poll(() => untaken.getByTitle(/nobody has started it/).count()).toBe(1);
-      await expect.poll(() => untaken.getByTitle(/nobody has started it/).textContent())
+      // ON THE PLAN ROW, not on the branch. `waitingDays` dates the plan's own
+      // `Approved:` record, so every branch of one plan carries the same
+      // number — stating it per branch said one measurement three times. This
+      // asserted the branch row until the section learned to group; what it
+      // MEANS (one column, one answer, carried by colour and title) is
+      // unchanged and asserted here.
+      const untakenPlan = page.locator('li[data-plan-row]')
+        .filter({ hasText: 'plant-tomatoes' }).first();
+      await expect.poll(() => untakenPlan.getByTitle(/nobody has started it/).count()).toBe(1);
+      await expect.poll(() => untakenPlan.getByTitle(/nobody has started it/).textContent())
         .toBe('22d');
+      const untaken = rowFor(page, 'feature/untaken');
       // And NOT beside it: the row must not carry the age twice. Asserted on
       // the LAST cell rather than by searching the row for an em dash — the
       // note reads "eligible — nobody has taken it" and contains one, so a
@@ -661,7 +669,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // The prefix survives BELOW `sm`, and only there: a card has no columns
       // for a header to name, so the word `Development` would arrive with
       // nothing saying what it is. That half is asserted in the card tests.
-      const phaseCell = li.locator('[role="gridcell"]').first();
+      // NOT `.first()` — that is the marks cell now. The phase is the second,
+      // read by the named constant so this stays in step with the geometry
+      // constants above.
+      const phaseCell = li.locator('[role="gridcell"]').nth(PHASE_CELL);
       const name = await phaseCell.evaluate((el) => (el as HTMLElement).innerText);
       expect(name.trim()).toBe('Development');
       // The word itself is untouched, and visible.
@@ -1840,8 +1851,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     return Math.round(box!.x);
   }
 
-  const BRANCH_CELL = 2;
-  const PR_CELL = 3;
+  // Cell indices, and they moved by one when the marks earned a track of their
+  // own at the front of the row. Named rather than inlined precisely so this
+  // shift is one edit — a stale `nth()` scattered through the file would keep
+  // PASSING while measuring a different column, which is the quietest way for a
+  // geometry test to stop meaning what it says.
+  const PHASE_CELL = 1;
+  const BRANCH_CELL = 3;
+  const PR_CELL = 4;
   const AGE_CELL = 4;
 
   it('starts every branch cell at the same x, with a phase and without one', async () => {
@@ -2530,7 +2547,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       const li = rowFor(page, 'feature/phone');
       await expect.poll(() => li.count()).toBe(1);
-      const phaseCell = li.locator('[role="gridcell"]').first();
+      // NOT `.first()` — that is the marks cell now. The phase is the second,
+      // read by the named constant so this stays in step with the geometry
+      // constants above.
+      const phaseCell = li.locator('[role="gridcell"]').nth(PHASE_CELL);
       // `innerText` reports the sr-only span as its own line, so the assertion
       // is on the words rather than on the exact spacing between them.
       const heard = await phaseCell.evaluate((el) => (el as HTMLElement).innerText);
