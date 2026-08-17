@@ -186,6 +186,31 @@ full skill — the tracer suggestion, the ceremony questions — can still decla
 one, and the board prefers it when present. Absent, the script runs. That keeps
 the richer path available without making it the price of entry.
 
+**And the two entrances are not two implementations.** The skill calls the
+script, as `plot-dispatch/SKILL.md` does — so `Approve command` starts an agent,
+which runs the skill, which runs `plot-approve.sh`. The seven mechanical steps
+go through **one** implementation either way:
+
+```
+no Approve command:    board → plot-approve.sh
+with Approve command:  board → agent → SKILL.md → plot-approve.sh
+```
+
+Without that, demoting rather than removing would leave two paths to one
+outcome, free to drift — precisely the duplication this plan exists to remove,
+reintroduced as a configuration option.
+
+**Over Tailscale the button is disabled, and that is correct.** `dispatch.ts:51`
+states the rule the board already lives by: *the binding is the authorisation*,
+and a Tailscale address is **deliberately not localhost**. So the same phone
+that reads the board perfectly well cannot approve from it — approving merges a
+PR and writes to the default branch, which is a different decision from reading
+a status away from the desk.
+
+Recorded here because it will otherwise look like a bug: `Start work` behaves
+identically for the same reason, and a future reader finding both disabled on a
+phone should see this paragraph rather than "fix" it.
+
 ### A native `disabled` becomes `aria-disabled`
 
 Found alongside: `ApproveButton` uses the **native** `disabled` attribute, which
@@ -261,6 +286,12 @@ one hour for two branches meeting in the same objects.
   a mechanism, not a decision.
 - **`Approve command`, when declared, still wins.** Assert a project that sets
   it gets the skill path: demoted is not removed.
+- **Both entrances run the SAME mechanical implementation.** Assert the skill
+  path ends in `plot-approve.sh` rather than repeating its steps — two paths to
+  one outcome would drift, which is the duplication this plan removes.
+- **The button is disabled over a non-localhost binding**, with the binding's
+  own reason. Assert a Tailscale-style host: reading the board from a phone
+  works, approving from it does not, and `Start work` behaves identically.
 - **The disabled button stays focusable.** Assert `aria-disabled` and not the
   native attribute, and that the reason is reachable by keyboard.
 - `pnpm run test:board`, `pnpm run test:reconcile`, `pnpm run typecheck`,
@@ -289,7 +320,7 @@ surfaced both.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 2,
+  "round": 3,
   "questionHistory": [
     {"q": "The plan lists five mechanical steps, but the skill has two more side effects it missed: step 5 removes a .plot/hold entry, and /plot-sprint depends on /plot-approve writing sprint annotations it later reads.", "a": "Both move into the script. An approval that leaves the hold in place still blocks; one that skips the annotation makes /plot-sprint status wrong. Both are writes with no decision in them — delete a line, rewrite a comment — so they belong to collecting. Five of seven steps would be a half-approval, worse than none", "category": "domain-workflows"},
     {"q": "plot-push-main.sh already exists and solves the branch-protection question — it reports clean/bypassed/unknown and names the waived rules. Does that change the scope?", "a": "The script chains existing pieces rather than building new ones: pr-state, pr-merge, awk in the shape of append_started_line, plot-push-main.sh. ~120 lines of sequencing plus refusals. That IS the argument for it being a script — every piece already exists at the collecting layer; only the sequence was missing", "category": "technical-implementation"},
@@ -297,6 +328,8 @@ surfaced both.
     {"q": "The plan says the script removes 'the plan's .plot/hold line'. Measured: plot-phase-gate.sh:121 matches $1 == b against the BRANCH name, and a plan names several branches.", "a": "Remove the entry for every branch the plan names — the plan is what connects a slug to the branch names the hold file speaks in. Entries for branches this plan does not name stay: approving one piece of work must not release someone else's gate", "category": "domain-rules"},
     {"q": "plot-phase-gate.sh is a PreToolUse hook blocking commits while the governing plan is Draft — and plot-approve.sh commits exactly then, because rewriting the phase IS the transition.", "a": "Pin it as an acceptance criterion. The gate lets plan-file-only commits through, so it should work; what is missing is that nothing says so. A script strangled by its own repo's hook would fail in the one state it always runs in", "category": "technical-implementation"},
     {"q": "There is no .plot/hold in this repo at all — the mechanism is unused, like Review: in-session.", "a": "Handle it anyway, same reasoning. The gate reads that file on every commit; it is absent only because nobody has written one. A script that ignored it would behave correctly until the first time it mattered — which is exactly when it would be relied on", "category": "domain-data"}
+    {"q": "dispatch.ts:51 says a Tailscale address is deliberately NOT localhost — the binding is the authorisation. So Approve would be disabled on the phone that reads the board.", "a": "Correct, and recorded explicitly. Approving merges a PR and writes to the default branch — a different decision from reading a status away from the desk. Start work behaves identically for the same reason, and a future reader finding both disabled should see the paragraph rather than fix it", "category": "nonFunctional-security"},
+    {"q": "Demoting rather than removing Approve command leaves two paths to one outcome, free to drift — the script does seven steps, the skill could do something else.", "a": "The skill calls the script, as plot-dispatch/SKILL.md does. Approve command starts an agent, which runs the skill, which runs plot-approve.sh — one implementation of the mechanics, two entrances. Otherwise demotion reintroduces the duplication this plan removes, as a configuration option", "category": "technical-architecture"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
