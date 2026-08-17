@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { startServer } from '../helpers.mjs';
+import type { Fleet } from '../../src/contract/schema.js';
 
 /**
  * A BUTTON THAT IS ACTING LOOKS DIFFERENT FROM ONE THAT WAS NEVER CLICKED.
@@ -369,8 +370,19 @@ describe('the rows keep their own indicator, and it is not this one', () => {
     if (garden) fs.rmSync(garden, { recursive: true, force: true });
   });
 
-  /** One WORKING row, which is all this question needs. */
-  const FLEET = {
+  /**
+   * One WORKING row, which is all this question needs.
+   *
+   * Typed as the real `Fleet` rather than a loose literal: the first draft here
+   * carried only `rows`, the payload failed the contract, and the tab rendered
+   * nothing at all — a stub that is wrong in that direction fails as a timeout
+   * rather than as a claim about the dot, which is a slow way to learn nothing.
+   */
+  const FLEET: Fleet = {
+    generatedAt: '2026-08-17T09:00:00Z',
+    ageSeconds: 2,
+    ready: true,
+    error: null,
     rows: [{
       repo: 'garden', branch: 'feature/beans-a', plan: 'beans',
       planFile: '2026-03-01-plant-tomatoes.md', wave: 'w', state: 'wip',
@@ -379,6 +391,11 @@ describe('the rows keep their own indicator, and it is not this one', () => {
       branchUrl: 'https://github.com/tiny/garden/tree/feature/beans-a',
       waitingDays: null,
     }],
+    summary: { plans: 1, waves: 1, branches: 1, claimed: 1, eligible: 0, blocked: 0, deferred: 0 },
+    prAgeSeconds: null,
+    prNextInSeconds: null,
+    scanNextInSeconds: null,
+    prError: null,
   };
 
   it('the WORKING dot is still there, still pulsing, and is NOT the button marker', async () => {
@@ -387,7 +404,10 @@ describe('the rows keep their own indicator, and it is not this one', () => {
       await page.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(FLEET) }));
       await page.goto(`${baseURL}?tab=agents`);
-      await page.getByText('Working').first().waitFor({ timeout: 10_000 });
+      // The same landmark the Agents-tab suite waits on: every group renders
+      // its heading whether or not it holds rows, so this is the tab having
+      // painted rather than this fixture having any particular content.
+      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
 
       const dot = page.locator('[data-live-dot]');
       await expect.poll(() => dot.count(), { timeout: 10_000 }).toBe(1);

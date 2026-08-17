@@ -29,8 +29,22 @@ import { ACTING_CLASS } from '../../src/app/components/ui/ActingSpinner.js';
  * so an unrelated edit in either component does not fail this suite.
  */
 const here = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * The component's CODE, with its prose removed.
+ *
+ * Comments are stripped because the questions below are about what the
+ * component DOES, and these components carry long comments that discuss the
+ * very things being asserted against — this file's first run failed on
+ * `ActingSpinner`'s own paragraph explaining why it does not consult
+ * `prefers-reduced-motion`. Asserting over prose would make a docstring able to
+ * break the build, and worse, able to satisfy it.
+ */
 const src = (rel: string) =>
-  fs.readFileSync(path.resolve(here, '../../src/app/components', rel), 'utf8');
+  fs.readFileSync(path.resolve(here, '../../src/app/components', rel), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
 
 const SPINNER = src('ui/ActingSpinner.tsx');
 const AGENT_LIST = src('AgentList.tsx');
