@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-board
@@ -11,9 +11,9 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-17, jwloka, plan-PR #162 merged (one interrogation round)
 - **Started:** 2026-08-17, Jan Wloka, `feature/pr-state-travels-as-a-field`
-- **Delivered:**
 - **Started:** 2026-08-17, Jan Wloka, `feature/agent-rows-line-up`
 - **Started:** 2026-08-17, Jan Wloka, `feature/card-shows-interrogation-rounds`
+- **Delivered:** 2026-08-17
 
 ## Problem
 
