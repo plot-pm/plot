@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Story:** plot-board
 - **Review:** pr
@@ -10,7 +10,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-16, jwloka, plan-PR #146 merged
 - **Started:** 2026-08-17, Jan Wloka, `feature/board-story-overlay`
-- **Delivered:**
+- **Delivered:** 2026-08-17
 - **Started:** 2026-08-17, Jan Wloka, `feature/board-column-overflow`
 - **Started:** 2026-08-17, Jan Wloka, `feature/board-approve-affordance`
 
