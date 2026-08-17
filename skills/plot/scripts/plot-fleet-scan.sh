@@ -555,19 +555,26 @@ local_ahead_of() { # $1=branch → count of local commits the remote lacks, or 0
 # unanswerable branch as mergeable.
 #
 # Only branches with real unlanded work are asked about. A merged branch has
-# nothing to merge, an `open` branch has no ref, and an empty claim has no
-# commits — every one of them would cost a process spawn to be told nothing.
+# nothing left to merge, an `open` branch has no ref, and a bare claim CHANGES
+# no file — every one of them would cost a process spawn to be told the obvious,
+# on every scan. See `conflicts_known_of` for why they report `false` rather
+# than a convenient `true`.
+# CAN THE QUESTION BE PUT AT ALL? Two prerequisites, both checked ONCE per run
+# rather than per branch, and both collapsing to the same honest answer when
+# they fail: nothing was observed, so nothing is claimed.
+#
+#   1. A default branch to merge INTO. Without `origin/$MAIN` there is no
+#      target, and a prediction against nothing is not a prediction.
+#   2. A git that answers this question. Before 2.38 `merge-tree` EXISTS with
+#      entirely different semantics — a three-way file diff — so it does not
+#      fail cleanly: it succeeds while answering something else, and every
+#      branch would silently read as conflict-free. plot-merge-queue.sh refuses
+#      outright on that git; refusing is not an option here (the scan answers
+#      many other questions), so the capability is reported as unknown instead.
 CONFLICT_MAIN_OK=0
 git show-ref -q --verify "refs/remotes/origin/$MAIN" </dev/null 2>/dev/null \
   && CONFLICT_MAIN_OK=1
 
-# Is `merge-tree --write-tree` available at all? Git before 2.38 HAS a
-# merge-tree with entirely different semantics — a three-way file diff — so it
-# does not fail cleanly: it succeeds while answering a different question, and
-# every branch would silently read as conflict-free. The same trap
-# plot-merge-queue.sh refuses outright. Here refusing is not an option (the scan
-# answers many other questions), so the capability is reported as unknown
-# instead and every branch says `conflicts_known: false`.
 MERGE_TREE_OK=0
 if [ "$CONFLICT_MAIN_OK" = 1 ]; then
   git_ver=$(git --version 2>/dev/null | sed -n 's/^git version \([0-9]*\)\.\([0-9]*\).*/\1 \2/p')

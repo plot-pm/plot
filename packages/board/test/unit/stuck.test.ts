@@ -206,6 +206,46 @@ describe('absent is not clean', () => {
   });
 });
 
+describe('the host and the prediction disagree', () => {
+  // `merge-tree` predicts from the refs THIS MACHINE holds; GitHub computed its
+  // verdict against the branch as it stands. Both of the 2026-08-17 artifact
+  // conflicts appeared only at `gh pr merge` — a merge foreseen clean is not a
+  // merge proven clean.
+  it('reports a host-declared conflict the local prediction did not see', () => {
+    const s = stuckState(healthy({ conflicts: [], prState: 'conflicts' }));
+    expect(s?.state).toBe('conflict');
+  });
+
+  it('NEVER calls a host-declared conflict artifact-only', () => {
+    // THE PAIRING THAT MATTERS HERE. The artifact case rests entirely on the SET
+    // being exactly one known file, and the host says *this does not merge*
+    // without saying where. Guessing artifact-only with no set behind it would
+    // hand a later wave the one state it may resolve without a human — the
+    // "is the artifact among the conflicts?" mistake in its worst form.
+    const s = stuckState(healthy({ conflicts: [], prState: 'conflicts' }));
+    expect(s?.state).not.toBe('artifact-conflict');
+    expect(s?.conflicts).toEqual([]);
+  });
+
+  it('prefers the observed set when there is one', () => {
+    // A host that says *conflicts* and a prediction that named the artifact
+    // agree about the fact and differ about the detail. The detail is what
+    // decides the state, so the observed set wins.
+    const s = stuckState(healthy({
+      conflicts: [BOARD_ARTIFACT_PATH], prState: 'conflicts',
+    }));
+    expect(s?.state).toBe('artifact-conflict');
+    expect(s?.conflicts).toEqual([BOARD_ARTIFACT_PATH]);
+  });
+
+  it('reports a host-declared conflict ahead of the checks it caused', () => {
+    // GitHub starts no workflow for a branch that does not merge, so this
+    // branch's empty rollup is a CONSEQUENCE of the conflict.
+    const s = stuckState(healthy({ conflicts: [], prState: 'conflicts', localAhead: 3 }));
+    expect(s?.state).toBe('conflict');
+  });
+});
+
 describe('precedence', () => {
   // GitHub starts no workflow for a branch that does not merge cleanly, so a
   // conflicting PR always ALSO reports an empty rollup. Reading checks first

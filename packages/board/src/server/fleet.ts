@@ -496,7 +496,13 @@ async function refreshRuns(
       }
       if (list.length > 0) runs.set(branch, list);
     } catch {
-      /* one branch's history is unavailable; the other two evidence lines stand */
+      // One branch's history is unavailable; the other two evidence lines
+      // stand. Its LAST GOOD history is kept below rather than dropped — the
+      // same rule the PR map and the pulse follow, and for the same reason: a
+      // row losing a line it had a minute ago looks like the branch changing
+      // rather than like a fetch failing.
+      const previous = entry.runs.get(branch);
+      if (previous) runs.set(branch, previous);
     }
   }
   entry.runs = runs;

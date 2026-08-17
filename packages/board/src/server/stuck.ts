@@ -164,6 +164,32 @@ export function stuckState(input: StuckInput): Stuck | null {
     };
   }
 
+  // THE HOST SAYS IT CONFLICTS AND THE PREDICTION DID NOT SEE IT.
+  //
+  // Two sources answer the same question from different vantage points, and
+  // they disagree in one direction that matters. `merge-tree` predicts from the
+  // refs THIS MACHINE holds; a fetch that has not run, or a ref that moved a
+  // second ago, makes the prediction stale — while GitHub computed its verdict
+  // against the branch as it actually stands. Both of the 2026-08-17 artifact
+  // conflicts appeared only at `gh pr merge`, which is the same lesson from the
+  // other side: a merge foreseen clean is not a merge proven clean.
+  //
+  // So a host-reported conflict is reported, and it is reported as `conflict`
+  // and NEVER as `artifact-conflict`. The distinction between the two rests
+  // entirely on the SET being exactly one known file, and here there is no set:
+  // the host says *this does not merge* without saying where. Calling it
+  // artifact-only would be the "is the artifact among the conflicts?" mistake in
+  // its worst form — a guess with no set behind it at all, handed to the one
+  // state a later wave is licensed to resolve without a human.
+  //
+  // Placed after the observed set and before the failing check, for the reason
+  // the ordering already gives: GitHub starts no workflow for a branch that does
+  // not merge, so this branch's checks are empty as a CONSEQUENCE of the
+  // conflict, and reporting the consequence would withhold the cause.
+  if (input.prState === 'conflicts') {
+    return { state: 'conflict', conflicts: [], localAhead: 0, ...noCiEvidence() };
+  }
+
   // A FAILING CHECK IS A SHAPE WORTH SURFACING, never a claim about this
   // failure. The row states what failed and what the branch touches; the caller
   // adds the branch's own run history; a person decides. That split is the
