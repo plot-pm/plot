@@ -211,22 +211,33 @@ export function countdown(ageSeconds: number | null, intervalSeconds: number): n
 }
 
 /**
- * Does a plan sub-heading earn its place in this group?
+ * Does a plan sub-heading earn its place ON THIS GROUP?
  *
- * Two ways it can, and neither count alone catches both:
+ * A heading pays for itself by SAVING REPETITION: with two or more rows under
+ * one plan, the name prints once above them instead of once on each. With a
+ * single row it saves nothing — the name appears exactly once either way, and
+ * the heading costs an extra line of height to say it. A section of one-row
+ * plans became a stack of alternating headings and rows, each heading labelling
+ * the single line beneath it.
  *
- *   - it SEPARATES — the group holds more than one plan, so unlabelled rows
- *     would run two different names together;
- *   - it SAVES REPETITION — some plan holds more than one row, so without a
- *     heading its name prints on every one of them.
+ * A nameless group can never have one: there is nothing to head it WITH, and
+ * rendering the heading anyway printed a bare "(3)".
  *
- * `plans > 1` alone was the first rule and missed the case that motivated the
- * grouping (six rows of ONE plan, name printed six times). `rows > plans` alone
- * fixes that and breaks the mirror (two plans, one row each, separating
- * nothing labelled). Exported so both cases can be pinned without a browser.
+ * This replaces a section-wide `showPlanHeadings(rowCount, planCount)` that
+ * asked *should this section have headings at all* — `planCount > 1 ||
+ * rowCount > planCount`. Both of its clauses are subsumed here: the second IS
+ * this rule, counted per group instead of summed across the section, and the
+ * first (two plans, one row each) turns out to be a case where headings are
+ * *not* wanted. What that clause was really protecting is that unlabelled rows
+ * must still name their plan — which is now the row's job whenever its group
+ * has no heading, rather than something a section-wide flag guarantees.
+ *
+ * Exported so the mixed section — one plan with several rows beside a plan with
+ * one — can be pinned without a browser. That case is what a section-wide
+ * answer cannot express, and it is where the row-side half must hold.
  */
-export function showPlanHeadings(rowCount: number, planCount: number): boolean {
-  return planCount > 1 || rowCount > planCount;
+export function showPlanHeading(group: PlanGroup): boolean {
+  return Boolean(group.plan) && group.rows.length > 1;
 }
 
 /**
@@ -382,7 +393,22 @@ function RowActions({
 }) {
   const [open, setOpen] = useState(false);
   const canStart = Boolean(card && dispatch && isStartable(row));
-  const enabled = canStart;
+  // The menu opens only if something inside it could ACT.
+  //
+  // `canStart` answers "is this row startable"; it does not answer "will the
+  // server act", and the two came apart the moment the board learned to dim.
+  // Without this the three-dot menu still opened on a frozen page and still
+  // offered `Start work` on data minutes old — the exact invitation this wave
+  // exists to withdraw, and one that a scrim alone does not reach, because a
+  // keyboard reader never touches the scrim.
+  //
+  // The reason travels to the control, so the dimmed menu explains itself
+  // rather than reading as a bug. Same pattern the row already uses for a row
+  // with nothing to do.
+  const serverWillAct = dispatch?.available ?? false;
+  const enabled = canStart && serverWillAct;
+  const reason =
+    canStart && !serverWillAct && dispatch?.reason ? dispatch.reason : noActionReason(row);
 
   // Close on Escape and on any click outside. A menu that survives a click
   // elsewhere on a view that repaints every five seconds is a menu that ends up
@@ -415,8 +441,8 @@ function RowActions({
         // Never the native attribute. `aria-disabled` keeps the control
         // focusable, so the title explaining WHY is reachable by keyboard.
         aria-disabled={!enabled || undefined}
-        aria-label={enabled ? `Actions for ${row.branch}` : noActionReason(row)}
-        title={enabled ? `Actions for ${row.branch}` : noActionReason(row)}
+        aria-label={enabled ? `Actions for ${row.branch}` : reason}
+        title={enabled ? `Actions for ${row.branch}` : reason}
         onClick={() => { if (enabled) setOpen((v) => !v); }}
         className={
           enabled
@@ -923,19 +949,17 @@ export function AgentList({
         // become a list one scrolls past. A rule with an exception for the group
         // nobody reads is a rule someone has to remember.
         const plans = groupByPlan(rows);
-        // A sub-heading earns its place when it SEPARATES plans or SAVES
-        // repetition — and neither count alone catches both.
+        // Headings are decided PER GROUP, not per section — see
+        // `showPlanHeading`. A section-wide answer gave a heading to every
+        // group once any group earned one, so a plan with a single row got a
+        // heading that labelled the one line beneath it.
         //
-        // `plans.length > 1` was the first rule and fails the case that
-        // motivated the grouping: six QUIET rows of ONE plan got no heading, so
-        // the plan name printed six times down the column — more chrome than
-        // one heading above six shorter rows. `rows.length > plans.length`
-        // fixes that and breaks the mirror case: two plans with one row each
-        // separate nothing, and two different names would run together
-        // unlabelled.
-        //
-        // So: more than one plan, or any plan holding more than one row.
-        const headings = showPlanHeadings(rows.length, plans.length);
+        // The half that is easy to lose: a group WITHOUT a heading has nowhere
+        // else to name its plan, so its row must print the name itself. That is
+        // why `planInHeading` is computed from this group's own answer below
+        // rather than from a section-wide flag — in a mixed section (one plan
+        // with several rows beside a plan with one) a single flag is wrong for
+        // one of them either way.
         // An empty group is never foldable — it hides nothing, and its header
         // carries the HINT rather than `(0)`, which is the one thing in there
         // worth reading when there is nothing to list.
@@ -984,12 +1008,19 @@ export function AgentList({
             {!isFolded && (
             <ul className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
               {rows.length > 0 ? (
-                plans.map((group) => (
+                plans.map((group) => {
+                  // ONE answer per group, read by both the heading and its
+                  // rows. Computing it twice is how they drift: a heading that
+                  // renders while its rows also print the plan name says it
+                  // twice, and the reverse loses the name entirely.
+                  const headed = showPlanHeading(group);
+                  return (
                   <li key={group.plan}>
                     {/* A nameless group holds rows no plan claims, so there is
                         nothing to head them WITH: rendering the heading anyway
-                        printed a bare "(3)", a label that labels nothing. */}
-                    {headings && group.plan && (
+                        printed a bare "(3)", a label that labels nothing.
+                        `showPlanHeading` already refuses those. */}
+                    {headed && (
                       <h3 className="border-b border-slate-200/60 bg-slate-50 px-3 py-1 text-[11px] font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
                         {/* The heading CARRIES the link, because the rows below
                             no longer print the plan name. Grouping moved the
@@ -1013,7 +1044,7 @@ export function AgentList({
                           key={`${r.repo}/${r.branch}`}
                           row={r}
                           onOpenPlan={onOpenPlan}
-                          planInHeading={headings && Boolean(group.plan)}
+                          planInHeading={headed}
                           // Looked up per row rather than per group: a row's
                           // plan is what dispatch takes, and only the rows that
                           // are startable ever use it.
@@ -1025,7 +1056,8 @@ export function AgentList({
                       ))}
                     </ul>
                   </li>
-                ))
+                  );
+                })
               ) : (
                 <li className="px-3 py-2 text-sm text-slate-400 dark:text-slate-600">none</li>
               )}

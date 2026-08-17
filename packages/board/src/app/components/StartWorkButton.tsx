@@ -108,19 +108,46 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
     }
   };
 
+  const blocked = starting || !dispatch.available;
+
   return (
     <>
       <button
         type="button"
-        onClick={() => void start()}
-        disabled={starting || !dispatch.available}
+        onClick={() => {
+          // `aria-disabled` does not stop a click the way `disabled` does, so
+          // the refusal has to be stated here as well. Both are needed and
+          // neither is redundant: the attribute is what assistive technology
+          // reads, this is what makes it true.
+          if (blocked) return;
+          void start();
+        }}
+        // `aria-disabled` rather than the native `disabled` attribute.
+        //
+        // A natively disabled button is removed from the tab order, which takes
+        // the control AND its explanation out of reach of exactly the reader
+        // who cannot see that the page has dimmed. Announced-but-inert keeps
+        // both: the button is still reachable, still named, and says why it
+        // will not act.
+        aria-disabled={blocked || undefined}
         aria-busy={starting}
         // The reason lives on the control itself where it is unavailable: a
-        // disabled button with no explanation reads as a bug.
+        // disabled button with no explanation reads as a bug. `title` for a
+        // pointer, and `aria-describedby` would need an id per card — the
+        // accessible NAME already carries it below.
         title={dispatch.available ? `Dispatch the next eligible branch of ${card.slug}` : dispatch.reason}
-        className="text-xs font-medium text-blue-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-400 disabled:no-underline dark:text-blue-400 dark:disabled:text-slate-600"
+        className={
+          blocked
+            ? 'cursor-not-allowed text-xs font-medium text-slate-400 no-underline dark:text-slate-600'
+            : 'text-xs font-medium text-blue-600 hover:underline dark:text-blue-400'
+        }
       >
         {starting ? 'starting…' : 'Start work'}
+        {/* Why it will not act, for a reader with no pointer to hover and no
+            view of the dimmed page. Off screen, so the row is unchanged. */}
+        {!dispatch.available && dispatch.reason && (
+          <span className="sr-only"> — unavailable: {dispatch.reason}</span>
+        )}
       </button>
       {state.kind === 'no-change' && (
         // Deliberately not a diagnosis. Three things produce this and the board

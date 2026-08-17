@@ -28,6 +28,15 @@ function boardApi() {
             available: false,
             reason: 'the dev server serves board data only — run `pnpm board` to start work',
           };
+          // The unreachable overlay reads its way out from here, so the dev
+          // server has to answer too — otherwise the one place the overlay is
+          // developed is the one place it renders without a command.
+          const { serverInfo } = await server.ssrLoadModule('/src/server/server-info.ts');
+          const address = server.httpServer?.address();
+          board.server = serverInfo(
+            { repoRoot, scriptsDir },
+            address && typeof address === 'object' ? address.port : 0,
+          );
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify(board));
         } catch (err) {

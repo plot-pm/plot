@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { buildBoard, renderPlanPage, renderStoryPage, type BuildBoardOptions } from './board.js';
 import { buildFleet } from './fleet.js';
 import { dispatchAvailability, handleDispatch } from './dispatch.js';
+import { serverInfo } from './server-info.js';
 // Inlined at build time by esbuild's text loader — the artifact is a single
 // self-contained file, served from memory (no filesystem static serving, so no
 // path-traversal surface).
@@ -84,8 +85,15 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     try {
       // Whether Start work will act is a fact about this SERVER's binding, not
       // about any plan, so it is attached here — where the binding is known —
-      // rather than threaded through the plan walker.
-      const board = { ...buildBoard(opts), dispatch: dispatchAvailability(HOST) };
+      // rather than threaded through the plan walker. `server` rides along for
+      // the same reason and needs the same fact: how to start this board again
+      // and where it listens, carried on the last successful poll so the page
+      // still holds it once nothing is answering.
+      const board = {
+        ...buildBoard(opts),
+        dispatch: dispatchAvailability(HOST),
+        server: serverInfo(opts, boundPort),
+      };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(board));
     } catch (err) {
