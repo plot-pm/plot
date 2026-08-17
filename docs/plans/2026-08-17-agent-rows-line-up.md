@@ -277,7 +277,7 @@ way the rest of the board is.
 
 - `feature/pr-state-travels-as-a-field` — `AgentPr` carries the PR's condition
   as a value; `pr-list --rich` fetches `mergeable`; `classify()` sets it, and
-  `conflicts` becomes distinguishable from `no checks`
+  `conflicts` becomes distinguishable from `no checks` → #165
 
 ### Presentation
 
