@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-board
@@ -11,7 +11,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-17, jwloka, plan-PR #152 merged (two interrogation rounds)
 - **Started:** 2026-08-17, Jan Wloka, `feature/dispatch-writes-brief`
-- **Delivered:**
+- **Delivered:** 2026-08-17
 - **Started:** 2026-08-17, Jan Wloka, `feature/fleet-sees-unstarted-claims`
 - **Started:** 2026-08-17, Jan Wloka, `feature/dispatch-reports-no-worker`
 
