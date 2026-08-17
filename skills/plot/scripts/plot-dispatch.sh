@@ -12,7 +12,16 @@
 # Output: one line per branch, each optionally followed by an indented
 #         `in flight:` line naming a branch that already holds files, then a
 #         machine-countable summary:
-#             summary: dispatched=2 reused=0 skipped=1 started=2
+#             summary: dispatched=2 reused=0 skipped=1 started=2 brief=missing
+#
+# `brief=missing` is CONSTANT, and that is the point: this script cannot write a
+# hand-off brief and never will. A brief is interpretation (which alternatives
+# the plan rejected, and what killed them), and no script here invokes a skill —
+# bash cannot reach one at all. /plot-implement owns the brief; the plot-dispatch
+# SKILL invokes it after a fan-out. The field reports the gap so a direct call
+# says what it left undone instead of leaving a claimed worktree looking handed
+# over. It does NOT refuse: --dry-run and --status are legitimate direct calls,
+# and a gate that blocks looking-before-leaping is a gate in the wrong place.
 #
 # THIS IS THE ONE SCRIPT IN THE FLEET THAT WRITES. Everything else
 # (plot-fleet-scan.sh, plot-reconcile-scan.sh) is read-only. Consequently every
@@ -640,7 +649,7 @@ if [ "$dry_run" = 1 ]; then
     report_in_flight "$br"
     n_dispatched=$((n_dispatched + 1))
   done < <("$script_dir/plot-fleet-scan.sh" $offline --list-eligible "$slug" 2>/dev/null)
-  echo "summary: dispatched=$n_dispatched reused=0 skipped=0 started=0"
+  echo "summary: dispatched=$n_dispatched reused=0 skipped=0 started=0 brief=missing"
   exit 0
 fi
 
@@ -733,4 +742,4 @@ done
 # then ignored: the summary below reports what was dispatched either way.
 book_started ${claimed_now[@]+"${claimed_now[@]}"} || true
 
-echo "summary: dispatched=$n_dispatched reused=$n_reused skipped=$n_skipped started=$n_started"
+echo "summary: dispatched=$n_dispatched reused=$n_reused skipped=$n_skipped started=$n_started brief=missing"

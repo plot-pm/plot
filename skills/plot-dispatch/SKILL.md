@@ -42,7 +42,8 @@ or `--status` / `--stop <branch>` to inspect or stop running workers.
 | 1. Preflight | Small | Phase check + one script call |
 | 2. Dry run and confirm | Mid | How many agents is a judgment about cost and review capacity; the `in flight:` lines are facts to relay, and whether a shared file matters is the user's call |
 | 3. Fan out | Small | The script does the work; claims are atomic |
-| 4. Report | Small | Read the footer counts; relay a failed `Started:` booking verbatim |
+| 4. Write a brief per branch | Frontier | Delegated to `/plot-implement`, whose brief step is itself Frontier: naming the alternatives the plan rejected is judgment |
+| 5. Report | Small | Read the footer counts; relay a failed `Started:` booking verbatim |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor).
 
@@ -134,16 +135,57 @@ The script says the record is missing and carries on. Record it by hand, or
 re-run the dispatch once the push works; a re-run adopts the existing worktrees
 and books nothing it did not newly claim.
 
-### 4. Report
+### 4. Write a Brief per Dispatched Branch
+
+A prepared worktree is not work handed over. What an implementer needs — which
+alternatives the plan already rejected, and the measurements that killed them —
+lives in a **hand-off brief**, and `/plot-implement` is the step that produces
+one. Dispatching skipped that step, so every fan-out so far was completed by a
+human writing the brief afterwards.
+
+**For each branch the script reports as `dispatched`, invoke `/plot-implement`**
+so it writes `.plot/briefs/<branch-suffix>.md` (step 4 there) and commits it on
+the default branch. Skip branches reported as `reused` — a brief is already
+there — and skip `skipped` ones entirely: another session holds them, and their
+brief is not yours to write.
+
+`/plot-implement` finds the branch already claimed and treats it as a resume, so
+it re-creates nothing: no second claim push, no duplicate `Started:` record.
+Dispatch has already booked both.
+
+**The caller here is this skill, not `plot-dispatch.sh`.** No script in this repo
+invokes a skill, and bash cannot reach one at all — skills exist inside an agent
+session. That is the Manifesto's direction rather than an omission: *skills
+interpret and adapt; scripts collect and report*. A brief is interpretation, and
+a template string in the dispatcher would be a second definition of what an
+implementer needs to know — it would drift from `/plot-implement`'s the way every
+duplicated rule in this repo has.
+
+A direct `plot-dispatch.sh` call therefore cannot write a brief. It says so in
+its summary (`brief=missing`) rather than refusing: `--dry-run` and `--status`
+are the normal way to look before leaping, and a gate that blocks looking is a
+gate in the wrong place. When you see that in the summary, the branches are
+prepared and claimed and nobody has been handed anything — the brief step is
+still owed.
+
+`--no-start` does not change this. It suppresses **workers**, not briefs; the
+inspect-first workflow still wants the brief written for whoever picks the
+worktree up.
+
+### 5. Report
 
 Read the footer, never re-count:
 
 ```
-summary: dispatched=3 reused=0 skipped=1 started=3
+summary: dispatched=3 reused=0 skipped=1 started=3 brief=missing
 ```
 
 Say what is now running, where the worktrees are, and how to watch:
 `/plot-fleet <slug>` for state, `../plot-wt-*/.plot-worker.log` for output.
+
+`brief=missing` is the script reporting that **it** wrote none, which is always
+true — it never can. If step 4 ran, say so; the summary is describing the
+script's own reach, not the outcome of the dispatch.
 
 ## Configuration
 
@@ -205,3 +247,5 @@ until you release it. Releasing is `/plot-reconcile`'s job.
 | Treating a rejected claim as an error | Duplicate work, or a deleted worktree someone was using | Rejection is normal — it means the lock worked |
 | Creating worktrees inside the repo | They appear in the repo's own status and globs | Worktrees are siblings: `../plot-wt-<suffix>` |
 | Starting workers that merge their own PRs | Concurrent merges invalidate each other's bases | The worker command must say "open a PR, do not merge" |
+| Stopping at the fan-out | A prepared, claimed worktree that nobody was handed — the gap a human closed by hand every time | Step 4: `/plot-implement` per dispatched branch |
+| Writing the brief here instead of calling `/plot-implement` | A second definition of what an implementer needs, drifting from the first | One definition; dispatch invokes, never re-implements |
