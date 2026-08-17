@@ -715,6 +715,21 @@ export function classify(
    * scan rejects it and reports `none`, and this value only ever renders.
    */
   workerPid = '',
+  /**
+   * A local worktree for this branch is holding `.git/index.lock` — see
+   * `FleetBranchSchema.local_locked`. A write is in progress at this instant,
+   * which is the most direct evidence of activity any of these signals carries.
+   *
+   * Same single use and same one-directional rule as `localDirty` and
+   * `localAhead`: it LIFTS a branch out of quiet and may never downgrade an
+   * answer, because it is observable only on the machine doing the looking and
+   * false is what every branch elsewhere reports.
+   *
+   * Last in the parameter list because it is the newest, so every existing caller
+   * is unchanged — a caller with nothing to say about a lock is a caller that
+   * could not look.
+   */
+  localLocked = false,
 ): { group: WaitingGroup; note: string } {
   // A deferred branch is not-started because nobody is working on it — the
   // group is about the claim the row makes, not about the age of its last
@@ -881,7 +896,9 @@ export function classify(
     if (ageMinutes !== null && ageMinutes <= quietMinutes) {
       return { group: 'working', note: unstarted };
     }
-    if (localDirty || localAhead > 0) return workingLocally(localDirty, localAhead);
+    if (localDirty || localAhead > 0 || localLocked) {
+      return workingLocally(localDirty, localAhead, localLocked);
+    }
     return {
       group: 'quiet',
       // The age is what the reader came for once the window has passed, so it
@@ -908,7 +925,9 @@ export function classify(
     // is what the reader came for, and replacing it would hide it.
     return { group: 'working', note: `last commit ${humanAge(ageMinutes)} ago` };
   }
-  if (localDirty || localAhead > 0) return workingLocally(localDirty, localAhead);
+  if (localDirty || localAhead > 0 || localLocked) {
+    return workingLocally(localDirty, localAhead, localLocked);
+  }
   if (ageMinutes === null) return { group: 'quiet', note: 'pushed work, age unknown' };
   return { group: 'quiet', note: `no commit for ${humanAge(ageMinutes)}` };
 }
@@ -944,8 +963,24 @@ export function classify(
  * The DIRTY-ONLY note is unchanged from the day it shipped. Rewording it to
  * match the pair would have been tidier and would have changed what every
  * existing dirty row says, for a branch whose subject is the OTHER case.
+ *
+ * A LOCK OUTRANKS BOTH AND SAYS SO ALONE. `dirty` and `ahead` describe a state
+ * the worktree is IN; a lock describes something happening AS THE ROW IS READ,
+ * and it is the only one of the three that can go stale between the scan and the
+ * next poll four seconds later. So it leads, and it does not append the other
+ * two: under a lock `git status` never ran, so `dirty` was not observed and is
+ * false by default rather than by measurement — printing "no uncommitted
+ * changes" beside it would report an absence of evidence as evidence of absence,
+ * which is the mistake the whole exit-code rule exists to prevent. `ahead` is a
+ * ref fact and remains true, but it answers *what to do next* for a branch
+ * nobody is touching, and the reader of a locked row is being told to wait.
  */
-function workingLocally(dirty: boolean, ahead: number): { group: WaitingGroup; note: string } {
+function workingLocally(
+  dirty: boolean,
+  ahead: number,
+  locked = false,
+): { group: WaitingGroup; note: string } {
+  if (locked) return { group: 'working', note: 'a write is in progress in a local worktree' };
   if (ahead <= 0) return { group: 'working', note: 'uncommitted work in a local worktree' };
   const unpushed = `${ahead} commit${ahead === 1 ? '' : 's'} not pushed locally`;
   return {
@@ -1148,7 +1183,11 @@ export function rowsFromPulse(
           // exit code travel as the SCAN read them — the pid-of-0 trap was
           // sprung once already by re-deriving liveness, and this layer only
           // renders what it is handed.
-          b.worker, b.worker_exit, b.worker_pid);
+          b.worker, b.worker_exit, b.worker_pid,
+          // A write in progress at this instant — the third local signal, and
+          // the only one that can go stale before the next poll. Like its two
+          // neighbours it may only lift a row out of quiet.
+          b.local_locked);
         rows.push({
           repo,
           branch: b.branch,

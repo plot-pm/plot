@@ -492,6 +492,36 @@ export const FleetBranchSchema = z.object({
    */
   local_dirty: z.boolean().default(false),
   /**
+   * A local worktree for this branch is holding `.git/index.lock` — a write is
+   * in progress THIS INSTANT.
+   *
+   * A THIRD signal beside `local_dirty` and `local_ahead`, answering a third
+   * question. The three are neighbours and none of them is a flavour of another:
+   * *someone is editing*, *finished work nobody else can see*, *a write is
+   * happening right now*. Collapsing any pair would be the one-label-two-states
+   * defect this story keeps finding.
+   *
+   * It is the most informative state a worktree can be in, and until #167 it was
+   * the one the board could not see. `git status` fails under a lock, the scan
+   * skipped the worktree in silence, and the branch answered from refs as if this
+   * machine had none — so the row read *claimed, no commits yet* while an agent
+   * was committing to it. The branch that looked least active was the busiest.
+   *
+   * LOCKED IS NOT MISSING. Both fail `git status` with identical empty output;
+   * the scan interrogates the failure rather than assuming it, and a worktree
+   * that has genuinely vanished still reports nothing at all.
+   *
+   * STRICTLY ONE-DIRECTIONAL, like its two neighbours: `classify` may only use it
+   * to LIFT a branch out of quiet, never to downgrade an answer. False on every
+   * machine that holds no worktree for the branch, which is exactly the answer
+   * that changes nothing.
+   *
+   * Defaults to false so a pulse from an older scan still validates: absent and
+   * "nothing is being written here" are the same statement, and both mean
+   * "answer from refs".
+   */
+  local_locked: z.boolean().default(false),
+  /**
    * Where this branch is checked out on THIS machine, or "".
    *
    * Kept although `local_dirty` is what moves the group, because it answers a
