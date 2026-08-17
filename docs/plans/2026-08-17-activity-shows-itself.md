@@ -102,8 +102,76 @@ written and not committed.
 
 `local_ahead` is deliberately **not** activity: unpushed commits are
 finished work sitting still, which is a different problem with a
-different remedy (push it) and no motion behind it. It stays available
-for the note, which already carries facts a marker cannot.
+different remedy (push it) and no motion behind it. It earns its own
+static mark rather than exclusion — see *Unpushed work gets a mark of its
+own* below.
+
+### The marker means "here, on this machine", and must say so
+
+**Measured, and it narrows the whole feature** — `fleet.ts:702`, on
+`local_dirty`, with the same note on `local_ahead`:
+
+> *"it is true only on the machine doing the looking, and false is what
+> every branch elsewhere reports."*
+
+So an agent running on another machine — or in the cloud — produces **no
+dirty signal here, ever**. Its branch is not quiet; it is unobservable
+from this checkout. `local_locked` shares the limit: it reads
+`.git/index.lock` in a local worktree.
+
+The marker therefore claims exactly what it can support: **activity in
+this checkout**. A branch worked on elsewhere stays unmarked, and that
+absence means *not visible from here* — never *not happening*.
+
+**This must reach the reader, not just this plan.** The marker carries it
+in its `title`/accessible description (*"a write is in progress in this
+checkout"*), because a reader who takes an unmarked row for an idle one
+has been misled by a marker that was technically correct. This is the
+same rule the scan applies to itself — `ABSENT IS NOT FALSE`, and its
+strongest licensed statement is **unknown, never nobody**.
+
+A remote-visible signal — deriving activity from ref movement between
+pulses — was considered and rejected for this plan. It answers a
+different question (*the remote moved*) with a different meaning (someone
+pushed, possibly hours ago, possibly a bot), and folding it into the same
+marker would give one mark two meanings across two trust levels. If
+cross-machine visibility is wanted, it deserves its own signal and its
+own argument.
+
+### A lock outlives its instant, by a few seconds
+
+**Measured tension:** `.git/index.lock` exists for a fraction of a second
+to a few seconds — a commit, a rebase step — and the fleet pulse arrives
+every **4 s**. So most locks are born and gone *between* two pulses and
+are never seen. The sharpest activity signal the board has is also the
+one it most often misses.
+
+So a lock, once seen, **holds the marker for a few seconds** past the
+pulse that reported it, the way the change-mark in
+`status-column-earns-its-width` holds for ~3 s.
+
+**This is a deliberate exception to a rule this board otherwise keeps,
+and it must be bounded.** For those seconds the marker outlives the fact:
+the lock may already be gone. Three constraints keep that honest:
+
+- **It never contradicts a later observation.** A pulse showing
+  `local_dirty` keeps the marker for its own reason; a pulse showing
+  neither ends the echo when the echo expires, and does not extend it.
+- **A lock never resurrects.** The echo starts when a lock is *seen*, not
+  when one is inferred; two pulses without a lock produce nothing to
+  echo.
+- **It is a marker, not a state.** The row's note — which the marker
+  never replaces — continues to report what the last pulse actually
+  found. The echo makes a real event visible; it does not make a claim
+  the note would contradict.
+
+Not echoing was the alternative and would have been simpler: let
+`local_dirty` carry the load, since it holds for minutes. Rejected
+because it discards precisely the *"a write is happening this instant"*
+signal that `scan-reports-a-locked-worktree` was built to produce — the
+plan whose entire argument was that a locked worktree must become its own
+signal rather than silence. Producing it and then never rendering it is a
+quieter version of the same defect.
 
 **Absent is not false.** All three are `.default(false)` in the contract,
 and a scan that could not observe a worktree reports absence rather than
@@ -184,6 +252,32 @@ disappears when you look closer is worse than one that repeats itself.
 read. No new field, no new state, and it cannot disagree with the rows
 beneath it — the way a separately-maintained count could.
 
+### Unpushed work gets a mark of its own — static, not breathing
+
+`local_ahead` is not activity, and it is not nothing. It means **finished
+work nobody else can see**, and this session measured what that costs:
+PR #177 sat `CONFLICTING` with no CI running for half an hour because a
+rebase stayed local. From the outside that is indistinguishable from an
+agent that stopped — and the fleet view exists precisely to tell those
+apart.
+
+So it gets a **static** mark: same left-edge position, a different
+colour, and **no animation at all**. The absence of motion is the
+message — nothing is moving, that is the problem. A reader learns two
+marks in one place:
+
+| Mark | Means | Motion |
+|---|---|---|
+| Activity bar | someone is writing here | breathing |
+| Unpushed mark | finished work nobody else can see | **still** |
+
+**They can hold at once**, and must remain distinguishable then: a
+worktree that is dirty *and* ahead is being edited *and* hiding commits.
+Collapsing them into one mark would lose whichever the implementation
+happened to check second.
+
+This shares the local-only limit above and says so the same way.
+
 ### What this does not do
 
 **No travelling motion.** Explicitly considered and rejected above.
@@ -199,8 +293,9 @@ where it belongs, and this is about what it is doing there.
 ### Truth
 
 - `feature/rows-mark-real-activity` — the row's marker reads
-  `local_locked || local_dirty` instead of `group === 'working'`, absent
-  stays unmarked, `local_ahead` deliberately excluded
+  `local_locked || local_dirty` instead of `group === 'working'`; a seen
+  lock echoes for a few seconds; absent stays unmarked; the marker names
+  its own limit (*in this checkout*)
 
 ### Prominence
 
@@ -214,32 +309,66 @@ where it belongs, and this is about what it is doing there.
   same bar when any of its rows is active, derived at render, folded or
   open
 
-Three waves, sequential, and the order is the one this session has now
+### Stillness
+
+- `feature/unpushed-work-shows-still` — `local_ahead` gets its own
+  static, unanimated mark at the same left edge; distinguishable when it
+  and the activity bar hold at once
+
+Four waves, sequential, and the order is the one this session has now
 paid for twice. **Truth first**: a glowing marker over
 `group === 'working'` would be, in the words the spinner plan used for
 the same mistake, *a livelier lie* — which is exactly why #174 (watch the
 right count) had to land before #176 (the spinner). **Prominence second**,
-once there is something true to make loud. **Fold last**, because a group
-cannot say *activity in here* until a row can say *activity*.
+once there is something true to make loud. **Fold third**, because a
+group cannot say *activity in here* until a row can say *activity*.
+**Stillness last**, because its whole meaning is *not moving*, which only
+reads once moving has a settled appearance to contrast with.
 
-All three touch `AgentList.tsx`, and every board branch rebuilds the
-artifact. This session paid four manual conflict resolutions in one hour
-for branches meeting in the same objects, and both #176 and #177 needed a
-further rebase on the artifact alone.
+**Nothing starts until `status-column-earns-its-width` (#178) has
+merged.** All four waves touch `AgentList.tsx`, which that branch is
+rewriting right now — it owns the full-row amber wash
+(`data-change-mark`, `absolute inset-0 animate-pulse bg-amber-300/25`)
+and has already changed `ROW_TRACKS`.
 
-**`status-column-earns-its-width` is in flight in this same file** and
-owns the full-row amber wash. Wave 1 here can start alongside it — it
-changes a predicate, not a rendering — but waves 2 and 3 must rebase onto
-it, and must not touch `data-change-mark`.
+Starting wave 1 alongside it was the tempting call, on the grounds that
+it changes a predicate rather than a rendering. Rejected on the
+measurement: this session paid **four** manual conflict resolutions in
+one hour for branches meeting in the same objects — every one a union
+with no genuine disagreement — and #176 and #177 each needed a further
+rebase on the artifact alone. Two branches in one file buy a head start
+and pay for it twice.
+
+Later waves must not touch `data-change-mark`: the change-mark owns area,
+amber and pulse; this plan's marks own the left edge.
 
 ## Done when
 
 - **The row marker reads `local_locked || local_dirty`**, not
   `group === 'working'`. Assert a WORKING row with neither signal is
   **not** marked, and a marked row outside WORKING is.
-- **`local_ahead` alone does not mark a row active.** The pairing: an
+- **`local_ahead` alone does not mark a row ACTIVE.** The pairing: an
   implementation OR-ing all three passes every positive assertion above
   and marks finished-but-unpushed work as motion.
+- **`local_ahead` alone DOES produce the still mark**, and it carries no
+  animation. Assert both halves — a mark that breathes says the opposite
+  of what this one means.
+- **Active and unpushed together produce two distinguishable marks.**
+  Assert a row that is dirty *and* ahead: an implementation checking them
+  in sequence loses whichever it tests second.
+- **A seen lock keeps the marker for a few seconds.** Assert the marker
+  survives a pulse in which the lock is already gone — a lock's whole
+  life is often shorter than the 4 s pulse, which is why the signal
+  `scan-reports-a-locked-worktree` produced would otherwise never render.
+- **The echo is bounded and never resurrects.** Assert it expires without
+  a further lock, and that two lockless pulses produce no marker at all.
+- **A later observation is never contradicted.** Assert the note keeps
+  reporting what the last pulse found while an echo is running — the echo
+  makes an event visible, it does not overwrite a fact.
+- **The marker names its own limit.** Assert its accessible description
+  says the observation is about *this checkout* — a branch worked on
+  elsewhere is unmarked, and a reader taking that for idle has been
+  misled by a technically-correct marker.
 - **Unknown signals leave a row unmarked.** Assert absence reads as *not
   known to be active*, never as active — and never crashes: all three are
   `.default(false)` and a scan that could not observe reports absence.
@@ -280,7 +409,40 @@ recorded above rather than left as a silent omission: it promises a
 destination this board cannot name. The glow is what supplies the
 prominence the movement was asked to supply.
 
-`local_ahead` reaching the screen is worth its own consideration later —
-*finished work nobody else can see* is a real condition with a real
-remedy, and this session watched it cost PR #177 half an hour of dead CI
-when a rebase stayed local. It is not activity, so it is not here.
+The first draft excluded `local_ahead` entirely, on the grounds that it
+is not activity. Interrogation kept the distinction and dropped the
+exclusion: it is not activity, and it is not nothing. It became a fourth
+wave with a **static** mark, because *finished work nobody else can see*
+is a real condition with a real remedy — and this session watched it cost
+PR #177 half an hour of dead CI when a rebase stayed local.
+
+Two limits found by interrogation are worth restating, because both
+narrow what this feature can honestly claim:
+
+- **Every signal here is local.** `fleet.ts:702` is explicit that these
+  are *"true only on the machine doing the looking"*. An agent on another
+  machine produces no mark. The marker says so rather than letting
+  absence read as idleness.
+- **The lock echo is the one place this board lets a marker outlive its
+  fact**, bounded to a few seconds and never contradicting the note.
+  Without it the sharpest signal the board has — a write happening *this
+  instant* — would remain invisible, because it usually lives and dies
+  between two pulses.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "local_dirty/ahead are true only on the observing machine — what follows?", "a": "The marker claims 'in this checkout' and says so; absence means unobservable, not idle", "category": "domain"},
+    {"q": "A lock often lives and dies between two 4s pulses — how to surface it?", "a": "Echo a seen lock for a few seconds, bounded, never contradicting the note", "category": "technical"},
+    {"q": "local_ahead excluded — but it cost #177 half an hour of dead CI?", "a": "Its own static mark, no animation; stillness IS the message", "category": "ux"},
+    {"q": "Can wave 1 run alongside #178 in the same file?", "a": "No — wait for the merge; four conflict resolutions in one hour say otherwise", "category": "tradeOffs"}
+  ],
+  "categoriesCovered": {
+    "technical": {"stack": true, "architecture": true, "implementation": true},
+    "domain": {"rules": true},
+    "ux": {"happyPath": true, "edgeCases": true, "accessibility": true},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
