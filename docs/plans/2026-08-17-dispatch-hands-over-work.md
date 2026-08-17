@@ -13,6 +13,7 @@
 - **Started:** 2026-08-17, Jan Wloka, `feature/dispatch-writes-brief`
 - **Delivered:**
 - **Started:** 2026-08-17, Jan Wloka, `feature/fleet-sees-unstarted-claims`
+- **Started:** 2026-08-17, Jan Wloka, `feature/dispatch-reports-no-worker`
 
 ## Problem
 
