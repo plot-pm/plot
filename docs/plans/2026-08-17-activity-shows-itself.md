@@ -12,6 +12,7 @@
 - **Approved:** 2026-08-17, Jan Wloka, plan-PR #179 merged
 - **Started:** 2026-08-17, Jan Wloka, `feature/rows-mark-real-activity`
 - **Delivered:**
+- **Started:** 2026-08-17, Jan Wloka, `feature/activity-marker-glows`
 
 ## Problem
 
