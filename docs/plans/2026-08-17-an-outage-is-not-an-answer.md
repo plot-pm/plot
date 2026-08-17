@@ -10,7 +10,7 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-17, Jan Wloka, plan-PR #193 merged
-- **Started:**
+- **Started:** 2026-08-17, Jan Wloka, `bug/an-empty-conflict-set-is-not-a-refusal`
 - **Delivered:**
 
 ## Problem
