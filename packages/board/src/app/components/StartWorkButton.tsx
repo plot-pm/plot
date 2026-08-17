@@ -51,6 +51,29 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
   const [state, setState] = useState<State>({ kind: 'idle' });
   const starting = state.kind === 'starting';
 
+  /**
+   * IS ONE OF MINE ALREADY RUNNING? — and nothing else.
+   *
+   * `blocked` below reads `state`, and `setState` does not take effect until
+   * the next render, so two clicks inside one tick both saw `idle` and both
+   * called `fetch`. Measured in test/integration/double-click.browser.test.ts:
+   * two POSTs, on a button whose comment claimed one. A ref changes
+   * SYNCHRONOUSLY, so the second click of that pair sees the flag already set.
+   *
+   * It does not replace `blocked`, which carries the OTHER refusals — no
+   * dispatch binding, a non-localhost host — and those are about whether this
+   * may act at all, a different question with a different answer.
+   */
+  const inFlight = useRef(false);
+
+  // Released where the STATE is, not in a `finally` beside the fetch. The
+  // button stays pending until the pulse confirms or gives up, and a ref
+  // released when the request returned would re-arm it while it still reads
+  // `starting…` — clickable again behind a label saying it is busy.
+  useEffect(() => {
+    if (!starting) inFlight.current = false;
+  }, [starting]);
+
   // Announce the transition, and always announce the way back out — including
   // on unmount, or a card that scrolls out of a lane while starting would leave
   // the board polling fast forever.
@@ -85,9 +108,11 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
   }, [pulse, card.started, state]);
 
   const start = async () => {
-    // Disabled until the next pulse confirms, so a double click or a second tab
-    // does not fire two runs. Local state only — no server-side in-flight
-    // registry: git holds the lock, and the claim race is the real safety net.
+    // Disabled until the next pulse confirms, so a double click does not fire
+    // two runs — see the `inFlight` ref above, which is what makes that true
+    // within a single tick. Local state only — no server-side in-flight
+    // registry: a second TAB is a different question, and git holds the lock
+    // there; the claim race is the real safety net.
     setState({ kind: 'starting', since: pulse, log: '' });
     try {
       const res = await fetch('/api/dispatch', {
@@ -119,7 +144,12 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
           // the refusal has to be stated here as well. Both are needed and
           // neither is redundant: the attribute is what assistive technology
           // reads, this is what makes it true.
-          if (blocked) return;
+          //
+          // The ref comes FIRST and answers a different question: `blocked`
+          // reads state a render behind, so within one tick it is the ref that
+          // knows one of these is already running.
+          if (inFlight.current || blocked) return;
+          inFlight.current = true;
           void start();
         }}
         // `aria-disabled` rather than the native `disabled` attribute.

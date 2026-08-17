@@ -69,6 +69,34 @@ export function ApproveButton({ card, approve, onApproving }: ApproveButtonProps
   const armed = state.kind === 'armed';
   const running = state.kind === 'running';
 
+  /**
+   * IS ONE OF MINE ALREADY RUNNING? — and nothing else.
+   *
+   * `blocked` below reads `state`, and `setState` does not take effect until
+   * the next render, so two clicks on the ARMED button inside one tick both saw
+   * `armed` and both called `run()`. Measured in
+   * test/integration/double-click.browser.test.ts: two POSTs to `/api/approve`,
+   * which is a second merge attempt on the git host. A ref changes
+   * SYNCHRONOUSLY, so the second of that pair sees the flag already set.
+   *
+   * The confirmation is NOT the guard. Arming is a deliberate first click and
+   * the pair that fires two runs is the second and third — the double click
+   * lands on the armed label, not on the idle one. Same defect as
+   * `StartWorkButton`, one click further in.
+   *
+   * It does not replace `blocked`, which carries the OTHER refusals — no
+   * approve binding, a non-localhost host — a different question with a
+   * different answer.
+   */
+  const inFlight = useRef(false);
+
+  // Released where the STATE is, not in a `finally` beside the fetch. The
+  // button stays running until the poll answers or gives up, and a ref released
+  // when the POST returned would re-arm it while it still reads `approving…`.
+  useEffect(() => {
+    if (!running) inFlight.current = false;
+  }, [running]);
+
   // Announce the transition, and always announce the way back out — including
   // on unmount, or a card that scrolls away mid-approval would leave the board
   // polling fast forever. Same rule as StartWorkButton's `onStarting`.
@@ -180,7 +208,14 @@ export function ApproveButton({ card, approve, onApproving }: ApproveButtonProps
       setState({ kind: 'armed' });
       return;
     }
-    if (state.kind === 'armed') void run();
+    // The ref comes first on the acting branch, for the reason it documents:
+    // `blocked` reads state a render behind, so within one tick it is the ref
+    // that knows a run is already outstanding.
+    if (state.kind === 'armed') {
+      if (inFlight.current) return;
+      inFlight.current = true;
+      void run();
+    }
   };
 
   return (
