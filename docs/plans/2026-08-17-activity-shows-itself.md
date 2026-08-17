@@ -362,7 +362,7 @@ where it belongs, and this is about what it is doing there.
 
 - `feature/unpushed-work-shows-still` — `local_ahead` gets its own mark
   at the same left edge, separated from the activity bar by form and the
-  absence of the glow; distinguishable when both hold at once
+  absence of the glow; distinguishable when both hold at once → #201
 
 Four waves, sequential, and the order is the one this session has now
 paid for twice. **Truth first**: a glowing marker over
