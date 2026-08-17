@@ -228,44 +228,50 @@ of the existing structure rather than needing a guard.
 
 ## Branches
 
-### Hand-off
+### Hand-off and Visibility
 
-- `feature/dispatch-writes-brief` — `plot-dispatch` invokes `/plot-implement`
+- `feature/dispatch-writes-brief` — the dispatch skill invokes `/plot-implement`
   for the brief instead of leaving it to the caller; the brief template in
   `plot-implement/SKILL.md` grows to the shape briefs actually take
-
-### Start
-
-- `feature/dispatch-reports-no-worker` — the summary reports prepared-vs-started
-  counts; `/plot-init` offers to configure `Worker command`
-
-### Visibility
-
 - `feature/fleet-sees-unstarted-claims` — the pulse carries `worker_state()`'s
   five outcomes plus the no-worktree case; a claimed branch with no known worker
   says so, and a failed one lands in `waiting-on-you`
 
-**Hand-off and Visibility run in parallel; Start goes last.** The waves are
-independent by *file*, and this session paid three times for assuming two agents
-in one file would be fine, so the split was measured rather than guessed:
+### Start
 
-| Wave | Touches |
+- `feature/dispatch-reports-no-worker` — the summary reports prepared-vs-started
+  counts; the first dispatch asks how this project runs an agent headless
+
+**Two waves, and the first holds two branches deliberately.** An earlier draft
+had three waves — one branch each — with prose explaining that the first and
+third could run in parallel. That prose was unenforceable: `plot-fleet-scan.sh`
+reads waves as strictly sequential and reported `Visibility — blocked` while
+Hand-off was open, and `plot-dispatch.sh` refuses a blocked branch for the same
+reason. A plan whose ordering lives in a paragraph the tooling cannot read has
+recorded an intention, not a decision. **Branches that may run together belong
+in one wave**; the wave boundary is the only ordering the fleet enforces.
+
+They share a wave because they are independent by *file*, and this session paid
+three times for assuming two agents in one file would be fine, so the split was
+measured rather than guessed:
+
+| Branch | Touches |
 |---|---|
-| Hand-off | `skills/plot-dispatch/SKILL.md`, `skills/plot-implement/SKILL.md` |
-| Visibility | `plot-fleet-scan.sh`, `packages/board/src/server/fleet.ts` |
-| Start | `plot-dispatch.sh`, the first-dispatch prompt |
+| `dispatch-writes-brief` | `skills/plot-dispatch/SKILL.md`, `skills/plot-implement/SKILL.md` |
+| `fleet-sees-unstarted-claims` | `plot-fleet-scan.sh`, `packages/board/src/server/fleet.ts` |
+| `dispatch-reports-no-worker` | `plot-dispatch.sh`, the first-dispatch prompt |
 
-Hand-off is skill prose, Visibility is the scan and the classifier — disjoint,
-so they fan out together. Start touches `plot-dispatch.sh`, which Visibility
-reads (for `worker_state()`'s output shape) and Hand-off drives, so it goes
-last and rebases onto both.
+The brief branch is skill prose; the visibility branch is the scan and the
+classifier — disjoint, so they fan out together. Start touches
+`plot-dispatch.sh`, which the visibility branch reads (for `worker_state()`'s
+output shape) and the brief branch drives, so it goes last and rebases onto
+both. That is a real dependency, and a wave boundary is the right way to say so.
 
-The ordering that matters is not the dependency but the proof: Visibility is
-what makes Hand-off and Start *visible*, so running it early means the next
-dispatch shows its own state while the remaining wave is still being built.
-`board-server.mjs` will conflict between the two parallel branches as it does
-for every board pair — that is what `.gitattributes` is for, and it has been
-exercised twice today.
+Visibility is what makes the other two *visible*, so running it in the first
+wave means the next dispatch shows its own state while Start is still being
+built. `board-server.mjs` will conflict between the two first-wave branches as
+it does for every board pair — that is what `.gitattributes` is for, and it has
+been exercised twice today.
 
 ## Done when
 
