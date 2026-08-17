@@ -315,7 +315,7 @@ existing scan, CI from the PR state the contract already carries.
 - `feature/board-shows-stuck-branches` — a stuck branch says so in its
   row, naming which of the four and why; anything the pulse cannot fix
   offers its action **on the row with an animated cue**, not inside the
-  three-dot menu, through the existing guarded route
+  three-dot menu, through the existing guarded route → #185
 
 ### Repair
 
