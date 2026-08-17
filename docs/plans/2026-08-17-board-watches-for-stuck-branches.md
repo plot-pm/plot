@@ -12,6 +12,7 @@
 - **Approved:** 2026-08-17, Jan Wloka, plan-PR #181 merged
 - **Started:** 2026-08-17, Jan Wloka, `feature/scan-reports-stuck-branches`
 - **Delivered:**
+- **Started:** 2026-08-17, Jan Wloka, `feature/board-shows-stuck-branches`
 
 ## Problem
 
