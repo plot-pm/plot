@@ -12,6 +12,7 @@
 - **Approved:** 2026-08-17, jwloka, plan-PR #171 merged (two interrogation rounds)
 - **Started:** 2026-08-17, Jan Wloka, `bug/acting-buttons-pin-the-double-click`
 - **Delivered:**
+- **Started:** 2026-08-17, Jan Wloka, `bug/start-work-watches-the-right-count`
 
 ## Problem
 
