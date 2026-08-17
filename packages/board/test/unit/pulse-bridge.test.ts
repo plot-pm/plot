@@ -24,7 +24,7 @@ const PULSE: FleetPulse = {
       verdict: 'eligible',
       branches: [{
         branch: 'feature/a', state: 'claimed', deferred: false, claimed: 'claimed: someone',
-        local_dirty: false, local_worktree: '', local_ahead: 0,
+        local_dirty: false, local_worktree: '', local_ahead: 0, local_locked: false,
         worker: 'elsewhere', worker_pid: '', worker_exit: '',
       }],
     }],
