@@ -21,6 +21,53 @@ Everything it writes is therefore either **idempotent or refused**:
 A dispatcher that dies halfway through a fan-out is safe to re-run. The
 idempotence test holds that line.
 
+## The brief is written by the SKILL, never by the script
+
+A prepared worktree is not work handed over. The hand-off brief — which
+alternatives the plan already rejected, and what killed them — is produced by
+`/plot-implement`, and dispatch skipped that step entirely: `plot-dispatch.sh`
+contained zero occurrences of "brief". Every fan-out was completed by a human
+writing one afterwards, and on 2026-08-17 three rows sat in WORKING with a
+pulsing dot while nobody worked on any of them.
+
+**The caller is `SKILL.md`, one layer up from the script**, and the plan's own
+first draft got this backwards. Two independent reasons:
+
+- **No script in this repo invokes a skill**, and that is the Manifesto's
+  direction rather than an omission — *skills interpret and adapt; scripts
+  collect and report*. A brief is interpretation.
+- **Bash cannot reach a skill at all.** Skills exist inside an agent session;
+  there is no command to call. The idea is not merely wrong-layered but
+  impossible.
+
+So the skill invokes `/plot-implement` per dispatched branch, and there is
+exactly **one** definition of what an implementer needs to know. A template
+string in the dispatcher would be a second one, drifting from the first the way
+every duplicated rule here has — the eligible-note string became a shared
+constant for exactly this reason.
+
+`test/reconcile/dispatch.test.mjs` pins it: the script must contain no skill
+invocation. The assertion looks for a skill name in **command position** rather
+than anywhere in the file, because the script legitimately *tells a human* to
+run one (`"Review it, then: /plot-approve <slug>"`) — a mention is not a call,
+and a naive grep would flag the advice as the violation.
+
+### `brief=missing` in the summary is a constant
+
+A direct script call cannot write a brief, so the summary says so rather than
+refusing:
+
+```
+summary: dispatched=3 reused=0 skipped=1 started=3 brief=missing
+```
+
+It reports the script's own reach, not the outcome of the dispatch — if the
+skill's step ran, a brief exists despite this field. **Refusing would be a gate
+in the wrong place:** `--dry-run` and `--status` are the normal way to look
+before leaping (this repo used the bare script five times in one evening), and a
+gate that blocks looking-before-leaping blocks the wrong thing. `--no-start`
+suppresses workers, not briefs.
+
 ## Eligibility is not decided here
 
 The wave arithmetic lives in `plot-fleet-scan.sh`. Dispatch asks and acts on the

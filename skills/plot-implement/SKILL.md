@@ -37,7 +37,7 @@ ready — propose it per smart defaults).
 | 1. Locate Plan | Small | plot-plan-meta.sh lookup |
 | 2. Staleness Preflight | Mid–Frontier | Comparing plan assumptions against repo drift is judgment |
 | 3. Branch Setup | Small | Git commands per recorded answers; `plot-fleet-scan.sh --next` picks the branch and the ref push claims it — no judgment needed |
-| 4. Hand-off Brief | Small | Template from parsed fields |
+| 4. Hand-off Brief | Frontier | Interpretation, not extraction: naming which alternatives a plan rejected and which assertions a naive implementation would pass without is judgment. Smaller tiers fill the header fields and the plan's own `Done when`, then say which sections they could not write |
 | 5. Record Started | Small | One Status line + commit; optional board status is a single shell command |
 | 6. Summary | Small | Orientation template |
 
@@ -162,19 +162,86 @@ ceremony questions now and record the answers first.
 ### 4. Hand-off Brief
 
 Produce the brief that lets the implementing session start without
-re-asking mechanics the plan already answers — and without plot:
+re-asking mechanics the plan already answers — and without plot.
+
+**Write it to `.plot/briefs/<branch-suffix>.md`** (the branch name with
+`/` flattened to `-`, or the plan slug for a `same-branch` plan) and commit
+it where the plan lives. A brief that exists only in the dispatching
+session's scrollback dies with that session; an agent that is resumed,
+replaced or restarted reads the file instead of asking a human to
+reconstruct it.
+
+**The brief is interpretation, not extraction.** A summary of the plan is
+worth nothing to a reader who can open the plan. What the brief adds is
+the decisions that are *settled* — each with the alternative it rejected
+and the measurement that killed it — so an implementer does not spend the
+first hour re-deriving a mechanism the plan already disproved. A plan
+records what will be built; the brief records what must not be rebuilt.
+
+Write these sections. They are what a brief is incomplete without, not a
+form to fill:
 
 ```markdown
-## Implementation brief — <slug>
+## Implementation brief — <slug>[ (wave N: <wave name>)]
 
-- **Plan (canonical):** <URL or path to the plan file>
+- **Plan (canonical):** <path or URL to the plan file> on <default branch>
 - **Approved:** <approved_raw>
-- **Branch:** <branch> (base: <default branch>)
+- **Branch:** `<branch>` (base: `<default branch>`)
 - **Ends as:** <one PR to <base> | merge to <base> | PR in <other repo>>
 - **Review of the code:** <per repo convention / plan Notes>
-- **Done when:** <the plan's deliverables/DoD section, distilled>
-- **Scope guard:** implement what the plan says; drift → back to the plan.
+
+<If this branch belongs to a wave, one line on what waits on it or what it
+waits on — the ordering the implementer would otherwise have to infer.>
+
+### What to build
+
+<The change in the implementer's terms, not the plan's: which mechanism,
+on top of what that already exists. Lead with the concrete failure it
+fixes — the observed one, with its numbers — because that is what tells a
+reader whether their fix is the fix. Close by pointing at the plan: it is
+canonical, this is orientation.>
+
+### <The decisions the plan settles — do not re-derive them>
+
+<One subsection or bolded paragraph per settled decision. Each names the
+obvious alternative and the measurement that killed it: "X cannot answer
+this, because …", "measured at N ms", "grep returns nothing". Without the
+measurement it reads as preference and gets re-litigated; with it, it
+ends the question. This is the section that makes the brief longer than
+the plan's summary, and it is the reason the brief exists.>
+
+<Also record the rules carried over unchanged from related work — the
+invariants this repo keeps re-learning (absent is not false; read the exit
+code, not the emptiness) — so they are not re-discovered by breaking them.>
+
+### Done when
+
+The plan's `## Done when` list is the specification. <Then lift the
+assertions that exist *because a naive implementation would pass without
+them*, and say for each what it catches.>
+
+Plus: <the repo's gates — test commands, build artifacts, changeset,
+platform constraints>.
+
+### Bookkeeping
+
+<The `→ #<number>` duty below, plus: push the first real commit as soon as
+it exists.>
+
+### Scope guard
+
+<The files and directories this branch owns. Then the other branches in
+flight and what they hold — verified at dispatch, not guessed — so a
+collision is a known fact rather than a surprise at merge time.>
+
+If you find something the plan did not anticipate, report it rather than
+improvising outside scope.
 ```
+
+Length follows the work: a one-file change needs no rejected alternatives
+because none were rejected. What must never happen is a brief that only
+restates the plan's headings — that is the shape that gets skipped, and a
+skipped brief is why the mechanics get re-asked.
 
 The brief also carries the bookkeeping duties for the implementing session:
 **when the PR is created, append `→ #<number>`** (from another repo:

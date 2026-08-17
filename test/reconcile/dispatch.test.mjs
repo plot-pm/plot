@@ -73,6 +73,42 @@ test('dispatch: --dry-run lists eligible branches and creates nothing', () => {
   assert.equal(git(repo, 'status', '--porcelain').trim(), '');
 });
 
+test('dispatch: --dry-run reports the missing brief rather than refusing', () => {
+  // A DIRECT script call cannot write a hand-off brief — a brief is
+  // interpretation, and no script here invokes a skill. So it says so, in the
+  // summary, and RUNS ANYWAY. --dry-run and --status are the normal way to look
+  // before leaping (this repo used the bare script five times in one evening),
+  // and a gate that blocks looking-before-leaping is a gate in the wrong place.
+  const out = run(['--dry-run', '--offline', 'fan']);
+  assert.match(out, /summary: .*brief=missing/,
+    `the summary must report the gap:\n${out}`);
+  // Still a working dry run — the report must not have cost it its job.
+  assert.match(out, /feature\/one/);
+  assert.equal(git(repo, 'ls-remote', '--heads', 'origin', 'feature/one').trim(), '');
+});
+
+test('dispatch: the script never invokes a skill', () => {
+  // The plan's own first draft proposed `plot-dispatch.sh` calling
+  // /plot-implement. That inverts the Manifesto's direction — scripts collect
+  // and report, skills interpret — and it is not merely wrong but impossible:
+  // bash has no way to reach a skill, which lives inside an agent session.
+  // The brief is written by the plot-dispatch SKILL, one layer up.
+  const src = fs.readFileSync(path.join(here, '..', '..', 'skills', 'plot',
+    'scripts', 'plot-dispatch.sh'), 'utf8');
+  // What counts as an invocation is a COMMAND POSITION, not a mention. The
+  // script may name a skill in a comment (the reasoning above does) and may
+  // TELL A HUMAN to run one — line 216 already prints "Review it, then:
+  // /plot-approve <slug>", and that advice is the script doing its job. So the
+  // assertion looks for a skill name where a command would go: at the start of
+  // a statement, after a pipe, or inside a substitution.
+  const code = src.split('\n')
+    .filter((l) => !/^\s*#/.test(l))
+    .filter((l) => !/^\s*echo\s/.test(l))
+    .join('\n');
+  assert.doesNotMatch(code, /(^|[;&|(`]|\$\()\s*\/?plot-(implement|idea|approve|deliver|release)\b/m,
+    'plot-dispatch.sh must not invoke a skill');
+});
+
 test('dispatch: creates one worktree per eligible branch and claims each ref', () => {
   run(['--offline', '--no-start', 'fan']);
 
@@ -535,6 +571,11 @@ test('dispatch: a failed booking leaves the fan-out standing', () => {
 
   assert.match(out, /dispatched feature\/s/, 'the fan-out must still be reported');
   assert.match(out, /summary: dispatched=1/, 'the summary must still report what it dispatched');
+  // --no-start suppresses WORKERS, not briefs. The brief is still owed either
+  // way, so the gap is reported on a --no-start run exactly as on a full one.
+  assert.match(out, /summary: .*brief=missing/,
+    `a real run must report the missing brief in the SUMMARY, not per branch — a
+caller reading only the last line is the case this exists for:\n${out}`);
 
   // The claim is on the remote and the worktree is on disk — the real state.
   assert.match(git(r, 'ls-remote', '--heads', 'origin', 'feature/s'), /feature\/s/,
