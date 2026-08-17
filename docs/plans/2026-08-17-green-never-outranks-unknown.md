@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:**
 - **Story:** plot-board
@@ -11,7 +11,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-17, Jan Wloka, plan-PR #187 merged
 - **Started:** 2026-08-17, Jan Wloka, `bug/green-never-outranks-unknown`
-- **Delivered:**
+- **Delivered:** 2026-08-17
 
 ## Problem
 
@@ -221,7 +221,7 @@ minute of honesty.
 
 - `bug/green-never-outranks-unknown` — `prState` returns `unknown` when
   `mergeable` is `unknown`, before consulting `checks`; the note says
-  which fact is missing
+  which fact is missing → #192
 
 ## Done when
 

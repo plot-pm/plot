@@ -53,6 +53,48 @@ export const GROUPS: { key: WaitingGroup; icon: string; label: string; hint: str
 export const COLLAPSED_BY_DEFAULT: WaitingGroup[] = ['quiet', 'done'];
 
 /**
+ * What the empty WAITING ON A MACHINE section says where the host cannot answer.
+ *
+ * The default hint — *nothing — CI will finish* — is a claim: it says there is
+ * nothing on CI right now. On a host that cannot report checks or mergeability
+ * that claim is unfounded, and the section is empty for a completely different
+ * reason: nobody looked, because nobody could.
+ *
+ * Measured: the Bitbucket adapter emits a literal `checks:"unknown",
+ * mergeable:"unknown"` on every row, because `bb` has no run listing. That is
+ * not deferred work — it is the CLI's limit — so this section is permanently
+ * empty there, and an unexplained empty section reads as *nothing is running*
+ * for as long as the board is open.
+ *
+ * **Absent is not a clearance**, applied to a section instead of a field. The
+ * hint names the host's limit so the emptiness reads as *I cannot tell you*
+ * rather than as *all quiet*.
+ */
+export const HOST_CANNOT_REPORT_HINT = 'this host cannot report CI';
+
+/**
+ * Whether every PR on the board came back unreadable.
+ *
+ * The condition for `HOST_CANNOT_REPORT_HINT`, and it is deliberately ALL and
+ * not ANY: one `unknown` row among readable ones is a single PR mid-outage or a
+ * single cross-host repo, and the section is then empty for the ordinary reason.
+ * Only when no PR anywhere answered is the section's emptiness attributable to
+ * the host rather than to the fleet.
+ *
+ * Rows WITHOUT a PR are not counted either way — they have nothing to report and
+ * are not evidence about the host. A board with no PRs at all therefore answers
+ * `false`: nothing has been observed, so nothing can be concluded, and claiming
+ * a host limit from an absence of evidence would be the very mistake this hint
+ * exists to correct.
+ *
+ * Exported for test.
+ */
+export function hostCannotReportCi(rows: readonly AgentRow[]): boolean {
+  const withPr = rows.filter((r) => r.pr);
+  return withPr.length > 0 && withPr.every((r) => r.pr!.state === 'unknown');
+}
+
+/**
  * Where the collapse state lives.
  *
  * `localStorage`, and that is a deliberate departure. The board's convention for
@@ -1131,6 +1173,10 @@ export function watchedState(row: AgentRow): WatchedState {
  *
  * Rows ABSENT from this pulse are dropped from the returned memory rather than
  * carried: the map is one value deep per visible row, not a log.
+ *
+ * **`unknown` is not a transition, in either direction, and it is not
+ * remembered.** See `isObservation`: it is a fact about the OBSERVATION, and
+ * this function reports changes in the WORLD.
  */
 export function changedRows(
   prior: ReadonlyMap<string, WatchedState>,
@@ -1141,6 +1187,17 @@ export function changedRows(
   for (const row of rows) {
     const key = rowKey(row);
     const now = watchedState(row);
+    // An unreadable pulse carries the LAST KNOWN value forward rather than
+    // storing `unknown`, and that is what makes the suppression symmetric with
+    // a single rule instead of two. Storing `unknown` would silence the
+    // outage's first pulse and then flash on the recovery — or, worse, lose a
+    // real change that happened during the outage: `green → unknown → failing`
+    // must still flash, and it only can if the memory still holds `green` when
+    // `failing` arrives. What is skipped is the moment, never the fact.
+    if (isObservation(now)) {
+      if (prior.has(key)) next.set(key, prior.get(key)!);
+      continue;
+    }
     // `.has()`, never `prior.get(key) != null` — a stored `null` is a KNOWN
     // value and an absent key is not, and the two are indistinguishable to a
     // truthiness test.
@@ -1148,6 +1205,44 @@ export function changedRows(
     next.set(key, now);
   }
   return { changed, next };
+}
+
+/**
+ * Whether a watched value describes the OBSERVATION rather than the world.
+ *
+ * `unknown` is the board saying *I cannot tell you right now*, and the marker
+ * reports what CHANGED — so a move into or out of it is not a change and must
+ * not flash.
+ *
+ * The cost of getting this wrong is measured, not hypothetical. GitHub's API
+ * returned `503` at least four times in one afternoon on 2026-08-17, and once
+ * `prState` reports unreadable mergeability honestly, each outage turns every
+ * row `green → unknown` and the next pulse turns it back — **two flashes per
+ * row per outage, for nothing that happened.** A marker that treats every
+ * visible difference as a change turns each outage into a light show, and a
+ * marker that cries wolf is worse than none: it is read once and then ignored,
+ * including on the pulse where something real happened.
+ *
+ * This is the marker's OWN rule applied one level up. It already refuses to
+ * flash on a first sighting — *unknown → conflicts* on a fresh mount is the
+ * observation starting, not the branch changing — and this is the same
+ * distinction arriving mid-session instead of at the beginning.
+ *
+ * What it costs: a real transition hidden behind an outage is not marked. Small,
+ * and bounded — the state is re-read every 60 s, so the next readable pulse
+ * shows the new value, and `changedRows` carries the last known value across the
+ * gap so the change still flashes when it becomes visible. The marker misses the
+ * moment, not the fact.
+ *
+ * Not folded into `watchedState`: that function answers *what is this row's
+ * value*, and mapping `unknown` to `null` there would make it indistinguishable
+ * from *no PR* — a row whose PR merged during an outage would then be
+ * permanently confused with one whose mergeability could not be read.
+ *
+ * Exported for test.
+ */
+export function isObservation(state: WatchedState): boolean {
+  return state === 'unknown';
 }
 
 /**
@@ -2978,9 +3073,16 @@ export function AgentList({
         // folding: `QUIET (7)` states plainly that seven rows are hidden, while
         // a folded header with no number reads as *nothing here* — worse than
         // the crowding this fixes.
+        // WAITING ON A MACHINE is the one group whose default hint makes a
+        // CLAIM (*CI will finish*), so it is the one that must withdraw the
+        // claim where the host cannot support it — see `hostCannotReportCi`.
+        const emptyHint =
+          key === 'waiting-on-machine' && hostCannotReportCi(fleet.rows)
+            ? HOST_CANNOT_REPORT_HINT
+            : hint;
         const tally = (
           <span className="font-normal normal-case tracking-normal text-slate-400 dark:text-slate-600">
-            {rows.length > 0 ? `(${rows.length})` : hint}
+            {rows.length > 0 ? `(${rows.length})` : emptyHint}
           </span>
         );
         return (
