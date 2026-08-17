@@ -275,10 +275,20 @@ export async function handleApprove(
       /* nothing further to do */
     }
   });
-  // NOT unref'd, unlike the dispatcher's worker. That one must outlive the
-  // board — a fleet keeps running when the board is closed. This one is short,
-  // and its exit code is what the card is waiting for, so the listener above
-  // must still be here to see it.
+  // `detached` WITHOUT `unref`, which is deliberate and not the contradiction
+  // it looks like — the two flags answer different questions.
+  //
+  // `detached` puts the command in its own process group, so a Ctrl-C in the
+  // board's terminal does not land on it. An approval interrupted midway is the
+  // worst outcome available here: it can have merged the PR and not yet written
+  // the `Approved:` record, which is a plan whose file disagrees with its host.
+  // Finishing is strictly better than stopping.
+  //
+  // No `unref`, unlike the dispatcher's worker: that one must outlive the board
+  // by design (a fleet keeps running when the board is closed), while this one
+  // is short and its EXIT CODE is what the card is waiting for. Dropping the
+  // handle would drop the listener above with it, and every approval would read
+  // as `running` forever.
   fs.closeSync(out);
 
   json(202, { slug, log });
