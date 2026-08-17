@@ -6,6 +6,43 @@
 - **Ends as:** one PR to `main`
 - **Review of the code:** PR review per repo convention; CI `validate` must pass
 
+### Read this first: the work is already written, and unverified
+
+A previous run of this branch wrote the change and **could not run a
+single command** — the session's permission mode blocked `pnpm`, `git
+add`, even `bash -n`. It reported that honestly rather than claiming
+success, and left everything uncommitted in this worktree:
+
+```
+ M packages/board/src/server/resolver.ts
+ M packages/board/test/unit/resolver.test.ts
+ M skills/plot/scripts/plot-resolve-artifact.sh
+ M test/reconcile/resolveartifact.test.mjs
+?? .changeset/20260817-an-empty-conflict-set-is-not-a-refusal.md
+```
+
+**Nothing about it has been verified.** No test ran, the board artifact
+was not rebuilt, nothing was committed.
+
+So: **read the existing changes against the specification below** before
+adding anything. Where they satisfy it, keep them and say so. Where they
+do not, change them. Then run the gates, rebuild the artifact, commit and
+open the PR — the part the previous run could not reach.
+
+Its own reported judgement calls, for you to check rather than trust:
+
+- It fingerprinted `(state, conflicts)` rather than a commit SHA, because
+  `startRepair` never receives one — under-detecting change is the safe
+  direction.
+- Suppression is scoped to `not-observed` alone; every other outcome can
+  legitimately differ on a second run.
+- It made `mayResolve` a type predicate, removing a cast.
+- It refuses `worktree-busy` rather than creating a scratch worktree —
+  git refuses a second checkout of one branch anyway.
+- It warns that the three refusals are **ordered** in the script though
+  the plan treats them as independent: a staged file would trip
+  `worktree-busy` before the set check is reached.
+
 ### What to build
 
 `plot-resolve-artifact.sh` stops treating *nothing observed* as *other
