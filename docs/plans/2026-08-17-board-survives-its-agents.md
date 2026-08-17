@@ -253,7 +253,7 @@ poll is four seconds away and will find it unlocked. Reporting beats blocking.
 
 - `feature/board-bridges-its-restart` — the last good pulse is written to
   `.plot/state/last-pulse.json`, read at startup beside an immediate rescan, and
-  served with its age through #141's existing stale rendering
+  served with its age through #141's existing stale rendering → #172
 - `bug/scan-reports-a-locked-worktree` — a worktree holding `index.lock` becomes
   its own signal rather than being skipped in silence → #170
 
