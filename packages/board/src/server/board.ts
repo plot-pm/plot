@@ -85,8 +85,14 @@ function readChecklist(repoRoot: string, releaseDir: string): { done: number; to
   }
 }
 
-/** Read one `## Plot Config` key via the shared helper (with a default). */
-function readConfig(opts: BuildBoardOptions, key: string, fallback: string): string {
+/**
+ * Read one `## Plot Config` key via the shared helper (with a default).
+ *
+ * Exported for `approve.ts`, which needs `Approve command`. Config lookup goes
+ * through this one function so `plot-config.sh` stays the only thing that knows
+ * where Plot configuration lives.
+ */
+export function readConfig(opts: BuildBoardOptions, key: string, fallback: string): string {
   try {
     const out = execFileSync(
       'bash',
@@ -736,6 +742,10 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // inside `listen()`, so index.ts overwrites this at response time. An empty
     // command renders no restart hint rather than a guessed one.
     server: { restartCommand: '', port: 0 },
+    // Same rule, same reason: whether the board may approve depends on the
+    // socket AND on a config key, and this walker reads plans. index.ts
+    // overwrites it where both are known.
+    approve: { available: false, reason: '' },
     checklist: readChecklist(repoRoot, readConfig(opts, 'Release directory', 'docs/releases/')),
     sprints: collectSprints(repoRoot, sprintDir),
     stories: collectStories(repoRoot, storyDir),

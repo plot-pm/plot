@@ -4,8 +4,14 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { buildBoard, renderPlanPage, renderStoryPage, type BuildBoardOptions } from './board.js';
 import { buildFleet } from './fleet.js';
-import { dispatchAvailability, handleDispatch } from './dispatch.js';
+import { dispatchAvailability, handleDispatch, SLUG_RE } from './dispatch.js';
 import { serverInfo } from './server-info.js';
+import {
+  approveAvailability,
+  approveCommand,
+  approveStatus,
+  handleApprove,
+} from './approve.js';
 // Inlined at build time by esbuild's text loader — the artifact is a single
 // self-contained file, served from memory (no filesystem static serving, so no
 // path-traversal surface).
@@ -62,8 +68,17 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   // Per-route method checks would be the more conventional shape, and are
   // rejected for the reason this repo rejects prose MUSTs: a check every future
   // route has to remember is a rule, while a default that refuses is a gate.
-  // Exactly one path-and-verb pair slips past; /api/board, /api/fleet and
-  // /plan/* stay protected precisely as they are today.
+  // Two path-and-verb pairs slip past now rather than one; /api/board,
+  // /api/fleet and /plan/* stay protected precisely as they are today.
+  if (url.pathname === '/api/approve' && req.method === 'POST') {
+    void handleApprove(req, res, { ...opts, host: HOST, port: boundPort }).catch((err) => {
+      console.error('Error approving:', err);
+      if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+    });
+    return;
+  }
+
   if (url.pathname === '/api/dispatch' && req.method === 'POST') {
     // `boundPort`, not the requested one: under PORT=0 they differ, and this
     // port is the same-origin allowlist for the endpoint that spawns processes.
@@ -93,6 +108,11 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         ...buildBoard(opts),
         dispatch: dispatchAvailability(HOST),
         server: serverInfo(opts, boundPort),
+        // A SECOND capability, not a flavour of the first. Dispatch needs only
+        // the binding (the script ships with Plot); approve also needs the
+        // project to have said how to run an agent, so a board can legitimately
+        // offer one and not the other.
+        approve: approveAvailability(HOST, approveCommand(opts)),
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(board));
@@ -119,6 +139,28 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
     }
+    return;
+  }
+
+  // How the approve command's own words reach the card that asked for them.
+  //
+  // A separate READ because the POST cannot carry the answer: the command is
+  // spawned detached and the 202 is written before it has finished — the same
+  // constraint /api/dispatch documents. Start work resolves that by watching
+  // the row move, which works because a dispatch CHANGES the board. A refused
+  // approval changes nothing at all, so there is no row to watch and the reason
+  // has to be fetched.
+  //
+  // A slug, validated by the same expression the POST uses — it is a filename
+  // component here, and `../` must reach no log but the one it names.
+  if (url.pathname.startsWith('/api/approve/')) {
+    const slug = url.pathname.slice('/api/approve/'.length);
+    res.writeHead(SLUG_RE.test(slug) ? 200 : 400, { 'Content-Type': 'application/json' });
+    res.end(
+      SLUG_RE.test(slug)
+        ? JSON.stringify(approveStatus(opts, slug))
+        : JSON.stringify({ error: 'slug must be a plan slug' }),
+    );
     return;
   }
 

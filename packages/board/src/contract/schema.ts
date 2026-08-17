@@ -340,6 +340,20 @@ export const BoardSchema = z.object({
   /** See ServerInfoSchema — how to start this server again, and where it is. */
   server: ServerInfoSchema.default({ restartCommand: '', port: 0 }),
   /**
+   * Whether the server will act on an Approve click, and why not.
+   *
+   * Its own field rather than a reading of `dispatch`, because the two answer
+   * different questions and can legitimately disagree: dispatch needs only the
+   * localhost binding, since `plot-dispatch.sh` ships with Plot, while approve
+   * also needs the project to have declared an `Approve command` — Plot
+   * hardcodes no agent tooling. A board on localhost in an unconfigured project
+   * offers Start work and not Approve, and one shared flag could not say that.
+   *
+   * Same shape and same default as `dispatch`: an older server sends nothing,
+   * and a newer client then hides the button rather than offering one that 403s.
+   */
+  approve: DispatchInfoSchema.default({ available: false, reason: '' }),
+  /**
    * Newest release checklist, for the Endgame column: what is left before
    * signoff. null when no checklist exists or none could be parsed — the board
    * shows no badge rather than a guessed count.

@@ -153,6 +153,49 @@ export function makeStubScripts() {
   };
 }
 
+/**
+ * Give a scratch repo an `Approve command` pointing at a stub, and hand back a
+ * reader for what that stub was asked to do.
+ *
+ * The tests must NEVER run a real approval: it merges a plan PR on the git
+ * host, which is undoable only by more git. The stub is what makes "a refused
+ * request approved nothing" an assertion about a file rather than a hope.
+ *
+ * `script` is the stub's body, defaulting to one that records its arguments and
+ * exits 0. Pass one that writes to stderr and exits non-zero to exercise the
+ * path the plan cares most about — a failure surfacing its OWN words.
+ *
+ * Re-callable: a repo can be given a different command mid-test, which is how
+ * the slow-command case gets a stub that sleeps without a second repo.
+ */
+export function writeApproveCommand(repo, { script } = {}) {
+  const bin = path.join(repo, 'approve-stub.sh');
+  const marker = path.join(repo, 'approve-ran.txt');
+  fs.writeFileSync(
+    bin,
+    `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> ${JSON.stringify(marker)}\n${
+      script ?? ''
+    }`,
+    { mode: 0o755 },
+  );
+  // The config the server reads. `plot-config.sh` looks for a `## Plot Config`
+  // section in the repo-root CLAUDE.md, so the scratch repo gets a real one.
+  const claude = path.join(repo, 'CLAUDE.md');
+  const existing = fs.existsSync(claude) ? fs.readFileSync(claude, 'utf8') : '';
+  if (!/^##\s*Plot Config/im.test(existing)) {
+    fs.writeFileSync(claude, `${existing}\n## Plot Config\n\n- **Approve command:** ${bin}\n`, 'utf8');
+  }
+  return {
+    bin,
+    marker,
+    /** What the stub was invoked with, one entry per run. [] is the assertion that matters most. */
+    runs: () =>
+      fs.existsSync(marker)
+        ? fs.readFileSync(marker, 'utf8').split('\n').filter(Boolean)
+        : [],
+  };
+}
+
 /** GET /api/board and parse the JSON body. */
 export function fetchBoard(port) {
   return new Promise((resolve, reject) => {
