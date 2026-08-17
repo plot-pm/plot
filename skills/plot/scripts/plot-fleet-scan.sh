@@ -42,6 +42,13 @@
 #         All three are absent-shaped — false, "" and 0 — wherever this machine
 #         holds nothing, so a branch living on another machine answers exactly
 #         as it did before.
+#         --json also carries, per branch, `worker` — whether anything is
+#         actually RUNNING on it: running|finished|failed|ended|none|elsewhere,
+#         with `worker_pid` and `worker_exit` beside it. A claim says a
+#         dispatcher took the branch; this says whether a worker was ever
+#         started. `none` means UNKNOWN (no pid was recorded here), never
+#         "nobody"; `elsewhere` means this machine has no worktree and so
+#         cannot answer at all.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
 #
 # STATELESS AND READ-ONLY. This is the whole design (Manifesto Principle 1):
@@ -280,6 +287,78 @@ done <<< "$(worktree_rows)"
 # not exist here.
 local_worktree_of() { # $1=branch → "path\tdirty" or ""
   printf '%s' "$WORKTREES" | awk -F'\t' -v b="$1" '$1==b {print $2 "\t" $3; exit}'
+}
+
+# ---------------------------------------------------------------------------
+# The worker: whether anything is actually running on a claimed branch
+# ---------------------------------------------------------------------------
+#
+# A claim is a push. It says a dispatcher TOOK the branch, and nothing more —
+# on 2026-08-17 three rows sat in WORKING with a pulsing dot while nobody was
+# working on any of them. The claim was real; the worker was never started.
+#
+# `worker_state()` in plot-dispatch.sh has distinguished FIVE outcomes since it
+# was written — running / finished / failed (exit N) / ended (status unknown) /
+# no worker — and measured against the board, `grep -rn "plot-worker.pid"
+# packages/board/src` returned NOTHING. The information was already richer than
+# the row assumed and reached no screen. This reports it; it invents no new
+# liveness check.
+#
+# SIX VALUES, because the absence of a worktree is a THIRD kind of answer and
+# not the second one. The pid lives in the worktree (`$wt/.plot-worker.pid`),
+# so a branch claimed and started on ANOTHER machine has no path to look at:
+#
+#   claim  worktree  pid   worker      the reader's next move
+#   ✓      ✓         ✓     running     leave it alone
+#                          finished    review it
+#                          failed      restart it — its exit code is carried
+#                          ended       look in the log; the status was not kept
+#   ✓      ✓         —     none        claimed, no KNOWN worker
+#   ✓      —         n/a   elsewhere   ask the machine that took it
+#
+# `none` and `elsewhere` differ because the ACTIONS differ — *look in this
+# checkout* versus *ask another machine* — the same split `local_dirty` and
+# `local_ahead` make between a worktree question and a ref question.
+#
+# ABSENT IS NOT FALSE, and `none` is the strongest statement it licenses:
+# **UNKNOWN, never "nobody"**. plot-dispatch writes the pid only where it
+# started the worker itself, so a hand-started worker leaves none — and
+# hand-starting is the normal case for as long as `Worker command` is unset.
+# Five agents were started that way in one session; reading a missing pid as
+# "nobody is working" would have reported every one of them dead.
+#
+# A PID OF `0` IS NEVER RUNNING. `kill -0 0` signals the whole process GROUP and
+# succeeds, so a naive liveness check reports it alive forever. It is rejected
+# here exactly as `worker_state()` rejects it, and the answer travels as a value
+# rather than being re-derived on the far side where the trap would be sprung
+# again.
+#
+# READ THE EXIT CODE, NOT THE EMPTINESS: an unreadable `.plot-worker.exit` is
+# `ended` (status unknown), never `finished`. Guessing success from an absent
+# record is the same mistake in the other direction, and `finished` is the one
+# answer that tells a reader to stop looking.
+worker_of() { # $1=branch → "state\tpid\texit"
+  local br="$1" wt pid code
+  wt=$(printf '%s' "$WORKTREES" | awk -F'\t' -v b="$br" '$1==b {print $2; exit}')
+  # No worktree here: this machine cannot answer the question at all. Not the
+  # same as looking and finding nothing.
+  [ -n "$wt" ] || { printf 'elsewhere\t\t'; return; }
+  [ -f "$wt/.plot-worker.pid" ] || { printf 'none\t\t'; return; }
+  pid=$(cat "$wt/.plot-worker.pid" 2>/dev/null | tr -d ' \n')
+  [ -n "$pid" ] || { printf 'none\t\t'; return; }
+  case "$pid" in 0|*[!0-9]*) printf 'none\t\t'; return ;; esac
+  if kill -0 "$pid" 2>/dev/null; then printf 'running\t%s\t' "$pid"; return; fi
+  if [ -f "$wt/.plot-worker.exit" ]; then
+    code=$(cat "$wt/.plot-worker.exit" 2>/dev/null | tr -d ' \n')
+    case "$code" in
+      0)           printf 'finished\t%s\t0' "$pid"; return ;;
+      ''|*[!0-9]*) printf 'ended\t%s\t' "$pid"; return ;;
+      *)           printf 'failed\t%s\t%s' "$pid" "$code"; return ;;
+    esac
+  fi
+  # No exit file: a worker started before the code was recorded, or one killed
+  # outright. Unknown is its own answer.
+  printf 'ended\t%s\t' "$pid"
 }
 
 # ---------------------------------------------------------------------------
@@ -781,7 +860,15 @@ for i, w in enumerate(d.get("waves", [])):
         # From the REFS, not from the worktree table above — a local branch with
         # no worktree still holds commits nobody can see. 0 wherever this
         # machine has no local ref, which is what every branch elsewhere reports.
-        json_branches+=",\"local_ahead\":$(local_ahead_of "$br")}"
+        json_branches+=",\"local_ahead\":$(local_ahead_of "$br")"
+        # Whether anything is actually RUNNING on the branch — see `worker_of`.
+        # The pid and the exit code travel as values rather than as something to
+        # re-derive: a pid of 0 has already been rejected here, and re-deriving
+        # liveness on the far side would spring that trap again.
+        worker_row=$(worker_of "$br")
+        json_branches+=",\"worker\":\"$(printf '%s' "$worker_row" | cut -f1)\""
+        json_branches+=",\"worker_pid\":\"$(json_str "$(printf '%s' "$worker_row" | cut -f2)")\""
+        json_branches+=",\"worker_exit\":\"$(json_str "$(printf '%s' "$worker_row" | cut -f3)")\"}"
       fi
     done <<< "$states"
 

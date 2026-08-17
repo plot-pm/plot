@@ -38,16 +38,22 @@ describe('classify', () => {
   // the plan — so `quiet`, which means "go check whether it died", was being
   // said about the normal opening of every dispatch. Age separates them, and
   // the age is known because a claim IS a commit.
+  //
+  // The NOTE these two once asserted — "no commits yet" — is gone, and its
+  // removal is the point of `fleet-sees-unstarted-claims`: it said one thing
+  // about two states, an idle branch and a claim nobody ever started a worker
+  // on. What they assert now is the GROUP, which is what they were always
+  // about; the sentence beside it is pinned by the worker tests below.
   it('calls a fresh claim working — it is the normal start of a dispatch', () => {
     const r = classify('claimed', 'eligible', 3, QUIET);
     expect(r.group).toBe('working');
-    expect(r.note).toMatch(/no commits/);
+    expect(r.note).toMatch(/claimed/);
   });
 
   it('calls a claim that stayed silent past the quiet window quiet', () => {
     const r = classify('claimed', 'eligible', QUIET + 1, QUIET);
     expect(r.group).toBe('quiet');
-    expect(r.note).toMatch(/still no commits/);
+    expect(r.note).toMatch(/claimed 31 min ago/);
   });
 
   // Without an age there is nothing to judge, and guessing `working` would

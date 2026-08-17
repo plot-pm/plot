@@ -11,6 +11,7 @@ import {
   type FleetPulse,
   type Phase,
   type WaitingGroup,
+  type WorkerState,
 } from '../contract/schema.js';
 import type { BuildBoardOptions } from './board.js';
 
@@ -660,6 +661,41 @@ export function classify(
    * including "", falls through.
    */
   planPhase = '',
+  /**
+   * What the scan found out about a worker on this branch — see
+   * `FleetBranchSchema.worker`. Six values, and each names a different move.
+   *
+   * Used to answer the two questions a claim alone cannot: *is anything
+   * actually running*, and *did whatever ran end well*. A stopped worker is the
+   * one case that moves a row, and it moves it UP: `failed` and `finished` land
+   * in `waiting-on-you`, because both need a person and their needs are
+   * opposite — restart versus review.
+   *
+   * ONE-DIRECTIONAL, like every other local signal here. `none` and `elsewhere`
+   * change no group at all: absent is not false, and reading a missing pid as
+   * "nobody is working" would report every hand-started worker dead — five in a
+   * single session. They narrow the NOTE and nothing else.
+   *
+   * Defaults to `elsewhere` so every caller predating the field is unchanged:
+   * a caller with nothing to say about a worker is a caller that could not look.
+   */
+  worker: WorkerState = 'elsewhere',
+  /**
+   * The worker's exit code as the SCAN read it, or "" — see
+   * `FleetBranchSchema.worker_exit`. Shown beside `failed` so the row names how
+   * the worker died rather than only that it did.
+   */
+  workerExit = '',
+  /**
+   * The worker's pid as the SCAN read it, or "" — see
+   * `FleetBranchSchema.worker_pid`. Shown beside `running` so the reader can go
+   * look at the process rather than take the row's word for it.
+   *
+   * Never re-derived from here. `kill -0 0` signals the whole process group and
+   * succeeds, so a pid of `0` checked on this side reads as running forever; the
+   * scan rejects it and reports `none`, and this value only ever renders.
+   */
+  workerPid = '',
 ): { group: WaitingGroup; note: string } {
   // A deferred branch is not-started because nobody is working on it — the
   // group is about the claim the row makes, not about the age of its last
@@ -719,7 +755,70 @@ export function classify(
     if (planPhase === 'draft') return { group: 'not-started', note: DRAFT_PLAN_NOTE };
     return { group: 'not-started', note: ELIGIBLE_NOTE };
   }
+  // A WORKER THAT STOPPED is a person's errand, whatever the commit clock says.
+  //
+  // Placed after the PR arm and before the git arms on purpose. A PR is a
+  // stronger statement about what a branch waits for — the review is happening
+  // whether or not the worktree still has a process in it — but everything
+  // below here is reasoning from commit AGE, and age cannot see a worker at all.
+  // A crashed worker three minutes into a claim is `working` by age and needs
+  // restarting in fact.
+  //
+  // `merged` and `open` are left alone: a merged branch is done regardless of
+  // what its worktree holds, and an `open` branch was never claimed, so a stale
+  // worktree from an earlier attempt must not speak for it. `open` has already
+  // returned above, so only `merged` needs excluding here.
+  //
+  // THE FOUR STOPPED STATES SPLIT TWO WAYS, and the split is what earns them
+  // separate values. `failed` and `finished` both go to `waiting-on-you` because
+  // both need a person — but the notes stay apart because the ACTIONS are
+  // opposite: restart a crash, review a success. One label over both would send
+  // the reader to a log to find out which, which is the same defect this whole
+  // change exists to remove. `ended` joins them saying exactly what it knows:
+  // it stopped, and the status was not recorded.
+  if (state !== 'merged') {
+    if (worker === 'failed') {
+      return {
+        group: 'waiting-on-you',
+        note: workerExit
+          ? `worker failed (exit ${workerExit}) — restart it`
+          : 'worker failed — restart it',
+      };
+    }
+    if (worker === 'finished') {
+      return { group: 'waiting-on-you', note: 'worker finished — review it' };
+    }
+    if (worker === 'ended') {
+      return { group: 'waiting-on-you', note: 'worker ended, exit status unknown' };
+    }
+  }
+
   if (state === 'claimed') {
+    // A RUNNING worker is direct evidence, and it outranks the clock in both
+    // directions the clock gets wrong: a claim older than the quiet window is
+    // not abandoned while its worker is alive, and a fresh claim reads working
+    // for a reason better than its age. The pid is the scan's, not re-derived
+    // here — `kill -0 0` succeeds against the whole process group, so a pid of
+    // `0` read on this side would be alive forever. The scan already rejected
+    // it, and `running` can therefore never arrive carrying one.
+    if (worker === 'running') {
+      return { group: 'working', note: `worker running (pid ${workerPid})` };
+    }
+    // NO KNOWN WORKER, and the two ways of not knowing are different answers.
+    //
+    // Neither downgrades the group — absent is not false, and `plot-dispatch`
+    // writes a pid only where it started the worker itself, so a hand-started
+    // agent leaves none. Reading that as "nobody is working" would have reported
+    // all five of one session's agents dead. What changes is the NOTE, which
+    // stops claiming commits are on the way and says what is actually known.
+    //
+    // `elsewhere` is not a weaker `none`: the pid lives in the worktree, so a
+    // branch claimed on another machine has nowhere here to look. Looking and
+    // finding nothing sends the reader into this checkout; having nowhere to
+    // look sends them to the machine that took it. Different errands, so
+    // different sentences.
+    const elsewhere = worker === 'elsewhere';
+    const unstarted = elsewhere ? 'claimed elsewhere' : 'claimed, no known worker';
     // A claim IS a commit — the empty `plot: claim <branch>` push — so its age
     // is known and must be used. Sending every claim straight to `quiet` put a
     // branch claimed three minutes ago in the same group as one abandoned for
@@ -731,16 +830,25 @@ export function classify(
     // every dispatch — it is reading the plan. Only once the quiet window has
     // passed with nothing committed does "go look" become the useful thing to
     // say.
+    //
+    // The GROUP is unchanged from the day it shipped, and deliberately: a fresh
+    // claim with no known worker is still the normal opening of a dispatch, and
+    // demoting every one of them would be the missing-pid-means-nobody mistake
+    // wearing a group instead of a sentence. Only the note stops promising
+    // commits are coming.
     if (ageMinutes !== null && ageMinutes <= quietMinutes) {
-      return { group: 'working', note: 'claimed, no commits yet' };
+      return { group: 'working', note: unstarted };
     }
     if (localDirty || localAhead > 0) return workingLocally(localDirty, localAhead);
     return {
       group: 'quiet',
+      // The age is what the reader came for once the window has passed, so it
+      // leads and the worker fact follows it — the same ordering `workingLocally`
+      // uses when it has two things to say.
       note:
         ageMinutes === null
-          ? 'claimed, no commits yet'
-          : `claimed ${humanAge(ageMinutes)} ago, still no commits`,
+          ? unstarted
+          : `claimed ${humanAge(ageMinutes)} ago, ${elsewhere ? 'claimed elsewhere' : 'no known worker'}`,
     };
   }
   if (state === 'merged') {
@@ -941,7 +1049,12 @@ export function rowsFromPulse(
           // nothing read. It is the half git cannot answer: every branch of a
           // drafted plan is `open` with no ref, exactly like a branch of an
           // approved plan nobody has started.
-          plan.phase);
+          plan.phase,
+          // Whether anything is actually running on the branch. The pid and the
+          // exit code travel as the SCAN read them — the pid-of-0 trap was
+          // sprung once already by re-deriving liveness, and this layer only
+          // renders what it is handed.
+          b.worker, b.worker_exit, b.worker_pid);
         rows.push({
           repo,
           branch: b.branch,
