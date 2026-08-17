@@ -401,6 +401,56 @@ that closes the loop, and it has not been built yet.
   Worth stating plainly because it bounds the value of the fleet view: **the
   more parallel work there is, the less reliable the view of it becomes.**
 
+- ⏸️ **`Approve` asks for configuration that `Start work` does not, for the
+  same kind of work.** Asked on 2026-08-17 looking at a board where every Draft
+  card offered `Start work` and none offered `Approve`: *if you can approve a
+  plan, why can a button not?*
+
+  Measured, and the asymmetry is real. `Start work` calls
+  `plot-dispatch.sh` — a **script**, shipped with Plot, which the server spawns
+  directly. `Approve` (#161) spawns `sh -c '<Approve command> "<prompt>"'` and
+  hands it a prompt, so it needs **an agent** to execute the skill, and without
+  the config key the button renders disabled naming that key.
+
+  The code's own justification does not survive the comparison: *"it can approve
+  only where the project has said how to run an agent"* — but `/plot-approve`
+  under `Review: pr` merges a PR, flips a phase, writes an `Approved:` line and
+  pushes. Every one of those is `gh` and `git`, which Plot already requires, and
+  `plot-host.sh pr-merge` already does the first. Dispatch needs `Worker
+  command` because it starts an agent that will WRITE AN IMPLEMENTATION;
+  approving writes one line.
+
+  So the difference is not *approve needs an agent* — it is **approve has no
+  script**. The mechanical half belongs in `plot-approve.sh` beside its sibling,
+  leaving the skill the judging parts (the tracer heuristic, the ceremony
+  questions). Manifesto Principle 3 draws the line in the same place: scripts
+  collect and report, skills interpret — and merging a PR is collecting.
+
+  Also noticed on the same button: `ApproveButton` uses the **native**
+  `disabled` attribute, which #160 deliberately abandoned for `StartWorkButton`
+  — a natively disabled control leaves the tab order and takes its `title`
+  explanation with it, out of reach of the reader who most needs it. Two buttons
+  on one surface, two opposite patterns, because they were built in parallel.
+
+- ⏸️ **A plan appears twice on the board while its own idea-branch is checked
+  out.** Seen 2026-08-17: `agent-rows-line-up` rendered as two identical
+  Discovery cards.
+
+  **Not the symlink**, which was the first guess and wrong.
+  `collectPlanFiles` already resolves through `fs.realpathSync` into a `seen`
+  set, and its comment says so — a plan symlinked from `active/` is counted once
+  under its canonical path. That mechanism is correct.
+
+  The duplicate comes from the *other* collector: the board also stages plans
+  found on **idea branches**, so a plan that is visible before it merges. With
+  the plan's own branch checked out, the same plan exists twice — once in the
+  working tree, once on its remote branch — and the two collectors do not know
+  about each other. The staging comment anticipates a neighbouring case (*"two
+  branches can carry same-named plans"*) but not this one.
+
+  Narrow but not rare: writing a plan means having its branch checked out, and
+  running the board while writing is the normal way to see the effect.
+
 - ⏸️ **A test fixture inside the repo reads the repo's own config, not its
   own.** Found 2026-08-17 while building the board's Approve action.
   `plot-config.sh` locates configuration through
