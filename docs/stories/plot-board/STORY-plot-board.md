@@ -432,6 +432,24 @@ that closes the loop, and it has not been built yet.
   cheap parse checks probably stay unconditional while the board build, the
   browser download and the integration suite become conditional.
 
+  **Two different flakes in one evening, both on markdown-only branches**, which
+  turns the cost from irritating into misleading:
+
+  | PR | Failing test | Locally |
+  |---|---|---|
+  | #162 | `picks up a plan pushed to a NEW branch after the first read` | 11/11 pass |
+  | #157 | `refuses with 403 when HOST is not localhost` (+2 more) | 11/11 pass |
+
+  Neither branch contains a line of code. Both failing suites start **real
+  servers on real ports** — the same surface the orphan and restart defects live
+  on — so the reader is asked to distinguish a real regression from
+  environmental noise on a PR that could not have caused either. A red required
+  check that carries no information about its own PR is worse than a slow one.
+
+  It also compounds the point above: because the checks are required, each flake
+  costs a rerun of the *whole* pipeline, browser download included, to merge two
+  markdown files.
+
 - ⏸️ **`Approve` asks for configuration that `Start work` does not, for the
   same kind of work.** Asked on 2026-08-17 looking at a board where every Draft
   card offered `Start work` and none offered `Approve`: *if you can approve a
