@@ -12,6 +12,7 @@
 - **Approved:** 2026-08-17, Jan Wloka, plan-PR #190 merged
 - **Started:** 2026-08-17, Jan Wloka, `feature/working-rows-show-their-pace`
 - **Delivered:**
+- **Started:** 2026-08-17, Jan Wloka, `feature/the-line-flashes-on-any-written-update`
 
 ## Problem
 
