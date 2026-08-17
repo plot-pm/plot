@@ -245,7 +245,7 @@ poll is four seconds away and will find it unlocked. Reporting beats blocking.
 
 - `bug/test-boards-die-with-their-run` — the server exits when the process that
   started it is gone, gated on an explicit env var the test harness sets; no
-  change for a board started by a person
+  change for a board started by a person → #166
 
 ### Continuity
 
