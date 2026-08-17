@@ -401,6 +401,37 @@ that closes the loop, and it has not been built yet.
   Worth stating plainly because it bounds the value of the fleet view: **the
   more parallel work there is, the less reliable the view of it becomes.**
 
+- ⏸️ **A plan PR runs the whole board build to merge two markdown files.**
+  Asked on 2026-08-17: *do we really need the build on `idea/` branches?*
+
+  Measured. `ci.yml` triggers on `pull_request: branches: [main]` with no path
+  filter, so every PR runs every step: `pnpm install`, skill parse and
+  frontmatter validation, reconcile and e2e tests, board typecheck, a full board
+  build with an artifact-freshness diff, 70 node:test, **a Playwright Chromium
+  download**, and 398 vitest. PR #162 changes exactly two files, both markdown,
+  and pays all of it — 2.5 to 4 minutes.
+
+  **Seven plan-only PRs merged on 2026-08-17 alone** (#138, #139, #142, #145,
+  #146, #150, #152), so this is the common case rather than an edge one.
+
+  The cost is not only waiting. `validate` is a **required status check**, so a
+  plan PR cannot merge without it — and on 2026-08-17 a run failed on #162 for
+  *"picks up a plan pushed to a NEW branch"*, a test that passes locally and had
+  passed on the identical `main` commit minutes earlier. **A flake in a board
+  test blocked a pull request containing no code**, and the red check said
+  nothing about the change it was gating.
+
+  The obvious fix has a trap worth recording: `paths-ignore` on a **required**
+  check leaves the PR permanently pending rather than green, because a skipped
+  workflow is not a passing one. The shape that works is a job that still
+  reports, and skips the expensive steps when the diff touches only docs.
+
+  Not entirely free of judgement: `pnpm test` and `pnpm run validate` check that
+  every skill parses, and a plan PR touching a skill file is legitimate. So the
+  question is not *build or not* but *which steps hang on which paths*, and the
+  cheap parse checks probably stay unconditional while the board build, the
+  browser download and the integration suite become conditional.
+
 - ⏸️ **`Approve` asks for configuration that `Start work` does not, for the
   same kind of work.** Asked on 2026-08-17 looking at a board where every Draft
   card offered `Start work` and none offered `Approve`: *if you can approve a
