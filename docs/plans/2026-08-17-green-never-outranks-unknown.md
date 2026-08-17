@@ -124,16 +124,82 @@ to *different questions*, and a green check says nothing about whether
 the branch merges. Twenty-two days of green on a conflicting branch is
 the proof.
 
+### The change reaches four consumers, not one
+
+**Measured, and the first draft undercounted it.** `prState` has four
+callers, and two of them decide more than a colour:
+
+| Caller | What it does with the value |
+|---|---|
+| the row's `pr.state` | the status cell and its word |
+| `classify`'s note | *no checks* / *CI running* / *conflicts* |
+| **`stuck.ts`** | `prState === 'conflicts'` → a stuck branch; `'failing'` → CI evidence |
+| **the change-marker** | watches `pr?.state ?? null`, flashes on transitions |
+
+So a fifth `unknown` is not a display tweak. Each consumer gets its own
+assertion, and one of them **improves**: `stuck.ts` today sees `green`
+where the host said nothing, so a branch that cannot merge is not
+detected as stuck at all. The fix is what lets the watcher see it.
+
+### A change to or from `unknown` does not flash
+
+The change-marker (#180) flashes whenever `pr?.state` differs from the
+previous pulse. With this fix, a GitHub 503 turns `green` into `unknown`
+and the next pulse turns it back — **two flashes for nothing that
+happened.** There were four such outages on 2026-08-17 alone.
+
+So transitions **into or out of `unknown` are not changes** and do not
+flash. `unknown` means *I cannot say right now*: that is a fact about the
+observation, not about the world, and the marker reports changes in the
+world. This is the marker's own rule — *absent is unknown, never a
+value* — applied one level up: it already refuses to flash on a first
+sighting for exactly this reason.
+
+A real transition hidden behind an outage is the cost, and it is small:
+the state is re-read every 60 s, so the next successful pulse shows the
+new value. The marker misses the moment, not the fact.
+
 ### The row keeps its evidence
 
 `unknown` already renders as *checks unavailable* and the contract
 documents it as a real answer. What changes is only which rows reach it.
 
-**The note is where the nuance goes.** A row that is unknown *because the
-host cannot say whether it merges* is different from one unknown because
-its checks are unreadable, and the note can carry that where a
-six-value enum cannot. This costs nothing: the note already exists and
-already differs per branch of `classify`.
+**The note is where the nuance goes, and it says WHICH fact is missing.**
+Today `unknown` renders as *checks unavailable* — which is wrong whenever
+it is `mergeable` that could not be read. Two sentences, because the two
+are not equally actionable:
+
+| Missing | Note | What a reader does |
+|---|---|---|
+| `mergeable` | *cannot say whether it merges* | check for a rebase |
+| `checks` | *cannot read the checks* | nothing yet; look again |
+
+One label for both would be the pattern this repo has spent the day
+removing. The note already differs per branch of `classify`, so this
+costs a string rather than a mechanism.
+
+### Bitbucket cannot answer this, and the board must say so
+
+**Measured, and it changes what "fix the adapter first" can mean.** The
+Bitbucket adapter hard-codes `checks:"unknown", mergeable:"unknown"` —
+not from neglect, but because the CLI has nothing to report. The script
+says it plainly: *"Empty on bitbucket (bb has no run listing) —
+unavailable, never 'never failed'."*
+
+So teaching the adapter real values is not deferred work; it is **not
+available**. `unknown` on every Bitbucket row is the permanently correct
+answer, and this fix does not cause that — it stops the answer being
+overwritten by whatever `checks` was hard-coded to.
+
+What the fix must not do is let a Bitbucket reader mistake the result for
+a broken board. **WAITING ON A MACHINE will be empty there, always**, and
+an empty section with no explanation reads as *nothing is running* rather
+than *this host cannot tell me*. So the section says which: where the
+host reports `unknown` for every row, its empty state names the host's
+limit instead of implying quiet.
+
+That is the same rule the rest of this plan applies, one level up:
+**absent is not a clearance**, and an empty section is a kind of absence.
 
 ### What this does not do
 
@@ -174,11 +240,32 @@ minute of honesty.
   whenever `mergeable` is not `conflicting` passes every assertion above
   and makes the board useless.
 - **A Bitbucket row reads `unknown`, not whatever `checks` says.** Assert
-  against the adapter's literal `checks:"unknown", mergeable:"unknown"` —
-  today the defect is masked there only because both are hard-coded, and
-  the masking must not be the thing that holds.
+  against the adapter's literal `checks:"unknown", mergeable:"unknown"`.
+  This is permanent rather than temporary: `bb` cannot report either
+  fact, so the adapter is not "not yet improved" — it is at its limit, and
+  `unknown` is the correct answer there forever.
 - **The note says which fact is missing**, so *cannot say whether it
-  merges* is distinguishable from *cannot read the checks*.
+  merges* is distinguishable from *cannot read the checks*. Assert both
+  sentences — today `unknown` renders as *checks unavailable* on a row
+  whose checks were fine and whose mergeability was not.
+- **`stuck.ts` detects a conflict it previously missed.** Assert a branch
+  the host calls unmergeable while its checks read `green` is now seen —
+  today `prState` hands the detector `green` and the branch is not stuck
+  at all.
+- **The change-marker does NOT flash on a transition into or out of
+  `unknown`.** Assert `green → unknown → green` produces no marker: four
+  GitHub outages on 2026-08-17 would otherwise have flashed every row
+  twice for nothing that happened. The pairing that matters: a marker
+  that treats every visible difference as a change passes every other
+  assertion and turns each outage into a light show.
+- **A real transition still flashes.** Assert `pending → failing` is
+  unaffected — a fix that suppresses too much removes the signal the
+  marker exists for.
+- **Where the host reports `unknown` for every row, the empty
+  WAITING ON A MACHINE section names the host's limit** rather than
+  implying quiet. Assert the Bitbucket shape: `bb` has no run listing, so
+  that section is permanently empty there, and an unexplained empty
+  section reads as *nothing is running*.
 - **No contract change and no new field.** Assert `prState` remains a
   pure function over the two facts it already receives.
 - `pnpm run test:board`, `pnpm run typecheck`, `pnpm test`,
@@ -202,3 +289,21 @@ hard-codes `checks:"unknown"` as well — so the wrong answer and the
 right one coincide by accident. Anyone teaching the Bitbucket adapter to
 report real checks would ship this defect on every row of the board, and
 would have no reason to suspect the fold.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "prState has FOUR callers including stuck.ts and the change-marker — what follows?", "a": "Take all four deliberately, one assertion each; stuck detection actually improves", "category": "technical"},
+    {"q": "green -> unknown -> green on every 503 would flash the change-marker twice", "a": "Transitions into or out of unknown are not changes and do not flash", "category": "ux"},
+    {"q": "Should the Bitbucket adapter be improved first?", "a": "It cannot be — bb has no run listing. Instead the empty section must name the host's limit", "category": "domain"},
+    {"q": "unknown renders as 'checks unavailable' even when mergeable is what is missing", "a": "Two sentences, because only one of them is actionable", "category": "ux"}
+  ],
+  "categoriesCovered": {
+    "technical": {"stack": true, "architecture": true, "implementation": true},
+    "domain": {"rules": true},
+    "ux": {"happyPath": true, "edgeCases": true, "accessibility": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
