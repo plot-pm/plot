@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
 import {
   ELIGIBLE_NOTE,
   type AgentRow,
@@ -1383,95 +1383,196 @@ function useActivity(rows: readonly AgentRow[]): ReadonlySet<string> {
 }
 
 /**
- * The mark a row wears while something is being written to it.
+ * How fast the activity mark's dot travels — and the fact each speed states.
  *
- * **A glowing bar down the row's left edge — and STATIC.** The wave before this
- * one gave it the smallest honest rendering, deliberately, so the marker could
- * be proven to read the right thing before it got loud: a glow over
- * `group === 'working'` would have been, in the words this estate used for the
- * same mistake, *a livelier lie*. `isActive` settled that, so the mark can now
- * carry the prominence it was asked for.
+ * TWO, and no third. Both are things the board can defend from what it
+ * observed; a gradient keyed to commit freshness would be a scale nobody can
+ * read (*was that four minutes or forty?*) changing continuously, which is
+ * motion in place of information.
+ */
+export type ActivityPace = 'fast' | 'slow';
+
+/**
+ * Which pace a row's mark travels at.
  *
- * **It does not animate, and that reverses what was requested.** The report
- * asked for *pulsing, movement, a glow*; only the glow is adopted. Measured on
- * this row as it now stands, FOUR elements already move — `[data-live-dot]`
- * (`animate-pulse`, 6 px), `[data-change-mark]` (`animate-pulse`, full-row wash)
- * and `[data-stuck-cue]` (`animate-ping`), plus the change-mark's dark variant.
- * A fifth at a fifth scale competes rather than adds. The ordering principle
- * that settles it: **a fact true for hours has less claim on motion than a fact
- * true for three seconds.** Motion is the scarce channel and the transient marks
- * hold it; activity is persistent by nature — someone is writing, and will be
- * for a while — so it takes PRESENCE, with its appearance and disappearance
- * carrying the change.
+ * **The speed is a FACT, not a decoration**, and this is the whole rule:
  *
- * The travelling motion is refused for a second reason of its own: motion that
- * traverses implies a destination, and this has none.
+ * | Row | Pace | Because |
+ * |---|---|---|
+ * | `local_dirty` or `local_locked` | fast | someone is writing, measured |
+ * | in WORKING, neither signal | slow | claimed; nobody knows |
  *
- * **A BAR rather than a bigger dot**, because the reported problem is spotting
- * it *from a distance*: a vertical stroke at a fixed x reads as a mark down the
- * side of the list, where a dot must be hunted among the row's words. It also
- * scales to the group heading — a heading can carry the same stroke; a dot in a
- * heading would read as a bullet.
+ * `isActive` is the fast half and is UNTOUCHED — it is the same predicate
+ * `activity-shows-itself` settled, still meaning *someone is writing here*.
+ * What this adds is a second, weaker reading beside it: a row the fleet places
+ * in WORKING while observing no local signal at all. That row is claimed and
+ * unobserved, and *slow* is the honest rendering of it — moving, because
+ * something is supposed to be happening; slowly, because nothing confirms it.
  *
- * **The glow is the prominence, so it must survive `motion-reduce`.** Nothing
- * here animates, so the reduced-motion rule this repo has now written four times
- * — *keep the mark, stop the movement* — has no movement to stop. What it must
- * not do is strip the glow: the glow is the channel that will separate this mark
- * from the unpushed one (*glow means someone is here*), and a reduced-motion
- * rule that removed it would take that distinction with it.
+ * **The negative that keeps this honest:** absence is not falsehood. Both local
+ * fields are `.default(false)` in the contract, and a scan that could not
+ * observe a worktree reports absence rather than cleanliness — so a slow dot
+ * says *unknown*, never *nobody*. That is exactly why the slow case is bounded
+ * by WORKING membership rather than applied to every row: outside WORKING there
+ * is no claim to be unobserved about.
  *
- * **`aria-hidden`, like every other mark on this row.** The row's note already
- * says what is happening in words — *uncommitted work in a local worktree* —
- * and a screen reader must not hear the same fact twice. The mark is decoration
- * on top of information and never the carrier of it.
+ * Exported for test: an implementation that graded speed by commit age, or that
+ * gave every WORKING row the fast pace, passes any assertion that only checks
+ * "the dot moves".
+ */
+export function activityPace(row: Pick<AgentRow, 'localLocked' | 'localDirty'>): ActivityPace {
+  return isActive(row) ? 'fast' : 'slow';
+}
+
+/**
+ * The mark a row wears while something is being written to it — a short track
+ * with a glowing dot travelling out and back.
+ *
+ * **The dot must never ARRIVE, and that is the only reason travel is acceptable
+ * here.** Rotation and traversal were refused twice in this repo, both times for
+ * one reason: they *"imply progress toward completion, which nothing here
+ * measures"*. An agent in WORKING may finish in five minutes or five hours. A
+ * dot that goes out and comes back promises no destination — it reports a RATE,
+ * not a distance. Anything that fills, completes or arrives reintroduces exactly
+ * what was refused, so the keyframes end where they began and the track has no
+ * far marker to reach.
+ *
+ * **Two speeds, both earned.** Fast where `local_dirty` or `local_locked` — an
+ * agent demonstrably writing. Slow where the row is merely in WORKING — claimed,
+ * and the board does not know whether anyone is there. The reader learns one
+ * rule and both states are ones the board can defend. See `activityPace`.
+ *
+ * **This reverses the wave before it, and the reversal is the point.** That wave
+ * gave the mark the smallest honest rendering — a static glowing bar — so the
+ * marker could be proven to read the right thing before it got loud, and argued
+ * that a fifth moving element at a fifth scale would compete with the four
+ * already on the row. What changed is not the ordering principle but the mark's
+ * SHAPE: the other four move in place (`animate-pulse` twice, `animate-ping`
+ * once, plus the change-mark's wash), and travel along a track is a channel none
+ * of them uses. Motion is still scarce; this spends it on an axis nothing else
+ * holds, rather than adding a fifth thing blinking.
+ *
+ * **A TRACK, so the travel has somewhere to happen.** The bar became a horizontal
+ * rule where the vertical stroke was, and the dot rides it. The track is faint on
+ * its own and the dot carries the glow, so what reads from a distance is a bright
+ * point moving against a dim line — the distance problem the bar was widened for,
+ * answered by movement instead of by mass.
+ *
+ * **`motion-reduce` keeps the track AND the dot and stops only the travel.** Both
+ * halves, and this is the fifth time this repo has written the rule: hiding the
+ * element under reduced motion passes a motion-only assertion and takes the
+ * MARKER along with the movement. The dot rests at one end, still glowing, still
+ * in place. Under reduced motion the two speeds collapse into one appearance and
+ * that is correct — *speed* is the thing being removed, so it cannot be the only
+ * carrier of the distinction. The row's note already says which state it is in,
+ * in words.
+ *
+ * **`aria-hidden`, like every other mark on this row.** The row's note carries
+ * the fact in words, and a screen reader must not hear it twice — and must never
+ * hear a speed. The mark is decoration on top of information and never the
+ * carrier of it.
  *
  * **The `title` names the marker's own limit, and that is a requirement rather
- * than a nicety.** Every signal behind it is local: `fleet.ts` is explicit that
- * `local_dirty` is *"true only on the machine doing the looking, and false is
- * what every branch elsewhere reports"*, and `local_locked` reads
+ * than a nicety.** Every signal behind the fast pace is local: `fleet.ts` is
+ * explicit that `local_dirty` is *"true only on the machine doing the looking,
+ * and false is what every branch elsewhere reports"*, and `local_locked` reads
  * `.git/index.lock` in a local worktree. An agent on another machine therefore
- * produces no mark HERE, ever — its branch is not idle, it is unobservable from
- * this checkout. A reader who takes an unmarked row for an idle one has been
- * misled by a marker that was technically correct, so the marker says *in this
- * checkout* rather than letting absence speak for itself.
+ * produces no fast mark HERE, ever. A reader who took an unmarked row for an idle
+ * one would have been misled by a marker that was technically correct, so each
+ * pace says what it actually knows rather than letting the motion speak alone.
  *
  * Deliberately NOT `[data-live-dot]`, NOT `[data-change-mark]` and NOT
  * `[data-stuck-cue]`: four marks, four meanings, and no mark implemented by
  * modifying another. A row can carry several at once, and then it carries
  * several.
  */
-function ActivityMark() {
+function ActivityMark({ pace }: { pace: ActivityPace }) {
+  const fast = pace === 'fast';
   return (
     <span
       aria-hidden
       data-activity-mark
-      title="A write is in progress in this checkout"
+      data-activity-pace={pace}
+      // Each pace says what it actually knows. The fast one names its local-only
+      // limit; the slow one names the gap it is reporting — *claimed, and nobody
+      // observed* is a different statement from *someone is writing*, and a
+      // single shared title would flatten the two speeds back into one fact.
+      title={fast
+        ? 'A write is in progress in this checkout'
+        : 'Claimed, and no write observed in this checkout'}
       // Beside the live dot in the row's left padding rather than in a track of
       // its own — the same reasoning `LiveDot` documents, and the reason the
       // six columns do not move to make room for a mark most rows never carry.
       //
       // At the row's very edge (`left-0`), where `LiveDot` sits at `left-1`
-      // with a 6px dot: the two never overlap, so a row carrying both shows two
-      // marks rather than one thickened one. That pairing is the standard
-      // `[data-change-mark]` set — *two marks, two meanings* — and a row CAN
-      // carry both: in the WORKING group, and being written to this instant.
+      // with a 6px dot. The track is 12px wide and 2px tall, so it passes UNDER
+      // the dot rather than colliding with it: two marks, two meanings, and a
+      // row carrying both still shows both.
       //
-      // `h-5 w-1`: a STROKE down the row rather than a tick beside it. The row
-      // is `py-2` around one line of `text-sm`, so 20px spans nearly its full
-      // height — which is what makes a column of these read as a mark down the
-      // side of the list at a glance, the distance problem that was reported.
-      // Doubling the width to 4px is what carries it across a room; the glow
-      // does the rest.
+      // ALIGNED TO THE ROW'S FIRST LINE, not to the row's centre — and the
+      // mechanism is chosen so that no pixel has to be guessed. The mark used to
+      // carry `sm:top-1/2 sm:-translate-y-1/2`, which centres it on the whole
+      // ROW. That rested on an assumption which has since broken: *the row is
+      // `py-2` around ONE line of `text-sm`*, so centring on the row and
+      // centring on the line were the same pixel. The stuck cell then landed as
+      // its own line beneath the six columns (`sm:col-start-2 sm:col-end-[-1]`),
+      // and a row carrying a status line is roughly twice as tall — so `top-1/2`
+      // put the mark BETWEEN the two lines instead of beside the branch name.
       //
-      // The glow is an explicit `shadow-[...]` in the mark's own emerald rather
-      // than a `shadow-*` scale step, because the scale's shadows are neutral
-      // greys for lifting a surface off the page — a drop shadow, not a light.
-      // Two rings: a tight one that thickens the stroke's edge and a wide,
-      // faint one that spreads. NO `animate-*` of any kind, and therefore no
-      // `motion-reduce:` variant to write — see the note above on why the glow
-      // must survive reduced motion rather than be stripped by it.
-      className="h-5 w-1 shrink-0 self-center rounded-full bg-emerald-500 shadow-[0_0_4px_1px_rgba(16,185,129,0.9),0_0_10px_3px_rgba(16,185,129,0.5)] sm:absolute sm:left-0 sm:top-1/2 sm:-translate-y-1/2 dark:bg-emerald-400 dark:shadow-[0_0_4px_1px_rgba(52,211,153,0.9),0_0_12px_4px_rgba(52,211,153,0.55)]"
-    />
+      // The mark belongs to the BRANCH, and the branch is on line one whatever
+      // else the row grows beneath it. So the mark is given the FIRST LINE'S
+      // OWN BOX to sit in: `sm:top-2` is the row's `py-2` padding — where the
+      // first line begins — and `sm:h-5` is one line box of `text-sm`. The track
+      // then centres itself inside that box with `items-center`, which is what
+      // keeps this honest: the line's height is stated once, and nothing
+      // downstream has to know a magic offset.
+      //
+      // Measured rather than assumed: the row's first line box runs 18.6px from
+      // the row's own top edge on a real page, so a hand-computed `top-4.5`
+      // would be right today and wrong the moment the type scale moves. A box
+      // that IS the line does not have that failure mode.
+      //
+      // The pairing that matters: `top-1/2` looks correct on every single-line
+      // row and is wrong on exactly the rows carrying the most information.
+      // Anything measuring itself against the ROW's height is suspect; this
+      // measured itself against the row and meant the line.
+      className="relative flex h-5 w-3 shrink-0 items-center self-center sm:absolute sm:left-0 sm:top-2"
+    >
+      {/* The TRACK the dot rides: a faint 2px rule, centred on the line box by
+          the flex above. Dim on purpose — what reads from a distance is a
+          bright point moving against a dim line, so the track marks the extent
+          of the travel without competing with the thing that travels.
+
+          It is `relative` because the dot is positioned against IT rather than
+          against the line box: the dot's reach is a fraction of the track, and
+          measuring it against anything else would decouple the two. */}
+      <span
+        data-activity-track
+        className="relative h-0.5 w-full rounded-full bg-emerald-500/25 dark:bg-emerald-400/25"
+      >
+        <span
+          data-activity-dot
+          // `--tw-travel` is the reach, read by the shared `travel` keyframes:
+          // the track is 12px and the dot is 6px, so 6px of travel takes the dot
+          // from flush-left to flush-right and back without ever leaving the
+          // track. Set here rather than baked into the keyframes so the two stay
+          // tied to each other — a wider track changes one number, not two.
+          style={{ '--tw-travel': '0.375rem' } as CSSProperties}
+          // The glow is an explicit `shadow-[...]` in the mark's own emerald
+          // rather than a `shadow-*` scale step, because the scale's shadows are
+          // neutral greys for lifting a surface off the page — a drop shadow,
+          // not a light. Two rings: a tight one that thickens the dot's edge and
+          // a wide, faint one that spreads. It is what carries the mark across a
+          // room, and it does NOT depend on the travel — see `motion-reduce`
+          // below, which stops the movement and leaves everything else standing.
+          //
+          // `-top-0.5` centres the 6px dot on the 2px track it rides.
+          className={`absolute -top-0.5 left-0 h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_4px_1px_rgba(16,185,129,0.9),0_0_10px_3px_rgba(16,185,129,0.5)] motion-reduce:animate-none dark:bg-emerald-400 dark:shadow-[0_0_4px_1px_rgba(52,211,153,0.9),0_0_12px_4px_rgba(52,211,153,0.55)] ${
+            fast ? 'animate-travel-fast' : 'animate-travel-slow'
+          }`}
+        />
+      </span>
+    </span>
   );
 }
 
@@ -2234,8 +2335,14 @@ function PlanRow({
       {/* The activity mark, hanging in the row's own `relative` box the way it
           does on a branch row — no track, no shift. It reaches the plan row
           because a plan whose branch is being written to is a plan something is
-          happening on, and the branch carrying it may be folded out of sight. */}
-      {active && <ActivityMark />}
+          happening on, and the branch carrying it may be folded out of sight.
+
+          Always the FAST pace, because `active` is the only thing that reaches
+          this row: NOT STARTED is where plan rows are drawn, and its branches
+          are by definition not in WORKING, so the slow pace has no case to
+          state here. A plan row shows a mark exactly when one of its branches
+          is being written to. */}
+      {active && <ActivityMark pace="fast" />}
       {/* Phase: empty. A plan row's phase would be the plan's phase, which is
           Approved for everything in this section — a column showing one word on
           every row is the chrome the phase cell replaced the repo to avoid. */}
@@ -2398,9 +2505,21 @@ function Row({
       {marked && <ChangeMark />}
       {/* The activity mark, beside the live dot and never instead of it. The
           dot answers *is this row in WORKING* — an address, true for hours;
-          this answers *is something being written here* — a pulse, true while
-          it holds. A row can carry both, and then it carries two marks. */}
-      {active && <ActivityMark />}
+          this answers *at what pace is something happening here*. A row can
+          carry both, and then it carries two marks.
+
+          TWO ENTRY PATHS, and they are not the same claim. `active` is the
+          fleet's answer for the whole list at once — `isActive` in this pulse,
+          or a lock seen in a recent one still echoing — and it travels FAST.
+          `isLive` adds the rows the fleet places in WORKING while observing no
+          local signal: claimed, and nobody knows. Those travel SLOW.
+
+          `isActive` itself is untouched. Widening happens HERE, at the render,
+          where the second path is visibly a second statement rather than a
+          quietly loosened predicate — and where the pace keeps the two apart. */}
+      {(active || isLive(row)) && (
+        <ActivityMark pace={active ? 'fast' : activityPace(row)} />
+      )}
       {isLive(row) && <LiveDot />}
       {/* The phase takes the REPO's place rather than adding a seventh cell to
           a row that already wraps on `feature/opus5-hardening-challenge-budget`.

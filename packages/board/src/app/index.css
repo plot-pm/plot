@@ -1,5 +1,50 @@
 @import "tailwindcss";
 
+/*
+ * THE ACTIVITY MARK'S TRAVEL — the board's only hand-written keyframes.
+ *
+ * Every other animation on this board is a Tailwind utility (`animate-pulse`,
+ * `animate-ping`), and that was the right call each time: the smallest
+ * introduction, no new file, and `motion-reduce:animate-none` arrives with the
+ * utility. This one cannot be, because no utility travels: `pulse` changes
+ * opacity and `ping` scales, and both stay where they are.
+ *
+ * `--tw-travel` is a fraction of the TRACK rather than a pixel count, so the
+ * dot's reach follows the track's width instead of needing to be retuned
+ * beside it. The dot is `left-0` inside a `relative` track, so `0%` is the
+ * left end and `100%` of the offset is the right one.
+ *
+ * **The dot must never ARRIVE, and the keyframes are where that is enforced.**
+ * Travel was refused twice in this repo — rotation and traversal alike — for
+ * one reason: they *"imply progress toward completion, which nothing here
+ * measures"*. A dot that goes out and comes back promises no destination: it
+ * reports a RATE, not a distance. So the frames end where they began, and the
+ * form matters — `alternate` on a one-way frame set would also return, but it
+ * spends half its cycle running backwards, which reads as undoing. Out and
+ * back inside ONE cycle keeps both legs forward motion in their own terms and
+ * makes "returns to its start" a property of the keyframes themselves rather
+ * than of the direction they are played in.
+ *
+ * Nothing here fills, completes or arrives. Anything added later that does
+ * reintroduces exactly what was refused.
+ */
+@theme {
+  --animate-travel-fast: travel 1.1s ease-in-out infinite;
+  --animate-travel-slow: travel 3.4s ease-in-out infinite;
+
+  @keyframes travel {
+    0% {
+      transform: translateX(0);
+    }
+    50% {
+      transform: translateX(var(--tw-travel, 0.75rem));
+    }
+    100% {
+      transform: translateX(0);
+    }
+  }
+}
+
 :root {
   color-scheme: light dark;
 }
