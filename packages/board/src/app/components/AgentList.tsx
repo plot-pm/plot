@@ -5,6 +5,7 @@ import {
   type Card,
   type DispatchInfo,
   type Fleet,
+  type Repair,
   type Stuck,
   type StuckState,
   type WaitingGroup,
@@ -648,6 +649,48 @@ export function offersAction(state: StuckState): boolean {
 }
 
 /**
+ * Is an action ACTUALLY reachable on this row — not merely usual for its state?
+ *
+ * **`offersAction` answers about the state; this answers about the row.** The
+ * distinction is not pedantic, and a screenshot found it: `conflict` is a state
+ * that offers an action, but `StuckAction` falls back to the words *no dispatch
+ * available for this plan* when the row has no card or the board has not said
+ * whether it will act. The cue rendered anyway, so an animated dot sat pointing
+ * at a sentence saying nothing could be asked.
+ *
+ * That breaks the rule the cue exists under: **motion marks an unanswered
+ * request, and where nothing can be asked there is no request.** It is the same
+ * reasoning that keeps `unpushed` and `artifact-conflict` still — this is simply
+ * a third way an action can be absent, and unlike those two it depends on the
+ * row rather than on the state, which is why the state alone could not see it.
+ *
+ * A refusal is NOT an absence, and the difference decides the two arms below. A
+ * `conflict` row over a non-localhost binding has a card and a dispatch verdict
+ * — `StartWorkButton` renders, disabled, and NAMES the reason — so the request
+ * is real, still unanswered, and still yours to answer from another machine.
+ * Hiding the cue there would let a phone report a healthy fleet while branches
+ * sit stuck. Absent means there is nothing to click at all.
+ *
+ * Exported for test: an implementation keyed on the state alone passes every
+ * assertion about a normal stuck row and animates at a dead end.
+ */
+export function actionReachable(
+  stuck: Pick<Stuck, 'state' | 'runHistory'>,
+  card: Card | null,
+  dispatch?: DispatchInfo,
+): boolean {
+  if (!offersAction(stuck.state)) return false;
+  // `ci-failing` offers a LINK, and an absent URL is a real answer (Bitbucket
+  // has no run listing) that the row states in words. No address, no
+  // navigation, nothing to ask.
+  if (stuck.state === 'ci-failing') return stuck.runHistory.some((r) => r.url);
+  // `conflict` dispatches through the guarded route, which needs a card to name
+  // the plan and a dispatch verdict to say whether the server will act. Without
+  // either the row says so instead of rendering a control.
+  return Boolean(card && dispatch);
+}
+
+/**
  * Does this row wear the animated cue?
  *
  * **Only where an action is OFFERED, and only until it is TAKEN.** Both bounds
@@ -669,11 +712,60 @@ export function offersAction(state: StuckState): boolean {
  * is why the activity mark is static. A stuck branch is neither — it is true
  * UNTIL SOMEONE ACTS, and the acting is the point.
  *
+ * **The first bound is about the ROW, not the state**, and a screenshot is what
+ * settled it. This used to read `offersAction(state)`, which is the state's
+ * usual behaviour rather than this row's actual one — so a `conflict` row whose
+ * action had fallen back to *no dispatch available for this plan* wore an
+ * animated dot pointing at a sentence saying nothing could be asked. See
+ * {@link actionReachable}: where nothing can be asked, no request was made.
+ *
  * Exported for test: a cue that survives the click passes every "the cue
- * animates" assertion.
+ * animates" assertion, and one keyed on the state alone passes every assertion
+ * about a row whose action is present.
  */
-export function showsCue(state: StuckState, actionTaken: boolean): boolean {
-  return offersAction(state) && !actionTaken;
+export function showsCue(reachable: boolean, actionTaken: boolean): boolean {
+  return reachable && !actionTaken;
+}
+
+/**
+ * What the row says about the one repair this system performs by itself.
+ *
+ * **EVERY REPAIR IS REPORTED — running, pushed, or abandoned.** A silent
+ * automatic write is indistinguishable from a defect, which is the failure mode
+ * the whole stuck-branch plan exists to remove, and it is the one that would
+ * arrive here: the branch stays `artifact-conflict` for the entire repair
+ * (nothing about the refs changes until the push lands), so a row that only
+ * showed `stuck` would sit unchanged for five minutes while a machine wrote to
+ * the branch. Indistinguishable, from the outside, from the pulse ignoring it.
+ *
+ * **The failures are reported as loudly as the success.** `abandoned` is the
+ * repair's own gate stopping it — a failed rebuild, a red `test:board`, a
+ * rejected push — and it means nothing was pushed and this conflict is now a
+ * human's. A word that only appeared on success would be quietest exactly when a
+ * reader most needs it.
+ *
+ * "" for a branch nothing was attempted on, which renders as nothing at all.
+ *
+ * Exported for test: an implementation that reports only `pushed` passes every
+ * assertion that a successful repair is visible.
+ */
+export function repairWord(repair: Repair | null | undefined): string {
+  if (!repair) return '';
+  if (repair.state === 'running') return 'repairing — merge, rebuild, test:board';
+  switch (repair.outcome) {
+    case 'pushed':
+      return 'repaired automatically — rebuilt and pushed after test:board passed';
+    case 'abandoned':
+      // The reason is the script's own word, and it is carried rather than
+      // translated: `tests-failed` and `build-failed` end in the same place for
+      // the reader (nothing was pushed) and in different places for whoever
+      // opens the log.
+      return `repair abandoned${repair.reason ? ` — ${repair.reason}` : ''}; nothing was pushed`;
+    case 'refused':
+      return `repair refused${repair.reason ? ` — ${repair.reason}` : ''}`;
+    default:
+      return 'repair finished';
+  }
 }
 
 /**
@@ -1272,30 +1364,51 @@ function StuckCell({
   // reload starts the cue again, which is the honest answer to *is this still
   // waiting on me* when the board has only just started looking.
   const [actionTaken, setActionTaken] = useState(false);
-  if (!stuck) return null;
+  const repairLine = repairWord(row.repair);
+  // NOT `if (!stuck)` alone, and the difference is the whole point of reporting
+  // repairs at all. A SUCCESSFUL repair ends by pushing, which unsticks the
+  // branch — so on the very next pulse `stuck` is null while the repair is the
+  // freshest thing that happened to it. Returning early there would hide the
+  // report at exactly the moment it explains what a reader is looking at, and
+  // an automatic write nobody can see is the defect this plan exists to remove.
+  if (!stuck && !repairLine) return null;
 
-  const word = stuckWord(stuck.state);
-  const evidence = stuckEvidence(stuck);
-  const offers = offersAction(stuck.state);
-  const cue = showsCue(stuck.state, actionTaken);
+  const word = stuck ? stuckWord(stuck.state) : '';
+  const evidence = stuck ? stuckEvidence(stuck) : [];
+  const offers = stuck ? offersAction(stuck.state) : false;
+  // The cue follows what this ROW can actually ask, not what its state usually
+  // offers — `StuckAction` falls back to words in three places, and an animated
+  // dot beside one of them points at a request nobody can make.
+  const cue = stuck ? showsCue(actionReachable(stuck, card, dispatch), actionTaken) : false;
 
   return (
     <span
       role="gridcell"
-      data-stuck={stuck.state}
-      // Its own line beneath the row's six columns (`col-span-full`) rather
-      // than a seventh track. The evidence is three lines wide on a
-      // `ci-failing` row and most rows carry none at all — a track sized for
-      // it would push every real column in from the edge on the whole fleet to
-      // reserve room for something rare and tall.
-      className="flex w-full flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs sm:col-span-full"
+      data-stuck={stuck?.state ?? ''}
+      // ITS OWN LINE beneath the row's six columns rather than a seventh track:
+      // the evidence is three lines wide on a `ci-failing` row and most rows
+      // carry none at all, so a track sized for it would push every real column
+      // in from the edge across the whole fleet to reserve room for something
+      // rare and tall.
+      //
+      // **From column 2, not column 1**, and a screenshot settled the
+      // difference. `col-span-full` starts at the PHASE track, which is `6rem`
+      // wide and frequently empty — so on a row with no phase the evidence hung
+      // flush left under nothing while the branch it describes started `6rem`
+      // in, reading as a foreign element rather than as a continuation of the
+      // row. `2 / -1` starts it where the row's own content starts, and because
+      // the phase track is FIXED it lands identically whether or not that row
+      // has a phase — which is the property the fixed tracks exist for.
+      className="flex w-full flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs sm:col-start-2 sm:col-end-[-1]"
     >
       {/* The state as a WORD, in amber, and the word is the carrier — the
           colour only reinforces it. `title` names the state's own terms so a
           pointer gets the one sentence that explains the errand. */}
-      <span className="shrink-0 font-medium text-amber-700 dark:text-amber-500">
-        {word}
-      </span>
+      {word && (
+        <span className="shrink-0 font-medium text-amber-700 dark:text-amber-500">
+          {word}
+        </span>
+      )}
       {/* EVIDENCE TRAVELS WITH THE STATE. Each line is its own element rather
           than one joined sentence, so a reader (and a test) can find the
           `ci-failing` row's three lines separately — they are three different
@@ -1309,7 +1422,21 @@ function StuckCell({
           {line}
         </span>
       ))}
-      {offers && (
+      {/* WHAT THE MACHINE DID, on the same line as why it was stuck. A repair
+          is an event on this branch, and separating it from the state that
+          caused it would make a reader join two places to learn that the
+          conflict they are looking at is already being handled — or was, and
+          the handling gave up. */}
+      {repairLine && (
+        <span
+          data-repair={row.repair?.state ?? ''}
+          data-repair-outcome={row.repair?.outcome ?? ''}
+          className="min-w-0 text-slate-500 max-sm:whitespace-normal dark:text-slate-400"
+        >
+          {repairLine}
+        </span>
+      )}
+      {offers && stuck && (
         <StuckAction
           row={row}
           stuck={stuck}
