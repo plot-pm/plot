@@ -270,7 +270,7 @@ attribute and belongs here rather than in a plan of its own.
 
 ### Board
 
-- `bug/approve-button-needs-no-config` — `approveAvailability()` drops the
+- `bug/approve-button-needs-no-config` → #169 — `approveAvailability()` drops the
   `Approve command` requirement and matches dispatch; `ApproveButton` moves to
   `aria-disabled`
 
