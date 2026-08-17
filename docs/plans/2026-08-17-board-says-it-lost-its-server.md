@@ -190,7 +190,7 @@ never reached.
 
 - `feature/board-dims-when-lost` — after a sustained silence the app dims and
   blocks interaction, over the existing banner; message names the state, the
-  restart command and the address
+  restart command and the address → #160
 
 One branch: one state, one overlay, one threshold — in `App.tsx`, where both
 tabs can inherit it.
