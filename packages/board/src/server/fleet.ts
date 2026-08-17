@@ -748,8 +748,16 @@ export function classify(
     // share those three words want opposite things. `no checks` on a bot PR
     // wants a click; on this one it wants a rebase.
     //
-    // `waiting-on-you` either way — a conflict is a person's errand, and the
-    // group was already right. Only the sentence was wrong.
+    // `waiting-on-you` either way, and that moves nothing: a conflicting PR
+    // reports an EMPTY rollup, so every row this arm now answers was already
+    // landing in `waiting-on-you` through the `none` case below. Only the
+    // SENTENCE changes.
+    //
+    // Drafts included, and deliberately. The `green` arm below defers a draft
+    // to its author, but `none` never did — a draft with no checks has always
+    // been the author's errand — and a conflict is the strongest possible
+    // version of that errand. Adding a draft exemption here would move rows
+    // this change is not about, in the direction of saying less.
     if (pr.mergeable === 'conflicting') {
       return { group: 'waiting-on-you', note: withNote(`PR #${pr.number}, conflicts`, note) };
     }

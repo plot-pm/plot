@@ -1692,6 +1692,23 @@ describe('the note says conflicts too', () => {
     expect(draftNote(pr({ draft: true }))).toMatch(/draft, conflicts/);
   });
 
+  it('moves no row — a conflicting PR was already waiting on you', () => {
+    // The safety assertion. A conflicting PR reports an EMPTY rollup, so every
+    // row this arm answers was already reaching `waiting-on-you` through the
+    // `none` case: the group is unchanged and only the SENTENCE is new.
+    //
+    // Drafts included. The `green` arm defers a draft to its author, but `none`
+    // never did — a draft with no checks has always been the author's errand —
+    // and a conflict is the strongest version of that errand.
+    for (const draft of [false, true]) {
+      const before = classify('wip', 'eligible', 3, QUIET,
+        pr({ draft, mergeable: 'mergeable' }));
+      const after = classify('wip', 'eligible', 3, QUIET, pr({ draft }));
+      expect(after.group).toBe(before.group);
+      expect(after.note).not.toBe(before.note);
+    }
+  });
+
   it('leaves every non-conflicting note exactly as it was', () => {
     // The pairing: a change that says `conflicts` everywhere passes the two
     // assertions above.
