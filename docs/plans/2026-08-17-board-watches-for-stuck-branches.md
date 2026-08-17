@@ -287,7 +287,7 @@ existing scan, CI from the PR state the contract already carries.
 
 - `feature/scan-reports-stuck-branches` — the scan names the four stuck
   states with their evidence; read-only, stateless, machine-countable
-  footer
+  footer → #183
 
 ### Display
 
