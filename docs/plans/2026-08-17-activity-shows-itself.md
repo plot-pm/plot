@@ -13,6 +13,7 @@
 - **Started:** 2026-08-17, Jan Wloka, `feature/rows-mark-real-activity`
 - **Delivered:**
 - **Started:** 2026-08-17, Jan Wloka, `feature/activity-marker-glows`
+- **Started:** 2026-08-17, Jan Wloka, `feature/group-shows-inner-activity`
 
 ## Problem
 
