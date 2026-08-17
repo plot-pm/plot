@@ -933,6 +933,40 @@ ancestors of open PR #57.
 single-PR-mode plans, and treat "contained in an open PR" as distinct from
 orphaned via `git merge-base --is-ancestor`.
 
+### 2026-08-17 — A test that mistakes the machine for its sandbox
+
+`discovery.test.mjs:276` asserts that repeated builds leave no staging
+directory behind, and counts them like this:
+
+```js
+fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith('plot-board-branch-')).length
+```
+
+The reasoning in its own comment is right — *"repeated builds must not
+GROW the set … the one a single snapshot cannot see"* — but the counted
+set is **`os.tmpdir()` globally**, not this run. While any other board
+process is alive on the machine, the test measures that process's cleanup
+too.
+
+Measured on 2026-08-17 with up to five agents plus a live `pnpm board` on
+one host: the test failed locally (`2 !== 1`), passed 11/11 on an
+immediate re-run with no code change, and passed on a clean `main`. In CI
+the same shared state failed the other way — `ENOTEMPTY: rmdir
+'/tmp/plot-board-nested-*/outer/.git'` — a teardown race in which every
+visible assertion passed (95/95, `# fail 0`) and the step still exited 1.
+
+**This is the same shape as #166** (`test-boards-die-with-their-run`),
+where test servers outlived their run: a test that treats the machine as
+its own sandbox. Same trigger, too — several agents on one host, which
+only became normal this month.
+
+The fix is to scope the temp directories per run rather than counting a
+global glob. Not yet planned.
+
+A red required check that carries no information about its own PR is
+worse than a slow one: it trains everyone to re-run rather than read, and
+the one time it means something, nobody looks.
+
 ## Excluded from Scope
 
 | Item | Reason | Revisit If |
