@@ -1145,12 +1145,40 @@ function useActivity(rows: readonly AgentRow[]): ReadonlySet<string> {
 /**
  * The mark a row wears while something is being written to it.
  *
- * **This wave gives it the smallest honest rendering and stops there.** The
- * prominent form — a glowing bar down the row's left edge — is a later wave's
- * work, and building it here would mean shipping a loud marker before the
- * quiet one has been proven to read the right thing. The order was paid for:
- * a glow over `group === 'working'` would have been, in the words this estate
- * used for the same mistake, *a livelier lie*.
+ * **A glowing bar down the row's left edge — and STATIC.** The wave before this
+ * one gave it the smallest honest rendering, deliberately, so the marker could
+ * be proven to read the right thing before it got loud: a glow over
+ * `group === 'working'` would have been, in the words this estate used for the
+ * same mistake, *a livelier lie*. `isActive` settled that, so the mark can now
+ * carry the prominence it was asked for.
+ *
+ * **It does not animate, and that reverses what was requested.** The report
+ * asked for *pulsing, movement, a glow*; only the glow is adopted. Measured on
+ * this row as it now stands, FOUR elements already move — `[data-live-dot]`
+ * (`animate-pulse`, 6 px), `[data-change-mark]` (`animate-pulse`, full-row wash)
+ * and `[data-stuck-cue]` (`animate-ping`), plus the change-mark's dark variant.
+ * A fifth at a fifth scale competes rather than adds. The ordering principle
+ * that settles it: **a fact true for hours has less claim on motion than a fact
+ * true for three seconds.** Motion is the scarce channel and the transient marks
+ * hold it; activity is persistent by nature — someone is writing, and will be
+ * for a while — so it takes PRESENCE, with its appearance and disappearance
+ * carrying the change.
+ *
+ * The travelling motion is refused for a second reason of its own: motion that
+ * traverses implies a destination, and this has none.
+ *
+ * **A BAR rather than a bigger dot**, because the reported problem is spotting
+ * it *from a distance*: a vertical stroke at a fixed x reads as a mark down the
+ * side of the list, where a dot must be hunted among the row's words. It also
+ * scales to the group heading — a heading can carry the same stroke; a dot in a
+ * heading would read as a bullet.
+ *
+ * **The glow is the prominence, so it must survive `motion-reduce`.** Nothing
+ * here animates, so the reduced-motion rule this repo has now written four times
+ * — *keep the mark, stop the movement* — has no movement to stop. What it must
+ * not do is strip the glow: the glow is the channel that will separate this mark
+ * from the unpushed one (*glow means someone is here*), and a reduced-motion
+ * rule that removed it would take that distinction with it.
  *
  * **`aria-hidden`, like every other mark on this row.** The row's note already
  * says what is happening in words — *uncommitted work in a local worktree* —
@@ -1167,8 +1195,10 @@ function useActivity(rows: readonly AgentRow[]): ReadonlySet<string> {
  * misled by a marker that was technically correct, so the marker says *in this
  * checkout* rather than letting absence speak for itself.
  *
- * Deliberately NOT `[data-live-dot]` and NOT `[data-change-mark]`: three marks,
- * three meanings, and no mark implemented by modifying another.
+ * Deliberately NOT `[data-live-dot]`, NOT `[data-change-mark]` and NOT
+ * `[data-stuck-cue]`: four marks, four meanings, and no mark implemented by
+ * modifying another. A row can carry several at once, and then it carries
+ * several.
  */
 function ActivityMark() {
   return (
@@ -1179,14 +1209,28 @@ function ActivityMark() {
       // Beside the live dot in the row's left padding rather than in a track of
       // its own — the same reasoning `LiveDot` documents, and the reason the
       // six columns do not move to make room for a mark most rows never carry.
-      // Static: the row already carries two pulsing elements, and a third at a
-      // third scale competes rather than adds.
+      //
       // At the row's very edge (`left-0`), where `LiveDot` sits at `left-1`
       // with a 6px dot: the two never overlap, so a row carrying both shows two
       // marks rather than one thickened one. That pairing is the standard
       // `[data-change-mark]` set — *two marks, two meanings* — and a row CAN
       // carry both: in the WORKING group, and being written to this instant.
-      className="h-3 w-0.5 shrink-0 self-center rounded-full bg-emerald-600 sm:absolute sm:left-0 sm:top-1/2 sm:-translate-y-1/2 dark:bg-emerald-400"
+      //
+      // `h-5 w-1`: a STROKE down the row rather than a tick beside it. The row
+      // is `py-2` around one line of `text-sm`, so 20px spans nearly its full
+      // height — which is what makes a column of these read as a mark down the
+      // side of the list at a glance, the distance problem that was reported.
+      // Doubling the width to 4px is what carries it across a room; the glow
+      // does the rest.
+      //
+      // The glow is an explicit `shadow-[...]` in the mark's own emerald rather
+      // than a `shadow-*` scale step, because the scale's shadows are neutral
+      // greys for lifting a surface off the page — a drop shadow, not a light.
+      // Two rings: a tight one that thickens the stroke's edge and a wide,
+      // faint one that spreads. NO `animate-*` of any kind, and therefore no
+      // `motion-reduce:` variant to write — see the note above on why the glow
+      // must survive reduced motion rather than be stripped by it.
+      className="h-5 w-1 shrink-0 self-center rounded-full bg-emerald-500 shadow-[0_0_4px_1px_rgba(16,185,129,0.9),0_0_10px_3px_rgba(16,185,129,0.5)] sm:absolute sm:left-0 sm:top-1/2 sm:-translate-y-1/2 dark:bg-emerald-400 dark:shadow-[0_0_4px_1px_rgba(52,211,153,0.9),0_0_12px_4px_rgba(52,211,153,0.55)]"
     />
   );
 }
