@@ -14,6 +14,7 @@ import {
   type WorkerState,
 } from '../contract/schema.js';
 import type { BuildBoardOptions } from './board.js';
+import { readBridge, writeBridge } from './pulse-bridge.js';
 
 /**
  * How long a branch may sit without a commit before it reads as quiet rather
@@ -482,6 +483,18 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     entry.ideaPlans = await ideaPlanFiles(opts);
     entry.at = Date.now();
     entry.error = null;
+    // The one place the bridge is written, and it is INSIDE the success path on
+    // purpose. A scan that failed must not overwrite the last good answer — the
+    // same one-directional rule the in-memory cache obeys three lines down, and
+    // the only thing standing between a `--watch` restart and an empty board.
+    writeBridge(opts.repoRoot, {
+      at: entry.at,
+      pulse: parsed,
+      ages: entry.ages,
+      branchUrlBase: entry.branchUrlBase,
+      approvedAt: entry.approvedAt,
+      ideaPlans: entry.ideaPlans,
+    });
   } catch (err) {
     // A failed refresh NEVER overwrites a good result. Replacing real state
     // with emptiness because one scan failed is what makes a monitoring view
@@ -507,10 +520,45 @@ function ensureCache(opts: BuildBoardOptions): CacheEntry {
     timer: null, prTimer: null, running: false, prRunning: false,
   };
   caches.set(key, entry);
+  // THE BRIDGE, read once — the only read in the process's life.
+  //
+  // A `node --watch` restart takes this cache with the process, and a freshly
+  // started board therefore had nothing to degrade to: measured on 2026-08-17,
+  // `0 branches across 0 plans` while five agents were working. The file is the
+  // previous process's last good answer, and serving it labelled with its real
+  // age is #141's *degrade, do not hide* applied to the server's own side of
+  // the same failure.
+  //
+  // `entry.at` is the SCAN's timestamp, not this moment: the page's age, its
+  // banner and its stopped clocks are all driven from it, so a bridged pulse
+  // must age from when it was true rather than from when it was loaded. Passing
+  // `Date.now()` here would present a payload from ten minutes ago as fresh,
+  // which is the one thing worse than showing nothing.
+  //
+  // Null covers every way of not having one — no file, unreadable, a foreign
+  // shape, or simply too old to mean anything — and leaves the cold-start
+  // behaviour exactly as it was.
+  const bridged = readBridge(opts.repoRoot);
+  if (bridged) {
+    entry.pulse = bridged.pulse;
+    entry.ages = bridged.ages;
+    entry.branchUrlBase = bridged.branchUrlBase;
+    entry.approvedAt = bridged.approvedAt;
+    entry.ideaPlans = bridged.ideaPlans;
+    entry.at = bridged.at;
+  }
   // Warm at startup so the first person to open the tab does not wait a second
   // for it; until this lands the endpoint reports `ready: false`. Both sources
   // are warmed — the slower cadence must not mean the tab opens with no PR data
   // for a minute.
+  //
+  // Issued BESIDE the bridge read, never instead of it, and the pair is
+  // deliberate: a scan costs 500–1050 ms (21.2 s measured on a cold boot), so
+  // scanning alone narrows the empty window without closing it, and a `--watch`
+  // restart storm reopens it on every save; the file alone would leave the
+  // board stale until this lands. The file covers the gap, the scan ends it —
+  // and when it lands it overwrites every field set above, so a real answer
+  // always wins over the bridged one.
   void refresh(opts, entry);
   void maybeRefreshPrs(opts, entry);
   entry.timer = setInterval(() => void refresh(opts, entry!), REFRESH_MS);
