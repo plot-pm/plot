@@ -699,8 +699,58 @@ export const AgentRowSchema = z.object({
    * The open PR for this branch, if the host reported one. `url` may be "" even
    * when `number` is set — an older host CLI reports no address — and the row
    * then shows the number without a link rather than inventing one.
+   *
+   * `state` and `draft` exist so the PR's condition travels as DATA rather than
+   * as a sentence. Before them the row carried only `{ number, url }`, and every
+   * other fact about the PR — green, draft, no checks — existed solely inside
+   * `note`, assembled by different branches of the server's classifier. That is
+   * why one row read `PR #57 green` and the next `PR #116, no checks`: nothing
+   * downstream could make them agree, and nothing could render a badge from a
+   * sentence without parsing it back apart.
    */
-  pr: z.object({ number: z.number(), url: z.string().default('') }).nullable().default(null),
+  pr: z.object({
+    number: z.number(),
+    url: z.string().default(''),
+    /**
+     * Offered for review, or still the author's — a DIFFERENT question from
+     * `state`, and deliberately its own boolean.
+     *
+     * The two are independent: a draft has CI like anything else, and the
+     * server's `draftNote` already says so ("draft, CI running"). Folding it
+     * into `state` as a seventh value would destroy an answer the code already
+     * produces, and it would rebuild a known defect — the classifier used to
+     * short-circuit every draft before the checks were consulted, which is the
+     * first of three reasons WAITING ON A MACHINE was never once populated.
+     * A single-value state moves that short-circuit out of the classifier and
+     * into the contract, where it is harder to see and shared by every consumer.
+     */
+    draft: z.boolean().default(false),
+    /**
+     * What the PR is waiting for, as a value.
+     *
+     * - `green` — every check concluded successfully
+     * - `pending` — genuinely queued or running; a machine is the blocker
+     * - `failing` — a check failed, or one waits on a human click
+     *   (`ACTION_REQUIRED`); see `plot-host.sh` for why those are one value
+     * - `none` — the rollup is empty. No workflow ran, and the reason is that a
+     *   person has not approved the run
+     * - `conflicts` — the branch does not merge cleanly
+     * - `unknown` — the host cannot report it (Bitbucket carries no rollup)
+     *
+     * **`conflicts` outranks `none` where both hold**, because it is the cause
+     * and the other its consequence: GitHub starts no workflow for a PR that
+     * does not merge, so a conflicting PR ALWAYS also reports an empty rollup.
+     * A row saying `no checks` there tells the truth about the symptom and
+     * withholds the reason — measured on PR #149 and PR #160, both of which read
+     * `no checks` while GitHub said *this branch has conflicts*.
+     *
+     * Defaults to `unknown` so an older pulse still validates, and because
+     * unknown is the honest answer for a payload that predates the field —
+     * absent is not clean.
+     */
+    state: z.enum(['green', 'pending', 'failing', 'none', 'conflicts', 'unknown'])
+      .default('unknown'),
+  }).nullable().default(null),
   /**
    * Where this branch lives on the git host, or "" — the address the row's own
    * branch name points at.
