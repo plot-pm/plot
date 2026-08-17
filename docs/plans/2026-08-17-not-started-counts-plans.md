@@ -10,7 +10,7 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-17, Jan Wloka, plan-PR #188 merged
-- **Started:**
+- **Started:** 2026-08-17, Jan Wloka, `feature/not-started-counts-plans`
 - **Delivered:**
 
 ## Problem
