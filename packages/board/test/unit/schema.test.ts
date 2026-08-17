@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PlanMetaSchema, CardSchema } from '../../src/contract/schema';
+import { PlanMetaSchema, CardSchema, FleetBranchSchema } from '../../src/contract/schema';
 
 describe('PlanMetaSchema — waves', () => {
   const base = { file: 'docs/plans/x.md', format: 'canonical', phase: 'approved' };
@@ -101,5 +101,33 @@ describe('CardSchema — pull requests', () => {
   it('defaults to no PRs, so a plan that names none is not a degraded card', () => {
     const card = CardSchema.parse({ ...base, phase: 'Design' });
     expect(card.prs).toEqual([]);
+  });
+});
+
+describe('FleetBranchSchema — the worker', () => {
+  const base = { branch: 'feature/x', state: 'claimed', deferred: false, claimed: '' };
+
+  it('defaults an absent worker to `elsewhere` — could not look, not "nobody"', () => {
+    // A pulse from a scan predating the field must still validate, and the
+    // default has to be the value that licenses no claim about a worker either
+    // way. `elsewhere` says *this machine has nowhere to look*, which is exactly
+    // what a scan that reports nothing means. Defaulting to `none` would assert
+    // a local absence the scan never observed.
+    const b = FleetBranchSchema.parse(base);
+    expect(b.worker).toBe('elsewhere');
+    expect(b.worker_pid).toBe('');
+    expect(b.worker_exit).toBe('');
+  });
+
+  it('keeps all six values, so `failed` and `finished` cannot collapse', () => {
+    for (const w of ['running', 'finished', 'failed', 'ended', 'none', 'elsewhere']) {
+      expect(FleetBranchSchema.parse({ ...base, worker: w }).worker).toBe(w);
+    }
+  });
+
+  it('carries the pid as a STRING — an identifier to show, never arithmetic', () => {
+    // And "" is the honest rendering of "no pid was recorded", which a number
+    // has no room for: 0 is a real-looking pid, and `kill -0 0` succeeds.
+    expect(FleetBranchSchema.parse({ ...base, worker_pid: '4242' }).worker_pid).toBe('4242');
   });
 });

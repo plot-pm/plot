@@ -359,6 +359,23 @@ export const WaveVerdictSchema = z.enum(['complete', 'eligible', 'blocked']);
 export type WaveVerdict = z.infer<typeof WaveVerdictSchema>;
 
 /**
+ * What the scan found out about a worker on a branch — `worker_state()`'s five
+ * outcomes, plus the case where this machine has nowhere to look.
+ *
+ * The scan's INTERNAL vocabulary, like `BranchStateSchema`: prose belongs to the
+ * row, and a board that parsed a human sentence would break on a reworded one.
+ *
+ * All five of `worker_state()`'s outcomes are kept apart because collapsing them
+ * re-creates the defect this exists to fix — `failed` and `finished` are
+ * opposite actions, restart versus review. `elsewhere` is the sixth: no worktree
+ * here, so the question cannot be answered rather than answered "no".
+ */
+export const WorkerStateSchema = z.enum([
+  'running', 'finished', 'failed', 'ended', 'none', 'elsewhere',
+]);
+export type WorkerState = z.infer<typeof WorkerStateSchema>;
+
+/**
  * The note the server composes for a branch no earlier wave blocks — the one
  * kind of `not-started` row a person can actually pick up.
  *
@@ -467,6 +484,71 @@ export const FleetBranchSchema = z.object({
    * refs".
    */
   local_ahead: z.number().default(0),
+  /**
+   * Whether anything is actually RUNNING on this branch.
+   *
+   * A claim is a push: it says a dispatcher TOOK the branch, and nothing more.
+   * Three rows sat in WORKING with a pulsing dot on 2026-08-17 while nobody was
+   * working on any of them — the claim was real, the worker was never started.
+   *
+   * SIX VALUES, and every one of them earns its place by naming a different
+   * next move:
+   *
+   * | value       | the reader's move                                 |
+   * |-------------|---------------------------------------------------|
+   * | `running`   | leave it alone                                    |
+   * | `finished`  | review it                                         |
+   * | `failed`    | restart it — `worker_exit` says how it died       |
+   * | `ended`     | read the log; the exit status was not recorded    |
+   * | `none`      | a worktree is here, but no pid — look in it       |
+   * | `elsewhere` | no worktree here — ask the machine that took it   |
+   *
+   * `failed` and `finished` stay apart because their actions are OPPOSITE —
+   * restart versus review — and one label over both sends the reader to a log to
+   * find out which. That is the same one-label-two-states shape as `no commits
+   * yet` covering both an idle branch and a finished-but-unpushed one.
+   *
+   * `none` means **unknown, never "nobody"**. `plot-dispatch` writes the pid
+   * only where it started the worker itself, so a hand-started worker leaves
+   * none — and hand-starting is the normal case for as long as `Worker command`
+   * is unset. Five agents were started that way in one session; reading a
+   * missing pid as "nobody is working" would report every one of them dead.
+   * Absent is not false, the rule this file applies to every other missing
+   * signal.
+   *
+   * `elsewhere` is a THIRD state, not a flavour of the second: the pid lives in
+   * the worktree, so a branch claimed on another machine has no path to look at
+   * at all. Looking and finding nothing differs from having nowhere to look, and
+   * the actions differ with it.
+   *
+   * Defaults to `elsewhere` so a pulse from an older scan still validates:
+   * a scan that reports nothing is a scan that could not look, which is exactly
+   * what `elsewhere` says. It licenses no claim about a worker either way.
+   */
+  worker: WorkerStateSchema.default('elsewhere'),
+  /**
+   * The worker's pid as the SCAN read it, or "".
+   *
+   * Carried as a value rather than as something to re-derive, and that is the
+   * whole point: `kill -0 0` signals the entire process GROUP and succeeds, so a
+   * pid of `0` read naively is alive forever. The scan rejects it exactly as
+   * `worker_state()` does and reports `none`, so `0` can never arrive here
+   * beside `running`. Re-deriving liveness on this side would spring the trap
+   * again.
+   *
+   * A string, not a number: it is an identifier to show a reader, never
+   * arithmetic, and "" is the honest rendering of "no pid was recorded".
+   */
+  worker_pid: z.string().default(''),
+  /**
+   * The exit code of a worker that stopped, or "".
+   *
+   * Present with `failed` (and `"0"` with `finished`); empty with `ended`, which
+   * is precisely the state that means *the status was not recorded*. Empty is
+   * therefore never read as success — guessing `finished` from an absent record
+   * is the one answer that tells a reader to stop looking.
+   */
+  worker_exit: z.string().default(''),
 });
 export type FleetBranch = z.infer<typeof FleetBranchSchema>;
 

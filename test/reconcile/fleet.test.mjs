@@ -8,7 +8,7 @@
 // Principle 1), and these tests are what hold it.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -1572,5 +1572,213 @@ test('fleet: the local signal leaves the human report byte-identical', () => {
   const after = f.run();
   assert.equal(after, before,
     'a dirty worktree must change the JSON, not the prose');
+  f.cleanup();
+});
+
+// --- a claim is not a worker -------------------------------------------------
+//
+// A claim is a push: it says a dispatcher TOOK the branch and nothing more. On
+// 2026-08-17 three rows sat in WORKING with a pulsing dot while nobody was
+// working on any of them — the claim was real, the worker was never started.
+//
+// `worker_state()` in plot-dispatch.sh has distinguished FIVE outcomes since it
+// was written, and `grep -rn "plot-worker.pid" packages/board/src` returned
+// NOTHING: the information was already richer than the board assumed and reached
+// no screen. This does not add a liveness check; it reports the one that exists.
+//
+// SIX values travel, because the absence of a worktree is a THIRD kind of answer
+// and not the second one — the pid lives IN the worktree, so a branch claimed on
+// another machine has nowhere here to look.
+//
+// Read docs/plans/2026-08-17-dispatch-hands-over-work.md before changing any of
+// it.
+
+/** The worker record `plot-dispatch` writes, or the half of it that exists. */
+function writeWorker(wt, pid, exitCode) {
+  if (pid !== null) fs.writeFileSync(path.join(wt, '.plot-worker.pid'), `${pid}\n`);
+  if (exitCode !== undefined) {
+    fs.writeFileSync(path.join(wt, '.plot-worker.exit'), `${exitCode}\n`);
+  }
+}
+
+/** The branch's worker triple from a --json run. */
+function workerOf(f, branch) {
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === branch);
+  return { state: b.worker, pid: b.worker_pid, exit: b.worker_exit, git: b.state };
+}
+
+/** A claimed branch — the empty `plot: claim` marker a dispatcher pushes. */
+function claim(f, br) {
+  git(f.dir, 'checkout', '-q', 'main');
+  git(f.dir, 'checkout', '-qb', br);
+  git(f.dir, 'commit', '-q', '--allow-empty', '-m', `plot: claim ${br}`);
+  f.push('-u', 'origin', br);
+  git(f.dir, 'checkout', '-q', 'main');
+}
+
+test('fleet: a claim with NO worktree here says `elsewhere`, not `none`', () => {
+  // The third state, and the one a two-value design gets wrong. The pid lives in
+  // the worktree, so this machine has nowhere to look at all — which calls for
+  // asking the machine that took the branch, not for looking again here.
+  const f = makeRepo('plot-worker-elsewhere-', ONE_WAVE('feature/taken-away'));
+  claim(f, 'feature/taken-away');
+
+  const w = workerOf(f, 'feature/taken-away');
+  assert.equal(w.state, 'elsewhere', 'no worktree here — the question cannot be answered');
+  assert.equal(w.git, 'claimed', 'and the refs answer is untouched');
+  f.cleanup();
+});
+
+test('fleet: a worktree with NO pid says `none` — unknown, never "nobody"', () => {
+  // `plot-dispatch` writes the pid only where it started the worker ITSELF, so a
+  // hand-started agent leaves none — and hand-starting is the normal case for as
+  // long as `Worker command` is unset. Five agents were started that way in one
+  // session; reading a missing pid as "nobody is working" would have reported
+  // every one of them dead.
+  //
+  // `none` and `elsewhere` are asserted DIFFERENT here, because that is the pair
+  // a lazy implementation collapses.
+  const f = makeRepo('plot-worker-none-', ONE_WAVE('feature/hand-started'));
+  claim(f, 'feature/hand-started');
+  addWorktree(f, 'feature/hand-started', 'hand');       // a desk, and no pid file
+
+  const w = workerOf(f, 'feature/hand-started');
+  assert.equal(w.state, 'none', 'a worktree is here and no pid was recorded in it');
+  assert.notEqual(w.state, 'elsewhere', 'looking and finding nothing is not having nowhere to look');
+  f.cleanup();
+});
+
+test('fleet: a LIVE pid reads running, and the pid travels', () => {
+  // The regression that matters most: a check that reads every claim as
+  // unstarted is indistinguishable from a broken fleet.
+  const f = makeRepo('plot-worker-running-', ONE_WAVE('feature/live'));
+  claim(f, 'feature/live');
+  const wt = addWorktree(f, 'feature/live', 'live');
+  // A real process, because `kill -0` is a real syscall and a fabricated pid
+  // would make this test agree with a broken implementation by luck.
+  const child = spawn('sleep', ['30'], { stdio: 'ignore' });
+  try {
+    writeWorker(wt, child.pid);
+    const w = workerOf(f, 'feature/live');
+    assert.equal(w.state, 'running');
+    assert.equal(w.pid, String(child.pid), 'the pid travels rather than being re-derived');
+  } finally {
+    child.kill('SIGKILL');
+  }
+  f.cleanup();
+});
+
+test('fleet: a pid of 0 is NEVER running — kill -0 0 signals the whole group', () => {
+  // The trap in miniature, and the reason the value must survive the trip rather
+  // than being re-derived on the far side. `kill -0 0` signals the entire process
+  // GROUP and succeeds, so pid 0 read naively is alive forever — and 0 is what an
+  // empty or truncated pid file yields under a lazy parse.
+  //
+  // Asserted as `none`, not merely as "not running": rejecting it must land on
+  // the honest answer (no pid was recorded), not on a fourth thing.
+  const f = makeRepo('plot-worker-pid0-', ONE_WAVE('feature/pid-zero'));
+  claim(f, 'feature/pid-zero');
+  const wt = addWorktree(f, 'feature/pid-zero', 'pidzero');
+  writeWorker(wt, 0);
+
+  const w = workerOf(f, 'feature/pid-zero');
+  assert.equal(w.state, 'none', 'pid 0 is never a real worker');
+  assert.notEqual(w.state, 'running');
+  f.cleanup();
+});
+
+test('fleet: a NON-NUMERIC pid is rejected the same way', () => {
+  // The other shape of a corrupt record. `kill -0 ""` and `kill -0 abc` are not
+  // liveness answers, and treating a parse failure as one would be the pid-0 bug
+  // wearing a different value.
+  const f = makeRepo('plot-worker-pidjunk-', ONE_WAVE('feature/pid-junk'));
+  claim(f, 'feature/pid-junk');
+  const wt = addWorktree(f, 'feature/pid-junk', 'pidjunk');
+  writeWorker(wt, 'not-a-pid');
+
+  assert.equal(workerOf(f, 'feature/pid-junk').state, 'none');
+  f.cleanup();
+});
+
+test('fleet: a dead pid with exit 0 is `finished`, with a code is `failed`', () => {
+  // THE distinction this change exists for. `failed` and `finished` are opposite
+  // actions — restart versus review — and one label over both sends the reader to
+  // a log to find out which.
+  //
+  // A pid that is dead for certain: a child is spawned and reaped, so the number
+  // named a real process and now names none. Picking an arbitrary high integer
+  // would risk collision with a live pid and make this flaky.
+  const f = makeRepo('plot-worker-done-', ONE_WAVE('feature/stopped'));
+  claim(f, 'feature/stopped');
+  const wt = addWorktree(f, 'feature/stopped', 'stopped');
+  const deadPid = execFileSync('bash', ['-c', 'sleep 0 & echo $!; wait'], { encoding: 'utf8' }).trim();
+
+  writeWorker(wt, deadPid, 0);
+  const ok = workerOf(f, 'feature/stopped');
+  assert.equal(ok.state, 'finished');
+  assert.equal(ok.exit, '0');
+
+  writeWorker(wt, deadPid, 137);
+  const bad = workerOf(f, 'feature/stopped');
+  assert.equal(bad.state, 'failed');
+  assert.equal(bad.exit, '137', 'the code travels, so the row can say HOW it died');
+  assert.notEqual(bad.state, ok.state, 'restart and review must not share a label');
+  f.cleanup();
+});
+
+test('fleet: a dead pid with NO exit file is `ended`, never `finished`', () => {
+  // Read the exit code, not the emptiness. Guessing success from an absent record
+  // is the same mistake in the other direction — and `finished` is the one answer
+  // that tells a reader to stop looking.
+  const f = makeRepo('plot-worker-ended-', ONE_WAVE('feature/vanished'));
+  claim(f, 'feature/vanished');
+  const wt = addWorktree(f, 'feature/vanished', 'vanished');
+  const deadPid = execFileSync('bash', ['-c', 'sleep 0 & echo $!; wait'], { encoding: 'utf8' }).trim();
+  writeWorker(wt, deadPid);                 // pid, and deliberately no exit file
+
+  const w = workerOf(f, 'feature/vanished');
+  assert.equal(w.state, 'ended', 'unknown is its own answer');
+  assert.equal(w.exit, '', 'and it carries no code, because none was recorded');
+  f.cleanup();
+});
+
+test('fleet: an UNREADABLE exit code is `ended`, not `failed`', () => {
+  // An exit file that exists but says nothing usable. `worker_state()` answers
+  // `ended (status unknown)` for the empty case, and a garbage value is the same
+  // statement: the status was not recorded. Reading it as `failed` would invent a
+  // crash, and as `finished` would invent a success.
+  const f = makeRepo('plot-worker-badexit-', ONE_WAVE('feature/garbled'));
+  claim(f, 'feature/garbled');
+  const wt = addWorktree(f, 'feature/garbled', 'garbled');
+  const deadPid = execFileSync('bash', ['-c', 'sleep 0 & echo $!; wait'], { encoding: 'utf8' }).trim();
+  writeWorker(wt, deadPid, '');
+
+  assert.equal(workerOf(f, 'feature/garbled').state, 'ended');
+  f.cleanup();
+});
+
+test('fleet: the worker read makes no host call, and leaves the prose untouched', () => {
+  // Two invariants in one fixture. The scan is git-only on its default path —
+  // that is what lets the board poll it every 5 s — and the human report is a
+  // human interface: the worker fact belongs to the JSON and the row it feeds.
+  const f = makeRepo('plot-worker-quiet-', ONE_WAVE('feature/silent'));
+  claim(f, 'feature/silent');
+  const wt = addWorktree(f, 'feature/silent', 'silent');
+  writeWorker(wt, 0);
+
+  const shim = path.join(f.root, 'bin');
+  fs.mkdirSync(shim, { recursive: true });
+  const log = path.join(f.root, 'host-calls.log');
+  for (const cli of ['gh', 'bb']) {
+    fs.writeFileSync(path.join(shim, cli),
+      `#!/bin/sh\necho "${cli} $*" >> ${JSON.stringify(log)}\nexit 1\n`);
+    fs.chmodSync(path.join(shim, cli), 0o755);
+  }
+
+  const out = f.run([], { PATH: `${shim}:${process.env.PATH}` });
+  assert.ok(!fs.existsSync(log), 'the worker read must make no host call');
+  assert.match(branchLine(out, 'feature/silent'), / — claimed$/,
+    'the prose report is unchanged — the worker fact travels in --json only');
   f.cleanup();
 });
