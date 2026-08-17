@@ -37,11 +37,12 @@
 #         disappear at the moment it becomes finished.
 #         --json additionally carries, per branch, what THIS MACHINE knows and
 #         the refs do not: `local_dirty` (a local worktree has uncommitted
-#         changes), `local_worktree` (where it is checked out here) and
-#         `local_ahead` (commits on the local branch the remote does not have).
-#         All three are absent-shaped — false, "" and 0 — wherever this machine
-#         holds nothing, so a branch living on another machine answers exactly
-#         as it did before.
+#         changes), `local_locked` (a local worktree holds `.git/index.lock` —
+#         a write is in progress THIS INSTANT), `local_worktree` (where it is
+#         checked out here) and `local_ahead` (commits on the local branch the
+#         remote does not have). All four are absent-shaped — false, false, ""
+#         and 0 — wherever this machine holds nothing, so a branch living on
+#         another machine answers exactly as it did before.
 #         --json also carries, per branch, `worker` — whether anything is
 #         actually RUNNING on it: running|finished|failed|ended|none|elsewhere,
 #         with `worker_pid` and `worker_exit` beside it. A claim says a
@@ -253,10 +254,44 @@ fi
 # against a problem the numbers rule out, and caps drop results silently unless
 # they also report saturation.
 #
+# A LOCK IS A THIRD ANSWER, not a failure to observe. `.git/index.lock` means
+# *an agent is writing HERE, RIGHT NOW* — precisely what the fleet view exists to
+# show — and it is the most informative state a worktree can be in. Until #167 it
+# was invisible: the branch answered from refs as though this machine had no
+# worktree for it, and the row read *claimed, no commits yet* while a commit was
+# in flight. The branch that looked least active was the one being written to.
+#
+# THE LOCK FILE IS OBSERVED DIRECTLY, and that is a correction to the plan rather
+# than a shortcut around it. The plan expected the lock to announce itself by
+# FAILING `git status`, so that reading the exit code would be enough. Measured
+# on 2026-08-17, it does not: `git status --porcelain` exits 0 under a held lock
+# in every ordinary condition — clean tree, modified file, staged change,
+# untracked file — because it needs the index lock only when it decides to WRITE
+# a refreshed index back, which it skips whenever the cached stat info already
+# answers. The failure this plan was written from was real and is racy: it
+# reproduces when the index is stale enough to force a refresh-and-write, and not
+# otherwise. Keying the signal on that exit code would report a lock on some runs
+# and not others, for the same worktree in the same state — a flaky signal is
+# worse than none, because it teaches the reader to disbelieve the row.
+#
+# So the question is asked of the filesystem, where the answer is unambiguous:
+# the lock file is either there or it is not.
+#
+# LOCKED AND MISSING STAY APART, which is what the direct check buys. They are
+# now answered by two independent observations rather than by one exit code
+# carrying two meanings — a vanished directory has no git dir to look in and
+# reports nothing at all, exactly as before.
+#
+# NEVER RETRY, NEVER WAIT. A lock held through a rebase can last seconds and the
+# next poll is 4 s away — it will find it unlocked. A scan that blocks on one
+# worktree makes the pulse late for every branch on the board, which is a worse
+# version of the defect being fixed. Reporting beats blocking.
+#
 # Read ONCE per run, not once per branch — same rule the merge walk follows, for
 # the same reason: branch_state runs per branch and the board polls every 5 s.
 # bash 3.2 (macOS) has no associative arrays, so the table is a newline-
-# separated string of `branch<TAB>path<TAB>dirty` rows, looked up with awk.
+# separated string of `branch<TAB>path<TAB>dirty<TAB>locked` rows, looked up with
+# awk.
 worktree_rows() {
   git worktree list --porcelain </dev/null 2>/dev/null | awk '
     /^worktree /   { path = substr($0, 10); br = ""; prunable = 0; next }
@@ -267,26 +302,84 @@ worktree_rows() {
   '
 }
 
+# Whether a worktree is mid-write, asked of the worktree's OWN git dir.
+#
+# A linked worktree does not keep its index beside the repository's: `.git` there
+# is a FILE reading `gitdir: <repo>/.git/worktrees/<name>`, and that is where its
+# `index.lock` lives. Testing `$wt/.git/index.lock` would answer for the main
+# checkout only and report every linked worktree unlocked — the population this
+# whole signal is about, since every dispatched agent works in one.
+#
+# NO GIT CALL. `git rev-parse --absolute-git-dir` would answer both shapes in one
+# line and costs 14 ms — measured, against the 6.6 ms per worktree the sweep
+# already accepts, so asking it per worktree would roughly TRIPLE the cost of the
+# local signals to learn something the filesystem already states. `.git` is a
+# directory in the main checkout and a one-line file in a linked one; reading it
+# is a stat and at most a 50-byte read.
+#
+# ABSENT IS ABSENT, here as everywhere: an unreadable or missing `.git` returns
+# "not locked" rather than guessing, and the worktree's other answers are
+# unaffected.
+worktree_locked() { # $1=worktree path → 0 when a lock is held there
+  local gd=$1/.git line
+  if [ -f "$gd" ]; then
+    # A linked worktree: `.git` is a pointer file. Relative targets are legal, so
+    # resolve against the worktree rather than the caller's cwd.
+    line=$(cut -d' ' -f2- <"$gd" 2>/dev/null) || return 1
+    case "$line" in
+      gitdir:*) line=${line#gitdir:} ;;
+    esac
+    line=${line# }
+    [ -n "$line" ] || return 1
+    case "$line" in
+      /*) gd=$line ;;
+      *)  gd=$1/$line ;;
+    esac
+  elif [ ! -d "$gd" ]; then
+    return 1
+  fi
+  [ -e "$gd/index.lock" ]
+}
+
 WORKTREES=""
 while IFS=$'\t' read -r wt_branch wt_path; do
   [ -n "$wt_branch" ] || continue
+  # Asked BEFORE `git status` and independently of it. The lock is a fact about
+  # the repository, not a property of whether the status call happened to
+  # succeed — and it is the one fact here that can change between this scan and
+  # the next poll four seconds later, so it is read as close to the truth as the
+  # filesystem allows.
+  if worktree_locked "$wt_path"; then wt_locked=true; else wt_locked=false; fi
   # Exit code, never emptiness: `git status` on a vanished directory prints
   # nothing and fails, and "I could not look" must not read as "clean".
   if wt_status=$(git -C "$wt_path" status --porcelain </dev/null 2>/dev/null); then
     if [ -n "$wt_status" ]; then wt_dirty=true; else wt_dirty=false; fi
+  elif [ "$wt_locked" = true ]; then
+    # Status could not answer, but the lock says WHY, and that is an answer
+    # rather than the absence of one: a write is in progress in this worktree at
+    # this instant. Reported with its path, because the directory demonstrably
+    # exists — something is writing in it.
+    #
+    # `dirty` stays FALSE, and that is not a claim of cleanliness. It was not
+    # observed, and the two facts travel separately: `local_locked` says a write
+    # is happening, `local_dirty` says someone is editing. Folding the lock into
+    # dirtiness would answer a second question with the first one's word, which
+    # is the one-label-two-states defect this scan keeps removing.
+    wt_dirty=false
   else
-    # A failure to observe. The worktree is not reported at all — neither its
+    # A failure to observe with no lock to explain it: the directory is gone, or
+    # unreadable, or not a worktree any more. Not reported at all — neither its
     # dirtiness (unknown) nor its path (it may not be there).
     continue
   fi
-  WORKTREES+="$wt_branch	$wt_path	$wt_dirty"$'\n'
+  WORKTREES+="$wt_branch	$wt_path	$wt_dirty	$wt_locked"$'\n'
 done <<< "$(worktree_rows)"
 
-# The local worktree for a branch as `path<TAB>dirty`, or empty when this
-# machine has none. Absent is ABSENT — never a false, never a path that does
-# not exist here.
-local_worktree_of() { # $1=branch → "path\tdirty" or ""
-  printf '%s' "$WORKTREES" | awk -F'\t' -v b="$1" '$1==b {print $2 "\t" $3; exit}'
+# The local worktree for a branch as `path<TAB>dirty<TAB>locked`, or empty when
+# this machine has none. Absent is ABSENT — never a false, never a path that
+# does not exist here.
+local_worktree_of() { # $1=branch → "path\tdirty\tlocked" or ""
+  printf '%s' "$WORKTREES" | awk -F'\t' -v b="$1" '$1==b {print $2 "\t" $3 "\t" $4; exit}'
 }
 
 # ---------------------------------------------------------------------------
@@ -855,7 +948,12 @@ for i, w in enumerate(d.get("waves", [])):
         wt_row=$(local_worktree_of "$br")
         wt_dirty=$(printf '%s' "$wt_row" | cut -f2)
         wt_here=$(printf '%s' "$wt_row" | cut -f1)
+        wt_lock=$(printf '%s' "$wt_row" | cut -f3)
         json_branches+=",\"local_dirty\":${wt_dirty:-false}"
+        # A write in progress THIS INSTANT — a separate fact from dirtiness, and
+        # false wherever this machine could not observe one, which is the answer
+        # every branch elsewhere gives.
+        json_branches+=",\"local_locked\":${wt_lock:-false}"
         json_branches+=",\"local_worktree\":\"$(json_str "$wt_here")\""
         # From the REFS, not from the worktree table above — a local branch with
         # no worktree still holds commits nobody can see. 0 wherever this

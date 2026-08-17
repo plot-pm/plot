@@ -300,6 +300,115 @@ describe('classify', () => {
     expect(fresh.note).toMatch(/last commit/);
   });
 
+  // --- a locked worktree is a write happening RIGHT NOW ----------------------
+  //
+  // The THIRD local signal, and it answers a third question. `local_dirty` says
+  // *someone is editing*; `local_ahead` says *finished work nobody else can
+  // see*; `local_locked` says *a write is in progress at this instant*.
+  // Collapsing any pair of them repeats the one-label-two-states defect this
+  // story keeps finding.
+  //
+  // It is the most informative state a worktree can be in and was the one the
+  // board could not see: the scan skipped a locked worktree in silence, so the
+  // branch answered from refs and the row read *claimed, no commits yet* while
+  // an agent was committing to it.
+  //
+  // Same one-directional rule as its two neighbours, and these tests hold it.
+
+  const LOCKED = [null, false, 0, '', 'elsewhere', '', '', true] as const;
+
+  it('lifts a quiet CLAIM on a lock alone', () => {
+    // The motivating row. Everything else is asserted absent — a clean worktree,
+    // nothing unpushed, a claim older than the quiet window — so the lock is
+    // doing the lifting and nothing is covering for it.
+    const r = classify('claimed', 'eligible', QUIET + 1, QUIET, ...LOCKED);
+    expect(r.group).toBe('working');
+    expect(r.note).toMatch(/write is in progress/);
+    // Named as LOCAL, like every other signal only this machine can see.
+    expect(r.note).toMatch(/local/);
+  });
+
+  it('lifts a stale WIP branch on a lock too', () => {
+    const r = classify('wip', 'eligible', 30_300, QUIET, ...LOCKED);
+    expect(r.group).toBe('working');
+    expect(r.note).toMatch(/write is in progress/);
+  });
+
+  it('lifts a branch whose age is unknown', () => {
+    expect(classify('claimed', 'eligible', null, QUIET, ...LOCKED).group).toBe('working');
+    expect(classify('wip', 'eligible', null, QUIET, ...LOCKED).group).toBe('working');
+  });
+
+  it('says the LOCK alone, not the other two facts beside it', () => {
+    // A lock outranks both and does not append them. Under a lock the worktree
+    // is mid-write, and the reader is being told to WAIT — where "2 commits not
+    // pushed" tells them to act. Saying both would give one row two opposite
+    // instructions.
+    const r = classify('wip', 'eligible', 30_300, QUIET, null, true, 2,
+      '', 'elsewhere', '', '', true);
+    expect(r.group).toBe('working');
+    expect(r.note).toMatch(/write is in progress/);
+    expect(r.note).not.toMatch(/not pushed/);
+    expect(r.note).not.toMatch(/uncommitted/);
+  });
+
+  it('never DOWNGRADES a group on a lock', () => {
+    // The one-directional rule, and the assertion the plan names explicitly. A
+    // lock is observable only on the machine doing the looking, so it may add an
+    // answer and never take one away.
+    expect(classify('merged', 'complete', 1, QUIET, ...LOCKED).group).toBe('done');
+    expect(classify('open', 'eligible', null, QUIET, ...LOCKED).group).toBe('not-started');
+    expect(classify('deferred', 'eligible', null, QUIET, ...LOCKED).group).toBe('not-started');
+    // A branch already reading `working` on a fresh commit keeps the age note:
+    // the age is what the reader came for.
+    const fresh = classify('wip', 'eligible', 5, QUIET, ...LOCKED);
+    expect(fresh.group).toBe('working');
+    expect(fresh.note).toMatch(/last commit/);
+  });
+
+  it('never downgrades a branch whose PR already answers', () => {
+    // The plan's own wording — *assert against a branch whose PR already
+    // answers*. A PR outranks every local signal: once work is up for review,
+    // what it waits for is decided there, and a lock in some worktree must not
+    // overwrite that sentence.
+    const pr = {
+      number: 42, head: 'feature/x', state: 'OPEN', draft: false,
+      checks: 'pending' as const, review: '', url: '',
+    };
+    const r = classify('wip', 'eligible', 30_300, QUIET, pr, false, 0,
+      '', 'elsewhere', '', '', true);
+    expect(r.group).toBe('waiting-on-machine');
+    expect(r.note).toMatch(/PR #42/);
+    expect(r.note).not.toMatch(/write is in progress/);
+  });
+
+  it('changes nothing when false', () => {
+    // False is what every branch on a machine with no worktree reports — every
+    // detached worker, every teammate's laptop, every CI run — so this is the
+    // assertion that keeps the change additive.
+    expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null, false, 0,
+      '', 'elsewhere', '', '', false).group).toBe('quiet');
+    expect(classify('wip', 'eligible', 200, QUIET, null, false, 0,
+      '', 'elsewhere', '', '', false).group).toBe('quiet');
+  });
+
+  it('answers identically whether local_locked is false or simply not passed', () => {
+    // The absent case pinned against the false one, exactly as `local_dirty` and
+    // `local_ahead` are. Without it, a caller predating the field could drift.
+    for (const args of [
+      ['claimed', 'eligible', QUIET + 1],
+      ['wip', 'eligible', 200],
+      ['wip', 'eligible', 5],
+      ['open', 'eligible', null],
+      ['merged', 'complete', 1],
+      ['deferred', 'eligible', null],
+    ] as const) {
+      const [state, verdict, age] = args;
+      expect(classify(state, verdict, age, QUIET, null, false, 0, '', 'elsewhere', '', '', false))
+        .toEqual(classify(state, verdict, age, QUIET, null, false));
+    }
+  });
+
   // --- a DRAFT plan's branches are not eligible -----------------------------
   //
   // The second half of the vocabulary gap. `blocked by an earlier wave` covers

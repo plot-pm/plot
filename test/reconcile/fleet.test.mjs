@@ -1315,6 +1315,199 @@ exit 1
   f.cleanup();
 });
 
+// --- a locked worktree is an answer, not an absence --------------------------
+//
+// `.git/index.lock` means *an agent is writing HERE, RIGHT NOW* — the most
+// informative state a worktree can be in, and precisely what the fleet view
+// exists to show. Until #167 the scan computed that fact and threw it away:
+// `git status` failed under the lock, the loop hit `continue`, and the branch
+// answered from refs as though this machine held no worktree for it. The row
+// read *claimed, no commits yet* while a commit was in flight.
+//
+// THE LOCK IS OBSERVED DIRECTLY, and that corrects the plan. It expected a lock
+// to announce itself by FAILING `git status`. Measured on 2026-08-17 it does
+// not: `git status --porcelain` exits 0 under a held lock in every ordinary
+// condition, because it takes the index lock only when it decides to WRITE a
+// refreshed index — which it skips whenever cached stat info already answers.
+// The failure the plan was written from is real and RACY. Keying the signal on
+// that exit code would report a lock on some runs and not others for the same
+// worktree in the same state, and these tests would be the flakiest in the file.
+// So the lock file itself is the observation, and the test asserts it that way.
+//
+// The two properties these tests hold, and neither survives without the other:
+//   * LOCKED IS REPORTED — `local_locked:true`, with the path, because the
+//     directory demonstrably exists.
+//   * LOCKED IS NOT MISSING — the two are separate observations rather than one
+//     exit code carrying two meanings, and collapsing them would recreate the
+//     absence ambiguity in a new place.
+//
+// Read docs/plans/2026-08-17-board-survives-its-agents.md before changing any of
+// it.
+
+/** Hold `index.lock` in a worktree's OWN git dir — where a linked one keeps it. */
+function lockWorktree(wt) {
+  const gitDir = execFileSync('git', ['-C', wt, 'rev-parse', '--absolute-git-dir'],
+    { encoding: 'utf8' }).trim();
+  const lock = path.join(gitDir, 'index.lock');
+  fs.writeFileSync(lock, '');
+  return lock;
+}
+
+test('fleet: a LOCKED worktree is reported as locked, not skipped', () => {
+  // The defect itself, in the shape an agent mid-`commit` produces: a linked
+  // worktree with an uncommitted edit and the index lock held.
+  const f = makeRepo('plot-fleet-locked-', ONE_WAVE('feature/being-written'));
+  f.work('feature/being-written', 'b.txt');
+  f.push('-u', 'origin', 'feature/being-written');
+  git(f.dir, 'checkout', '-q', 'main');
+  const wt = addWorktree(f, 'feature/being-written', 'locked');
+  fs.writeFileSync(path.join(wt, 'b.txt'), 'mid-write\n');
+  const lock = lockWorktree(wt);
+
+  // The fixture must hold the lock where a LINKED worktree actually keeps it —
+  // in its own git dir under `<repo>/.git/worktrees/<name>`, not beside the
+  // repository's index. A scan that tested `$wt/.git/index.lock` would report
+  // every dispatched agent's worktree unlocked, so if this assertion ever fails
+  // the test below is proving nothing.
+  assert.equal(fs.existsSync(lock), true);
+  assert.match(lock, /\.git\/worktrees\/[^/]+\/index\.lock$/,
+    'a linked worktree keeps its index lock in its OWN git dir');
+  assert.equal(fs.existsSync(path.join(wt, '.git', 'index.lock')), false,
+    'and NOT at $wt/.git/index.lock — `.git` there is a pointer file');
+
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === 'feature/being-written');
+  assert.equal(b.local_locked, true, 'a write is in progress and must be said');
+  assert.equal(b.local_worktree, wt,
+    'the path travels: something is writing in that directory, so it is there');
+  // The two facts are INDEPENDENT, and this fixture holds both at once: the tree
+  // has an uncommitted edit AND a write is in progress. Each is reported on its
+  // own evidence, and neither is derived from the other — a lock is not a
+  // dirtiness measurement, and dirtiness is not a lock.
+  assert.equal(b.local_dirty, true,
+    'the edit is still observed — the lock does not suppress the other signal');
+  // The refs answer is untouched, as it is for every other local signal.
+  assert.equal(b.state, 'wip');
+  f.cleanup();
+});
+
+test('fleet: a lock is reported on a CLEAN worktree too', () => {
+  // The assertion that keeps `local_locked` from being a flavour of
+  // `local_dirty`. With a dirty tree beneath it the shipped signal would cover
+  // for the new one and the pair could not be told apart — so this fixture holds
+  // a lock and NOTHING else, which is what a worktree mid-`git commit` looks
+  // like the instant after `git add` has moved the edits into the index.
+  const f = makeRepo('plot-fleet-lockclean-', ONE_WAVE('feature/clean-lock'));
+  f.work('feature/clean-lock', 'cl.txt');
+  f.push('-u', 'origin', 'feature/clean-lock');
+  git(f.dir, 'checkout', '-q', 'main');
+  const wt = addWorktree(f, 'feature/clean-lock', 'cleanlock');
+  lockWorktree(wt);
+
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === 'feature/clean-lock');
+  assert.equal(b.local_dirty, false, 'nothing is uncommitted here — this is the point');
+  assert.equal(b.local_locked, true, 'and the write in progress is still seen');
+  f.cleanup();
+});
+
+test('fleet: a LOCKED worktree is distinguishable from a MISSING one', () => {
+  // The pairing that keeps the fix from recreating the ambiguity it removes.
+  // Both worktrees fail `git status` with identical empty output; only the
+  // interrogation of the failure separates them, and only a fixture holding both
+  // at once can assert that it happened.
+  const f = makeRepo('plot-fleet-lockvsgone-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n'
+    + '- `feature/locked` — mid-write\n- `feature/gone` — its directory was deleted\n');
+  for (const n of ['locked', 'gone']) {
+    f.work(`feature/${n}`, `${n}.txt`);
+    f.push('-u', 'origin', `feature/${n}`);
+    git(f.dir, 'checkout', '-q', 'main');
+  }
+  const lockedWt = addWorktree(f, 'feature/locked', 'lk');
+  fs.writeFileSync(path.join(lockedWt, 'locked.txt'), 'mid-write\n');
+  lockWorktree(lockedWt);
+  const goneWt = addWorktree(f, 'feature/gone', 'gn');
+  fs.rmSync(goneWt, { recursive: true, force: true });   // deleted, never pruned
+
+  const branches = JSON.parse(f.run(['--json'])).plans[0].waves[0].branches;
+  const locked = branches.find((x) => x.branch === 'feature/locked');
+  const gone = branches.find((x) => x.branch === 'feature/gone');
+
+  assert.equal(locked.local_locked, true, 'the locked one says a write is happening');
+  assert.equal(locked.local_worktree, lockedWt);
+  // The missing one keeps the answer it has always given: nothing observed, so
+  // nothing reported. Absent is ABSENT — not locked, and not clean either.
+  assert.equal(gone.local_locked, false,
+    'a vanished worktree is not a write in progress');
+  assert.equal(gone.local_worktree, '',
+    'and no path is offered for a directory that is not there');
+  assert.equal(gone.local_dirty, false);
+  f.cleanup();
+});
+
+test('fleet: the scan does not retry or wait on a lock', () => {
+  // A lock held through a rebase can last seconds; the next poll is 4 s away and
+  // will find it unlocked. A scan that blocks on one worktree makes the pulse
+  // late for every branch on the board — a worse version of the defect being
+  // fixed. Reporting beats blocking.
+  //
+  // Asserted by COUNTING the status calls rather than by timing: a timing
+  // assertion cannot tell a retry that happened to be fast from no retry at all,
+  // and it would be the flakiest test in the file. Exactly one `git status` per
+  // worktree, lock or no lock.
+  const f = makeRepo('plot-fleet-noretry-', ONE_WAVE('feature/held'));
+  f.work('feature/held', 'h.txt');
+  f.push('-u', 'origin', 'feature/held');
+  git(f.dir, 'checkout', '-q', 'main');
+  const wt = addWorktree(f, 'feature/held', 'held');
+  fs.writeFileSync(path.join(wt, 'h.txt'), 'mid-write\n');
+  lockWorktree(wt);
+
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-lock-'));
+  const argvLog = path.join(shim, 'git.argv');
+  const realGit = execFileSync('bash', ['-lc', 'command -v git'],
+    { encoding: 'utf8' }).trim();
+  fs.writeFileSync(path.join(shim, 'git'), `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}
+exec ${JSON.stringify(realGit)} "$@"
+`);
+  fs.chmodSync(path.join(shim, 'git'), 0o755);
+
+  const out = execFileSync('bash', [scan, '--offline', '--json'], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PATH: `${shim}:${process.env.PATH}` },
+  });
+  const b = JSON.parse(out).plans[0].waves[0].branches
+    .find((x) => x.branch === 'feature/held');
+  assert.equal(b.local_locked, true, 'the lock must still be reported');
+
+  const statusCalls = fs.readFileSync(argvLog, 'utf8').split('\n')
+    .filter((l) => l.startsWith('-C ') && l.includes(' status ') && l.includes(wt));
+  assert.equal(statusCalls.length, 1,
+    `a locked worktree must be asked ONCE and reported, saw ${statusCalls.length} status calls`);
+
+  fs.rmSync(shim, { recursive: true, force: true });
+  f.cleanup();
+});
+
+test('fleet: a branch with no worktree reports local_locked false', () => {
+  // The assertion that keeps the signal ADDITIVE, in the same shape the other
+  // two local signals already have. Every detached worker, every teammate's
+  // laptop, every CI run is this case, and false is the answer that changes
+  // nothing.
+  const f = makeRepo('plot-fleet-nolock-', ONE_WAVE('feature/remote-only'));
+  f.work('feature/remote-only', 'r.txt');
+  f.push('-u', 'origin', 'feature/remote-only');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === 'feature/remote-only');
+  assert.equal(b.local_locked, false, 'nothing observed here, so nothing claimed');
+  assert.equal(b.state, 'wip', 'and the refs answer is untouched');
+  f.cleanup();
+});
+
 // --- unpushed commits are not "no commits yet" -------------------------------
 //
 // `local_dirty` reports *someone is editing*, and committing CLEARS it — so a
