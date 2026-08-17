@@ -105,6 +105,39 @@ Together those make this the one repair whose correctness is checkable
 without judgement: take either side, `pnpm build:board`, commit. The repo
 already instructs humans to do exactly this and to **not read the diff**.
 
+**But "the pulse resolves it" is the wrong picture, and the measurement
+says so.** `plot-merge-queue.sh` predicts conflicts with
+`git merge-tree --write-tree`, which computes a merge **in memory** — the
+conflict is *foreseen*, not *present*. Both of today's artifact conflicts
+appeared only at `gh pr merge`, and resolving each one took:
+
+```
+git merge origin/main            # in the branch's own worktree
+git checkout --<side> skills/plot/scripts/board/board-server.mjs
+pnpm build:board
+pnpm run test:board              # 547 tests, ~5 minutes
+git commit && git push
+```
+
+That is not an inline fix a 5 s timer performs. So **the pulse dispatches
+a worker** for it, through `plot-dispatch.sh` — which already creates a
+worktree, claims the branch, and spawns detached. The board server gains
+no new power: it triggers the same mechanism a human click triggers, on
+the one input whose correctness is provable.
+
+**The tests run BEFORE the push, not after.** The CI no-diff gate is what
+makes the resolution *checkable*, but CI runs only once the push has
+landed — so a resolver that pushes and waits would create exactly the
+state this plan defines as stuck: a red PR in the queue. The worker
+therefore ends on `pnpm run test:board` green in its own worktree, and CI
+becomes confirmation rather than discovery. That is what a human did by
+hand twice today, at about five minutes each.
+
+**If the tests do not pass, nothing is pushed** and the branch is
+reported as a real conflict. The resolution stopped being mechanical the
+moment its own gate said so — and a worker that pushed anyway would have
+manufactured the stuck state this plan exists to remove.
+
 **Everything else is detected and offered, never taken.** Not "for now" —
 the three properties above are what license the exception, and no other
 failure has them. A real code conflict has no deterministic resolution; a
@@ -167,6 +200,20 @@ and it will keep waiting until you do something.
 - **It never fires for a branch that is merely working.** A cue that
   appears on healthy rows makes the stuck ones invisible.
 
+**Over a non-localhost binding the cue stays and the action refuses.**
+Measured: `/api/dispatch` is available only on localhost — *"whoever
+reaches localhost:7777 is sitting at the machine that owns the
+worktrees"* — so on the Tailscale address the board is a reading surface
+and dispatch is unavailable by construction.
+
+The information is still true there, so the cue still shows: something is
+stuck and waiting. The action is present but disabled, and it names the
+reason — *available only on the machine that owns the worktrees* — which
+is exactly what `RowActions` already does when the server will not act.
+Hiding the cue instead would make a phone report a healthy fleet while
+two branches sit stuck, which is a worse lie than an action you cannot
+take from where you are.
+
 ### What "stuck" means, precisely
 
 A branch is stuck when it cannot advance without someone doing something,
@@ -180,12 +227,30 @@ would be the one-label-many-states defect this board keeps removing:
 | **Foreign CI failure** | `pr.state === 'failing'` in a job whose step the PR does not touch | offered on the row, animated: rerun |
 | **Unpushed work** | `local_ahead > 0` and no matching remote commits | reported in words — the fix is a push, and it is not ours to make |
 
-**Foreign CI failure is a judgement and is offered, never taken.** Today's
-`403` from Playwright's CDN was transient, and the proof was in the run
-history — the same branch was green two minutes earlier — but a real
-failure can present identically. The pulse states the evidence (*this
-branch is markdown-only; the failing step is a browser download; the same
-branch passed at 10:17*) and lets a human draw the conclusion.
+**Foreign CI failure is a judgement, so the pulse shows evidence and does
+not judge.** Today's `403` from Playwright's CDN was transient, and the
+proof was in the run history — the same branch was green two minutes
+earlier — but a real failure can present identically.
+
+So the row reports **facts, not a verdict**:
+
+```
+CI failed — step: Install Playwright browser
+this branch changes only .md
+same branch passed at 10:17, failed at 10:19
+```
+
+A human reads those three lines and concludes in seconds what took ten
+minutes of log-reading today. Deciding *for* them was the alternative: a
+heuristic mapping failing steps to changed paths. Rejected — that mapping
+is a table nobody maintains, it would go **silently wrong** the first
+time a workflow is restructured, and Principle 3 puts exactly this split
+where it belongs: **scripts collect and report; humans and skills
+interpret.**
+
+The label `foreign CI failure` is therefore this plan's word for a
+*shape* worth surfacing, never a claim the pulse makes about a specific
+failure.
 
 **Unpushed work is reported and never fixed.** Pushing someone else's
 uncommitted judgement is not a mechanical act, and `local_ahead` is
@@ -234,8 +299,9 @@ existing scan, CI from the PR state the contract already carries.
 ### Repair
 
 - `feature/pulse-resolves-artifact-conflicts` — the one granted write:
-  an artifact-only conflict is resolved by take-a-side, rebuild, commit;
-  refuses any conflict set that is not exactly the artifact
+  an artifact-only conflict dispatches a worker through `plot-dispatch.sh`
+  that merges, takes a side, rebuilds, runs `test:board`, and pushes only
+  on green; refuses any conflict set that is not exactly the artifact
 
 Three waves, sequential. **Detection first** — the display and the repair
 both consume what it reports, and a repair built on a guessed shape would
@@ -263,8 +329,24 @@ activity marks that plan introduces.
 - **The resolver rebuilds rather than choosing.** Assert the committed
   artifact matches a fresh `pnpm build:board` regardless of which side
   was kept — the property `.gitattributes` argues and CI gates.
-- **A foreign CI failure is reported with its evidence and NOT rerun
-  automatically.** Assert the offered action requires a click.
+- **Nothing is pushed until `test:board` passes locally.** The pairing
+  that matters: a resolver that pushes and lets CI decide passes every
+  correctness assertion above and manufactures a red PR — the exact stuck
+  state this plan exists to remove. Assert a failing suite pushes nothing
+  and reports a real conflict instead.
+- **The resolution runs in a worker, not in the pulse.** Assert the
+  server spawns through `plot-dispatch.sh` and does not merge, build, or
+  push in-process: `merge-tree` predicts in memory, so the real work is a
+  worktree merge plus a five-minute suite, and a 5 s timer cannot hold
+  it.
+- **A foreign CI failure is reported as EVIDENCE, not as a verdict.**
+  Assert the row states the failing step, the branch's changed paths, and
+  the branch's own recent run history — and that it does not classify the
+  failure. The pairing that matters: a heuristic mapping steps to paths
+  passes a "was it foreign?" assertion and goes silently wrong the first
+  time the workflow is restructured.
+- **A foreign CI failure is NOT rerun automatically.** Assert the offered
+  action requires a click.
 - **Every state the pulse cannot fix offers its action ON THE ROW**, not
   behind the three-dot menu. Assert the action is reachable without
   opening anything — measured: `RowActions` hides actions in a menu that
@@ -292,6 +374,10 @@ activity marks that plan introduces.
 - **The localhost guard is unchanged** for every offered action. Assert
   `/api/dispatch` and `/api/approve` still refuse over a non-localhost
   binding — the resolver is a separate path and does not widen them.
+- **Over a non-localhost binding the cue SHOWS and the action REFUSES,
+  naming the reason.** Assert both halves at a Tailscale address: the
+  information is true everywhere, so hiding it would let a phone report a
+  healthy fleet while branches sit stuck.
 - **A branch that is not stuck is not reported.** Assert a healthy
   in-progress branch produces nothing: a watcher that flags everything
   flags nothing.
@@ -319,3 +405,22 @@ half ship without touching the guard.
 Measured while planning: `build.mjs` embeds no timestamp and no
 randomness, so the artifact rebuild is deterministic. That is what makes
 the single exception provable rather than merely conventional.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "merge-tree computes in memory — what does 'the pulse resolves it' actually mean?", "a": "It dispatches a worker via plot-dispatch.sh; the real work is a worktree merge plus a 5-minute suite", "category": "technical"},
+    {"q": "CI's no-diff gate runs AFTER the push — what proves the resolution before then?", "a": "test:board green locally before pushing; a failing suite pushes nothing and reports a real conflict", "category": "technical"},
+    {"q": "How is a 'foreign' CI failure recognised?", "a": "It is not — the row shows evidence (step, changed paths, run history) and a human concludes", "category": "domain"},
+    {"q": "Over Tailscale /api/dispatch is unavailable — what does a stuck row show?", "a": "The cue shows, the action refuses and names the reason; hiding it would report a healthy fleet", "category": "ux"}
+  ],
+  "categoriesCovered": {
+    "technical": {"stack": true, "architecture": true, "implementation": true},
+    "domain": {"rules": true},
+    "ux": {"happyPath": true, "edgeCases": true, "accessibility": true},
+    "nonFunctional": {"security": true},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
