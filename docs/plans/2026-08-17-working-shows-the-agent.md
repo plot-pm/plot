@@ -1,4 +1,4 @@
-# WORKING shows the agent, not just the branch
+# The board watches the machine it runs on
 
 ## Status
 
@@ -57,6 +57,34 @@ The board cannot tell them apart, and the difference is in the log — which
 the board never reads. This is the same absence-means-two-things defect
 this repo has removed nine times; here it decides which SECTION a row
 lands in.
+
+### The same gap, one section along
+
+The section boundary above holds for a second pair, and the two are one
+rule rather than two defects.
+
+**WAITING ON A MACHINE says *nothing — CI will finish*.** It describes a
+STATE — nobody is blocked, a machine is working — and it is filled from
+exactly one source: `pr.checks === 'pending'` on the git host. So a local
+`vitest` run, a local build, a local scan is a machine working that the
+board cannot show, while it sits in the very repository that run is
+happening in.
+
+| Machine is working | Board shows it |
+|---|---|
+| CI on the host | yes — once `mergeable` has been computed |
+| a test run in this checkout | **no** |
+| a build in a worktree | **no** |
+
+Both sections are named correctly and filled too narrowly, and the shared
+cause is one sentence: **the board reports what happens on the HOST, not
+what happens on the machine it is running on.** `worker: running` was
+sealed inside the `claimed` arm for the same shape of reason — a correct
+rule with too small a scope.
+
+This plan therefore covers both. The unit is not *the agent* and not *CI*;
+it is **an observable process on this machine**, reported in whichever
+section describes its state.
 
 ### What is already observable
 
@@ -160,6 +188,13 @@ UI that implies otherwise would promise a channel that does not exist.
 - `feature/continue-with-an-answer` — a continuation run in the same
   worktree, prompted with the transcript and the answer
 
+### Machine
+
+- `feature/a-local-run-is-a-machine-working` — a process this board can
+  see running in its own checkout puts its row in WAITING ON A MACHINE,
+  with the same evidence-not-verdict rule: *a test run is in progress
+  here*, never *it will be done in three minutes*
+
 ## Done when
 
 - **A WORKING row can show its worker's log**, without the pulse carrying
@@ -181,6 +216,16 @@ UI that implies otherwise would promise a channel that does not exist.
   as a continuation and that the previous pid is not reused.
 - **A row can be in WORKING and have unpushed work at once**, and say
   both — the marks already established are untouched.
+- **A local run puts its row in WAITING ON A MACHINE.** Assert a process
+  observable in this checkout, with no CI pending on the host — the case
+  the section's own name already describes and cannot currently show.
+- **It reports the observation, never a forecast.** Assert the row says
+  what is running and does not name a remaining time: nothing measures
+  when a local run ends, and a countdown nobody can honour is the shape
+  this repo removes rather than adds.
+- **A HOST-side pending check still lands there too.** Assert the
+  existing path is unchanged — this widens the section, it does not
+  replace what fills it.
 
 ## Notes
 
