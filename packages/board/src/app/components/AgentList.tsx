@@ -382,7 +382,22 @@ function RowActions({
 }) {
   const [open, setOpen] = useState(false);
   const canStart = Boolean(card && dispatch && isStartable(row));
-  const enabled = canStart;
+  // The menu opens only if something inside it could ACT.
+  //
+  // `canStart` answers "is this row startable"; it does not answer "will the
+  // server act", and the two came apart the moment the board learned to dim.
+  // Without this the three-dot menu still opened on a frozen page and still
+  // offered `Start work` on data minutes old — the exact invitation this wave
+  // exists to withdraw, and one that a scrim alone does not reach, because a
+  // keyboard reader never touches the scrim.
+  //
+  // The reason travels to the control, so the dimmed menu explains itself
+  // rather than reading as a bug. Same pattern the row already uses for a row
+  // with nothing to do.
+  const serverWillAct = dispatch?.available ?? false;
+  const enabled = canStart && serverWillAct;
+  const reason =
+    canStart && !serverWillAct && dispatch?.reason ? dispatch.reason : noActionReason(row);
 
   // Close on Escape and on any click outside. A menu that survives a click
   // elsewhere on a view that repaints every five seconds is a menu that ends up
@@ -415,8 +430,8 @@ function RowActions({
         // Never the native attribute. `aria-disabled` keeps the control
         // focusable, so the title explaining WHY is reachable by keyboard.
         aria-disabled={!enabled || undefined}
-        aria-label={enabled ? `Actions for ${row.branch}` : noActionReason(row)}
-        title={enabled ? `Actions for ${row.branch}` : noActionReason(row)}
+        aria-label={enabled ? `Actions for ${row.branch}` : reason}
+        title={enabled ? `Actions for ${row.branch}` : reason}
         onClick={() => { if (enabled) setOpen((v) => !v); }}
         className={
           enabled

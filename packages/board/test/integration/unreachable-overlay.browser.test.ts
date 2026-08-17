@@ -89,7 +89,30 @@ describe('tiny-garden: a frozen board stops inviting', () => {
 
   const overlay = (page: Page) => page.locator('[data-unreachable-overlay]');
   const scrim = (page: Page) => page.locator('[data-unreachable-scrim]');
-  const startButton = (page: Page) => page.getByRole('button', { name: /Start work/ });
+  /**
+   * The row action menu — where `Start work` lives since
+   * `board-becomes-operable` moved it off the row.
+   *
+   * The menu rather than the button is what these tests reach for, and that is
+   * the correct target: the plan names this control by name ("the row action
+   * menu keeps offering `Start work` on data minutes old"). A scrim does not
+   * reach it, because a keyboard reader never touches a scrim — so the menu has
+   * to refuse on its own.
+   */
+  const rowMenu = (page: Page) => page.locator('[data-row-actions]');
+
+  /**
+   * The menu on the ELIGIBLE row — the only one that is ever offered.
+   *
+   * Named by its row rather than taken with `.first()`, which would pick a
+   * `working` row whose menu is disabled for its own unrelated reason ("no
+   * action available — last commit 3 min ago"). That row proves nothing here:
+   * it was never an invitation, so withdrawing it is not the claim.
+   */
+  const eligibleMenu = (page: Page) =>
+    page.locator('li.flex')
+      .filter({ has: page.getByText('feature/untaken', { exact: true }) })
+      .locator('[data-row-actions]');
 
   /**
    * How a real backgrounded tab comes back — and, here, the lever that drives
@@ -219,22 +242,30 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       await failPolls(page, DIM_AFTER_FAILURES);
       await overlay(page).waitFor({ timeout: 10_000 });
 
-      // The action control cannot be activated. Asserted as `aria-disabled`
-      // AND as a refused click — the attribute is a claim, the click is whether
-      // it is true.
-      const button = startButton(page).first();
-      await expect.poll(() => button.count()).toBe(1);
-      expect(await button.getAttribute('aria-disabled')).toBe('true');
+      // The action control cannot be activated. Asserted three ways, because
+      // each catches a different weak implementation: the ATTRIBUTE (what a
+      // screen reader reads), the pointer being BLOCKED by the scrim, and —
+      // the one that matters most — the menu refusing to open even when its
+      // own click handler runs.
+      const menu = eligibleMenu(page);
+      await expect.poll(() => menu.count()).toBe(1);
+      expect(await menu.getAttribute('aria-disabled')).toBe('true');
 
       // The scrim covers the board, so a pointer cannot reach the control
-      // underneath it at all. `force: false` is the point: Playwright refuses a
-      // click that would land on another element, which is exactly what a real
-      // pointer does.
-      const blocked = await button
+      // underneath it at all. `trial` is the point: Playwright refuses a click
+      // that would land on another element, exactly as a real pointer does.
+      const blocked = await menu
         .click({ timeout: 1_500, trial: true })
         .then(() => false)
         .catch(() => true);
       expect(blocked).toBe(true);
+
+      // And with the scrim bypassed entirely — which is what a keyboard reader
+      // does — the menu still refuses, so `Start work` is never reachable.
+      await menu.dispatchEvent('click');
+      await page.waitForTimeout(200);
+      expect(await page.getByRole('menu').count()).toBe(0);
+      expect(await page.getByRole('button', { name: /Start work/ }).count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -302,7 +333,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
     // collapsed to nothing.
     const { page, set } = await open('agents');
     try {
-      const button = startButton(page).first();
+      const button = eligibleMenu(page);
       await expect.poll(() => button.count()).toBe(1);
       const before = await button.boundingBox();
       const offsetBefore = await button.evaluate((el) => {
@@ -532,8 +563,10 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       expect(page.url()).toBe(before);
       // The control is live again — the block lifted with the overlay rather
       // than outliving it.
-      await expect.poll(() => startButton(page).first().getAttribute('aria-disabled'))
-        .toBe(null);
+      await expect.poll(
+        () => eligibleMenu(page).getAttribute('aria-disabled'),
+        { timeout: 10_000 },
+      ).toBe(null);
     } finally {
       await page.close();
     }
@@ -663,7 +696,10 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       set('dead');
       await failPolls(page, DIM_AFTER_FAILURES);
       await overlay(page).waitFor({ timeout: 10_000 });
-      const name = await startButton(page).first().textContent();
+      // The accessible NAME, not a title: `title` is read inconsistently and is
+      // never shown on touch. A reader who cannot see the dim must still be
+      // told why the control will not act.
+      const name = await eligibleMenu(page).getAttribute('aria-label');
       expect(name).toContain('not answering');
     } finally {
       await page.close();
