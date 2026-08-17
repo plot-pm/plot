@@ -1838,7 +1838,15 @@ export const ACTIVITY_MARK_PLACE = {
   // In the flow they stack: `flex-col` with a small gap, centred in a 1.5rem
   // column. `h-full` rather than `h-5` so a two-line row (one carrying a stuck
   // status) centres its marks against the whole cell.
-  row: 'relative flex w-full shrink-0 flex-col items-center justify-center gap-1 self-stretch py-2',
+  // NO padding of its own. The ROW already carries `py-2`, and adding a second
+  // pair here made every row as tall as a two-line one — measured, a plain row
+  // and a row with a status line both came out at 60px, which would have made
+  // every alignment assertion below hold on the defect too.
+  //
+  // `self-stretch` still takes the row's full height so the marks centre
+  // against whatever the row grew to; the height comes from the row's content,
+  // never from this cell.
+  row: 'relative flex w-full shrink-0 flex-col items-center justify-center gap-1 self-stretch',
   // In a HEADING the mark simply FLOWS. The `<h2>` is a flex row and the mark
   // takes its place after the tally like any other child — there is no grid
   // here to stay out of, and no `relative` box to hang in.
@@ -1885,7 +1893,7 @@ function ActivityMark({ pace, place = 'row', inTrack = false }: { pace: Activity
       // ROW. That rested on an assumption which has since broken: *the row is
       // `py-2` around ONE line of `text-sm`*, so centring on the row and
       // centring on the line were the same pixel. The stuck cell then landed as
-      // its own line beneath the six columns (`sm:col-start-2 sm:col-end-[-1]`),
+      // its own line beneath the columns (`sm:col-start-3 sm:col-end-[-1]`),
       // and a row carrying a status line is roughly twice as tall — so `top-1/2`
       // put the mark BETWEEN the two lines instead of beside the branch name.
       //
@@ -2230,7 +2238,12 @@ function StuckCell({
       // row. `2 / -1` starts it where the row's own content starts, and because
       // the phase track is FIXED it lands identically whether or not that row
       // has a phase — which is the property the fixed tracks exist for.
-      className="flex w-full flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs sm:col-start-2 sm:col-end-[-1]"
+      // COLUMN 3, not 2: the marks earned a track at the front, so the cell
+      // that used to begin past the phase now begins past the MARKS and runs
+      // under the phase — the exact defect this span was written to fix,
+      // reintroduced by a column inserted before it. Measured: the evidence
+      // line started at x=57 where the phase cell ends at 130.
+      className="flex w-full flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs sm:col-start-3 sm:col-end-[-1]"
     >
       {/* The state as a WORD, in amber, and the word is the carrier — the
           colour only reinforces it. `title` names the state's own terms so a
@@ -3135,7 +3148,13 @@ function Row({
             once and the branches beneath do not repeat it down a column. Same
             bargain `planInHeading` already makes one cell along, and the cell
             still renders so the tracks hold their width. */}
-        {!inPlanGroup && row.phase && (
+        {/* A DEFERRED branch keeps its phase, exactly as it keeps its own age.
+            It is not a plan line waiting to be started — it was started and
+            handed back, so *nobody is working on this* (the phase) and *someone
+            gave it up* (the badge) are two facts and each alone is wrong. The
+            same exception the age cell makes one column along: a property of
+            the plan is repetition, a property of the branch is information. */}
+        {(!inPlanGroup || row.state === 'deferred') && row.phase && (
           <>
             <span className="sr-only sm:hidden">Phase: </span>
             <span data-phase={row.phase}>{row.phase}</span>

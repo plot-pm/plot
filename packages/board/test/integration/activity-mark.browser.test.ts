@@ -376,7 +376,8 @@ describe('the activity mark glows, and travels without arriving', () => {
     // hold for a layout that is not the grid this is about.
     const tracks = await rowFor(page, 'feature/writing')
       .evaluate((el) => getComputedStyle(el).gridTemplateColumns);
-    expect(tracks.split(' ')).toHaveLength(6);
+    // SEVEN since the marks earned a track of their own at the front.
+      expect(tracks.split(' ')).toHaveLength(7);
   });
 
   it('sits at the row\'s edge, clear of the live dot beside it', async () => {

@@ -557,11 +557,13 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() => untakenPlan.getByTitle(/nobody has started it/).textContent())
         .toBe('22d');
       const untaken = rowFor(page, 'feature/untaken');
-      // And NOT beside it: the row must not carry the age twice. Asserted on
-      // the LAST cell rather than by searching the row for an em dash — the
-      // note reads "eligible — nobody has taken it" and contains one, so a
-      // text search finds the wrong thing and passes for the wrong reason.
-      await expect.poll(() => untaken.locator('span').last().textContent()).toBe('22d');
+      // ONCE, and on the plan row. This asserted the clock on the BRANCH's last
+      // cell to prove the row did not carry it twice; the branch now does not
+      // carry it at all, which satisfies that intent more strongly than the
+      // assertion could say. Stated directly instead: the number appears on the
+      // plan row and nowhere in the branch row beneath it.
+      await expect.poll(() => untaken.count()).toBe(1);
+      expect(await untaken.textContent()).not.toContain('22d');
       expect(await untaken.getByText(/waiting/).count()).toBe(0);
       // No approval date recorded — nothing rather than a zero or a "just now".
       const undated = rowFor(page, 'feature/undated');
@@ -770,8 +772,16 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   it('puts no badge on a branch nobody handed back', async () => {
     const page = await openAgents();
     try {
+      // The PHASE is on the plan row now: it is a property of the plan that a
+      // branch inherits, so stating it per branch said one word down a column.
+      // The badge's absence is still asserted on the BRANCH, which is where a
+      // badge would appear — the two halves live one level apart, and this
+      // asserted both on the branch until the section grew a plan row.
       const li = rowFor(page, 'feature/untaken');
-      await expect.poll(() => li.textContent()).toContain('Design');
+      await expect.poll(() => li.count()).toBe(1);
+      const plan = page.locator('li[data-plan-row]')
+        .filter({ hasText: 'plant-tomatoes' }).first();
+      expect(await plan.textContent()).toContain('Design');
       expect(await li.textContent()).not.toContain('deferred');
     } finally {
       await page.close();
@@ -860,7 +870,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       const blocked = menu(page, 'feature/blocked');
       await expect.poll(() => blocked.count()).toBe(1);
-      expect(await blocked.getAttribute('title')).toContain('blocked by an earlier wave');
+      expect(await blocked.getAttribute('title')).toContain('blocked by Truth');
       // A different row, a different reason — so the title is read from the row
       // rather than being one string for every disabled menu.
       await expand(page, 'quiet');
@@ -2053,7 +2063,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         const tracks = await rows.first().evaluate(
           (el) => getComputedStyle(el).gridTemplateColumns,
         );
-        expect(tracks.split(' ')).toHaveLength(6);
+        // SEVEN since the marks earned a track of their own at the front.
+      expect(tracks.split(' ')).toHaveLength(7);
       }
     } finally {
       await page.close();
@@ -2583,7 +2594,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(Math.abs(phase!.y - branch!.y)).toBeLessThan(branch!.height);
       // And it really is a grid with six tracks.
       const tracks = await li.evaluate((el) => getComputedStyle(el).gridTemplateColumns);
-      expect(tracks.split(' ')).toHaveLength(6);
+      // SEVEN since the marks earned a track of their own at the front.
+      expect(tracks.split(' ')).toHaveLength(7);
     } finally {
       await page.close();
     }
