@@ -340,9 +340,19 @@ existing scan, CI from the PR state the contract already carries.
 ### Repair
 
 - `feature/pulse-resolves-artifact-conflicts` — the one granted write:
-  an artifact-only conflict dispatches a worker through `plot-dispatch.sh`
-  that merges, takes a side, rebuilds, runs `test:board`, and pushes only
-  on green; refuses any conflict set that is not exactly the artifact
+  an artifact-only conflict is repaired by a script the server runs, which
+  merges, takes a side, rebuilds, runs `test:board`, and pushes only
+  on green; refuses any conflict set that is not exactly the artifact → #186
+
+  **Built as a script rather than as a dispatched agent**, which is a
+  departure from the sentence above and from this plan's own Design
+  section. Two things decided it, and the second is the real one:
+  measured, this repo configures no `Worker command`, so
+  `plot-dispatch.sh` would create a worktree and report
+  `worker=unconfigured` — no agent, no repair. And the sequence is fully
+  determined: nothing between its five steps is a decision, which is
+  *precisely* what licenses the automation. Handing it to an agent would
+  introduce judgement exactly where its absence is the permission.
 
 Three waves, sequential. **Detection first** — the display and the repair
 both consume what it reports, and a repair built on a guessed shape would
