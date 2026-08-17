@@ -287,7 +287,7 @@ after a fix proves nothing about whether the fix was needed.
 - `bug/start-work-watches-the-right-count` — the button derives its outcome from
   `waveSummary.claimed` rather than the plan-level `card.started`, so a dispatch
   on an already-started plan reads as success instead of *no change*; a plan
-  with nothing eligible refuses before the click
+  with nothing eligible refuses before the click → #174
 
 ### Feedback
 
