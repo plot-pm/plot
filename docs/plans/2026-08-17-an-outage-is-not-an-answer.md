@@ -178,7 +178,7 @@ and the footer already wraps. **The cheapest correct fix is to remove the
 ### Message
 
 - `bug/the-error-shows-the-whole-path` — drop the 80-character slice; the
-  footer wraps
+  footer wraps → #202
 
 Three waves. **Observation first** — it is the one that refused a correct
 repair and touched a running agent's worktree, and the fix is
