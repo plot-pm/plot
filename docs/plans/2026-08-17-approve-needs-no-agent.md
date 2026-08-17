@@ -263,9 +263,9 @@ attribute and belongs here rather than in a plan of its own.
 
 ### Script
 
-- `feature/plot-approve-script` — `plot-approve.sh` performs the mechanical
-  approval and refuses what it cannot judge; `plot-approve/SKILL.md` calls it
-  instead of describing it
+- `feature/plot-approve-script` → #168 — `plot-approve.sh` performs the
+  mechanical approval and refuses what it cannot judge; `plot-approve/SKILL.md`
+  calls it instead of describing it
 
 ### Board
 
