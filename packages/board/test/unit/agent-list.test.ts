@@ -701,6 +701,29 @@ describe('the activity mark is a glowing bar, and it does not move', () => {
     expect(mark).toContain('sm:left-0');
     expect(classesOf('live-dot')).toContain('sm:left-1');
   });
+
+  it('aligns to the row\'s FIRST LINE, not to the row\'s centre', () => {
+    // The defect this wave fixes, pinned as a string. The mark used to carry
+    // `sm:top-1/2 sm:-translate-y-1/2`, which centres it on the whole ROW —
+    // correct only while the assumption its comment stated held: *the row is
+    // `py-2` around ONE line of `text-sm`*. The stuck cell broke that by landing
+    // as its own line beneath the six columns, and a centred mark on a two-line
+    // row sits BETWEEN the lines rather than beside the branch name.
+    //
+    // `sm:top-2` is the row's own `py-2`, so the 20px bar (`h-5`) covers the
+    // first line box exactly and stays there however tall the row grows.
+    const mark = classesOf('activity-mark');
+    expect(mark).toContain('sm:top-2');
+    // The centring form is GONE, both halves of it. Asserted negatively because
+    // leaving either behind would fight the new rule: `-translate-y-1/2` alone
+    // would lift the bar half its height off the line.
+    expect(mark).not.toContain('sm:top-1/2');
+    expect(mark).not.toContain('-translate-y-1/2');
+    // The geometry that makes `top-2` mean "one line": a 20px bar against the
+    // 20px line box of `text-sm`. Stated here so a later change to either one
+    // fails rather than drifting the mark off the line by a few pixels.
+    expect(mark).toContain('h-5');
+  });
 });
 
 describe('isStartable — which NOT STARTED rows offer work', () => {

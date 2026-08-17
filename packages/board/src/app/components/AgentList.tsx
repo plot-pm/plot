@@ -1361,12 +1361,33 @@ function ActivityMark() {
       // `[data-change-mark]` set — *two marks, two meanings* — and a row CAN
       // carry both: in the WORKING group, and being written to this instant.
       //
-      // `h-5 w-1`: a STROKE down the row rather than a tick beside it. The row
-      // is `py-2` around one line of `text-sm`, so 20px spans nearly its full
-      // height — which is what makes a column of these read as a mark down the
-      // side of the list at a glance, the distance problem that was reported.
-      // Doubling the width to 4px is what carries it across a room; the glow
-      // does the rest.
+      // `h-5 w-1`: a STROKE down the row rather than a tick beside it — 20px,
+      // exactly one line box of `text-sm`. That is what makes a column of these
+      // read as a mark down the side of the list at a glance, the distance
+      // problem that was reported. Doubling the width to 4px is what carries it
+      // across a room; the glow does the rest.
+      //
+      // ALIGNED TO THE ROW'S FIRST LINE, not to the row's centre — `sm:top-2`
+      // rather than the `sm:top-1/2 sm:-translate-y-1/2` this carried until
+      // now. The old form rested on an assumption that has since broken: *the
+      // row is `py-2` around ONE line of `text-sm`*, so centring on the row and
+      // centring on the line were the same pixel. The stuck cell then landed as
+      // its own line beneath the six columns (`sm:col-start-2 sm:col-end-[-1]`),
+      // and a row carrying a status line is roughly twice as tall — so `top-1/2`
+      // put the mark BETWEEN the two lines instead of beside the branch name.
+      //
+      // The mark belongs to the BRANCH, and the branch is on line one whatever
+      // else the row grows beneath it. `top-2` is the row's own `py-2` padding,
+      // so the 20px bar covers the first line box exactly and stays put as the
+      // row gets taller. On a single-line row this lands on the same pixel the
+      // centred form did, which is why the common case does not move.
+      //
+      // The pairing that matters: `top-1/2` looks correct on every single-line
+      // row and is wrong on exactly the rows carrying the most information. This
+      // is the third consequence of that one change — the stuck cell also
+      // started at the wrong x and its cue survived at a dead end, both fixed
+      // the same day. Anything measuring itself against the ROW's height is
+      // suspect; this measured itself against the row and meant the line.
       //
       // The glow is an explicit `shadow-[...]` in the mark's own emerald rather
       // than a `shadow-*` scale step, because the scale's shadows are neutral
@@ -1375,7 +1396,7 @@ function ActivityMark() {
       // faint one that spreads. NO `animate-*` of any kind, and therefore no
       // `motion-reduce:` variant to write — see the note above on why the glow
       // must survive reduced motion rather than be stripped by it.
-      className="h-5 w-1 shrink-0 self-center rounded-full bg-emerald-500 shadow-[0_0_4px_1px_rgba(16,185,129,0.9),0_0_10px_3px_rgba(16,185,129,0.5)] sm:absolute sm:left-0 sm:top-1/2 sm:-translate-y-1/2 dark:bg-emerald-400 dark:shadow-[0_0_4px_1px_rgba(52,211,153,0.9),0_0_12px_4px_rgba(52,211,153,0.55)]"
+      className="h-5 w-1 shrink-0 self-center rounded-full bg-emerald-500 shadow-[0_0_4px_1px_rgba(16,185,129,0.9),0_0_10px_3px_rgba(16,185,129,0.5)] sm:absolute sm:left-0 sm:top-2 dark:bg-emerald-400 dark:shadow-[0_0_4px_1px_rgba(52,211,153,0.9),0_0_12px_4px_rgba(52,211,153,0.55)]"
     />
   );
 }

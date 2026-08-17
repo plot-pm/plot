@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { startServer } from '../helpers.mjs';
-import type { AgentRow, Fleet } from '../../src/contract/schema.js';
+import type { AgentRow, Fleet, Stuck } from '../../src/contract/schema.js';
 
 /**
  * THE ACTIVITY MARK'S APPEARANCE — the half only a real page can settle.
@@ -333,5 +333,179 @@ describe('the activity mark glows, and does not move', () => {
     const mark = markIn(page, 'feature/writing');
     expect(await mark.getAttribute('title')).toBe('A write is in progress in this checkout');
     expect(await mark.getAttribute('aria-hidden')).toBe('true');
+  });
+});
+
+/**
+ * WHERE THE MARK SITS ON A ROW THAT GREW A SECOND LINE.
+ *
+ * Reported from the running board, and the third consequence of one change. The
+ * mark used to centre itself on the whole row:
+ *
+ * ```
+ * sm:absolute sm:left-0 sm:top-1/2 sm:-translate-y-1/2
+ * ```
+ *
+ * resting on an assumption its own comment stated — *the row is `py-2` around
+ * ONE line of `text-sm`* — under which centring on the row and centring on the
+ * line are the same pixel. The stuck cell then landed as its own line beneath
+ * the six columns, so a row carrying a status line is roughly twice as tall, and
+ * `top-1/2` put the mark BETWEEN the two lines instead of beside the branch name
+ * it belongs to.
+ *
+ * **The pairing that matters, and the reason this suite is in a browser:**
+ * `top-1/2` looks correct on every single-line row and is wrong on exactly the
+ * rows carrying the most information. A single-line assertion passes on the
+ * defect; only a two-line row states it, and only a rendered page has heights.
+ */
+describe('the activity mark aligns to the row\'s first line', () => {
+  let browser: Browser;
+  let server: { kill: () => void; port: number };
+  let baseURL: string;
+  const contexts: BrowserContext[] = [];
+
+  beforeAll(async () => {
+    browser = await chromium.launch();
+    server = await startServer(FIXTURE);
+    baseURL = `http://localhost:${server.port}/`;
+  }, 60_000);
+
+  afterAll(async () => {
+    for (const c of contexts) await c.close().catch(() => {});
+    await browser?.close();
+    server?.kill();
+  });
+
+  const stuck = (over: Partial<Stuck> = {}): Stuck => ({
+    state: 'conflict',
+    conflicts: ['packages/board/src/app/App.tsx'],
+    localAhead: 0,
+    changedPaths: [],
+    failingChecks: [],
+    runHistory: [],
+    ...over,
+  });
+
+  /**
+   * One row on ONE line and one row on TWO, both being written to.
+   *
+   * The pair is the assertion: the mark must land beside the branch name on
+   * both, which is a different pixel on each — and `top-1/2` lands on the right
+   * one only for the first.
+   */
+  const ROWS = [
+    row({
+      branch: 'feature/one-line', localDirty: true,
+      branchUrl: `${GH}feature/one-line`,
+    }),
+    row({
+      branch: 'feature/two-lines', localDirty: true,
+      // A stuck row renders its evidence on its own line beneath the six
+      // columns, which is what makes this row tall. `group: 'waiting-on-you'`
+      // is where such a row actually sits.
+      group: 'waiting-on-you', stuck: stuck(),
+      branchUrl: `${GH}feature/two-lines`,
+    }),
+  ];
+
+  async function open(): Promise<Page> {
+    const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+    contexts.push(context);
+    const page = await context.newPage();
+    await page.route('**/api/fleet', (route) =>
+      route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet(ROWS)) }));
+    await page.goto(`${baseURL}?tab=agents`);
+    await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
+    return page;
+  }
+
+  const rowFor = (page: Page, branch: string) =>
+    page.locator('li[data-agent-row]').filter({ has: page.locator(`[data-branch="${branch}"]`) });
+
+  const markIn = (page: Page, branch: string) =>
+    rowFor(page, branch).locator('[data-activity-mark]');
+
+  /** Vertical centre of a box, which is what "beside" means in pixels. */
+  const midY = (box: { y: number; height: number }) => box.y + box.height / 2;
+
+  it('renders a row that really is two lines tall, and one that is not', async () => {
+    // The floor the alignment claims stand on. If the stuck row were NOT taller
+    // than the plain one, every assertion below would hold on the defect too —
+    // this fixture would be quietly testing nothing.
+    const page = await open();
+    await expect.poll(() => markIn(page, 'feature/two-lines').count()).toBe(1);
+    expect(await rowFor(page, 'feature/two-lines').locator('[data-stuck]').count()).toBe(1);
+
+    const tall = (await rowFor(page, 'feature/two-lines').boundingBox())!;
+    const short = (await rowFor(page, 'feature/one-line').boundingBox())!;
+    expect(tall.height).toBeGreaterThan(short.height * 1.5);
+  });
+
+  it('sits beside the BRANCH NAME on a row carrying a status line', async () => {
+    // THE assertion of this fix, in the terms the report used: the mark marks
+    // the branch, and the branch is on line one whatever else grows beneath it.
+    const page = await open();
+    await expect.poll(() => markIn(page, 'feature/two-lines').count()).toBe(1);
+
+    const mark = (await markIn(page, 'feature/two-lines').boundingBox())!;
+    const branch = (await rowFor(page, 'feature/two-lines')
+      .locator('[data-branch]').first().boundingBox())!;
+
+    // Within a few pixels of the branch name's own middle. A tolerance rather
+    // than an equality: the bar is 20px against a 20px line box, and the text's
+    // own box is a hair shorter than its line.
+    expect(Math.abs(midY(mark) - midY(branch))).toBeLessThan(4);
+  });
+
+  it('does NOT sit between the two lines — the defect, stated directly', async () => {
+    // The negative the tolerance above already implies, written out because it
+    // is what was actually reported and what a future reader will search for.
+    // Under `top-1/2` the mark's centre lands on the ROW's centre, which on a
+    // two-line row is the gap between them.
+    const page = await open();
+    await expect.poll(() => markIn(page, 'feature/two-lines').count()).toBe(1);
+
+    const mark = (await markIn(page, 'feature/two-lines').boundingBox())!;
+    const li = (await rowFor(page, 'feature/two-lines').boundingBox())!;
+
+    // Strictly in the row's TOP half, and by a real margin rather than by a
+    // rounding error: the whole mark ends before the row's midpoint.
+    expect(mark.y + mark.height).toBeLessThan(midY(li));
+  });
+
+  it('leaves a single-line row exactly where it was', async () => {
+    // The half a fix can silently break: `top-2` and `top-1/2` agree on a row
+    // that is `py-2` around one line, and the common case must not move. Stated
+    // against the branch name on the SAME row rather than against a remembered
+    // pixel, so it survives an unrelated padding change.
+    const page = await open();
+    await expect.poll(() => markIn(page, 'feature/one-line').count()).toBe(1);
+
+    const mark = (await markIn(page, 'feature/one-line').boundingBox())!;
+    const branch = (await rowFor(page, 'feature/one-line')
+      .locator('[data-branch]').first().boundingBox())!;
+    const li = (await rowFor(page, 'feature/one-line').boundingBox())!;
+
+    expect(Math.abs(midY(mark) - midY(branch))).toBeLessThan(4);
+    // And on THIS row that is still the row's centre, which is the sense in
+    // which nothing moved.
+    expect(Math.abs(midY(mark) - midY(li))).toBeLessThan(4);
+  });
+
+  it('keeps the live dot beside it on the row\'s first line too', async () => {
+    // `LiveDot` centres on the row by the same `top-1/2` this mark just left,
+    // so on a two-line WORKING row it has the same defect. NOT fixed here —
+    // this wave owns one element — but pinned as a KNOWN difference so the next
+    // reader finds it stated rather than discovering it from a screenshot. See
+    // the report accompanying this branch.
+    const page = await open();
+    await expect.poll(() => markIn(page, 'feature/one-line').count()).toBe(1);
+    const li = rowFor(page, 'feature/one-line');
+    // On a single-line row the two agree, which is all this wave asserts.
+    if (await li.locator('[data-live-dot]').count()) {
+      const dot = (await li.locator('[data-live-dot]').boundingBox())!;
+      const mark = (await markIn(page, 'feature/one-line').boundingBox())!;
+      expect(Math.abs(midY(dot) - midY(mark))).toBeLessThan(4);
+    }
   });
 });
