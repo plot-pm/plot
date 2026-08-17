@@ -27,6 +27,15 @@ export const ARTIFACT = path.join(SCRIPTS_DIR, 'board/board-server.mjs');
  *
  * The bound port comes back the way it always could have: the readiness line
  * this helper already waits on carries it.
+ *
+ * `PLOT_EXIT_WITH_PARENT`: the server polls its own `ppid` and exits once this
+ * process is gone. The returned `kill` is still the normal path and still the
+ * one every suite's `after()` uses — this covers the case where `after()` never
+ * runs at all. Ctrl-C, a dying agent, a `SIGKILL` on the runner: no hook fires,
+ * POSIX hands the child to PID 1, and it keeps polling forever. Measured on
+ * 2026-08-17: two such orphans on random high ports, still answering
+ * `/api/fleet` with 200, from a run eighteen seconds apart that never finished.
+ * Cleanup-by-convention is a rule; this is the gate behind it.
  */
 export function startServer(cwd, env = {}) {
   return new Promise((resolve, reject) => {
@@ -37,6 +46,7 @@ export function startServer(cwd, env = {}) {
         PORT: '0',
         PLOT_SCRIPTS_DIR: SCRIPTS_DIR,
         PLOT_REPO_ROOT: cwd,
+        PLOT_EXIT_WITH_PARENT: '1',
         ...env,
       },
       stdio: ['ignore', 'pipe', 'pipe'],

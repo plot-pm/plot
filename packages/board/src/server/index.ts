@@ -6,6 +6,7 @@ import { buildBoard, renderPlanPage, renderStoryPage, type BuildBoardOptions } f
 import { buildFleet } from './fleet.js';
 import { dispatchAvailability, handleDispatch, SLUG_RE } from './dispatch.js';
 import { serverInfo } from './server-info.js';
+import { exitWithParent } from './lifetime.js';
 import {
   approveAvailability,
   approveCommand,
@@ -245,6 +246,15 @@ server.on('error', (err: NodeJS.ErrnoException) => {
   }
   throw err;
 });
+
+/**
+ * Armed BEFORE `listen()`, not inside its callback: a server whose launcher
+ * dies during startup is the same orphan as one whose launcher dies later, and
+ * a gate that only covers the running server would leave the narrower case
+ * open. Does nothing unless `PLOT_EXIT_WITH_PARENT` is set — see lifetime.ts
+ * for why the gate is an explicit variable and not the ppid change itself.
+ */
+exitWithParent();
 
 server.listen(REQUESTED_PORT, HOST, () => {
   // Read the port from the server rather than from the constant: with PORT=0
