@@ -227,8 +227,8 @@ error.
 
 ### Action
 
-- `feature/board-approve-affordance` — Approve on Draft cards, showing and
-  copying the command
+- `feature/board-approve-affordance` — Approve on Draft cards, acting behind
+  one in-button confirmation → #161
 
 Three waves, dispatched **one at a time** rather than fanned out. They are
 independent in purpose but all reach `PlanCard.tsx` or the contract, and this
