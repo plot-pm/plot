@@ -50,6 +50,13 @@ a left-to-right travelling motion makes the same promise horizontally.
 than there*, without claiming an end. That is a statement the board can
 support — once it has something true to say.
 
+The request's third element, *pulsing*, is not adopted either, and for a
+reason the row itself supplies: after #180 there are **already two
+pulsing elements on a row** — the 6 px `[data-live-dot]` and the full-row
+`[data-change-mark]` wash. A third pulse at a third scale competes rather
+than adds. The glow is what carries the prominence all three were asked
+to carry.
+
 ### The board already knows, and shows none of it
 
 Measured: the contract carries three activity fields, and **not one
@@ -204,11 +211,23 @@ a slow breathing animation. The left edge is already this marker's home —
 the current dot hangs in the row's left padding via `sm:absolute`,
 outside the six grid tracks, precisely so it costs no column.
 
-| Marker | Channel | Means | Lifetime |
-|---|---|---|---|
-| Change-mark (#178) | full-row amber wash, pulse | *this just changed* | ~3 s |
-| **Activity bar** | **left edge, emerald, glow** | *someone is writing here* | as long as it holds |
-| `LiveDot` today | 6 px dot | *in the WORKING group* | hours |
+| Marker | Selector | Channel | Means | Lifetime |
+|---|---|---|---|---|
+| Change-mark (#180) | `[data-change-mark]` | full-row amber wash, **pulse** | *this just changed* | ~3 s |
+| `LiveDot` | `[data-live-dot]` | 6 px dot, **pulse** | *in the WORKING group* | hours |
+| **Activity bar** | new | **left edge, emerald, glow, static** | *someone is writing here* | while it holds |
+| **Unpushed mark** | new | **left edge, outlined, no glow, static** | *commits nobody else can see* | while it holds |
+
+**Four marks can hold on one row at once**, and #180 already ships a test
+for two of them coexisting — *"leaves the LIVE DOT alone — two marks, two
+meanings"*. That precedent is the standard: every pair must stay
+distinguishable, and no mark may be implemented by modifying another.
+
+The `<li>`'s own background is deliberately left free. #180's wash is an
+**overlay** at 20–25 % alpha rather than a background on the row, so a
+real `bg-*` on the `<li>` would compose beneath it — but amber over a
+tint reads muddy, which is a second reason this plan takes the edge
+rather than the surface.
 
 A bar rather than a bigger dot because the reported problem is spotting
 it *from a distance*: a vertical stroke at a fixed x reads as a mark down
@@ -216,10 +235,26 @@ the side of the list, where a dot must be hunted. And because the bar
 scales to the next section — a heading can carry the same stroke, a dot
 in a heading would read as a bullet.
 
-**Breathing, not travelling.** The animation stays a pulse for the reason
-already recorded: motion that traverses implies a destination, and this
-has none. The glow supplies the prominence the travel was meant to
-supply.
+**Static, not breathing — and this reverses the plan's first draft.**
+The draft said *breathing*, on the reasoning that a pulse is this board's
+established vocabulary for aliveness. Measured against the row as it
+actually stands after #180, that is wrong: **two elements on a row
+already pulse** — `[data-live-dot]` at 6 px and `[data-change-mark]` as a
+full-row wash — and this would be the third, at a third scale. Three
+things pulsing at three sizes on one row do not add up to *more visible*;
+they compete.
+
+The ordering principle that settles it: **a fact true for hours has less
+claim on motion than a fact true for three seconds.** Motion is the
+scarce channel, and the transient marks should hold it. Activity is
+persistent by nature — someone is writing, and will be for a while — so
+it takes **presence** instead: a bar that is simply *there*, with the
+glow supplying the prominence, and its appearance and disappearance
+carrying the change.
+
+This also removes the travelling motion the request asked for, and for a
+second reason beyond the one above: motion that traverses implies a
+destination, and this has none.
 
 **`motion-reduce` keeps the bar and stops the animation** — both halves,
 the rule this repo has now applied three times.
@@ -261,15 +296,19 @@ rebase stayed local. From the outside that is indistinguishable from an
 agent that stopped — and the fleet view exists precisely to tell those
 apart.
 
-So it gets a **static** mark: same left-edge position, a different
-colour, and **no animation at all**. The absence of motion is the
-message — nothing is moving, that is the problem. A reader learns two
-marks in one place:
+Both marks are static, so **colour and shape carry the difference**, not
+motion. Once the activity bar stopped breathing (above), *still versus
+moving* was no longer available as a distinction — and reaching for it
+anyway would have re-introduced the third pulse that decision removed.
 
-| Mark | Means | Motion |
+| Mark | Means | Form |
 |---|---|---|
-| Activity bar | someone is writing here | breathing |
-| Unpushed mark | finished work nobody else can see | **still** |
+| Activity bar | someone is writing here | solid bar, emerald, glowing |
+| Unpushed mark | finished work nobody else can see | hollow/outlined bar, amber-free hue, no glow |
+
+The glow is what separates them at a glance: activity has it, stillness
+does not. A reader who learns *glow = someone is here* reads both marks
+from one rule.
 
 **They can hold at once**, and must remain distinguishable then: a
 worktree that is dirty *and* ahead is being edited *and* hiding commits.
@@ -299,9 +338,9 @@ where it belongs, and this is about what it is doing there.
 
 ### Prominence
 
-- `feature/activity-marker-glows` — the marker becomes a breathing,
-  glowing bar on the left edge; `motion-reduce` keeps it and stops the
-  animation; `aria-hidden`
+- `feature/activity-marker-glows` — the marker becomes a glowing,
+  **static** bar on the left edge; no animation, because two elements on
+  the row already pulse; `aria-hidden`
 
 ### Fold
 
@@ -311,9 +350,9 @@ where it belongs, and this is about what it is doing there.
 
 ### Stillness
 
-- `feature/unpushed-work-shows-still` — `local_ahead` gets its own
-  static, unanimated mark at the same left edge; distinguishable when it
-  and the activity bar hold at once
+- `feature/unpushed-work-shows-still` — `local_ahead` gets its own mark
+  at the same left edge, separated from the activity bar by form and the
+  absence of the glow; distinguishable when both hold at once
 
 Four waves, sequential, and the order is the one this session has now
 paid for twice. **Truth first**: a glowing marker over
@@ -322,8 +361,8 @@ the same mistake, *a livelier lie* — which is exactly why #174 (watch the
 right count) had to land before #176 (the spinner). **Prominence second**,
 once there is something true to make loud. **Fold third**, because a
 group cannot say *activity in here* until a row can say *activity*.
-**Stillness last**, because its whole meaning is *not moving*, which only
-reads once moving has a settled appearance to contrast with.
+**Stillness last**, because it is defined by contrast with the activity
+bar — its hue and form only make sense once that bar has settled.
 
 **Nothing starts until `status-column-earns-its-width` (#178) has
 merged.** All four waves touch `AgentList.tsx`, which that branch is
@@ -350,9 +389,9 @@ amber and pulse; this plan's marks own the left edge.
 - **`local_ahead` alone does not mark a row ACTIVE.** The pairing: an
   implementation OR-ing all three passes every positive assertion above
   and marks finished-but-unpushed work as motion.
-- **`local_ahead` alone DOES produce the still mark**, and it carries no
-  animation. Assert both halves — a mark that breathes says the opposite
-  of what this one means.
+- **`local_ahead` alone DOES produce the unpushed mark**, and it is
+  distinguishable from the activity bar by form and glow rather than by
+  motion — both are static.
 - **Active and unpushed together produce two distinguishable marks.**
   Assert a row that is dirty *and* ahead: an implementation checking them
   in sequence loses whichever it tests second.
@@ -379,7 +418,22 @@ amber and pulse; this plan's marks own the left edge.
 - **The change-mark's channel is untouched.** Assert `data-change-mark`
   still renders as the full-row wash — the pairing that matters, since
   the cheap way to make activity prominent is to reuse that surface.
-- **`motion-reduce` keeps the bar and stops the animation.** Both halves.
+- **The activity bar does not pulse.** Assert no `animate-*` on it: two
+  elements on the row already pulse (`[data-live-dot]`, `[data-change-mark]`)
+  and a third at a third scale competes rather than adds. The pairing that
+  matters: an implementation reaching for `animate-pulse` because the board
+  uses it elsewhere passes every visibility assertion and makes the row
+  noisier, not clearer.
+- **`motion-reduce` leaves the marks unchanged**, because neither animates —
+  and assert the glow survives it: a reduced-motion rule that strips the glow
+  would take the distinction between the two marks with it.
+- **All four marks stay distinguishable on one row.** Assert a WORKING row
+  that is dirty, ahead, and whose PR just changed carries `[data-live-dot]`,
+  `[data-change-mark]`, the activity bar and the unpushed mark, all distinct.
+  #180 ships the two-mark precedent; this extends it.
+- **No existing mark is modified.** Assert `[data-change-mark]` and
+  `[data-live-dot]` render exactly as before — the cheap way to make activity
+  prominent is to repaint one of them.
 - **The marker is `aria-hidden`** and the note still carries the fact in
   words.
 - **A collapsed group with an active row carries the marker.** Assert
@@ -431,12 +485,14 @@ narrow what this feature can honestly claim:
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {"q": "local_dirty/ahead are true only on the observing machine — what follows?", "a": "The marker claims 'in this checkout' and says so; absence means unobservable, not idle", "category": "domain"},
     {"q": "A lock often lives and dies between two 4s pulses — how to surface it?", "a": "Echo a seen lock for a few seconds, bounded, never contradicting the note", "category": "technical"},
     {"q": "local_ahead excluded — but it cost #177 half an hour of dead CI?", "a": "Its own static mark, no animation; stillness IS the message", "category": "ux"},
-    {"q": "Can wave 1 run alongside #178 in the same file?", "a": "No — wait for the merge; four conflict resolutions in one hour say otherwise", "category": "tradeOffs"}
+    {"q": "Can wave 1 run alongside #178 in the same file?", "a": "No — wait for the merge; four conflict resolutions in one hour say otherwise", "category": "tradeOffs"},
+    {"q": "Should the activity bar pulse, as the request asked?", "a": "No — two elements already pulse after #180; a fact true for hours has less claim on motion than one true for 3s", "category": "ux"},
+    {"q": "If the activity bar is static too, what separates it from the unpushed mark?", "a": "Form and the glow, not motion — glow means someone is here", "category": "ux"}
   ],
   "categoriesCovered": {
     "technical": {"stack": true, "architecture": true, "implementation": true},
