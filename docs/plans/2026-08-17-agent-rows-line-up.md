@@ -290,7 +290,7 @@ way the rest of the board is.
 
 - `feature/card-shows-interrogation-rounds` — `plot-plan-meta.sh` reports the
   interrogation round; a Draft card wears it as a badge, and wears nothing where
-  no interrogation has happened
+  no interrogation has happened → #177
 
 **The rounds badge is its own wave rather than sharing Presentation**, and the
 reason is the same one that keeps the first two apart: it adds a field to
