@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-board
@@ -11,7 +11,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-17, Jan Wloka, plan-PR #178 merged
 - **Started:** 2026-08-17, Jan Wloka, `feature/status-column-earns-its-width`
-- **Delivered:**
+- **Delivered:** 2026-08-17
 
 ## Problem
 
