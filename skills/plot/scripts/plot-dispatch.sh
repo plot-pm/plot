@@ -10,9 +10,33 @@
 #   --max N     dispatch at most N branches this run (default: all eligible)
 #   <slug>      the plan to fan out
 # Output: one line per branch, each optionally followed by an indented
-#         `in flight:` line naming a branch that already holds files, then a
-#         machine-countable summary:
-#             summary: dispatched=2 reused=0 skipped=1 started=2 brief=missing
+#         `in flight:` line naming a branch that already holds files, then the
+#         summary block — an optional prose consequence line, then a
+#         machine-countable footer:
+#             3 worktrees prepared, 0 workers started, no `Worker command` configured
+#             summary: dispatched=2 reused=0 skipped=1 started=2 brief=missing worker=unconfigured
+#
+# THE CONSEQUENCE IS STATED IN THE SUMMARY, NOT PER BRANCH. start_worker has
+# always said "no 'Worker command' configured" beside the branch it could not
+# start — buried in per-branch output, after the fan-out already happened. On
+# 2026-08-17 that message was printed and missed five times: worktrees sat
+# claimed with nobody working on them, and the last line a caller read said
+# `started=0` with no reason beside it. A caller reading only the summary is
+# the case this exists for, so the fact travels twice: as `worker=` in the
+# footer for machines, and as one prose line above it for people.
+#
+# `worker=` is unconfigured | declined | configured | suppressed:
+#   unconfigured — no `Worker command` in Plot Config, and nobody has been
+#                  asked. This is the state the summary line exists for.
+#   declined     — `Worker command: none`. Asked, and answered "we start them
+#                  by hand". A DELIBERATE absence, distinct from a missing key
+#                  precisely so the skill stops asking: an empty answer is a
+#                  first-class answer, and a prompt that returns every dispatch
+#                  is a nag. `none` is never run as a command.
+#   configured   — a command exists (whether or not every start succeeded)
+#   suppressed   — `--no-start`, which means exactly what it says and implies
+#                  nothing else. The inspect-first workflow is deliberate, so
+#                  its zero is reported as a choice rather than as a defect.
 #
 # `brief=missing` is CONSTANT, and that is the point: this script cannot write a
 # hand-off brief and never will. A brief is interpretation (which alternatives
@@ -261,6 +285,66 @@ wt_root=$(cd "$repo_root/.." && pwd)
 
 n_dispatched=0 n_reused=0 n_skipped=0 n_started=0
 
+# Whether this run COULD have started anything, read once and up front.
+#
+# Read here rather than inside start_worker so the answer exists even on the
+# paths start_worker never reaches: --dry-run, --no-start, and a run where
+# every candidate was skipped. Those are precisely the runs whose `started=0`
+# used to arrive with no explanation attached.
+#
+# --no-start wins over the config, and does not mean the config is missing:
+# a repo that HAS a `Worker command` and was told not to use it is reporting a
+# choice, not a gap. Conflating them would be the one-label-two-states mistake
+# this whole plan exists to remove.
+#
+# `none` is a DELIBERATE absence, and it is not the same as a missing key —
+# it is the repo's established sentinel (`Implementation home: none`) and here
+# it records that the question was asked and answered "I start them myself".
+# The skill writes it so it stops asking; the script must never try to RUN it,
+# which is what a bare emptiness check would do.
+worker_cmd_configured=0
+worker_cmd_declined=0
+case "$("$script_dir/plot-config.sh" get "Worker command" "")" in
+  "")     ;;
+  none|NONE|None) worker_cmd_declined=1 ;;
+  *)      worker_cmd_configured=1 ;;
+esac
+
+worker_state_field() {
+  if [ "$no_start" = 1 ]; then echo "suppressed"
+  elif [ "$worker_cmd_configured" = 1 ]; then echo "configured"
+  elif [ "$worker_cmd_declined" = 1 ]; then echo "declined"
+  else echo "unconfigured"
+  fi
+}
+
+# The summary block: an optional prose line, then the machine-countable footer.
+#
+# The prose line is printed only when there is a consequence to state — a
+# summary that always explains itself teaches the reader to skip it, and then
+# it is worth nothing on the day it matters. `worktrees prepared` counts
+# dispatched + reused, because a re-adopted worktree is equally a desk nobody
+# was sat at.
+print_summary() { # $1=dispatched $2=reused $3=skipped $4=started
+  local prepared=$(( $1 + $2 )) worker
+  worker=$(worker_state_field)
+  if [ "$prepared" -gt 0 ] && [ "$4" = 0 ]; then
+    case "$worker" in
+      unconfigured)
+        echo "$prepared worktree$([ "$prepared" = 1 ] || echo s) prepared, 0 workers started, no \`Worker command\` configured" ;;
+      declined)
+        # Asked and answered: this repo starts its workers by hand. Stating the
+        # count without calling it a gap — hand-starting is a legitimate
+        # workflow, and repeating "not configured" at someone who decided that
+        # on purpose is the nag the plan rules out.
+        echo "$prepared worktree$([ "$prepared" = 1 ] || echo s) prepared, 0 workers started — this repo starts them by hand" ;;
+      suppressed)
+        echo "$prepared worktree$([ "$prepared" = 1 ] || echo s) prepared, 0 workers started (--no-start)" ;;
+    esac
+  fi
+  echo "summary: dispatched=$1 reused=$2 skipped=$3 started=$4 brief=missing worker=$worker"
+}
+
 # Branches CLAIMED by this run, for the `Started:` record. Only newly claimed
 # ones: a reused worktree was dispatched by an earlier run, which booked it.
 declare -a claimed_now=()
@@ -467,14 +551,26 @@ start_worker() {
   local branch="$1" wt="$2"
   local cmd
   cmd=$("$script_dir/plot-config.sh" get "Worker command" "")
+  # `none` means "asked, and this repo starts them by hand". Running it would
+  # spawn a worker per branch that fails with `none: command not found` — a
+  # deliberate answer turned into N crashed workers.
+  case "$cmd" in none|NONE|None) cmd="" ;; esac
   if [ -z "$cmd" ]; then
     # Not an error: Plot deliberately hardcodes no agent tooling (Principle 5).
     # Word it as the next step rather than a failure, or a first run reads as
     # "it did nothing".
-    echo "    worktree ready — no 'Worker command' configured, so start it yourself:"
+    #
+    # This line carries the ONE thing the summary cannot: which worktree to cd
+    # into. The consequence itself — that nothing started, and why — is stated
+    # in the summary, because per-branch output is exactly where it was missed
+    # five times on 2026-08-17. Saying it in both places would train the reader
+    # to skip both.
+    if [ "$worker_cmd_declined" = 1 ]; then
+      echo "    worktree ready — start it yourself:"
+    else
+      echo "    worktree ready — no 'Worker command' configured, so start it yourself:"
+    fi
     echo "      cd $wt   # branch $branch is claimed and waiting"
-    echo "    To start workers automatically, add to your CLAUDE.md Plot Config:"
-    echo "      - **Worker command:** <how to run your agent headless>"
     return 1
   fi
   local log="$wt/.plot-worker.log"
@@ -649,7 +745,11 @@ if [ "$dry_run" = 1 ]; then
     report_in_flight "$br"
     n_dispatched=$((n_dispatched + 1))
   done < <("$script_dir/plot-fleet-scan.sh" $offline --list-eligible "$slug" 2>/dev/null)
-  echo "summary: dispatched=$n_dispatched reused=0 skipped=0 started=0 brief=missing"
+  # A dry run starts nothing BY CONSTRUCTION, so its `started=0` carries no
+  # information about the config — reporting "no workers started" here would be
+  # true and useless, and would train the reader to skip the line on the real
+  # run where it matters. Only the machine field travels.
+  echo "summary: dispatched=$n_dispatched reused=0 skipped=0 started=0 brief=missing worker=$(worker_state_field)"
   exit 0
 fi
 
@@ -742,4 +842,4 @@ done
 # then ignored: the summary below reports what was dispatched either way.
 book_started ${claimed_now[@]+"${claimed_now[@]}"} || true
 
-echo "summary: dispatched=$n_dispatched reused=$n_reused skipped=$n_skipped started=$n_started brief=missing"
+print_summary "$n_dispatched" "$n_reused" "$n_skipped" "$n_started"

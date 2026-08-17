@@ -28,7 +28,15 @@
 #   Delivered index | Sprint directory | Story directory | Story index |
 #   Plan template | Main branch | Board command
 # Agent-runner keys (optional; Plot hardcodes no agent tooling, Principle 5):
-#   Worker command      how /plot-dispatch runs an agent headless on a worktree
+#   Worker command      how /plot-dispatch runs an agent headless on a worktree.
+#                       `none` = asked, and this repo starts workers by hand —
+#                       a DELIBERATE absence, distinct from a missing key so
+#                       /plot-dispatch stops asking at every fan-out. Never run
+#                       as a command. Absent = nobody has been asked yet, and
+#                       the first dispatch asks (never /plot-init: at adoption
+#                       the question meets a need the answerer does not have,
+#                       gets a shrug, and an answered-and-wrong key is harder
+#                       to fix than a missing one).
 #   Approve command     how the board runs `/plot-approve <slug>`; the prompt is
 #                       appended as one argument. Absent = the board's Approve
 #                       button renders disabled, naming this key as the fix.
