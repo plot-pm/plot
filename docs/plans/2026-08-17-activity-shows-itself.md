@@ -349,7 +349,7 @@ where it belongs, and this is about what it is doing there.
 
 - `feature/activity-marker-glows` — the marker becomes a glowing,
   **static** bar on the left edge; no animation, because two elements on
-  the row already pulse; `aria-hidden`
+  the row already pulse; `aria-hidden` → #189
 
 ### Fold
 
