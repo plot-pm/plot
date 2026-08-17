@@ -3488,8 +3488,23 @@ export function AgentList({
         {fleet.prAgeSeconds === null && !fleet.prError && ' · no PR data yet'}
       </p>
       {fleet.prError && (
-        <p className="px-3 text-xs text-amber-700 dark:text-amber-400">
-          PR data unavailable ({fleet.prError.slice(0, 80)}) — the two groups above that
+        // THE WHOLE MESSAGE, and the truncation it replaces was not merely
+        // short — it was SILENT. `slice(0, 80)` cut
+        //
+        //   Command failed: bash /Users/…/plot/skills/plot/scripts/plot-host.sh
+        //
+        // to `…/skills/plot/script`, which reads like a path and names a file
+        // that does not exist. Measured cost: one wrong lookup. A message whose
+        // whole purpose is to point at a cause must not point at a fiction, and
+        // a cut with no ellipsis cannot be told from a complete string.
+        //
+        // Raising the limit would only move the same defect to the next longer
+        // path, so there is no limit: `break-words` lets the footer WRAP, which
+        // is what a paragraph is for. It costs a line of height on the rare
+        // occasion the board cannot reach the host — the one moment the reader
+        // is owed the full sentence.
+        <p className="px-3 text-xs break-words text-amber-700 dark:text-amber-400">
+          PR data unavailable ({fleet.prError}) — the two groups above that
           depend on it may be incomplete.
         </p>
       )}
