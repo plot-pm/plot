@@ -37,11 +37,15 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     row({ branch: 'feature/beans-b', plan: 'beans', ageMinutes: 10 }),
     row({ branch: 'feature/toms-a', plan: 'plant-tomatoes', ageMinutes: 50 }),
     // A branch WITH a PR: the two links must differ, each landing where its own
-    // text points.
+    // text points. The PR carries its condition as FIELDS — the row's cell is
+    // built from these, never from the sentence in `note`.
     row({
       branch: 'feature/reviewed', plan: 'beans', group: 'waiting-on-you',
       ageMinutes: 20, note: 'PR #130 green',
-      pr: { number: 130, url: 'https://github.com/tiny/garden/pull/130' },
+      pr: {
+        number: 130, url: 'https://github.com/tiny/garden/pull/130',
+        draft: false, state: 'green',
+      },
       branchUrl: `${GH}feature/reviewed`,
     }),
     // A not-started row: no PR at all, and exactly the class the rejected
@@ -213,12 +217,13 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
    * so descending through one is what names a single row.
    */
   const rowFor = (page: Page, branch: string) =>
-    // Matched on the branch CELL's exact text, not as a substring of the row:
-    // `hasText` is a substring match and `feature/ghost` is a prefix of
-    // `feature/ghost-ready`, so a plain filter would return both rows. The
-    // cells carry no separating whitespace either, which rules out a
-    // word-boundary regex over the row's text.
-    page.locator('li.flex').filter({ has: page.getByText(branch, { exact: true }) });
+    // Matched on the branch cell's `data-branch`, which carries the WHOLE name
+    // whatever the column's width does to the rendering. Two reasons it is not
+    // a text match: `hasText` is a substring match and `feature/ghost` is a
+    // prefix of `feature/ghost-ready`, so a plain filter returns both rows; and
+    // the name is now folded in the middle across two spans, so no single
+    // element holds it as exact text.
+    page.locator('li[data-agent-row]').filter({ has: page.locator(`[data-branch="${branch}"]`) });
 
   /** The section for one waiting-group, by its heading text. */
   const group = (page: Page, label: string) =>
@@ -251,16 +256,22 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
 
   // ── Every link goes where its text says ───────────────────────────────────
 
-  it('links the branch name to the BRANCH and PR #<n> to the pull request', async () => {
+  it('links the branch name to the BRANCH and the PR cell to the pull request', async () => {
     // The defect this replaces: one link, on the wrong word — the branch name
     // opened the PR while `PR #130` beside it was plain text. Asserting merely
     // that "a link exists" passes on that bug, so the assertion is that the two
     // targets DIFFER and each matches its own text.
+    //
+    // The PR link is now named by the glyph's label and the number rather than
+    // by the words `PR #130`: the cell is composed from the row's fields, and
+    // the word `PR` became the git host's own mark. `Pull request 130` is what
+    // a screen reader hears, which is the assertion worth making.
     const page = await openAgents();
     try {
       const branchHref = await page.getByRole('link', { name: 'feature/reviewed' })
         .getAttribute('href');
-      const prHref = await page.getByRole('link', { name: 'PR #130' }).getAttribute('href');
+      const prHref = await page.getByRole('link', { name: 'Pull request 130' })
+        .getAttribute('href');
       expect(branchHref).toBe('https://github.com/tiny/garden/tree/feature/reviewed');
       expect(prHref).toBe('https://github.com/tiny/garden/pull/130');
       expect(branchHref).not.toBe(prHref);
@@ -301,7 +312,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(await page.getByRole('link', { name: 'feature/reviewed' }).count()).toBe(0);
       expect(await page.getByRole('link', { name: 'feature/untaken' }).count()).toBe(0);
       // The PR link is unaffected: it never came from the branch URL.
-      expect(await page.getByRole('link', { name: 'PR #130' }).count()).toBe(1);
+      expect(await page.getByRole('link', { name: 'Pull request 130' }).count()).toBe(1);
     } finally {
       await page.close();
     }
@@ -467,9 +478,12 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // because a swap like this silently reverts in a later refactor.
     const page = await openAgents();
     try {
+      // Read off the GRIDCELLS, which is what the tracks now are: the order of
+      // the cells IS the order of the columns, and a swapped pair of tracks
+      // would fail here rather than merely reordering two spans.
       const cells = await group(page, 'Waiting on you')
-        .locator('li').first()
-        .locator('a, span.font-mono').allTextContents();
+        .locator('li[data-agent-row]').first()
+        .locator('[role="gridcell"]').allTextContents();
       const plan = cells.findIndex((t) => t.trim() === 'beans');
       const branch = cells.findIndex((t) => t.trim() === 'feature/reviewed');
       expect(plan).toBeGreaterThanOrEqual(0);
@@ -524,7 +538,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents();
     try {
       const branches = await group(page, 'Working')
-        .locator('li a[href*="/tree/"], li span.font-mono').allTextContents();
+        .locator('li [data-branch]').evaluateAll((els) => els.map((e) => e.getAttribute('data-branch')));
       // beans: 200 then 10; then plant-tomatoes: 50.
       expect(branches).toEqual(['feature/beans-a', 'feature/beans-b', 'feature/toms-a']);
     } finally {
@@ -575,34 +589,62 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('names the phase for a screen reader, which has no column position', async () => {
-    // The list is a `<li>` of `<span>`s — a visual table with no table
-    // semantics — so a row is heard as a run of words and nothing says which
-    // word is the phase. `plot` survived that on luck, reading as a repo name
-    // because it looks like one; `Development` does not announce itself.
+  it('names the phase by its COLUMN, and drops the sr-only prefix that stood in', async () => {
+    // Both halves, and the second is the one an easy implementation gets wrong.
     //
-    // Asserted as accessible TEXT rather than as a title attribute: `title` is
-    // never shown on touch and is read inconsistently across screen readers, so
-    // it may accompany the label and not replace it.
+    // The list used to be a `<li>` of `<span>`s — a visual table with no table
+    // semantics — so a row was heard as a run of words and nothing said which
+    // word was the phase. `Development` does not announce itself. An `sr-only`
+    // prefix compensated for that missing structure; with a header row carrying
+    // `role="columnheader"`, the structure exists and the prefix would be a
+    // second copy of the same word.
+    //
+    // A fix that adds the header AND keeps the prefix passes every assertion
+    // about the header, and announces the column twice on every row of the
+    // fleet. So the absence is asserted, not merely the presence.
     const page = await openAgents();
     try {
       const li = rowFor(page, 'feature/reviewed');
-      await expect.poll(() => li.textContent()).toContain('Phase: Development');
-      // And it costs no space on screen — the label is for the reader who
-      // cannot see the column, not an extra word in the row.
+      await expect.poll(() => li.textContent()).toContain('Development');
+      // The header names the column, once for the whole grid.
+      const headers = group(page, 'Waiting on you').getByRole('columnheader');
+      await expect.poll(() => headers.allTextContents())
+        .toEqual(['Phase', 'Plan', 'Branch', 'Pull request', 'Age', 'Actions']);
+      // And the row does not say it again — asserted on the ACCESSIBLE NAME
+      // rather than on `textContent`, which reports text a `display: none`
+      // element still holds in the DOM. What a screen reader hears is the
+      // question, and it hears the header once and the cell's word once.
       //
-      // Asserted on the rendered BOX rather than on `innerText`: sr-only hides
-      // by clipping an absolutely-positioned 1px box, which Chromium still
-      // reports in `innerText` (it is not `display: none`). The box is what
-      // decides whether a sighted reader sees it.
-      const label = li.locator('span.sr-only');
-      const box = await label.boundingBox();
-      expect(box?.width ?? 99).toBeLessThanOrEqual(1);
-      expect(box?.height ?? 99).toBeLessThanOrEqual(1);
-      // The word itself is not hidden with it.
+      // The prefix survives BELOW `sm`, and only there: a card has no columns
+      // for a header to name, so the word `Development` would arrive with
+      // nothing saying what it is. That half is asserted in the card tests.
+      const phaseCell = li.locator('[role="gridcell"]').first();
+      const name = await phaseCell.evaluate((el) => (el as HTMLElement).innerText);
+      expect(name.trim()).toBe('Development');
+      // The word itself is untouched, and visible.
       const word = li.locator('[data-phase]');
       expect(await word.textContent()).toBe('Development');
       expect((await word.boundingBox())?.width ?? 0).toBeGreaterThan(1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('costs no space on screen for the column names', async () => {
+    // The header is for the reader who cannot see the alignment — printing six
+    // words above every one of six groups would be chrome that never varies,
+    // and the alignment is what a sighted reader reads instead.
+    //
+    // Asserted on the rendered BOX rather than on `innerText`: `sr-only` hides
+    // by clipping an absolutely-positioned 1px box, which Chromium still
+    // reports in `innerText` (it is not `display: none`).
+    const page = await openAgents();
+    try {
+      const header = group(page, 'Waiting on you').getByRole('row').first();
+      await expect.poll(() => header.count()).toBe(1);
+      const box = await header.boundingBox();
+      expect(box?.width ?? 99).toBeLessThanOrEqual(1);
+      expect(box?.height ?? 99).toBeLessThanOrEqual(1);
     } finally {
       await page.close();
     }
@@ -1097,7 +1139,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   // the live ones need.
 
   /** The rows a group is currently showing. */
-  const groupRows = (page: Page, label: string) => group(page, label).locator('li.flex');
+  const groupRows = (page: Page, label: string) => group(page, label).locator('li[data-agent-row]');
 
   /** The header of one group, whose count must survive folding. */
   const heading = (page: Page, label: string) =>
@@ -1384,7 +1426,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expand(page, 'quiet');
       await expect.poll(() => groupRows(page, 'Quiet').count()).toBe(2);
       const branches = await group(page, 'Quiet')
-        .locator('li a[href*="/tree/"], li span.font-mono').allTextContents();
+        .locator('li [data-branch]').evaluateAll((els) => els.map((e) => e.getAttribute('data-branch')));
       // 999 minutes before 40: oldest first, unchanged.
       expect(branches).toEqual(['feature/ghost', 'feature/recently-quiet']);
     } finally {
@@ -1555,7 +1597,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       fail();
       await staleBanner(page).waitFor({ timeout: 10_000 });
       await expect.poll(() => page.getByRole('link', { name: 'feature/reviewed' }).count()).toBe(1);
-      expect(await page.getByRole('link', { name: 'PR #130' }).count()).toBe(1);
+      expect(await page.getByRole('link', { name: 'Pull request 130' }).count()).toBe(1);
       // One heading, not two: the default fixture's WORKING group holds `beans`
       // with two rows and `plant-tomatoes` with one, and a one-row plan earns
       // no heading. The point of the assertion is that the GROUPING survives a
@@ -1729,6 +1771,474 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const again = page.locator('#plan-plant-tomatoes');
       await again.waitFor({ state: 'visible', timeout: 10_000 });
       await expect.poll(() => again.getAttribute('data-highlighted')).toBe('true');
+    } finally {
+      await page.close();
+    }
+  });
+
+  // ── The row is a grid, and the columns hold still ─────────────────────────
+  //
+  // The defect these pin, from the screenshot that produced the plan: four rows
+  // in WAITING ON YOU and no two of them agreeing on where anything sat. Only
+  // three cells had a width, `ml-auto` on the note shoved everything from there
+  // to the right edge, and the branch started wherever the plan cell before it
+  // happened to end.
+
+  /** The x of one cell of one row, by the cell's index in the track list. */
+  async function cellX(page: Page, branch: string, index: number): Promise<number> {
+    const cell = rowFor(page, branch).locator('[role="gridcell"]').nth(index);
+    const box = await cell.boundingBox();
+    return Math.round(box!.x);
+  }
+
+  const BRANCH_CELL = 2;
+  const PR_CELL = 3;
+  const AGE_CELL = 4;
+
+  it('starts every branch cell at the same x, with a phase and without one', async () => {
+    // The first of the three defects, and the reason the row became a grid at
+    // all. `feature/reviewed` has a phase and `feature/nophase` has none; under
+    // the flex row the second branch began 6rem to the left of the first,
+    // because an absent cell took no space rather than leaving a gap.
+    const page = await openAgents(fleet({
+      rows: [
+        row({ branch: 'feature/reviewed', plan: 'beans', group: 'waiting-on-you',
+              phase: 'Development', ageMinutes: 20, note: 'awaiting review',
+              branchUrl: `${GH}feature/reviewed` }),
+        row({ branch: 'feature/nophase', plan: 'beans', group: 'waiting-on-you',
+              phase: null, ageMinutes: 30, note: 'awaiting review',
+              branchUrl: `${GH}feature/nophase` }),
+      ],
+    }));
+    try {
+      await expect.poll(() => rowFor(page, 'feature/nophase').count()).toBe(1);
+      expect(await cellX(page, 'feature/nophase', BRANCH_CELL))
+        .toBe(await cellX(page, 'feature/reviewed', BRANCH_CELL));
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('aligns a row whose plan sits in the heading with one whose does not', async () => {
+    // The MIXED section — the case `showPlanHeading` introduced an hour before
+    // this plan was written. A group with several rows under one plan prints
+    // the name in the heading and leaves the rows bare; a group with one row
+    // prints it in the row. Under the flex layout those two shapes differed by
+    // a whole cell, so two rows in the same section could not line up.
+    const page = await openAgents(fleet({
+      rows: [
+        row({ branch: 'feature/beans-1', plan: 'beans', group: 'waiting-on-you',
+              ageMinutes: 500, note: 'awaiting review', branchUrl: `${GH}feature/beans-1` }),
+        row({ branch: 'feature/beans-2', plan: 'beans', group: 'waiting-on-you',
+              ageMinutes: 400, note: 'awaiting review', branchUrl: `${GH}feature/beans-2` }),
+        row({ branch: 'feature/solo', plan: 'lonely', group: 'waiting-on-you',
+              ageMinutes: 300, note: 'awaiting review', branchUrl: `${GH}feature/solo` }),
+      ],
+    }));
+    try {
+      await expect.poll(() => rowFor(page, 'feature/solo').count()).toBe(1);
+      // `beans` earned a heading, so its rows carry no plan cell content;
+      // `lonely` did not, so its row prints the name itself. Both branches must
+      // still start at the same x — the cell is rendered either way.
+      expect(await cellX(page, 'feature/solo', BRANCH_CELL))
+        .toBe(await cellX(page, 'feature/beans-1', BRANCH_CELL));
+      // And the fixture really is mixed, or the assertion above proves nothing.
+      const headings = await group(page, 'Waiting on you')
+        .getByRole('heading', { level: 3 }).allTextContents();
+      expect(headings.map((t) => t.trim())).toEqual(['beans(2)']);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('holds the PR and age columns still under a very long branch name', async () => {
+    // The third defect: with the branch content-sized and the note pushed right
+    // by `ml-auto`, the slack collected BETWEEN branch and PR — so the PR cell
+    // sat wherever the branch happened to end.
+    const page = await openAgents(fleet({
+      rows: [
+        row({ branch: 'feature/x', plan: 'beans', group: 'waiting-on-you',
+              ageMinutes: 20, note: 'awaiting review', branchUrl: `${GH}feature/x` }),
+        row({ branch: 'feature/opus5-longhorizon-hardening-challenge-budget-and-more',
+              plan: 'beans', group: 'waiting-on-you', ageMinutes: 30,
+              note: 'awaiting review', branchUrl: `${GH}feature/long` }),
+      ],
+    }));
+    try {
+      const long = 'feature/opus5-longhorizon-hardening-challenge-budget-and-more';
+      await expect.poll(() => rowFor(page, long).count()).toBe(1);
+      expect(await cellX(page, long, PR_CELL)).toBe(await cellX(page, 'feature/x', PR_CELL));
+      expect(await cellX(page, long, AGE_CELL)).toBe(await cellX(page, 'feature/x', AGE_CELL));
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('elides a long branch in the MIDDLE, so a shared prefix stays readable', async () => {
+    // The decision that matters most about the truncation, and the one an
+    // ordinary `truncate` gets exactly backwards. These six branches share
+    // twenty-four characters and differ only after them, so end-truncation
+    // renders all six identically — which reads as six DUPLICATE ROWS rather
+    // than as truncation, and is worse than no truncation at all.
+    const suffixes = ['challenge-budget', 'longhorizon', 'tool-budget', 'retry-policy'];
+    const branches = suffixes.map((s) => `feature/opus5-hardening-${s}`);
+    const page = await browser.newPage();
+    try {
+      await page.setViewportSize({ width: 900, height: 800 });
+      await page.route('**/api/fleet', (route) => route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify(fleet({
+          rows: branches.map((b, i) => row({
+            branch: b, plan: 'beans', group: 'waiting-on-you', ageMinutes: 100 + i,
+            note: 'awaiting review', branchUrl: `${GH}${b}`,
+          })),
+        })),
+      }));
+      await page.goto(`${baseURL}?tab=agents`);
+      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await expect.poll(() => group(page, 'Waiting on you')
+        .locator('li[data-agent-row]').count()).toBe(4);
+
+      // What a sighted reader sees, per row — `innerText` rather than
+      // `textContent`, because the fold is done by clipping and only the
+      // rendered text tells them apart.
+      const shown = await page.locator('[data-branch]').evaluateAll(
+        (els) => els.map((e) => (e as HTMLElement).innerText.replace(/\s+/g, '')),
+      );
+      // Every row reads differently: the assertion end-truncation fails.
+      expect(new Set(shown).size).toBe(4);
+      // And each keeps the tail that says WHICH one — the half end-truncation
+      // throws away.
+      for (const s of suffixes) {
+        expect(shown.some((t) => t.endsWith(s.slice(-8)))).toBe(true);
+      }
+      // The full name survives for anyone who needs it: in `title`, and in the
+      // accessible name.
+      expect(await page.getByRole('link', { name: branches[0] }).count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('gives every waiting-group the same row — no special case for one', async () => {
+    // `AgentList` maps GROUPS and renders ONE `<Row>` inside it, so this comes
+    // free. Pinned anyway, because the cheap way to fix one group's alignment
+    // is a special case, and a special case is how six sections stop agreeing.
+    const page = await openAgents();
+    try {
+      await expandAll(page);
+      for (const label of ['Waiting on you', 'Working', 'Not started', 'Quiet', 'Done']) {
+        const rows = group(page, label).locator('li[data-agent-row]');
+        await expect.poll(() => rows.count()).toBeGreaterThan(0);
+        // Same tracks, read off the browser rather than off the class name: a
+        // group given its own class list would pass a `toContain('grid-cols')`
+        // assertion and lay out differently.
+        const tracks = await rows.first().evaluate(
+          (el) => getComputedStyle(el).gridTemplateColumns,
+        );
+        expect(tracks.split(' ')).toHaveLength(6);
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  // ── The PR cell reads its fields, and the note keeps the rest ─────────────
+
+  /** A pulse holding one row with the PR fields under test. */
+  const withPr = (pr: AgentRow['pr'], note: string) => fleet({
+    rows: [row({
+      branch: 'feature/pr-row', plan: 'beans', group: 'waiting-on-you',
+      ageMinutes: 20, note, pr, branchUrl: `${GH}feature/pr-row`,
+    })],
+  });
+
+  it('renders the PR cell from the FIELDS, not from the note\'s wording', async () => {
+    // The `indexOf` version searched `row.note` for `PR #<n>` in order to link
+    // it — a parser for a format nobody declared, which silently rendered an
+    // unlinked note the moment the server's wording drifted. So the note here
+    // says nothing of the kind, and the cell must still be complete.
+    const page = await openAgents(withPr(
+      { number: 158, url: 'https://github.com/tiny/garden/pull/158', draft: false, state: 'green' },
+      'uncommitted work in a local worktree',
+    ));
+    try {
+      const li = rowFor(page, 'feature/pr-row');
+      await expect.poll(() => li.count()).toBe(1);
+      const link = li.getByRole('link', { name: 'Pull request 158' });
+      expect(await link.count()).toBe(1);
+      expect(await link.getAttribute('href')).toBe('https://github.com/tiny/garden/pull/158');
+      expect(await li.textContent()).toContain('green');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('keeps what a PR state cannot say — the note is relieved, not replaced', async () => {
+    // Three notes that no PR state can carry. The cell takes over one duty; it
+    // does not take over the note.
+    for (const note of ['uncommitted work in a local worktree',
+      'blocked by an earlier wave', 'claimed elsewhere']) {
+      const page = await openAgents(withPr(null, note));
+      try {
+        const li = rowFor(page, 'feature/pr-row');
+        await expect.poll(() => li.textContent()).toContain(note);
+      } finally {
+        await page.close();
+      }
+    }
+  });
+
+  it('says the PR\'s condition ONCE, not twice', async () => {
+    // The server still composes `PR #158, conflicts · awaiting review` — this
+    // wave does not touch `fleet.ts`. With the cell rendering the same facts
+    // from the fields, printing the whole sentence beside it would say them
+    // twice on every row that has a PR. What survives is everything AFTER the
+    // separator, which is what a PR state cannot say.
+    const page = await openAgents(withPr(
+      { number: 158, url: 'https://github.com/tiny/garden/pull/158',
+        draft: false, state: 'conflicts' },
+      'PR #158, conflicts · awaiting review',
+    ));
+    try {
+      const li = rowFor(page, 'feature/pr-row');
+      await expect.poll(() => li.textContent()).toContain('awaiting review');
+      const text = (await li.textContent()) ?? '';
+      // The words `PR #158` are gone — the glyph and the number replaced them.
+      expect(text).not.toContain('PR #158');
+      // And `conflicts` appears once, from the cell.
+      expect(text.match(/conflicts/g) ?? []).toHaveLength(1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('shows a draft AND its check state — never one folded into the other', async () => {
+    // Folding `draft` into the state enum would rebuild the short-circuit that
+    // kept WAITING ON A MACHINE empty for three releases: the classifier used
+    // to return on every draft before the checks were consulted. A draft has CI
+    // like anything else, and both facts must reach the row.
+    const page = await openAgents(withPr(
+      { number: 158, url: 'https://github.com/tiny/garden/pull/158',
+        draft: true, state: 'pending' },
+      'awaiting review',
+    ));
+    try {
+      const li = rowFor(page, 'feature/pr-row');
+      await expect.poll(() => li.locator('[data-pr-draft]').count()).toBe(1);
+      expect(await li.locator('[data-pr-state="pending"]').textContent()).toBe('CI running');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('says `conflicts` where the PR conflicts, and `no checks` where it does not', async () => {
+    // The pairing that matters: one label for both is the defect, and renaming
+    // all of them to `conflicts` is the same defect mirrored. The distinction
+    // is settled in the FIELD by wave 1; this asserts the cell prints it.
+    for (const [state, word] of [['conflicts', 'conflicts'], ['none', 'no checks']] as const) {
+      const page = await openAgents(withPr(
+        { number: 149, url: 'https://github.com/tiny/garden/pull/149', draft: false, state },
+        'awaiting review',
+      ));
+      try {
+        const li = rowFor(page, 'feature/pr-row');
+        await expect.poll(() => li.locator(`[data-pr-state="${state}"]`).textContent())
+          .toBe(word);
+      } finally {
+        await page.close();
+      }
+    }
+  });
+
+  it('says nothing at all where the host cannot report a state', async () => {
+    // Bitbucket carries no check rollup. The word "unknown" on every row of an
+    // entire host is noise saying only *this board could not find out* — absent
+    // is the honest rendering, the same rule the contract states for the field.
+    const page = await openAgents(withPr(
+      { number: 149, url: 'https://github.com/tiny/garden/pull/149',
+        draft: false, state: 'unknown' },
+      'awaiting review',
+    ));
+    try {
+      const li = rowFor(page, 'feature/pr-row');
+      await expect.poll(() => li.getByRole('link', { name: 'Pull request 149' }).count()).toBe(1);
+      expect(await li.locator('[data-pr-state]').count()).toBe(0);
+      expect(await li.textContent()).not.toContain('unknown');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('keeps the icon from being the sole carrier', async () => {
+    // The repo's rule is *symbol AND word*: the glyph replaces the label `PR`,
+    // never the state. The number stays, the state stays as a word, and the
+    // glyph carries an accessible label — a bare `157` announces nothing.
+    const page = await openAgents(withPr(
+      { number: 157, url: 'https://github.com/tiny/garden/pull/157',
+        draft: false, state: 'failing' },
+      'awaiting review',
+    ));
+    try {
+      const li = rowFor(page, 'feature/pr-row');
+      await expect.poll(() => li.textContent()).toContain('157');
+      expect(await li.textContent()).toContain('checks failing');
+      expect(await li.getByRole('img', { name: 'Pull request' }).count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('renders a PR with no address as plain text rather than an invented link', async () => {
+    // An older host CLI reports no URL. The same rule the branch cell follows
+    // for a merged branch: plain text, never a guessed address.
+    const page = await openAgents(withPr(
+      { number: 157, url: '', draft: false, state: 'green' },
+      'awaiting review',
+    ));
+    try {
+      const li = rowFor(page, 'feature/pr-row');
+      await expect.poll(() => li.locator('[data-pr-number]').count()).toBe(1);
+      expect(await li.locator('[data-pr-link]').count()).toBe(0);
+      expect(await li.textContent()).toContain('157');
+    } finally {
+      await page.close();
+    }
+  });
+
+  // ── Below 640px the row becomes a card ────────────────────────────────────
+
+  /** The agents tab at one viewport width. */
+  async function openAgentsAt(width: number, payload: Fleet = fleet()): Promise<Page> {
+    const page = await browser.newPage();
+    await page.setViewportSize({ width, height: 900 });
+    await page.route('**/api/fleet', (route) =>
+      route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
+    await page.goto(`${baseURL}?tab=agents`);
+    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    return page;
+  }
+
+  it('drops NOTHING at 375px — the card stacks, it does not shed columns', async () => {
+    // Measured: the fixed tracks need 544px before the branch column gets a
+    // single pixel, and a 375px phone is 169px short. So the row stops being a
+    // row — but dropping columns was the cheaper answer and is wrong. The plan
+    // name in particular is what `showPlanHeading` just made a row's own
+    // responsibility, and removing it on a phone would re-open at one width the
+    // defect closed at every width an hour earlier.
+    const page = await openAgentsAt(375, fleet({
+      rows: [row({
+        branch: 'feature/phone', plan: 'lonely-plan', group: 'waiting-on-you',
+        phase: 'Development', ageMinutes: 20, note: 'awaiting review',
+        pr: { number: 158, url: 'https://github.com/tiny/garden/pull/158',
+              draft: false, state: 'green' },
+        branchUrl: `${GH}feature/phone`,
+      })],
+    }));
+    try {
+      const li = rowFor(page, 'feature/phone');
+      await expect.poll(() => li.count()).toBe(1);
+      const text = (await li.textContent()) ?? '';
+      // All five facts, present.
+      expect(text).toContain('lonely-plan');   // plan
+      expect(text).toContain('Development');   // phase
+      expect(text).toContain('158');           // PR
+      expect(text).toContain('green');         // PR state
+      expect(text).toContain('20m');           // age
+      // And the branch, WHOLE — nothing elided in the card form.
+      const shown = await li.locator('[data-branch]').evaluate(
+        (el) => (el as HTMLElement).innerText.replace(/\s+/g, ''),
+      );
+      expect(shown).toBe('feature/phone');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('gives the branch its own line at 375px, and the rest beneath it', async () => {
+    // The branch is the row's primary key and the thing worth reading in full,
+    // so the card leads with it and wraps everything else below. Asserted in
+    // pixels: a "card" that merely wraps mid-row is the flex layout this
+    // replaced.
+    const page = await openAgentsAt(375, fleet({
+      rows: [row({
+        branch: 'feature/phone', plan: 'lonely-plan', group: 'waiting-on-you',
+        phase: 'Development', ageMinutes: 20, note: 'awaiting review',
+        branchUrl: `${GH}feature/phone`,
+      })],
+    }));
+    try {
+      const li = rowFor(page, 'feature/phone');
+      await expect.poll(() => li.count()).toBe(1);
+      const branch = await li.locator('[data-branch]').boundingBox();
+      const phase = await li.locator('[data-phase]').boundingBox();
+      // The phase sits ABOVE the branch (plan and phase lead the wrapped line
+      // in DOM order), and nothing shares the branch's line to its right.
+      expect(phase!.y).toBeLessThan(branch!.y);
+      // The row is taller than one line: it stacked rather than ranged.
+      const box = await li.boundingBox();
+      expect(box!.height).toBeGreaterThan(branch!.height * 1.5);
+      // And the page does not scroll sideways, which is what a grid at 375px
+      // would do.
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expect(overflow).toBeLessThanOrEqual(1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('names the phase in the card, where there is no column to name it', async () => {
+    // The other half of dropping the `sr-only` prefix. The header goes with the
+    // columns below `sm`, so a card reader would otherwise hear `Development`
+    // with nothing saying what it is — exactly the defect the prefix was
+    // written for. It is gone from the GRID, where the header replaced it, not
+    // gone from the app.
+    const page = await openAgentsAt(375, fleet({
+      rows: [row({
+        branch: 'feature/phone', plan: 'lonely-plan', group: 'waiting-on-you',
+        phase: 'Development', ageMinutes: 20, note: 'awaiting review',
+        branchUrl: `${GH}feature/phone`,
+      })],
+    }));
+    try {
+      const li = rowFor(page, 'feature/phone');
+      await expect.poll(() => li.count()).toBe(1);
+      const phaseCell = li.locator('[role="gridcell"]').first();
+      // `innerText` reports the sr-only span as its own line, so the assertion
+      // is on the words rather than on the exact spacing between them.
+      const heard = await phaseCell.evaluate((el) => (el as HTMLElement).innerText);
+      expect(heard).toContain('Phase:');
+      expect(heard).toContain('Development');
+      // And the header is not also announcing it — there are no columns.
+      expect(await group(page, 'Waiting on you').getByRole('columnheader').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('does NOT render a card above the threshold', async () => {
+    // The pairing that matters: a fix that renders cards everywhere passes
+    // every mobile assertion above. At 1280px the row is one line, on tracks.
+    const page = await openAgentsAt(1280, fleet({
+      rows: [row({
+        branch: 'feature/desk', plan: 'lonely-plan', group: 'waiting-on-you',
+        phase: 'Development', ageMinutes: 20, note: 'awaiting review',
+        branchUrl: `${GH}feature/desk`,
+      })],
+    }));
+    try {
+      const li = rowFor(page, 'feature/desk');
+      await expect.poll(() => li.count()).toBe(1);
+      const branch = await li.locator('[data-branch]').boundingBox();
+      const phase = await li.locator('[data-phase]').boundingBox();
+      // Same line: the phase is to the LEFT of the branch, not above it.
+      expect(phase!.x).toBeLessThan(branch!.x);
+      expect(Math.abs(phase!.y - branch!.y)).toBeLessThan(branch!.height);
+      // And it really is a grid with six tracks.
+      const tracks = await li.evaluate((el) => getComputedStyle(el).gridTemplateColumns);
+      expect(tracks.split(' ')).toHaveLength(6);
     } finally {
       await page.close();
     }

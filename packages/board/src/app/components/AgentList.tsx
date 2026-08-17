@@ -164,6 +164,185 @@ export function waitingLabel(days: number): string {
   return `${months}mo`;
 }
 
+/**
+ * The row's column tracks, as one Tailwind class shared by the header and by
+ * every row.
+ *
+ * ```
+ * 6rem   10rem   1fr     9rem   2.5rem   1.25rem
+ * phase  plan    branch  pr     age      menu
+ * ```
+ *
+ * The branch takes `1fr` because it is the longest and most variable value on
+ * the line and the one worth reading in full; the others are bounded by their
+ * own content — `Development` is the longest phase, `⑂1234 conflicts` the
+ * longest PR cell. Every other track is FIXED, which is the whole point: an
+ * empty cell now leaves a gap rather than shifting its neighbours, so a row
+ * with no phase aligns with one that has a phase, and a row whose plan name
+ * sits in the group heading aligns with one whose does not.
+ *
+ * ONE constant, read by the header row and by `Row`. Two copies of a track list
+ * is how a header stops lining up with the rows beneath it — and this grid has
+ * no `<table>` to keep them honest, because the rows carry interactive controls
+ * and a collapsible group structure that table markup would fight.
+ *
+ * Exported for test: the tracks are the claim, and a test that reads the class
+ * off one row cannot tell a shared constant from a lucky duplicate.
+ */
+export const ROW_TRACKS = 'grid-cols-[6rem_10rem_1fr_9rem_2.5rem_1.25rem]';
+
+/**
+ * The PR a row carries, derived from the row rather than imported.
+ *
+ * `AgentRowSchema` names the shape inline, so there is no exported alias to
+ * import — and adding one is a change to the contract, which this wave is
+ * deliberately not making. Derived, so it cannot drift from the field it
+ * describes: a seventh state or a new flag arrives here without an edit.
+ */
+type AgentPr = NonNullable<AgentRow['pr']>;
+
+/**
+ * Where the row stops being a row.
+ *
+ * Arithmetic, not taste: the fixed tracks total 460 px and the gaps and padding
+ * add 84 px, so **the grid needs 544 px before the branch column gets a single
+ * pixel** — and a 375 px phone is 169 px short. Tailwind's `sm` breakpoint is
+ * 640 px, the first stop above that number.
+ *
+ * Below it each row becomes a small block: the branch on its own line, with
+ * plan, phase, PR and age wrapped beneath it. **Nothing is dropped and nothing
+ * is elided** — the same facts stack instead of ranging. Dropping the plan name
+ * was the cheaper answer and is wrong: `showPlanHeading` just made naming the
+ * plan the row's own responsibility whenever its group has no heading, and
+ * removing it on a phone would re-open at one width the defect closed at every
+ * width.
+ *
+ * The phone is a real reader — the server detects a Tailscale address, so the
+ * board is reachable over a private network — and it is a READING surface
+ * there: `/api/dispatch` is gated to localhost, so the row's action menu is
+ * unavailable by construction rather than by layout.
+ */
+export const CARD_BELOW_PX = 640;
+
+/**
+ * How many characters of a branch name are kept at the TAIL when the cell is
+ * too narrow to hold all of it.
+ *
+ * Twelve, measured against the names this fleet actually carries:
+ * `agent-rows-line-up` and `acting-buttons-pin-the-double-click` share the
+ * prefix `feature/` and diverge immediately, but the six branches of
+ * `feature/opus5-hardening-*` share twenty-four characters and differ only
+ * after them — `challenge-budget`, `longhorizon`, and so on. Twelve is enough
+ * to separate every pair of those six and short enough that it never eats the
+ * head on a cell wide enough to matter.
+ */
+const BRANCH_TAIL_CHARS = 12;
+
+/**
+ * Split a branch name into the part that may be clipped and the part that must
+ * not be.
+ *
+ * The elision is in the MIDDLE, and that is the whole decision rather than a
+ * detail of it. Branch names here share long prefixes and differ at the tail —
+ * `feature/opus5-hardening-…` covers six branches — so end-truncation renders
+ * all six identically, which reads as SIX DUPLICATE ROWS rather than as
+ * truncation. That is worse than no truncation at all, because the reader
+ * cannot tell that anything was hidden.
+ *
+ * Returned as two strings rather than one elided string, because the cell's
+ * width is `1fr` — it changes with the window, and a character budget computed
+ * in JavaScript would need a `ResizeObserver` on a view that already repaints
+ * every four seconds, and would be wrong for one frame on every load. The cell
+ * renders the head with `truncate` (which clips at whatever width the browser
+ * gives it, adding its own ellipsis) and the tail with `shrink-0`, so the
+ * BROWSER decides where the fold falls and the last twelve characters are
+ * always among the survivors.
+ *
+ * A name short enough to fit whole yields an empty tail, so a short branch
+ * never gains an ellipsis it did not need — with nothing pinned to the right,
+ * `truncate` leaves a fitting string untouched.
+ *
+ * Exported for test: end-truncation passes any assertion that only checks "the
+ * string got shorter", so what is pinned is that two names sharing a long
+ * prefix stay DISTINGUISHABLE.
+ */
+export function splitBranch(
+  branch: string,
+  tailChars: number = BRANCH_TAIL_CHARS,
+): { head: string; tail: string } {
+  // Nothing to protect: the whole name is shorter than the tail budget, so it
+  // is all head and `truncate` has nothing to do.
+  if (branch.length <= tailChars) return { head: branch, tail: '' };
+  return {
+    head: branch.slice(0, branch.length - tailChars),
+    tail: branch.slice(branch.length - tailChars),
+  };
+}
+
+/**
+ * The PR's condition as a WORD, for the cell to print beside the number.
+ *
+ * The repo's rule is *symbol AND word* — colour or shape must never be the sole
+ * carrier — so the state is spelled out however the cell decorates it. Six
+ * values, six phrasings, and each says what the reader would have to do:
+ * `conflicts` wants a rebase, `no checks` wants a click, `failing` wants
+ * reading.
+ *
+ * `unknown` renders NOTHING rather than the word "unknown". A host that cannot
+ * report a rollup (Bitbucket) would otherwise stamp every row with a word that
+ * says only *this board could not find out* — noise on every line of an
+ * entire host's fleet. Absent is the honest rendering of "no answer", the same
+ * rule the contract states for the field itself.
+ *
+ * Exported for test.
+ */
+export function prStateWord(state: AgentPr['state']): string {
+  switch (state) {
+    case 'green': return 'green';
+    case 'pending': return 'CI running';
+    case 'failing': return 'checks failing';
+    case 'none': return 'no checks';
+    case 'conflicts': return 'conflicts';
+    default: return '';
+  }
+}
+
+/**
+ * The note, with the PR clause the CELL now renders taken off the front.
+ *
+ * The server still composes `PR #158, draft · awaiting review` — that sentence
+ * is `fleet.ts`'s, and this wave does not touch it. But the PR's number, its
+ * draft flag and its state now travel as fields and are rendered by their own
+ * cell, so printing the whole sentence beside that cell would say the same
+ * thing twice on every row that has a PR.
+ *
+ * **This is deliberately NOT the `indexOf` search it replaces.** That one
+ * hunted a marker ANYWHERE in a sentence in order to LINK it — a parser for a
+ * format nobody declared, which silently rendered an unlinked note the moment
+ * the wording drifted. This one is anchored at position 0, matches only the
+ * row's OWN number, and its failure mode is the opposite: a note whose wording
+ * drifts is printed in full, which is a duplicated word rather than a lost
+ * link. Nothing depends on it — the PR cell renders from the fields either way.
+ *
+ * **Everything after the separator survives**, because that is what a PR state
+ * cannot say: *uncommitted work*, *blocked by an earlier wave*, *claimed
+ * elsewhere*, *awaiting review*. The note is not being replaced, only relieved
+ * of one duty.
+ *
+ * Exported for test — an implementation that drops the whole note passes every
+ * "the row no longer says PR #130 twice" assertion.
+ */
+export function noteWithoutPr(note: string, pr: AgentRow['pr']): string {
+  if (!pr) return note;
+  const marker = `PR #${pr.number}`;
+  if (!note.startsWith(marker)) return note;
+  const rest = note.slice(marker.length);
+  // The separator the server writes between the PR clause and everything else.
+  // Anything before it is the PR's own condition, which the cell now carries.
+  const at = rest.indexOf(' · ');
+  return at === -1 ? '' : rest.slice(at + 3);
+}
+
 /** One plan's rows within a waiting-group, in the order they arrived. */
 export interface PlanGroup {
   plan: string;
@@ -324,7 +503,11 @@ function LiveDot() {
     <span
       aria-hidden
       data-live-dot
-      className="h-1.5 w-1.5 shrink-0 self-center animate-pulse rounded-full bg-emerald-500 motion-reduce:animate-none dark:bg-emerald-400"
+      // `sm:absolute` keeps it out of the track list: the grid has six columns
+      // and this is a seventh thing, so it hangs in the row's left padding
+      // rather than pushing every real column in from the edge to reserve a
+      // place most rows never use. Below `sm` it flows inline with the rest.
+      className="h-1.5 w-1.5 shrink-0 self-center animate-pulse rounded-full bg-emerald-500 motion-reduce:animate-none sm:absolute sm:left-1 sm:top-1/2 sm:-translate-y-1/2 dark:bg-emerald-400"
     />
   );
 }
@@ -431,8 +614,14 @@ function RowActions({
   return (
     // Fixed width whether or not anything is in it: the difference between
     // available and not is CONTRAST, not presence, so the right edge holds
-    // still while rows gain and lose their actions.
-    <div className="relative w-5 shrink-0 text-right" onClick={(e) => e.stopPropagation()}>
+    // still while rows gain and lose their actions. In the grid it also has a
+    // track of its own (`1.25rem`), so that stillness now holds across rows as
+    // well as across refreshes.
+    <div
+      role="gridcell"
+      className="relative w-5 shrink-0 text-right"
+      onClick={(e) => e.stopPropagation()}
+    >
       <button
         type="button"
         data-row-actions
@@ -570,6 +759,103 @@ function PlanLink({
   );
 }
 
+/**
+ * The branch name, folded in the MIDDLE when the cell cannot hold it.
+ *
+ * Two spans rather than one: the head clips (`truncate`, so the browser adds
+ * its own ellipsis at exactly the width it has) and the tail does not
+ * (`shrink-0`), which is middle-elision performed by the layout rather than by
+ * arithmetic. See `splitBranch` for why the tail is the half that must survive.
+ *
+ * The FULL name is always in `title` and in the row's accessible text, so
+ * nothing is lost — only folded. `min-w-0` on the wrapper is what allows the
+ * head to shrink at all: a flex item defaults to `min-width: auto` and would
+ * otherwise refuse to go below its content, pushing the PR and age cells the
+ * grid exists to hold still.
+ *
+ * Below `sm` there is no folding to do — the branch has a line of its own
+ * (`whitespace-normal break-all`), because the card form drops nothing and
+ * elides nothing.
+ */
+function BranchName({ row }: { row: AgentRow }) {
+  const { head, tail } = splitBranch(row.branch);
+  const inner = (
+    // `aria-hidden` on the two halves, with the whole name supplied by the
+    // wrapper's `aria-label`. Measured: the halves are flex ITEMS, and the
+    // accessible-name algorithm joins adjacent boxes with a space — the row
+    // announced `feat ure/reviewed`, a branch name no host would recognise and
+    // one no reader could search for. The fold is a fact about the column's
+    // width, so it belongs to the visual channel alone.
+    <span aria-hidden className="flex min-w-0 max-sm:flex-wrap max-sm:break-all">
+      <span className="truncate">{head}</span>
+      {tail && <span className="shrink-0">{tail}</span>}
+    </span>
+  );
+  const className = 'flex min-w-0 font-mono text-[13px]';
+  return row.branchUrl ? (
+    <a
+      href={row.branchUrl}
+      target="_blank"
+      rel="noreferrer"
+      data-branch={row.branch}
+      aria-label={row.branch}
+      className={`${className} text-blue-600 hover:underline dark:text-blue-400`}
+      title={`Branch ${row.branch} on the git host`}
+    >
+      {inner}
+    </a>
+  ) : (
+    // The same treatment for a branch with no address — a merged branch, or an
+    // origin the server does not recognise. `role="text"` is not a thing worth
+    // inventing here; the label rides on the element that carries the name.
+    <span
+      data-branch={row.branch}
+      aria-label={row.branch}
+      className={`${className} text-slate-800 dark:text-slate-200`}
+      title={row.branch}
+    >
+      {inner}
+    </span>
+  );
+}
+
+/**
+ * The column names, on the same tracks as the rows beneath them.
+ *
+ * This is what lets the phase's `sr-only` prefix go. The list used to be a
+ * `<li>` of `<span>`s — as the old comment said, *"a visual table with no table
+ * semantics"* — so column position conveyed nothing and each row was heard as a
+ * run of words. `Development` does not announce itself as a phase, and every
+ * cell needed a label of its own to compensate. With a header row a screen
+ * reader announces the column, once, for every cell under it.
+ *
+ * `sr-only` on screen and real in the accessibility tree. The six columns are
+ * legible to a sighted reader from their alignment — that alignment is the
+ * whole point of this wave — and printing the words above every one of six
+ * groups would cost six lines of chrome that never varies. The reader who
+ * cannot see the alignment is exactly the reader who needs the names.
+ *
+ * NOT a `<table>`. The rows carry interactive controls and sit inside a
+ * collapsible group structure with per-plan sub-headings; table markup would
+ * fight that grouping rather than serve it. `role="grid"` on the `<ul>` keeps
+ * the DOM and gains the semantics.
+ *
+ * Hidden below `sm`, where the row stops being a row: a card has no columns for
+ * a header to name, and the phase cell takes its own label back there.
+ */
+function HeaderRow() {
+  return (
+    <li role="row" className="sr-only max-sm:hidden">
+      <span role="columnheader">Phase</span>
+      <span role="columnheader">Plan</span>
+      <span role="columnheader">Branch</span>
+      <span role="columnheader">Pull request</span>
+      <span role="columnheader">Age</span>
+      <span role="columnheader">Actions</span>
+    </li>
+  );
+}
+
 function Row({
   row,
   onOpenPlan,
@@ -608,17 +894,36 @@ function Row({
     e.preventDefault();
   };
 
+  // What the note still has to say once the PR cell carries the PR's own
+  // condition — see `noteWithoutPr`. Computed once: it is read three times
+  // below (the guard, the title and the text), and three calls is how they
+  // drift.
+  const note = noteWithoutPr(row.note, row.pr);
+
   return (
-    <li className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-slate-200/60 px-3 py-2 text-sm last:border-0 dark:border-slate-800">
+    // Below `sm` a card, at `sm` and above a grid — and the two are one element
+    // rather than two renders. A JS breakpoint would need a resize listener on
+    // a view that already repaints every four seconds, and it would render the
+    // wrong shape for one frame on every load; the media query is evaluated
+    // before first paint and costs nothing.
+    //
+    // The card form wraps: branch on its own line (`w-full`), then plan, phase,
+    // PR and age beneath it as one wrapped line. Nothing is dropped and nothing
+    // is elided — the same facts stack instead of ranging.
+    <li
+      role="row"
+      data-agent-row
+      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-slate-200/60 px-3 py-2 text-sm last:border-0 sm:grid ${ROW_TRACKS} sm:items-baseline sm:gap-x-3 dark:border-slate-800`}
+    >
       {/* The live indicator, on `working` rows only. `self-center` because the
           row aligns on the text baseline and a dot carries no text to align —
           on the baseline it would sit low against the words beside it.
 
-          Rendered as null elsewhere rather than as an empty placeholder cell: a
-          reserved column would give every group a gap in the shape of an
-          indicator it does not have, which is a quieter version of the same
-          false claim. The rows are flex-wrapped, so nothing depends on the
-          columns lining up across groups. */}
+          Absolutely positioned in the grid rather than taking a track: it is
+          decoration, and a seventh track for it would push the six real columns
+          in from the edge on every row in the fleet to make room for a mark
+          most rows do not carry. In the card form it flows inline, where the
+          wrap makes position mean nothing anyway. */}
       {isLive(row) && <LiveDot />}
       {/* The phase takes the REPO's place rather than adding a seventh cell to
           a row that already wraps on `feature/opus5-hardening-challenge-budget`.
@@ -640,24 +945,32 @@ function Row({
           that rule exists to stop COLOUR being the sole carrier, and a word is
           already the non-colour channel.
 
-          The `sr-only` label is load-bearing. This list is a `<li>` of
-          `<span>`s — a visual table with no table semantics — so column
-          position conveys nothing and each row is heard as a run of words.
-          `plot` survived that on luck, reading as a repo name because it looks
-          like one; `Development` does not announce itself as a phase. `title`
-          is what the neighbouring cells use and is the weaker instrument (never
-          shown on touch, read inconsistently), so it accompanies the label
-          rather than replacing it.
+          The `sr-only` prefix that used to sit here is GONE. It existed, as
+          this comment used to say, because the list was "a visual table with no
+          table semantics" — column position conveyed nothing and each row was
+          heard as a run of words. The row is now a `role="row"` of
+          `role="gridcell"`s under a header carrying `role="columnheader"`, so a
+          screen reader announces the column name itself. Keeping the prefix as
+          well would have the column announced twice.
+
+          It survives BELOW `sm` and only there (`sm:hidden`), because that is
+          where the header goes with the columns: a card has no columns to be
+          announced by, so the word `Development` would once again arrive with
+          nothing saying what it is. The prefix is gone from the grid — where
+          the header replaced it — rather than gone from the app.
 
           Empty where the row has no honest phase — a plan that is rejected,
-          superseded or simply unknown — rather than guessing a column. */}
+          superseded or simply unknown — rather than guessing a column. And
+          empty now leaves a GAP rather than shifting its neighbours, which is
+          the entire point of the tracks. */}
       <span
-        className="w-24 shrink-0 truncate text-xs text-slate-500 dark:text-slate-400"
+        role="gridcell"
+        className="min-w-0 shrink-0 truncate text-xs text-slate-500 dark:text-slate-400"
         title={row.phase ? `Phase: ${row.phase}` : undefined}
       >
         {row.phase && (
           <>
-            <span className="sr-only">Phase: </span>
+            <span className="sr-only sm:hidden">Phase: </span>
             <span data-phase={row.phase}>{row.phase}</span>
           </>
         )}
@@ -672,60 +985,105 @@ function Row({
           live view that polls every 4 s, and navigating away in place would cost
           the reader the thing they came to watch. The href stays real so a
           modified click still opens the page, and so a plan with no board card
-          simply navigates. */}
-      {planInHeading ? null : row.planFile ? (
-        <a
-          href={`/plan/${encodeURIComponent(row.planFile)}`}
-          onClick={handlePlan}
-          target={onOpenPlan ? undefined : '_blank'}
-          rel="noreferrer"
-          className="text-xs text-blue-600 hover:underline dark:text-blue-400"
-        >
-          {row.plan}
-        </a>
-      ) : (
-        <span className="text-xs text-slate-500 dark:text-slate-400">{row.plan}</span>
-      )}
+          simply navigates.
+
+          The CELL is always rendered, even when the heading carries the name —
+          an empty track holds its width, so a headed group's rows align on
+          branch with an unheaded group's rows. That alignment is exactly what
+          `showPlanHeading` broke when it made the plan cell conditional. */}
+      <span role="gridcell" className="min-w-0 truncate">
+        {planInHeading ? null : row.planFile ? (
+          <a
+            href={`/plan/${encodeURIComponent(row.planFile)}`}
+            onClick={handlePlan}
+            target={onOpenPlan ? undefined : '_blank'}
+            rel="noreferrer"
+            className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+            title={row.plan}
+          >
+            {row.plan}
+          </a>
+        ) : (
+          <span className="text-xs text-slate-500 dark:text-slate-400" title={row.plan}>
+            {row.plan}
+          </span>
+        )}
+      </span>
       {/* Every link goes where its text says. The branch name opens the BRANCH —
           it used to open the PR, which is surprising in both directions. An
           empty `branchUrl` is a merged branch (its remote page is gone) or an
           origin the server does not recognise; both render as plain text rather
-          than as an invented address. */}
-      {row.branchUrl ? (
-        <a
-          href={row.branchUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="font-mono text-[13px] text-blue-600 hover:underline dark:text-blue-400"
-          title={`Branch ${row.branch} on the git host`}
-        >
-          {row.branch}
-        </a>
-      ) : (
-        <span className="font-mono text-[13px] text-slate-800 dark:text-slate-200">{row.branch}</span>
-      )}
-      {/* Carried BESIDE the state, never instead of it — the same shape as the
-          `no story` badge on a plan card: mark the thing, do not bend the state
-          to encode it.
+          than as an invented address.
 
-          Both halves are needed and neither alone is the answer. The phase has
-          already fallen back a step (a deferred branch under an approved plan
-          reads Design), because `deferred` means the branch *isn't needed* and
-          was given up deliberately — `plot-deliver` skips such branches, so a
-          plan delivers without them. But a bare Design row is indistinguishable
-          from one nobody ever started, and that is the fact the badge carries:
-          this did not fall back because nobody began it, but because someone
-          handed it back. */}
-      {row.state === 'deferred' && (
-        <span
-          className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-          title="Handed back — the branch was given up deliberately, and the plan can deliver without it"
-        >
-          deferred
-        </span>
-      )}
-      <span className="ml-auto text-xs text-slate-500 dark:text-slate-400">
-        <Note row={row} />
+          The branch takes `1fr` and is the ONLY cell that flexes, because it is
+          the longest and most variable value here and the one worth reading in
+          full.
+
+          On its own line below `sm` (`w-full sm:w-auto`): it is the row's
+          primary key, so the card leads with it and wraps everything else
+          beneath.
+
+          `deferred` rides INSIDE this cell rather than taking a track of its
+          own — it qualifies the branch's state, and a seventh column carrying
+          nothing on all but a handful of rows is the chrome the phase cell
+          replaced the repo to avoid. */}
+      <span
+        role="gridcell"
+        className="flex w-full min-w-0 items-baseline gap-2 sm:w-auto"
+      >
+        <BranchName row={row} />
+        {/* Carried BESIDE the state, never instead of it — the same shape as the
+            `no story` badge on a plan card: mark the thing, do not bend the
+            state to encode it.
+
+            Both halves are needed and neither alone is the answer. The phase has
+            already fallen back a step (a deferred branch under an approved plan
+            reads Design), because `deferred` means the branch *isn't needed* and
+            was given up deliberately — `plot-deliver` skips such branches, so a
+            plan delivers without them. But a bare Design row is indistinguishable
+            from one nobody ever started, and that is the fact the badge carries:
+            this did not fall back because nobody began it, but because someone
+            handed it back. */}
+        {row.state === 'deferred' && (
+          <span
+            className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+            title="Handed back — the branch was given up deliberately, and the plan can deliver without it"
+          >
+            deferred
+          </span>
+        )}
+      </span>
+      {/* The PR, rendered from the row's fields — and the note beside it,
+          relieved of the one duty the fields now carry.
+
+          ONE track for both, because they answer one question between them:
+          *what is this waiting for*. The PR cell says what a PR state can say;
+          the note says what it cannot — *uncommitted work*, *blocked by an
+          earlier wave*, *claimed elsewhere*. This is the cell the old layout
+          pushed right with `ml-auto`, which is what collected the row's whole
+          slack between the branch and here and left no two rows agreeing on
+          where anything sat.
+
+          The note truncates where the PR cell has left it no room, with the
+          full text in `title` — the same bargain the branch makes, and the
+          reason the track is fixed at all. The PR is the half kept whole: it is
+          bounded (`⑂1234 conflicts` is the longest it gets) while the note is
+          not.
+
+          A row with no PR shows only the note, and a row with no note only the
+          PR; both hold the same width either way, which is the gap-not-shift
+          rule applied inside the cell as well as between cells. */}
+      <span role="gridcell" className="flex min-w-0 items-baseline gap-2">
+        <PrCell pr={row.pr} />
+        {note && (
+          <span
+            data-row-note
+            className="min-w-0 truncate text-xs text-slate-500 max-sm:whitespace-normal dark:text-slate-400"
+            title={note}
+          >
+            {note}
+          </span>
+        )}
       </span>
       {/* ONE age column, answering "how old is this" once.
           
@@ -739,13 +1097,17 @@ function Row({
           Still nothing where no approval date is recorded: absent, not zero. */}
       {row.ageMinutes === null && row.waitingDays !== null ? (
         <span
-          className="w-10 shrink-0 text-right text-xs tabular-nums text-amber-700 dark:text-amber-500"
+          role="gridcell"
+          className="shrink-0 text-right text-xs tabular-nums text-amber-700 dark:text-amber-500"
           title="Approved this long ago, and nobody has started it"
         >
           {waitingLabel(row.waitingDays)}
         </span>
       ) : (
-        <span className="w-10 shrink-0 text-right text-xs tabular-nums text-slate-400 dark:text-slate-500">
+        <span
+          role="gridcell"
+          className="shrink-0 text-right text-xs tabular-nums text-slate-400 dark:text-slate-500"
+        >
           {age(row)}
         </span>
       )}
@@ -780,32 +1142,114 @@ function Row({
 }
 
 /**
- * The note, with `PR #<n>` turned into the link to the pull request.
+ * The git host's own pull-request glyph.
  *
- * The number is composed into the note by the server's classifier (`PR #130
- * green`), so the link is applied to that substring rather than rendered as a
- * separate control — the reader looks for the PR link where the number is, and
- * that is where it now is. `green` stays plain text on purpose: the fleet row
- * carries no checks URL, and adding one is a change through `plot-host.sh` and
- * the pulse rather than a display change.
+ * It replaces the word `PR`, **never the state**. `PR #157, draft` is fifteen
+ * characters in a cell that must hold a fixed width; `⑂157 draft` is roughly
+ * nine, and the difference decides whether the cell truncates. The repo's rule
+ * is *symbol AND word* — a symbol may never be the sole carrier — and this does
+ * not breach it: the number stays, the state stays as a word, and only the
+ * label `PR` becomes a mark that means *pull request* in every git host's own
+ * UI.
+ *
+ * Rendered as an inline SVG rather than an image or an icon font, so the
+ * artifact stays self-contained the way the rest of the board is — the board
+ * ships as ONE file, and a remote asset would be a hole in it.
+ *
+ * `aria-label` rather than `aria-hidden`, because a bare `157` announces
+ * nothing: unlike the live dot, whose meaning the group heading already states,
+ * this glyph carries the only word saying what the number IS.
  */
-function Note({ row }: { row: AgentRow }) {
-  const marker = row.pr ? `PR #${row.pr.number}` : '';
-  const at = marker && row.pr?.url ? row.note.indexOf(marker) : -1;
-  if (at === -1) return <>{row.note}</>;
+function PrGlyph() {
   return (
-    <>
-      {row.note.slice(0, at)}
-      <a
-        href={row.pr!.url}
-        target="_blank"
-        rel="noreferrer"
-        className="text-blue-600 hover:underline dark:text-blue-400"
-      >
-        {marker}
-      </a>
-      {row.note.slice(at + marker.length)}
-    </>
+    <svg
+      role="img"
+      aria-label="Pull request"
+      viewBox="0 0 16 16"
+      className="inline-block h-3 w-3 shrink-0 align-[-0.1em]"
+      fill="currentColor"
+    >
+      {/* Two verticals joined by a curve, with a dot on each end: the shape a
+          pull request wears in GitHub, GitLab and Bitbucket alike. */}
+      <path d="M4.5 3.25a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5ZM2 4.5a2.5 2.5 0 1 1 3.13 2.42v2.16a2.5 2.5 0 1 1-1.25 0V6.92A2.5 2.5 0 0 1 2 4.5Zm2.5 6.75a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5Zm7-8a2.5 2.5 0 0 1 .63 4.92v2.16a2.5 2.5 0 1 1-1.25 0V6.92A2.5 2.5 0 0 1 11.5 3.25Zm0 1.25a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5Zm0 6.75a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5Z" />
+    </svg>
+  );
+}
+
+/**
+ * The PR cell, rendered from the row's FIELDS.
+ *
+ * What it replaces: a string search for `PR #<n>` inside the note, applied so
+ * the substring could be linked. That was a parser for a format nobody
+ * declared — it silently rendered an unlinked note whenever the server's
+ * wording drifted, and it could not produce a badge without taking the sentence
+ * back apart. The number, the draft flag and the state now arrive as data, so
+ * the cell composes them directly.
+ *
+ * **`draft` and `state` are two badges, not one.** They answer different
+ * questions — *is this offered for review* and *what is it waiting for* — and
+ * they are independent: a draft has CI like anything else. Folding draft into
+ * the state would rebuild the short-circuit that kept WAITING ON A MACHINE
+ * empty for three releases.
+ *
+ * Empty where the row has no PR, and that emptiness is now a GAP rather than a
+ * shift: the track holds its width, so the age and menu beside it stay put.
+ */
+function PrCell({ pr }: { pr: AgentRow['pr'] }) {
+  if (!pr) return null;
+  const word = prStateWord(pr.state);
+  const number = (
+    <span className="tabular-nums">
+      <PrGlyph />
+      {pr.number}
+    </span>
+  );
+  return (
+    <span className="flex min-w-0 items-baseline gap-1 text-xs text-slate-500 dark:text-slate-400">
+      {/* An empty `url` is a host that reported no address — the number then
+          renders as plain text rather than as an invented link, the same rule
+          the branch cell follows for a merged branch. */}
+      {pr.url ? (
+        <a
+          href={pr.url}
+          target="_blank"
+          rel="noreferrer"
+          data-pr-link
+          className="shrink-0 text-blue-600 hover:underline dark:text-blue-400"
+        >
+          {number}
+        </a>
+      ) : (
+        <span data-pr-number className="shrink-0">{number}</span>
+      )}
+      {pr.draft && (
+        <span
+          data-pr-draft
+          className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+          title="Draft — not yet offered for review"
+        >
+          draft
+        </span>
+      )}
+      {word && (
+        // The state as a WORD, never as colour alone. Colour reinforces it for
+        // the two values a reader acts on; `unknown` renders nothing at all,
+        // because a word saying only *this board could not find out* is noise
+        // on every row of a host that carries no rollup.
+        <span
+          data-pr-state={pr.state}
+          className={
+            pr.state === 'conflicts' || pr.state === 'failing'
+              ? 'truncate text-rose-700 dark:text-rose-400'
+              : pr.state === 'green'
+                ? 'truncate text-emerald-700 dark:text-emerald-500'
+                : 'truncate'
+          }
+        >
+          {word}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -1006,7 +1450,20 @@ export function AgentList({
                 cost no vertical space at all, which is the entire complaint
                 this answers. */}
             {!isFolded && (
-            <ul className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
+            // `role="grid"` rather than a `<table>`: the rows carry interactive
+            // controls and this list nests a collapsible group structure with
+            // per-plan sub-headings inside it, which table markup would fight
+            // rather than serve. The role gains the semantics and keeps the DOM.
+            //
+            // `aria-label` rather than the group's `<h2>`: the heading is
+            // outside the grid and reads "⚠ Waiting on you (4)", which is the
+            // section's name and not this grid's.
+            <ul
+              role="grid"
+              aria-label={`${label} — agent branches`}
+              className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40"
+            >
+              <HeaderRow />
               {rows.length > 0 ? (
                 plans.map((group) => {
                   // ONE answer per group, read by both the heading and its
@@ -1015,7 +1472,11 @@ export function AgentList({
                   // twice, and the reverse loses the name entirely.
                   const headed = showPlanHeading(group);
                   return (
-                  <li key={group.plan}>
+                  // `rowgroup`, so the grid's children are rows and groups of
+                  // rows rather than an unnamed `<li>` the tree cannot place.
+                  // The per-plan sub-heading and its rows are exactly what a
+                  // rowgroup is for.
+                  <li role="rowgroup" key={group.plan}>
                     {/* A nameless group holds rows no plan claims, so there is
                         nothing to head them WITH: rendering the heading anyway
                         printed a bare "(3)", a label that labels nothing.
@@ -1038,7 +1499,7 @@ export function AgentList({
                         </span>
                       </h3>
                     )}
-                    <ul>
+                    <ul role="presentation">
                       {group.rows.map((r) => (
                         <Row
                           key={`${r.repo}/${r.branch}`}
@@ -1059,7 +1520,11 @@ export function AgentList({
                   );
                 })
               ) : (
-                <li className="px-3 py-2 text-sm text-slate-400 dark:text-slate-600">none</li>
+                // A row of one cell: the grid holds no branches, and saying so
+                // is still a row of the grid rather than something beside it.
+                <li role="row" className="px-3 py-2 text-sm text-slate-400 dark:text-slate-600">
+                  <span role="gridcell">none</span>
+                </li>
               )}
             </ul>
             )}
