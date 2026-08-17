@@ -82,6 +82,42 @@ with no clock running. They differ in *what* the person would do —
 approve versus un-shelve — and the note already says which. The colour
 answers the coarser question; the words answer the finer one.
 
+### The state travels as a field, not as a sentence
+
+**Measured, and it changes how this is built.** The row derives its
+startability from a string comparison today:
+
+```ts
+export function isStartable(row: AgentRow): boolean {
+  return row.group === 'not-started' && row.state === 'open'
+      && row.note === ELIGIBLE_NOTE;
+}
+```
+
+That is the pattern #175 removed from the PR cell — *"a parser for a
+format nobody declared"*, which silently drops its answer the moment the
+server's wording drifts. Deriving a colour the same way would be worse,
+because this plan **sharpens the notes** in the same breath: a row
+matching on `blocked by an earlier wave` breaks the moment that sentence
+gains the wave's name.
+
+So the server computes the waiting-state and sends it as a field. The
+note stays prose for humans; the colour reads a value. This follows
+`pr.state` (#165) and `stuck` (#183), both of which replaced exactly this
+shape.
+
+**The row also does not carry the wave verdict.** Measured: `verdict`
+sits on the *wave* (`schema.ts:664`); the row carries only `wave`, the
+name. So the row cannot see *that* it is blocked, let alone by what —
+another reason the state has to be computed server-side, where both are
+in hand.
+
+**And the blocking wave travels with it.** The server knows which earlier
+wave is incomplete when it builds the row, so it sends that name and the
+row reads *blocked by `Truth`* rather than *blocked by an earlier wave*.
+*By which one?* is the reader's unavoidable next question, and it costs
+one string to answer.
+
 ### The note carries the meaning; the colour makes it visible at distance
 
 The notes already say the right things — *blocked by an earlier wave*,
@@ -107,6 +143,23 @@ there today.
   with its age and its PR erased."* That mistake is not to be repeated by
   a colour either.
 
+### A Draft plan colours only its FIRST wave
+
+**Measured problem the first draft missed:** a Draft plan holds every one
+of its branches, and this session's plans routinely have three or four
+waves. Colouring each row would put four loud rows on the board for **one**
+pending approval — and the later three would still be blocked the instant
+after it is granted, because their predecessors have not run.
+
+So only the rows of the plan's **first wave** wear `needs you`. They are
+the ones that would actually move on the click; the rest are waiting on
+their predecessors, which is *waiting on time* and reads as such.
+
+This keeps the colour's promise exact: **it marks rows your action would
+release**, not rows that share a plan with them. A four-wave plan
+therefore shows one loud wave and three quiet ones, which is also the
+truth about what the approval buys.
+
 ### Only one of the three is loud
 
 **`needs you` is the only state that gets a strong colour.** The other
@@ -123,26 +176,45 @@ Measured for scale: the pulse during this session's fleet held 43 rows
 across the sections, with multi-wave plans routinely showing two blocked
 rows for every eligible one.
 
-### No animation here
+### Still colour, and motion once it has waited too long
 
 `board-watches-for-stuck-branches` establishes that an animated cue marks
 **an unanswered request** — something waiting on you that will keep
-waiting. A Draft plan does qualify, and it is still not the same thing: a
-stuck branch is an *interruption* to work in flight, while a Draft plan
-is work that has not begun. The board would be interrupting the reader
-about the ordinary state of a plan they wrote minutes ago.
+waiting. A fresh Draft plan is not that: it is the ordinary state of a
+plan written minutes ago, and animating it would interrupt the reader
+about their own work in progress.
 
-The distinction to preserve: **motion is for things that went wrong**,
-colour is for things that are simply so. Two vocabularies, and this is
-the second one.
+**But a Draft that has sat for days is an incident — just a slow one.**
+The same plan waiting on the same person, with nothing in git able to
+move it, is precisely the *unanswered request* the stuck cue exists for.
+So the marker escalates from colour to motion once the wait is long
+enough to be a problem rather than a phase.
+
+**The threshold is not guessed, and that constraint is load-bearing.**
+This plan rejected a guessed number elsewhere, and the same rule applies
+here: it must come from something the board already measures. The row
+carries the age it needs — a plan approved in minutes and one untouched
+for a week are distinguishable without inventing a constant.
+
+Pick the threshold from the repo's own history of Draft-to-Approved
+times, state the measurement in the implementation, and make it a named
+constant with the evidence beside it. If that history turns out too thin
+to support a number, say so and ship the colour alone rather than
+inventing one — a wrong threshold trains the reader to ignore the cue,
+which costs more than not having it.
+
+The distinction that survives: **colour says what a row is; motion says
+it has been waiting on you too long.** The first is a property, the
+second is an accusation, and only the second earns the scarce channel.
 
 ## Branches
 
 ### Colour
 
-- `feature/not-started-says-what-it-waits-for` — the three waiting-states
-  are derived from the existing notes and phase, rendered as colour beside
-  the unchanged words; `blocked by an earlier wave` names the wave
+- `feature/not-started-says-what-it-waits-for` — the server computes the
+  waiting-state and the blocking wave's name onto the row; the board
+  renders them as colour beside the words, colours only a Draft plan's
+  first wave, and escalates to motion once a Draft has waited too long
 
 ## Done when
 
@@ -166,8 +238,26 @@ the second one.
 - **No row claims automatic dispatch.** Assert `eligible` reads as
   *ready to start*, not *starting* — nothing on this board dispatches
   itself.
-- **The contract is unchanged.** The three states are derived from
-  `note`, `state` and the plan phase the row already carries.
+- **The state is a FIELD, not a string match.** Assert the colour
+  survives a reworded note — and that no comparison against
+  `ELIGIBLE_NOTE` or `DRAFT_PLAN_NOTE` decides it. The pairing that
+  matters: matching sentences passes every appearance assertion and
+  breaks silently the first time the wording changes, which this plan
+  does on purpose.
+- **`blocked by <wave>` names the blocking wave.** Assert the name is the
+  wave that is actually incomplete, not merely the previous one in the
+  list.
+- **A Draft plan colours only its FIRST wave.** Assert a four-wave Draft
+  plan shows one loud wave and three quiet ones. The pairing: colouring
+  every row of the plan passes a "does a Draft plan show needs-you?"
+  assertion and puts four loud rows on the board for one approval.
+- **A long-waiting Draft escalates from colour to motion**, and the
+  threshold is a named constant with its measurement recorded beside it.
+  Assert a fresh Draft does **not** animate — the ordinary state of a
+  plan written minutes ago is not an incident.
+- **If the repo's history cannot support a threshold, the colour ships
+  alone.** A guessed number trains the reader to ignore the cue, which
+  costs more than not having it.
 - `pnpm run test:board`, `pnpm run typecheck`, `pnpm test`,
   `pnpm run validate` all pass.
 - `pnpm build:board` run in the implementing worktree and the artifact
@@ -175,6 +265,14 @@ the second one.
 - A changeset is present, with its `bumps:` block.
 
 ## Notes
+
+The contract gains one field — the waiting-state, computed server-side,
+with the blocking wave's name beside it. That is a deliberate reversal of
+this plan's first draft, which proposed deriving the three states from
+the notes. Measured against `isStartable`, which does exactly that today
+via `row.note === ELIGIBLE_NOTE`, the derivation is the shape #175
+removed from the PR cell — and it would have broken on the very
+note-sharpening this plan performs.
 
 The question proposed *eligible or blocked*. That is the fleet scan's
 vocabulary and the natural way to ask, and it splits the wrong way for a
@@ -186,3 +284,21 @@ became **what is this waiting for** instead.
 It also assumed eligible work is dispatched automatically. It is not —
 `eligible` means a claim nobody has taken, and starting it is still a
 click. Recorded here so the colour is not later read as a promise.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "isStartable matches row.note === ELIGIBLE_NOTE — derive the colour the same way?", "a": "No — a field on the row; the plan sharpens the very notes a match would depend on", "category": "technical"},
+    {"q": "The row carries `wave` but not `verdict` — how does it know it is blocked?", "a": "Server-side; and it sends the blocking wave's NAME so the row can say which", "category": "technical"},
+    {"q": "A 4-wave Draft plan would colour four rows for ONE approval?", "a": "Only the first wave — the rows the click would actually release", "category": "ux"},
+    {"q": "No animation here, when #181 animates a stuck branch?", "a": "Escalate: colour while fresh, motion once it has waited too long; threshold measured, never guessed", "category": "ux"}
+  ],
+  "categoriesCovered": {
+    "technical": {"stack": true, "architecture": true, "implementation": true},
+    "domain": {"rules": true},
+    "ux": {"happyPath": true, "edgeCases": true, "accessibility": true},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
