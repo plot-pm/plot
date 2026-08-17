@@ -21,9 +21,12 @@
 #   pr-list [--state open|merged|closed|all] [--limit N] [--rich]
 #                                 JSON lines: {"number":N,"title":"...",
 #                                 "state":"...","head":"..."}
-#                                 --rich adds: draft, checks, review, url —
-#                                 `url` so a consumer never has to construct
-#                                 one (it is "" only if the host omits it)
+#                                 --rich adds: draft, checks, mergeable, review,
+#                                 url — `url` so a consumer never has to
+#                                 construct one (it is "" only if the host omits
+#                                 it); `mergeable` is mergeable|conflicting|
+#                                 unknown, and "unknown" is what a host that
+#                                 cannot answer reports (absent is not false)
 #                                 --limit raises the host CLI's default page of
 #                                 30, which --state all exhausts immediately
 #   pr-body <number> --body B     replace the PR description
@@ -203,6 +206,24 @@ case "$op" in
         # One red check among green ones counts red: `any` is checked before
         # the pending branch, so a mixed rollup never reads as "still running".
         #
+        # `mergeable` is a SEPARATE question from `checks`, and asking it is
+        # what lets a consumer tell two situations apart that look identical
+        # through `checks` alone. GitHub starts no workflow for a PR that does
+        # not merge cleanly, so a conflicting PR reports an EMPTY rollup —
+        # `checks:"none"`, exactly like a bot PR whose run awaits a human click.
+        # One wants a rebase, the other wants a click, and `checks` cannot say
+        # which. Measured on PR #149 and #160: `mergeable=CONFLICTING`,
+        # `mergeStateStatus=DIRTY`, `statusCheckRollup` genuinely empty.
+        #
+        # Three values, and `unknown` is a real answer rather than a gap in the
+        # data: GitHub computes mergeability lazily, so a PR opened seconds ago
+        # legitimately reports UNKNOWN until the background job finishes. A
+        # consumer must not read that as clean.
+        #
+        # `mergeStateStatus` is consulted only to CORROBORATE — DIRTY is its
+        # word for the same conflict — and never to overrule: it needs a scope
+        # some tokens lack and is absent for them, where `mergeable` is not.
+        #
         # `review` stays informational: a repo that does not review through the
         # host emits "" here, and no consumer may turn that into a gate.
         # `url` comes from the host, never from a consumer. A board or a report
@@ -211,7 +232,7 @@ case "$op" in
         # this script is the ONE place that knows what a host URL looks like
         # (Principle 3), and pr-state already reads it from exactly here.
         gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
-          --json number,title,state,headRefName,isDraft,statusCheckRollup,reviewDecision,url \
+          --json number,title,state,headRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url \
           | jq -c '.[] | {
               number:.number, title:.title, state:.state, head:.headRefName,
               draft:.isDraft,
@@ -224,6 +245,10 @@ case "$op" in
                          | $c=="PENDING" or $c=="IN_PROGRESS" or $c=="QUEUED"
                            or $c=="WAITING" or $c==null) then "pending"
                 else "green" end),
+              mergeable:(
+                if .mergeable=="CONFLICTING" or .mergeStateStatus=="DIRTY" then "conflicting"
+                elif .mergeable=="MERGEABLE" then "mergeable"
+                else "unknown" end),
               review:(.reviewDecision // ""),
               url:.url
             }'
@@ -233,12 +258,14 @@ case "$op" in
           | jq -c '.[] | {number:.number,title:.title,state:.state,head:.headRefName}'
       fi
     else
-      # Bitbucket carries no check rollup through `bb pr list`. Rather than
-      # guess, --rich reports checks:"unknown" — a consumer must render that as
-      # "unavailable", never as green. An honest gap beats an invented answer.
+      # Bitbucket carries no check rollup through `bb pr list`, and no
+      # mergeability verdict either. Rather than guess, --rich reports
+      # checks:"unknown" and mergeable:"unknown" — a consumer must render those
+      # as "unavailable", never as green and never as clean. An honest gap beats
+      # an invented answer, and absent is not false.
       if [ "$rich" = 1 ]; then
         bb pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} --json \
-          | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",review:"",url:(.links.html.href // "")}'
+          | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // "")}'
       else
         bb pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} --json \
           | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name}'

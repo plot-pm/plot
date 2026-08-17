@@ -148,9 +148,10 @@ test('host: pr-body github maps to gh pr edit --body', () => {
 // talks to the host (Principle 3), and a board that guessed would be wrong on
 // a different host.
 
-const richGh = (rollup, extra = '') =>
+const richGh = (rollup, extra = '', merge = '') =>
   `[{"number":7,"title":"T","state":"OPEN","headRefName":"feature/x","isDraft":false,` +
-  `"statusCheckRollup":${rollup},"reviewDecision":${extra || '""'}}]`;
+  `"statusCheckRollup":${rollup},"reviewDecision":${extra || '""'},` +
+  `${merge || '"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN"'}}]`;
 
 test('host: pr-list --rich reports an EMPTY rollup as none, not green', () => {
   // The case that motivated the field: GitHub starts no workflows for bot PRs
@@ -215,6 +216,71 @@ test('host: bitbucket --rich says unknown rather than inventing a verdict', () =
   const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   assert.equal(out.checks, 'unknown');
   assert.equal(out.head, 'feature/y', 'the plain fields still normalize');
+});
+
+// --- pr-list --rich: mergeability, so `conflicts` is not `no checks` --------
+//
+// The distinction the board could not draw. GitHub starts no workflow for a PR
+// that does not merge cleanly, so a conflicting PR reports an EMPTY rollup —
+// `checks:"none"`, exactly like a bot PR whose run awaits a human click. One
+// wants a rebase, the other a click, and `checks` alone cannot say which.
+// Measured live on PR #149 and PR #160.
+
+test('host: pr-list --rich reports CONFLICTING mergeability', () => {
+  // The live shape from PR #149 and #160: mergeable=CONFLICTING,
+  // mergeStateStatus=DIRTY, and a genuinely EMPTY rollup — GitHub does not
+  // start CI for a conflicting PR. `checks` alone reads this as "none".
+  const stubs = makeStubs({
+    ghJson: richGh('[]', '', '"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY"'),
+  });
+  const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(out.mergeable, 'conflicting');
+  assert.equal(out.checks, 'none',
+    'checks stays honest about the empty rollup — mergeable is the field that says why');
+});
+
+test('host: a clean PR reports mergeable, and a conflict is not implied by an empty rollup', () => {
+  // The pairing that matters: if every empty rollup reported `conflicting`,
+  // the fix would be the same defect mirrored — a workflow awaiting a human
+  // click would be sent for a rebase it does not need.
+  const stubs = makeStubs({ ghJson: richGh('[]') });
+  const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(out.checks, 'none');
+  assert.equal(out.mergeable, 'mergeable',
+    'an empty rollup on a cleanly-merging branch is not a conflict');
+});
+
+test('host: mergeability GitHub has not computed yet is unknown, not clean', () => {
+  // GitHub computes mergeability lazily: a PR opened seconds ago legitimately
+  // reports UNKNOWN. Absent is not false — reading it as clean would claim a
+  // merge nobody has tested.
+  const stubs = makeStubs({
+    ghJson: richGh('[{"conclusion":"SUCCESS"}]', '', '"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN"'),
+  });
+  const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(out.mergeable, 'unknown');
+});
+
+test('host: DIRTY corroborates a conflict even where mergeable does not say so', () => {
+  // `mergeStateStatus` needs a scope some tokens lack, so it is consulted to
+  // CORROBORATE and never to overrule. Where it IS present and says DIRTY, the
+  // conflict is real regardless of what the lazier field has computed.
+  const stubs = makeStubs({
+    ghJson: richGh('[]', '', '"mergeable":"UNKNOWN","mergeStateStatus":"DIRTY"'),
+  });
+  const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(out.mergeable, 'conflicting');
+});
+
+test('host: bitbucket reports unknown mergeability rather than claiming clean', () => {
+  // The precedent two lines away in the adapter: `bb pr list` carries no
+  // mergeability verdict, and the honest answer is that it cannot say. A
+  // consumer must never render this as clean.
+  const stubs = makeStubs({
+    bbJson: '[{"id":9,"title":"T","state":"OPEN","source":{"branch":{"name":"feature/y"}}}]',
+  });
+  const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
+  assert.equal(out.mergeable, 'unknown');
 });
 
 test('host: pr-list without --rich is unchanged', () => {
