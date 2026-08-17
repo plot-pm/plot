@@ -1674,6 +1674,77 @@ function ActivityMark({ pace, place = 'row' }: { pace: ActivityPace; place?: 'ro
 }
 
 /**
+ * Whether a row holds commits its remote has never seen.
+ *
+ * A COUNT, not a boolean, and `> 0` rather than truthiness: the field defaults
+ * to 0 and 0 means *not observed here*, so the two collapse to the same answer
+ * — no mark — without either pretending to be the other.
+ *
+ * Exported for test: the pairing that matters is a row that is dirty AND ahead,
+ * where an implementation checking the two in sequence loses whichever it tests
+ * second.
+ */
+export function isUnpushed(row: AgentRow): boolean {
+  return (row.localAhead ?? 0) > 0;
+}
+
+/**
+ * The mark a row wears while it holds commits nobody else can see.
+ *
+ * **STILLNESS IS THE MESSAGE.** The activity mark says *someone is writing
+ * here* and carries a travelling dot and a glow to say it; this says the
+ * opposite — someone wrote, stopped, and the result never left the machine. So
+ * it is separated from the activity mark by FORM and by the ABSENCE OF THE
+ * GLOW, never by motion: adding movement here would say the one thing that is
+ * measurably untrue.
+ *
+ * That makes it the only one of the four marks with nothing animated at all,
+ * which is why `motion-reduce` needs no clause: there is nothing to reduce. The
+ * glow's absence is doing the work, and a reduced-motion rule that dimmed it
+ * would take the distinction with it.
+ *
+ * **A BAR, WHERE THE ACTIVITY MARK IS A DOT ON A TRACK.** Same 12px left-edge
+ * slot, same emerald family, and the two are still told apart at a glance:
+ * one is a bright point with a halo, the other a flat rule with none. A row
+ * carrying both shows both — they occupy the same slot at different heights,
+ * the way the track already passes under `LiveDot`.
+ *
+ * **It is NOT `[data-live-dot]`, NOT `[data-change-mark]`, NOT
+ * `[data-activity-mark]` and NOT `[data-stuck-cue]`.** Five marks, five
+ * meanings, and no mark implemented by modifying another — the precedent #180
+ * set and every wave since has kept.
+ *
+ * The title carries the same local-only limit its field does: this is what THIS
+ * checkout can see, and a branch worked on elsewhere reports nothing here.
+ */
+function UnpushedMark({ ahead }: { ahead: number }) {
+  return (
+    <span
+      aria-hidden
+      data-unpushed-mark
+      // The COUNT is in the title rather than on screen. `2 ahead` and `40
+      // ahead` are different situations and the number is free, but printing it
+      // in the left padding would put a second figure beside a row that already
+      // carries phase, plan, branch, note, PR and age — and the mark's job is
+      // to say *there is something here*, which the reader then opens.
+      title={`${ahead} commit${ahead === 1 ? '' : 's'} in this checkout that the remote has not seen`}
+      // The same left-edge slot and the same first-line alignment as the
+      // activity mark — reusing its placement map rather than restating the
+      // string, so a change to the row's padding moves both marks together
+      // instead of moving one and stranding the other.
+      className={ACTIVITY_MARK_PLACE.row}
+    >
+      {/* A flat rule at FULL opacity where the activity track sits at 25%, and
+          with no dot riding it. Against the activity mark the difference reads
+          without a legend: a solid bar means work that has stopped, a dim track
+          with a bright point on it means work in progress. No shadow — the glow
+          is the activity mark's alone and is what "someone is here" means. */}
+      <span className="h-0.5 w-full rounded-full bg-emerald-600/70 dark:bg-emerald-400/60" />
+    </span>
+  );
+}
+
+/**
  * The mark a row wears for ~3 s after its PR status changed.
  *
  * **Deliberately NOT `LiveDot`, and the distinction is a requirement.** That dot
@@ -2617,6 +2688,12 @@ function Row({
       {(active || isLive(row)) && (
         <ActivityMark pace={active ? 'fast' : activityPace(row)} />
       )}
+      {/* FINISHED WORK NOBODY ELSE CAN SEE — a separate question from the one
+          above, asked separately. Not an `else`, and not folded into the
+          condition: a row can be written to AND hold unpushed commits at the
+          same moment, and either shape would lose whichever it tested second.
+          Two facts, two marks, rendered independently. */}
+      {isUnpushed(row) && <UnpushedMark ahead={row.localAhead} />}
       {isLive(row) && <LiveDot />}
       {/* The phase takes the REPO's place rather than adding a seventh cell to
           a row that already wraps on `feature/opus5-hardening-challenge-budget`.

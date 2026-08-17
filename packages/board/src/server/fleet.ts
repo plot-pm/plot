@@ -1539,13 +1539,15 @@ export function rowsFromPulse(
           // from one reading of one scan, or a row can carry a marker its own
           // group disagrees with.
           //
-          // `local_ahead` deliberately does NOT travel with them. It is
-          // finished work sitting still rather than activity, it gets its own
-          // static mark in a later wave, and OR-ing it in here would mark a
-          // branch nobody has touched for hours as though someone were writing
-          // to it.
+          // `local_ahead` travels too, as of the wave that gave it its own mark
+          // — and it travels SEPARATELY on purpose. It is finished work sitting
+          // still rather than activity, so it must never be OR-ed into the
+          // activity predicate: that would mark a branch nobody has touched for
+          // hours as though someone were writing to it. Three fields, two
+          // meanings, and the row renders them as two marks.
           localDirty: b.local_dirty,
           localLocked: b.local_locked,
+          localAhead: b.local_ahead,
           // WHETHER IT CAN MOVE — a fact ADDED beside the group, never folded
           // into it. `classify` above answered what this branch IS; nothing it
           // can say means *this cannot advance without someone doing
@@ -1680,6 +1682,12 @@ export function rowsFromPulse(
       // PR's age would invent an observation this machine never made.
       localDirty: false,
       localLocked: false,
+      // 0 here means UNOBSERVED, exactly as `false` does above — this row was
+      // built from the PR map, so no worktree was ever inspected for it. The
+      // unpushed mark therefore does not render, which is correct: claiming a
+      // branch has nothing unpushed on the strength of never having looked is
+      // the same invented observation, one field along.
+      localAhead: 0,
       // A PLANLESS branch is not in the pulse, so no conflict set was ever
       // computed for it and `conflictsKnown` is false — which is *not looked
       // at*, never *clean*. The one state reachable from PR data alone is
