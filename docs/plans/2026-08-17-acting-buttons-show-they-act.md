@@ -279,7 +279,7 @@ after a fix proves nothing about whether the fix was needed.
 
 - `bug/acting-buttons-pin-the-double-click` — a browser test that clicks each
   acting button twice inside one tick and asserts a single request; the fix
-  (a `useRef` latch) lands only if the test fails first
+  (a `useRef` latch) lands only if the test fails first → #173
 
 ### Truth
 
