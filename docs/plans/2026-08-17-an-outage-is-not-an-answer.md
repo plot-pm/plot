@@ -167,7 +167,7 @@ and the footer already wraps. **The cheapest correct fix is to remove the
 - `bug/an-empty-conflict-set-is-not-a-refusal` — the resolver
   distinguishes *nothing observed* from *other files*, works in a
   worktree that is its own or idle, and does not retry a `not-observed`
-  refusal every pulse
+  refusal every pulse → #198
 
 ### Transport
 
