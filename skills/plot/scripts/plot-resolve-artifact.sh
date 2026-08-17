@@ -42,6 +42,25 @@
 # moment its own gate said so; the branch is left exactly as it was, and the
 # board reports it as a conflict a human owns.
 #
+# IT MERGES ONLY IN A WORKTREE THAT IS IDLE. A worktree carrying modifications
+# belongs to whoever made them — measured on 2026-08-17, the resolver ran its
+# merge inside one an agent was actively editing. It refuses `worktree-busy`
+# rather than reaching in, which the plan names the honest minimum: a second
+# worktree on the same branch is not available to it anyway, since git refuses a
+# second checkout of one branch.
+#
+# AN EMPTY CONFLICT SET IS NOT A REFUSAL ABOUT FILES. Three cases, named apart,
+# because two of them were once one:
+#
+#   exactly the artifact  → the licensed case                    → repair
+#   other files present   → needs judgement                      → not-artifact-only
+#   empty, no merge ran   → nothing was observed                 → not-observed
+#
+# The last is not a smaller version of the middle. `not-artifact-only` asserts
+# something about the files that conflicted, and a set of zero has none to
+# assert it about — saying it there sends a reader to look for files nobody ever
+# examined.
+#
 # WHICH SIDE IS TAKEN CANNOT MATTER, and the diff is never read. `--theirs` is
 # named here only because `git checkout` needs a word: the rebuild overwrites
 # whichever side was kept. Never phrase it as "take ours" — under `git merge`
@@ -131,7 +150,31 @@ fi
 trap 'rmdir "$lock" 2>/dev/null || true' EXIT INT TERM
 
 if [ -d "$wt" ] && git worktree list --porcelain | grep -qx "worktree $wt"; then
+  # A REUSED WORKTREE MAY BELONG TO SOMEONE ELSE, and on 2026-08-17 one did: the
+  # resolver ran `git merge` inside a worktree an agent was actively editing —
+  # zero unmerged paths, three modified files, work in progress. It refused
+  # before writing anything, but that was luck rather than design.
+  #
+  # Reuse is right when the worktree is IDLE; the name alone does not say so. A
+  # worktree with modifications is one whose owner is mid-thought, and merging
+  # into it would either fail on "local changes would be overwritten" or, worse,
+  # succeed and fold a stranger's uncommitted work into a merge commit this
+  # script then pushes.
+  #
+  # The honest minimum is to refuse, and the plan names it acceptable: creating a
+  # scratch worktree is impossible anyway while git holds this branch checked out
+  # here, since git refuses a second checkout of one branch.
+  #
+  # `--porcelain` rather than a parsed `git status`: it is the stable interface,
+  # and an untracked file is deliberately NOT counted — a stray log or an
+  # editor's scratch file is not work in progress, and `merge` does not touch it.
   echo "step: reusing worktree $wt"
+  busy=$(git -C "$wt" status --porcelain --untracked-files=no 2>/dev/null)
+  if [ -n "$busy" ]; then
+    echo "step: worktree has modifications that are not this repair's — refusing"
+    printf 'step: modified: %s\n' "$(printf '%s' "$busy" | sed 's/^...//' | tr '\n' ' ')"
+    finish refused worktree-busy
+  fi
 else
   if ! git worktree add -q "$wt" "$branch" 2>/dev/null; then
     if ! git worktree add -q -b "$branch" "$wt" "origin/$branch" 2>/dev/null; then
@@ -169,11 +212,38 @@ fi
 # the reassuring direction, so the entry condition is re-checked against reality
 # before anything is written.
 #
+# The set is read once and asked TWO questions, in order: was anything observed
+# at all, and — only then — was it exactly the artifact.
+unmerged=$(git -C "$wt" diff --name-only --diff-filter=U)
+n_unmerged=$(printf '%s\n' "$unmerged" | grep -c . || true)
+
+# AN EMPTY SET IS NOT A SMALL SET — it is the absence of a reading.
+#
+# The merge exited non-zero, so something went wrong; but a conflict is not the
+# only thing that ends a merge non-zero. A merge that never STARTED — refused
+# because the worktree was dirty, because a merge was already in progress, or
+# because the ref could not be resolved — exits non-zero too and leaves no
+# unmerged paths behind. Zero paths therefore answers a different question than
+# one or three do: those say WHICH files conflicted, zero says NOBODY LOOKED.
+#
+# Measured on 2026-08-17, and the defect this branch exists for: the resolver
+# reused a worktree in which no merge was running, read zero paths, compared
+# zero against one, and reported `not-artifact-only` — a name asserting
+# something about files it had never examined. The refusal was right; its reason
+# was wrong, and the wrong reason sent a reader looking for conflicts that did
+# not exist.
+#
+# So the two refusals are named apart. `not-artifact-only` is a claim about an
+# observed set and may only be said when there was one.
+if [ "$n_unmerged" = "0" ]; then
+  git -C "$wt" merge --abort >/dev/null 2>&1 || true
+  echo "step: the merge reported failure but left no unmerged paths — nothing was observed"
+  finish refused not-observed
+fi
+
 # EXACTLY the artifact: one path, that path, nothing else. Not "the artifact
 # among the conflicts" — an implementation asking that passes every
 # artifact-only case and silently repairs merges that need judgement as a whole.
-unmerged=$(git -C "$wt" diff --name-only --diff-filter=U)
-n_unmerged=$(printf '%s\n' "$unmerged" | grep -c . || true)
 if [ "$n_unmerged" != "1" ] || [ "$unmerged" != "$ARTIFACT_PATH" ]; then
   git -C "$wt" merge --abort >/dev/null 2>&1 || true
   echo "step: conflict set is not exactly the artifact — refusing"

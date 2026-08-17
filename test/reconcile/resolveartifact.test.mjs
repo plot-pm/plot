@@ -262,6 +262,102 @@ test('pushes nothing when the merge turns out to be clean', () => {
   assert.equal(git(repo, 'rev-parse', 'origin/feature/x').trim(), before);
 });
 
+// AN EMPTY CONFLICT SET IS NOT A SMALL ONE — it is the absence of a reading, and
+// naming it `not-artifact-only` asserts something about files nobody examined.
+//
+// THE MEASURED CASE, 2026-08-17: the resolver reused a worktree in which no
+// merge was running, read zero unmerged paths, compared zero against one, and
+// refused as though it had seen other files. The refusal was right; the reason
+// sent a reader looking for conflicts that did not exist.
+//
+// Reproduced by making the merge fail WITHOUT conflicting: a worktree in which a
+// merge is already recorded as in progress makes `git merge` exit non-zero
+// before it starts, so THIS merge's unmerged set is empty. The distinction under
+// test is exactly that non-zero-with-nothing-observed differs from
+// non-zero-with-a-set.
+//
+// The worktree is left CLEAN apart from that record, so the `worktree-busy`
+// fence cannot fire and steal the assertion — this test must reach the set check
+// or it proves nothing about how an empty set is named.
+test('refuses as not-observed when the merge left no unmerged paths', () => {
+  makeRepo();
+  writePnpmStub({ build: 0, tests: 0 });
+
+  const wt = path.join(path.dirname(repo), 'plot-wt-feature-x');
+  git(repo, 'worktree', 'add', '-q', wt, 'feature/x');
+  git(wt, 'fetch', '-q', 'origin');
+
+  // MERGE_HEAD alone: git refuses to start a new merge ("You have not concluded
+  // your merge"), the index is clean, and nothing is unmerged.
+  const gitDir = git(wt, 'rev-parse', '--absolute-git-dir').trim();
+  fs.writeFileSync(path.join(gitDir, 'MERGE_HEAD'),
+    `${git(repo, 'rev-parse', 'origin/main').trim()}\n`);
+  assert.equal(git(wt, 'status', '--porcelain', '--untracked-files=no').trim(), '',
+    'the fixture must leave the worktree CLEAN — worktree-busy must not fire here');
+  assert.equal(git(wt, 'diff', '--name-only', '--diff-filter=U').trim(), '',
+    'the fixture must leave NO unmerged paths — that is the case under test');
+
+  const before = git(repo, 'rev-parse', 'origin/feature/x').trim();
+  const { out } = run('feature/x');
+
+  // THE REASON IS THE ASSERTION. `refused` alone would pass with the old code.
+  assert.equal(footer(out).outcome, 'refused');
+  assert.equal(footer(out).reason, 'not-observed',
+    'an empty set must never be reported as not-artifact-only');
+  assert.equal(git(repo, 'rev-parse', 'origin/feature/x').trim(), before);
+  assert.ok(!fs.existsSync(path.join(stubDir, 'pnpm.log')),
+    'nothing observed must not reach the rebuild');
+});
+
+// THE RESOLVER NEVER MERGES IN A WORKTREE SOMEONE ELSE IS WORKING IN.
+//
+// Measured on 2026-08-17: zero unmerged paths, three modified files, an agent
+// working in it — and the resolver ran `git merge` inside it anyway. It refused
+// before writing, but that was luck. Reuse is right when the worktree is idle;
+// the name alone does not say so.
+test('refuses a worktree carrying foreign modifications', () => {
+  makeRepo();
+  writePnpmStub({ build: 0, tests: 0 });
+
+  const wt = path.join(path.dirname(repo), 'plot-wt-feature-x');
+  git(repo, 'worktree', 'add', '-q', wt, 'feature/x');
+  // Someone else's work in progress: tracked files modified, nothing committed.
+  fs.writeFileSync(path.join(wt, 'other.txt'), 'an agent was typing here\n');
+
+  const before = git(repo, 'rev-parse', 'origin/feature/x').trim();
+  const { out } = run('feature/x');
+
+  assert.equal(footer(out).outcome, 'refused');
+  assert.equal(footer(out).reason, 'worktree-busy');
+  assert.equal(git(repo, 'rev-parse', 'origin/feature/x').trim(), before);
+
+  // AND THE FOREIGN WORK IS UNTOUCHED — the assertion the measured case makes
+  // load-bearing. A refusal that still merged first would pass every line above.
+  assert.equal(fs.readFileSync(path.join(wt, 'other.txt'), 'utf8'),
+    'an agent was typing here\n');
+  assert.ok(!fs.existsSync(path.join(wt, '.git', 'MERGE_HEAD')));
+  assert.ok(!fs.existsSync(path.join(stubDir, 'pnpm.log')),
+    'a busy worktree must not reach the rebuild');
+});
+
+// AN UNTRACKED FILE IS NOT WORK IN PROGRESS. The pairing that matters: a fence
+// counting every difference would refuse the repair whenever a stray log or an
+// editor scratch file sat in the worktree — and `merge` does not touch those.
+// This is the artifact-only repair succeeding with one present.
+test('repairs a worktree holding only untracked files', () => {
+  makeRepo();
+  writePnpmStub({ build: 0, tests: 0 });
+
+  const wt = path.join(path.dirname(repo), 'plot-wt-feature-x');
+  git(repo, 'worktree', 'add', '-q', wt, 'feature/x');
+  fs.writeFileSync(path.join(wt, 'stray.log'), 'not work in progress\n');
+
+  const { out, code } = run('feature/x', { expectFail: false });
+  assert.equal(code, 0, out);
+  assert.equal(footer(out).outcome, 'pushed');
+  assert.equal(git(repo, 'show', `origin/feature/x:${ARTIFACT}`).trim(), 'REBUILT');
+});
+
 test('a dry run changes nothing and says so', () => {
   makeRepo();
   writePnpmStub({ build: 0, tests: 0 });
