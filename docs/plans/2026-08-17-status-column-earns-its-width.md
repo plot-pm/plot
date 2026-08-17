@@ -117,8 +117,9 @@ change only.
 
 ### A row that changes state lights up briefly
 
-When a row's `pr.state` changes, the row flashes and fades — about three
-seconds, then gone.
+When a row's PR status changes, the row flashes and fades — about three
+seconds, then gone. **The watched value is `pr?.state ?? null`** — the
+six states plus *no PR*, seven possibilities, one value.
 
 **Three seconds, not three hundred milliseconds, and the measurement
 decides it.** The board has *two* clocks, not one:
@@ -161,6 +162,45 @@ the explanation is in the section they are not looking at. The marker at
 the destination is what makes the arrival legible. One rule: **`pr.state`
 changed → that row flashes, wherever it is.**
 
+**A PR appearing is a change, and so is one going away.** Measured: `pr`
+is `.nullable().default(null)` on the row, and most rows carry no PR at
+all — `not-started`, `quiet`, and every fresh claim. So the value being
+watched has **seven** possibilities, not six: the six states plus *no PR*.
+
+`null → pending` is a real transition and often the most interesting one
+on this board: an agent has just delivered. Treating `null` as a seventh
+value rather than as a gap keeps that visible and keeps the rule single —
+*the watched value changed* — instead of introducing an exception about
+which changes count. The same follows in the other direction:
+`pending → null` (a PR merged or closed out from under the row) also
+flashes. An asymmetry there would need a reason, and there is none that
+survives *the row's own state changed*.
+
+**But `null` is a KNOWN value, and never-seen is not.** These look alike
+in JavaScript and mean opposite things:
+
+| Ref holds | Means | On this pulse |
+|---|---|---|
+| *(no entry)* | never observed this row | **record silently** |
+| `null` | observed, and it had no PR | a move away from `null` flashes |
+| a state | observed, with that state | a different state flashes |
+
+Collapsing the first two is the tempting simplification and it is wrong:
+a branch with no PR would then be permanently silent, because *never
+seen* and *seen without a PR* would be indistinguishable — and its first
+PR opening, the most interesting transition it will ever have, would
+never flash. This is the same absent-is-not-a-value rule this repo has
+now applied to `claimed`/`eligible`, to `index.lock`, to interrogation
+rounds, and to the first pulse above. The ref must distinguish *missing
+key* from *stored `null`*.
+
+**A second change while the marker is lit restarts it.** The marker's
+claim is *something is happening here*, and two changes in quick
+succession make that more true, not less. Letting the first timer run out
+un-extended would hide the second change behind the first — the marker
+would expire and imply nothing further happened, which is exactly the
+false statement it exists to prevent.
+
 **If ten rows change at once, ten rows flash.** The current pulse carries
 43 rows, and a move on the default branch can flip many PRs to
 `conflicts` together — that happened today when #176 landed. Suppressing
@@ -180,7 +220,7 @@ keeps removing. It stays available as later work; it is not this.
 
 **The memory is the previous value, and nothing more.** The board holds
 `fleet` in one `useState` (`App.tsx:82`), replaced whole on each poll.
-This adds a ref holding the prior `pr.state` per row key — rows are
+This adds a ref holding the prior `pr?.state ?? null` per row key — rows are
 already identified as `${repo}/${branch}` (`AgentList.tsx:1505`), which
 is what makes a prior value attributable to a row at all. Nothing is
 persisted, nothing is written to disk, and the board still asserts
@@ -223,7 +263,7 @@ value at its return, and starts silent.
 
 **A row whose state did not change does not flash**, however much else
 about it moved — new commits, a changed note, a different group. This is
-about `pr.state` alone.
+about the watched value alone.
 
 **`motion-reduce` keeps the marker and stops the animation.** The rule
 `working-rows-show-motion` settled and #176 reapplied: under
@@ -253,27 +293,27 @@ the client remembers one value.
 
 ## Branches
 
-### Width
+### Row
 
 - `feature/status-column-earns-its-width` — `ROW_TRACKS` gives the status
-  column 14rem; assertions that every edge stays put and the card below
-  640px is unaffected
+  column 14rem, and the row marks a watched-value transition for ~3 s
+  wherever it now sits: silent on first sighting, restarting on a second
+  change, `motion-reduce`-safe, `aria-hidden`
 
-### Change
+**One wave, and the first draft had two.** Splitting them was the
+instinct — the width is one number on one exported constant, the flash is
+new behaviour — and the measurement argues the other way. Both changes
+land in `AgentList.tsx`, and every branch touching the board also
+rebuilds `board-server.mjs`. This session paid **four** manual conflict
+resolutions in one hour for branches meeting in the same objects, every
+one of them a union with no genuine disagreement, and PR #176 and #177
+each needed a further rebase on the artifact alone. Two PRs here would
+buy independent reviewability for a one-line CSS change and pay a rebase
+and a rebuild for it.
 
-- `feature/row-flashes-when-its-state-changes` — the row marks a
-  `pr.state` transition for ~3 s wherever it now sits, silent on first
-  sighting, `motion-reduce`-safe, `aria-hidden`
-
-Two waves, sequential, and the dependency is real rather than tidy: both
-touch `AgentList.tsx`, and the second adds a visual layer to the same row
-the first re-sizes. This session paid four manual conflict resolutions in
-one hour for two branches meeting in the same objects — every one a union
-with no genuine disagreement, and every one still a rebase and a rebuild.
-
-Width goes first because it is the smaller change and the one that was
-asked for directly; the flash sits on top of a row whose columns have
-settled.
+The two parts stay separable *inside* the branch: land the width first as
+its own commit, so it can be reverted alone if the narrower branch column
+turns out to bite.
 
 ## Done when
 
@@ -286,11 +326,11 @@ settled.
   pass a "the status got wider" assertion and break this one.
 - **Below 640px nothing changes.** Assert the card layout at 375px is
   identical to before — tracks do not apply there.
-- **A row whose `pr.state` changes flashes.** Assert a transition
+- **A row whose watched value changes flashes.** Assert a transition
   (`pending` → `failing`) produces the marker.
 - **A row whose state did NOT change does not flash**, even when other
   fields moved. Assert a pulse that changes the note and the commit count
-  but not `pr.state`.
+  but not the PR status.
 - **The FIRST pulse flashes nothing.** Assert a fresh mount with rows
   already carrying states — the case that fires on every page load and
   every board restart, and the one a naive implementation gets wrong in
@@ -307,6 +347,20 @@ settled.
   `pr.state` helps decide the group.
 - **Many simultaneous changes all flash.** Assert ten rows transitioning
   in one update produce ten markers — no threshold, no suppression.
+- **A PR appearing flashes** (`null` → `pending`), and **a PR going away
+  flashes** (`pending` → `null`). Assert both directions: `pr` is
+  `.nullable()`, most rows carry none, and an implementation reading
+  `row.pr.state` unguarded crashes on exactly those rows.
+- **Never-seen and no-PR are distinguishable.** Assert a row observed
+  once with `pr: null` and then given a PR **does** flash, while that same
+  row on its first sighting does **not**. The pairing that matters: an
+  implementation storing both as "nothing" passes the first-pulse
+  assertion and silences every branch's first PR — the most interesting
+  transition a branch has.
+- **A second change while the marker is lit restarts it.** Assert the
+  marker is still present past the first change's expiry — a fix that
+  ignores the second change lets the marker expire and imply nothing
+  further happened.
 - **The marker lasts about three seconds**, not one frame and not until
   the next PR refresh. Assert the duration is independent of the poll:
   a marker cleared by the *next pulse* would live 4 s or 60 s depending
@@ -345,12 +399,16 @@ one cell holding both would be one label with two meanings.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {"q": "PR state refreshes at 60s, not the 4s fleet pulse — what follows?", "a": "Hold the flash ~3s; a rare event needs to survive a glance away", "category": "technical"},
     {"q": "pr.state helps decide the GROUP — what flashes when a row jumps section?", "a": "The row at its new location; one rule, no exceptions", "category": "ux"},
     {"q": "43 rows, and main moving can flip many at once — swarm behaviour?", "a": "All flash; suppressing would be quietest when most changed", "category": "ux"},
-    {"q": "Client memory means reload forgets, tabs are independent — right?", "a": "Yes, client — the flash is about this viewer's observations", "category": "technical"}
+    {"q": "Client memory means reload forgets, tabs are independent — right?", "a": "Yes, client — the flash is about this viewer's observations", "category": "technical"},
+    {"q": "pr is .nullable() — what when a PR APPEARS (null -> pending)?", "a": "Flash; null is a seventh value, not a gap. Both directions", "category": "domain"},
+    {"q": "How to tell never-seen from seen-without-a-PR?", "a": "Explicitly: missing key vs stored null; collapsing silences first PRs", "category": "technical"},
+    {"q": "Second change while the marker is lit?", "a": "Restart the timer; expiring would imply nothing further happened", "category": "ux"},
+    {"q": "Wave 1 is a one-line constant — own wave or merged?", "a": "Merged; two PRs would buy nothing and pay a rebase plus a rebuild", "category": "tradeOffs"}
   ],
   "categoriesCovered": {
     "technical": {"stack": true, "architecture": true, "implementation": true},
