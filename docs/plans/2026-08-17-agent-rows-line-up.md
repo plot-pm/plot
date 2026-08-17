@@ -12,6 +12,7 @@
 - **Approved:** 2026-08-17, jwloka, plan-PR #162 merged (one interrogation round)
 - **Started:** 2026-08-17, Jan Wloka, `feature/pr-state-travels-as-a-field`
 - **Delivered:**
+- **Started:** 2026-08-17, Jan Wloka, `feature/agent-rows-line-up`
 
 ## Problem
 
