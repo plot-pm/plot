@@ -242,7 +242,7 @@ of the existing structure rather than needing a guard.
 ### Start
 
 - `feature/dispatch-reports-no-worker` — the summary reports prepared-vs-started
-  counts; the first dispatch asks how this project runs an agent headless
+  counts; the first dispatch asks how this project runs an agent headless → #167
 
 **Two waves, and the first holds two branches deliberately.** An earlier draft
 had three waves — one branch each — with prose explaining that the first and
