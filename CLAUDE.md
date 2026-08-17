@@ -16,7 +16,16 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
 - **Plan template:** .plot/templates/plan.md
 - **Claim stale after:** 24
 - **Board command:** pnpm board
-- **Worker command:** claude -p "You are implementing the branch $PLOT_BRANCH in this worktree, alone. Read .plot/briefs/${PLOT_BRANCH##*/}.md first — it is the specification, and its decisions were settled during plan interrogation: do not re-derive them, do not widen the scope. If you find something it did not anticipate, implement what you can and report the discovery rather than improvising. Follow CLAUDE.md: pnpm install if node_modules is missing, never skip tests, run pnpm build:board in THIS worktree and commit the artifact, add a changeset with its bumps block, never edit versions by hand, use trash not rm. Push your first real commit as soon as it exists and push again immediately after any rebase. Open a PR to main when done, then append the PR number to this branch's line in the plan's Branches section on main — check git branch --show-current is main before that edit. GitHub's API has returned 503 intermittently; if a push or merge appears to fail, verify the result via gh api rather than trusting the error. End your run with a report: the PR number, the judgement calls you made, and anything the plan did not anticipate." --permission-mode acceptEdits
+- **Worker command:** claude -p "You are implementing the branch $PLOT_BRANCH in this worktree, alone. Read .plot/briefs/${PLOT_BRANCH##*/}.md first — it is the specification, and its decisions were settled during plan interrogation: do not re-derive them, do not widen the scope. If you find something it did not anticipate, implement what you can and report the discovery rather than improvising. Follow CLAUDE.md: pnpm install if node_modules is missing, never skip tests, run pnpm build:board in THIS worktree and commit the artifact, add a changeset with its bumps block, never edit versions by hand, use trash not rm. Push your first real commit as soon as it exists and push again immediately after any rebase. Open a PR to main when done, then append the PR number to this branch's line in the plan's Branches section on main — check git branch --show-current is main before that edit. GitHub's API has returned 503 intermittently; if a push or merge appears to fail, verify the result via gh api rather than trusting the error. End your run with a report: the PR number, the judgement calls you made, and anything the plan did not anticipate." --permission-mode bypassPermissions
+<!-- `bypassPermissions` because a detached worker is non-interactive: nobody
+     can answer a prompt, and `acceptEdits` left one unable to run `pnpm test`,
+     `pnpm build:board` or `git commit` — it wrote the code, reported honestly
+     that it had verified nothing, and left the work uncommitted (2026-08-17).
+     The cost is real and chosen: on the same day `plot-resolve-artifact.sh`
+     ran `git merge` inside another agent's active worktree and retried 111
+     times. Under this mode nothing would have stopped it. The brief is
+     therefore the only guard a worker has — keep its scope guards explicit. -->
+
 <!-- Optional: **Approve command:** how to run an agent headless for ONE prompt;
      the board appends `/plot-approve <slug>` and gets the full skill — the
      ceremony questions, the tracer heuristic, the in-session walkthrough.
