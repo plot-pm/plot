@@ -18,6 +18,9 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
 - **Board command:** pnpm board
 <!-- Optional: **Worker command:** how to run an agent headless; without it
      /plot-dispatch prepares worktrees and you start them yourself. -->
+<!-- Optional: **Approve command:** how to run an agent headless for ONE prompt;
+     the board appends `/plot-approve <slug>`. Without it the board's Approve
+     button renders disabled and says so. -->
 
 ## Architecture
 
@@ -56,7 +59,7 @@ Scripts in `skills/plot/scripts/` that any model tier can use:
 | `plot-plan-meta.sh` | Parse plan files → JSON (phase, type, title, sprint, story, assignee, branches, PRs, `Review:`/`Impl:` ceremony answers, `Approved:`/`Started:`/`Delivered:`/`Released:` transition records); the plan-format contract |
 | `plot-context.sh` | Read-only: which plan governs the current branch, its phase, wave, and PRs → JSON. Supplies plot-shaped facts to whatever writes session logs; Plot never writes them itself |
 | `plot-detect-repo.sh` | Read-only adoption probe → JSON (git host, DoD candidates, ticket scheme, commit style, existing planning systems, hub docs); every field is a proposal a human confirms |
-| `plot-config.sh` | Read a `## Plot Config` key with a default (`get <key> [default]`); includes the optional `Plan template` override key and the Plot 2 posture keys (`Plan PRs`, `Implementation home`, `Hosts plans`, `Tracker`, `Git host`) |
+| `plot-config.sh` | Read a `## Plot Config` key with a default (`get <key> [default]`); includes the optional `Plan template` override key, the agent-runner keys (`Worker command`, `Approve command`), and the Plot 2 posture keys (`Plan PRs`, `Implementation home`, `Hosts plans`, `Tracker`, `Git host`) |
 | `plot-host.sh` | Git-host adapter (gh/bb): `backend`, `default-branch`, `pr-state`, `pr-create`, `pr-merge`, `pr-list`, `pr-body` — the ONE place that talks to the host CLI |
 | `plot-phase-gate.sh` | PreToolUse hook (see `hooks/hooks.json`): blocks implementation commits while the governing plan is Draft; plan-only commits pass; fails open |
 | `plot-story-lint.sh` | Story-estate drift check (missing STORY files, frontmatter, done-not-archived, index sync); machine-countable footer; exit 1 on findings |
