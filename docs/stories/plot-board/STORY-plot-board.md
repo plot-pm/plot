@@ -190,8 +190,9 @@ that closes the loop, and it has not been built yet.
   exactly right — nobody is waiting on a machine that has not been allowed to
   start.
 
-- ⏸️ **The data to fix the Draft-in-NOT-STARTED bug landed an hour after it was
-  found, and nothing reads it.** Since #140 the pulse reports each plan's own
+- ✅ **The data to fix the Draft-in-NOT-STARTED bug landed an hour after it was
+  found, and nothing reads it.** → #154, 2026-08-17. Something reads it now, and
+  the prediction held: one condition in `classify()`, no new field. Since #140 the pulse reports each plan's own
   `phase` — deliberately as data only: *"It is reported, never decides"*,
   *"nothing here decides which column"*. That split is right (scripts collect,
   consumers interpret), but it means the fix is now smaller than the finding
@@ -208,8 +209,13 @@ that closes the loop, and it has not been built yet.
   *knows* it cannot answer — it just renders that as "age unknown" rather than
   "not approved yet".
 
-- ⏸️ **A DRAFT plan's branches sit in NOT STARTED, inviting a dispatch that
-  would be refused.** Spotted 2026-08-16 from a screenshot: minutes after
+- ✅ **A DRAFT plan's branches sit in NOT STARTED, inviting a dispatch that
+  would be refused.** → #154, 2026-08-17. `classify()` reads the plan's own
+  phase (`fleet.ts:719`) and answers `DRAFT_PLAN_NOTE` instead of `eligible`;
+  the note is a shared constant so the two callers cannot drift. The fix landed
+  exactly as predicted below — no new field and no scan change, because #140 had
+  already put the phase in the pulse as data. Spotted 2026-08-16 from a
+  screenshot: minutes after
   `board-tells-the-truth` was written, its two branches appeared reading
   *"eligible — nobody has taken it"* — while the plan was still Draft and its
   PR not even marked ready for review.
@@ -370,10 +376,41 @@ that closes the loop, and it has not been built yet.
   point below describes, now with a second source: not just terminals, but
   agents.
 
+  **Measured again at 02:00 on 2026-08-17, and the accumulation is narrower and
+  worse than "terminals pile up".** Four processes; the two from an agent
+  worktree listened on `56939` and `56967` — random high ports, so **`PORT=0`**,
+  and `packages/board/test/helpers.mjs:37` is where that comes from. They were
+  **orphans**: parent PID 1, started 01:54:31 and 01:54:49, the test run that
+  spawned them long gone. Both still answered `/api/fleet` with `200`, so both
+  were still polling.
+
+  This bounds the `EADDRINUSE` adoption from #123 rather than contradicting it:
+  that check answers *"is this port taken?"*, and a process asking for `PORT=0`
+  has opted out of the question by construction. It cannot adopt and was never
+  meant to. So the surviving hole is not the operator opening terminals — it is
+  **test servers outliving their run**, and every worktree multiplies the
+  chance. A third appeared within seconds of killing the first two, from the
+  same worktree, because that agent was running its suite.
+
+  A fourth process had **no listener at all** — the `--watch` supervisor between
+  restarts. That is precisely the window that serves `0 branches across 0 plans`.
+
+  The quota was fine (213/5000 GraphQL), so #123's backoff holds. The cost is no
+  longer quota; it is that nobody can tell which board they are looking at.
+
   Worth stating plainly because it bounds the value of the fleet view: **the
   more parallel work there is, the less reliable the view of it becomes.**
 
 - ⏸️ **`pnpm board` starts another board instead of adopting the running one.**
+  **Partly fixed, and re-measured 2026-08-17 into a sharper finding.** The
+  `EADDRINUSE` path added since means a second `pnpm board` on the same port now
+  names the first and exits — pinned by the test *"a second board names the
+  first and exits"*, which passes. What that cannot reach is a process that asks
+  for **`PORT=0`**, which is what `packages/board/test/helpers.mjs` does for
+  every integration test: it has opted out of the port question, so adoption
+  cannot apply. Those are the ones that survive — see the orphan measurement in
+  the point above. **The remaining defect is test servers outliving their run,
+  not operators opening terminals.** Original finding, unchanged:
   Found 2026-08-16 while chasing why the quota kept draining *after* #123 had
   landed and `--watch` was in place: `ps` showed **seven** independent
   board-servers on seven ports, started 13:48, 13:55, 14:05, 15:10 (×2) and
@@ -394,7 +431,16 @@ that closes the loop, and it has not been built yet.
   should claim its port — adopt a live server (or say which one is already
   serving) rather than opening another. Until then, `ps aux | grep
   board-server` before starting one.
-- ⏸️ **The checked-in artifact collides on every parallel branch** — three
+- ✅ **The checked-in artifact collides on every parallel branch** → #144,
+  2026-08-16. `.gitattributes` marks `board-server.mjs` as `-merge`, so git
+  keeps one side whole rather than splicing markers into 690 KB of generated
+  output; the fix is *take either side, rebuild, commit*. Exercised twice on
+  2026-08-17 (#154, #155), and both times the rebuild changed the file — proving
+  the side taken was "wrong" and that it genuinely cannot matter. An attribute
+  rather than a merge driver on purpose: a driver's definition lives in each
+  clone's `git config`, so it would silently do nothing for anyone who cloned
+  and configured nothing. The collision itself remains, and is now mechanical.
+  Originally: three
   merges in one afternoon (#117, #118, #119), each conflicting in
   `board-server.mjs` and only there, while every source file merged cleanly.
   It is a 690 KB build output, so git has nothing sensible to merge: two
@@ -445,15 +491,22 @@ that closes the loop, and it has not been built yet.
   git refs and saw the claim, Board reads the plan through
   `toBoardPhase(phase, started)` and saw nothing started. Fixed by hand for this
   plan; the gap in dispatch remains.
-- ⏸️ **`same branch` work is invisible to the fleet until pushed** — same
-  session, same screenshot: `feature/push-main-bypass` sat under NOT STARTED
-  reading *"eligible — nobody has taken it"* while five commits existed for it
-  locally. The scan derives everything from remote refs (Principle 1), so this
-  is correct behaviour and correct semantics — in a fleet of detached workers,
-  a local branch is nobody's business but its machine's. But `/plot-dispatch`
-  pushes a claim and `/plot-implement` under `Impl: same branch` does not, so
-  that flow produces work the board cannot see. Whether `/plot-implement`
-  should push the branch at start is undecided.
+- ⏸️ **`same branch` work is invisible to the fleet until pushed** — **half
+  fixed, and the remaining half is the decision, not the code.** Same session,
+  same screenshot: `feature/push-main-bypass` sat under NOT STARTED reading
+  *"eligible — nobody has taken it"* while five commits existed for it locally.
+
+  The **seeing** half landed with `fleet-sees-unpushed-commits` (2026-08-17):
+  `local_ahead` counts commits the remote lacks, `local_dirty` reports an edited
+  worktree, and a branch holding either is lifted out of quiet. So *this*
+  machine now sees its own unpushed work.
+
+  What that cannot reach is the flow itself. The scan derives everything from
+  remote refs (Principle 1), so a branch nobody pushed is invisible to every
+  *other* machine by construction — `local_ahead` is a local answer to a local
+  question. `/plot-dispatch` pushes a claim; `/plot-implement` under
+  `Impl: same branch` does not. **Whether it should push the branch at start
+  remains undecided**, and it is the whole of what is left here.
 - ✅ **Section 2 reports a plan when ONE branch merged, not when all did** — fixed in #122 —
   seen 2026-08-16 the moment #122 landed: the scan named
   `reconcile-scan-accuracy` (two waves still open) and `board-reads-git` (one
