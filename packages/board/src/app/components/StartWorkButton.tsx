@@ -2,6 +2,107 @@ import { useEffect, useRef, useState } from 'react';
 import type { Card, DispatchInfo } from '../../contract/schema.js';
 
 /**
+ * WHAT THE BUTTON WATCHES — the count its own action moves.
+ *
+ * `card.started` describes the PLAN; a dispatch starts a BRANCH. A plan with
+ * three waves is `started: true` for ever after its first branch is dispatched,
+ * so a button waiting on that flag can never see a second wave land: it sat
+ * through three pulses and reported *no change — see log* about a dispatch that
+ * had prepared a worktree and pushed a claim. Measured on 2026-08-17 on the
+ * exact card `started: true, claimed: 0, eligible: 1`.
+ *
+ * `waveSummary.claimed` is the count a dispatch moves, on EVERY wave — a claim
+ * is a pushed ref, and claiming one more branch is precisely what succeeded.
+ *
+ * Still DERIVED, never asserted. What changes is which fact is read, not
+ * whether git confirms it: the pulse re-reads the refs and this compares the
+ * count across pulses. The button still does not move the row.
+ *
+ * Returns `undefined` when the answer is UNKNOWN — no pulse has landed, so
+ * there is no count to compare and *nothing changed* would be a guess. The
+ * caller keeps waiting rather than concluding either way.
+ */
+export function claimedCount(card: Card): number | undefined {
+  return card.waveSummary?.claimed;
+}
+
+/**
+ * May this button act, and if not, in whose words?
+ *
+ * Three refusals, in the order they are learned, and each carries the reason on
+ * the control itself — the row action menu's rule: refuse with the reason,
+ * rather than accept and disappoint three pulses later.
+ *
+ * 1. **The server will not act** — no dispatch binding, a non-localhost host.
+ *    `DispatchInfo` already says so in its own words, and those win: they are
+ *    about whether anything may act at all.
+ * 2. **No pulse has landed.** Both counts are `.optional()` in the contract —
+ *    *"Absent when there is no pulse"* — and without a scan the board does not
+ *    know which wave is eligible, so a dispatch would be a click into the dark
+ *    that it also could not report on afterwards. It says it is waiting for the
+ *    first scan: the same posture the board takes when it has lost contact,
+ *    rather than a fourth vocabulary for *I don't know*.
+ *
+ *    It deliberately does NOT fall back to `card.started` here. That would keep
+ *    the defect alive in precisely the window where it is most likely — a
+ *    freshly restarted board — hidden behind an apparently-working button.
+ * 3. **Nothing is eligible.** With `eligible: 0` every wave is claimed, merged
+ *    or blocked and there is no branch to take. Saying so before the click is
+ *    the whole improvement over accepting and going quiet.
+ *
+ * A card with no `waveSummary` at all is a pre-wave plan, not a missing pulse:
+ * `plot-dispatch.sh` is the authority on those and refuses in its own words, so
+ * the button lets the click through rather than inventing a precondition.
+ */
+export function startRefusal(card: Card, dispatch: DispatchInfo): string | undefined {
+  if (!dispatch.available) return dispatch.reason;
+  const summary = card.waveSummary;
+  if (!summary) return undefined;
+  if (summary.claimed === undefined || summary.eligible === undefined) {
+    return 'waiting for the first fleet scan';
+  }
+  if (summary.eligible === 0) return 'no branch is eligible to start';
+  return undefined;
+}
+
+/**
+ * What a pulse says about a dispatch still in flight.
+ *
+ * `confirmed` — one more branch is claimed than when the click went out. That
+ * is what a dispatch does, so that is what confirms it.
+ *
+ * `waiting` — no movement yet, or no answer to compare: a count that is absent
+ * on either side is UNKNOWN, never *unchanged*. It must not read as
+ * confirmation, and it must not read as a decline either.
+ *
+ * `gave-up` — enough pulses have passed to stop waiting. The button does not
+ * guess WHICH failure happened; the script wrote the truth to the log.
+ *
+ * Exported for test because this is the whole defect in one expression, and
+ * because the case that matters — a plan already `started: true`, so the flag
+ * the old code watched could never move — is a comparison of two numbers rather
+ * than anything a rendered page shows.
+ */
+export type PulseVerdict = 'confirmed' | 'waiting' | 'gave-up';
+
+export function verdictFromPulse(args: {
+  /** `claimed` when the click went out; `undefined` if no pulse had landed. */
+  claimedAtClick: number | undefined;
+  /** `claimed` now. `undefined` if the pulse has since stopped landing. */
+  claimedNow: number | undefined;
+  /** Pulses elapsed since the click. */
+  pulsesElapsed: number;
+  /** How many to wait before giving up. */
+  limit: number;
+}): PulseVerdict {
+  const { claimedAtClick, claimedNow, pulsesElapsed, limit } = args;
+  if (claimedAtClick !== undefined && claimedNow !== undefined && claimedNow > claimedAtClick) {
+    return 'confirmed';
+  }
+  return pulsesElapsed >= limit ? 'gave-up' : 'waiting';
+}
+
+/**
  * How many board refreshes to wait for the row to move before saying so.
  *
  * Long enough for a worktree create plus a push, short of leaving someone
@@ -83,29 +184,34 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
     return () => onStarting(false);
   }, [starting, onStarting]);
 
-  // What "the row moved" means for this card. A dispatch that succeeds makes
-  // plot-implement/the worker record a Started:, which moves the card out of
-  // Design and into Development — so `started` flipping IS the confirmation,
-  // read back from git rather than asserted from the 202.
-  const startedRef = useRef(card.started);
+  // What "it worked" means for this card: ONE MORE BRANCH IS CLAIMED.
+  //
+  // Not `card.started`, which this used to watch. That flag describes the PLAN
+  // and the action starts a BRANCH, so on a plan of more than one wave it is
+  // already true when the button is clicked and can never change again — see
+  // `claimedCount` for the measurement. `claimed` moves on every wave, because
+  // claiming a branch is exactly what a dispatch does.
+  const claimedRef = useRef(claimedCount(card));
+  const claimed = claimedCount(card);
 
   useEffect(() => {
     if (state.kind !== 'starting') {
-      startedRef.current = card.started;
+      claimedRef.current = claimed;
       return;
     }
     // Feedback is DERIVED, never asserted: the button does not move the row.
     // The pulse re-reads git and the row travels on its own. An optimistic
     // update would be faster and would make the board display something it does
-    // not know.
-    if (card.started !== startedRef.current) {
-      setState({ kind: 'idle' });
-      return;
-    }
-    if (pulse - state.since >= PULSES_BEFORE_GIVING_UP) {
-      setState({ kind: 'no-change', log: state.log });
-    }
-  }, [pulse, card.started, state]);
+    // not know. This changes WHICH FACT is read, not whether git confirms it.
+    const verdict = verdictFromPulse({
+      claimedAtClick: claimedRef.current,
+      claimedNow: claimed,
+      pulsesElapsed: pulse - state.since,
+      limit: PULSES_BEFORE_GIVING_UP,
+    });
+    if (verdict === 'confirmed') setState({ kind: 'idle' });
+    else if (verdict === 'gave-up') setState({ kind: 'no-change', log: state.log });
+  }, [pulse, claimed, state]);
 
   const start = async () => {
     // Disabled until the next pulse confirms, so a double click does not fire
@@ -133,7 +239,12 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
     }
   };
 
-  const blocked = starting || !dispatch.available;
+  // Every reason this will not act, in the words of whoever owns it. The
+  // server's refusals still come from `DispatchInfo`; the two new ones — no
+  // pulse yet, nothing eligible — are the board's own, and both are stated
+  // BEFORE the click rather than after three pulses of silence.
+  const refusal = startRefusal(card, dispatch);
+  const blocked = starting || refusal !== undefined;
 
   return (
     <>
@@ -165,7 +276,7 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
         // disabled button with no explanation reads as a bug. `title` for a
         // pointer, and `aria-describedby` would need an id per card — the
         // accessible NAME already carries it below.
-        title={dispatch.available ? `Dispatch the next eligible branch of ${card.slug}` : dispatch.reason}
+        title={refusal ?? `Dispatch the next eligible branch of ${card.slug}`}
         className={
           blocked
             ? 'cursor-not-allowed text-xs font-medium text-slate-400 no-underline dark:text-slate-600'
@@ -174,9 +285,11 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
       >
         {starting ? 'starting…' : 'Start work'}
         {/* Why it will not act, for a reader with no pointer to hover and no
-            view of the dimmed page. Off screen, so the row is unchanged. */}
-        {!dispatch.available && dispatch.reason && (
-          <span className="sr-only"> — unavailable: {dispatch.reason}</span>
+            view of the dimmed page. Off screen, so the row is unchanged.
+            Suppressed while starting: that refusal is temporary and already
+            announced by the label and `aria-busy`. */}
+        {!starting && refusal && (
+          <span className="sr-only"> — unavailable: {refusal}</span>
         )}
       </button>
       {state.kind === 'no-change' && (
