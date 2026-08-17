@@ -445,6 +445,151 @@ export function showPlanHeading(group: PlanGroup): boolean {
 }
 
 /**
+ * Is this row a branch that never began — a name the plan wrote down, and
+ * nothing else?
+ *
+ * The distinction NOT STARTED is built on, and the only one that decides
+ * whether a row keeps its own line there. Measured on the live board: every
+ * `state === 'open'` row in that section carried `pr=—` and `age=—`, because the
+ * branch name came out of the plan's `## Branches` section and no branch was
+ * ever created for it. Three such rows for one waiting plan said the same thing
+ * three times.
+ *
+ * `state === 'deferred'` is the row this must NOT catch, and that exclusion is
+ * the load-bearing half. A deferred branch WAS started — it may hold commits and
+ * a PR — and it landed here because someone shelved it. `fleet.ts` records what
+ * flattening it costs: an earlier version wrote `deferred` as the note, and *"a
+ * branch started and then shelved read as never begun, with its age and its PR
+ * erased."*
+ *
+ * Keyed on `state` rather than on `pr === null && ageMinutes === null`. Those
+ * are SYMPTOMS of a branch that does not exist, and they are also true of a
+ * branch that exists with no commits — a claim pushed as a bare ref. The state
+ * is the server's own answer to the question, so this asks it rather than
+ * inferring it from two empty cells.
+ *
+ * Exported for test: the deferred case is what a naive "group by plan" gets
+ * wrong while passing every assertion about the unstarted ones.
+ */
+export function isUnbegun(row: Pick<AgentRow, 'group' | 'state'>): boolean {
+  return row.group === 'not-started' && row.state === 'open';
+}
+
+/**
+ * How long this PLAN has been waiting, in days — the clock that ticks in NOT
+ * STARTED, read off the group's own rows.
+ *
+ * `waitingDays` dates the plan's `Approved:` record, so every row of one plan
+ * carries the same number and any of them answers for the group. `Math.max`
+ * rather than "the first one" only because a group can hold a deferred branch
+ * beside unstarted ones and nothing forces the field onto both — taking the
+ * largest keeps a recorded date from being lost behind a null.
+ *
+ * Null where NO row carries a date. Absent, not zero: `waitingLabel(0)` renders
+ * `today`, which would claim a plan was approved this morning on the strength of
+ * a field nobody filled in.
+ *
+ * Exported for test — the null case is the one an implementation reaching for
+ * `?? 0` gets wrong while looking right on every dated plan.
+ */
+export function planWaitingDays(group: PlanGroup): number | null {
+  const dated = group.rows.map((r) => r.waitingDays).filter((d): d is number => d !== null);
+  return dated.length === 0 ? null : Math.max(...dated);
+}
+
+/**
+ * Order NOT STARTED's plan groups: **oldest first, by the plan's own clock.**
+ *
+ * What it replaces, measured at `groupByPlan`: `Math.max(...rows.map((r) =>
+ * r.ageMinutes ?? -1))`. In this section `ageMinutes` is `null` on every row —
+ * the branches have no tip to date — so every group scored `-1`, the comparator
+ * returned 0 for every pair, and the sort did nothing at all.
+ * `plot-sprint-support`, approved 187 days ago, sat wherever the map's insertion
+ * order happened to put it, beside a plan from that afternoon.
+ *
+ * **Oldest first, and the direction is the decision.** Sorting startable-first
+ * reads as more actionable and buys less: the startable plans are already marked
+ * by their own note, and burying a six-month-old plan under a fresh one hides
+ * exactly the drift this section exists to surface.
+ *
+ * This is the GROUP order, and it is deliberately not the same question as
+ * `compareWithinGroup` in `fleet.ts`, which orders the ROWS inside a group
+ * newest-first on the reasoning that six months of availability is evidence
+ * nobody wants a *branch*. That answers *which branch do I pick up*; this
+ * answers *which plan has been ignored longest*, which is the question a reader
+ * scanning section headings is asking. Two levels, two questions — and the
+ * server's row order survives untouched inside each fold.
+ *
+ * An undated plan sorts LAST. It has no recorded approval, so it has no claim on
+ * a position that means *this has been waiting*; `-1` would put it above a plan
+ * approved today and assert a wait nobody measured.
+ *
+ * Exported for test: the old comparator scores every group here `-1`, so an
+ * assertion that merely checks the groups came back in some order passes against
+ * a sort that does nothing.
+ */
+export function sortByWaiting(groups: PlanGroup[]): PlanGroup[] {
+  return [...groups].sort((a, b) => (planWaitingDays(b) ?? -1) - (planWaitingDays(a) ?? -1));
+}
+
+/**
+ * What the plan row says about its waves, derived from the group's OWN rows.
+ *
+ * **No contract field carries this, and that is the point.** `waveSummary` on
+ * the schema lives on the CARD; a fleet row knows only its own wave. But
+ * `groupByPlan` already holds every row of this plan in this section, so
+ * counting them and reading their notes answers *how many, and is the first one
+ * startable* without adding a fact to the wire.
+ *
+ * Counted over the UNBEGUN rows only. A deferred branch keeps a row of its own
+ * beneath the plan, with its own PR and age, so counting it into "3 waves" would
+ * describe it twice and in the wrong terms — it is not a wave nobody has
+ * reached, it is a branch somebody set down.
+ *
+ * **The limit is recorded rather than hidden: this counts what is in THIS
+ * SECTION.** A plan whose first wave already merged has that wave in DONE, so it
+ * reports the remainder — two where the plan file lists three. That is the
+ * honest number for the question the section asks (*what is not started*), and a
+ * reader wanting the full arc has the plan link on the row.
+ *
+ * `first eligible` comes from `isStartable`, which is the same predicate the row
+ * menu uses to decide whether `Start work` is offered — so the summary cannot
+ * promise an action the menu then refuses.
+ *
+ * Empty string where there is nothing to summarise, so the caller renders
+ * nothing rather than a bare count of zero.
+ *
+ * Exported for test — the section-scoped count is the half that reads like a bug
+ * until it is stated.
+ */
+export function waveSummaryFor(group: PlanGroup): string {
+  const unbegun = group.rows.filter(isUnbegun);
+  if (unbegun.length === 0) return '';
+  const waves = `${unbegun.length} wave${unbegun.length === 1 ? '' : 's'}`;
+  return unbegun.some(isStartable) ? `${waves}, first eligible` : waves;
+}
+
+/**
+ * Does this plan row earn an expander?
+ *
+ * Only where opening it REVEALS something. A plan with one branch beneath it
+ * already shows that branch's name in its own summary line, so a control that
+ * unfolds a single row the reader can already read is noise — the same rule
+ * `showPlanHeading` applies one level up, where a heading over one row saves no
+ * repetition.
+ *
+ * Counted over ALL the group's rows, not just the unbegun ones: a plan with one
+ * unstarted wave and one deferred branch has two rows to show, and the deferred
+ * one carries a PR and an age that appear nowhere else.
+ *
+ * Exported for test: the one-wave case is the one an implementation that always
+ * renders the expander gets wrong while passing every assertion about folding.
+ */
+export function showsWaveFold(group: PlanGroup): boolean {
+  return group.rows.length > 1;
+}
+
+/**
  * Does this row offer work a person can start right now?
  *
  * `not-started` holds two different things and only one of them is startable:
@@ -1933,6 +2078,141 @@ function HeaderRow() {
   );
 }
 
+/**
+ * ONE row for a whole plan, on the SAME six tracks as a branch row.
+ *
+ * The subject changes and the geometry does not. `ROW_TRACKS` is the shared
+ * constant every row in the fleet is laid on, and a section that laid its rows
+ * on their own would break alignment exactly at the boundary a reader scans
+ * across — the cost `agent-rows-line-up` paid to remove. So the cells are filled
+ * differently and land at the same x:
+ *
+ * ```
+ * phase   plan            branch          pr/note   age            menu
+ * (blank) the plan's name the wave summary (blank)   waitingDays    (blank)
+ * ```
+ *
+ * **The plan takes the plan track**, where a branch row prints its plan name, so
+ * the two read down one column. The wave summary takes the BRANCH track, which
+ * is where a reader looks for *which slice of it* — and the summary is this
+ * row's answer to that question, in the plan's own terms rather than a branch's.
+ *
+ * **The age is `waitingDays`, never `ageMinutes`.** The branches beneath this
+ * row have no tip, so the commit clock has nothing to say; the plan clock is the
+ * only one running. It is rendered in the same amber with the same title as the
+ * branch row's waiting age — one clock, one look, wherever it appears.
+ *
+ * **The indicator sits here** rather than on the branches, because this is what
+ * is waiting. That is the section's ordinary rule applied to a different
+ * subject, not a new rule: in WAITING ON YOU the marker sits with the branch
+ * because the branch is what waits.
+ *
+ * The PR track is deliberately EMPTY. Every unbegun row measured on the live
+ * board carried `pr=—`; a plan has no pull request of its own, and inventing one
+ * from a branch beneath it would state something no field says. An empty track
+ * holds its width, so nothing beside it shifts.
+ */
+function PlanRow({
+  group,
+  onOpenPlan,
+  expanded,
+  onToggle,
+  active,
+}: {
+  group: PlanGroup;
+  onOpenPlan?: AgentListProps['onOpenPlan'];
+  /** Whether the branches beneath are showing — null where there is no fold. */
+  expanded: boolean | null;
+  onToggle?: () => void;
+  /** Something is being written to one of this plan's branches. */
+  active?: boolean;
+}) {
+  const waiting = planWaitingDays(group);
+  const summary = waveSummaryFor(group);
+  const foldable = expanded !== null;
+  return (
+    <li
+      role="row"
+      data-plan-row={group.plan}
+      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-slate-200/60 px-3 py-2 text-sm last:border-0 sm:grid ${ROW_TRACKS} sm:items-baseline sm:gap-x-3 dark:border-slate-800`}
+    >
+      {/* The activity mark, hanging in the row's own `relative` box the way it
+          does on a branch row — no track, no shift. It reaches the plan row
+          because a plan whose branch is being written to is a plan something is
+          happening on, and the branch carrying it may be folded out of sight. */}
+      {active && <ActivityMark />}
+      {/* Phase: empty. A plan row's phase would be the plan's phase, which is
+          Approved for everything in this section — a column showing one word on
+          every row is the chrome the phase cell replaced the repo to avoid. */}
+      <span role="gridcell" className="min-w-0 shrink-0 truncate text-xs" />
+      {/* The plan, in the plan track — and it is a HEADING as well as a cell,
+          because the rows below it are its branches. The expander wraps the
+          name rather than sitting beside it: a separate caret would need a
+          track, and the name is the obvious thing to click. */}
+      <span role="gridcell" className="flex min-w-0 items-baseline gap-1">
+        {foldable ? (
+          // A real button with `aria-expanded`, so the fold is operable and
+          // announced by keyboard — the caret alone is a visual fact. The plan
+          // LINK cannot carry the toggle: a link that folds a section instead of
+          // opening the plan is a link that lies about where it goes.
+          <button
+            type="button"
+            data-wave-toggle={group.plan}
+            aria-expanded={expanded}
+            aria-label={`${expanded ? 'Hide' : 'Show'} the branches of ${group.plan}`}
+            onClick={onToggle}
+            className="shrink-0 text-[10px] leading-none text-slate-400 hover:text-slate-800 dark:text-slate-500 dark:hover:text-slate-100"
+          >
+            <span aria-hidden>{expanded ? '▾' : '▸'}</span>
+          </button>
+        ) : (
+          // The same width where there is no fold, so the plan names of a
+          // foldable and an unfoldable row still begin at one x.
+          <span aria-hidden className="shrink-0 text-[10px] leading-none">{' '}</span>
+        )}
+        <span className="min-w-0 truncate text-xs font-medium">
+          <PlanLink plan={group.plan} planFile={group.planFile} onOpenPlan={onOpenPlan} />
+        </span>
+      </span>
+      {/* The wave summary, in the BRANCH track — *3 waves, first eligible*. It
+          answers the question that track asks (*which slice of it*) in the
+          plan's terms, which is the only terms this row has: the branches it
+          would otherwise name do not exist yet. */}
+      <span
+        role="gridcell"
+        className="flex w-full min-w-0 items-baseline sm:w-auto"
+      >
+        {summary && (
+          <span
+            data-wave-summary
+            className="truncate text-xs text-slate-500 dark:text-slate-400"
+            title="Waves of this plan that nothing has started — counted in this section"
+          >
+            {summary}
+          </span>
+        )}
+      </span>
+      {/* PR: empty, and empty on purpose — see the comment above the component. */}
+      <span role="gridcell" className="flex min-w-0 items-baseline" />
+      {/* The plan's clock, in the same amber and with the same title a branch
+          row gives its waiting age. Nothing at all where no approval date is
+          recorded: absent, not zero. */}
+      <span
+        role="gridcell"
+        className="shrink-0 text-right text-xs tabular-nums text-amber-700 dark:text-amber-500"
+        title={waiting === null ? undefined : 'Approved this long ago, and nobody has started it'}
+      >
+        {waiting === null ? '' : waitingLabel(waiting)}
+      </span>
+      {/* Actions: empty. Dispatch is per BRANCH and wave — `plot-dispatch`
+          takes a branch — so a control here would have to guess which of the
+          plan's waves it meant. The branch rows in the fold keep their own
+          menus, where the row has already decided. */}
+      <span role="gridcell" className="w-5 shrink-0" />
+    </li>
+  );
+}
+
 function Row({
   row,
   onOpenPlan,
@@ -2421,6 +2701,28 @@ export function AgentList({
     });
   };
 
+  // Which plans in NOT STARTED have their branches showing. Keyed by plan name,
+  // which is what the group is keyed by.
+  //
+  // Collapsed by default and NOT persisted, unlike the section-level fold. The
+  // two are different in kind: folding QUIET is a standing preference about a
+  // section a reader has decided not to watch, while opening one plan's waves is
+  // a momentary question — *what were the three branches again* — asked and
+  // answered. Persisting it would restore an opened plan on a board reloaded
+  // several times an hour, which rebuilds the crowding the fold removes.
+  //
+  // Never derived from the rows, for the same reason the section fold is not: a
+  // view that repaints every four seconds must not move its own furniture.
+  const [openPlans, setOpenPlans] = useState<Set<string>>(() => new Set());
+  const togglePlan = (plan: string) => {
+    setOpenPlans((prev) => {
+      const next = new Set(prev);
+      if (next.has(plan)) next.delete(plan);
+      else next.add(plan);
+      return next;
+    });
+  };
+
   // Seconds since this payload arrived. The ages the server sent are true at the
   // moment of the poll and stale a second later, so a countdown built from them
   // alone would jump by the poll interval rather than tick. This is the only
@@ -2523,7 +2825,20 @@ export function AgentList({
         // the group that grows fastest over a working day, so it is the first to
         // become a list one scrolls past. A rule with an exception for the group
         // nobody reads is a rule someone has to remember.
-        const plans = groupByPlan(rows);
+        const grouped = groupByPlan(rows);
+        // NOT STARTED counts PLANS. Its rows are not branches — measured live,
+        // every one of them carried `pr=—` and `age=—`, because the name comes
+        // from the plan's `## Branches` section and no branch was ever created
+        // for it. Six rows for four plans, one plan saying the same thing three
+        // times. So the plan becomes the row here and its branches fold beneath
+        // it, and the section sorts by the only clock that ticks in it.
+        //
+        // Confined to this one key on purpose. Every other section holds
+        // branches that exist, with real PRs and real tips, and the branch is
+        // rightly their subject — this is not a new row shape spreading, it is
+        // the one section whose rows were never branches saying so.
+        const countsPlans = key === 'not-started';
+        const plans = countsPlans ? sortByWaiting(grouped) : grouped;
         // Headings are decided PER GROUP, not per section — see
         // `showPlanHeading`. A section-wide answer gave a heading to every
         // group once any group earned one, so a plan with a single row got a
@@ -2601,7 +2916,62 @@ export function AgentList({
                   // rows. Computing it twice is how they drift: a heading that
                   // renders while its rows also print the plan name says it
                   // twice, and the reverse loses the name entirely.
-                  const headed = showPlanHeading(group);
+                  //
+                  // In NOT STARTED the PLAN ROW carries the name instead, so no
+                  // sub-heading is drawn: the heading exists to save the rows
+                  // repeating the plan, and here the plan row already does that
+                  // job with a clock and a wave summary the heading has no room
+                  // for. Two labels for one plan would be the repetition this
+                  // section is removing, one level up.
+                  const headed = !countsPlans && showPlanHeading(group);
+                  if (countsPlans) {
+                    const foldable = showsWaveFold(group);
+                    const expanded = foldable ? openPlans.has(group.plan) : null;
+                    return (
+                      <li role="rowgroup" key={group.plan}>
+                        <PlanRow
+                          group={group}
+                          onOpenPlan={onOpenPlan}
+                          expanded={expanded}
+                          onToggle={foldable ? () => togglePlan(group.plan) : undefined}
+                          // The plan is active if ANY of its branches is —
+                          // including one folded out of sight, which is the case
+                          // the mark most needs to reach.
+                          active={group.rows.some((r) => active.has(rowKey(r)))}
+                        />
+                        {/* The branches, folded. Removed from the tree rather
+                            than hidden with CSS, the same as the section fold:
+                            a folded group should cost no vertical space, which
+                            is the whole complaint this answers.
+
+                            A plan with ONE branch renders it unconditionally —
+                            `expanded` is null there, meaning *there was never a
+                            fold*, and hiding the row behind a control the reader
+                            was not given would lose it entirely. */}
+                        {(expanded === null || expanded) && (
+                          <ul role="presentation">
+                            {group.rows.map((r) => (
+                              <Row
+                                key={rowKey(r)}
+                                row={r}
+                                onOpenPlan={onOpenPlan}
+                                // The plan row above names it, so the branch
+                                // rows do not repeat it — the same bargain a
+                                // sub-heading makes with the rows beneath it.
+                                planInHeading
+                                card={cardForPlanFile?.(r.planFile) ?? null}
+                                dispatch={dispatch}
+                                pulse={pulse}
+                                onStarting={onStarting}
+                                marked={marked.has(rowKey(r))}
+                                active={active.has(rowKey(r))}
+                              />
+                            ))}
+                          </ul>
+                        )}
+                      </li>
+                    );
+                  }
                   return (
                   // `rowgroup`, so the grid's children are rows and groups of
                   // rows rather than an unnamed `<li>` the tree cannot place.
