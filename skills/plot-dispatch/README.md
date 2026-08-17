@@ -58,7 +58,7 @@ A direct script call cannot write a brief, so the summary says so rather than
 refusing:
 
 ```
-summary: dispatched=3 reused=0 skipped=1 started=3 brief=missing
+summary: dispatched=3 reused=0 skipped=1 started=3 brief=missing worker=configured
 ```
 
 It reports the script's own reach, not the outcome of the dispatch — if the
@@ -67,6 +67,83 @@ in the wrong place:** `--dry-run` and `--status` are the normal way to look
 before leaping (this repo used the bare script five times in one evening), and a
 gate that blocks looking-before-leaping blocks the wrong thing. `--no-start`
 suppresses workers, not briefs.
+
+## The summary says WHY nothing started
+
+`started=0` was always in the footer. The reason — *no `Worker command`
+configured* — was printed by `start_worker`, **per branch**, after the fan-out
+had already happened. On 2026-08-17 it was printed and missed five times:
+worktrees sat claimed with nobody working on them, and the last line a caller
+read said `started=0` with nothing beside it.
+
+So the fact travels **twice**, and both live in the summary block:
+
+```
+2 worktrees prepared, 0 workers started, no `Worker command` configured
+summary: dispatched=2 reused=0 skipped=0 started=0 brief=missing worker=unconfigured
+```
+
+**The footer stays pure `key=value`**, terminating the output, as every footer
+in this repo does — consumers read that one line and never the prose. The prose
+sits *above* it, the way the failed-booking note already does. Putting the
+sentence into the footer would have made the reason readable and the footer
+unparseable; putting it only in the footer would have made it parseable and
+unreadable.
+
+`worker=` has four values, and collapsing any two would re-create this branch's
+own defect — one label over states whose actions differ:
+
+| Value | Means | What to do |
+|---|---|---|
+| `configured` | a `Worker command` exists | nothing; watch the logs |
+| `unconfigured` | nobody has been asked | ask (the skill's step 3) |
+| `declined` | `Worker command: none` | nothing; this repo starts them by hand |
+| `suppressed` | `--no-start` | nothing; exactly what was asked for |
+
+**`declined` is not `unconfigured`.** `plot-config.sh` returns the default for
+both a missing key and an empty one, so an empty answer written as a blank value
+would be indistinguishable from never having asked — and the skill would ask
+again at every fan-out. `none` is the repo's established sentinel for a
+deliberate absence (`Implementation home: none`), and it is what makes *"I start
+them myself"* a recordable answer rather than a deferral. The script never runs
+it: a worker per branch failing with `none: command not found` would turn a
+decision into N crashes.
+
+**A dry run explains nothing.** It starts nothing by construction, so *"0 workers
+started"* there is true and carries no information — and a line that always
+prints is a line nobody reads on the run where it matters. Only `worker=` travels.
+
+**`--no-start` was not touched.** Its zero is reported as a choice, not a gap.
+The defect was never that dispatch obeyed the flag; it was that nothing
+downstream noticed the result.
+
+## The question belongs to the skill, and to the first dispatch
+
+`Worker command` is deliberately unset by default — Plot hardcodes no agent
+tooling (Principle 5). What was missing is that **nothing told the operator they
+were one config line away** from an automatic fan-out.
+
+Three placements, and only one survives:
+
+- **Not in `plot-dispatch.sh`.** A bash script cannot put a question to a human
+  inside an agent session, and this repo's direction is that scripts collect and
+  report while skills interpret. The plan's own first draft had it here; round 1
+  corrected it. `test/reconcile/dispatch.test.mjs` pins that the script neither
+  invokes a skill nor prompts.
+- **Not at `/plot-init`.** Adoption runs long before anyone fans out work, often
+  before the repo has a second branch, so the question arrives about a need the
+  answerer does not have. It gets a shrug, the key is written empty, and nobody
+  revisits it — **an answered-and-wrong config is harder to fix than a missing
+  one**, because nothing later notices it was never really decided. A test
+  asserts `plot-init/SKILL.md` never mentions the key.
+- **At the first dispatch**, where the consequence is concrete: *these branches
+  are about to be prepared and nobody will start them.*
+
+**It asks; it never suggests.** No example command in the prompt — an example
+becomes a template, and then Plot has effectively hardcoded a tool it is not
+supposed to know. The problem was never *which* command. The `Configuration`
+section of `SKILL.md` still documents the format, and that is a different
+audience: someone reading it came looking, someone being asked did not.
 
 ## Eligibility is not decided here
 
@@ -243,6 +320,15 @@ passes for the wrong reason:
 
 Both were found by mutating the script and checking the tests went red — a
 green test proves nothing until it has been seen to fail.
+
+The **worker-reason** tests all read the *summary block* — the footer plus the
+line above it — and never the whole output. That is the assertion that matters:
+the per-branch message existed the whole time and was being missed, so a test
+grepping the full output would have passed against the defect. Each was seen to
+fail: moving the prose out of `print_summary`, collapsing `declined` into
+`unconfigured`, and printing the prose on `--dry-run` each turn exactly one test
+red. Two more pin the layering — the script must contain no prompt and no skill
+invocation, and `plot-init/SKILL.md` must never mention `Worker command`.
 
 The **cap** tests came the other way round: from running the real thing rather
 than a fixture. The wide branch there is named `bug/aaa-wide` so it sorts first

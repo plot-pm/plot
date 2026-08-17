@@ -1091,3 +1091,215 @@ test('dispatch: a report under both caps is never truncated', () => {
     `nothing may be truncated here:\n${out}`);
   f.cleanup();
 });
+
+// ---------------------------------------------------------------------------
+// The summary states WHY nothing started
+// ---------------------------------------------------------------------------
+//
+// `started=0` has always been in the footer. What was missing is the reason
+// beside it: the "no 'Worker command' configured" message lived in PER-BRANCH
+// output, after the fan-out had already happened, and on 2026-08-17 it was
+// printed and missed five times — worktrees sat claimed with nobody working on
+// them while the last line a caller read said `started=0` with no explanation.
+//
+// A caller reading only the summary is the case this exists for. Every
+// assertion below therefore checks the SUMMARY BLOCK specifically: a per-branch
+// message passes any test that greps the whole output, which is exactly how the
+// defect survived.
+
+/** A repo with a one-branch approved plan and whatever Plot Config you pass. */
+function repoWithConfig(label, extraConfig = '') {
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), `plot-worker-${label}-`));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, r);
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n'
+    + extraConfig);
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-w.md'),
+    '# W\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n'
+    + '\n## Branches\n\n- `feature/alpha` — one\n- `feature/beta` — two\n');
+  fs.symlinkSync('../2026-01-01-w.md', path.join(r, 'plans', 'active', 'w.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  const cleanup = () => {
+    for (const b of ['feature-alpha', 'feature-beta']) {
+      fs.rmSync(path.join(path.dirname(r), `plot-wt-${b}`), { recursive: true, force: true });
+    }
+    fs.rmSync(t, { recursive: true, force: true });
+  };
+  return { tmp: t, repo: r, cleanup };
+}
+
+/** The summary block: the footer line and any prose line immediately above it. */
+function summaryBlock(out) {
+  const lines = out.split('\n');
+  const i = lines.findIndex((l) => l.startsWith('summary:'));
+  assert.ok(i >= 0, `no summary footer in:\n${out}`);
+  return lines.slice(Math.max(0, i - 1), i + 1).join('\n');
+}
+
+test('dispatch: with no Worker command, the SUMMARY says so with counts', () => {
+  // THE ASSERTION THIS BRANCH EXISTS FOR. It reads the summary block only —
+  // asserting against the whole output would pass on the per-branch message
+  // that was already there and already being missed.
+  const f = repoWithConfig('unconfigured');
+  const out = execFileSync('bash', [dispatch, '--offline', 'w'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 60_000 });
+
+  const block = summaryBlock(out);
+  assert.match(block, /2 worktrees prepared, 0 workers started, no `Worker command` configured/,
+    `the consequence must be in the summary block:\n${out}`);
+  assert.match(block, /summary: .*started=0 .*worker=unconfigured/,
+    `the machine field must carry it too:\n${out}`);
+  f.cleanup();
+});
+
+test('dispatch: a configured Worker command never claims the config is missing', () => {
+  // The regression that matters: a summary line that always fires would be the
+  // same one-label-two-states defect in the other direction.
+  const f = repoWithConfig('configured', '- **Worker command:** true\n');
+  const out = execFileSync('bash', [dispatch, '--offline', 'w'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 60_000 });
+
+  assert.match(out, /summary: .*worker=configured/, `expected worker=configured:\n${out}`);
+  assert.doesNotMatch(out, /no `Worker command` configured/,
+    `a configured repo must never be told its config is missing:\n${out}`);
+  f.cleanup();
+});
+
+test('dispatch: `Worker command: none` is an ANSWER, not a missing key', () => {
+  // Empty is a first-class answer, and recording it is what stops the skill
+  // asking at every fan-out. `none` must therefore read differently from an
+  // absent key — otherwise nothing downstream can tell "asked and declined"
+  // from "never asked", which is the whole point of writing it down.
+  const f = repoWithConfig('declined', '- **Worker command:** none\n');
+  const out = execFileSync('bash', [dispatch, '--offline', 'w'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 60_000 });
+
+  assert.match(out, /summary: .*worker=declined/, `expected worker=declined:\n${out}`);
+  assert.doesNotMatch(out, /no `Worker command` configured/,
+    `a repo that answered must not be nagged as unconfigured:\n${out}`);
+
+  // And `none` must never be RUN. A worker per branch failing with
+  // "none: command not found" would turn a deliberate answer into N crashes.
+  for (const b of ['feature-alpha', 'feature-beta']) {
+    const wt = path.join(path.dirname(f.repo), `plot-wt-${b}`);
+    assert.ok(!fs.existsSync(path.join(wt, '.plot-worker.pid')),
+      `no worker may be started for '${b}' when the answer was none`);
+  }
+  f.cleanup();
+});
+
+test('dispatch: --no-start reports a CHOICE, not a missing config', () => {
+  // --no-start must keep meaning exactly what it says and must not imply
+  // anything new. It is the inspect-first workflow, used deliberately every
+  // time on 2026-08-17; reporting its zero as a configuration gap would read
+  // as a defect and push a user off the workflow they chose.
+  const f = repoWithConfig('nostart');
+  const out = execFileSync('bash', [dispatch, '--offline', '--no-start', 'w'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 60_000 });
+
+  const block = summaryBlock(out);
+  assert.match(block, /summary: .*started=0 .*worker=suppressed/,
+    `--no-start is its own state:\n${out}`);
+  assert.match(block, /0 workers started \(--no-start\)/,
+    `the reason must be the flag, not the config:\n${out}`);
+  assert.doesNotMatch(block, /no `Worker command` configured/,
+    `--no-start must not be reported as a config gap:\n${out}`);
+
+  // Still exactly what --no-start says: worktrees and claims, no workers.
+  assert.match(out, /dispatched feature\/alpha/);
+  assert.equal(git(f.repo, 'ls-remote', '--heads', 'origin', 'feature/alpha').trim() === '',
+    false, 'the claim must still be pushed');
+  f.cleanup();
+});
+
+test('dispatch: --dry-run does not explain a zero it could never have been', () => {
+  // A dry run starts nothing BY CONSTRUCTION, so "no workers started" here is
+  // true and carries no information — and a line that always prints teaches the
+  // reader to skip it on the run where it matters. Only the machine field
+  // travels.
+  const f = repoWithConfig('dryrun');
+  const out = execFileSync('bash', [dispatch, '--offline', '--dry-run', 'w'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+
+  assert.match(out, /summary: .*worker=unconfigured/, `the field still travels:\n${out}`);
+  assert.doesNotMatch(out, /worktrees prepared, 0 workers started/,
+    `a dry run prepares nothing, so it explains nothing:\n${out}`);
+  f.cleanup();
+});
+
+test('dispatch: the summary footer stays machine-countable', () => {
+  // Every consumer in this repo reads the footer, never the prose. The reason
+  // is therefore carried as a `key=value` field like every other, and the
+  // footer must remain the LAST line — the prose sits above it, the way the
+  // failed-booking note already does.
+  const f = repoWithConfig('footer');
+  const out = execFileSync('bash', [dispatch, '--offline', 'w'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 60_000 });
+
+  const lines = out.split('\n').filter((l) => l !== '');
+  const last = lines[lines.length - 1];
+  assert.match(last, /^summary: (\w+=\S+ ?)+$/,
+    `the footer must be last and pure key=value:\n${out}`);
+  f.cleanup();
+});
+
+// ---------------------------------------------------------------------------
+// The question is the SKILL's, never the script's
+// ---------------------------------------------------------------------------
+
+test('dispatch: the script asks no interactive question', () => {
+  // A bash script cannot put a question to a human inside an agent session, and
+  // the plan's own first draft proposed exactly that. The prompt belongs in
+  // skills/plot-dispatch/SKILL.md, where interpretation is allowed.
+  const src = fs.readFileSync(path.join(here, '..', '..', 'skills', 'plot',
+    'scripts', 'plot-dispatch.sh'), 'utf8');
+  const code = src.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+  assert.doesNotMatch(code, /\bread\s+-p\b|\bAskUserQuestion\b|\bask_question\b/,
+    'plot-dispatch.sh must not prompt — the skill asks');
+});
+
+test('plot-dispatch skill: asks at the first dispatch, and suggests nothing', () => {
+  const skill = fs.readFileSync(path.join(here, '..', '..', 'skills',
+    'plot-dispatch', 'SKILL.md'), 'utf8');
+
+  // It asks, and it asks HERE.
+  assert.match(skill, /How does this project run an agent headless\?/,
+    'the skill must carry the question');
+  assert.match(skill, /Never ask this at `\/plot-init`/,
+    'the skill must say where the question does NOT belong');
+
+  // It asks rather than suggests. An example becomes a template, and then Plot
+  // has hardcoded agent tooling it is not supposed to know (Principle 5). The
+  // prompt block is checked rather than the whole file: the Configuration
+  // section legitimately documents the format for someone who came looking.
+  const prompt = skill.slice(
+    skill.indexOf('How does this project run an agent headless?') - 400,
+    skill.indexOf('How does this project run an agent headless?') + 200);
+  assert.doesNotMatch(prompt, /claude |codex |aider |cursor |-p "/i,
+    `no example command may appear in the prompt:\n${prompt}`);
+
+  // Empty is first-class, and recorded so it is not re-asked.
+  assert.match(skill, /\*\*Worker command:\*\* none/,
+    'an empty answer must be recorded as `none`');
+});
+
+test('plot-init: never raises the worker question', () => {
+  // At adoption the question meets a need the answerer does not have. It gets a
+  // shrug, the key is written empty, and nobody revisits it — an
+  // answered-and-wrong config is harder to fix than a missing one, because
+  // nothing later notices it was never really decided.
+  const init = fs.readFileSync(path.join(here, '..', '..', 'skills',
+    'plot-init', 'SKILL.md'), 'utf8');
+  assert.doesNotMatch(init, /Worker command/,
+    'adoption must not ask how this project runs an agent headless');
+});
