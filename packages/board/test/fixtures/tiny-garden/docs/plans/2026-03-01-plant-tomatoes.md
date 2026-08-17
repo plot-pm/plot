@@ -25,3 +25,11 @@ Water with `drip-irrigation` on a timer, roughly:
 0600  20 minutes
 1800  20 minutes
 ```
+
+## Branches
+
+A plan PR the board can NAME, so the armed Approve label can say what the
+second click will do. `pumpkin-patch` deliberately has no such section — the
+two together are the pair the Approve button's label logic turns on.
+
+- `feature/sow-seedlings` → #146

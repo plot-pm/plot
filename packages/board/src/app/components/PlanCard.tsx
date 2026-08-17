@@ -4,6 +4,7 @@ import { Badge, typeVariant } from './ui/badge.js';
 import { cn } from '../lib/utils.js';
 import { planHref, storyHref } from '../lib/plan.js';
 import { StartWorkButton } from './StartWorkButton.js';
+import { ApproveButton } from './ApproveButton.js';
 
 // Colour only ever REPEATS what the column header already says in symbol and
 // word — it must not be the sole carrier of the human/agent distinction.
@@ -39,6 +40,27 @@ export function isReadyToStart(card: Card): boolean {
  */
 export function isApproved(card: Card): boolean {
   return isReadyToStart(card) || (card.phase === 'Development' && card.started === true);
+}
+
+/**
+ * A plan still under review — the one state `/plot-approve` acts on.
+ *
+ * `Discovery` IS Draft on this board: the mapping is one-to-one and documented
+ * in `toBoardPhase` (a plan under review is the investigation deciding whether
+ * there is a commitment at all, and approval is where it ends). No other column
+ * can hold a Draft plan, so the column is the honest test.
+ *
+ * Note what this deliberately does NOT check: whether the plan PR is ready,
+ * whether one exists, what review channel the plan declared. Every one of those
+ * is a precondition of `/plot-approve`, and copying any of them here would put
+ * the same rule in two places — the failure mode the skill-shaped indirection
+ * exists to prevent. The command refuses in its own words; the card shows them.
+ *
+ * Exported for test: "only Draft cards, and every Draft card" is the assertion
+ * the plan names twice, and both halves are this one expression.
+ */
+export function isDraft(card: Card): boolean {
+  return card.phase === 'Discovery';
 }
 
 /**
@@ -86,6 +108,14 @@ export interface PlanCardProps {
    * offering a control whose outcome is unknown.
    */
   dispatch?: DispatchInfo;
+  /**
+   * Whether this server will act on Approve, and why not. Its own field rather
+   * than a reading of `dispatch`: a board on localhost in a project that has
+   * declared no `Approve command` can start work and cannot approve, and one
+   * flag could not say that. Absent where the board has not said — the button
+   * then does not render at all.
+   */
+  approve?: DispatchInfo;
   /** Bumps once per board refresh; the Start work button counts these. */
   pulse?: number;
   /** A Start work click became outstanding (true) or settled (false). */
@@ -113,6 +143,7 @@ export function PlanCard({
   showSprint,
   showStory,
   dispatch,
+  approve,
   pulse = 0,
   onStarting,
   onOpen,
@@ -250,6 +281,22 @@ export function PlanCard({
             pulse={pulse}
             onStarting={onStarting}
           />
+        )}
+        {/* Draft ONLY, and EVERY Draft.
+
+            Only: an approved plan has nothing to approve, and offering it would
+            invite a second approval whose one effect is a confusing error.
+            `isDraft` is the whole rule — the board holds no other precondition,
+            and that is deliberate.
+
+            Every: including plans whose PR is not yet marked ready, a state
+            that occurred repeatedly in one evening. Hiding the button there
+            would mean the board knew Approve's preconditions and had to keep
+            them in step with the skill — the same rule in two places, which is
+            precisely what running through the skill exists to avoid. The
+            command refuses in its own words instead, and the card shows them. */}
+        {approve && isDraft(card) && (
+          <ApproveButton card={card} approve={approve} onApproving={onStarting} />
         )}
         {card.assignee && (
           <span className="ml-auto text-xs text-slate-500 dark:text-slate-400">

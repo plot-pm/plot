@@ -17,3 +17,4 @@ filter from those inline values.
 - **Active index:** `docs/plans/active/`
 - **Delivered index:** `docs/plans/delivered/`
 - **Branch prefixes:** `idea/` (seeds), `feature/`, `bug/`, `docs/`, `infra/` (harvest)
+- **Approve command:** `./approve-stub.sh` (the garden has no git host — it refuses, in the shape a real refusal takes)

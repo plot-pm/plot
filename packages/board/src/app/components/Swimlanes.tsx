@@ -206,6 +206,7 @@ export function Swimlanes({
                         // on every card is noise.
                         showStory={false}
                         dispatch={board.dispatch}
+                        approve={board.approve}
                         pulse={pulse}
                         onStarting={onStarting}
                         onOpen={onOpenPlan}

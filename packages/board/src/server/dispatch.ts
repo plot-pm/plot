@@ -89,8 +89,14 @@ export function isSameOrigin(req: http.IncomingMessage, port: number): boolean {
   return true;
 }
 
-/** Read a JSON request body, bounded — this route takes one short field. */
-function readJsonBody(req: http.IncomingMessage, limit = 4096): Promise<unknown> {
+/**
+ * Read a JSON request body, bounded — this route takes one short field.
+ *
+ * Shared with `/api/approve` rather than copied. Both take the same one-field
+ * body, and a second implementation would be a second place for the bound to be
+ * forgotten.
+ */
+export function readJsonBody(req: http.IncomingMessage, limit = 4096): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let data = '';
     req.on('data', (chunk) => {
@@ -116,7 +122,7 @@ function readJsonBody(req: http.IncomingMessage, limit = 4096): Promise<unknown>
  * rather than sanitized: the slug reaches a script that globs with it, and a
  * value that is not a slug is a caller bug, not something to repair silently.
  */
-const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+export const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 
 /**
  * Where the script's own words go. Chosen BEFORE spawning and keyed by SLUG,

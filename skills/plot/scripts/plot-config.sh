@@ -27,6 +27,11 @@
 #   Project board | Branch prefixes | Plan directory | Active index |
 #   Delivered index | Sprint directory | Story directory | Story index |
 #   Plan template | Main branch | Board command
+# Agent-runner keys (optional; Plot hardcodes no agent tooling, Principle 5):
+#   Worker command      how /plot-dispatch runs an agent headless on a worktree
+#   Approve command     how the board runs `/plot-approve <slug>`; the prompt is
+#                       appended as one argument. Absent = the board's Approve
+#                       button renders disabled, naming this key as the fix.
 # Plot 2 posture keys (repo-declared ceremony bounds; all optional):
 #   Plan PRs            required | never | optional   (never = hard gate)
 #   Implementation home this repo | <repo/path list> | none

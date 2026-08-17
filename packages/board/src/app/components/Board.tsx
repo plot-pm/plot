@@ -230,6 +230,7 @@ export function BoardView({
                     showSprint={showSprint}
                     showStory={showStory}
                     dispatch={board.dispatch}
+                    approve={board.approve}
                     pulse={pulse}
                     onStarting={onStarting}
                     onOpen={onOpenPlan}
