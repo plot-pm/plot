@@ -10,7 +10,7 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-17, jwloka, plan-PR #171 merged (two interrogation rounds)
-- **Started:**
+- **Started:** 2026-08-17, Jan Wloka, `bug/acting-buttons-pin-the-double-click`
 - **Delivered:**
 
 ## Problem
