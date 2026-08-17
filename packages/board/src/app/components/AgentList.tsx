@@ -780,27 +780,37 @@ function PlanLink({
 function BranchName({ row }: { row: AgentRow }) {
   const { head, tail } = splitBranch(row.branch);
   const inner = (
-    <>
-      <span className="truncate sm:max-w-full">{head}</span>
+    // `aria-hidden` on the two halves, with the whole name supplied by the
+    // wrapper's `aria-label`. Measured: the halves are flex ITEMS, and the
+    // accessible-name algorithm joins adjacent boxes with a space — the row
+    // announced `feat ure/reviewed`, a branch name no host would recognise and
+    // one no reader could search for. The fold is a fact about the column's
+    // width, so it belongs to the visual channel alone.
+    <span aria-hidden className="flex min-w-0 max-sm:flex-wrap max-sm:break-all">
+      <span className="truncate">{head}</span>
       {tail && <span className="shrink-0">{tail}</span>}
-    </>
+    </span>
   );
-  const className =
-    'flex min-w-0 font-mono text-[13px] max-sm:flex-wrap max-sm:break-all';
+  const className = 'flex min-w-0 font-mono text-[13px]';
   return row.branchUrl ? (
     <a
       href={row.branchUrl}
       target="_blank"
       rel="noreferrer"
       data-branch={row.branch}
+      aria-label={row.branch}
       className={`${className} text-blue-600 hover:underline dark:text-blue-400`}
       title={`Branch ${row.branch} on the git host`}
     >
       {inner}
     </a>
   ) : (
+    // The same treatment for a branch with no address — a merged branch, or an
+    // origin the server does not recognise. `role="text"` is not a thing worth
+    // inventing here; the label rides on the element that carries the name.
     <span
       data-branch={row.branch}
+      aria-label={row.branch}
       className={`${className} text-slate-800 dark:text-slate-200`}
       title={row.branch}
     >

@@ -8,6 +8,9 @@ import {
   isLive,
   isCollapsible,
   noActionReason,
+  splitBranch,
+  prStateWord,
+  noteWithoutPr,
   readCollapsed,
   writeCollapsed,
   COLLAPSED_BY_DEFAULT,
@@ -407,5 +410,97 @@ describe('noActionReason — the disabled menu says why', () => {
 
   it('still says something on a row carrying no note', () => {
     expect(noActionReason(row({ note: '' }))).toBeTruthy();
+  });
+});
+
+describe('splitBranch — the elision is in the MIDDLE', () => {
+  it('protects the TAIL, which is where these names differ', () => {
+    // The whole decision, and the one an ordinary `truncate` gets backwards.
+    // Six branches share `feature/opus5-hardening-` and differ only after it,
+    // so end-truncation renders all six identically — which reads as six
+    // duplicate rows rather than as truncation.
+    const a = splitBranch('feature/opus5-hardening-challenge-budget');
+    const b = splitBranch('feature/opus5-hardening-longhorizon');
+    // The heads may be clipped to nothing by a narrow column; the tails are
+    // pinned, and they are what tells the two apart.
+    expect(a.tail).not.toBe(b.tail);
+    // Each half joins back to the whole name — nothing is lost, only folded.
+    expect(a.head + a.tail).toBe('feature/opus5-hardening-challenge-budget');
+    expect(b.head + b.tail).toBe('feature/opus5-hardening-longhorizon');
+  });
+
+  it('leaves a short name entirely in the head, with nothing pinned', () => {
+    // With no tail to hold the right edge, `truncate` has nothing to clip
+    // against and a fitting name renders whole — so a short branch never gains
+    // an ellipsis it did not need.
+    expect(splitBranch('main')).toEqual({ head: 'main', tail: '' });
+    expect(splitBranch('feature/xy', 12)).toEqual({ head: 'feature/xy', tail: '' });
+  });
+
+  it('keeps the tail budget off the head when the name is exactly the budget', () => {
+    // The boundary: equal to the budget is still "fits", not "fold it all".
+    expect(splitBranch('abcdefghijkl', 12)).toEqual({ head: 'abcdefghijkl', tail: '' });
+    expect(splitBranch('abcdefghijklm', 12))
+      .toEqual({ head: 'a', tail: 'bcdefghijklm' });
+  });
+});
+
+describe('prStateWord — the state travels as a WORD', () => {
+  it('spells out each condition, because a symbol may never be the sole carrier', () => {
+    expect(prStateWord('green')).toBe('green');
+    expect(prStateWord('pending')).toBe('CI running');
+    expect(prStateWord('failing')).toBe('checks failing');
+    expect(prStateWord('conflicts')).toBe('conflicts');
+  });
+
+  it('distinguishes `no checks` from `conflicts` — the defect being fixed', () => {
+    // One label for both is the defect, and renaming all of them to
+    // `conflicts` is the same defect mirrored: a workflow genuinely awaiting a
+    // human click wants a click, and a conflicting branch wants a rebase.
+    expect(prStateWord('none')).toBe('no checks');
+    expect(prStateWord('none')).not.toBe(prStateWord('conflicts'));
+  });
+
+  it('says NOTHING where the host cannot report a state', () => {
+    // Bitbucket carries no rollup. A word meaning only *this board could not
+    // find out*, stamped on every row of an entire host, is noise — and absent
+    // is the honest rendering, which is the rule the contract states for the
+    // field itself.
+    expect(prStateWord('unknown')).toBe('');
+  });
+});
+
+describe('noteWithoutPr — the note is relieved of one duty, not replaced', () => {
+  const pr = (number: number) =>
+    ({ number, url: '', draft: false, state: 'green' as const });
+
+  it('keeps everything a PR state cannot say', () => {
+    // The three the plan names, each carried after the server's separator.
+    expect(noteWithoutPr('PR #158, conflicts · awaiting review', pr(158)))
+      .toBe('awaiting review');
+    expect(noteWithoutPr('uncommitted work in a local worktree', null))
+      .toBe('uncommitted work in a local worktree');
+    expect(noteWithoutPr('blocked by an earlier wave', null))
+      .toBe('blocked by an earlier wave');
+  });
+
+  it('drops a PR clause that says only what the cell already says', () => {
+    // `PR #130 green` and `PR #131, draft, CI running` are entirely the PR's
+    // own condition, which the cell now renders from the fields. Printing them
+    // beside it would say the same thing twice on every row with a PR.
+    expect(noteWithoutPr('PR #130 green', pr(130))).toBe('');
+    expect(noteWithoutPr('PR #131, draft, CI running', pr(131))).toBe('');
+  });
+
+  it('is anchored, and matches only the row\'s OWN number', () => {
+    // This is deliberately NOT the `indexOf` search it replaces. That one
+    // hunted a marker ANYWHERE in a sentence in order to link it, and dropped
+    // the link the moment the wording drifted. This one fails the other way: a
+    // note it does not recognise is printed IN FULL, which costs a duplicated
+    // word rather than a lost link — and the cell renders from the fields
+    // either way.
+    expect(noteWithoutPr('see PR #130 green', pr(130))).toBe('see PR #130 green');
+    expect(noteWithoutPr('PR #999 green', pr(130))).toBe('PR #999 green');
+    expect(noteWithoutPr('PR #130 green', null)).toBe('PR #130 green');
   });
 });
