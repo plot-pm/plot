@@ -221,7 +221,7 @@ minute of honesty.
 
 - `bug/green-never-outranks-unknown` — `prState` returns `unknown` when
   `mergeable` is `unknown`, before consulting `checks`; the note says
-  which fact is missing
+  which fact is missing → #192
 
 ## Done when
 
