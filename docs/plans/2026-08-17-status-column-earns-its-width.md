@@ -298,7 +298,7 @@ the client remembers one value.
 - `feature/status-column-earns-its-width` — `ROW_TRACKS` gives the status
   column 14rem, and the row marks a watched-value transition for ~3 s
   wherever it now sits: silent on first sighting, restarting on a second
-  change, `motion-reduce`-safe, `aria-hidden`
+  change, `motion-reduce`-safe, `aria-hidden` → #180
 
 **One wave, and the first draft had two.** Splitting them was the
 instinct — the width is one number on one exported constant, the flash is
