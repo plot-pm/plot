@@ -23,6 +23,8 @@ import {
   changedRows,
   isActive,
   activityPace,
+  groupPace,
+  ACTIVITY_MARK_PLACE,
   ActivityEcho,
   activeRowKeys,
   LOCK_ECHO_MS,
@@ -671,6 +673,128 @@ describe('activityPace — fast means measured, slow means unobserved', () => {
 });
 
 /**
+ * GROUP PACE — a section heading says what its rows say, one level up.
+ *
+ * The case this exists for is a COLLAPSED group. QUIET and DONE are in
+ * `COLLAPSED_BY_DEFAULT` and the fold is persisted in `localStorage`, so they
+ * stay shut across sessions and report `(4)` — a STOCK count, which says *four
+ * rows are in here* and never *one of them is moving*. QUIET's own purpose is
+ * *"go check whether this died"*, so a group whose whole job is surfacing
+ * possible deaths was folded shut showing a number.
+ *
+ * Binary and derived: at least one row is active, or none is. Every assertion
+ * below is about which of the two paces the heading is licensed to state.
+ */
+describe('groupPace — the heading states the strongest pace its rows state', () => {
+  const keysOf = (...rows: AgentRow[]) => new Set(rows.map(rowKey));
+
+  it('says NOTHING for a group with no active and no live row', () => {
+    // The floor, and the half that makes every positive claim mean something: a
+    // heading that always carried the mark would say nothing at all. Stated
+    // first because it is the common case — most sections are quiet.
+    const rows = [row({ branch: 'a' }), row({ branch: 'b' })];
+    expect(groupPace(rows, new Set())).toBeNull();
+  });
+
+  it('says FAST when a row in it is being written to', () => {
+    // The reported case: a folded group with an agent working inside it.
+    const writing = row({ branch: 'writing', localDirty: true });
+    const rows = [row({ branch: 'quiet' }), writing];
+    expect(groupPace(rows, keysOf(writing))).toBe('fast');
+  });
+
+  it('says SLOW for a group holding only CLAIMED rows', () => {
+    // `isLive` is the second entry path and it is a weaker claim: the fleet put
+    // the row in WORKING, and this checkout observed nothing local. Absence is
+    // not falsehood, so the heading says *unknown*, never *nobody*.
+    const rows = [row({ branch: 'claimed', group: 'working' })];
+    expect(groupPace(rows, new Set())).toBe('slow');
+  });
+
+  it('says FAST when one measured row sits among merely-claimed ones', () => {
+    // THE ordering assertion, and the pairing that matters: an implementation
+    // returning the WEAKEST pace — or reading the rows in order and keeping the
+    // last answer — passes every test above and lets one measured write hide
+    // behind three unobserved claims. That is the reading the fold exists to
+    // prevent, since the fast row is the one worth opening the group for.
+    //
+    // The written-to row is deliberately LAST, so an implementation that stops
+    // at the first live row it meets fails here rather than by luck.
+    const writing = row({ branch: 'writing', group: 'working', localDirty: true });
+    const rows = [
+      row({ branch: 'claimed-a', group: 'working' }),
+      row({ branch: 'claimed-b', group: 'working' }),
+      writing,
+    ];
+    expect(groupPace(rows, keysOf(writing))).toBe('fast');
+  });
+
+  it('reads the ECHO, not just this pulse\'s signals', () => {
+    // `active` is the fleet's answer for the whole list — `isActive` in this
+    // pulse OR a lock seen in a recent one still echoing. A heading computed
+    // from `isActive` alone would go dark for a group whose row still carries
+    // the mark, which is the heading disagreeing with its rows.
+    const echoing = row({ branch: 'echoing' });
+    expect(isActive(echoing)).toBe(false);
+    expect(groupPace([echoing], keysOf(echoing))).toBe('fast');
+  });
+
+  it('cannot disagree with its rows — same set, same predicate', () => {
+    // The heading is derived from exactly what the rows are rendered from, so
+    // agreement is structural rather than tested. Stated as the equivalence:
+    // the heading carries a mark precisely when some row would.
+    const active = row({ branch: 'writing', localDirty: true });
+    const live = row({ branch: 'claimed', group: 'working' });
+    const still = row({ branch: 'quiet' });
+    for (const rows of [[active, still], [live, still], [still], [active, live]]) {
+      const keys = new Set(rows.filter((r) => r.localDirty).map(rowKey));
+      const heading = groupPace(rows, keys);
+      const anyRowMarked = rows.some((r) => keys.has(rowKey(r)) || isLive(r));
+      expect(heading !== null).toBe(anyRowMarked);
+    }
+  });
+
+  it('is BINARY — the same answer for one active row as for three', () => {
+    // No second number. `(4)` exists to separate ABSENT from EMPTY, a
+    // distinction this board paid for, and `(4, 2 active)` dilutes the one job
+    // that number has. The reader does not need to know whether it is one row
+    // or three; they need to know whether opening it is worth it.
+    const one = row({ branch: 'a', localDirty: true });
+    const two = row({ branch: 'b', localDirty: true });
+    const three = row({ branch: 'c', localDirty: true });
+    expect(groupPace([one], keysOf(one)))
+      .toBe(groupPace([one, two, three], keysOf(one, two, three)));
+  });
+
+  it('says nothing for an EMPTY group', () => {
+    // An empty group is never foldable and its header carries the hint rather
+    // than `(0)`. A mark on it would claim activity in a section with no rows
+    // to be active — and `.some()` on an empty array is the shape that gets
+    // this right by accident, so it is pinned deliberately.
+    expect(groupPace([], new Set())).toBeNull();
+  });
+
+  it('ignores rows that are not its own', () => {
+    // `active` answers for the WHOLE fleet at once, so every heading is handed
+    // the same set and must read only the rows it was given. An implementation
+    // asking *is anything in the fleet active* would light every heading on the
+    // board from one busy row in one section.
+    const elsewhere = row({ branch: 'other-section', localDirty: true });
+    const mine = [row({ branch: 'mine' })];
+    expect(groupPace(mine, keysOf(elsewhere))).toBeNull();
+  });
+
+  it('does not mark a group for UNPUSHED work alone', () => {
+    // `localAhead` is finished work sitting still — a real condition with a
+    // real remedy (push it) and no motion behind it. It earns a static mark of
+    // its own in a later wave; it does not earn this one, and a heading that
+    // travelled for it would report motion where there is none.
+    const ahead = row({ branch: 'ahead', note: '2 commits not pushed' });
+    expect(groupPace([ahead], new Set())).toBeNull();
+  });
+});
+
+/**
  * THE MARK'S APPEARANCE, read out of the source.
  *
  * The rendered half — the glow's computed `box-shadow`, the travel actually
@@ -712,11 +836,38 @@ describe('the activity mark is a track with a travelling dot', () => {
     // prevent, so whichever form comes FIRST after the hook is the one taken.
     const quoted = /className="([^"]*)"/.exec(after);
     const templated = /className=\{`([^`]*)`/.exec(after);
-    const match = [quoted, templated]
+    // The THIRD form, and it exists for the same reason the second does. The
+    // activity mark hangs in two places — the row's left padding and a group
+    // heading — so its class list is a LOOKUP (`className={ACTIVITY_MARK_PLACE[place]}`)
+    // rather than a literal. A matcher that knew only the first two forms does
+    // not fail on it: it walks past into the travelling dot below and returns
+    // THAT element's classes under the mark's name, which is precisely the
+    // confusion this helper exists to prevent. Measured — it did.
+    const looked = /className=\{([A-Z_]+)\[/.exec(after);
+    const resolved = looked
+      ? ({ index: looked.index, 1: placementsOf(looked[1]).join(' ') } as unknown as RegExpExecArray)
+      : null;
+    const match = [quoted, templated, resolved]
       .filter((m): m is RegExpExecArray => m !== null)
       .sort((a, b) => a.index - b.index)[0];
     expect(match, `no className after data-${hook}`).not.toBeUndefined();
     return match![1];
+  }
+
+  /**
+   * Every class list a placement table can produce, as one string.
+   *
+   * The mark's geometry assertions are about what it NEVER carries — no
+   * `animate-*`, no `inset-0` — and those must hold at EVERY placement rather
+   * than at whichever one the table happens to list first. Joining them is what
+   * makes a `not.toContain` mean *in none of them*.
+   */
+  function placementsOf(name: string): string[] {
+    const table = new RegExp(`const ${name} = \\{([\\s\\S]*?)\\n\\} as const;`).exec(source);
+    expect(table, `no ${name} table in AgentList.tsx`).not.toBeNull();
+    const out = [...table![1].matchAll(/^\s{2}\w+: '([^']*)',$/gm)].map((m) => m[1]);
+    expect(out.length, `no placements parsed out of ${name}`).toBeGreaterThan(1);
+    return out;
   }
 
   it('reads each mark\'s OWN class list, not the next one in the file', () => {
@@ -733,6 +884,41 @@ describe('the activity mark is a track with a travelling dot', () => {
     // the dot's name. Pinned on a class only the dot has.
     expect(classesOf('activity-dot')).toContain('rounded-full');
     expect(classesOf('activity-dot')).not.toContain('inset-0');
+  });
+
+  it('hangs in the row\'s padding and FLOWS in a heading', () => {
+    // Two placements, one mark. Everything the mark IS — the track, the dot,
+    // the glow, the travel, the paces, the titles — is shared; only where it
+    // hangs differs, because the two hosts have different geometry.
+    //
+    // THE assertion, and the failure it guards is not cosmetic: the row's
+    // placement is `sm:absolute`, which positions against the nearest
+    // positioned ancestor. The `<h2>` has NONE. Reusing the row's string in a
+    // heading would not sit the mark slightly wrong — it would hang it off
+    // whatever ancestor happened to be `relative` and land it elsewhere on the
+    // page. A class-name assertion on a shared string cannot see that.
+    expect(ACTIVITY_MARK_PLACE.row).toContain('sm:absolute');
+    expect(ACTIVITY_MARK_PLACE.heading).not.toContain('absolute');
+    // And the heading's mark is not positioned by any other route either.
+    expect(ACTIVITY_MARK_PLACE.heading).not.toMatch(/\b(fixed|sticky|top-|left-|-translate-)/);
+  });
+
+  it('keeps the ROW\'s placement exactly as the wave before it left it', () => {
+    // A shared component gaining a second caller is the moment the first
+    // caller's geometry quietly changes. The row's placement is pinned whole,
+    // not by fragments: `sm:top-2` and `h-5` together are what put the mark on
+    // the row's FIRST LINE rather than at its centre, which is the fix a
+    // two-line row needed and which a partial assertion would let slip back.
+    expect(ACTIVITY_MARK_PLACE.row).toBe(
+      'relative flex h-5 w-3 shrink-0 items-center self-center sm:absolute sm:left-0 sm:top-2');
+  });
+
+  it('gives the heading a box that fits a heading', () => {
+    // The heading is `text-xs`; the row's 20px line box would stretch it and
+    // push the section's own words apart. `self-center` because the heading
+    // aligns on `items-baseline` and a track carries no text to align.
+    expect(ACTIVITY_MARK_PLACE.heading).toContain('self-center');
+    expect(ACTIVITY_MARK_PLACE.heading).not.toContain('h-5');
   });
 
   it('travels at exactly two rates, and no third', () => {

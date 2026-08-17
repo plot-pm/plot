@@ -1425,6 +1425,59 @@ export function activityPace(row: Pick<AgentRow, 'localLocked' | 'localDirty'>):
 }
 
 /**
+ * The pace a GROUP HEADING travels at, or `null` where it carries no mark.
+ *
+ * **A group's heading says what its rows say, one level up** — and a collapsed
+ * group is the case this exists for. QUIET and DONE are in
+ * `COLLAPSED_BY_DEFAULT` and the choice is persisted in `localStorage`, so they
+ * stay folded across sessions; a folded heading reports `(4)`, which is a STOCK
+ * count. It says *four rows are in here*, never *one of them is moving*. QUIET's
+ * own comment names its purpose as *"go check whether this died"* — a group
+ * whose whole job is to surface possible deaths, folded shut, showing a number.
+ *
+ * **Binary, and derived at render.** At least one row is active, or none is. No
+ * second figure beside the tally: `(4)` exists to separate ABSENT from EMPTY, a
+ * distinction this board paid for, and `(4, 2 active)` dilutes the one job that
+ * number has. The reader opening a group does not need to know whether it is one
+ * row or three — they need to know whether opening it is worth it.
+ *
+ * **The strongest pace any row states, and never stronger.** A group holding one
+ * written-to row among three merely-claimed ones is a group where something is
+ * demonstrably happening, so the heading travels FAST. A group holding only
+ * claimed rows travels SLOW — the same *unknown, never nobody* ordering the row
+ * marks keep, because a heading that reported the WEAKEST pace would let one
+ * measured write hide behind three unobserved claims.
+ *
+ * The two inputs are the two entry paths a row has, and they are not one claim:
+ * `active` is the fleet's answer for the whole list at once (`isActive` in this
+ * pulse, or a lock still echoing from a recent one) and travels fast; `isLive`
+ * adds the rows the fleet places in WORKING while observing nothing local, and
+ * those travel slow. Reading only the first would leave every WORKING group
+ * unmarked while its rows carried marks — a heading disagreeing with the rows
+ * beneath it, which is the one thing this must not do.
+ *
+ * **It CANNOT disagree with its rows**, and that is structural rather than
+ * tested: it takes the same `active` set and the same `isLive` the rows are
+ * rendered from, at the same render. A stored count or a separately-maintained
+ * flag is what drifts; this has nothing to drift from.
+ *
+ * Exported for test: an implementation returning the weakest pace, or reading
+ * only `active`, passes every assertion that merely checks *the heading has a
+ * mark*.
+ */
+export function groupPace(
+  rows: AgentRow[],
+  active: ReadonlySet<string>,
+): ActivityPace | null {
+  let slow = false;
+  for (const row of rows) {
+    if (active.has(rowKey(row))) return 'fast';
+    if (isLive(row)) slow = true;
+  }
+  return slow ? 'slow' : null;
+}
+
+/**
  * The mark a row wears while something is being written to it — a short track
  * with a glowing dot travelling out and back.
  *
@@ -1485,8 +1538,52 @@ export function activityPace(row: Pick<AgentRow, 'localLocked' | 'localDirty'>):
  * `[data-stuck-cue]`: four marks, four meanings, and no mark implemented by
  * modifying another. A row can carry several at once, and then it carries
  * several.
+ *
+ * **`place` is WHERE the mark hangs, and it is a prop because the two callers
+ * have genuinely different geometry — not because the mark has two designs.**
+ * Everything the mark IS — the track, the dot, the glow, the travel, the two
+ * paces, the titles, `aria-hidden` — is identical either way, and that is the
+ * point: a group heading says what its rows say, so it must say it in the same
+ * marks.
+ *
+ * | `place` | Where | Why |
+ * |---|---|---|
+ * | `row` | `sm:absolute` in the row's left padding | outside the six grid tracks, so no column moves |
+ * | `heading` | inline, in the heading's flex | the heading has no `relative` box and no grid to stay out of |
+ *
+ * The row's placement is UNCHANGED, to the character. A heading placement
+ * bolted on by overriding classes from outside would have been the smaller
+ * diff and the worse answer: `sm:absolute sm:left-0 sm:top-2` positions against
+ * the nearest positioned ancestor, and the `<h2>` has none — so the mark would
+ * not sit slightly wrong in the heading, it would escape to whatever ancestor
+ * happened to be `relative` and land somewhere else on the page entirely. That
+ * is a failure a class-name assertion cannot see and a screenshot finds late.
  */
-function ActivityMark({ pace }: { pace: ActivityPace }) {
+export const ACTIVITY_MARK_PLACE = {
+  // The row's placement, UNCHANGED to the character: `sm:absolute` in the row's
+  // left padding, deliberately outside the six grid tracks, aligned to the
+  // FIRST LINE's own box (`sm:top-2` is the row's `py-2`, `h-5` is one line of
+  // `text-sm`) rather than to the row's centre — a row carrying a status line
+  // is twice as tall, and `top-1/2` would put the mark between its two lines.
+  row: 'relative flex h-5 w-3 shrink-0 items-center self-center sm:absolute sm:left-0 sm:top-2',
+  // In a HEADING the mark simply FLOWS. The `<h2>` is a flex row and the mark
+  // takes its place after the tally like any other child — there is no grid
+  // here to stay out of, and no `relative` box to hang in.
+  //
+  // `self-center` because the heading aligns on `items-baseline` and a track
+  // carries no text to align — on the baseline it would sit low against the
+  // words, the same reason `LiveDot` documents for itself. `h-3` rather than
+  // the row's `h-5`: the heading is `text-xs` and a 20px box would stretch it.
+  //
+  // NO `sm:absolute`, and that is the load-bearing difference. The row's
+  // placement positions against the row's own `relative` box; the heading has
+  // no positioned ancestor, so reusing the row's string would not sit the mark
+  // slightly wrong — it would hang it off whatever ancestor happened to be
+  // positioned and land it somewhere else on the page entirely.
+  heading: 'relative flex h-3 w-3 shrink-0 items-center self-center',
+} as const;
+
+function ActivityMark({ pace, place = 'row' }: { pace: ActivityPace; place?: 'row' | 'heading' }) {
   const fast = pace === 'fast';
   return (
     <span
@@ -1536,7 +1633,7 @@ function ActivityMark({ pace }: { pace: ActivityPace }) {
       // row and is wrong on exactly the rows carrying the most information.
       // Anything measuring itself against the ROW's height is suspect; this
       // measured itself against the row and meant the line.
-      className="relative flex h-5 w-3 shrink-0 items-center self-center sm:absolute sm:left-0 sm:top-2"
+      className={ACTIVITY_MARK_PLACE[place]}
     >
       {/* The TRACK the dot rides: a faint 2px rule, centred on the line box by
           the flex above. Dim on purpose — what reads from a distance is a
@@ -3085,6 +3182,20 @@ export function AgentList({
             {rows.length > 0 ? `(${rows.length})` : emptyHint}
           </span>
         );
+        // Whether anything in this section is moving — and at which pace. The
+        // heading carries the same mark its rows do, because a folded group
+        // reports its STOCK (`(4)`) and never its motion, and QUIET and DONE
+        // start folded and stay that way across sessions.
+        //
+        // Derived here, from the same `active` set the rows below are rendered
+        // from, so the heading and its rows cannot disagree. See `groupPace`.
+        const pace = groupPace(rows, active);
+        // The mark rides INSIDE the toggle button on a collapsible section and
+        // beside the label otherwise — one element either way, so a section that
+        // gains or loses its fold does not gain or lose a mark. Placed after the
+        // tally rather than before the caret: the caret and icon are the
+        // heading's controls, the mark is a fact about what is behind them.
+        const groupMark = pace && <ActivityMark pace={pace} place="heading" />;
         return (
           <section key={key}>
             <h2 className="mb-1 flex items-baseline gap-2 px-3 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
@@ -3103,12 +3214,21 @@ export function AgentList({
                   <span aria-hidden>{icon}</span>
                   {label}
                   {tally}
+                  {/* The mark stays whether the section is FOLDED OR OPEN.
+                      Hiding it on expand was considered — the rows show it
+                      themselves, so the heading repeats them — and rejected
+                      because the mark would then vanish at the moment of
+                      opening, which reads as *it stopped*. A marker that
+                      disappears when you look closer is worse than one that
+                      repeats itself. */}
+                  {groupMark}
                 </button>
               ) : (
                 <>
                   <span aria-hidden>{icon}</span>
                   {label}
                   {tally}
+                  {groupMark}
                 </>
               )}
             </h2>
