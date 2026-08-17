@@ -590,6 +590,117 @@ describe('the activity marker leaves the other marks alone', () => {
     // rather than letting absence speak for itself.
     expect(source).toContain('A write is in progress in this checkout');
   });
+
+  it('keeps the stuck cue on its own channel too', () => {
+    // The fourth mark, and the one that arrived after the plan was written.
+    // Amber and MOVING (`animate-ping`), against this mark's static emerald —
+    // asserted here so a later wave reaching for the cue's element to make
+    // activity louder fails rather than passes.
+    expect(source).toContain('data-stuck-cue');
+    expect(source).toContain('animate-ping rounded-full bg-amber-500');
+  });
+});
+
+/**
+ * THE MARK'S APPEARANCE, read out of the source.
+ *
+ * The rendered half — the glow's computed `box-shadow`, its survival under
+ * `prefers-reduced-motion`, the six tracks not moving — lives in
+ * `test/integration/activity-mark.browser.test.ts`, because only a page can
+ * answer it. What is here is the half a string can state exactly: that the
+ * element carries NO animation at all.
+ *
+ * `className` is isolated from the component rather than searched for across the
+ * file, and that is the whole point of the helper below: this file contains four
+ * marks and three of them animate, so a naive `expect(source).not.toContain
+ * ('animate-')` would fail on `[data-live-dot]` and prove nothing about this
+ * mark.
+ */
+describe('the activity mark is a glowing bar, and it does not move', () => {
+  const source = readFileSync(
+    new URL('../../src/app/components/AgentList.tsx', import.meta.url), 'utf8');
+
+  /**
+   * The `className` string of the JSX element carrying `data-<hook>`.
+   *
+   * Anchored on the hook as a JSX ATTRIBUTE — alone on its line — rather than on
+   * any mention of the string. Every mark in this file names the other three in
+   * its doc comment (*deliberately NOT `[data-live-dot]`*), and those mentions
+   * come FIRST in the file, so a plain `indexOf` would walk from a comment into
+   * the wrong element's class list and assert one mark's geometry against
+   * another's. That is not hypothetical: it is what the first draft of this
+   * helper did.
+   */
+  function classesOf(hook: string): string {
+    const at = source.search(new RegExp(`^\\s*data-${hook}\\s*$`, 'm'));
+    expect(at, `no data-${hook} JSX attribute in AgentList.tsx`).toBeGreaterThan(-1);
+    const match = /className="([^"]*)"/.exec(source.slice(at));
+    expect(match, `no className after data-${hook}`).not.toBeNull();
+    return match![1];
+  }
+
+  it('reads each mark\'s OWN class list, not the next one in the file', () => {
+    // The helper's own guard, and the reason it exists. Every assertion below
+    // is worthless if this walks into a neighbour: the four marks are adjacent
+    // in the source and each names the others in its comment. Two marks whose
+    // geometry cannot be confused pin it.
+    expect(classesOf('live-dot')).toContain('h-1.5 w-1.5');
+    expect(classesOf('change-mark')).toContain('absolute inset-0');
+    expect(classesOf('activity-mark')).not.toContain('inset-0');
+  });
+
+  it('carries no animation of any kind', () => {
+    // THE assertion of this wave, and the pairing that matters: an
+    // implementation reaching for `animate-pulse` because the board uses it
+    // elsewhere passes every visibility assertion above and makes a row with
+    // four other moving things noisier rather than clearer. A fact true for
+    // hours has less claim on motion than one true for three seconds.
+    expect(classesOf('activity-mark')).not.toMatch(/animate-/);
+  });
+
+  it('needs no motion-reduce variant, because there is no motion to reduce', () => {
+    // The other three marks all carry `motion-reduce:animate-none` — keep the
+    // mark, stop the movement. This one has nothing to stop, so the absence of
+    // the variant is correct rather than an omission. Asserted so that a later
+    // reader does not "fix" it by adding one, which would only make sense
+    // beside an animation.
+    expect(classesOf('activity-mark')).not.toContain('motion-reduce:');
+  });
+
+  it('glows in its own colour, in both themes', () => {
+    // The glow is what supplies the prominence the requested motion was asked
+    // to supply, so it is not optional decoration. An emerald `shadow-[…]`
+    // rather than a step on the neutral shadow scale: those are greys for
+    // lifting a surface off the page, and a grey blur around a 4px bar reads as
+    // a smudge rather than a light.
+    const classes = classesOf('activity-mark');
+    expect(classes).toMatch(/shadow-\[[^\]]*rgba\(16,\s*185,\s*129/);
+    expect(classes).toMatch(/dark:shadow-\[[^\]]*rgba\(52,\s*211,\s*153/);
+  });
+
+  it('is a bar rather than a dot, and wider than the one it sits beside', () => {
+    // The reported problem is spotting it FROM A DISTANCE. A vertical stroke at
+    // a fixed x reads as a mark down the side of the list; a dot must be hunted
+    // among the row's words. Stated against `LiveDot`'s own geometry so the two
+    // cannot drift into the same shape: that is a 6px round dot (`h-1.5 w-1.5`),
+    // this is a tall, narrow stroke.
+    const mark = classesOf('activity-mark');
+    expect(mark).toContain('h-5');
+    expect(mark).toContain('w-1');
+    expect(classesOf('live-dot')).toContain('h-1.5 w-1.5');
+  });
+
+  it('stays out of the six tracks, in the row\'s left padding', () => {
+    // Wave 1's home, kept: `sm:absolute` hangs the mark beside `LiveDot` in the
+    // padding rather than taking a seventh track, so the six real columns do
+    // not move in from the edge on every row in the fleet to reserve room for a
+    // mark most rows never carry. `left-0` against the dot's `left-1` is what
+    // keeps a row carrying both showing two marks rather than one thick one.
+    const mark = classesOf('activity-mark');
+    expect(mark).toContain('sm:absolute');
+    expect(mark).toContain('sm:left-0');
+    expect(classesOf('live-dot')).toContain('sm:left-1');
+  });
 });
 
 describe('isStartable — which NOT STARTED rows offer work', () => {
