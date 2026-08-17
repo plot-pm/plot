@@ -2,14 +2,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-board
 - **Review:** pr
 - **Impl:** own branches
 - **Assignee:** jwloka
-- **Approved:**
+- **Approved:** 2026-08-17, Jan Wloka, plan-PR #190 merged
 - **Started:**
 - **Delivered:**
 
