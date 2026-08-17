@@ -5,6 +5,8 @@ import {
   type Card,
   type DispatchInfo,
   type Fleet,
+  type Stuck,
+  type StuckState,
   type WaitingGroup,
 } from '../../contract/schema.js';
 import { StartWorkButton } from './StartWorkButton.js';
@@ -535,6 +537,146 @@ export function isActive(row: Pick<AgentRow, 'localLocked' | 'localDirty'>): boo
 }
 
 /**
+ * The four stuck states as WORDS, one apiece.
+ *
+ * FOUR LABELS, NOT ONE. *Stuck* as a single word is the one-label-many-states
+ * defect the contract names, and here the four differ in the only way that
+ * matters — what happens next. `artifact-conflict` and `conflict` in particular
+ * are not degrees of one thing: the first has a resolution a rebuild and a CI
+ * no-diff gate can prove without anyone reading a diff, and the second does not.
+ * A reader who cannot tell them apart cannot tell which of the two errands is
+ * theirs.
+ *
+ * A WORD, never a colour and never a mark. The repo's rule is *symbol AND
+ * word*, and this is the word half: it is what a screen reader hears and what
+ * survives a screenshot.
+ *
+ * Exported for test — a single shared label passes any assertion that only
+ * checks "the row says something".
+ */
+export function stuckWord(state: StuckState): string {
+  switch (state) {
+    case 'artifact-conflict': return 'artifact conflict';
+    case 'conflict': return 'conflict';
+    case 'ci-failing': return 'CI failed';
+    case 'unpushed': return 'unpushed work';
+  }
+}
+
+/**
+ * The EVIDENCE that produced the state, as the lines the row prints beside it.
+ *
+ * The contract states the rule this exists to honour, and it is easy to violate
+ * while looking correct: *EVIDENCE TRAVELS WITH THE STATE, always. A row that
+ * says* stuck *and makes the reader go find out why has moved the ten minutes of
+ * log-reading rather than removed it.* A row that only names its state passes
+ * every "is the state visible" assertion and pays off none of the cost this
+ * detection exists to remove.
+ *
+ * **`ci-failing` gets THREE LINES and no fourth**, in the shape the plan writes
+ * them: what failed, what the branch touches, and how the branch has fared
+ * lately. Nothing here compares them and nothing concludes from them — a
+ * heuristic mapping failing steps to changed paths was explicitly rejected as a
+ * table nobody maintains, which goes silently wrong the first time a workflow is
+ * restructured. The reader combines the three; this only sets them down.
+ *
+ * **An empty evidence field says so rather than vanishing.** `failingChecks: []`
+ * means *no names available* — an older adapter, or a host carrying no rollup —
+ * never *nothing failed*, and `runHistory: []` means Bitbucket has no run
+ * listing, never *this branch has never failed before*. Silence there would be
+ * the row asserting a fact it was never given.
+ *
+ * Exported for test: the pairing that matters is a row that names its state
+ * WITHOUT its evidence, which every state-only implementation renders correctly.
+ */
+export function stuckEvidence(stuck: Stuck): string[] {
+  switch (stuck.state) {
+    case 'artifact-conflict':
+    case 'conflict':
+      // The set travels with the answer so a reader can COUNT it rather than
+      // trust the classification — *exactly the artifact* is a claim about a
+      // set, and this is the set. An empty one is the host's own verdict with
+      // no set behind it (see `stuckState`), which is a real and different
+      // thing to say.
+      return stuck.conflicts.length > 0
+        ? [`conflicting: ${stuck.conflicts.join(', ')}`]
+        : ['the host reports this branch does not merge — no file list available'];
+    case 'ci-failing':
+      return [
+        stuck.failingChecks.length > 0
+          ? `step: ${stuck.failingChecks.join(', ')}`
+          : 'failing step unavailable',
+        stuck.changedPaths.length > 0
+          ? `this branch changes ${stuck.changedPaths.join(', ')}`
+          : 'changed paths unavailable',
+        stuck.runHistory.length > 0
+          ? `recent runs: ${stuck.runHistory
+              .map((r) => `${r.conclusion || 'unknown'}${r.startedAt ? ` at ${r.startedAt}` : ''}`)
+              .join(', ')}`
+          : 'run history unavailable',
+      ];
+    case 'unpushed':
+      // The count IS the evidence, and it is the whole of it: `local_ahead` is
+      // true only on the machine doing the looking, so there is nothing else
+      // anyone else could check.
+      return [
+        `${stuck.localAhead} commit${stuck.localAhead === 1 ? '' : 's'} only this machine can see`,
+      ];
+  }
+}
+
+/**
+ * Does this stuck state OFFER an action on the row?
+ *
+ * Two of the four do, and the two that do not are the load-bearing half — a cue
+ * on every row makes the stuck ones invisible.
+ *
+ * **`unpushed` offers nothing, ever.** The fix is a push, and pushing someone
+ * else's uncommitted judgement is not a mechanical act. It is reported in words
+ * and that is the entire treatment.
+ *
+ * **`artifact-conflict` offers nothing IN THIS WAVE.** Wave 3 resolves it — the
+ * only automatic write this plan ever grants — and until that exists the state
+ * is reported like any other, with no action. Offering one here would be this
+ * wave building the thing it is fenced away from.
+ *
+ * Exported for test: the two negatives are what a blanket "stuck rows get a
+ * button" implementation gets wrong, and both pass every positive assertion.
+ */
+export function offersAction(state: StuckState): boolean {
+  return state === 'conflict' || state === 'ci-failing';
+}
+
+/**
+ * Does this row wear the animated cue?
+ *
+ * **Only where an action is OFFERED, and only until it is TAKEN.** Both bounds
+ * are the plan's, and each removes a way the cue becomes wallpaper.
+ *
+ * The first: motion here marks an UNANSWERED REQUEST, not a state. A branch with
+ * nothing to offer has made no request, so it gets no motion — which is why
+ * `unpushed` is reported in words and `artifact-conflict` (this wave) is too.
+ *
+ * The second: **it stops when the action is taken, not when the branch
+ * unsticks.** The request has been answered; whether the answer worked is what
+ * the row's other marks report. A cue tied to the branch's own recovery would
+ * keep moving through the whole repair — the reader having already done the one
+ * thing it was asking for.
+ *
+ * This is also the one place on this board where motion is right, and the reason
+ * is recorded because a neighbouring wave settled the opposite: *a thing true
+ * for hours has less claim on motion than a thing true for three seconds*, which
+ * is why the activity mark is static. A stuck branch is neither — it is true
+ * UNTIL SOMEONE ACTS, and the acting is the point.
+ *
+ * Exported for test: a cue that survives the click passes every "the cue
+ * animates" assertion.
+ */
+export function showsCue(state: StuckState, actionTaken: boolean): boolean {
+  return offersAction(state) && !actionTaken;
+}
+
+/**
  * How long a SEEN lock keeps the activity marker after the pulse that reported
  * it.
  *
@@ -1030,6 +1172,48 @@ function LiveDot() {
 }
 
 /**
+ * The cue: a marker that MOVES, on a row whose request is unanswered.
+ *
+ * **This is the one animation on this board that is not a state.** `LiveDot`
+ * says *something is alive here*; `ChangeMark` says *this just changed*; both
+ * describe the branch. This says *something is waiting FOR YOU, and it will keep
+ * waiting until you do something* — which is why it is bounded by the action
+ * rather than by the branch, and why it stops on the click rather than on the
+ * repair.
+ *
+ * **`motion-reduce` keeps the cue and stops the animation, and both halves are
+ * required.** Hiding the element under reduced motion passes a motion-only
+ * assertion and takes the MARKER along with the movement — the defect that rule
+ * exists to prevent, and the third time this repo has written it down. Under
+ * `motion-reduce:animate-none` the dot stays exactly where it is, in colour and
+ * in place; only the pulsing stops.
+ *
+ * **`aria-hidden`, and that is not a shortcut.** The action beside it carries a
+ * word and the reason reaches the accessible name, so a screen reader gets the
+ * fact through text. An animation announced as well would be the same statement
+ * twice, and motion is never this board's carrier of information — never motion
+ * alone, and never colour alone.
+ *
+ * Deliberately NOT `[data-live-dot]`, NOT `[data-change-mark]` and NOT
+ * `[data-activity-mark]`: four marks, four meanings, and no mark implemented by
+ * modifying another. A row can carry several, and then it carries several.
+ */
+function StuckCue() {
+  return (
+    <span
+      aria-hidden
+      data-stuck-cue
+      // Amber rather than the emerald the live marks use: those say *this is
+      // moving*, and this says the opposite. Larger than the live dot and
+      // smaller than a badge — it sits beside the word it belongs to rather
+      // than competing with the row's other marks in the left padding, because
+      // the thing it points at is the ACTION, not the row.
+      className="inline-block h-2 w-2 shrink-0 animate-ping rounded-full bg-amber-500 motion-reduce:animate-none dark:bg-amber-400"
+    />
+  );
+}
+
+/**
  * Why this row offers no action — in the row's own words.
  *
  * A disabled control without a reason is the kind that makes people guess, and
@@ -1046,6 +1230,211 @@ function LiveDot() {
  */
 export function noActionReason(row: AgentRow): string {
   return row.note ? `No action available — ${row.note}` : 'No action available on this row';
+}
+
+/**
+ * What a stuck branch says in its row: which of the four, the evidence, and —
+ * for the two the pulse cannot fix — the action, ON THE ROW.
+ *
+ * **On the row, not in the three-dot menu, and that is measured rather than
+ * preferred.** `RowActions` hides its action behind the menu, and the menu opens
+ * only if something inside could act — so a row with a waiting action looks
+ * identical to a row with none until you click it. A cue nobody finds is not a
+ * cue, and this is the whole reason the rule exists.
+ *
+ * **A stuck branch keeps its group.** The contract says so: *a stuck branch
+ * keeps the group it belongs to and gains this beside it*. Nothing here moves a
+ * row or adds a section — whether a branch is stuck and where it is waiting are
+ * independent questions, and folding one into the other would put a conflicting
+ * PR and an unpushed rebase in the same place while separating two conflicts.
+ *
+ * **`null` is the common case and costs nothing.** Most rows are not stuck, and
+ * this renders exactly nothing for them — the caller does not even mount it. A
+ * healthy row is byte-for-byte the row it was before this wave.
+ */
+function StuckCell({
+  row,
+  card,
+  dispatch,
+  pulse,
+  onStarting,
+}: {
+  row: AgentRow;
+  card: Card | null;
+  dispatch?: DispatchInfo;
+  pulse: number;
+  onStarting?: (active: boolean) => void;
+}) {
+  const stuck = row.stuck;
+  // **Taken, not resolved.** The cue answers a REQUEST, and the request is
+  // answered by the click — whether the click worked is what the row's other
+  // marks report on the next pulse. Local to the row and not persisted: a
+  // reload starts the cue again, which is the honest answer to *is this still
+  // waiting on me* when the board has only just started looking.
+  const [actionTaken, setActionTaken] = useState(false);
+  if (!stuck) return null;
+
+  const word = stuckWord(stuck.state);
+  const evidence = stuckEvidence(stuck);
+  const offers = offersAction(stuck.state);
+  const cue = showsCue(stuck.state, actionTaken);
+
+  return (
+    <span
+      role="gridcell"
+      data-stuck={stuck.state}
+      // Its own line beneath the row's six columns (`col-span-full`) rather
+      // than a seventh track. The evidence is three lines wide on a
+      // `ci-failing` row and most rows carry none at all — a track sized for
+      // it would push every real column in from the edge on the whole fleet to
+      // reserve room for something rare and tall.
+      className="flex w-full flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs sm:col-span-full"
+    >
+      {/* The state as a WORD, in amber, and the word is the carrier — the
+          colour only reinforces it. `title` names the state's own terms so a
+          pointer gets the one sentence that explains the errand. */}
+      <span className="shrink-0 font-medium text-amber-700 dark:text-amber-500">
+        {word}
+      </span>
+      {/* EVIDENCE TRAVELS WITH THE STATE. Each line is its own element rather
+          than one joined sentence, so a reader (and a test) can find the
+          `ci-failing` row's three lines separately — they are three different
+          facts and only the reader combines them. */}
+      {evidence.map((line) => (
+        <span
+          key={line}
+          data-stuck-evidence
+          className="min-w-0 text-slate-500 max-sm:whitespace-normal dark:text-slate-400"
+        >
+          {line}
+        </span>
+      ))}
+      {offers && (
+        <StuckAction
+          row={row}
+          stuck={stuck}
+          card={card}
+          dispatch={dispatch}
+          pulse={pulse}
+          onStarting={onStarting}
+          cue={cue}
+          onTaken={() => setActionTaken(true)}
+        />
+      )}
+    </span>
+  );
+}
+
+/**
+ * The action a stuck row offers, with its cue — and the refusal when the server
+ * will not act.
+ *
+ * **Over a non-localhost binding the cue SHOWS and the action REFUSES, naming
+ * the reason.** Measured: `/api/dispatch` is available only on localhost —
+ * *whoever reaches localhost:7777 is sitting at the machine that owns the
+ * worktrees* — so on a Tailscale address the board is a reading surface. The
+ * INFORMATION is true everywhere, so hiding the cue would let a phone report a
+ * healthy fleet while two branches sit stuck: a worse lie than an action you
+ * cannot take from where you are. `RowActions` already does exactly this when
+ * the server will not act, and this follows it rather than inventing a second
+ * posture.
+ *
+ * **Two states, two actions, and they are not the same kind of thing.**
+ *
+ * `conflict` dispatches a worker through the EXISTING guarded route — the same
+ * `/api/dispatch` a Start work click uses, with the same script deciding
+ * everything about which branch and whether the wave is open. This wave adds no
+ * route and grants the board no new authority.
+ *
+ * `ci-failing` offers a LINK to the failing run, not a rerun. There is no rerun
+ * route on this server and adding one would be a write path this wave is fenced
+ * away from — so the honest action is the one that takes the reader to where the
+ * rerun button already lives, on the host. It is navigation, so it carries no
+ * guard and reads the same over Tailscale as it does at the machine; the cue
+ * beside it is what says the request is still unanswered.
+ */
+function StuckAction({
+  row,
+  stuck,
+  card,
+  dispatch,
+  pulse,
+  onStarting,
+  cue,
+  onTaken,
+}: {
+  row: AgentRow;
+  stuck: Stuck;
+  card: Card | null;
+  dispatch?: DispatchInfo;
+  pulse: number;
+  onStarting?: (active: boolean) => void;
+  /** Whether the request is still unanswered — see `showsCue`. */
+  cue: boolean;
+  /** The request has been answered. Fired on the click, never on the repair. */
+  onTaken: () => void;
+}) {
+  // The run to open: the newest one the host reported. `[]` is *no run listing
+  // available* (Bitbucket has none), never *this branch has never failed* — so
+  // an absent URL yields no link rather than an invented address, the rule the
+  // branch and PR cells already follow.
+  const runUrl = stuck.runHistory.find((r) => r.url)?.url ?? '';
+
+  return (
+    <span
+      data-stuck-action
+      className="flex shrink-0 items-baseline gap-1"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* The cue BESIDE the action, never instead of it. Motion is never the
+          sole carrier — the action carries a word, and this points at it. */}
+      {cue && <StuckCue />}
+      {stuck.state === 'ci-failing' ? (
+        runUrl ? (
+          <a
+            href={runUrl}
+            target="_blank"
+            rel="noreferrer"
+            data-stuck-link
+            onClick={onTaken}
+            // The reason reaches the ACCESSIBLE NAME, which is the half the
+            // animation cannot carry: a screen reader hears what is stuck and
+            // what this opens, and never hears the cue at all.
+            aria-label={`Open the failing run for ${row.branch} — ${stuckWord(stuck.state)}`}
+            className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+          >
+            Open failing run
+          </a>
+        ) : (
+          // No address, so no link — and the row says why rather than
+          // rendering a dead control. Absent is a real answer here.
+          <span className="text-xs text-slate-400 dark:text-slate-600">
+            no run link available
+          </span>
+        )
+      ) : card && dispatch ? (
+        // The conflict case, through the route that already exists. Wrapped so
+        // the click marks the request answered whatever the dispatch then does
+        // — the cue tracks the ASKING, and `StartWorkButton` reports on the
+        // doing in its own words.
+        <span onClick={onTaken}>
+          <StartWorkButton
+            card={card}
+            dispatch={dispatch}
+            pulse={pulse}
+            onStarting={onStarting}
+          />
+        </span>
+      ) : (
+        // No card, or a board that has not said whether it will act. The same
+        // honest fallback the plan link and the row menu make: say so, rather
+        // than offering a button whose outcome is unknown.
+        <span className="text-xs text-slate-400 dark:text-slate-600">
+          no dispatch available for this plan
+        </span>
+      )}
+    </span>
+  );
 }
 
 /**
@@ -1673,6 +2062,23 @@ function Row({
           button — the same honest fallback the plan link makes, now with a
           reason attached. */}
       <RowActions
+        row={row}
+        card={card}
+        dispatch={dispatch}
+        pulse={pulse}
+        onStarting={onStarting}
+      />
+      {/* Why this branch cannot MOVE — a different question from where it is
+          waiting, and the one nothing on this row could answer. It renders
+          BENEATH the six columns rather than inside one: the evidence is three
+          lines on a `ci-failing` row, and a track sized for that would push
+          every real column in from the edge across the whole fleet.
+
+          A stuck branch KEEPS ITS GROUP and gains this beside it — nothing here
+          moves a row or opens a section. And on the common row it renders
+          nothing at all: `stuck` is null for most branches, which is what makes
+          a populated one worth looking at. */}
+      <StuckCell
         row={row}
         card={card}
         dispatch={dispatch}
