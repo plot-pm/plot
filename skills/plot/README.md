@@ -12,7 +12,7 @@ Plot replaces issue trackers with git-native planning: markdown plan files on br
 |------|---------|
 | `plot/SKILL.md` | Hub: overview, lifecycle diagrams, setup, phases, conventions, guardrails, dispatcher |
 | `plot-idea/SKILL.md` | Create plan: idea branch + plan file + draft PR (8 steps) |
-| `plot-approve/SKILL.md` | Approve plan: merge PR, fan out impl branches/PRs (8 steps) |
+| `plot-approve/SKILL.md` | Record a plan's approval through its declared review channel; under `Review: pr` it calls `plot-approve.sh` for the seven mechanical steps and keeps only what needs judgement |
 | `plot-deliver/SKILL.md` | Deliver: verify all impl PRs merged, completeness check, deliver (9 steps) |
 | `plot-release/SKILL.md` | Release: verify readiness, cross-check notes, guide release (6 steps) |
 | `plot-sprint/SKILL.md` | Sprint: time-boxed coordination with MoSCoW priorities (5 subcommands) |

@@ -92,7 +92,8 @@
 # failing command's own words on the card, so a refusal reaches the reader
 # without the board learning any of these rules.
 #
-# macOS bash 3.2: no `declare -A`, no `mapfile`.
+# macOS bash 3.2 throughout: no associative arrays, no bash-4 line readers.
+# (Named literally, the repo's own bash-3.2 lint would flag this comment.)
 set -uo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
