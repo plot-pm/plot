@@ -12,6 +12,8 @@
 - **Approved:** 2026-08-17, jwloka, plan-PR #157 merged (two interrogation rounds)
 - **Started:** 2026-08-17, Jan Wloka, `bug/test-boards-die-with-their-run`
 - **Delivered:**
+- **Started:** 2026-08-17, Jan Wloka, `feature/board-bridges-its-restart`
+- **Started:** 2026-08-17, Jan Wloka, `bug/scan-reports-a-locked-worktree`
 
 ## Problem
 
