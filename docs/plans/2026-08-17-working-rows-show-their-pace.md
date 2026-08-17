@@ -75,6 +75,36 @@ narrow.
 
 ## Design
 
+### The marker aligns to the first line, not to the row's middle
+
+**Reported while this plan was being written**, and it is a defect the
+track inherits unless it is fixed here. The mark centres itself on the
+whole row:
+
+```
+sm:absolute sm:left-0 sm:top-1/2 sm:-translate-y-1/2
+```
+
+with a comment that states the assumption it rests on: *"The row is
+`py-2` around one line of `text-sm`, so 20px spans nearly its full
+height."*
+
+**That assumption broke this afternoon.** The stuck cell landed as its
+own line beneath the six columns (`col-start-2 col-end-[-1]`), so a row
+carrying a status line is roughly twice as tall — and `top-1/2` puts the
+marker between the two lines instead of beside the branch name it
+belongs to.
+
+So the marker aligns to the **first line** of the row, not to the row's
+centre: it marks the branch, and the branch is on line one whatever else
+the row grows beneath it.
+
+This is the third consequence of the same change — the stuck cell also
+started at the wrong x, and its cue survived at a dead end. Both were
+fixed on the day. A line added beneath the columns moves everything that
+measured itself against the row's height, and this is the last of the
+three.
+
 ### The marker becomes a track with a travelling dot, at two speeds
 
 A short horizontal track where the bar is today, with a glowing dot
@@ -180,9 +210,9 @@ of information.
 
 ### Pace
 
-- `feature/working-rows-show-their-pace` — the activity marker becomes a
-  track with a travelling dot at two speeds; `motion-reduce` keeps it and
-  stops the travel
+- `feature/working-rows-show-their-pace` — the activity marker aligns to
+  the row's first line and becomes a track with a travelling dot at two
+  speeds; `motion-reduce` keeps it and stops the travel
 
 ### Change
 
@@ -197,6 +227,11 @@ whose marker has settled.
 
 ## Done when
 
+- **The marker aligns to the row's FIRST LINE, not its centre.** Assert a
+  row carrying a stuck status line: the marker sits beside the branch
+  name, not between the two lines. The pairing that matters: `top-1/2`
+  looks correct on every single-line row and is wrong on exactly the rows
+  that carry the most information.
 - **A row with `local_dirty` or `local_locked` travels fast; a WORKING
   row with neither travels slow.** Assert both, and assert the two are
   distinguishable.
