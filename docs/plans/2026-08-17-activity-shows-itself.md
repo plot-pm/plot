@@ -60,7 +60,13 @@ to carry.
 ### The board already knows, and shows none of it
 
 Measured: the contract carries three activity fields, and **not one
-reaches any component**:
+reaches any component** — they stop one layer short. They live on
+`FleetBranchSchema` (the scan document), are passed to `classify()` in
+`rowsFromPulse` (`fleet.ts:1224-1238`), and are then **dropped**:
+`AgentRowSchema` carries none of them, and `AgentRow` is what the
+component receives. So wave 1 must add a carrier — the two activity
+fields onto the row schema, additively — before any predicate can read
+them.
 
 | Field | The question it answers |
 |---|---|
@@ -321,8 +327,10 @@ This shares the local-only limit above and says so the same way.
 
 **No travelling motion.** Explicitly considered and rejected above.
 
-**No new data.** All three fields exist in the contract today; the whole
-change is that two of them reach the screen.
+**No new data.** All three fields are produced by the scan today. Wave 1
+adds a *carrier* for two of them onto `AgentRowSchema` — additively,
+`.default(false)` — because the row does not currently receive them.
+Nothing new is measured, computed, or asked of git.
 
 **No change to grouping.** `classify()` is untouched: a row's group is
 where it belongs, and this is about what it is doing there.
