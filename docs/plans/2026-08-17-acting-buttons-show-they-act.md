@@ -130,25 +130,61 @@ every plan this session has written.
 
 ## Design
 
-### The acting buttons borrow the pulse the rows already use
+### A spinner in the button, because a click ends and a row does not
 
-While a click is in flight, the button carries the **same pulsing dot** the
-WORKING rows carry:
+While a click is in flight the button carries a **spinner** — not the WORKING
+rows' pulsing dot:
 
 ```
 idle       [Start work]
-in flight  [● starting…]
+in flight  [⟳ starting…]
 ```
 
-Not a new spinner and not a new colour — the board already means *something is
-happening here* with that dot, and a second symbol for the same statement is a
-second thing to learn. `motion-reduce` stops the animation and keeps the dot,
-which is the rule `working-rows-show-motion` settled and this inherits rather
-than re-decides.
+**The first draft said to reuse the dot, and the dot's own comment argues
+against it.** `working-rows-show-motion` chose a pulse deliberately, and gave
+two reasons:
 
-The label keeps changing as it does today. The dot is added because the word
-alone is too quiet for a control that writes; the word stays because motion
-must never be the only carrier of a fact — the same rule, applied here.
+> *"Rotation also implies **progress toward completion**, which nothing here
+> measures; a pulse implies **aliveness**, which is the claim being made."*
+>
+> *"WORKING regularly holds several rows — four agents ran in parallel on
+> 2026-08-16 — and four rotating spinners in a column is flicker, not
+> information."*
+
+**Neither reason survives the move to a button.** Measured: `isLive` is just
+`group === 'working'`, so a row can pulse for **hours** while an agent works and
+nothing knows when it ends — rotation there would promise a progress no one is
+tracking. A click resolves in seconds: the request returns, the pulse confirms.
+And there is never more than one button in flight, so there is no column of
+spinners to flicker.
+
+**So two movements, each saying what the other cannot:**
+
+| | Means | Lifetime |
+|---|---|---|
+| **Spinner** — the button | *waiting for an answer that is coming* | seconds |
+| **Pulsing dot** — the row | *something is alive here, end unknown* | hours |
+
+Unifying them was considered in both directions and rejected in both. Spinners
+everywhere would make a WORKING row claim a progress it cannot measure, for
+hours, which is exactly the defect the pulse was chosen to avoid. Pulses
+everywhere would be cheaper — one vocabulary, one CSS utility — but would drop
+the one thing a button can honestly say and a row cannot: **this ends.**
+
+Two vocabularies are a real cost, and it is paid where each is learned in place:
+the spinner appears only on a control the reader just clicked, the dot only on
+rows they are watching.
+
+`motion-reduce` stops the animation and keeps the marker — the rule
+`working-rows-show-motion` settled, inherited rather than re-decided. The label
+keeps changing as it does today: motion must never be the only carrier of a
+fact.
+
+**The spinner is `aria-hidden`, like the dot.** The button already announces the
+state twice — the label reads `starting…` and `aria-busy` is set — so an
+announced spinner would say the same thing a third time. Decoration on top of
+information, never the carrier of it: the same rule, and the reason the row's
+dot is hidden too.
 
 **The button also dims itself while in flight.** It is genuinely unavailable in
 that moment, and dimming is what this board already uses to say so. Together the
@@ -254,9 +290,9 @@ after a fix proves nothing about whether the fix was needed.
 
 ### Feedback
 
-- `feature/acting-buttons-pulse-while-acting` — the in-flight button carries the
-  WORKING dot, keeps its label change, and dims; `motion-reduce` keeps the dot
-  and stops the animation
+- `feature/acting-buttons-spin-while-acting` — the in-flight button carries a
+  spinner, keeps its label change, and dims; `motion-reduce` keeps the marker
+  and stops the animation, and the rows' pulsing dot is left untouched
 
 Three waves, sequential, and the order is deliberate. **Proof** settles whether
 the guard is broken at all — writing a fix first would make a passing test
@@ -282,18 +318,25 @@ of them a union with no real disagreement.
 - **`blocked` still refuses for its own reasons.** Assert an unavailable
   dispatch binding and a non-localhost host still refuse: the ref answers *is
   mine already running*, not *may this act at all*.
-- **An in-flight button carries the WORKING dot.** Assert it is the same
-  indicator the rows use, not a second one.
-- **`motion-reduce` stops the animation and KEEPS the dot.** Both halves —
+- **An in-flight button carries a SPINNER, not the rows' pulsing dot.** Assert
+  the two are distinguishable: they mean different things — *an answer is
+  coming* versus *something is alive, end unknown* — and one indicator for both
+  would make a WORKING row promise a completion nothing measures.
+- **`motion-reduce` stops the animation and KEEPS the marker.** Both halves —
   removing the element would take the marker with the motion, which is the rule
   `working-rows-show-motion` settled.
+- **The spinner is `aria-hidden`.** Assert a screen reader hears the state once,
+  from the label and `aria-busy`, not three times.
 - **The label still changes.** Assert `starting…` / the approve equivalent
   survive: motion must never be the only carrier, and a screen reader gets the
   word rather than the dot.
 - **The button dims while in flight**, and returns to full contrast when the
   pulse resolves it.
-- **An idle button carries no dot.** Trivial by construction and asserted so
-  nobody later renders it unconditionally.
+- **An idle button carries no spinner.** Trivial by construction and asserted
+  so nobody later renders it unconditionally.
+- **The WORKING rows still pulse.** The regression that matters: a change that
+  unifies the two indicators passes every button assertion above and quietly
+  makes every row claim a progress nothing is measuring.
 - **A dispatch on an ALREADY-STARTED plan reads as success.** Assert the live
   shape from 2026-08-17: `started: true`, `claimed: 0`, `eligible: 1` — the
   exact card whose button appeared to do nothing.
@@ -340,10 +383,13 @@ board does not otherwise keep, for a case the git layer already settles.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {"q": "The plan swaps card.started for waveSummary.claimed. Measured: both counts are .optional() — 'Absent when there is no pulse' — while card.started is always present. The button would go blind exactly when a freshly restarted board has not scanned yet.", "a": "Refuse rather than guess. Without a scan the board does not know which wave is eligible, so a dispatch would be a click into the dark and unreportable afterwards. It dims and says it is waiting for the first scan — the posture the board already takes when it has lost contact. Falling back to card.started keeps the defect alive in the window where it is most likely, hidden behind an apparently-working button", "category": "ux-errors"},
     {"q": "isReadyToStart demands phase Design and started false, but the reported card was Development AND started — yet the button rendered. A second condition admits started Development cards: the button exists to start the NEXT wave too.", "a": "That confirms the diagnosis and belongs in the plan. The button has two jobs and a success check that serves only the first, so every plan with more than one wave breaks from the second click onward — which is every plan written this session", "category": "domain-rules"}
+    {"q": "The plan reuses the WORKING dot, but the dot's own comment argues against rotation because 'it implies progress toward completion, which nothing here measures' and 'four rotating spinners in a column is flicker'. Neither reason survives the move to a button.", "a": "Two movements with separated meanings. Measured: isLive is just group === working, so a row can pulse for HOURS with no known end — rotation there would promise a progress nothing tracks. A click resolves in seconds and there is never more than one in flight. Spinner = an answer is coming; pulse = something is alive, end unknown", "category": "ux-happyPath"},
+    {"q": "Should we not use the spinner everywhere, then?", "a": "No — unifying was rejected in both directions. Spinners everywhere would make a WORKING row claim a progress it cannot measure, for hours, which is the exact defect the pulse was chosen to avoid. Pulses everywhere would be cheaper but drops the one thing a button can honestly say and a row cannot: this ends", "category": "tradeOffs"},
+    {"q": "The WORKING dot is aria-hidden because the row carries its meaning in text. The button already has a label change AND aria-busy. Should its spinner be announced?", "a": "aria-hidden, like the dot. Announcing it would state the same thing a third time — decoration on top of information, never the carrier of it, which is the rule the row's dot already follows", "category": "ux-accessibility"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
