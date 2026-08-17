@@ -245,7 +245,7 @@ would be the one-label-many-states defect this board keeps removing:
 |---|---|---|
 | **Artifact conflict** | `merge-tree` reports conflicts, and the set is exactly the artifact | **resolved by the pulse** |
 | **Real conflict** | `merge-tree` reports conflicts in other files | offered on the row, animated: dispatch a resolver |
-| **Foreign CI failure** | `pr.state === 'failing'` in a job whose step the PR does not touch | offered on the row, animated: rerun |
+| **Foreign CI failure** | `pr.state === 'failing'` in a job whose step the PR does not touch | offered on the row, animated: **open the failing run** (see below) |
 | **Unpushed work** | `local_ahead > 0` and no matching remote commits | reported in words — the fix is a push, and it is not ours to make |
 
 **Foreign CI failure is a judgement, so the pulse shows evidence and does
@@ -268,6 +268,25 @@ is a table nobody maintains, it would go **silently wrong** the first
 time a workflow is restructured, and Principle 3 puts exactly this split
 where it belongs: **scripts collect and report; humans and skills
 interpret.**
+
+**The CI action is a LINK, not a rerun — corrected during wave 2.** This
+plan first said *rerun*, and the measurement found there is **no rerun
+route on this server**. Building one would have been a write path wave 2
+is explicitly fenced away from, and it would have eroded the argument
+that makes **wave 3 the only automatic write this plan grants**: that its
+correctness is provable by a rebuild and a CI no-diff gate. A second
+route added quietly inside a display wave would weaken that without
+anyone deciding to.
+
+So the action opens the failing run on the host, where the rerun button
+already lives. Navigation carries no authority, needs no guard, and reads
+identically over a non-localhost binding — which matters, because the cue
+shows there while the dispatch action refuses. Where the host reports no
+run URL (Bitbucket has no run listing) the row says *no run link
+available* rather than rendering a dead control: absent is a real answer.
+
+**A real rerun would need its own guarded route and therefore its own
+plan.** It is not deferred work inside this one.
 
 The label `foreign CI failure` is therefore this plan's word for a
 *shape* worth surfacing, never a claim the pulse makes about a specific
