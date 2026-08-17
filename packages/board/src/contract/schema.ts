@@ -656,6 +656,63 @@ export const FleetBranchSchema = z.object({
    * is the one answer that tells a reader to stop looking.
    */
   worker_exit: z.string().default(''),
+  /**
+   * The files that would collide merging this branch into the default branch.
+   *
+   * A SET, not a yes/no. `plot-merge-queue.sh` has predicted conflicts since it
+   * was written and throws the file list away — the right question for a merge
+   * ORDER and the wrong one here: on 2026-08-17 two branches (#176, #177)
+   * conflicted in exactly one file, the board artifact, whose resolution is
+   * mechanical, while a third needed a person. A boolean cannot tell those
+   * apart, and every consumer that wanted to would have had to re-run
+   * `merge-tree` itself.
+   *
+   * Computed by `git merge-tree --write-tree`, which merges ENTIRELY IN MEMORY:
+   * no working tree, no index, nothing written. So the conflict is FORESEEN
+   * rather than present — nothing here has merged anything.
+   *
+   * EMPTY MEANS NOTHING ON ITS OWN. Read it only beside `conflicts_known`; the
+   * two together are what keep "merges cleanly" and "nobody could ask"
+   * distinguishable, and reading this list alone turns every unanswerable branch
+   * into a mergeable one.
+   *
+   * Defaults to [] so a pulse from an older scan still validates — and paired
+   * with `conflicts_known`'s own false default, that older pulse says exactly
+   * what it knows: nothing.
+   */
+  conflicts: z.array(z.string()).default([]),
+  /**
+   * Whether this branch's conflict set was OBSERVED — never whether it is empty.
+   *
+   * `false` is *not looked at*, and every way of reaching it is the same
+   * statement: a git too old for `merge-tree --write-tree` (before 2.38 the
+   * command exists and answers a DIFFERENT question, so it succeeds while
+   * reporting every branch conflict-free), no ref for the branch, or nothing
+   * unlanded to merge — a merged branch, or a bare claim, whose only commit
+   * touches no file.
+   *
+   * Absent is not clean — the rule every other signal in this schema follows,
+   * and the one hardest to hold here, because an empty list is the shape both
+   * answers arrive in.
+   */
+  conflicts_known: z.boolean().default(false),
+  /**
+   * The files this branch changes relative to the default branch, capped.
+   *
+   * EVIDENCE, never a verdict — one of the three lines a CI failure is reported
+   * with (*this branch changes only .md*), so a reader can weigh a failing step
+   * against what the branch actually touched.
+   *
+   * Nothing maps steps to paths, deliberately. That mapping is a table nobody
+   * maintains and it goes silently wrong the first time a workflow is
+   * restructured; Principle 3 puts the split here — scripts collect and report,
+   * humans and skills interpret.
+   *
+   * Capped by the scan (see `PLOT_CHANGED_PATHS_LIMIT`): two hundred paths tell
+   * a reader nothing they can hold in their head, and shipping them through a
+   * 5 s poll costs without buying.
+   */
+  changed_paths: z.array(z.string()).default([]),
 });
 export type FleetBranch = z.infer<typeof FleetBranchSchema>;
 
@@ -718,6 +775,131 @@ export const WaitingGroupSchema = z.enum([
   'done',
 ]);
 export type WaitingGroup = z.infer<typeof WaitingGroupSchema>;
+
+/**
+ * The four ways a branch can be unable to MOVE — as distinct from what it IS.
+ *
+ * `classify` answers *what is this branch*: claimed, eligible, blocked, working.
+ * None of its answers can say *this cannot advance without someone doing
+ * something*, and on 2026-08-17 five branches got stuck in one afternoon while
+ * every one of them read as normal. The sharp case is `unpushed`: from outside,
+ * a rebase that stayed local is indistinguishable from an agent that stopped.
+ *
+ * FOUR VALUES, NOT ONE LABEL. *Stuck* as a single word is the
+ * one-label-many-states defect this board keeps removing, and here the four
+ * differ in the only way that matters — what happens next:
+ *
+ * | value              | what it means                                        |
+ * |--------------------|------------------------------------------------------|
+ * | `artifact-conflict`| the conflict set is EXACTLY the build artifact       |
+ * | `conflict`         | a conflict needing judgement                          |
+ * | `unpushed`         | commits exist that only this machine can see          |
+ * | `ci-failing`       | the host reports a failed check — evidence, no verdict |
+ *
+ * `artifact-conflict` and `conflict` are not degrees of one thing. The first
+ * has a resolution whose correctness a rebuild and a CI no-diff gate can prove
+ * without anyone reading a diff; the second does not, and the difference is
+ * decided by the conflict SET rather than by which files appear in it.
+ */
+export const StuckStateSchema = z.enum([
+  'artifact-conflict', 'conflict', 'unpushed', 'ci-failing',
+]);
+export type StuckState = z.infer<typeof StuckStateSchema>;
+
+/**
+ * The build artifact whose conflicts resolve mechanically — the ONE path for
+ * which `artifact-conflict` may be reported.
+ *
+ * Named in the contract rather than in the detector because both sides of this
+ * plan read it, and a second copy would let the two drift into disagreeing about
+ * which file is special.
+ *
+ * Its resolution is provable rather than conventional, which is what earns it a
+ * name at all: `.gitattributes` marks it `-merge`, so git keeps one side whole
+ * and writes no conflict markers; `build.mjs` embeds no timestamp and no
+ * randomness, so a rebuild's output does not depend on which side was kept; and
+ * CI's no-diff gate fails the build if the committed artifact does not match a
+ * fresh rebuild.
+ */
+export const BOARD_ARTIFACT_PATH = 'skills/plot/scripts/board/board-server.mjs';
+
+/**
+ * What is stuck about a branch, and the evidence that produced it.
+ *
+ * EVIDENCE TRAVELS WITH THE STATE, always. A row that says *stuck* and makes the
+ * reader go find out why has moved the ten minutes of log-reading rather than
+ * removed it — which is the cost this whole detection exists to pay off.
+ */
+export const StuckSchema = z.object({
+  state: StuckStateSchema,
+  /**
+   * The conflicting paths, for the two conflict states — [] for the other two.
+   *
+   * Carried verbatim so a reader can check the classification rather than
+   * take it: *exactly the artifact* is a claim about a set, and the set is
+   * right here to be counted.
+   */
+  conflicts: z.array(z.string()).default([]),
+  /**
+   * Commits this machine has that the remote does not — `unpushed` only, 0
+   * elsewhere.
+   *
+   * True ONLY on the machine doing the looking, which is exactly why this is
+   * reported and never fixed: pushing someone else's uncommitted judgement is
+   * not a mechanical act, and the branch reads 0 everywhere else.
+   */
+  localAhead: z.number().default(0),
+  /**
+   * What the branch changes — `ci-failing` only, and EVIDENCE rather than a
+   * verdict.
+   *
+   * The row states the failing check, these paths, and the branch's own recent
+   * history; a human concludes. Nothing maps a failing step to a changed path:
+   * that table is unmaintained by construction and goes silently wrong the first
+   * time a workflow is restructured.
+   */
+  changedPaths: z.array(z.string()).default([]),
+  /**
+   * WHICH checks failed, by name — `ci-failing` only, [] elsewhere.
+   *
+   * The first of the three lines a failing check is reported with, and the one
+   * that was already in the payload and thrown away. *CI failed* sends a reader
+   * to the Actions tab; *CI failed — step: Install Playwright browser* often
+   * ends the investigation there.
+   *
+   * [] means *no names available* — an older adapter, or a host that carries no
+   * rollup — never *nothing failed*. `state` is what says a check failed.
+   */
+  failingChecks: z.array(z.string()).default([]),
+  /**
+   * The branch's OWN recent CI runs, newest first — `ci-failing` only.
+   *
+   * The third line of the evidence, and the one that decided the 2026-08-17
+   * case: the `403` was transient, and what proved it was that the same branch
+   * had been green two minutes earlier. A real failure presents identically in
+   * every other respect, which is exactly why this is reported and not
+   * concluded from.
+   *
+   * NOTHING COMPARES THESE RUNS. The row states them; a human reads three lines
+   * and concludes in seconds what took ten minutes of log-reading. Deciding
+   * instead would mean a heuristic mapping failing steps to changed paths — a
+   * table nobody maintains, which goes silently wrong the first time a workflow
+   * is restructured.
+   *
+   * [] where the host cannot answer (Bitbucket has no run listing) — which
+   * renders as *unavailable*, never as *this branch has never failed before*.
+   */
+  runHistory: z.array(z.object({
+    workflow: z.string().default(''),
+    /** success · failure · cancelled · in_progress … verbatim from the host. */
+    conclusion: z.string().default(''),
+    /** ISO 8601, as the host reported it — never reformatted here. */
+    startedAt: z.string().default(''),
+    url: z.string().default(''),
+  })).default([]),
+});
+export type Stuck = z.infer<typeof StuckSchema>;
+export type StuckRun = Stuck['runHistory'][number];
 
 export const AgentRowSchema = z.object({
   /** Constant today. Present so the second repo is an addition, not a rebuild. */
@@ -892,6 +1074,27 @@ export const AgentRowSchema = z.object({
    * reason.
    */
   localLocked: z.boolean().default(false),
+  /**
+   * Why this branch cannot move, or null — a fact ADDED to the row, never a
+   * replacement for one.
+   *
+   * `group`, `state` and `note` all answer *what is this branch*; this answers
+   * *can it advance*, and they are independent questions. A stuck branch keeps
+   * the group it belongs to and gains this beside it — folding stuckness into
+   * the group would put a conflicting PR and an unpushed rebase under one
+   * heading, which is the one-label-many-states shape this row keeps splitting
+   * apart.
+   *
+   * NULL IS THE COMMON CASE, and deliberately: a branch that is not stuck
+   * produces nothing at all. A watcher that flags everything flags nothing, and
+   * the whole value of this field is that a populated one is rare enough to
+   * look at.
+   *
+   * Defaults to null so a pulse from an older scan still validates — and null
+   * is the honest answer for a payload that predates the detection, which is
+   * *nothing was looked for* rather than *nothing was found*.
+   */
+  stuck: StuckSchema.nullable().default(null),
 });
 export type AgentRow = z.infer<typeof AgentRowSchema>;
 
@@ -905,6 +1108,35 @@ export const FleetSchema = z.object({
   error: z.string().nullable(),
   rows: z.array(AgentRowSchema),
   summary: FleetPulseSchema.shape.summary,
+  /**
+   * How many branches cannot move, and in which of the four ways.
+   *
+   * A machine-countable tally beside the rows, the way every scan in this repo
+   * ends on one: `plot-fleet-scan.sh`, `plot-merge-queue.sh` and
+   * `plot-reconcile-scan.sh` all emit a summary line so a consumer reads it
+   * rather than re-counting a body.
+   *
+   * EVERY STATE NAMED, EVERY ONE PRESENT AT ZERO. `stuck` alone would be the
+   * one-label-many-states defect wearing a number — two conflicts and two
+   * unpushed rebases are the same count and opposite errands — and a key that
+   * disappeared when zero could not be read as zero, only as unknown.
+   *
+   * DERIVED FROM THE ROWS, never tallied beside the decision that produces
+   * them: a counter incremented in parallel with a classification is a second
+   * implementation of it, and the two drift the first time a state is added.
+   *
+   * All zeroes on an older payload, which is also the healthy-fleet answer.
+   * That collision is acceptable here and nowhere else in this file: the
+   * summary says HOW MANY, and `ready` already says whether anything was
+   * looked at.
+   */
+  stuck: z.object({
+    stuck: z.number(),
+    artifact: z.number(),
+    conflict: z.number(),
+    unpushed: z.number(),
+    ci: z.number(),
+  }).default({ stuck: 0, artifact: 0, conflict: 0, unpushed: 0, ci: 0 }),
   /**
    * PR data ages separately from the pulse, because the two sources fail
    * separately. null means it has never landed — not that it is fresh.

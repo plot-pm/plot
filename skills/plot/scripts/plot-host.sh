@@ -22,13 +22,31 @@
 #                                 JSON lines: {"number":N,"title":"...",
 #                                 "state":"...","head":"..."}
 #                                 --rich adds: draft, checks, mergeable, review,
-#                                 url — `url` so a consumer never has to
+#                                 url, failing_checks — `failing_checks` names
+#                                 WHICH checks failed, the detail `checks`
+#                                 collapses to one word, from the same response
+#                                 at no extra call; [] on bitbucket and wherever
+#                                 nothing failed
+#                                 — `url` so a consumer never has to
 #                                 construct one (it is "" only if the host omits
 #                                 it); `mergeable` is mergeable|conflicting|
 #                                 unknown, and "unknown" is what a host that
 #                                 cannot answer reports (absent is not false)
 #                                 --limit raises the host CLI's default page of
 #                                 30, which --state all exhausts immediately
+#   runs <branch> [--limit N]     a branch's own recent CI runs, newest first,
+#                                 as JSON lines: {"workflow":"CI",
+#                                 "conclusion":"success|failure|…",
+#                                 "startedAt":"…","url":"…"}
+#                                 EVIDENCE, never a verdict — what proved the
+#                                 2026-08-17 Playwright 403 transient was that
+#                                 the same branch was green two minutes earlier,
+#                                 and a real failure presents identically.
+#                                 Nothing here compares runs or concludes.
+#                                 METERED: ask only for a branch already known
+#                                 to be failing. Empty on bitbucket (bb has no
+#                                 run listing) — unavailable, never "never
+#                                 failed".
 #   pr-body <number> --body B     replace the PR description
 #
 # Backend resolution: $PLOT_HOST (github|bitbucket) wins — useful for tests —
@@ -231,6 +249,24 @@ case "$op" in
         # link and a wrong one for GitHub Enterprise or self-hosted Bitbucket —
         # this script is the ONE place that knows what a host URL looks like
         # (Principle 3), and pr-state already reads it from exactly here.
+        #
+        # `failing_checks` is WHICH checks failed, by name — the same payload
+        # `checks` collapses to one word, kept rather than thrown away.
+        #
+        # `checks:"failing"` names a symptom and withholds which machine
+        # produced it. On 2026-08-17 a markdown-only branch failed `validate`
+        # because the Playwright CDN answered `403 — this service is not
+        # available in your location`, and reaching that sentence took ten
+        # minutes of opening logs, from a row that already held the check name
+        # and did not say it.
+        #
+        # NAMES ONLY, and nothing here interprets them. A heuristic mapping a
+        # failing check to the paths a branch changed was explicitly rejected:
+        # that table is unmaintained by construction and goes silently wrong the
+        # first time a workflow is restructured. Principle 3 — this collects, a
+        # human concludes.
+        #
+        # Free: same GraphQL response, same call, no extra request.
         gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
           --json number,title,state,headRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url \
           | jq -c '.[] | {
@@ -250,7 +286,12 @@ case "$op" in
                 elif .mergeable=="MERGEABLE" then "mergeable"
                 else "unknown" end),
               review:(.reviewDecision // ""),
-              url:.url
+              url:.url,
+              failing_checks:[
+                .statusCheckRollup[]? | select((.conclusion // .state) as $c
+                  | $c=="FAILURE" or $c=="ERROR" or $c=="CANCELLED"
+                    or $c=="TIMED_OUT" or $c=="ACTION_REQUIRED")
+                | (.name // .context // "")] | map(select(. != ""))
             }'
       else
         gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
@@ -265,11 +306,50 @@ case "$op" in
       # an invented answer, and absent is not false.
       if [ "$rich" = 1 ]; then
         bb pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} --json \
-          | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // "")}'
+          | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),failing_checks:[]}'
       else
         bb pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} --json \
           | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name}'
       fi
+    fi
+    ;;
+
+  runs)
+    # A branch's OWN recent CI runs, newest first — the third line of the
+    # evidence a failing check is reported with.
+    #
+    # Why it matters, measured: on 2026-08-17 a `403` from the Playwright CDN
+    # failed a markdown-only branch, and what proved it transient was the run
+    # history — the same branch was green two minutes earlier. A real failure
+    # presents identically in every other respect, which is exactly why this
+    # reports the history and draws no conclusion from it.
+    #
+    # FACTS, NEVER A VERDICT. No rule here compares runs, decides "transient",
+    # or reruns anything. The plan calls the shape *foreign* deliberately: this
+    # collects, a human concludes (Principle 3).
+    #
+    # METERED, so callers must ask only where the question arises — a branch
+    # whose PR is already known to be failing. One REST call per such branch,
+    # and failing branches are rare by construction; a caller that asked for
+    # every branch would spend a budget the board has already exhausted once.
+    #
+    # Bitbucket reports nothing here rather than something invented. `bb` has no
+    # run listing, and an empty history renders as "unavailable" — never as
+    # "this branch has never failed before".
+    branch="${1:?runs needs a branch}"; shift
+    limit=10
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --limit) limit="${2:?}"; shift 2 ;;
+        *) die "runs: unknown arg $1" ;;
+      esac
+    done
+    if [ "$be" = "github" ]; then
+      gh run list --branch "$branch" --limit "$limit" \
+        --json workflowName,conclusion,status,startedAt,url 2>/dev/null \
+        | jq -c '.[] | {workflow:.workflowName,
+                        conclusion:(if (.conclusion // "") == "" then .status else .conclusion end),
+                        startedAt:.startedAt, url:.url}' 2>/dev/null || true
     fi
     ;;
 

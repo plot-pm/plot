@@ -43,6 +43,15 @@
 #         remote does not have). All four are absent-shaped — false, false, ""
 #         and 0 — wherever this machine holds nothing, so a branch living on
 #         another machine answers exactly as it did before.
+#         --json additionally carries, per branch, WHICH FILES would collide
+#         merging it into the default branch: `conflicts` (paths, from
+#         `git merge-tree --write-tree`, which computes entirely in memory),
+#         `conflicts_known` (whether the question was asked at all) and
+#         `changed_paths` (what the branch touches, capped and reported as
+#         evidence). `conflicts_known` is what keeps an empty list from meaning
+#         two things — a branch that merges cleanly and one nobody could ask.
+#         The SET is reported and never judged: which sets mean what is a
+#         decision one layer up.
 #         --json also carries, per branch, `worker` — whether anything is
 #         actually RUNNING on it: running|finished|failed|ended|none|elsewhere,
 #         with `worker_pid` and `worker_exit` beside it. A claim says a
@@ -512,6 +521,144 @@ local_ahead_of() { # $1=branch → count of local commits the remote lacks, or 0
   fi
 }
 
+# ---------------------------------------------------------------------------
+# Conflict prediction: which FILES would collide, not merely whether any would
+# ---------------------------------------------------------------------------
+#
+# `plot-merge-queue.sh` has predicted conflicts since it was written, and it
+# asks a yes/no question — `would_conflict()` throws the output away and reads
+# the exit code. That is the right question for a merge ORDER and the wrong one
+# for a stuck branch: on 2026-08-17 two branches (#176, #177) conflicted in
+# exactly one file, the board artifact, whose resolution is mechanical, while a
+# third needed a person. A yes/no answer cannot tell those apart.
+#
+# So the SET is reported and nothing here judges it. Which conflict sets mean
+# what is a decision one layer up (Principle 3: scripts collect and report).
+#
+# `merge-tree --write-tree` computes the merge ENTIRELY IN MEMORY — no working
+# tree, no index, no checkout, nothing written. Its output is a tree OID on the
+# first line, then the conflicted-file info, then a blank line and the
+# human-readable messages. Non-zero exit means the merge would conflict.
+#
+# THE STAGE-TUPLE FORM IS PARSED, NOT `--name-only`. The flag would be tidier
+# and arrived in git 2.40; the tuples have been there since 2.38, which is the
+# floor `plot-merge-queue.sh` already checks and states its reasons for. Raising
+# the floor for a formatting convenience would make this scan refuse to answer
+# on a git the rest of Plot supports — and a scan that cannot answer reports an
+# EMPTY set, which reads exactly like "merges cleanly". Same shape, one line of
+# `awk`, no new requirement.
+#
+# ABSENT IS NOT CLEAN, and this is the one place that rule is hard to hold: an
+# empty list has to mean both "merges cleanly" and "could not look" unless
+# something else distinguishes them. `conflicts_known` is that something — see
+# `conflicts_of` — and a consumer that reads the list without it will read every
+# unanswerable branch as mergeable.
+#
+# Only branches with real unlanded work are asked about. A merged branch has
+# nothing to merge, an `open` branch has no ref, and an empty claim has no
+# commits — every one of them would cost a process spawn to be told nothing.
+CONFLICT_MAIN_OK=0
+git show-ref -q --verify "refs/remotes/origin/$MAIN" </dev/null 2>/dev/null \
+  && CONFLICT_MAIN_OK=1
+
+# Is `merge-tree --write-tree` available at all? Git before 2.38 HAS a
+# merge-tree with entirely different semantics — a three-way file diff — so it
+# does not fail cleanly: it succeeds while answering a different question, and
+# every branch would silently read as conflict-free. The same trap
+# plot-merge-queue.sh refuses outright. Here refusing is not an option (the scan
+# answers many other questions), so the capability is reported as unknown
+# instead and every branch says `conflicts_known: false`.
+MERGE_TREE_OK=0
+if [ "$CONFLICT_MAIN_OK" = 1 ]; then
+  git_ver=$(git --version 2>/dev/null | sed -n 's/^git version \([0-9]*\)\.\([0-9]*\).*/\1 \2/p')
+  gv_major=${git_ver%% *}; gv_minor=${git_ver##* }
+  if [ -n "$git_ver" ] && { [ "$gv_major" -gt 2 ] \
+     || { [ "$gv_major" -eq 2 ] && [ "$gv_minor" -ge 38 ]; }; }; then
+    MERGE_TREE_OK=1
+  fi
+fi
+
+# The files that would collide merging this branch into the default branch, one
+# per line — or nothing. Two ways of printing nothing, and they are NOT the same
+# statement, which is why `conflicts_known` travels beside the list:
+#
+#   merges cleanly    → known, empty
+#   cannot be asked   → unknown, empty
+#
+# Sorted and deduplicated: one path appears once per conflicting stage (base,
+# ours, theirs), and a set reported three times over is a set nobody can count.
+conflicts_of() { # $1=branch → conflicting paths, one per line (may be empty)
+  [ "$MERGE_TREE_OK" = 1 ] || return 0
+  # Exit 0 means a clean merge and there is nothing to print. Anything the
+  # command could not do lands here too, which is exactly why the caller must
+  # consult `conflicts_known_of` rather than the emptiness of this output.
+  #
+  # Each info line is `<mode> <oid> <stage>\t<path>`, and the PATH IS EVERYTHING
+  # AFTER THE TAB. Splitting on whitespace and taking the last field would work
+  # on every path in this repo and mangle `docs/my notes.md` into `notes.md` —
+  # a wrong filename, silently, in exactly the report that decides whether a
+  # conflict set is "exactly the artifact".
+  git merge-tree --write-tree "origin/$MAIN" "origin/$1" </dev/null 2>/dev/null \
+    | awk -F'\t' 'NR == 1 { next }        # the merged tree OID
+                  /^$/ { exit }           # the blank line ends the file info
+                  NF > 1 { print $2 }' \
+    | sort -u
+}
+
+# Whether this branch's conflict set was OBSERVED. False is not "clean" — it is
+# "not looked at", and the two must never render alike.
+conflicts_known_of() { # $1=branch $2=state → true|false
+  [ "$MERGE_TREE_OK" = 1 ] || { printf 'false'; return; }
+  # Only branches with real unlanded work are asked about — the same candidate
+  # rule plot-merge-queue.sh applies, and for the same reason. A merged branch
+  # has nothing left to merge, an `open` branch has no ref, and a bare claim is
+  # an EMPTY commit: predicting its merge would spend a process to be told the
+  # obvious, on every claimed branch, every five seconds.
+  #
+  # `false` for all of them is the honest answer rather than a convenient one:
+  # nobody asked, so nothing is known. Reporting `true` about a question never
+  # put is the absent-is-clean mistake pointing the other way — it would license
+  # a consumer to read "no conflicts" off a branch nothing was computed for.
+  case "$2" in
+    wip|claimed) ;;
+    *) printf 'false'; return ;;
+  esac
+  git show-ref -q --verify "refs/remotes/origin/$1" </dev/null 2>/dev/null \
+    || { printf 'false'; return; }
+  # CHANGES of its own, not merely commits of its own. A claim IS a commit —
+  # the empty `plot: claim <branch>` push, which is what makes claiming
+  # exclusive — so a commit count is non-zero for every claimed branch and would
+  # let this gate through unchanged. What distinguishes a claim from work is
+  # that it touches no file.
+  #
+  # The answer for a claim would be "clean" every time, so the cost is a process
+  # spawn per claimed branch per five-second scan to be told the obvious. `false`
+  # is also the more honest report: nobody asked, so nothing is known — and
+  # `true` about a question never put would license a consumer to read "merges
+  # cleanly" off a branch carrying nothing to merge.
+  [ -n "$(git diff --name-only "origin/$MAIN...origin/$1" </dev/null 2>/dev/null \
+    | head -n 1)" ] || { printf 'false'; return; }
+  printf 'true'
+}
+
+# The files this branch changes relative to the default branch, one per line.
+#
+# EVIDENCE, never a verdict. It is one of the three lines a CI failure is
+# reported with — *this branch changes only .md* — and it exists so a reader can
+# weigh a failing step against what the branch actually touched. Nothing here
+# maps steps to paths: that mapping is a table nobody maintains, and it goes
+# silently wrong the first time a workflow is restructured.
+#
+# CAPPED, and the cap is REPORTED rather than silently applied — the rule this
+# scan already follows for its merge walk. A branch touching two hundred files
+# tells the reader nothing they can hold in their head, and shipping two hundred
+# strings per row through a 5 s poll is a cost with no matching benefit.
+CHANGED_PATHS_LIMIT=${PLOT_CHANGED_PATHS_LIMIT:-40}
+changed_paths_of() { # $1=branch → changed paths, one per line (may be empty)
+  git diff --name-only "origin/$MAIN...origin/$1" </dev/null 2>/dev/null \
+    | head -n "$CHANGED_PATHS_LIMIT"
+}
+
 # Did this branch land on the default branch? Positive evidence only — absence
 # keeps today's answer.
 #
@@ -797,6 +944,21 @@ json_str() {
     -e 's/\t/\\t/g' -e 's/\r/\\r/g' -e 's/\x08/\\b/g' -e 's/\x0c/\\f/g'
 }
 
+# A newline-separated list as a JSON array of strings — `[]` for nothing.
+#
+# Each element goes through `json_str`, for the reason `json_str` itself exists:
+# a path is user data, and one legitimate quote in a filename would otherwise
+# produce a document nothing can parse. Blank lines are dropped, because a
+# trailing newline is punctuation rather than an empty path.
+json_array() {
+  local out="" line
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    out+="${out:+,}\"$(json_str "$line")\""
+  done <<< "$1"
+  printf '[%s]' "$out"
+}
+
 if [ "$next_only" != 1 ] && [ "$as_json" != 1 ]; then
   banner="plot-fleet pulse — $HEAD_SHORT on origin/$MAIN"
   if [ "$loose" = 1 ]; then
@@ -966,7 +1128,29 @@ for i, w in enumerate(d.get("waves", [])):
         worker_row=$(worker_of "$br")
         json_branches+=",\"worker\":\"$(printf '%s' "$worker_row" | cut -f1)\""
         json_branches+=",\"worker_pid\":\"$(json_str "$(printf '%s' "$worker_row" | cut -f2)")\""
-        json_branches+=",\"worker_exit\":\"$(json_str "$(printf '%s' "$worker_row" | cut -f3)")\"}"
+        json_branches+=",\"worker_exit\":\"$(json_str "$(printf '%s' "$worker_row" | cut -f3)")\""
+        # WHICH FILES would collide, and whether the question was asked at all.
+        # The two travel together on purpose: an empty list means "merges
+        # cleanly" ONLY beside `conflicts_known: true`, and reading the list
+        # alone turns every unanswerable branch into a mergeable one.
+        #
+        # The SET, never a verdict on it. Whether a given set is the one
+        # mechanically resolvable case is a decision one layer up — this script
+        # collects and reports.
+        cf_known=$(conflicts_known_of "$br" "$st")
+        json_branches+=",\"conflicts_known\":$cf_known"
+        if [ "$cf_known" = "true" ]; then
+          json_branches+=",\"conflicts\":$(json_array "$(conflicts_of "$br")")"
+          # What the branch touches — one of the three lines a CI failure is
+          # reported with. Evidence for a reader, not an input to any rule here.
+          json_branches+=",\"changed_paths\":$(json_array "$(changed_paths_of "$br")")"
+        else
+          # Not looked at, so nothing is claimed. Empty rather than omitted:
+          # one absent-value shape for every consumer, the rule the local
+          # signals above already follow.
+          json_branches+=",\"conflicts\":[],\"changed_paths\":[]"
+        fi
+        json_branches+="}"
       fi
     done <<< "$states"
 
