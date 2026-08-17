@@ -31,7 +31,8 @@ import {
   LOCK_ECHO_MS,
   rowKey,
   watchedState,
-  isObservation,
+  isUnreadable,
+  sameWatched,
   hostCannotReportCi,
   HOST_CANNOT_REPORT_HINT,
   type WatchedState,
@@ -1407,12 +1408,22 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
   it('does NOT mark a row whose watched value held, however much else moved', () => {
     // The marker is about the watched value ALONE. A new commit, a rewritten
     // note and a changed age are not what it claims.
+    // The row that MOVED must differ only in facts the marker does not watch.
+    // `group` used to be one of those and is now watched — a row changing
+    // section is precisely the news this wave widened the value to catch — so
+    // it is held constant here and asserted on its own below.
     const prior = observed(withState('a', 'green'));
     const moved = row({
       branch: 'a', pr: { number: 1, url: '', draft: false, state: 'green' },
-      note: 'last commit 1 min ago', ageMinutes: 1, group: 'working',
+      note: 'last commit 1 min ago', ageMinutes: 1,
     });
     expect(changedRows(prior, [moved]).changed.size).toBe(0);
+    // And the pairing: the same row moving SECTION does flash.
+    const movedSection = row({
+      branch: 'a', pr: { number: 1, url: '', draft: false, state: 'green' },
+      group: 'waiting-on-you',
+    });
+    expect(changedRows(prior, [movedSection]).changed.size).toBe(1);
   });
 
   it('marks a PR APPEARING — null is a value, not a gap', () => {
@@ -1438,7 +1449,11 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     const fresh = changedRows(new Map(), [withState('a', null)]);
     expect(fresh.changed.size).toBe(0);              // first sighting: silent
     expect(fresh.next.has('plot/a')).toBe(true);     // but REMEMBERED,
-    expect(fresh.next.get('plot/a')).toBe(null);     // as a known `null`
+    // …as a known `null` IN ITS PR SLOT. The memory holds a record now rather
+    // than a lone state, so the assertion reads the slot instead of the whole
+    // value — the distinction it protects (known-null vs never-seen) is the
+    // same one, one field in.
+    expect(fresh.next.get('plot/a')!.pr).toBe(null);
     // …so the PR that opens next is a change, not another first sighting.
     expect([...changedRows(fresh.next, [withState('a', 'pending')]).changed])
       .toEqual(['plot/a']);
@@ -1484,7 +1499,11 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     // Most rows: `not-started`, `quiet`, every fresh claim. An implementation
     // reading `row.pr.state` unguarded throws on precisely these.
     expect(() => changedRows(new Map(), [row({ pr: null })])).not.toThrow();
-    expect(watchedState(row({ pr: null }))).toBe(null);
+    // The PR SLOT is null; the record around it is not. That is the widening:
+    // a row with no PR still has a git state, a group, a wave and three local
+    // signals worth watching, and the crash this guards against is unchanged —
+    // reading `row.pr.state` unguarded still throws on exactly these rows.
+    expect(watchedState(row({ pr: null })).pr).toBe(null);
   });
 
   it('does NOT flash on green → unknown → green', () => {
@@ -1527,8 +1546,21 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     // the whole host the moment anything became readable.
     const first = changedRows(new Map(), [withState('a', 'unknown')]);
     expect(first.changed.size).toBe(0);
-    expect(first.next.has('plot/a')).toBe(false);
+    // The row IS recorded now, and that is the widening rather than a
+    // regression: its PR slot is unreadable, but the ten other watched facts —
+    // git state, group, wave, phase, the three local signals, stuck — were all
+    // observed by the local scan and are worth remembering. This asserted
+    // `.has() === false` while the watched value was a lone scalar, when there
+    // was genuinely nothing to keep.
+    //
+    // What must stay true is the SILENCE, and it is asserted either side: no
+    // flash on the first sighting, and none on the next unknown pulse.
+    expect(first.next.has('plot/a')).toBe(true);
+    expect(first.next.get('plot/a')!.pr).toBe('unknown');
     expect(changedRows(first.next, [withState('a', 'unknown')]).changed.size).toBe(0);
+    // And a real state arriving after an unreadable one does not flash either —
+    // that would be news about the host recovering, not about the branch.
+    expect(changedRows(first.next, [withState('a', 'green')]).changed.size).toBe(0);
   });
 
   it('still flashes every real transition', () => {
@@ -1553,10 +1585,60 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     // `unknown` is a fact about the OBSERVATION; every other value is a fact
     // about the world. Exported so the distinction is assertable rather than
     // buried in a comparison.
-    expect(isObservation('unknown')).toBe(true);
+    expect(isUnreadable('unknown')).toBe(true);
     for (const s of ['green', 'pending', 'failing', 'none', 'conflicts', null] as WatchedState[]) {
-      expect(isObservation(s)).toBe(false);
+      expect(isUnreadable(s)).toBe(false);
     }
+  });
+
+  // ── A row first seen while the host was down ──────────────────────────────
+  //
+  // The case the widened watched value creates. Under the old scalar rule such
+  // a row was never recorded — its only watched fact was unreadable, so there
+  // was nothing to remember. It now carries ten other facts, so it IS recorded,
+  // and the question is what its PR slot holds meanwhile.
+  //
+  // The answer: `unknown`, honestly, with the COMPARISON carrying the rule.
+  // Storing a value the board never observed would invent an observation, and a
+  // sentinel chosen to compare as different would flash the host's RECOVERY —
+  // news about GitHub rather than about the branch.
+
+  const watched = (over: Partial<WatchedState> = {}): WatchedState => ({
+    pr: null, prNumber: null, prDraft: false, state: 'wip', group: 'working',
+    wave: 'One', phase: 'Development', localDirty: false, localLocked: false,
+    localAhead: 0, stuck: null, ...over,
+  });
+
+  it('reads an unreadable PR slot as neither same nor changed', () => {
+    // `unknown` on either side is the host saying *I could not answer*, and a
+    // comparison against silence has no verdict. The row's other ten facts
+    // decide — exactly as they do while a KNOWN value is carried across an
+    // outage, which is the symmetry this keeps.
+    expect(sameWatched(watched({ pr: 'unknown' }), watched({ pr: 'green' }))).toBe(true);
+    expect(sameWatched(watched({ pr: 'green' }), watched({ pr: 'unknown' }))).toBe(true);
+    expect(sameWatched(watched({ pr: 'unknown' }), watched({ pr: 'unknown' }))).toBe(true);
+  });
+
+  it('still flashes on a LOCAL change while the PR is unreadable', () => {
+    // THE pairing. Suppressing the whole record for the outage's duration would
+    // silence an agent's edits for a remote host's reason — the marker going
+    // quiet exactly while someone writes. Only the PR SLOT is unreadable; the
+    // worktree was observed by the local scan either way.
+    expect(sameWatched(
+      watched({ pr: 'unknown', localDirty: false }),
+      watched({ pr: 'unknown', localDirty: true }),
+    )).toBe(false);
+  });
+
+  it('flashes when a PR APPEARS on a row whose state was never readable', () => {
+    // The stated cost of the decision, and its consolation: the row does not
+    // flash on the PR's first readable STATE, but `prNumber` going from null to
+    // a number is itself a change and does flash. What is lost is a moment
+    // about a host that was down — the cheaper of the two errors.
+    expect(sameWatched(
+      watched({ pr: 'unknown', prNumber: null }),
+      watched({ pr: 'unknown', prNumber: 42 }),
+    )).toBe(false);
   });
 });
 

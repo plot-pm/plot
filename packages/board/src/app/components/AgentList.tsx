@@ -1117,24 +1117,91 @@ export function rowKey(row: Pick<AgentRow, 'repo' | 'branch'>): string {
   return `${row.repo}/${row.branch}`;
 }
 
-/** The watched value: the six PR states plus *no PR*, as one value. */
-export type WatchedState = NonNullable<AgentRow['pr']>['state'] | null;
+/** The six PR states plus *no PR*, as one value — the row's PR slot. */
+export type WatchedPrState = NonNullable<AgentRow['pr']>['state'] | null;
 
 /**
- * The one value each row is watched by.
+ * Every OBSERVED fact on a row, and no DERIVED TIME.
+ *
+ * **The boundary is the feature, not a caveat.** The request was *highlight the
+ * whole line on every written update*, and a literal reading of "everything
+ * visible" flashes a completely idle row once a minute: the note on a WORKING
+ * row reads *"last commit 1 min ago"* and `ageMinutes` ticks beneath it, so
+ * `1 min ago → 2 min ago` would be an "update". After an hour at the board every
+ * row would have flashed sixty times and the marker would mean nothing.
+ *
+ * So the line is drawn where the contract already draws it:
+ *
+ * | Watched | Not watched | Because |
+ * |---|---|---|
+ * | `pr` (state, number, draft) | `ageMinutes` | derived from a timestamp and a clock |
+ * | `localDirty`, `localLocked` | `waitingDays` | a SECOND clock, per its own doc |
+ * | `localAhead` | `note` | it EMBEDS a clock — see below |
+ * | `state`, `group`, `wave`, `phase` | | |
+ * | `stuck` | | |
+ *
+ * **A fact changes because the world changed; a clock changes because time
+ * passed**, and only the first is news.
+ *
+ * **`note` is excluded despite being server-observed**, and it is the trap this
+ * whole rule exists to avoid. It is a sentence assembled around the ages —
+ * *"last commit 18 min ago"* — so an implementation watching the row's rendered
+ * note passes every positive assertion (a new commit really does rewrite it) and
+ * flashes every row once a minute. Provenance is not sufficient here; what the
+ * value is MADE OF decides.
+ *
+ * A new commit still flashes, which is the reported gap: the tip moving changes
+ * `state`/`group`/`localAhead` — facts — even though the sentence beside them
+ * changed for a clock's reason.
+ */
+export interface WatchedState {
+  /** null where the row carries no PR at all — a value, not a gap. */
+  pr: WatchedPrState;
+  prNumber: number | null;
+  prDraft: boolean | null;
+  state: AgentRow['state'];
+  group: AgentRow['group'];
+  wave: string;
+  phase: AgentRow['phase'];
+  localDirty: boolean;
+  localLocked: boolean;
+  localAhead: number;
+  /** Serialised, because `stuck` is an object and this map is compared by value. */
+  stuck: string | null;
+}
+
+/**
+ * The value each row is watched by.
  *
  * `pr` is `.nullable().default(null)` and MOST rows carry none — `not-started`,
  * `quiet`, and every fresh claim — so this reads through an optional chain
  * rather than `row.pr.state`, which crashes on precisely those rows.
  *
- * *No PR* is the seventh value, not a gap: `null → pending` is a PR opening,
- * often the most interesting transition a branch has, and `pending → null` is
- * one merged or closed out from under the row. Both are the watched value
- * changing, which keeps the rule single instead of adding an exception about
- * which changes count.
+ * *No PR* is a value, not a gap: `null → pending` is a PR opening, often the
+ * most interesting transition a branch has, and `pending → null` is one merged
+ * or closed out from under the row. Both are the watched value changing, which
+ * keeps the rule single instead of adding an exception about which changes
+ * count.
+ *
+ * `stuck` is serialised rather than held as an object because the comparison
+ * downstream is by value: two structurally equal `stuck` objects arrive as
+ * different references on every pulse, and a reference test would flash every
+ * stuck row four times a second.
  */
 export function watchedState(row: AgentRow): WatchedState {
-  return row.pr?.state ?? null;
+  return {
+    pr: row.pr?.state ?? null,
+    prNumber: row.pr?.number ?? null,
+    prDraft: row.pr?.draft ?? null,
+    state: row.state,
+    group: row.group,
+    wave: row.wave,
+    phase: row.phase,
+    localDirty: row.localDirty,
+    localLocked: row.localLocked,
+    localAhead: row.localAhead,
+    stuck: row.stuck === null ? null : JSON.stringify(row.stuck),
+  };
 }
 
 /**
@@ -1175,7 +1242,7 @@ export function watchedState(row: AgentRow): WatchedState {
  * carried: the map is one value deep per visible row, not a log.
  *
  * **`unknown` is not a transition, in either direction, and it is not
- * remembered.** See `isObservation`: it is a fact about the OBSERVATION, and
+ * remembered.** See `isUnreadable`: it is a fact about the OBSERVATION, and
  * this function reports changes in the WORLD.
  */
 export function changedRows(
@@ -1186,25 +1253,103 @@ export function changedRows(
   const next = new Map<string, WatchedState>();
   for (const row of rows) {
     const key = rowKey(row);
-    const now = watchedState(row);
-    // An unreadable pulse carries the LAST KNOWN value forward rather than
+    const was = prior.get(key) ?? null;
+    // An unreadable PR slot carries the LAST KNOWN value forward rather than
     // storing `unknown`, and that is what makes the suppression symmetric with
     // a single rule instead of two. Storing `unknown` would silence the
     // outage's first pulse and then flash on the recovery — or, worse, lose a
     // real change that happened during the outage: `green → unknown → failing`
     // must still flash, and it only can if the memory still holds `green` when
     // `failing` arrives. What is skipped is the moment, never the fact.
-    if (isObservation(now)) {
-      if (prior.has(key)) next.set(key, prior.get(key)!);
-      continue;
-    }
-    // `.has()`, never `prior.get(key) != null` — a stored `null` is a KNOWN
-    // value and an absent key is not, and the two are indistinguishable to a
-    // truthiness test.
-    if (prior.has(key) && prior.get(key) !== now) changed.add(key);
+    //
+    // **Per SLOT, not per row**, and that is what widening the watched value
+    // forces: a GitHub 503 makes the PR unreadable and says nothing whatever
+    // about whether a worktree is dirty. Freezing the whole record for the
+    // outage's duration would suppress a real local change for a remote host's
+    // reason — the marker going quiet exactly while an agent writes.
+    const now = carryUnreadable(watchedState(row), was);
+    // `.has()`, never a truthiness test — a stored value with a `null` PR is
+    // KNOWN and an absent key is not, and the two are indistinguishable to one.
+    if (prior.has(key) && !sameWatched(was!, now)) changed.add(key);
     next.set(key, now);
   }
   return { changed, next };
+}
+
+/**
+ * The watched value with any UNREADABLE slot replaced by the last known one.
+ *
+ * Only `pr` can be unreadable: it is the sole watched fact with an `unknown`
+ * value, because it is the sole one that comes from a remote host that can fail
+ * to answer. Every other watched fact is observed by the local scan, which
+ * either ran or did not — there is no third answer to carry across.
+ *
+ * **With NO prior value there is nothing to carry, and this is the case the
+ * widening makes newly interesting.** Under the old scalar rule such a row was
+ * not recorded at all: its only watched value was unreadable, so there was
+ * nothing to remember. Now it carries nine other facts worth remembering, so it
+ * IS recorded — and the question is what its PR slot should hold meanwhile.
+ *
+ * **DECIDED: it holds `unknown`, and `sameWatched` treats `unknown` as not
+ * comparable rather than as a value.**
+ *
+ * The three answers to *what should the slot hold* are the same three this
+ * repo keeps distinguishing, one field along: `null` means OBSERVED AND THERE
+ * IS NO PR, a state means observed with that state, and `unknown` means I
+ * COULD NOT ASK. Storing anything else here would invent an observation the
+ * board never made — and a sentinel chosen to compare as *different* would
+ * flash the host's recovery, which is news about GitHub rather than about the
+ * branch.
+ *
+ * So the memory is honest and the COMPARISON carries the rule: an `unknown` on
+ * either side answers neither *same* nor *changed*, because it is the absence
+ * of an answer. That is exactly what the paragraph above already promises for
+ * the carried case — *what is skipped is the moment, never the fact* — applied
+ * to the one case that has no fact to carry yet.
+ *
+ * The stated cost: a row whose PR was never once readable does not flash on the
+ * first state it is finally seen in. `prNumber` covers most of it — `null` to a
+ * number IS a change and does flash — and the residue (a PR readable only from
+ * its second state onward) is a moment lost about a host that was down, which
+ * is the cheaper of the two errors.
+ */
+function carryUnreadable(now: WatchedState, was: WatchedState | null): WatchedState {
+  if (!isUnreadable(now.pr) || was === null) return now;
+  return { ...now, pr: was.pr, prNumber: was.prNumber, prDraft: was.prDraft };
+}
+
+/**
+ * Whether two watched values describe the same world.
+ *
+ * By VALUE, field by field. The record is rebuilt from the row on every pulse,
+ * so a reference test would call every row changed four times a second — and
+ * `stuck` arrives as a fresh object each time, which is why `watchedState`
+ * serialises it rather than leaving an object to be compared here.
+ *
+ * Exported for test: it is half the rule, and the half that decides whether a
+ * ticking clock is news.
+ */
+export function sameWatched(a: WatchedState, b: WatchedState): boolean {
+  // `unknown` on EITHER side is not a value, so it cannot differ from one. It
+  // is the host saying *I could not answer*, and a comparison against silence
+  // has no verdict — the row's other ten facts decide, exactly as they do while
+  // a known value is being carried forward across an outage.
+  //
+  // Written as its own clause rather than folded into the equality so that the
+  // asymmetry is visible: every other field below compares by value because
+  // every other field HAS one.
+  const prComparable = !isUnreadable(a.pr) && !isUnreadable(b.pr);
+  return (!prComparable || a.pr === b.pr)
+    && a.prNumber === b.prNumber
+    && a.prDraft === b.prDraft
+    && a.state === b.state
+    && a.group === b.group
+    && a.wave === b.wave
+    && a.phase === b.phase
+    && a.localDirty === b.localDirty
+    && a.localLocked === b.localLocked
+    && a.localAhead === b.localAhead
+    && a.stuck === b.stuck;
 }
 
 /**
@@ -1239,9 +1384,21 @@ export function changedRows(
  * from *no PR* — a row whose PR merged during an outage would then be
  * permanently confused with one whose mergeability could not be read.
  *
+ * **It takes the PR SLOT, not the whole watched record**, because `pr.state` is
+ * the only watched fact that can be unreadable — the only one whose source is a
+ * remote host rather than the local scan. The principle is universal (*I cannot
+ * say right now* is never a change in the world) and it happens to bind on
+ * exactly one field, which is why the suppression is applied per slot in
+ * `carryUnreadable` rather than to the row as a whole.
+ *
+ * NAMED FOR WHAT IT ANSWERS. It was `isUnreadable`, which reads as its own
+ * opposite at every call site: it returns TRUE for `unknown`, the one value
+ * that is not an observation. A predicate whose name inverts its answer is a
+ * defect waiting for a reader in a hurry.
+ *
  * Exported for test.
  */
-export function isObservation(state: WatchedState): boolean {
+export function isUnreadable(state: WatchedPrState): boolean {
   return state === 'unknown';
 }
 
