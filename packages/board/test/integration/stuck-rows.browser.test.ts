@@ -451,8 +451,8 @@ describe('a stuck branch says so in its row', () => {
   it('leaves the live dot, the change mark and the activity mark alone', async () => {
     // #180 ships the precedent — *leaves the LIVE DOT alone: two marks, two
     // meanings* — and no mark may be implemented by modifying another. A stuck
-    // WORKING row must still carry its dot, and its activity mark must still
-    // answer to `localDirty` rather than to stuckness.
+    // WORKING row must still carry its dot, and its activity mark must answer
+    // to the local signals and to WORKING membership rather than to stuckness.
     const page = await open(fleet({
       rows: fleet().rows.map((r) =>
         r.branch === 'feature/healthy'
@@ -465,10 +465,21 @@ describe('a stuck branch says so in its row', () => {
       // The live dot belongs to WORKING membership, stuck or not.
       expect(await rowFor(page, 'feature/collides').locator('[data-live-dot]').count()).toBe(1);
       expect(await rowFor(page, 'feature/healthy').locator('[data-live-dot]').count()).toBe(1);
-      // The activity mark still answers to `localDirty` alone — the stuck row
-      // reports neither signal and must therefore carry NO activity mark.
+      // The activity mark answers to the LOCAL SIGNALS and to WORKING
+      // membership — never to stuckness. Both rows carry one here, and the
+      // claim is that they carry DIFFERENT ones: `feature/healthy` reports
+      // `localDirty` and travels fast; `feature/collides` is in WORKING with
+      // neither signal — claimed, unobserved — and travels slow.
+      //
+      // The pairing that matters for THIS suite: a stuck row's mark must not be
+      // decided by its stuckness. `feature/collides` is the stuck one, and its
+      // pace is the one a row with the same signals and no conflict would get.
+      const paceOf = (branch: string) =>
+        rowFor(page, branch).locator('[data-activity-mark]').getAttribute('data-activity-pace');
       expect(await rowFor(page, 'feature/healthy').locator('[data-activity-mark]').count()).toBe(1);
-      expect(await rowFor(page, 'feature/collides').locator('[data-activity-mark]').count()).toBe(0);
+      expect(await rowFor(page, 'feature/collides').locator('[data-activity-mark]').count()).toBe(1);
+      expect(await paceOf('feature/healthy')).toBe('fast');
+      expect(await paceOf('feature/collides')).toBe('slow');
       // And nothing here lights a change mark: the first pulse marks nothing.
       expect(await page.locator('[data-change-mark]').count()).toBe(0);
     } finally {

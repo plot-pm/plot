@@ -22,6 +22,7 @@ import {
   ChangeMarks,
   changedRows,
   isActive,
+  activityPace,
   ActivityEcho,
   activeRowKeys,
   LOCK_ECHO_MS,
@@ -602,21 +603,86 @@ describe('the activity marker leaves the other marks alone', () => {
 });
 
 /**
+ * WHICH SPEED A ROW'S DOT TRAVELS AT.
+ *
+ * The speed is a FACT, not a decoration — one rule, two states the board can
+ * defend:
+ *
+ * ```
+ * feature/not-started-counts-plans  dirty=true   → fast
+ * bug/green-never-outranks-unknown  dirty=false  → slow  ("claimed, no known worker")
+ * ```
+ *
+ * Both were live on the board the day this was asked for, and they are the two
+ * cases pinned below in the terms the report used.
+ */
+describe('activityPace — fast means measured, slow means unobserved', () => {
+  it('travels FAST where a write was actually observed', () => {
+    // Either signal on its own is enough, and both are observations rather than
+    // inferences: a lock in `.git/index.lock`, or a dirty worktree.
+    expect(activityPace(row({ localDirty: true }))).toBe('fast');
+    expect(activityPace(row({ localLocked: true }))).toBe('fast');
+    expect(activityPace(row({ localDirty: true, localLocked: true }))).toBe('fast');
+  });
+
+  it('travels SLOW where the row is claimed and nothing was observed', () => {
+    // The live case, in its own words: `bug/green-never-outranks-unknown` sat
+    // in WORKING with `dirty=false` and the note *claimed, no known worker*.
+    // Nobody is known to be there — so the dot moves, because something is
+    // supposed to be happening, and moves slowly, because nothing confirms it.
+    expect(activityPace(row({ localDirty: false, localLocked: false }))).toBe('slow');
+  });
+
+  it('is the SAME predicate isActive already draws, and not a second one', () => {
+    // The load-bearing relationship: `activity-shows-itself` settled what
+    // *someone is writing here* means, and this wave reads that answer rather
+    // than inventing a rival. An implementation that graded the pace on the
+    // group, the note or the age would disagree with `isActive` on some row and
+    // put a fast dot on a branch nobody has touched.
+    for (const over of [
+      { localDirty: true, localLocked: false },
+      { localDirty: false, localLocked: true },
+      { localDirty: false, localLocked: false },
+      { localDirty: true, localLocked: true },
+    ]) {
+      const r = row(over);
+      expect(activityPace(r)).toBe(isActive(r) ? 'fast' : 'slow');
+    }
+  });
+
+  it('reads NOTHING but the two local signals', () => {
+    // No third speed, and no gradient keyed to commit freshness — a scale
+    // nobody can read (*was that four minutes or forty?*) that changes
+    // continuously is motion in place of information. Stated by varying
+    // everything else on the row and getting one answer.
+    const ages = [null, 0, 1, 40, 4_000];
+    for (const ageMinutes of ages) {
+      expect(activityPace(row({ localDirty: true, ageMinutes }))).toBe('fast');
+      expect(activityPace(row({ localDirty: false, ageMinutes }))).toBe('slow');
+    }
+    for (const group of GROUPS.map((g) => g.key)) {
+      expect(activityPace(row({ group, localDirty: true }))).toBe('fast');
+      expect(activityPace(row({ group, localDirty: false }))).toBe('slow');
+    }
+  });
+});
+
+/**
  * THE MARK'S APPEARANCE, read out of the source.
  *
- * The rendered half — the glow's computed `box-shadow`, its survival under
- * `prefers-reduced-motion`, the six tracks not moving — lives in
- * `test/integration/activity-mark.browser.test.ts`, because only a page can
- * answer it. What is here is the half a string can state exactly: that the
- * element carries NO animation at all.
+ * The rendered half — the glow's computed `box-shadow`, the travel actually
+ * running at two rates, its survival under `prefers-reduced-motion`, the six
+ * tracks not moving — lives in `test/integration/activity-mark.browser.test.ts`,
+ * because only a page can answer it. What is here is the half a string can state
+ * exactly: which utilities each element carries, and which it must not.
  *
  * `className` is isolated from the component rather than searched for across the
  * file, and that is the whole point of the helper below: this file contains four
- * marks and three of them animate, so a naive `expect(source).not.toContain
- * ('animate-')` would fail on `[data-live-dot]` and prove nothing about this
- * mark.
+ * marks and each names the other three in its own doc comment, so a plain
+ * `indexOf` would walk from a comment into the wrong element's class list and
+ * assert one mark's geometry against another's.
  */
-describe('the activity mark is a glowing bar, and it does not move', () => {
+describe('the activity mark is a track with a travelling dot', () => {
   const source = readFileSync(
     new URL('../../src/app/components/AgentList.tsx', import.meta.url), 'utf8');
 
@@ -634,8 +700,19 @@ describe('the activity mark is a glowing bar, and it does not move', () => {
   function classesOf(hook: string): string {
     const at = source.search(new RegExp(`^\\s*data-${hook}\\s*$`, 'm'));
     expect(at, `no data-${hook} JSX attribute in AgentList.tsx`).toBeGreaterThan(-1);
-    const match = /className="([^"]*)"/.exec(source.slice(at));
-    expect(match, `no className after data-${hook}`).not.toBeNull();
+    const after = source.slice(at);
+    // BOTH forms, and the second is not a nicety. The activity dot picks its
+    // travel utility from the pace, so its class list is a TEMPLATE literal —
+    // and a `className="…"`-only matcher does not fail on it, it walks past
+    // into the next element in the file and asserts that one's classes under
+    // this one's name. That is precisely the confusion this helper exists to
+    // prevent, so whichever form comes FIRST after the hook is the one taken.
+    const quoted = /className="([^"]*)"/.exec(after);
+    const templated = /className=\{`([^`]*)`/.exec(after);
+    const match = [quoted, templated]
+      .filter((m): m is RegExpExecArray => m !== null)
+      .sort((a, b) => a.index - b.index)[0];
+    expect(match, `no className after data-${hook}`).not.toBeUndefined();
     return match![1];
   }
 
@@ -647,47 +724,130 @@ describe('the activity mark is a glowing bar, and it does not move', () => {
     expect(classesOf('live-dot')).toContain('h-1.5 w-1.5');
     expect(classesOf('change-mark')).toContain('absolute inset-0');
     expect(classesOf('activity-mark')).not.toContain('inset-0');
+    // The template-literal case, which is where this helper failed once: the
+    // activity dot's class list is built from the pace, and a matcher that only
+    // knew `className="…"` silently returned the CHANGE MARK's classes under
+    // the dot's name. Pinned on a class only the dot has.
+    expect(classesOf('activity-dot')).toContain('rounded-full');
+    expect(classesOf('activity-dot')).not.toContain('inset-0');
   });
 
-  it('carries no animation of any kind', () => {
-    // THE assertion of this wave, and the pairing that matters: an
-    // implementation reaching for `animate-pulse` because the board uses it
-    // elsewhere passes every visibility assertion above and makes a row with
-    // four other moving things noisier rather than clearer. A fact true for
-    // hours has less claim on motion than one true for three seconds.
+  it('travels at exactly two rates, and no third', () => {
+    // THE rule of this wave, pinned as strings: two utilities, chosen by the
+    // pace and nothing else. The failure this guards is a gradient — a speed
+    // keyed to commit freshness — which is a scale nobody can read (*was that
+    // four minutes or forty?*) changing continuously, and which would pass any
+    // assertion that only checks "the dot moves".
+    expect(source).toContain('animate-travel-fast');
+    expect(source).toContain('animate-travel-slow');
+    // The dot's class list carries one of the two and is otherwise still: no
+    // `animate-pulse` or `animate-ping` smuggled in beside the travel, which
+    // would put this mark back into the channel the other three already hold.
+    const dot = classesOf('activity-dot');
+    expect(dot).toMatch(/animate-travel-(fast|slow)/);
+    expect(dot).not.toMatch(/animate-(pulse|ping|spin|bounce)/);
+    // And the TRACK does not animate at all. Only the dot moves; a track that
+    // pulsed underneath it would be a fifth thing blinking on the row.
     expect(classesOf('activity-mark')).not.toMatch(/animate-/);
   });
 
-  it('needs no motion-reduce variant, because there is no motion to reduce', () => {
-    // The other three marks all carry `motion-reduce:animate-none` — keep the
-    // mark, stop the movement. This one has nothing to stop, so the absence of
-    // the variant is correct rather than an omission. Asserted so that a later
-    // reader does not "fix" it by adding one, which would only make sense
-    // beside an animation.
-    expect(classesOf('activity-mark')).not.toContain('motion-reduce:');
+  it('keeps the mark and the dot under motion-reduce, and stops only the travel', () => {
+    // Both halves, and the fifth time this repo has written the rule. Hiding
+    // the element under reduced motion passes a motion-only assertion and takes
+    // the MARKER along with the movement.
+    //
+    // `animate-none` and NOT `hidden`, `invisible` or `opacity-0`: each of those
+    // would stop the travel and lose the mark, which is exactly the defect.
+    const dot = classesOf('activity-dot');
+    expect(dot).toContain('motion-reduce:animate-none');
+    expect(dot).not.toMatch(/motion-reduce:(hidden|invisible|opacity-0)/);
+    // The glow is NOT reduced with the motion. It is what the mark is seen by,
+    // and under reduced motion it is the only thing left — a
+    // `motion-reduce:shadow-none` would leave a bare dot on a faint line.
+    expect(dot).not.toContain('motion-reduce:shadow');
+  });
+
+  it('never fills, completes or arrives', () => {
+    // The constraint that makes travel acceptable at all. Rotation and
+    // traversal were refused twice in this repo because they *imply progress
+    // toward completion, which nothing here measures*; a dot that returns
+    // promises no destination and reports a RATE instead.
+    //
+    // The keyframes are where "returns to its start" is enforced, so they are
+    // read out of the stylesheet rather than inferred from the class name — a
+    // one-way `travel` would carry exactly the same utility name.
+    const css = readFileSync(
+      new URL('../../src/app/index.css', import.meta.url), 'utf8');
+    const frames = /@keyframes travel\s*\{([\s\S]*?)\n  \}/.exec(css);
+    expect(frames, 'no @keyframes travel in index.css').not.toBeNull();
+    const body = frames![1];
+    // Starts and ends at the same place — stated on BOTH ends, because a frame
+    // set with only `0%` and `50%` also "returns" and would leave the property
+    // undefined at the close.
+    expect(body).toMatch(/0%\s*\{\s*transform:\s*translateX\(0\)/);
+    expect(body).toMatch(/100%\s*\{\s*transform:\s*translateX\(0\)/);
+    // Nothing that fills or completes: the progress vocabulary this repo
+    // refused, named so a later "improvement" fails rather than lands.
+    expect(body).not.toMatch(/\bwidth\b|\bscaleX\b|stroke-dash/);
+    // And the cycle carries the return itself rather than borrowing it from
+    // `alternate`, which spends half its time running backwards.
+    expect(css).not.toMatch(/--animate-travel-(fast|slow):[^;]*alternate/);
   });
 
   it('glows in its own colour, in both themes', () => {
-    // The glow is what supplies the prominence the requested motion was asked
-    // to supply, so it is not optional decoration. An emerald `shadow-[…]`
-    // rather than a step on the neutral shadow scale: those are greys for
-    // lifting a surface off the page, and a grey blur around a 4px bar reads as
-    // a smudge rather than a light.
-    const classes = classesOf('activity-mark');
-    expect(classes).toMatch(/shadow-\[[^\]]*rgba\(16,\s*185,\s*129/);
-    expect(classes).toMatch(/dark:shadow-\[[^\]]*rgba\(52,\s*211,\s*153/);
+    // The glow is what carries the mark across a room, so it is not optional
+    // decoration — and under reduced motion it is all that is left. An emerald
+    // `shadow-[…]` rather than a step on the neutral shadow scale: those are
+    // greys for lifting a surface off the page, and a grey blur around a 6px
+    // dot reads as a smudge rather than a light.
+    //
+    // On the DOT, which is what glows. The track behind it is deliberately dim.
+    const dot = classesOf('activity-dot');
+    expect(dot).toMatch(/shadow-\[[^\]]*rgba\(16,\s*185,\s*129/);
+    expect(dot).toMatch(/dark:shadow-\[[^\]]*rgba\(52,\s*211,\s*153/);
   });
 
-  it('is a bar rather than a dot, and wider than the one it sits beside', () => {
-    // The reported problem is spotting it FROM A DISTANCE. A vertical stroke at
-    // a fixed x reads as a mark down the side of the list; a dot must be hunted
-    // among the row's words. Stated against `LiveDot`'s own geometry so the two
-    // cannot drift into the same shape: that is a 6px round dot (`h-1.5 w-1.5`),
-    // this is a tall, narrow stroke.
+  it('is a horizontal TRACK carrying a dot, not a bar and not a bare dot', () => {
+    // The shape the travel needed: a short rule the dot can ride. The mark used
+    // to be `h-5 w-1`, a vertical stroke; turning the axis is the change.
+    // Stated against `LiveDot`'s own geometry so the two cannot drift into one
+    // shape — that is a 6px round dot at a fixed x.
+    const track = classesOf('activity-track');
+    expect(track).toContain('h-0.5');
+    expect(track).toContain('w-full');
+    // `relative`, because the dot inside is positioned against IT — the dot's
+    // reach is a fraction of the track, and a track that were not the
+    // containing block would decouple the two.
+    expect(track).toContain('relative');
+    expect(classesOf('live-dot')).toContain('h-1.5 w-1.5');
+  });
+
+  it('gives the mark the FIRST LINE\'S OWN BOX rather than a computed offset', () => {
+    // How the alignment is made honest. The outer element is one line box tall
+    // (`h-5` = 20px of `text-sm`) starting at the row's own `py-2`, and the
+    // track centres itself inside it. The line's height is therefore stated
+    // ONCE and no pixel downstream has to be guessed.
+    //
+    // The alternative — a hand-computed `top-4.5` — is right today and wrong the
+    // moment the type scale moves, which is exactly the failure mode that put
+    // the mark between two lines in the first place. Measured: the first line
+    // box begins 18.6px below the row's top edge, not the 8px or 10px a reader
+    // would derive from the padding alone.
     const mark = classesOf('activity-mark');
     expect(mark).toContain('h-5');
-    expect(mark).toContain('w-1');
-    expect(classesOf('live-dot')).toContain('h-1.5 w-1.5');
+    expect(mark).toContain('items-center');
+    expect(mark).toContain('flex');
+  });
+
+  it('renders the dot as its own element inside the track', () => {
+    // Three elements, and the hooks prove it: a single element that was both
+    // the track and the traveller would have to move the track itself, which is
+    // the implementation where the mark drifts away from its own x.
+    expect(source).toContain('data-activity-track');
+    expect(source).toContain('data-activity-dot');
+    const dot = classesOf('activity-dot');
+    expect(dot).toContain('absolute');
+    expect(dot).toContain('h-1.5 w-1.5');
   });
 
   it('stays out of the six tracks, in the row\'s left padding', () => {
@@ -703,26 +863,25 @@ describe('the activity mark is a glowing bar, and it does not move', () => {
   });
 
   it('aligns to the row\'s FIRST LINE, not to the row\'s centre', () => {
-    // The defect this wave fixes, pinned as a string. The mark used to carry
-    // `sm:top-1/2 sm:-translate-y-1/2`, which centres it on the whole ROW —
-    // correct only while the assumption its comment stated held: *the row is
-    // `py-2` around ONE line of `text-sm`*. The stuck cell broke that by landing
-    // as its own line beneath the six columns, and a centred mark on a two-line
-    // row sits BETWEEN the lines rather than beside the branch name.
+    // The defect fixed in the commit before this one, pinned as a string. The
+    // mark used to carry `sm:top-1/2 sm:-translate-y-1/2`, which centres it on
+    // the whole ROW — correct only while the assumption its comment stated
+    // held: *the row is `py-2` around ONE line of `text-sm`*. The stuck cell
+    // broke that by landing as its own line beneath the six columns, and a
+    // centred mark on a two-line row sits BETWEEN the lines rather than beside
+    // the branch name.
     //
-    // `sm:top-2` is the row's own `py-2`, so the 20px bar (`h-5`) covers the
-    // first line box exactly and stays there however tall the row grows.
+    // `sm:top-2.5` is the row's `py-2` plus the half-step that centres the 2px
+    // track on the 20px line box. It stays there however tall the row grows.
     const mark = classesOf('activity-mark');
     expect(mark).toContain('sm:top-2');
     // The centring form is GONE, both halves of it. Asserted negatively because
     // leaving either behind would fight the new rule: `-translate-y-1/2` alone
-    // would lift the bar half its height off the line.
+    // would lift the track half its height off the line — and the dot inside
+    // is driven by `translateX`, so a stray `translate-y` on the parent is a
+    // transform the travel would have to fight.
     expect(mark).not.toContain('sm:top-1/2');
     expect(mark).not.toContain('-translate-y-1/2');
-    // The geometry that makes `top-2` mean "one line": a 20px bar against the
-    // 20px line box of `text-sm`. Stated here so a later change to either one
-    // fails rather than drifting the mark off the line by a few pixels.
-    expect(mark).toContain('h-5');
   });
 });
 
