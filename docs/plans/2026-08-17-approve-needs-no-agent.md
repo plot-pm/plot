@@ -174,6 +174,43 @@ judgement:
 surfaces a failing command's own words on the card (#161), so a refusal reaches
 the reader without the board learning the rules.
 
+### It is idempotent, because one of the seven steps cannot be undone
+
+Step 2 merges the PR, and **that write is irreversible** — everything after it
+is local. So a run interrupted between the merge and the push leaves the PR
+merged while the plan on the default branch still reads `Phase: Draft`. The
+skill names that exact outcome as the thing never to allow: *"never leave the
+merged plan stranded at `Phase: Draft`"*.
+
+The skill also already contains the answer, and the first draft of this plan did
+not carry it across — step 2's `Already merged` case says *"the approval already
+happened — skip to step 4 to make sure it's recorded"*. That is not error
+handling; it is **idempotence**, and it means the repair for a half-finished
+approval is *run it again*.
+
+So `plot-approve.sh <slug>` may run any number of times. Each step asks whether
+it is already done and skips if so:
+
+| Step | Already-done test |
+|---|---|
+| Merge the PR | `plot-host.sh pr-state` reports `MERGED` |
+| Flip the phase | `plot-plan-meta.sh` reports `approved` |
+| Fill `Approved:` | the record is non-empty |
+| Clear the holds | no entry for the plan's branches |
+| Sprint annotation | already carries the approval |
+| Push | nothing left to commit |
+
+**Each test asks the source the step would have written**, never a progress file
+of its own. A progress file is a second source of truth that can disagree with
+the repository — and disagree exactly when someone intervened by hand between
+two runs, which is the case it would exist for. Git and the files **are** the
+state (Principle 1).
+
+**Reordering to put the merge last was the alternative, and it is worse.** It
+would leave a window where the plan reads `Approved` while its PR is still open,
+and where the `Approved:` record names a PR number that has not merged — trading
+a recoverable half-state for a lying one.
+
 ### The board's button loses its configuration requirement
 
 `approveAvailability()` stops asking for `Approve command` and asks what
@@ -281,6 +318,16 @@ one hour for two branches meeting in the same objects.
 - **The push falls back to a micro-PR under branch protection.** Assert the
   rejected-push path: `/plot-approve` documents it, and a merged plan stranded
   at `Phase: Draft` is worse than an unapproved one.
+- **A second run after a completed one changes nothing and fails nothing.**
+  Assert idempotence directly: the merge is irreversible, so *run it again* has
+  to be the repair for every interruption after it.
+- **A run interrupted between the merge and the push is repaired by re-running
+  it.** Assert the exact half-state — PR merged, plan still `Draft` — reaches
+  Approved on the second run. This is the case the whole property exists for,
+  and a test that only re-runs a *successful* approval passes without it.
+- **The already-done tests read the real sources, not a progress file.** Assert
+  the script recovers when the state was changed by hand between runs: a
+  progress file would disagree with the repository in exactly that case.
 - **The skill still owns what it judges.** Assert the tracer heuristic, the
   ceremony questions and the `in-session` walkthrough are unchanged — this moves
   a mechanism, not a decision.
@@ -320,7 +367,7 @@ surfaced both.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 3,
+  "round": 4,
   "questionHistory": [
     {"q": "The plan lists five mechanical steps, but the skill has two more side effects it missed: step 5 removes a .plot/hold entry, and /plot-sprint depends on /plot-approve writing sprint annotations it later reads.", "a": "Both move into the script. An approval that leaves the hold in place still blocks; one that skips the annotation makes /plot-sprint status wrong. Both are writes with no decision in them — delete a line, rewrite a comment — so they belong to collecting. Five of seven steps would be a half-approval, worse than none", "category": "domain-workflows"},
     {"q": "plot-push-main.sh already exists and solves the branch-protection question — it reports clean/bypassed/unknown and names the waived rules. Does that change the scope?", "a": "The script chains existing pieces rather than building new ones: pr-state, pr-merge, awk in the shape of append_started_line, plot-push-main.sh. ~120 lines of sequencing plus refusals. That IS the argument for it being a script — every piece already exists at the collecting layer; only the sequence was missing", "category": "technical-implementation"},
@@ -330,6 +377,8 @@ surfaced both.
     {"q": "There is no .plot/hold in this repo at all — the mechanism is unused, like Review: in-session.", "a": "Handle it anyway, same reasoning. The gate reads that file on every commit; it is absent only because nobody has written one. A script that ignored it would behave correctly until the first time it mattered — which is exactly when it would be relied on", "category": "domain-data"}
     {"q": "dispatch.ts:51 says a Tailscale address is deliberately NOT localhost — the binding is the authorisation. So Approve would be disabled on the phone that reads the board.", "a": "Correct, and recorded explicitly. Approving merges a PR and writes to the default branch — a different decision from reading a status away from the desk. Start work behaves identically for the same reason, and a future reader finding both disabled should see the paragraph rather than fix it", "category": "nonFunctional-security"},
     {"q": "Demoting rather than removing Approve command leaves two paths to one outcome, free to drift — the script does seven steps, the skill could do something else.", "a": "The skill calls the script, as plot-dispatch/SKILL.md does. Approve command starts an agent, which runs the skill, which runs plot-approve.sh — one implementation of the mechanics, two entrances. Otherwise demotion reintroduces the duplication this plan removes, as a configuration option", "category": "technical-architecture"}
+    {"q": "The plan describes seven steps and not one sentence about partial failure — and step 2 (pr-merge) writes irreversibly to GitHub. An interruption after it leaves the PR merged while the plan still reads Phase: Draft.", "a": "Idempotent. The skill already contains the answer the first draft did not carry across — 'Already merged: the approval already happened, skip to step 4' — so the repair for a half-finished approval is RUN IT AGAIN. Reordering to put the merge last would trade a recoverable half-state for a lying one: the plan would read Approved while its PR is still open", "category": "technical-implementation"},
+    {"q": "If the script is idempotent, how does each step know it is already done? The seven steps write to very different places.", "a": "Each step asks the source it would have written: pr-state for the merge, plot-plan-meta.sh for the phase and record, the hold file, the sprint annotation. Never a progress file of its own — that is a second source of truth that disagrees with the repository exactly when someone intervened by hand between runs, which is the case it would exist for. Git and the files ARE the state", "category": "ux-errors"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
