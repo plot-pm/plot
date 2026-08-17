@@ -101,8 +101,15 @@ grid-cols-[6rem_10rem_1fr_9rem_2.5rem_1.25rem]
 **The branch takes `1fr`** because it is the longest and most variable value,
 and the one worth reading in full; the others are bounded by their content
 (`Development` is the longest phase, `#1234 conflicts` the longest PR cell).
-Overflow truncates with the full value in `title`, which is what the phase cell
-already does.
+
+**Overflow elides the MIDDLE, keeping both ends.** Branch names here share long
+prefixes and differ at the tail — `feature/opus5-hardening-…` covers six
+branches, and end-truncation would render all six identically, which is worse
+than no truncation because the row then looks duplicated. Measured on the
+screenshot that produced this plan: `feature/opus5-longhorizon-hardening` is 35
+characters against `changeset-release/main`'s 22, so at any fixed width
+something gives. Middle-elision keeps the prefix that says *what kind of work*
+and the suffix that says *which one*; the full value stays in `title`.
 
 **An empty cell now leaves a gap rather than shifting its neighbours** — which
 is the whole point. A row with no phase and a row with one align on branch;
@@ -120,6 +127,50 @@ structure.
 collapsible group structure and per-group sub-headings; wrapping that in real
 table markup would fight the grouping rather than serve it. `role="grid"` on a
 `<ul>` keeps the DOM and gains the semantics.
+
+**All six waiting-groups inherit it, and that is structural rather than
+generous.** Measured: `AgentList.tsx:945` maps `GROUPS` and `:1043` renders one
+`<Row>` inside it — a single row implementation, so WAITING ON YOU, WORKING,
+WAITING ON A MACHINE, NOT STARTED, QUIET and DONE cannot diverge. The
+`Done when` list pins that, because the cheap way to fix one group's alignment
+is a special case, and a special case is how six sections stop agreeing.
+
+### Below 640px the row becomes a card
+
+**This is what the grid takes away, so it has to give it back.** Measured: the
+agents tab has **zero** responsive breakpoints and the whole app has two. Its
+only concession to a narrow window is `flex-wrap`, and the code says why that
+works — *"the rows are flex-wrapped, so nothing depends on the position"*.
+Position meaning nothing is exactly what lets a row wrap without losing
+anything. A grid inverts that: tracks line up, and tracks cannot wrap.
+
+The arithmetic decides it. Fixed tracks total 460 px; gaps and padding add
+84 px. **The grid needs 544 px before the branch column gets a single pixel:**
+
+| Viewport | Branch column |
+|---|---|
+| 375 px (phone) | **−169 px** |
+| 414 px (phone) | **−130 px** |
+| 768 px (tablet) | 224 px |
+| 1024 px | 480 px |
+
+So below `sm` the row stops being a row. Each becomes a small block: the branch
+on its own line — it is the row's primary key and the thing worth reading in
+full — with plan, phase, PR and age beneath it as one wrapped line. Nothing is
+dropped and nothing is elided; the same facts stack instead of ranging.
+
+**Dropping columns instead was the cheaper answer and is wrong.** Phase and plan
+are the two candidates, and the plan name is precisely what `showPlanHeading`
+just finished making sure a row carries when its group has no heading. Removing
+it on a phone would re-open, at one width, the defect closed at every width an
+hour earlier.
+
+**A phone is a real reader, not a hypothetical.** The server already detects a
+Tailscale address, so the board is meant to be reachable over a private network,
+and *what are my agents doing* is exactly the question asked away from the desk.
+It is a **reading** surface there: `/api/dispatch` is gated to localhost, so the
+row action menu is unavailable on a phone by construction rather than by layout
+— which is also why losing its column below `sm` costs nothing.
 
 ### The PR cell gets fields instead of a sentence
 
