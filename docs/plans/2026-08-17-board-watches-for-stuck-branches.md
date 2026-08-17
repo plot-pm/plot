@@ -138,6 +138,26 @@ reported as a real conflict. The resolution stopped being mechanical the
 moment its own gate said so — and a worker that pushed anyway would have
 manufactured the stuck state this plan exists to remove.
 
+**Two sources answer "does this merge", and they disagree in the
+reassuring direction.** Found while building wave 1 and recorded here
+because wave 3 depends on it: `merge-tree` predicts from the refs **this
+machine** holds, while the host computed its verdict against the branch
+as it actually stands. A stale local ref therefore makes the prediction
+wrong by saying *no conflict* where there is one — which is exactly what
+happened twice on 2026-08-17, when both artifact conflicts appeared only
+at `gh pr merge`.
+
+So a host-declared conflict (`pr.state === 'conflicts'`) with **no
+observed conflict set** is reported as a plain `conflict`, never as
+`artifact-conflict`. The artifact case rests entirely on the set being
+*exactly one known file*; here the host says *this does not merge*
+without saying where. Guessing artifact-only with no set behind it would
+be the *"is the artifact among the conflicts?"* mistake in its worst
+form — handed to the one state a later wave may resolve without a human.
+
+**Wave 3 may therefore only act on a conflict set it has actually
+observed**, never on the host's verdict alone.
+
 **Everything else is detected and offered, never taken.** Not "for now" —
 the three properties above are what license the exception, and no other
 failure has them. A real code conflict has no deterministic resolution; a
