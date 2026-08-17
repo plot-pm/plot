@@ -212,7 +212,7 @@ of information.
 
 - `feature/working-rows-show-their-pace` — the activity marker aligns to
   the row's first line and becomes a track with a travelling dot at two
-  speeds; `motion-reduce` keeps it and stops the travel
+  speeds; `motion-reduce` keeps it and stops the travel → #194
 
 ### Change
 
