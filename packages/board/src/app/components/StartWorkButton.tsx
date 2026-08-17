@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Card, DispatchInfo } from '../../contract/schema.js';
+import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 
 /**
  * WHAT THE BUTTON WATCHES — the count its own action moves.
@@ -277,13 +278,21 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
         // pointer, and `aria-describedby` would need an id per card — the
         // accessible NAME already carries it below.
         title={refusal ?? `Dispatch the next eligible branch of ${card.slug}`}
+        // Dimmed while in flight, on the SAME state that drives the label —
+        // `starting`, never a timer of its own — so the contrast comes back
+        // exactly when the pulse resolves the click. The refused styling stays
+        // as it was: `blocked` is a superset of `starting`, and a click that is
+        // being acted on must not look like one the board declined.
         className={
           blocked
-            ? 'cursor-not-allowed text-xs font-medium text-slate-400 no-underline dark:text-slate-600'
+            ? `cursor-not-allowed text-xs font-medium text-slate-400 no-underline dark:text-slate-600${starting ? ` ${ACTING_CLASS}` : ''}`
             : 'text-xs font-medium text-blue-600 hover:underline dark:text-blue-400'
         }
       >
         {starting ? 'starting…' : 'Start work'}
+        {/* Beside the word, never instead of it. Motion must not be the only
+            carrier of a fact, and the label is what a screen reader gets. */}
+        {starting && <ActingSpinner />}
         {/* Why it will not act, for a reader with no pointer to hover and no
             view of the dimmed page. Off screen, so the row is unchanged.
             Suppressed while starting: that refusal is temporary and already

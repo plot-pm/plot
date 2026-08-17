@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Card, DispatchInfo } from '../../contract/schema.js';
+import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 
 /**
  * How often to ask what happened, once a click is outstanding.
@@ -237,15 +238,23 @@ export function ApproveButton({ card, approve, onApproving }: ApproveButtonProps
         // screen reader must hear that this click is the one that acts.
         aria-pressed={armed}
         title={approve.available ? `Run /plot-approve ${card.slug}` : approve.reason}
+        // Dimmed while in flight, on the SAME state that drives the label —
+        // `running`, never a timer of its own — so the contrast comes back
+        // exactly when the poll resolves the click. The refused styling stays
+        // as it was: `blocked` is a superset of `running`, and a click that is
+        // being acted on must not look like one the board declined.
         className={
           armed
             ? 'rounded-sm bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-900 hover:underline dark:bg-amber-900/40 dark:text-amber-200'
             : blocked
-              ? 'cursor-not-allowed text-xs font-medium text-slate-400 no-underline dark:text-slate-600'
+              ? `cursor-not-allowed text-xs font-medium text-slate-400 no-underline dark:text-slate-600${running ? ` ${ACTING_CLASS}` : ''}`
               : 'text-xs font-medium text-blue-600 hover:underline dark:text-blue-400'
         }
       >
         {running ? 'approving…' : armed ? armedLabel(card) : 'Approve'}
+        {/* Beside the word, never instead of it. Motion must not be the only
+            carrier of a fact, and the label is what a screen reader gets. */}
+        {running && <ActingSpinner />}
         {/* Why it will not act, for a reader with no pointer to hover and no
             view of the dimmed page. Off screen, so the row is unchanged. */}
         {!approve.available && approve.reason && (
