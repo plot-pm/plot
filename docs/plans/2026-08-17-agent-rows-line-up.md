@@ -177,9 +177,24 @@ row action menu is unavailable on a phone by construction rather than by layout
 `AgentPr` grows from `{ number, url }` to carry its own state:
 
 ```ts
-pr: { number, url, state: 'green' | 'pending' | 'failing' | 'none'
-                        | 'conflicts' | 'draft' | 'unknown' }
+pr: { number, url, draft: boolean,
+      state: 'green' | 'pending' | 'failing' | 'none' | 'conflicts' | 'unknown' }
 ```
+
+**`draft` stays a separate field and is deliberately not one of the states.** It
+answers a different question — *is this offered for review* — and the two are
+independent: a draft has CI like anything else. `draftNote()` already reads
+`pr.checks` and writes *"draft, CI running"*, so folding draft into the enum
+would destroy an answer the code already produces.
+
+It would also rebuild a known defect. The story's WAITING ON A MACHINE finding
+named three causes for that group never being populated, and the first was that
+**a draft PR could not reach it** — the classifier short-circuited every draft
+before the checks were consulted. A single-value state would move that
+short-circuit from the classifier into the contract, where it is harder to see
+and shared by every consumer.
+
+Two fields, two badges: `⑂158 [draft] [CI running]`.
 
 `classify()` keeps deciding the group and the note; what changes is that it also
 **states the PR's condition as a value** rather than only spelling it into
@@ -236,8 +251,14 @@ way the rest of the board is.
 
 Two waves, and the order is a real dependency rather than a preference: the
 badge cannot be rendered from a sentence, so the field has to exist before the
-cell can use it. Both touch `fleet.ts` and `schema.ts`, which is the second
-reason not to run them together.
+cell can use it.
+
+The second reason was measured rather than assumed. Both waves touch `fleet.ts`
+and `schema.ts`, and this session watched #160 and #161 collide in **four**
+files — `board.ts`, `index.ts`, `plot-config.sh` and the artifact — because two
+branches added neighbouring fields to the same objects. Every conflict resolved
+to a union: not one genuine contradiction, and still four manual resolutions and
+two rebuilds. One branch in flight over these files is worth a round of waiting.
 
 ## Done when
 
@@ -247,8 +268,22 @@ reason not to run them together.
 - **An empty cell leaves a gap, not a shift.** Assert a row with no phase aligns
   with one that has a phase: the flex version has no way to express this, so a
   test that only checks "the phase is absent" passes today.
-- **A long branch name truncates rather than pushing the PR cell.** Assert the
-  PR and age cells sit at the same x for a short and a very long branch.
+- **A long branch name elides rather than pushing the PR cell.** Assert the PR
+  and age cells sit at the same x for a short and a very long branch.
+- **The elision is in the MIDDLE.** Assert two branches sharing a long prefix
+  stay distinguishable: end-truncation renders `feature/opus5-hardening-*` as
+  six identical rows, which reads as duplicates rather than as truncation.
+- **All six waiting-groups get the same row.** Assert the grid in a group other
+  than WAITING ON YOU — one row implementation is the reason they cannot
+  diverge, and a special case for one group is how that stops being true.
+- **Below 640px the row is a card, and nothing is dropped.** Assert branch,
+  plan, phase, PR and age are all still present at 375px — the plan name in
+  particular, which `showPlanHeading` just made a row's own responsibility.
+- **Above the threshold the card does not appear.** The pairing: a fix that
+  renders cards everywhere passes every mobile assertion above.
+- **`draft` and the PR state are separate.** Assert a draft PR with CI running
+  shows BOTH — folding draft into the state enum silently rebuilds the
+  short-circuit that kept WAITING ON A MACHINE empty.
 - **The row is announced by column, not as a run of words.** Assert the
   accessible name of a cell includes its column, and that the phase's `sr-only`
   prefix is gone rather than duplicated by the header.
@@ -289,3 +324,25 @@ the footer, and #123's backoff is why the interval is what it is.
 
 Also out of scope: the board tab's cards. This is the agents tab's row, and the
 two surfaces answer different questions.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "You asked for the grid 'in the other sections too'. Measured: AgentList.tsx:945 maps GROUPS and :1043 renders ONE <Row> inside it — all six waiting-groups share a single implementation.", "a": "The six waiting-groups, and it comes free. Pinned in Done when anyway, because the cheap way to fix one group's alignment is a special case, and a special case is how six sections stop agreeing. PlanCard is a different surface — cards in kanban columns, not rows — and out of scope", "category": "technical-architecture"},
+    {"q": "The plan gave pr.state seven values including 'draft'. But draft is its own field today, and classify() handles drafts before anything else.", "a": "draft stays separate. A draft has CI like anything else — draftNote() already writes 'draft, CI running' — and folding it into the enum would move the short-circuit that kept WAITING ON A MACHINE empty from the classifier into the contract, where it is harder to see", "category": "domain-data"},
+    {"q": "The branch gets 1fr and truncates. Measured: feature/opus5-longhorizon-hardening is 35 chars against changeset-release/main's 22.", "a": "Elide the MIDDLE, keep both ends. Branch names here share long prefixes and differ at the tail — feature/opus5-hardening-* covers six branches, and end-truncation renders all six identically, which reads as duplicate rows rather than as truncation", "category": "ux-happyPath"},
+    {"q": "Both waves touch fleet.ts and schema.ts, and #160/#161 just collided in four files for exactly that reason.", "a": "Sequential as planned. The badge cannot be rendered from a sentence, so the field must exist first — a real dependency. And every one of those four conflicts resolved to a union with no genuine contradiction, yet still cost four manual resolutions and two rebuilds", "category": "tradeOffs"},
+    {"q": "What would the mobile view look like with very little space? Cards?", "a": "Cards below 640px. Measured: the tab has ZERO breakpoints, its only concession is flex-wrap, and the code says why that works — 'nothing depends on the position'. A grid inverts that. Fixed tracks need 544px before the branch gets one pixel; a 375px phone is 169px short. Dropping columns instead would re-open the plan-name defect closed an hour earlier", "category": "ux-edgeCases"},
+    {"q": "Is the board used on a phone at all? /api/dispatch is localhost-gated.", "a": "Yes, for reading. The server already detects a Tailscale address, so it is meant to be reachable over a private network, and 'what are my agents doing' is the question asked away from the desk. Acting stays impossible there by construction — which is why losing the action column below sm costs nothing", "category": "domain-workflows"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "domain": {"rules": false, "workflows": true, "data": true},
+    "ux": {"happyPath": true, "edgeCases": true, "errors": false, "accessibility": true},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
