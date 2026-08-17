@@ -12,6 +12,7 @@
 - **Started:** 2026-08-17, Jan Wloka, `feature/board-story-overlay`
 - **Delivered:**
 - **Started:** 2026-08-17, Jan Wloka, `feature/board-column-overflow`
+- **Started:** 2026-08-17, Jan Wloka, `feature/board-approve-affordance`
 
 ## Problem
 
