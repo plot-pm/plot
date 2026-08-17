@@ -284,7 +284,7 @@ way the rest of the board is.
 
 - `feature/agent-rows-line-up` — the row becomes a grid with fixed tracks and
   gains `role="grid"` semantics; the PR cell renders number, icon and state
-  badge from the fields rather than searching a sentence
+  badge from the fields rather than searching a sentence → #175
 ### Rounds
 
 - `feature/card-shows-interrogation-rounds` — `plot-plan-meta.sh` reports the
