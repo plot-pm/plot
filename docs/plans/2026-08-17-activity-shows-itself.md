@@ -342,7 +342,7 @@ where it belongs, and this is about what it is doing there.
 - `feature/rows-mark-real-activity` — the row's marker reads
   `local_locked || local_dirty` instead of `group === 'working'`; a seen
   lock echoes for a few seconds; absent stays unmarked; the marker names
-  its own limit (*in this checkout*)
+  its own limit (*in this checkout*) → #182
 
 ### Prominence
 
