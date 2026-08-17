@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:**
 - **Story:** plot-board
@@ -11,7 +11,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-17, jwloka, plan-PR #163 merged (four interrogation rounds)
 - **Started:** 2026-08-17, Jan Wloka, `feature/plot-approve-script`
-- **Delivered:**
+- **Delivered:** 2026-08-17
 - **Started:** 2026-08-17, Jan Wloka, `bug/approve-button-needs-no-config`
 
 ## Problem
