@@ -342,12 +342,14 @@ export const BoardSchema = z.object({
   /**
    * Whether the server will act on an Approve click, and why not.
    *
-   * Its own field rather than a reading of `dispatch`, because the two answer
-   * different questions and can legitimately disagree: dispatch needs only the
-   * localhost binding, since `plot-dispatch.sh` ships with Plot, while approve
-   * also needs the project to have declared an `Approve command` — Plot
-   * hardcodes no agent tooling. A board on localhost in an unconfigured project
-   * offers Start work and not Approve, and one shared flag could not say that.
+   * Its own field rather than a reading of `dispatch`, though the two now give
+   * the same answer: both `plot-dispatch.sh` and `plot-approve.sh` ship with
+   * Plot, so both ask only whether this is a local, same-origin request. It
+   * asked a second question once — whether the project declared an
+   * `Approve command` — and that is exactly how two controls on one surface came
+   * to disagree about whether the board could act. A separate field keeps the
+   * capabilities separable; a client reading one flag about two of them is the
+   * shape that hid the divergence.
    *
    * Same shape and same default as `dispatch`: an older server sends nothing,
    * and a newer client then hides the button rather than offering one that 403s.

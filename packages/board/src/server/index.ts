@@ -9,7 +9,6 @@ import { serverInfo } from './server-info.js';
 import { exitWithParent } from './lifetime.js';
 import {
   approveAvailability,
-  approveCommand,
   approveStatus,
   handleApprove,
 } from './approve.js';
@@ -109,11 +108,12 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         ...buildBoard(opts),
         dispatch: dispatchAvailability(HOST),
         server: serverInfo(opts, boundPort),
-        // A SECOND capability, not a flavour of the first. Dispatch needs only
-        // the binding (the script ships with Plot); approve also needs the
-        // project to have said how to run an agent, so a board can legitimately
-        // offer one and not the other.
-        approve: approveAvailability(HOST, approveCommand(opts)),
+        // Its own field, and now the SAME answer as dispatch: both scripts ship
+        // with Plot, so both controls ask one question — is this a local,
+        // same-origin request. It stays a separate field rather than collapsing
+        // into `dispatch` because it is a separate capability, and the client
+        // asking one flag about two of them is how they diverged before.
+        approve: approveAvailability(HOST),
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(board));

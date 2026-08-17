@@ -37,23 +37,35 @@ import {
  */
 
 /**
- * How the board runs `/plot-approve`, and why it is not a script.
+ * How the board runs `/plot-approve` when the project has said how — and why
+ * that is now an OPTION rather than the price of entry.
  *
- * `/api/dispatch` spawns `plot-dispatch.sh`, and the obvious symmetry would be
- * `plot-approve.sh`. There is none, and writing one here would be the mistake
- * the indirection exists to prevent: `/plot-approve` is a SKILL — it reads the
- * plan's declared review channel and branches three ways, asks the two ceremony
- * questions on a pre-Plot-2 plan, weighs a tracer-bullet heuristic, and merges
- * only in the `pr` case. Reimplementing that beside the board would put the
- * approval rules in two places, which is the one thing the plan forbids
- * outright.
+ * This key used to be required, on the argument that `/plot-approve` is a SKILL
+ * and reimplementing its rules beside the board would put them in two places.
+ * The rules half of that is still true and still enforced. What was wrong was
+ * the conclusion: `plot-approve.sh` now performs the mechanical half — merge the
+ * plan PR, flip the phase, fill `Approved:`, clear the `.plot/hold` entries,
+ * update the sprint annotation, push — and refuses, with a reason, everything
+ * that needs a reader. So there IS a script to spawn, exactly as
+ * `/api/dispatch` spawns `plot-dispatch.sh`.
  *
- * So the board asks for the skill BY NAME and lets the adopting project say
- * what runs it — exactly as `plot-dispatch.sh` does for `Worker command`, and
- * for the same reason: "how do I run an agent headless" is a per-project answer
- * Plot must not hardcode (Manifesto Principle 5).
+ * `Worker command` is genuinely per-project because dispatch starts an agent
+ * that writes an implementation. Approving writes one line. The asymmetry it
+ * was modelled on was never the same asymmetry.
+ *
+ * DEMOTED, NOT REMOVED. A project that wants the full skill — the ceremony
+ * questions, the tracer-bullet heuristic, the `in-session` walkthrough — still
+ * declares one, and the board prefers it when present. And the two entrances are
+ * not two implementations: the skill calls the script, so the seven mechanical
+ * steps go through ONE implementation either way.
+ *
+ *     no Approve command:    board → plot-approve.sh
+ *     with Approve command:  board → agent → SKILL.md → plot-approve.sh
  */
 export const APPROVE_COMMAND_KEY = 'Approve command';
+
+/** The script the board falls back to — the one Plot ships. */
+export const APPROVE_SCRIPT = 'plot-approve.sh';
 
 /** The prompt handed to that command. The slug is the only variable. */
 export function approvePrompt(slug: string): string {
@@ -70,28 +82,20 @@ export interface ApproveOptions extends BuildBoardOptions {
  * Whether the route will act, and why not — the answer the button needs BEFORE
  * it is clicked, for the same reason `dispatchAvailability` exists.
  *
- * TWO reasons rather than one, and that is why this is not `dispatchAvailability`
- * under another name. A board on localhost can always dispatch, because
- * `plot-dispatch.sh` ships with Plot; it can approve only where the project has
- * said how to run an agent. One shared flag would be wrong for one of the two
- * whichever way it was set.
+ * ONE question, and it is the SAME question `Start work` asks: is this a local,
+ * same-origin request. It used to ask a second one — is `Approve command`
+ * declared — and that second question is what made two controls on one surface
+ * disagree about whether the board could act. `plot-approve.sh` ships with Plot,
+ * so the answer no longer depends on configuration.
+ *
+ * Over a non-localhost binding this is unavailable, and that is CORRECT rather
+ * than a gap: approving merges a PR and writes to the default branch, and a
+ * Tailscale address is deliberately not localhost (see `dispatchAvailability`).
+ * The phone that reads the board does not approve from it, and `Start work`
+ * behaves identically for the same reason.
  */
-export function approveAvailability(
-  host: string,
-  command: string,
-): DispatchAvailability {
-  const binding = dispatchAvailability(host);
-  if (!binding.available) return binding;
-  if (!command.trim()) {
-    // Names the key rather than saying "unavailable". Not configured is not a
-    // fault — Plot hardcodes no agent tooling — so the sentence is the next
-    // step, or a board that has never been configured reads as broken.
-    return {
-      available: false,
-      reason: `no \`${APPROVE_COMMAND_KEY}\` in this project's Plot Config — add one to approve from the board`,
-    };
-  }
-  return { available: true, reason: '' };
+export function approveAvailability(host: string): DispatchAvailability {
+  return dispatchAvailability(host);
 }
 
 /** Read the configured command, or "" — the one place that key is looked up. */
@@ -207,7 +211,7 @@ export async function handleApprove(
   };
 
   const command = approveCommand(opts);
-  const availability = approveAvailability(opts.host, command);
+  const availability = approveAvailability(opts.host);
   if (!availability.available) {
     json(403, { error: availability.reason });
     return;
@@ -246,16 +250,28 @@ export async function handleApprove(
     return;
   }
 
-  // The prompt is passed as ONE argument, never interpolated into the command
-  // string. `sh -c "$cmd /plot-approve $slug"` would make a slug a shell
-  // injection point; `"$@"` makes it data. The slug is already validated, so
-  // this is defence in depth rather than the only barrier — which is precisely
-  // when it is worth having.
-  const child = spawn(
-    'sh',
-    ['-c', `${command} "$@"`, 'plot-approve', approvePrompt(slug)],
-    { cwd: opts.repoRoot, detached: true, stdio: ['ignore', out, out] },
-  );
+  // TWO ENTRANCES, ONE IMPLEMENTATION. With `Approve command` declared the
+  // board asks for the skill by name and the project says what runs it; without
+  // one it runs the script Plot ships. The skill itself calls that same script,
+  // so the mechanical steps happen once either way and cannot drift.
+  //
+  // In the command case the prompt is passed as ONE argument, never
+  // interpolated into the command string. `sh -c "$cmd /plot-approve $slug"`
+  // would make a slug a shell injection point; `"$@"` makes it data. The slug is
+  // already validated, so this is defence in depth rather than the only barrier
+  // — which is precisely when it is worth having. The script case never builds a
+  // shell string at all.
+  const child = command
+    ? spawn(
+        'sh',
+        ['-c', `${command} "$@"`, 'plot-approve', approvePrompt(slug)],
+        { cwd: opts.repoRoot, detached: true, stdio: ['ignore', out, out] },
+      )
+    : spawn('bash', [path.join(opts.scriptsDir, APPROVE_SCRIPT), slug], {
+        cwd: opts.repoRoot,
+        detached: true,
+        stdio: ['ignore', out, out],
+      });
   // The exit code is written by a listener in THIS process rather than by a
   // shell wrapper around the command, so a command that itself spawns and exits
   // is timed the same way any other is.
