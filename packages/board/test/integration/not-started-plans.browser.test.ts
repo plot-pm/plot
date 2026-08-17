@@ -380,4 +380,25 @@ describe('NOT STARTED renders one row per plan', () => {
       await page.close();
     }
   });
+  it('counts PLANS in its heading, not the rows folded behind them', async () => {
+    // Measured on screen: `NOT STARTED (6)` above three visible lines, because
+    // one plan with five unstarted waves is one row and five records. The
+    // heading counts what the section SHOWS — everywhere else that is rows,
+    // and here it is plans.
+    //
+    // Nothing is hidden by the smaller figure: each plan row carries its own
+    // `N waves` summary, so the branches behind the expander are described
+    // where they live rather than added into a number one level up.
+    const page = await open();
+    try {
+      const heading = page.getByRole('heading', { name: /Not started/i }).first();
+      await heading.waitFor({ timeout: 5_000 });
+      const planRows = section(page).locator('li[data-plan-row]');
+      await expect.poll(() => planRows.count()).toBeGreaterThan(0);
+      const plans = await planRows.count();
+      expect(await heading.textContent()).toContain(`(${plans})`);
+    } finally {
+      await page.close();
+    }
+  });
 });

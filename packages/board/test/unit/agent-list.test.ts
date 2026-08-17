@@ -357,6 +357,29 @@ describe('isActive — which rows are actually being written to', () => {
     expect(isActive(row({ localLocked: true, localDirty: true }))).toBe(true);
   });
 
+  it('never marks a MERGED branch, whatever its worktree holds', () => {
+    // Measured on screen: a row sitting in DONE with the activity mark. Both
+    // halves were true — merged, and a dirty checkout — and the row said two
+    // things that cannot both be acted on. The dirt was one leftover
+    // `.plot-worker.exit` nobody had cleaned up.
+    //
+    // Editing a merged branch's checkout is real and simply not what this mark
+    // means. `classify` already sends merged branches to `done` before looking
+    // at any local signal; this predicate now agrees with it rather than
+    // contradicting it one layer up.
+    expect(isActive(row({ state: 'merged', localDirty: true }))).toBe(false);
+    expect(isActive(row({ state: 'merged', localLocked: true }))).toBe(false);
+  });
+
+  it('still marks an UNMERGED branch with the same signals', () => {
+    // The pairing. A fix that suppressed the mark whenever a row sits in DONE —
+    // or worse, whenever a PR exists — would pass the assertion above and take
+    // the mark off every agent that is actually writing.
+    expect(isActive(row({ state: 'wip', localDirty: true }))).toBe(true);
+    expect(isActive(row({ state: 'claimed', localLocked: true }))).toBe(true);
+    expect(isActive(row({ state: 'open', localDirty: true }))).toBe(true);
+  });
+
   it('does NOT mark a WORKING row that carries neither signal', () => {
     // THE assertion, and the whole point of the wave. An implementation that
     // kept reading `group === 'working'` passes every positive case above and

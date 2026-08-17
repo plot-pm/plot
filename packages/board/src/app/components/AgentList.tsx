@@ -803,7 +803,27 @@ export function isLive(row: AgentRow): boolean {
  * Exported for test: the negative — a WORKING row with neither signal — is the
  * half an implementation that kept reading the group gets wrong.
  */
-export function isActive(row: Pick<AgentRow, 'localLocked' | 'localDirty'>): boolean {
+export function isActive(
+  row: Pick<AgentRow, 'localLocked' | 'localDirty' | 'state'>,
+): boolean {
+  // A MERGED BRANCH IS NOT ACTIVE, whatever its worktree still holds.
+  //
+  // Measured on screen: a row in DONE carrying the activity mark. Both halves
+  // were individually true — `state: merged` and `local_dirty: true` — and the
+  // row said two things that cannot both be acted on. The dirt was one leftover
+  // `.plot-worker.exit` in a worktree nobody had removed.
+  //
+  // Editing a merged branch's checkout is a real thing to do and a real thing
+  // to see; it is simply not what this mark means. The mark says *work is
+  // happening on this branch*, and after the merge there is no work on it left
+  // to happen — which is why `classify` sends merged branches to `done` before
+  // it looks at any local signal. This predicate now agrees with that instead
+  // of contradicting it one layer up.
+  //
+  // The mirror of the WORKING defect fixed the same day, and worth naming as
+  // one shape: there a running agent LOST its place because a single condition
+  // decided; here a finished branch KEPT a mark for the same reason.
+  if (row.state === 'merged') return false;
   return row.localLocked || row.localDirty;
 }
 
@@ -1660,7 +1680,12 @@ export type ActivityPace = 'fast' | 'slow';
  * gave every WORKING row the fast pace, passes any assertion that only checks
  * "the dot moves".
  */
-export function activityPace(row: Pick<AgentRow, 'localLocked' | 'localDirty'>): ActivityPace {
+export function activityPace(
+  // `state` travels because `isActive` reads it: a merged branch is not active,
+  // so it has no pace either. The narrow Pick is what surfaced that — a wider
+  // signature would have compiled and quietly graded a finished branch.
+  row: Pick<AgentRow, 'localLocked' | 'localDirty' | 'state'>,
+): ActivityPace {
   return isActive(row) ? 'fast' : 'slow';
 }
 
@@ -3647,9 +3672,22 @@ export function AgentList({
           key === 'waiting-on-machine' && hostCannotReportCi(fleet.rows)
             ? HOST_CANNOT_REPORT_HINT
             : hint;
+        // THE TALLY COUNTS WHAT THE SECTION SHOWS.
+        //
+        // Everywhere else that is rows, and the number matches what a reader
+        // sees. In NOT STARTED it stopped matching when the section learned to
+        // render one row per PLAN: a five-wave plan is one visible line and
+        // five rows, so the heading read `(6)` above three lines. Measured on
+        // screen with `working-shows-the-agent` folded.
+        //
+        // Counting the same thing the section renders is also what makes the
+        // number safe to fold: the branches behind an expander are described by
+        // their plan's own summary (`3 waves, first eligible`), so nothing is
+        // hidden by the smaller figure — it moves up a level with the rows.
+        const shown = countsPlans ? grouped.length : rows.length;
         const tally = (
           <span className="font-normal normal-case tracking-normal text-slate-400 dark:text-slate-600">
-            {rows.length > 0 ? `(${rows.length})` : emptyHint}
+            {rows.length > 0 ? `(${shown})` : emptyHint}
           </span>
         );
         // Whether anything in this section is moving — and at which pace. The
