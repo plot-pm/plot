@@ -13,6 +13,7 @@
 - **Started:** 2026-08-17, Jan Wloka, `bug/acting-buttons-pin-the-double-click`
 - **Delivered:**
 - **Started:** 2026-08-17, Jan Wloka, `bug/start-work-watches-the-right-count`
+- **Started:** 2026-08-17, Jan Wloka, `feature/acting-buttons-spin-while-acting`
 
 ## Problem
 
