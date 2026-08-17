@@ -707,6 +707,11 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     if (meta.sprint) card.sprint = meta.sprint;
     if (meta.story) card.story = meta.story;
     if (meta.assignee) card.assignee = meta.assignee;
+    // `!== undefined` rather than a truthiness test, deliberately: a recorded
+    // `round: 0` is a real answer (the block exists, no round has completed) and
+    // must survive to the client as 0. Only the parser's OWN silence — no block,
+    // or an unreadable one — leaves the field off the card.
+    if (meta.rounds !== undefined) card.rounds = meta.rounds;
     // Kept for the tile's Ready/In-progress badge; the column now says the same
     // thing, but a Development card still benefits from the explicit flag.
     if (meta.phase === 'approved') card.started = started;

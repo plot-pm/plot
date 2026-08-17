@@ -63,6 +63,20 @@ export const PlanMetaSchema = z.object({
    */
   delivered_raw: z.string().default(''),
   started_raw: z.array(z.string()).default([]),
+  /**
+   * How many rounds of `/plot:challenge-the-plan` this plan has been through.
+   *
+   * OPTIONAL, and never defaulted to 0 — that is the whole design of the field.
+   * `0 rounds` reads as *interrogated and found nothing*; a missing block means
+   * *nobody has looked*. Those want opposite reactions from a reader, so the
+   * two must not render alike. Same rule, and the same reason, as `claimed` and
+   * `eligible` on `WaveSummarySchema`.
+   *
+   * `plot-plan-meta.sh` omits the key entirely rather than sending a sentinel,
+   * so `undefined` here is the parser's own answer and not a decoding artifact.
+   * A plan whose metadata block is malformed reports it the same way.
+   */
+  rounds: z.number().optional(),
   error: z.string().optional(),
 });
 export type PlanMeta = z.infer<typeof PlanMetaSchema>;
@@ -177,6 +191,21 @@ export const CardSchema = z.object({
    * the board's Ready (approved, idle) vs In-progress split.
    */
   started: z.boolean().optional(),
+  /**
+   * Rounds of `/plot:challenge-the-plan` this plan has been through, from the
+   * metadata block the skill writes into the plan file.
+   *
+   * OPTIONAL for the reason stated on `PlanMetaSchema.rounds`: absent means no
+   * interrogation is recorded, and it must not arrive as 0. A card carrying
+   * `undefined` shows no badge at all.
+   *
+   * Carried on the CARD only. The agent row deliberately does not gain it: a row
+   * is a statement about one branch, and most rows name a plan whose design
+   * phase closed long ago — attaching a design-time count to all of them would
+   * be the crowding this board keeps removing. Same split as `waveSummary`,
+   * which is card-only for the same reason.
+   */
+  rounds: z.number().optional(),
   /** Repo-relative path, e.g. docs/plans/2026-07-12-kanban-board-v1.md */
   path: z.string(),
   /**

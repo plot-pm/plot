@@ -247,3 +247,84 @@ test('parser: released_raw is empty when no record exists', () => {
   assert.equal(meta.released_raw, '');
   rmSync(dir, { recursive: true, force: true });
 });
+
+// --- rounds: the interrogation count -----------------------------------------
+//
+// Asserted against REAL plan files in docs/plans, not against fixtures, and
+// that is the whole point of these three tests. `/plot:challenge-the-plan`
+// writes its state as a multi-line HTML comment, and the parser's standing rule
+// is that multi-line comment interiors are non-content (see
+// canonical-comment-block.md, which must keep passing). So a hand-written
+// fixture that "looks like" the block proves nothing about the format the skill
+// actually emits: measured on 2026-08-17, the parser returned 22 keys for
+// docs/plans/2026-08-17-acting-buttons-show-they-act.md and `round` was not
+// among them, while a fixture-shaped test would have passed.
+
+const repoRoot = path.join(here, '..', '..');
+const realPlan = (name) => path.join(repoRoot, 'docs', 'plans', name);
+const parseFile = (abs) =>
+  JSON.parse(execFileSync('bash', [parser, abs], { encoding: 'utf8' }).trim());
+
+test('plan-meta: rounds is read from a REAL challenge-the-plan block', () => {
+  // This file carries `"round": 2` inside the metadata comment. If the skill
+  // ever changes the block's shape, this test fails here rather than the board
+  // quietly losing the badge.
+  const meta = parseFile(realPlan('2026-08-17-acting-buttons-show-they-act.md'));
+  assert.equal(meta.rounds, 2);
+  // The block must not cost the file any of its other fields — this is the
+  // plan-format contract, and every other command reads it. Asserted as
+  // "still answered" rather than as a literal phase: this plan is a live file
+  // that will move to delivered and released, and a test pinned to today's
+  // phase would fail on a change that has nothing to do with the parser.
+  assert.equal(meta.type, 'bug');
+  assert.ok(meta.title.length > 0, 'title survives the metadata block');
+  assert.notEqual(meta.phase, 'NONE', 'phase survives the metadata block');
+  assert.ok(meta.branches.length > 0, 'branches survive the metadata block');
+});
+
+test('plan-meta: a real plan with NO block omits rounds entirely', () => {
+  // ABSENT, not 0. `0 rounds` reads as "interrogated and found nothing"; the
+  // truth here is "never interrogated", and the two want opposite reactions.
+  // The key is missing so no consumer can read a zero out of it by accident.
+  const meta = parseFile(realPlan('2026-02-11-plot-sprint-support.md'));
+  assert.equal('rounds' in meta, false, 'the key must be absent, not 0');
+  assert.equal(meta.rounds, undefined);
+  // …and the plan still parses in full.
+  assert.notEqual(meta.phase, 'NONE');
+});
+
+test('plan-meta: a malformed block loses only the round', () => {
+  // plot-plan-meta.sh is the plan-format contract: a truncated or non-JSON
+  // metadata comment must never cost a plan its phase, type or branches.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-rounds-'));
+  const f = path.join(dir, '2026-01-01-malformed.md');
+  writeFileSync(f, `# Malformed metadata
+
+## Status
+
+- **Phase:** Draft
+- **Type:** feature
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{ this is not valid JSON at all,,, and carries no round
+END-CHALLENGE-THE-PLAN-METADATA -->
+
+## Branches
+
+- \`feature/still-parsed\`
+`);
+  const meta = parseFile(f);
+  assert.equal('rounds' in meta, false, 'an unreadable round is absent, never guessed');
+  assert.equal(meta.phase, 'draft');
+  assert.equal(meta.type, 'feature');
+  assert.deepEqual(meta.branches, ['feature/still-parsed']);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('plan-meta: template guidance comments still contribute no round', () => {
+  // The carve-out is keyed on the CHALLENGE-THE-PLAN-METADATA sentinel, not on
+  // "a comment containing a number" — the general non-content rule for
+  // multi-line comments is unchanged.
+  const actual = parse('canonical-comment-block.md');
+  assert.equal('rounds' in actual, false);
+});
