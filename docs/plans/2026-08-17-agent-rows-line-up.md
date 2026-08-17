@@ -172,6 +172,42 @@ It is a **reading** surface there: `/api/dispatch` is gated to localhost, so the
 row action menu is unavailable on a phone by construction rather than by layout
 — which is also why losing its column below `sm` costs nothing.
 
+### A Draft card says how many rounds it has survived
+
+A different question on a different surface, folded in because it is the same
+defect: **information that exists, is decisive, and reaches no screen.**
+
+Measured: **14 plans carry a `"round"` in their `CHALLENGE-THE-PLAN-METADATA`
+block**, ranging from 1 to 4 — and `plot-plan-meta.sh` contains zero references
+to it. A plan interrogated four times (`fleet-sees-merged-branches`) and one
+written twenty minutes ago render identically in Discovery.
+
+That is precisely the question a Draft card leaves open. Every other badge says
+what a plan *is*; none says how hard it has been looked at. A reader deciding
+*approve, or one more round?* has to open the file to find out.
+
+**The badge suppresses itself when there is nothing to say.** A plan with no
+metadata block shows no badge — not `0 rounds`, which would read as *interrogated
+and found empty* rather than *never interrogated*. `waveBadgeText()` already
+establishes that pattern on this card, returning `""` where the fact would not
+earn its place; this follows it rather than inventing a second convention.
+
+**Draft cards only.** Once a plan is approved the count is history: it says
+something about how the decision was reached, not about what to do next, and
+Discovery is the only column where *approve or interrogate again* is a live
+question. Everywhere else it would be a number nobody acts on.
+
+**The card, not the agent row.** Measured on the live pulse: 3 rows carry an
+idea-branch, and **34 implementation rows also carry a plan name**. A round
+count on every row bearing a plan would attach to 34 branches whose plan was
+settled long ago — noise of exactly the kind the per-group heading fix has just
+finished removing from that tab. The question belongs where the plan is the
+subject, and that is the card.
+
+The parser gains one field. `plot-plan-meta.sh` reads the metadata block it
+already skips over, and reports `rounds` — absent where the block is, which the
+contract carries as `null` rather than `0`.
+
 ### The PR cell gets fields instead of a sentence
 
 `AgentPr` grows from `{ number, url }` to carry its own state:
@@ -248,6 +284,22 @@ way the rest of the board is.
 - `feature/agent-rows-line-up` — the row becomes a grid with fixed tracks and
   gains `role="grid"` semantics; the PR cell renders number, icon and state
   badge from the fields rather than searching a sentence
+### Rounds
+
+- `feature/card-shows-interrogation-rounds` — `plot-plan-meta.sh` reports the
+  interrogation round; a Draft card wears it as a badge, and wears nothing where
+  no interrogation has happened
+
+**The rounds badge is its own wave rather than sharing Presentation**, and the
+reason is the same one that keeps the first two apart: it adds a field to
+`schema.ts`, which the grid branch is also editing. Two branches adding
+neighbouring fields to one object is exactly what produced four manual conflict
+resolutions in a single hour on 2026-08-17 — every one of them a union with no
+genuine disagreement, and every one still a rebase and a rebuild.
+
+It is last rather than first because it is the smallest and the least urgent:
+the grid answers a defect visible in every row, the badge answers a question a
+reader can still resolve by opening a file.
 
 Two waves, and the order is a real dependency rather than a preference: the
 badge cannot be rendered from a sentence, so the field has to exist before the
@@ -284,6 +336,19 @@ two rebuilds. One branch in flight over these files is worth a round of waiting.
 - **`draft` and the PR state are separate.** Assert a draft PR with CI running
   shows BOTH — folding draft into the state enum silently rebuilds the
   short-circuit that kept WAITING ON A MACHINE empty.
+- **A Draft card shows its interrogation round.** Assert against a real plan
+  file carrying `"round": 2` — the parser skips that block today, so a test
+  built on a hand-made fixture would pass while the real format failed.
+- **A plan with NO metadata block shows no badge at all.** Assert the absence,
+  not a zero: `0 rounds` reads as *interrogated and found empty* rather than
+  *never interrogated*, and absent is not zero is the rule this repo applies
+  everywhere else.
+- **The badge appears only on Draft cards.** Assert an Approved card does not
+  carry it: past Discovery the count is history, and a number nobody acts on is
+  the crowding this board keeps removing.
+- **The agent row does NOT gain it.** The pairing that matters: 34 of the
+  pulse's rows carry a plan name whose plan is long settled, and putting the
+  count there would attach it to every one of them.
 - **The row is announced by column, not as a run of words.** Assert the
   accessible name of a cell includes its column, and that the phase's `sr-only`
   prefix is gone rather than duplicated by the header.
