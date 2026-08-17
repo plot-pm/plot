@@ -401,6 +401,26 @@ that closes the loop, and it has not been built yet.
   Worth stating plainly because it bounds the value of the fleet view: **the
   more parallel work there is, the less reliable the view of it becomes.**
 
+- ⏸️ **A test fixture inside the repo reads the repo's own config, not its
+  own.** Found 2026-08-17 while building the board's Approve action.
+  `plot-config.sh` locates configuration through
+  `git rev-parse --show-toplevel`, so `packages/board/test/fixtures/tiny-garden`
+  — a nested directory, not a repository — resolves to **plot's** `CLAUDE.md`
+  and reads every key from there.
+
+  It went unnoticed because the two agreed on every key that existed.
+  `Approve command` is the first key where they differ, and the test would have
+  passed while asserting plot's configuration rather than the fixture's: a green
+  test measuring the wrong thing, which is worse than a red one.
+
+  Worked around rather than fixed — those tests now copy the garden **outside**
+  the checkout, where it is its own repository. The general case is untouched:
+  any fixture nested in the repo has the same blind spot, and so does any
+  adopting project that keeps a sub-project inside its own tree. Whether
+  `plot-config.sh` should walk up to the nearest `CLAUDE.md` instead of the
+  nearest git root is the open question — and it is a question about Plot's
+  config resolution, not about the board.
+
 - ⏸️ **`pnpm board` starts another board instead of adopting the running one.**
   **Partly fixed, and re-measured 2026-08-17 into a sharper finding.** The
   `EADDRINUSE` path added since means a second `pnpm board` on the same port now
