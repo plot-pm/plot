@@ -61,6 +61,15 @@ Every step is `gh` and `git` — which Plot already requires — plus one line
 written into a markdown file. **Approving writes one line; dispatching starts a
 program that writes a codebase.**
 
+Two more side effects belong to it, and the first draft of this plan missed
+both. Step 5 of the skill removes a `.plot/hold` entry — *the approval is what
+releases the gate* — and `/plot-sprint` depends on `/plot-approve` writing the
+sprint annotations it later reads (`pr:`, `status:`, `branch:`). Both are
+mechanical: delete a line, rewrite a comment. **An approval that leaves the hold
+in place still blocks, and one that skips the annotation makes
+`/plot-sprint status` wrong** — so a script that did five of seven steps would
+produce a half-approval, which is worse than none.
+
 So the real difference is not *approve needs an agent*. It is **approve has no
 script**. `plot-dispatch.sh` exists; `plot-approve.sh` does not, and the board
 reached for an agent because there was nothing else to reach for.
@@ -74,9 +83,19 @@ shape in the same block, and that function was repaired on 2026-08-17 after it
 appended below `Delivered:` instead of filling the placeholder — evidence that
 the tricky part is written and debugged.
 
-`plot-host.sh` already exposes `pr-state`, `pr-merge` and `default-branch`.
-Nothing here needs inventing; it needs assembling in the layer that is allowed
-to collect.
+`plot-host.sh` already exposes `pr-state`, `pr-merge` and `default-branch`. And
+the part that looked hardest is written too: **`plot-push-main.sh`** already
+performs the protected-branch push and *reports what happened to it* —
+`clean`, `bypassed` (naming the rules waived and the checks that did not run),
+or `unknown`. A bare `git push` cannot say that, because a
+protected-but-not-enforced repo waves the push through with exit 0 and only a
+notice on stderr.
+
+So the script writes almost nothing new: it chains `pr-state` → `pr-merge` →
+awk-in-the-shape-of-`append_started_line` → `plot-push-main.sh`, and adds its
+refusals. **That is the argument for it being a script at all** — not that
+approving is simple, but that every piece of it already exists at the collecting
+layer and only the sequence was missing.
 
 ## Design
 
@@ -94,8 +113,14 @@ So the split follows the principle rather than the current accident:
 | Walking an `in-session` review | Reading `Review:` / `Impl:` and the PR state |
 | Asking the two ceremony questions when a plan predates them | Merging the plan PR via the host adapter |
 | The tracer-bullet suggestion heuristic | Flipping the phase, filling `Approved:` |
-| Tallying `ballot` reviewers | Committing and pushing, with the protection fallback |
-| Judging whether a draft is *ready* | Refusing, with a reason, when it is not |
+| Tallying `ballot` reviewers | Removing the plan's `.plot/hold` line |
+| Judging whether a draft is *ready* | Updating the sprint annotation |
+| | Pushing via `plot-push-main.sh` and reporting its verdict |
+| | Refusing, with a reason, what it cannot judge |
+
+**Seven steps, not five.** The hold and the sprint annotation are on the right
+of that table because they are writes with no decision in them — and because
+leaving either to a caller re-creates the split this plan exists to close.
 
 **The skill keeps calling the script**, as `plot-dispatch/SKILL.md` does. It does
 not lose a step; it stops re-implementing one in prose.
@@ -111,6 +136,14 @@ judgement:
 - **`Review:` is not `pr`** — `in-session` and `ballot` need a human in the
   room, and no script can stand in for one. This is the honest boundary of the
   mechanical half.
+
+  Measured: **every plan in this repo declares `Review: pr`**, so the refusal
+  fires for nothing that exists today. It is still the load-bearing branch.
+  `/plot-idea` offers all three values, and a script that treated an unfamiliar
+  `Review:` as `pr` would approve a plan nobody had discussed — silently, and
+  with a commit that looks exactly like a legitimate one. Unused is not
+  impossible, and a default of *carry on* is the shape of stale assumption this
+  story keeps finding.
 - **The PR is a draft, closed, or has no PR** — the existing preconditions,
   moved from prose into an exit code.
 
@@ -177,6 +210,19 @@ one hour for two branches meeting in the same objects.
 - **`Approved:` fills the placeholder rather than appending after the list.**
   Assert the line lands above `Delivered:` — `append_started_line()` had exactly
   this bug on 2026-08-17, and a second implementation would repeat it.
+- **The `.plot/hold` line for the plan is removed.** Assert the gate is
+  released: an approval that leaves it standing still blocks, and the plan reads
+  Approved while behaving as if it were not.
+- **The sprint annotation is updated.** Assert `/plot-sprint status` reports the
+  approval — the annotation is written by `/plot-approve` and read by
+  `/plot-sprint`, so an approval that skips it makes the sprint view wrong
+  rather than merely incomplete.
+- **A plan in no sprint is not a failure.** The pairing: the annotation step
+  must be a no-op where there is nothing to annotate, not an error.
+- **The push reports `clean` / `bypassed` / `unknown` verbatim.** Assert the
+  bypass report survives to the caller: `plot-push-main.sh` exists precisely
+  because a protected-but-unenforced repo exits 0 with only a stderr notice, and
+  swallowing that turns a missing CI run into a mystery.
 - **The push falls back to a micro-PR under branch protection.** Assert the
   rejected-push path: `/plot-approve` documents it, and a merged plan stranded
   at `Phase: Draft` is worse than an unapproved one.
@@ -210,3 +256,22 @@ a plan renders twice while its own idea-branch is checked out. It is a
 collector-overlap in `board.ts` — the working tree and the branch stager do not
 know about each other — and shares nothing with this beyond the screenshot that
 surfaced both.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "The plan lists five mechanical steps, but the skill has two more side effects it missed: step 5 removes a .plot/hold entry, and /plot-sprint depends on /plot-approve writing sprint annotations it later reads.", "a": "Both move into the script. An approval that leaves the hold in place still blocks; one that skips the annotation makes /plot-sprint status wrong. Both are writes with no decision in them — delete a line, rewrite a comment — so they belong to collecting. Five of seven steps would be a half-approval, worse than none", "category": "domain-workflows"},
+    {"q": "plot-push-main.sh already exists and solves the branch-protection question — it reports clean/bypassed/unknown and names the waived rules. Does that change the scope?", "a": "The script chains existing pieces rather than building new ones: pr-state, pr-merge, awk in the shape of append_started_line, plot-push-main.sh. ~120 lines of sequencing plus refusals. That IS the argument for it being a script — every piece already exists at the collecting layer; only the sequence was missing", "category": "technical-implementation"},
+    {"q": "The script refuses Review: in-session and ballot — but every plan in this repo declares Review: pr, so the refusal fires for nothing that exists.", "a": "Refuse anyway. /plot-idea offers all three, and a script treating an unfamiliar Review: as pr would approve a plan nobody discussed — silently, with a commit indistinguishable from a legitimate one. Unused is not impossible, and a default of 'carry on' is the stale-assumption shape this story keeps finding", "category": "domain-rules"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "domain": {"rules": true, "workflows": true, "data": false},
+    "ux": {"happyPath": false, "edgeCases": false, "errors": true, "accessibility": true},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
