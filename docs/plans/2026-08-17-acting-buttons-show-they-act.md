@@ -111,6 +111,23 @@ The card already carries what would answer it: `waveSummary` reports
 `{claimed, eligible}` per plan, and this card read `claimed: 0, eligible: 1`
 before the click. A dispatch moves exactly that pair.
 
+**And the button is on that card deliberately, which is why the defect is
+permanent rather than occasional.** `isReadyToStart` demands
+`phase === 'Design' && started === false` — which this card fails on both
+counts. It renders anyway, because a second condition admits started
+Development cards: the button exists to start the **next wave** as well as the
+first. So:
+
+| Click | `card.started` | Button sees |
+|---|---|---|
+| wave 1 | `false` → `true` | the change ✓ |
+| wave 2 | `true` → `true` | **nothing** ✗ |
+| wave 3 | `true` → `true` | **nothing** ✗ |
+
+The button has two jobs and a success check that only serves the first. Every
+plan with more than one wave breaks it from the second click onward — which is
+every plan this session has written.
+
 ## Design
 
 ### The acting buttons borrow the pulse the rows already use
@@ -188,6 +205,26 @@ rare is what lets it be believed.
 the click rather than after three pulses of silence. That is the same rule the
 row action menu already follows: refuse with the reason, rather than accept and
 disappoint.
+
+**Without a pulse the button refuses rather than guesses.** Measured: both
+counts are `.optional()` in the contract, and the comment says why — *"Absent
+when there is no pulse."* `card.started` is always present, so swapping to
+`claimed` trades an always-there fact for a sometimes-there one, and the gap
+falls exactly where someone opens a freshly restarted board.
+
+The honest answer there is *not yet*: without a scan the board does not know
+which wave is eligible, so a dispatch would be a click into the dark and the
+button could not report on it afterwards either. It dims and says it is waiting
+for the first scan — the same posture the board takes when it has lost contact,
+rather than a fourth vocabulary for *I don't know*.
+
+Falling back to `card.started` when the counts are missing was the alternative
+and is worse: it keeps the defect alive in precisely the window where it is
+most likely, and hides it behind an apparently-working button.
+
+`board-bridges-its-restart` narrows that window from the other side by keeping
+the last pulse across a restart — but it cannot close it, because a first-ever
+start has no last pulse to bridge from.
 
 ### The test comes first, and decides whether the ref is needed
 
@@ -269,6 +306,16 @@ of them a union with no real disagreement.
   move the row itself — an optimistic update would make the board display
   something it does not know, and this changes which fact is read, not whether
   git confirms it.
+- **The SECOND wave's dispatch reads as success.** Assert a plan where wave 1 is
+  already claimed and wave 2 is eligible: `card.started` cannot change there, so
+  a fix tested only on a first click passes without touching the defect.
+- **With no pulse the button refuses and says it is waiting for the first
+  scan.** Assert `claimed`/`eligible` absent — the contract marks both
+  `.optional()` for exactly this case, and a fix that reads them unguarded
+  crashes or silently treats missing as zero.
+- **It does not fall back to `card.started` when the counts are missing.**
+  The pairing: a fallback passes every assertion above and keeps the defect
+  alive in the window where it is most likely.
 - `pnpm run test:board`, `pnpm run typecheck`, `pnpm test`, `pnpm run validate`
   all pass.
 - `pnpm build:board` run in the implementing worktree and the artifact
@@ -290,3 +337,21 @@ per-tab question.
 
 Also out of scope: an in-flight registry on the server. It would be state the
 board does not otherwise keep, for a case the git layer already settles.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "The plan swaps card.started for waveSummary.claimed. Measured: both counts are .optional() — 'Absent when there is no pulse' — while card.started is always present. The button would go blind exactly when a freshly restarted board has not scanned yet.", "a": "Refuse rather than guess. Without a scan the board does not know which wave is eligible, so a dispatch would be a click into the dark and unreportable afterwards. It dims and says it is waiting for the first scan — the posture the board already takes when it has lost contact. Falling back to card.started keeps the defect alive in the window where it is most likely, hidden behind an apparently-working button", "category": "ux-errors"},
+    {"q": "isReadyToStart demands phase Design and started false, but the reported card was Development AND started — yet the button rendered. A second condition admits started Development cards: the button exists to start the NEXT wave too.", "a": "That confirms the diagnosis and belongs in the plan. The button has two jobs and a success check that serves only the first, so every plan with more than one wave breaks from the second click onward — which is every plan written this session", "category": "domain-rules"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "domain": {"rules": true, "workflows": false, "data": true},
+    "ux": {"happyPath": true, "edgeCases": true, "errors": true, "accessibility": true},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
