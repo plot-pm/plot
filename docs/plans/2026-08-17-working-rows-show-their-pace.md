@@ -10,7 +10,7 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-17, Jan Wloka, plan-PR #190 merged
-- **Started:**
+- **Started:** 2026-08-17, Jan Wloka, `feature/working-rows-show-their-pace`
 - **Delivered:**
 
 ## Problem
