@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import {
   ELIGIBLE_NOTE,
   type AgentRow,
@@ -169,7 +169,7 @@ export function waitingLabel(days: number): string {
  * every row.
  *
  * ```
- * 6rem   10rem   1fr     9rem   2.5rem   1.25rem
+ * 6rem   10rem   1fr     14rem  2.5rem   1.25rem
  * phase  plan    branch  pr     age      menu
  * ```
  *
@@ -188,8 +188,25 @@ export function waitingLabel(days: number): string {
  *
  * Exported for test: the tracks are the claim, and a test that reads the class
  * off one row cannot tell a shared constant from a lucky duplicate.
+ *
+ * **The PR track is `14rem`, and it took 80 px back from the branch rather than
+ * from the window.** `1fr` does not mean *take what you need*; it means take
+ * everything left over — so on a wide window every spare pixel collected
+ * between the branch name and the PR cell, as a gap that belongs to the branch
+ * column and draws nothing. The branch names were already legible in that
+ * gap's own screenshot; the PR cell at `9rem` was not, holding a glyph, a
+ * number and a word.
+ *
+ * Two wider-looking shapes were rejected, both for the same reason:
+ * `minmax(9rem, auto)` on the PR cell sizes it to content, so its edge wanders
+ * between rows; `max-content` on the branch sizes it to the longest name IN
+ * THAT SECTION, so two groups disagree about where the branch starts. Either
+ * gives back at one column what fixed tracks establish at all of them. The
+ * honest cost of a fixed `14rem` is that a narrow-but-not-mobile window elides
+ * the branch sooner — middle elision keeps both ends and `title` keeps the
+ * whole name.
  */
-export const ROW_TRACKS = 'grid-cols-[6rem_10rem_1fr_9rem_2.5rem_1.25rem]';
+export const ROW_TRACKS = 'grid-cols-[6rem_10rem_1fr_14rem_2.5rem_1.25rem]';
 
 /**
  * The PR a row carries, derived from the row rather than imported.
@@ -204,10 +221,15 @@ type AgentPr = NonNullable<AgentRow['pr']>;
 /**
  * Where the row stops being a row.
  *
- * Arithmetic, not taste: the fixed tracks total 460 px and the gaps and padding
- * add 84 px, so **the grid needs 544 px before the branch column gets a single
- * pixel** — and a 375 px phone is 169 px short. Tailwind's `sm` breakpoint is
+ * Arithmetic, not taste: the fixed tracks total 540 px and the gaps and padding
+ * add 84 px, so **the grid needs 624 px before the branch column gets a single
+ * pixel** — and a 375 px phone is 249 px short. Tailwind's `sm` breakpoint is
  * 640 px, the first stop above that number.
+ *
+ * The PR track's growth from `9rem` to `14rem` moved that number from 544 px to
+ * 624 px and left the breakpoint where it is — 640 px is still the first stop
+ * above it, with 16 px to spare. A further widening of any fixed track would
+ * cross it, and then this constant has to move too.
  *
  * Below it each row becomes a small block: the branch on its own line, with
  * plan, phase, PR and age wrapped beneath it. **Nothing is dropped and nothing
@@ -471,6 +493,249 @@ export function isStartable(row: AgentRow): boolean {
  */
 export function isLive(row: AgentRow): boolean {
   return row.group === 'working';
+}
+
+/**
+ * How long a changed row wears its marker.
+ *
+ * **Three seconds, and the measurement decides it — not taste.** The value this
+ * watches comes from the host's PR refresh (`PR_REFRESH_MS`, 60 s), not from the
+ * 4 s fleet pulse, and `PR_BACKOFF_MAX_MS` pushes it to 120 s under a rate
+ * limit. So a transition can surface at most once a minute and often less: it is
+ * a RARE event, and a 300 ms flash — calibrated for something frequent enough
+ * that missing one hardly matters — would be missed nearly every time.
+ *
+ * Three seconds is long enough to catch a reader glancing back and short enough
+ * that it plainly reads as a marker rather than as a state. Deliberately NOT
+ * "until the next pulse": that would tie the marker's life to whichever clock
+ * cleared it (4 s or 60 s), and would leave it lit forever on a board whose
+ * server died — which is exactly when nothing is changing.
+ */
+export const CHANGE_MARK_MS = 3_000;
+
+/**
+ * The identity a row is remembered by, across pulses AND across sections.
+ *
+ * `${repo}/${branch}`, the same key `AgentList` already gives `<Row>`. Keyed on
+ * IDENTITY rather than on position on purpose: `pr.state` helps decide the group
+ * (`conflicts` sends a row to WAITING ON YOU, CI running to WAITING ON A
+ * MACHINE), so the changes worth marking are frequently the ones that MOVE the
+ * row — and a position-keyed memory loses the prior value in exactly that case.
+ */
+export function rowKey(row: Pick<AgentRow, 'repo' | 'branch'>): string {
+  return `${row.repo}/${row.branch}`;
+}
+
+/** The watched value: the six PR states plus *no PR*, as one value. */
+export type WatchedState = NonNullable<AgentRow['pr']>['state'] | null;
+
+/**
+ * The one value each row is watched by.
+ *
+ * `pr` is `.nullable().default(null)` and MOST rows carry none — `not-started`,
+ * `quiet`, and every fresh claim — so this reads through an optional chain
+ * rather than `row.pr.state`, which crashes on precisely those rows.
+ *
+ * *No PR* is the seventh value, not a gap: `null → pending` is a PR opening,
+ * often the most interesting transition a branch has, and `pending → null` is
+ * one merged or closed out from under the row. Both are the watched value
+ * changing, which keeps the rule single instead of adding an exception about
+ * which changes count.
+ */
+export function watchedState(row: AgentRow): WatchedState {
+  return row.pr?.state ?? null;
+}
+
+/**
+ * Which rows changed since the last pulse, and what to remember for the next.
+ *
+ * Pure, and exported for test, because this is the whole rule: vitest runs with
+ * `environment: 'node'`, so the decision lives here as a function over (prior,
+ * current) and the browser tests are left to assert only what genuinely needs a
+ * page.
+ *
+ * **`prior` distinguishes a MISSING key from a stored `null`, and the two mean
+ * opposite things:**
+ *
+ * | `prior` holds | Means | This pulse |
+ * |---|---|---|
+ * | *(no entry)* | never observed this row | record silently |
+ * | `null` | observed, and it had no PR | a move away from `null` marks |
+ * | a state | observed, with that state | a different state marks |
+ *
+ * Collapsing the first two is the tempting simplification and it is wrong in a
+ * way that hides itself: it passes the first-pulse assertion (nothing marks on
+ * a fresh mount) and silences every branch's FIRST PR forever, because *never
+ * seen* and *seen with no PR* would be indistinguishable. Hence a `Map` read
+ * with `.has()` rather than a truthiness test.
+ *
+ * The first pulse after a load, a restart or a reconnect therefore marks
+ * nothing: *unknown → conflicts* is a first sighting, not a transition, and
+ * treating it as one would flash every row on every reload — the loudest
+ * possible way to be wrong. A row that vanishes and returns starts silent for
+ * the same reason.
+ *
+ * Every changed row is returned, with no threshold and no suppression: if ten
+ * rows really did change, ten marks are the honest report, and a rule that goes
+ * quiet exactly when the most changed would make the board least informative at
+ * its most eventful moment.
+ *
+ * Rows ABSENT from this pulse are dropped from the returned memory rather than
+ * carried: the map is one value deep per visible row, not a log.
+ */
+export function changedRows(
+  prior: ReadonlyMap<string, WatchedState>,
+  rows: readonly AgentRow[],
+): { changed: Set<string>; next: Map<string, WatchedState> } {
+  const changed = new Set<string>();
+  const next = new Map<string, WatchedState>();
+  for (const row of rows) {
+    const key = rowKey(row);
+    const now = watchedState(row);
+    // `.has()`, never `prior.get(key) != null` — a stored `null` is a KNOWN
+    // value and an absent key is not, and the two are indistinguishable to a
+    // truthiness test.
+    if (prior.has(key) && prior.get(key) !== now) changed.add(key);
+    next.set(key, now);
+  }
+  return { changed, next };
+}
+
+/**
+ * The bookkeeping behind the markers: which keys are lit, and when each goes out.
+ *
+ * Split out of the hook and exported for test because the restart rule is not
+ * observable through the board's own clocks. `FLEET_POLL_MS` is 4 s and a mark
+ * lives 3 s, so two changes arriving on consecutive polls can never overlap —
+ * a browser test "asserting" a restart is really watching a second mark replace
+ * an expired first, and passes just as happily with the restart removed. (It
+ * did: the sabotage was run.) Driven directly with a fake clock, the rule is
+ * exact.
+ *
+ * `schedule` is the injection point for that clock — `setTimeout` in the app,
+ * a controllable stub in the test.
+ */
+export class ChangeMarks {
+  private readonly timers = new Map<string, () => void>();
+
+  constructor(
+    private readonly onChange: (lit: ReadonlySet<string>) => void,
+    private readonly schedule: (fn: () => void, ms: number) => () => void =
+      (fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); },
+  ) {}
+
+  private readonly lit = new Set<string>();
+
+  /**
+   * Light every key in `changed`, each for a full `CHANGE_MARK_MS` from NOW.
+   *
+   * **A key already lit has its timer RESTARTED, not extended and not ignored.**
+   * The marker claims *something is happening here*, and two changes in quick
+   * succession make that more true, not less: an ignored second change would
+   * let the first timer expire on its own schedule and imply nothing further
+   * happened — the exact false statement the marker exists to prevent.
+   */
+  mark(changed: Iterable<string>): void {
+    let touched = false;
+    for (const key of changed) {
+      touched = true;
+      // Cancel first: the pending timeout belongs to the PREVIOUS change and
+      // would otherwise take this one's marker with it when it fires.
+      this.timers.get(key)?.();
+      this.lit.add(key);
+      this.timers.set(key, this.schedule(() => {
+        this.timers.delete(key);
+        this.lit.delete(key);
+        this.onChange(new Set(this.lit));
+      }, CHANGE_MARK_MS));
+    }
+    if (touched) this.onChange(new Set(this.lit));
+  }
+
+  /** Drop every pending timer — the component is going away. */
+  dispose(): void {
+    for (const cancel of this.timers.values()) cancel();
+    this.timers.clear();
+    this.lit.clear();
+  }
+}
+
+/**
+ * Which rows are currently wearing a change marker.
+ *
+ * The memory is a REF, not state: it is the board's record of what it last saw,
+ * and writing it must not itself cause a render. What renders is the set of lit
+ * keys beside it.
+ *
+ * **Per client, and one value deep.** Nothing is persisted and no contract field
+ * is added — so a reload starts silent (the honest answer to *has anything
+ * changed since I started looking?* is *I have only just started looking*), two
+ * tabs mark independently, and a backgrounded tab accumulates nothing. The
+ * marker is not a log.
+ *
+ * **Each key's timer is its own, and a second change RESTARTS it.** The marker
+ * claims *something is happening here*, and two changes in quick succession make
+ * that more true, not less: letting the first timer expire un-extended would
+ * hide the second change behind the first and imply nothing further happened —
+ * exactly the false statement the marker exists to prevent. So a repeat change
+ * clears the pending timeout before setting a new one.
+ *
+ * Each marker clears ITSELF on its own timer rather than waiting for the next
+ * pulse, which is what keeps a board that lost its server from sitting lit.
+ */
+function useChangeMarks(rows: readonly AgentRow[]): ReadonlySet<string> {
+  const prior = useRef<Map<string, WatchedState> | null>(null);
+  const [lit, setLit] = useState<ReadonlySet<string>>(() => new Set());
+  const marks = useRef<ChangeMarks | null>(null);
+  marks.current ??= new ChangeMarks(setLit);
+
+  useEffect(() => {
+    // The FIRST pulse has no prior map at all, so `changedRows` sees an empty
+    // memory, marks nothing, and simply records — the fresh-mount case, which
+    // fires on every page load.
+    const { changed, next } = changedRows(prior.current ?? new Map(), rows);
+    prior.current = next;
+    if (changed.size > 0) marks.current!.mark(changed);
+  }, [rows]);
+
+  // Unmounting with markers lit would otherwise leave timeouts holding a
+  // setState against a gone component.
+  useEffect(() => () => marks.current?.dispose(), []);
+
+  return lit;
+}
+
+/**
+ * The mark a row wears for ~3 s after its PR status changed.
+ *
+ * **Deliberately NOT `LiveDot`, and the distinction is a requirement.** That dot
+ * means *something is alive here, end unknown* and lives for hours; this means
+ * *this just changed* and lives for seconds. One vocabulary carrying both would
+ * make the reader ask which of two questions a mark is answering.
+ *
+ * A tint across the row rather than a badge in a cell: the change is a fact
+ * about the ROW — and frequently about the row having just ARRIVED in this
+ * section, since `pr.state` helps decide the group — so marking the whole line
+ * is what makes the arrival legible at its new location.
+ *
+ * **`aria-hidden`, with no live region.** The cell's own text already changed,
+ * and a screen reader reaches the new value by reading the row. An `aria-live`
+ * announcement on every CI transition across every row would be an interruption
+ * rather than an aid.
+ *
+ * **Under `motion-reduce` the mark STAYS and only the animation stops** — a
+ * static tint, the same rule `LiveDot` follows. Hiding the element under reduced
+ * motion would pass a motion-only assertion and lose the information along with
+ * the movement, which is the defect that rule exists to prevent.
+ */
+function ChangeMark() {
+  return (
+    <span
+      aria-hidden
+      data-change-mark
+      className="pointer-events-none absolute inset-0 animate-pulse bg-amber-300/25 motion-reduce:animate-none dark:bg-amber-400/20"
+    />
+  );
 }
 
 /**
@@ -864,6 +1129,7 @@ function Row({
   dispatch,
   pulse = 0,
   onStarting,
+  marked = false,
 }: {
   row: AgentRow;
   onOpenPlan?: AgentListProps['onOpenPlan'];
@@ -882,6 +1148,8 @@ function Row({
   pulse?: number;
   /** A Start work click became outstanding (true) or settled (false). */
   onStarting?: (active: boolean) => void;
+  /** This row's PR status changed within the last `CHANGE_MARK_MS`. */
+  marked?: boolean;
 }) {
   // Same convention as the card's Open control: a real anchor, so
   // cmd/ctrl/shift/middle-click open natively, and only a plain primary click is
@@ -924,6 +1192,12 @@ function Row({
           in from the edge on every row in the fleet to make room for a mark
           most rows do not carry. In the card form it flows inline, where the
           wrap makes position mean nothing anyway. */}
+      {/* The change mark, wherever this row now sits — including a section it
+          has just arrived in, which is the common case rather than the exotic
+          one, since `pr.state` helps decide the group. It overlays the row from
+          the same `relative` box the live dot hangs in, so it takes no track
+          and shifts no column. */}
+      {marked && <ChangeMark />}
       {isLive(row) && <LiveDot />}
       {/* The phase takes the REPO's place rather than adding a seventh cell to
           a row that already wraps on `feature/opus5-hardening-challenge-budget`.
@@ -1267,6 +1541,12 @@ export function AgentList({
   // `fleet.error`, which is a server that answered to say its scan failed.
   const stale = staleSeconds !== null;
 
+  // Which rows changed their PR status in the last few seconds. Fed the WHOLE
+  // fleet rather than one group's rows: a change frequently moves a row between
+  // sections, and a memory scoped to a section would lose the prior value in
+  // exactly that case — the case it most exists for.
+  const marked = useChangeMarks(fleet.rows);
+
   // Which groups are folded. Seeded from `localStorage` on the first render
   // rather than in an effect: an effect would paint the crowded view once and
   // then fold it, which is a jump on every reload of a board that gets reloaded
@@ -1502,7 +1782,10 @@ export function AgentList({
                     <ul role="presentation">
                       {group.rows.map((r) => (
                         <Row
-                          key={`${r.repo}/${r.branch}`}
+                          // The same helper the change memory keys by — two
+                          // spellings of one identity is how a mark ends up on
+                          // the wrong row.
+                          key={rowKey(r)}
                           row={r}
                           onOpenPlan={onOpenPlan}
                           planInHeading={headed}
@@ -1513,6 +1796,9 @@ export function AgentList({
                           dispatch={dispatch}
                           pulse={pulse}
                           onStarting={onStarting}
+                          // By the row's own identity, so a row that changed
+                          // section carries its mark to where it now sits.
+                          marked={marked.has(rowKey(r))}
                         />
                       ))}
                     </ul>

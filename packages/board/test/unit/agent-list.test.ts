@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   groupByPlan,
   countdown,
@@ -14,11 +15,21 @@ import {
   readCollapsed,
   writeCollapsed,
   COLLAPSED_BY_DEFAULT,
+  CARD_BELOW_PX,
   GROUPS,
+  ROW_TRACKS,
+  CHANGE_MARK_MS,
+  ChangeMarks,
+  changedRows,
+  rowKey,
+  watchedState,
+  type WatchedState,
   type PlanGroup,
 } from '../../src/app/components/AgentList.js';
 import { GROUP_ORDER } from '../../src/server/fleet.js';
-import { DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, type AgentRow } from '../../src/contract/schema.js';
+import {
+  AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, type AgentRow,
+} from '../../src/contract/schema.js';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'plot', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
@@ -502,5 +513,304 @@ describe('noteWithoutPr — the note is relieved of one duty, not replaced', () 
     expect(noteWithoutPr('see PR #130 green', pr(130))).toBe('see PR #130 green');
     expect(noteWithoutPr('PR #999 green', pr(130))).toBe('PR #999 green');
     expect(noteWithoutPr('PR #130 green', null)).toBe('PR #130 green');
+  });
+});
+
+describe('changedRows — which rows mark themselves, and which stay silent', () => {
+  /** A row carrying one PR state, or none. */
+  const withState = (branch: string, state: WatchedState) =>
+    row({ branch, pr: state === null ? null
+      : { number: 1, url: '', draft: false, state } });
+
+  /** The memory as it stands after observing `rows` once. */
+  const observed = (...rows: AgentRow[]) => changedRows(new Map(), rows).next;
+
+  it('marks NOTHING on the first pulse, however much state the rows carry', () => {
+    // The case that fires on every page load, every board restart and every
+    // reconnect — and the one a naive implementation gets wrong in the loudest
+    // possible way, by flashing all 43 rows at once. `unknown → conflicts` is a
+    // first sighting, not a transition.
+    const rows = [withState('a', 'conflicts'), withState('b', 'green'), withState('c', null)];
+    const { changed, next } = changedRows(new Map(), rows);
+    expect(changed.size).toBe(0);
+    // It still RECORDED all three, or the second pulse would be a first one.
+    expect(next.size).toBe(3);
+  });
+
+  it('marks a row whose state changed', () => {
+    const prior = observed(withState('a', 'pending'));
+    expect([...changedRows(prior, [withState('a', 'failing')]).changed])
+      .toEqual(['plot/a']);
+  });
+
+  it('does NOT mark a row whose watched value held, however much else moved', () => {
+    // The marker is about the watched value ALONE. A new commit, a rewritten
+    // note and a changed age are not what it claims.
+    const prior = observed(withState('a', 'green'));
+    const moved = row({
+      branch: 'a', pr: { number: 1, url: '', draft: false, state: 'green' },
+      note: 'last commit 1 min ago', ageMinutes: 1, group: 'working',
+    });
+    expect(changedRows(prior, [moved]).changed.size).toBe(0);
+  });
+
+  it('marks a PR APPEARING — null is a value, not a gap', () => {
+    // `null → pending`: an agent has just delivered, and this is often the most
+    // interesting transition a branch ever has.
+    const prior = observed(withState('a', null));
+    expect([...changedRows(prior, [withState('a', 'pending')]).changed]).toEqual(['plot/a']);
+  });
+
+  it('marks a PR GOING AWAY, the same as one arriving', () => {
+    // `pending → null`, a PR merged or closed out from under the row. An
+    // asymmetry here would need a reason and there is none that survives *the
+    // row's own state changed*.
+    const prior = observed(withState('a', 'pending'));
+    expect([...changedRows(prior, [withState('a', null)]).changed]).toEqual(['plot/a']);
+  });
+
+  it('tells NEVER-SEEN apart from SEEN-WITH-NO-PR', () => {
+    // THE pairing of this whole rule. An implementation storing both as
+    // "nothing" passes the first-pulse assertion above and then silences every
+    // branch's first PR forever — so both halves are asserted against the same
+    // row and the same state.
+    const fresh = changedRows(new Map(), [withState('a', null)]);
+    expect(fresh.changed.size).toBe(0);              // first sighting: silent
+    expect(fresh.next.has('plot/a')).toBe(true);     // but REMEMBERED,
+    expect(fresh.next.get('plot/a')).toBe(null);     // as a known `null`
+    // …so the PR that opens next is a change, not another first sighting.
+    expect([...changedRows(fresh.next, [withState('a', 'pending')]).changed])
+      .toEqual(['plot/a']);
+  });
+
+  it('marks every changed row — no threshold, no suppression', () => {
+    // A move on the default branch flips many PRs to `conflicts` together. Ten
+    // changes are ten marks: a rule that went quiet exactly when the most
+    // changed would make the board least informative at its most eventful
+    // moment.
+    const before = Array.from({ length: 10 }, (_, i) => withState(`b${i}`, 'green'));
+    const after = Array.from({ length: 10 }, (_, i) => withState(`b${i}`, 'conflicts'));
+    expect(changedRows(observed(...before), after).changed.size).toBe(10);
+  });
+
+  it('keeps a row\'s memory when the row changes SECTION', () => {
+    // The pairing the plan names: `pr.state` helps decide the group, so the
+    // changes worth marking are frequently the ones that MOVE the row. A memory
+    // keyed on position rather than identity loses the prior value in exactly
+    // that case; keyed on `${repo}/${branch}` it survives.
+    const before = row({
+      branch: 'a', group: 'waiting-on-machine',
+      pr: { number: 1, url: '', draft: false, state: 'pending' },
+    });
+    const after = row({
+      branch: 'a', group: 'waiting-on-you',
+      pr: { number: 1, url: '', draft: false, state: 'conflicts' },
+    });
+    expect([...changedRows(observed(before), [after]).changed]).toEqual(['plot/a']);
+  });
+
+  it('starts a returning row SILENT — absence erases the memory', () => {
+    // A branch deleted and recreated, or a row simply missing from one pulse.
+    // It has no prior value at its return, so it records rather than marks.
+    const first = observed(withState('a', 'green'));
+    const withoutIt = changedRows(first, [withState('other', 'green')]);
+    expect(withoutIt.next.has('plot/a')).toBe(false);
+    // Back, with a DIFFERENT state than it left with — still silent.
+    expect(changedRows(withoutIt.next, [withState('a', 'conflicts')]).changed.size).toBe(0);
+  });
+
+  it('does not crash on the rows that carry no PR at all', () => {
+    // Most rows: `not-started`, `quiet`, every fresh claim. An implementation
+    // reading `row.pr.state` unguarded throws on precisely these.
+    expect(() => changedRows(new Map(), [row({ pr: null })])).not.toThrow();
+    expect(watchedState(row({ pr: null }))).toBe(null);
+  });
+
+  it('keys a row by repo AND branch', () => {
+    // Two repos can carry the same branch name, and one board can show both.
+    expect(rowKey({ repo: 'plot', branch: 'feature/x' })).toBe('plot/feature/x');
+    expect(rowKey({ repo: 'other', branch: 'feature/x' }))
+      .not.toBe(rowKey({ repo: 'plot', branch: 'feature/x' }));
+  });
+});
+
+describe('ChangeMarks — how long each mark stays lit', () => {
+  /**
+   * A clock the test advances by hand.
+   *
+   * Driven directly rather than through the board's polls, because the restart
+   * rule is invisible at the board's own rates: `FLEET_POLL_MS` is 4s and a mark
+   * lives 3s, so two changes on consecutive polls never overlap and a
+   * browser-level "restart" assertion passes with the restart removed.
+   */
+  function fakeClock() {
+    let now = 0;
+    const due = new Map<number, { at: number; fn: () => void }>();
+    let nextId = 1;
+    return {
+      schedule(fn: () => void, ms: number) {
+        const id = nextId++;
+        due.set(id, { at: now + ms, fn });
+        return () => due.delete(id);
+      },
+      advance(ms: number) {
+        now += ms;
+        for (const [id, t] of [...due].sort((a, b) => a[1].at - b[1].at)) {
+          if (t.at <= now) { due.delete(id); t.fn(); }
+        }
+      },
+    };
+  }
+
+  /** A ChangeMarks whose lit set the test can read after each step. */
+  function marksOnFakeClock() {
+    const clock = fakeClock();
+    let lit: ReadonlySet<string> = new Set();
+    const marks = new ChangeMarks((next) => { lit = next; }, clock.schedule);
+    return { marks, clock, lit: () => [...lit].sort() };
+  }
+
+  it('lights a changed row, and clears it after CHANGE_MARK_MS', () => {
+    const { marks, clock, lit } = marksOnFakeClock();
+    marks.mark(['plot/a']);
+    expect(lit()).toEqual(['plot/a']);
+    // Still lit a moment before its time.
+    clock.advance(CHANGE_MARK_MS - 1);
+    expect(lit()).toEqual(['plot/a']);
+    // And out on its OWN timer — no further pulse was needed to clear it, which
+    // is what keeps a board that lost its server from sitting lit forever.
+    clock.advance(1);
+    expect(lit()).toEqual([]);
+  });
+
+  it('RESTARTS a lit mark on a second change rather than letting it expire', () => {
+    // THE assertion this class was extracted to make. A second change arrives
+    // when the first mark is two-thirds spent; if the first timer were left to
+    // run, the mark would go out on the FIRST change's schedule and imply
+    // nothing further had happened — the exact false statement it exists to
+    // prevent.
+    const { marks, clock, lit } = marksOnFakeClock();
+    marks.mark(['plot/a']);
+    clock.advance(2_000);
+    marks.mark(['plot/a']);           // the second change, while still lit
+    // Past the FIRST change's expiry, and still lit: only a restart does this.
+    clock.advance(1_500);
+    expect(lit()).toEqual(['plot/a']);
+    // It does still go out — on the second change's schedule, not never.
+    clock.advance(CHANGE_MARK_MS);
+    expect(lit()).toEqual([]);
+  });
+
+  it('gives each row its own timer', () => {
+    // Ten rows changing means ten marks, and one row's expiry must not take
+    // another's with it.
+    const { marks, clock, lit } = marksOnFakeClock();
+    marks.mark(['plot/a']);
+    clock.advance(2_000);
+    marks.mark(['plot/b']);
+    expect(lit()).toEqual(['plot/a', 'plot/b']);
+    // `a` goes out on its own schedule; `b` is still only 1s old.
+    clock.advance(1_000);
+    expect(lit()).toEqual(['plot/b']);
+    clock.advance(CHANGE_MARK_MS);
+    expect(lit()).toEqual([]);
+  });
+
+  it('lights ten rows at once', () => {
+    const { marks, lit } = marksOnFakeClock();
+    marks.mark(Array.from({ length: 10 }, (_, i) => `plot/b${i}`));
+    expect(lit()).toHaveLength(10);
+  });
+
+  it('drops every pending timer on dispose', () => {
+    // Unmounting with marks lit would otherwise leave timeouts firing against a
+    // gone component.
+    const { marks, clock, lit } = marksOnFakeClock();
+    marks.mark(['plot/a']);
+    marks.dispose();
+    clock.advance(CHANGE_MARK_MS * 2);
+    expect(lit()).toEqual(['plot/a']);   // the last state published, never updated after dispose
+  });
+});
+
+describe('CHANGE_MARK_MS — the marker outlives a glance, not the change', () => {
+  it('is about three seconds, tied to neither poll interval', () => {
+    // Measured, not chosen: the watched value comes from the 60s PR refresh
+    // (120s under backoff), not the 4s fleet pulse, so a transition is a RARE
+    // event and a 300ms flash would be missed nearly every time. It is
+    // deliberately not equal to either clock — a marker cleared by the next
+    // pulse would live 4s or 60s depending on which one cleared it, and would
+    // stay lit forever on a board whose server died.
+    expect(CHANGE_MARK_MS).toBe(3_000);
+    expect(CHANGE_MARK_MS).toBeGreaterThan(1_000);
+    expect(CHANGE_MARK_MS).toBeLessThan(4_000);
+  });
+});
+
+describe('the change marker costs nothing outside the client', () => {
+  it('leaves BOTH clocks where they are', () => {
+    // Making the marker livelier by polling the host harder would spend the
+    // rate limit `PR_BACKOFF_MAX_MS` exists to protect — for a signal nobody
+    // asked to be sharper. Read out of the sources rather than asserted in
+    // prose, so a later edit to either number fails here.
+    const read = (file: string) =>
+      readFileSync(new URL(file, import.meta.url), 'utf8');
+    expect(read('../../src/app/App.tsx')).toContain('FLEET_POLL_MS = 4_000');
+    const fleetSrc = read('../../src/server/fleet.ts');
+    expect(fleetSrc).toContain('PR_REFRESH_MS = 60_000');
+    expect(fleetSrc).toContain('PR_BACKOFF_MAX_MS = 120_000');
+  });
+
+  it('adds no contract field — the memory is the CLIENT\'s', () => {
+    // The whole change is that the client remembers one value. Putting it in
+    // the server would give it a notion of *event* where it has only ever had
+    // *state*, and would grow the payload to carry it.
+    const row = AgentRowSchema.parse({
+      repo: 'plot', branch: 'feature/x', plan: 'p', planFile: 'f.md', wave: 'w',
+      state: 'wip', phase: null, group: 'quiet', ageMinutes: 1, note: '', pr: null,
+      branchUrl: '', waitingDays: null,
+    });
+    for (const key of Object.keys(row)) {
+      expect(key).not.toMatch(/prior|previous|changed|mark|flash/i);
+    }
+  });
+});
+
+describe('ROW_TRACKS — where the row\'s width goes', () => {
+  /** The six tracks, in order, read out of the one exported constant. */
+  const tracks = () => {
+    const inner = /grid-cols-\[(.+)\]/.exec(ROW_TRACKS)?.[1];
+    expect(inner, `ROW_TRACKS is not a Tailwind track list: ${ROW_TRACKS}`).toBeTruthy();
+    return inner!.split('_');
+  };
+
+  it('gives the PR column 14rem, taken from the branch and not from the window', () => {
+    // The reported defect: at 9rem the PR cell held `⑂116 no checks` and
+    // nothing wider, while the window's whole slack collected in the branch's
+    // `1fr` as a gap that draws nothing.
+    expect(tracks()).toEqual(['6rem', '10rem', '1fr', '14rem', '2.5rem', '1.25rem']);
+  });
+
+  it('keeps every track but the branch FIXED', () => {
+    // The pairing that matters, and the reason this asserts the shape rather
+    // than only the number. `minmax(9rem, auto)` on the PR cell and
+    // `max-content` on the branch both make the column WIDER and both let an
+    // edge move between rows — passing "the status got more space" while
+    // undoing what fixed tracks are for. Exactly one track may be flexible.
+    const flexible = tracks().filter((t) => !/^[\d.]+rem$/.test(t));
+    expect(flexible).toEqual(['1fr']);
+  });
+
+  it('still needs less than the card breakpoint before the branch gets a pixel', () => {
+    // The arithmetic `CARD_BELOW_PX` rests on, and the thing this change spent:
+    // the fixed tracks went from 460px to 540px, so the grid now needs 624px of
+    // the 640px breakpoint. Widening any fixed track again crosses it, and then
+    // `CARD_BELOW_PX` has to move too — this fails when that day comes.
+    const GAPS_AND_PADDING = 84;
+    const fixedPx = tracks()
+      .filter((t) => t !== '1fr')
+      .reduce((sum, t) => sum + Number.parseFloat(t) * 16, 0);
+    expect(fixedPx).toBe(540);
+    expect(fixedPx + GAPS_AND_PADDING).toBeLessThan(CARD_BELOW_PX);
   });
 });
