@@ -113,7 +113,7 @@ So the split follows the principle rather than the current accident:
 | Walking an `in-session` review | Reading `Review:` / `Impl:` and the PR state |
 | Asking the two ceremony questions when a plan predates them | Merging the plan PR via the host adapter |
 | The tracer-bullet suggestion heuristic | Flipping the phase, filling `Approved:` |
-| Tallying `ballot` reviewers | Removing the plan's `.plot/hold` line |
+| Tallying `ballot` reviewers | Removing the `.plot/hold` entry for each branch the plan names |
 | Judging whether a draft is *ready* | Updating the sprint annotation |
 | | Pushing via `plot-push-main.sh` and reporting its verdict |
 | | Refusing, with a reason, what it cannot judge |
@@ -121,6 +121,29 @@ So the split follows the principle rather than the current accident:
 **Seven steps, not five.** The hold and the sprint annotation are on the right
 of that table because they are writes with no decision in them — and because
 leaving either to a caller re-creates the split this plan exists to close.
+
+**The hold is keyed by BRANCH, not by plan**, which the first draft got wrong by
+writing *"the plan's `.plot/hold` line"*. Measured:
+`plot-phase-gate.sh:121` matches `$1 == b` against the branch name, and a plan
+names several branches. So the script reads the plan's `## Branches` section and
+removes the entry for each — the plan is what connects a slug to the branch
+names the hold file speaks in. Entries for branches this plan does not name stay
+exactly where they are: approving one piece of work must not release someone
+else's gate.
+
+Measured too: **there is no `.plot/hold` in this repo at all.** Handled anyway,
+for the same reason as the `Review:` values — the gate reads that file on every
+commit, and it is absent only because nobody has written one yet. A script that
+ignored it would behave correctly until the first time it mattered, which is
+precisely when it would be relied upon.
+
+**The script must survive the repo's own gate.** `plot-phase-gate.sh` is a
+PreToolUse hook that blocks commits *while the governing plan is Draft* — and
+`plot-approve.sh` commits exactly then, because rewriting the phase **is** the
+transition. The gate lets plan-file-only commits through, so this should work;
+what is missing is that nothing says so. The `Done when` list turns that
+assumption into a check, because a script strangled by its own repo's hook would
+fail in the one state it always runs in.
 
 **The skill keeps calling the script**, as `plot-dispatch/SKILL.md` does. It does
 not lose a step; it stops re-implementing one in prose.
@@ -210,9 +233,16 @@ one hour for two branches meeting in the same objects.
 - **`Approved:` fills the placeholder rather than appending after the list.**
   Assert the line lands above `Delivered:` — `append_started_line()` had exactly
   this bug on 2026-08-17, and a second implementation would repeat it.
-- **The `.plot/hold` line for the plan is removed.** Assert the gate is
-  released: an approval that leaves it standing still blocks, and the plan reads
-  Approved while behaving as if it were not.
+- **The `.plot/hold` entry for EACH branch the plan names is removed.** Assert
+  with a hold file holding three entries where the plan names two: the two go,
+  the third stays. Keyed by branch, not by slug — approving one piece of work
+  must not release an unrelated gate.
+- **A missing `.plot/hold` is not a failure.** The file does not exist in this
+  repo, so the common path is the absent one.
+- **The script commits successfully while `plot-phase-gate.sh` is active and
+  the plan is still Draft.** The state it ALWAYS runs in: rewriting the phase is
+  the transition, so the commit happens before the plan stops being a Draft. A
+  script strangled by its own repo's hook fails in its only case.
 - **The sprint annotation is updated.** Assert `/plot-sprint status` reports the
   approval — the annotation is written by `/plot-approve` and read by
   `/plot-sprint`, so an approval that skips it makes the sprint view wrong
@@ -259,11 +289,14 @@ surfaced both.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {"q": "The plan lists five mechanical steps, but the skill has two more side effects it missed: step 5 removes a .plot/hold entry, and /plot-sprint depends on /plot-approve writing sprint annotations it later reads.", "a": "Both move into the script. An approval that leaves the hold in place still blocks; one that skips the annotation makes /plot-sprint status wrong. Both are writes with no decision in them — delete a line, rewrite a comment — so they belong to collecting. Five of seven steps would be a half-approval, worse than none", "category": "domain-workflows"},
     {"q": "plot-push-main.sh already exists and solves the branch-protection question — it reports clean/bypassed/unknown and names the waived rules. Does that change the scope?", "a": "The script chains existing pieces rather than building new ones: pr-state, pr-merge, awk in the shape of append_started_line, plot-push-main.sh. ~120 lines of sequencing plus refusals. That IS the argument for it being a script — every piece already exists at the collecting layer; only the sequence was missing", "category": "technical-implementation"},
     {"q": "The script refuses Review: in-session and ballot — but every plan in this repo declares Review: pr, so the refusal fires for nothing that exists.", "a": "Refuse anyway. /plot-idea offers all three, and a script treating an unfamiliar Review: as pr would approve a plan nobody discussed — silently, with a commit indistinguishable from a legitimate one. Unused is not impossible, and a default of 'carry on' is the stale-assumption shape this story keeps finding", "category": "domain-rules"}
+    {"q": "The plan says the script removes 'the plan's .plot/hold line'. Measured: plot-phase-gate.sh:121 matches $1 == b against the BRANCH name, and a plan names several branches.", "a": "Remove the entry for every branch the plan names — the plan is what connects a slug to the branch names the hold file speaks in. Entries for branches this plan does not name stay: approving one piece of work must not release someone else's gate", "category": "domain-rules"},
+    {"q": "plot-phase-gate.sh is a PreToolUse hook blocking commits while the governing plan is Draft — and plot-approve.sh commits exactly then, because rewriting the phase IS the transition.", "a": "Pin it as an acceptance criterion. The gate lets plan-file-only commits through, so it should work; what is missing is that nothing says so. A script strangled by its own repo's hook would fail in the one state it always runs in", "category": "technical-implementation"},
+    {"q": "There is no .plot/hold in this repo at all — the mechanism is unused, like Review: in-session.", "a": "Handle it anyway, same reasoning. The gate reads that file on every commit; it is absent only because nobody has written one. A script that ignored it would behave correctly until the first time it mattered — which is exactly when it would be relied on", "category": "domain-data"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
