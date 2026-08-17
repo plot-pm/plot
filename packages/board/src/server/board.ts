@@ -11,6 +11,7 @@ import {
   type Card,
   type Column,
   type CardPr,
+  type Phase,
   type SprintCard,
   type StoryCard,
   type FleetPulse,
@@ -403,6 +404,51 @@ export function worktreesFromPulse(
   return found;
 }
 
+/**
+ * The `YYYY-MM-DD` at the head of a transition record, or "".
+ *
+ * The records are written by hand and carry a tail — `2026-08-16, v2.3.0`,
+ * `2026-08-16, jwloka, plan-PR #146 merged` — so only the leading date is read.
+ * A record that does not begin with one yields "" rather than being coerced:
+ * this is the same rule `approvalDates` in `fleet.ts` states, and for the same
+ * reason. `Date.parse` is lenient enough to turn a typo into a confident wrong
+ * answer, and a wrong date here reorders a column silently.
+ */
+export function leadingDate(record: string): string {
+  const m = /^(\d{4}-\d{2}-\d{2})(?![\d-])/.exec(record.trim());
+  return m ? m[1] : '';
+}
+
+/**
+ * The date belonging to a card's OWN phase — the whole reason the card carries
+ * one field rather than four.
+ *
+ * Each column measures recency on its own clock: `Released` by when the work
+ * shipped, `Endgame` by when it was delivered, `Design`/`Development` by when
+ * the plan was approved. Reading one record for every column would sort at
+ * least three of them by a date that is not theirs.
+ *
+ * `Discovery` has none, and that is correct rather than a gap: a Draft plan has
+ * recorded no transition yet, so there is no date to be recent by. Such cards
+ * keep the order they arrived in.
+ *
+ * Exported for test — this mapping is the load-bearing half of the truncation,
+ * and getting it wrong produces a column that looks sorted and is not.
+ */
+export function phaseDateOf(phase: Phase, meta: PlanMeta): string {
+  switch (phase) {
+    case 'Released':
+      return leadingDate(meta.released_raw);
+    case 'Endgame':
+      return leadingDate(meta.delivered_raw);
+    case 'Design':
+    case 'Development':
+      return leadingDate(meta.approved_raw);
+    case 'Discovery':
+      return '';
+  }
+}
+
 /** slug from a date-prefixed plan filename (YYYY-MM-DD-<slug>.md). */
 function planSlug(file: string): string {
   const base = path.basename(file, '.md');
@@ -645,6 +691,12 @@ export function buildBoard(opts: BuildBoardOptions): Board {
         number,
         url: prLinks?.get(number)?.url ?? '',
       })),
+      // Read from the record this card's OWN column measures recency by. Always
+      // present (possibly "") rather than conditionally attached like the fields
+      // below: "" is a real answer here — this plan records no date for its
+      // phase — and a truncating column must be able to tell that apart from a
+      // card built by a server too old to have looked.
+      phaseDate: phaseDateOf(phase, meta),
     };
     if (meta.sprint) card.sprint = meta.sprint;
     if (meta.story) card.story = meta.story;

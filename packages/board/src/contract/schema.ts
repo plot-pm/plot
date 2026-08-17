@@ -216,6 +216,33 @@ export const CardSchema = z.object({
    * added without weakening refs-as-truth.
    */
   worktrees: z.array(z.object({ branch: z.string(), path: z.string() })).optional(),
+  /**
+   * The date belonging to THIS card's phase, as `YYYY-MM-DD` — or "" where the
+   * plan records none.
+   *
+   * One field rather than four, and that is the point: a `Released` card is
+   * recent by its **release** date and an `Endgame` card by its **delivery**
+   * date, so "how recent is this card" has a different answer per column. The
+   * server picks the right record once (see `phaseDateOf`) and the client sorts
+   * on the answer — otherwise every consumer would carry its own copy of the
+   * phase→record mapping, and a column would quietly sort by the wrong clock.
+   *
+   * Deliberately NOT a fallback chain down to the filename's date prefix. That
+   * prefix is when the plan was *written*, which for the thirteen plans in
+   * `Released` today is months away from when they shipped — a plausible-looking
+   * order that is simply a different question's answer. "" is the honest reply,
+   * and a card carrying it sorts last rather than sorting wrong.
+   *
+   * A DATE, not a timestamp: `Released: 2026-08-16, v2.3.0` is the finest
+   * resolution Plot records, so several cards share a day and their relative
+   * order within it is undefined. Sorting must therefore be stable — see
+   * `truncateColumn`.
+   *
+   * Defaulted so output from an older server still validates; such a board
+   * truncates by the order cards arrive in, which is worse than by date and far
+   * better than failing to parse.
+   */
+  phaseDate: z.string().default(''),
 });
 export type Card = z.infer<typeof CardSchema>;
 
