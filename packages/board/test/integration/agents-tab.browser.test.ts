@@ -137,13 +137,22 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     server?.kill();
   });
 
-  /** Open the Agents tab with `/api/fleet` answering with `payload`. */
+  /**
+   * Open the Agents tab with `/api/fleet` answering with `payload`.
+   *
+   * NOT STARTED's inner folds are opened on the way in — see `expandPlans`. That
+   * section now counts plans and folds its branches, and the assertions in this
+   * file are about what a not-started ROW renders; opening the fold is the click
+   * a reader makes to ask the same question. The plan row is a separate claim
+   * with its own suite.
+   */
   async function openAgents(payload: Fleet = fleet()): Promise<Page> {
     const page = await browser.newPage();
     await page.route('**/api/fleet', (route) =>
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandPlans(page);
     return page;
   }
 
@@ -161,6 +170,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandPlans(page);
     return page;
   }
 
@@ -178,6 +188,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
     await page.getByRole('button', { name: 'Agents' }).click();
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    // Re-opened, because leaving the tab and returning remounts the list and the
+    // inner fold is per-mount state — deliberately not persisted, unlike the
+    // section-level collapse.
+    await expandPlans(page);
     return page;
   }
 
@@ -204,6 +218,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         : route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandPlans(page);
     return { page, fail: () => { failing = true; }, recover: () => { failing = false; } };
   }
 
@@ -245,9 +260,37 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
   }
 
+  /**
+   * Open NOT STARTED's inner folds, so its branch rows are on the page.
+   *
+   * That section counts PLANS: one row per plan, with its branches folded
+   * beneath it and expandable — because its rows are not branches. Measured on
+   * the live board, every one of them carried `pr=—` and `age=—`, the name
+   * having come from the plan's `## Branches` section with no branch ever
+   * created for it.
+   *
+   * The branch rows are still there and still carry everything they did; they
+   * are one click away rather than on arrival. So the tests below that assert
+   * what a not-started ROW renders open the fold first — the same click a reader
+   * now makes — rather than being rewritten to assert the plan row, which is a
+   * different claim and has its own suite in
+   * `test/integration/not-started-plans.browser.test.ts`.
+   *
+   * Idempotent, and silent where a plan has no fold: a plan with one branch
+   * beneath it gets no expander, and its branch renders unconditionally.
+   */
+  async function expandPlans(page: Page) {
+    const toggles = page.locator('[data-wave-toggle]');
+    for (let i = 0; i < (await toggles.count()); i += 1) {
+      const toggle = toggles.nth(i);
+      if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+    }
+  }
+
   /** Open every group, for the tests that read the whole list. */
   async function expandAll(page: Page) {
     for (const key of ['quiet', 'done']) await expand(page, key);
+    await expandPlans(page);
   }
 
   const staleBanner = (page: Page) => page.getByText(/Not reaching the board server/);
@@ -912,6 +955,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      // This test builds its own page rather than going through `openAgents`, so
+      // it opens NOT STARTED's fold itself — the row it is about is a
+      // not-started BRANCH row, which now sits one click in.
+      await expandPlans(page);
       await rowFor(page, 'feature/untaken').waitFor({ timeout: 10_000 });
       expect(await menu(page, 'feature/untaken').getAttribute('aria-disabled')).toBe('true');
       expect(await startButtons(page).count()).toBe(0);
