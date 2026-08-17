@@ -6,6 +6,32 @@
 - **Ends as:** one PR to `main`
 - **Review of the code:** PR review per repo convention; CI `validate` must pass
 
+### Read this first: the work is written, and unverified
+
+A previous run wrote the change and **could not run a single
+state-changing command** — `pnpm install`, `git add`, `node` and `trash`
+all returned *"requires approval"* in a non-interactive session. It
+reported that honestly rather than claiming success, and left everything
+uncommitted in this worktree:
+
+```
+ M packages/board/src/app/components/AgentList.tsx
+ M packages/board/test/unit/agent-list.test.ts
+?? .changeset/20260817-group-shows-inner-activity.md
+```
+
+**Nothing about it has been verified.** No test ran, the artifact was not
+rebuilt, nothing was committed. `node_modules` was absent from this
+worktree at its start.
+
+So: **read the existing changes against the specification below** before
+adding anything. Where they satisfy it, keep them and say so. Where they
+do not, change them. Then run the gates, rebuild the artifact, commit and
+open the PR — the part the previous run could not reach.
+
+There is also a stray `.commit-msg-wave3.tmp` in the worktree; remove it
+with `trash` before committing.
+
 ### What to build
 
 A **group heading** carries the activity marker when any of its rows is
