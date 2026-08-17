@@ -2582,4 +2582,35 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await page.close();
     }
   });
+
+  it('shows the WHOLE PR error, however long the path in it', async () => {
+    // The message used to be cut at 80 characters, which is short enough to
+    // land mid-path — and the cut carried no ellipsis, so
+    // `…/skills/plot/script` read like a complete filename and named a file
+    // that does not exist. Measured cost: one wrong lookup before finding
+    // `plot-host.sh`.
+    //
+    // Asserted with the REAL message shape rather than a synthetic long string:
+    // an absolute path in this repo is already past 80 characters, which is why
+    // the limit bit in ordinary use rather than in some edge case.
+    const message =
+      'Command failed: bash /Users/someone/Quatico/Agentic-Tools/plot/skills/plot/scripts/plot-host.sh pr-list --rich';
+    expect(message.length).toBeGreaterThan(80);
+    const page = await openAgents(fleet({ prError: message }));
+    try {
+      const warning = page.locator('p', { hasText: 'PR data unavailable' });
+      await warning.waitFor({ timeout: 10_000 });
+      // The tail is what a slice would have removed, and the script's name is
+      // the whole point of reading the message at all.
+      expect(await warning.textContent()).toContain('plot-host.sh pr-list --rich');
+      // And it WRAPS rather than widening the page: the footer is a paragraph,
+      // and a message with nowhere to break would otherwise push a horizontal
+      // scrollbar onto every other row on the board.
+      const overflows = await page.evaluate(() =>
+        document.documentElement.scrollWidth > document.documentElement.clientWidth);
+      expect(overflows).toBe(false);
+    } finally {
+      await page.close();
+    }
+  });
 });
