@@ -356,7 +356,7 @@ where it belongs, and this is about what it is doing there.
 
 - `feature/group-shows-inner-activity` — the group heading carries the
   same bar when any of its rows is active, derived at render, folded or
-  open
+  open → #199
 
 ### Stillness
 
