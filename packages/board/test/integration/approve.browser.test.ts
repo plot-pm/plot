@@ -283,7 +283,7 @@ describe('approve: a board that cannot approve says so instead of offering', () 
     if (garden) fs.rmSync(garden, { recursive: true, force: true });
   });
 
-  it('renders Approve disabled, carrying the reason', async () => {
+  it('renders Approve disabled, carrying the binding\'s own reason', async () => {
     const page = await browser.newPage({ viewport: VIEWPORT });
     try {
       await page.goto(`http://localhost:${server.port}/`);
@@ -294,8 +294,63 @@ describe('approve: a board that cannot approve says so instead of offering', () 
       // Disabled and EXPLAINED. A control that looks live and 403s on click is
       // a worse answer than one that says up front what it cannot do; a
       // disabled button with no explanation reads as a bug.
+      //
+      // And this refusal is CORRECT rather than a gap: approving merges a PR
+      // and writes to the default branch, and a Tailscale address is
+      // deliberately not localhost. The phone reads the board; it does not
+      // approve from it. `Start work` behaves identically for the same reason.
       expect(await button.isDisabled()).toBe(true);
       expect(await button.getAttribute('title')).toMatch(/localhost/);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('stays FOCUSABLE — `aria-disabled`, never the native attribute', async () => {
+    // A natively disabled button leaves the tab order and takes its `title`
+    // explanation with it, out of reach of exactly the reader who cannot see
+    // that it is dimmed. #160 settled this for `Start work`; the two were built
+    // in parallel and this one did not see that decision.
+    const page = await browser.newPage({ viewport: VIEWPORT });
+    try {
+      await page.goto(`http://localhost:${server.port}/`);
+      const button = page
+        .locator('article', { hasText: DRAFT_WITH_PR })
+        .getByRole('button', { name: 'Approve' });
+      await button.waitFor({ timeout: 10_000 });
+      expect(await button.getAttribute('aria-disabled')).toBe('true');
+      expect(await button.evaluate((el) => (el as HTMLButtonElement).disabled)).toBe(false);
+      // Reachable by keyboard, which is the whole point of the attribute.
+      await button.focus();
+      expect(await button.evaluate((el) => el === document.activeElement)).toBe(true);
+      // And the reason travels with it, for a reader with no pointer to hover.
+      expect(await button.textContent()).toMatch(/localhost/);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('and a click on it still does nothing', async () => {
+    // `aria-disabled` does not stop a click the way `disabled` does, so the
+    // refusal is stated in the handler as well — and that is what this asserts.
+    const page = await browser.newPage({ viewport: VIEWPORT });
+    const posts: string[] = [];
+    page.on('request', (r) => {
+      if (r.method() === 'POST') posts.push(r.url());
+    });
+    try {
+      await page.goto(`http://localhost:${server.port}/`);
+      const button = page
+        .locator('article', { hasText: DRAFT_WITH_PR })
+        .getByRole('button', { name: 'Approve' });
+      await button.waitFor({ timeout: 10_000 });
+      await button.click({ force: true });
+      await button.click({ force: true });
+      await page.waitForTimeout(400);
+      expect(posts).toHaveLength(0);
+      // Not even armed: an inert control that changed its label would be
+      // claiming a next click will act.
+      expect(await button.textContent()).not.toMatch(/merges PR/);
     } finally {
       await page.close();
     }

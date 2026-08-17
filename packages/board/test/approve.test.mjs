@@ -217,11 +217,12 @@ describe('POST /api/approve: the binding is the authorisation', () => {
   });
 });
 
-describe('GET /api/board reports approve availability separately from dispatch', () => {
+describe('a board with NO `Approve command` can approve', () => {
   let tmp, server, stub;
 
   before(async () => {
-    // No `Approve command` in this repo's config, deliberately.
+    // No `Approve command` in this repo's config — the exact state that
+    // produced the question, and the state this repo's own CLAUDE.md is in.
     tmp = makeRepo({ plans: [{ name: '2026-08-16-ship-the-widget.md', content: DRAFT }] });
     stub = makeStubScripts();
     server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir });
@@ -233,23 +234,62 @@ describe('GET /api/board reports approve availability separately from dispatch',
     if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('unavailable — and NAMES the config key rather than saying "no"', async () => {
-    // Two capabilities, two answers. A board on localhost can dispatch (the
-    // script ships with Plot) and cannot approve (the command is the adopting
-    // project's to write, Manifesto Principle 5) — so one shared flag would be
-    // wrong for one of them whichever way it was set.
+  it('`Start work` and `Approve` give the SAME availability answer', async () => {
+    // The defect this closes: two controls on one surface asking different
+    // questions. Both scripts ship with Plot, so both ask only whether this is
+    // a local, same-origin request — and a fix that merely added a fallback
+    // while leaving the config question in place would keep the divergence.
     const board = await fetchBoard(server.port);
     assert.equal(board.dispatch.available, true);
-    assert.equal(board.approve.available, false);
-    // The reason must be actionable: "unavailable" sends the reader nowhere,
-    // while the key name sends them to their CLAUDE.md.
-    assert.match(board.approve.reason, /Approve command/);
+    assert.equal(board.approve.available, true);
+    assert.deepEqual(board.approve, board.dispatch);
+    // And no lingering "add one to approve from the board".
+    assert.equal(board.approve.reason, '');
   });
 
-  it('and the route refuses rather than spawning a shell with nothing in it', async () => {
+  it('the route acts rather than refusing with a config key', async () => {
     const res = await approve(server.port, 'ship-the-widget');
-    assert.equal(res.status, 403);
-    assert.match(JSON.parse(res.body).error, /Approve command/);
+    assert.equal(res.status, 202);
+  });
+
+  it('and it runs `plot-approve.sh <slug>` — the script Plot ships', async () => {
+    // ONE implementation of the mechanics behind both entrances. Without an
+    // `Approve command` the board goes straight to the script; with one it goes
+    // through the agent, whose skill calls the same script.
+    const log = path.join(path.resolve(tmp, '..'), 'plot-approve-ship-the-widget.log');
+    const text = await until(() =>
+      fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim() || null : null,
+    );
+    assert.match(text, /stub plot-approve\.sh ship-the-widget/);
+  });
+});
+
+describe('`Approve command`, when declared, still wins', () => {
+  let tmp, server, stub, ran;
+
+  before(async () => {
+    // Demoted is not removed: a project that wants the full skill — the
+    // ceremony questions, the tracer heuristic, the in-session walkthrough —
+    // declares a command and gets the agent path.
+    tmp = makeRepo({ plans: [{ name: '2026-08-16-ship-the-widget.md', content: DRAFT }] });
+    ran = writeApproveCommand(tmp);
+    stub = makeStubScripts();
+    server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir });
+  });
+
+  after(() => {
+    server?.kill();
+    stub?.cleanup();
+    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('runs the configured command, not the script', async () => {
+    await approve(server.port, 'ship-the-widget');
+    await until(() => ran.runs());
+    assert.deepEqual(ran.runs(), ['/plot-approve ship-the-widget']);
+    const log = path.join(path.resolve(tmp, '..'), 'plot-approve-ship-the-widget.log');
+    const text = fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '';
+    assert.doesNotMatch(text, /plot-approve\.sh/);
   });
 });
 

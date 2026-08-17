@@ -128,13 +128,21 @@ export function request(port, { method = 'GET', path: pathname = '/', headers = 
   });
 }
 
+/** The two scripts that ACT. Stubbed here; every other helper is the real one. */
+const ACTING_SCRIPTS = ['plot-dispatch.sh', 'plot-approve.sh'];
+
 /**
- * A stand-in scripts dir whose `plot-dispatch.sh` only records that it ran.
+ * A stand-in scripts dir whose acting scripts only record that they ran.
  *
  * The tests must NEVER run a real dispatch: it would create a worktree beside
  * the temp repo and push a claim from CI. The stub is what makes "a refused
  * request spawned nothing" an assertion about a file that does or does not
  * exist, rather than a hope.
+ *
+ * `plot-approve.sh` is stubbed for a stronger version of the same reason. It is
+ * what `/api/approve` now spawns where no `Approve command` is declared, and a
+ * real run merges a plan PR on the git host — undoable only by more git. A
+ * symlink to the real script would put that one `git rev-parse` away from CI.
  *
  * Every other helper the server needs is symlinked from the real scripts dir,
  * so the board still parses plans exactly as it ships.
@@ -143,12 +151,19 @@ export function makeStubScripts() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-stub-'));
   const marker = path.join(dir, 'dispatch-ran.txt');
   for (const name of fs.readdirSync(SCRIPTS_DIR)) {
-    if (name === 'plot-dispatch.sh') continue;
+    if (ACTING_SCRIPTS.includes(name)) continue;
     fs.symlinkSync(path.join(SCRIPTS_DIR, name), path.join(dir, name));
   }
   fs.writeFileSync(
     path.join(dir, 'plot-dispatch.sh'),
     `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> ${JSON.stringify(marker)}\necho "stub dispatch: $*"\n`,
+    { mode: 0o755 },
+  );
+  // Echoes its own NAME as well as its arguments: the assertion that matters is
+  // *which* of the two entrances ran, and a bare argument echo cannot say.
+  fs.writeFileSync(
+    path.join(dir, 'plot-approve.sh'),
+    `#!/usr/bin/env bash\necho "stub plot-approve.sh $*"\n`,
     { mode: 0o755 },
   );
   return {

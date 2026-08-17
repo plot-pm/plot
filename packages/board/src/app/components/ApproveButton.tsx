@@ -166,7 +166,14 @@ export function ApproveButton({ card, approve, onApproving }: ApproveButtonProps
     }
   };
 
+  const blocked = running || !approve.available;
+
   const onClick = () => {
+    // `aria-disabled` does not stop a click the way `disabled` does, so the
+    // refusal has to be stated here as well. Both are needed and neither is
+    // redundant: the attribute is what assistive technology reads, this is what
+    // makes it true. Same pattern as StartWorkButton.
+    if (blocked) return;
     if (state.kind === 'idle' || state.kind === 'failed') {
       // A failed attempt re-arms rather than re-runs: the reason has just been
       // read, and the next click should be as deliberate as the first was.
@@ -181,7 +188,15 @@ export function ApproveButton({ card, approve, onApproving }: ApproveButtonProps
       <button
         type="button"
         onClick={onClick}
-        disabled={running || !approve.available}
+        // `aria-disabled` rather than the native `disabled` attribute.
+        //
+        // A natively disabled button is removed from the tab order, which takes
+        // the control AND its explanation out of reach of exactly the reader who
+        // cannot see that the page has dimmed. Announced-but-inert keeps both:
+        // still reachable, still named, and it says why it will not act.
+        // StartWorkButton settled this in #160; the two were built in parallel
+        // and this one did not see that decision.
+        aria-disabled={blocked || undefined}
         aria-busy={running}
         // The armed state is announced, not merely coloured: a reader on a
         // screen reader must hear that this click is the one that acts.
@@ -190,10 +205,17 @@ export function ApproveButton({ card, approve, onApproving }: ApproveButtonProps
         className={
           armed
             ? 'rounded-sm bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-900 hover:underline dark:bg-amber-900/40 dark:text-amber-200'
-            : 'text-xs font-medium text-blue-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-400 disabled:no-underline dark:text-blue-400 dark:disabled:text-slate-600'
+            : blocked
+              ? 'cursor-not-allowed text-xs font-medium text-slate-400 no-underline dark:text-slate-600'
+              : 'text-xs font-medium text-blue-600 hover:underline dark:text-blue-400'
         }
       >
         {running ? 'approving…' : armed ? armedLabel(card) : 'Approve'}
+        {/* Why it will not act, for a reader with no pointer to hover and no
+            view of the dimmed page. Off screen, so the row is unchanged. */}
+        {!approve.available && approve.reason && (
+          <span className="sr-only"> — unavailable: {approve.reason}</span>
+        )}
       </button>
       {state.kind === 'failed' && (
         // The command's own message, on the card. Pre-wrapped: /plot-approve

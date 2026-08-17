@@ -19,8 +19,10 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
 <!-- Optional: **Worker command:** how to run an agent headless; without it
      /plot-dispatch prepares worktrees and you start them yourself. -->
 <!-- Optional: **Approve command:** how to run an agent headless for ONE prompt;
-     the board appends `/plot-approve <slug>`. Without it the board's Approve
-     button renders disabled and says so. -->
+     the board appends `/plot-approve <slug>` and gets the full skill — the
+     ceremony questions, the tracer heuristic, the in-session walkthrough.
+     Without it the board runs `plot-approve.sh` directly, which does the same
+     seven mechanical steps and refuses what needs a reader. -->
 
 ## Architecture
 
