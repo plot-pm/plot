@@ -110,7 +110,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
    * it was never an invitation, so withdrawing it is not the claim.
    */
   const eligibleMenu = (page: Page) =>
-    page.locator('li.flex')
+    page.locator('li[data-agent-row]')
       .filter({ has: page.getByText('feature/untaken', { exact: true }) })
       .locator('[data-row-actions]');
 

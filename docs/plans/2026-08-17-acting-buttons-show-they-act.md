@@ -13,6 +13,7 @@
 - **Started:** 2026-08-17, Jan Wloka, `bug/acting-buttons-pin-the-double-click`
 - **Delivered:**
 - **Started:** 2026-08-17, Jan Wloka, `bug/start-work-watches-the-right-count`
+- **Started:** 2026-08-17, Jan Wloka, `feature/acting-buttons-spin-while-acting`
 
 ## Problem
 
@@ -293,7 +294,7 @@ after a fix proves nothing about whether the fix was needed.
 
 - `feature/acting-buttons-spin-while-acting` — the in-flight button carries a
   spinner, keeps its label change, and dims; `motion-reduce` keeps the marker
-  and stops the animation, and the rows' pulsing dot is left untouched
+  and stops the animation, and the rows' pulsing dot is left untouched → #176
 
 Three waves, sequential, and the order is deliberate. **Proof** settles whether
 the guard is broken at all — writing a fix first would make a passing test

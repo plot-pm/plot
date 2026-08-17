@@ -13,6 +13,7 @@
 - **Started:** 2026-08-17, Jan Wloka, `feature/pr-state-travels-as-a-field`
 - **Delivered:**
 - **Started:** 2026-08-17, Jan Wloka, `feature/agent-rows-line-up`
+- **Started:** 2026-08-17, Jan Wloka, `feature/card-shows-interrogation-rounds`
 
 ## Problem
 
@@ -284,7 +285,7 @@ way the rest of the board is.
 
 - `feature/agent-rows-line-up` — the row becomes a grid with fixed tracks and
   gains `role="grid"` semantics; the PR cell renders number, icon and state
-  badge from the fields rather than searching a sentence
+  badge from the fields rather than searching a sentence → #175
 ### Rounds
 
 - `feature/card-shows-interrogation-rounds` — `plot-plan-meta.sh` reports the
