@@ -359,6 +359,56 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
+  it('in a MIXED section, the lonely row still names its own plan', async () => {
+    // The case a section-wide answer cannot express, asserted where it actually
+    // breaks: in the DOM, across both halves of the rule at once.
+    //
+    // `showPlanHeading` is pinned per group in test/unit, but it is a pure
+    // function of a group — it cannot observe the row side, and the row side is
+    // where a naive implementation fails. Drop a heading from a one-row group
+    // without moving the name back onto its row and that plan disappears from
+    // the tab entirely: the unit test still passes, and the reader is looking
+    // at a branch with nothing saying what it belongs to.
+    //
+    // So both halves are asserted together, in one section holding both shapes:
+    // `beans` with three rows earns a heading and its rows stay bare; `lonely`
+    // with one row earns none and its row must carry the name itself.
+    const rows = [
+      row({ branch: 'feature/beans-1', plan: 'beans', group: 'quiet', ageMinutes: 500 }),
+      row({ branch: 'feature/beans-2', plan: 'beans', group: 'quiet', ageMinutes: 400 }),
+      row({ branch: 'feature/beans-3', plan: 'beans', group: 'quiet', ageMinutes: 300 }),
+      row({ branch: 'feature/solo', plan: 'lonely', group: 'quiet', ageMinutes: 200 }),
+    ];
+    const page = await openAgents(fleet({ rows }));
+    try {
+      await expand(page, 'quiet');
+      const quiet = group(page, 'Quiet');
+
+      // Exactly one heading in the section, and it is the multi-row plan's.
+      await expect.poll(() => quiet.getByRole('heading', { level: 3 }).allTextContents())
+        .toEqual(['beans(3)']);
+
+      // The one-row plan's name survives ON ITS ROW — the half that vanishes in
+      // a naive implementation, and the reason this test exists.
+      const solo = rowFor(page, 'feature/solo');
+      await expect.poll(() => solo.textContent()).toContain('lonely');
+
+      // And the headed plan's rows do NOT repeat the name, or the heading would
+      // be saving nothing and the layout would say it twice.
+      //
+      // Asserted on the plan CELL rather than the row's text: the branch is
+      // named `feature/beans-1`, so a substring search for the plan name finds
+      // the branch and fails for the wrong reason. The cell is a link when a
+      // row carries its plan and absent when the heading carries it, which is
+      // exactly the distinction under test.
+      expect(await rowFor(page, 'feature/beans-1')
+        .getByRole('link', { name: 'beans', exact: true }).count()).toBe(0);
+      expect(await solo.getByRole('link', { name: 'lonely', exact: true }).count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
   it('groups DONE like every other group', async () => {
     // The group that grows fastest over a working day is the first to become a
     // list one scrolls past — a rule with an exception for it is a rule someone
