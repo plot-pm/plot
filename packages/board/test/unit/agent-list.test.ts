@@ -21,6 +21,10 @@ import {
   CHANGE_MARK_MS,
   ChangeMarks,
   changedRows,
+  isActive,
+  ActivityEcho,
+  activeRowKeys,
+  LOCK_ECHO_MS,
   rowKey,
   watchedState,
   type WatchedState,
@@ -34,7 +38,12 @@ import {
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'plot', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
   wave: 'w', state: 'wip', phase: null, group: 'quiet', ageMinutes: 10, note: '', pr: null,
-  branchUrl: '', waitingDays: null, ...over,
+  branchUrl: '', waitingDays: null,
+  // The default row is UNOBSERVED, not clean — the state of every branch the
+  // scan could not look at. `ABSENT IS NOT FALSE`, so the base fixture must
+  // never quietly assert *nothing is happening here*.
+  localDirty: false, localLocked: false,
+  ...over,
 });
 
 describe('groupByPlan', () => {
@@ -252,6 +261,334 @@ describe('isLive — which rows carry the pulsing indicator', () => {
     // And a working row with no age at all still counts: a fresh claim has no
     // commit to date, and that is one of the three entrances.
     expect(isLive(row({ group: 'working', ageMinutes: null }))).toBe(true);
+  });
+});
+
+describe('isActive — which rows are actually being written to', () => {
+  it('marks a row holding a lock, and a row with uncommitted work', () => {
+    // The two entrances, and they are ORs rather than a sequence: someone is
+    // writing this instant, or has written and not committed.
+    expect(isActive(row({ localLocked: true }))).toBe(true);
+    expect(isActive(row({ localDirty: true }))).toBe(true);
+    expect(isActive(row({ localLocked: true, localDirty: true }))).toBe(true);
+  });
+
+  it('does NOT mark a WORKING row that carries neither signal', () => {
+    // THE assertion, and the whole point of the wave. An implementation that
+    // kept reading `group === 'working'` passes every positive case above and
+    // fails here — a row sits in WORKING for HOURS while an agent works, while
+    // an agent has crashed, or while it waits on a human, and nothing measures
+    // the end. Six rows carried that claim in one session.
+    expect(isActive(row({ group: 'working' }))).toBe(false);
+    // Not even with the strongest note WORKING can carry: the note is a
+    // sentence the server composed, not an observation of a write.
+    expect(isActive(row({ group: 'working', note: 'claimed, no commits yet' }))).toBe(false);
+    expect(isActive(row({ group: 'working', ageMinutes: 1, note: 'last commit 1 min ago' })))
+      .toBe(false);
+  });
+
+  it('marks a row OUTSIDE working when the signals say so', () => {
+    // The other half of the same reversal: the group no longer decides. A quiet
+    // row whose worktree is dirty is being written to, whatever the classifier
+    // made of its commit age.
+    for (const group of GROUPS.map((g) => g.key)) {
+      expect(isActive(row({ group, localDirty: true }))).toBe(true);
+    }
+  });
+
+  it('does NOT treat unpushed commits as activity', () => {
+    // The pairing the plan names explicitly: an implementation OR-ing all three
+    // signals passes every positive assertion above and marks finished work
+    // sitting still as motion. A branch nobody has touched for hours that holds
+    // one unpushed commit must read as UNMARKED.
+    //
+    // Asserted through the row's real shape: `local_ahead` is not forwarded
+    // onto `AgentRow` at all, so a row carrying unpushed commits and nothing
+    // else is indistinguishable here from an idle one — which is the correct
+    // answer for this wave. The unpushed mark is a later wave's own signal.
+    const ahead = row({ group: 'working', localDirty: false, localLocked: false });
+    expect(isActive(ahead)).toBe(false);
+    expect(Object.keys(ahead)).not.toContain('localAhead');
+    expect(AgentRowSchema.parse({ ...ahead, local_ahead: 3 })).not.toHaveProperty('localAhead');
+  });
+
+  it('leaves an UNOBSERVED row unmarked, and never crashes on one', () => {
+    // ABSENT IS NOT FALSE. A scan that could not look at a worktree reports
+    // absence rather than cleanliness, so both fields default to false — and
+    // false here must yield NO MARK rather than a mark saying *idle*. The
+    // strongest licensed statement is *unknown, never nobody*.
+    const unobserved = AgentRowSchema.parse({
+      repo: 'plot', branch: 'feature/elsewhere', plan: 'p', wave: 'w', state: 'wip',
+      group: 'working', ageMinutes: 5, note: 'claimed, no commits yet',
+    });
+    expect(unobserved.localDirty).toBe(false);
+    expect(unobserved.localLocked).toBe(false);
+    expect(isActive(unobserved)).toBe(false);
+    // And the predicate survives a row that predates the fields entirely — the
+    // payload an older server sends.
+    expect(() => isActive({ localDirty: undefined, localLocked: undefined } as never))
+      .not.toThrow();
+  });
+
+  it('is a DIFFERENT question from isLive, and neither answers the other', () => {
+    // Three marks, three meanings — and the pairing that matters: no mark may
+    // be implemented by modifying another. A WORKING row with no signals is
+    // LIVE and not ACTIVE; a dirty QUIET row is ACTIVE and not LIVE.
+    const idleInWorking = row({ group: 'working' });
+    expect(isLive(idleInWorking)).toBe(true);
+    expect(isActive(idleInWorking)).toBe(false);
+
+    const dirtyOutside = row({ group: 'quiet', localDirty: true });
+    expect(isLive(dirtyOutside)).toBe(false);
+    expect(isActive(dirtyOutside)).toBe(true);
+  });
+});
+
+describe('ActivityEcho — a seen lock outlives the pulse that saw it', () => {
+  /**
+   * A clock the test advances by hand.
+   *
+   * The echo is INVISIBLE at the board's own rates: `FLEET_POLL_MS` is 4s, so a
+   * browser assertion "the marker survived a lockless pulse" is really watching
+   * a timer that has not expired yet, and passes just as happily with the echo
+   * removed. Driven directly, the rule is exact.
+   */
+  function fakeClock() {
+    let now = 0;
+    const due = new Map<number, { at: number; fn: () => void }>();
+    let nextId = 1;
+    return {
+      schedule(fn: () => void, ms: number) {
+        const id = nextId++;
+        due.set(id, { at: now + ms, fn });
+        return () => due.delete(id);
+      },
+      advance(ms: number) {
+        now += ms;
+        for (const [id, t] of [...due].sort((a, b) => a[1].at - b[1].at)) {
+          if (t.at <= now) { due.delete(id); t.fn(); }
+        }
+      },
+    };
+  }
+
+  /**
+   * An echo whose lit set the test can read after each step.
+   *
+   * `lit()` reads the echo's OWN state (`echoing`) rather than the last value
+   * published to `onChange`, and that is deliberate. A mutation that clears the
+   * set without notifying — `this.lit.clear()` at the top of `seen`, which is
+   * exactly the "a lockless pulse wipes the echo" defect — leaves the last
+   * published snapshot intact, so a test reading the callback's value reads a
+   * stale set and passes. Measured: it did.
+   *
+   * `published()` is kept for the one assertion that is genuinely about the
+   * callback — that `dispose` stops publishing.
+   */
+  function echoOnFakeClock() {
+    const clock = fakeClock();
+    let last: ReadonlySet<string> = new Set();
+    const echo = new ActivityEcho((next) => { last = next; }, clock.schedule);
+    return {
+      echo,
+      clock,
+      lit: () => [...echo.echoing].sort(),
+      published: () => [...last].sort(),
+    };
+  }
+
+  it('keeps the marker through a pulse in which the lock is already GONE', () => {
+    // THE assertion this class exists for. `.git/index.lock` lives from a
+    // fraction of a second to a few seconds and the pulse is 4s, so most locks
+    // are born and die BETWEEN two pulses. Without the echo the sharpest signal
+    // the board has would render essentially never — the defect
+    // `scan-reports-a-locked-worktree` was written to prevent, one layer up.
+    const { echo, clock, lit } = echoOnFakeClock();
+    echo.seen(['plot/a']);
+    expect(lit()).toEqual(['plot/a']);
+    // One whole pulse later the lock is gone — and the marker is still there.
+    clock.advance(4_000);
+    expect(lit()).toEqual(['plot/a']);
+  });
+
+  it('expires on its own clock without a further lock', () => {
+    // Bounded: a marker that outlives its fact must stop doing so. It clears
+    // ITSELF rather than waiting for a pulse, which is what keeps a board whose
+    // server died from sitting lit forever.
+    const { echo, clock, lit } = echoOnFakeClock();
+    echo.seen(['plot/a']);
+    clock.advance(LOCK_ECHO_MS - 1);
+    expect(lit()).toEqual(['plot/a']);
+    clock.advance(1);
+    expect(lit()).toEqual([]);
+  });
+
+  it('never resurrects: two lockless pulses produce nothing at all', () => {
+    // The echo starts when a lock is SEEN, never when one is inferred. A row
+    // that was never observed locked has nothing to echo, and inventing one
+    // would be the board asserting an event it never observed.
+    const { echo, clock, lit } = echoOnFakeClock();
+    echo.seen([]);
+    clock.advance(4_000);
+    echo.seen([]);
+    clock.advance(4_000);
+    expect(lit()).toEqual([]);
+    // And once a real echo has expired, later lockless pulses do not revive it.
+    echo.seen(['plot/a']);
+    clock.advance(LOCK_ECHO_MS);
+    expect(lit()).toEqual([]);
+    echo.seen([]);
+    expect(lit()).toEqual([]);
+  });
+
+  it('is never EXTENDED by a pulse that found no lock', () => {
+    // "Never contradicts a later observation" in its mechanical form: a pulse
+    // that saw nothing must not touch a running echo in either direction. It
+    // neither clears it early nor pushes it out — the echo runs its own span
+    // from the last real sighting.
+    const { echo, clock, lit } = echoOnFakeClock();
+    echo.seen(['plot/a']);
+    clock.advance(LOCK_ECHO_MS - 1_000);
+    echo.seen([]);                       // a pulse with no lock
+    expect(lit()).toEqual(['plot/a']);   // not cleared early
+    clock.advance(1_000);
+    expect(lit()).toEqual([]);           // and not pushed out either
+  });
+
+  it('RESTARTS the echo when the lock is seen again', () => {
+    // A lock still held on the next pulse is a longer write, not a finished
+    // one, so the span runs from the latest sighting.
+    const { echo, clock, lit } = echoOnFakeClock();
+    echo.seen(['plot/a']);
+    clock.advance(4_000);
+    echo.seen(['plot/a']);
+    clock.advance(LOCK_ECHO_MS - 1_000);   // past the FIRST span's expiry
+    expect(lit()).toEqual(['plot/a']);
+    clock.advance(1_000);
+    expect(lit()).toEqual([]);
+  });
+
+  it('gives each row its own timer', () => {
+    const { echo, clock, lit } = echoOnFakeClock();
+    echo.seen(['plot/a']);
+    clock.advance(2_000);
+    echo.seen(['plot/b']);
+    expect(lit()).toEqual(['plot/a', 'plot/b']);
+    clock.advance(LOCK_ECHO_MS - 2_000);
+    expect(lit()).toEqual(['plot/b']);
+    clock.advance(2_000);
+    expect(lit()).toEqual([]);
+  });
+
+  it('drops every pending timer on dispose', () => {
+    // Unmounting with echoes running would otherwise leave timeouts firing a
+    // setState against a gone component. After dispose the echo holds nothing
+    // and publishes nothing further — the last snapshot the component saw stays
+    // where it was.
+    const { echo, clock, lit, published } = echoOnFakeClock();
+    echo.seen(['plot/a']);
+    expect(published()).toEqual(['plot/a']);
+    echo.dispose();
+    expect(lit()).toEqual([]);
+    clock.advance(LOCK_ECHO_MS * 2);
+    expect(published()).toEqual(['plot/a']);   // never updated after dispose
+  });
+});
+
+describe('LOCK_ECHO_MS — long enough to outlive a pulse, short enough to read as a marker', () => {
+  it('is longer than one fleet poll and shorter than two', () => {
+    // Measured, not chosen. A lock seen in one pulse must survive the NEXT one
+    // — that is the entire reason the echo exists — so anything at or below the
+    // 4s poll interval renders the signal almost never. And two lockless pulses
+    // must always clear it, or the marker stops reading as a marker.
+    expect(LOCK_ECHO_MS).toBeGreaterThan(4_000);
+    expect(LOCK_ECHO_MS).toBeLessThan(8_000);
+  });
+
+  it('is its own constant, not the change mark\'s', () => {
+    // Two clocks, two calibrations: `CHANGE_MARK_MS` is tuned against the 60s
+    // PR refresh for a rare transition, this against the 4s fleet pulse for a
+    // signal that expires on its own. One number serving both is how a value
+    // gets tuned for one clock and silently wrong for the other.
+    expect(LOCK_ECHO_MS).not.toBe(CHANGE_MARK_MS);
+  });
+});
+
+describe('activeRowKeys — this pulse\'s signals, widened by recent locks', () => {
+  it('marks rows the pulse reports active', () => {
+    const rows = [
+      row({ branch: 'dirty', localDirty: true }),
+      row({ branch: 'locked', localLocked: true }),
+      row({ branch: 'idle', group: 'working' }),
+    ];
+    expect([...activeRowKeys(rows, new Set())].sort())
+      .toEqual(['plot/dirty', 'plot/locked']);
+  });
+
+  it('adds rows still echoing a lock, without the pulse saying anything', () => {
+    // The union, and its direction: the echo only ever ADDS. This row reports
+    // no signals at all in this pulse and is marked purely because a lock it
+    // was seen holding has not yet expired.
+    const rows = [row({ branch: 'gone-quiet' })];
+    expect([...activeRowKeys(rows, new Set(['plot/gone-quiet']))])
+      .toEqual(['plot/gone-quiet']);
+  });
+
+  it('does not mark an echo for a row that is no longer in the fleet', () => {
+    // The set is one entry per VISIBLE row, not a log. A stale key for a branch
+    // that has left the pulse marks nothing.
+    expect([...activeRowKeys([row({ branch: 'here' })], new Set(['plot/vanished']))])
+      .toEqual([]);
+  });
+
+  it('never contradicts a later observation — the NOTE is untouched', () => {
+    // The third bound on the echo: it makes a real event visible, it does not
+    // overwrite a fact. While the echo runs, the row goes on reporting whatever
+    // the last pulse actually found — so a row echoing a lock while the pulse
+    // says *claimed, no commits yet* keeps saying exactly that.
+    const quiet = row({ branch: 'echoing', note: 'claimed, no commits yet' });
+    const active = activeRowKeys([quiet], new Set(['plot/echoing']));
+    expect(active.has('plot/echoing')).toBe(true);
+    expect(quiet.note).toBe('claimed, no commits yet');
+    // And the row itself still reports no signals — the echo lives beside the
+    // row's facts rather than rewriting them.
+    expect(isActive(quiet)).toBe(false);
+  });
+});
+
+describe('the activity marker leaves the other marks alone', () => {
+  const source = readFileSync(
+    new URL('../../src/app/components/AgentList.tsx', import.meta.url), 'utf8');
+
+  it('keeps isLive reading the GROUP, exactly as before', () => {
+    // The dot means *in the WORKING group* and lives for hours; the activity
+    // mark means *someone is writing here*. Two questions, two marks — and the
+    // cheap way to build the second is to repaint the first.
+    expect(isLive(row({ group: 'working' }))).toBe(true);
+    expect(isLive(row({ group: 'quiet', localDirty: true, localLocked: true }))).toBe(false);
+    expect(isLive(row({ group: 'working', localDirty: false }))).toBe(true);
+  });
+
+  it('renders three distinct marks, none defined in terms of another', () => {
+    // Read out of the source: each hook exists and is its own element. An
+    // implementation that made activity a variant of the live dot would still
+    // pass every predicate assertion above.
+    expect(source).toContain('data-live-dot');
+    expect(source).toContain('data-change-mark');
+    expect(source).toContain('data-activity-mark');
+    // The change mark keeps its own channel — full-row wash, amber, pulsing —
+    // untouched by this wave.
+    expect(source).toContain('absolute inset-0 animate-pulse bg-amber-300/25');
+    // And the live dot keeps its own: a 6px emerald dot that pulses.
+    expect(source).toContain('h-1.5 w-1.5 shrink-0 self-center animate-pulse rounded-full');
+  });
+
+  it('names its own limit in the accessible description', () => {
+    // A reader who takes an unmarked row for an idle one has been misled by a
+    // marker that was technically correct: every signal here is local, so an
+    // agent on another machine produces no mark HERE, ever. The marker says so
+    // rather than letting absence speak for itself.
+    expect(source).toContain('A write is in progress in this checkout');
   });
 });
 

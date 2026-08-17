@@ -1277,6 +1277,25 @@ export function rowsFromPulse(
             b.state === 'open' && approvedAt?.has(plan.file)
               ? Math.max(0, Math.floor((now - approvedAt.get(plan.file)!) / 86_400_000))
               : null,
+          // The two local ACTIVITY signals, forwarded onto the row.
+          //
+          // They were already read three lines above — `classify` takes both —
+          // and then dropped, so the sharpest facts the scan produces reached
+          // the classifier and never the screen. `local_locked` in particular
+          // was fought for in `board-survives-its-agents` precisely so a locked
+          // worktree would stop reading as silence, and it stopped here.
+          //
+          // FORWARDED, never re-derived: the group and the marker must answer
+          // from one reading of one scan, or a row can carry a marker its own
+          // group disagrees with.
+          //
+          // `local_ahead` deliberately does NOT travel with them. It is
+          // finished work sitting still rather than activity, it gets its own
+          // static mark in a later wave, and OR-ing it in here would mark a
+          // branch nobody has touched for hours as though someone were writing
+          // to it.
+          localDirty: b.local_dirty,
+          localLocked: b.local_locked,
         });
       }
     }
@@ -1373,6 +1392,15 @@ export function rowsFromPulse(
         : '',
       pr: agentPr(pr),
       waitingDays: null,
+      // No local activity signals, and that is the honest answer rather than a
+      // gap. This row is built from the PR map — a branch no plan names — so
+      // the worktree scan never looked at it and there is nothing to forward.
+      //
+      // False here means UNKNOWN, never "nobody is working": by `ABSENT IS NOT
+      // FALSE` the row simply carries no activity marker. Guessing one from the
+      // PR's age would invent an observation this machine never made.
+      localDirty: false,
+      localLocked: false,
     });
   }
 

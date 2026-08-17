@@ -496,6 +496,176 @@ export function isLive(row: AgentRow): boolean {
 }
 
 /**
+ * Is something actually being WRITTEN on this row, right now?
+ *
+ * **`local_locked || local_dirty`, and deliberately not `group === 'working'`.**
+ * That is what `isLive` above answers, and the two questions are different
+ * enough to need two marks: WORKING is an ADDRESS — a row sits there for hours
+ * while an agent works, while an agent has crashed, or while it waits on a
+ * human, and nothing measures the end. Six rows carried that claim during the
+ * session that reported this. This is a PULSE: someone is writing, or has
+ * written and not committed.
+ *
+ * `isLive` is untouched on purpose. The dot keeps meaning *in the WORKING
+ * group*, this means *someone is writing here*, and no mark here is implemented
+ * by modifying another — the standard `[data-change-mark]` set when it shipped
+ * beside the dot rather than over it.
+ *
+ * **`localAhead` is NOT part of this, and its absence is the load-bearing
+ * half.** Unpushed commits are finished work sitting STILL: a real condition
+ * with a real remedy (push it) and no motion behind it. An implementation
+ * OR-ing all three passes every positive assertion this wave makes and marks a
+ * branch nobody has touched for hours as though someone were typing into it.
+ * It earns a static mark of its own in a later wave; it does not earn this one.
+ * (The field is not even forwarded onto the row, so the mistake cannot be made
+ * absent-mindedly here.)
+ *
+ * **ABSENT IS NOT FALSE.** Both fields are `.default(false)` in the contract,
+ * and a scan that could not observe a worktree reports absence rather than
+ * cleanliness. So `false` here yields NO MARK — never a mark saying *idle*. The
+ * strongest statement this predicate is licensed to make is *unknown, never
+ * nobody*, which is why it only ever adds a marker and never renders one for
+ * the negative case.
+ *
+ * Exported for test: the negative — a WORKING row with neither signal — is the
+ * half an implementation that kept reading the group gets wrong.
+ */
+export function isActive(row: Pick<AgentRow, 'localLocked' | 'localDirty'>): boolean {
+  return row.localLocked || row.localDirty;
+}
+
+/**
+ * How long a SEEN lock keeps the activity marker after the pulse that reported
+ * it.
+ *
+ * **Six seconds, and the measurement decides it.** `.git/index.lock` exists for
+ * a fraction of a second to a few seconds — one commit, one rebase step — while
+ * `FLEET_POLL_MS` is 4 s. So most locks are born and die BETWEEN two pulses and
+ * are never seen at all: the sharpest signal this board has is the one it most
+ * often misses, and rendering it only for the instant it is observed would
+ * render it almost never.
+ *
+ * Longer than one poll interval, so a lock seen in one pulse survives the next
+ * one — which is the entire point, and the assertion a 3 s value would fail
+ * against a 4 s clock. Short enough that it plainly reads as a marker rather
+ * than as a state: two lockless pulses (8 s) always clear it.
+ *
+ * Not the same constant as `CHANGE_MARK_MS`, and not merged with it. That one
+ * is calibrated against the 60 s PR refresh for a rare transition; this one is
+ * calibrated against the 4 s fleet pulse for a signal that expires on its own.
+ * One number serving two clocks is how a value gets tuned for one and silently
+ * wrong for the other.
+ */
+export const LOCK_ECHO_MS = 6_000;
+
+/**
+ * The rows whose lock was seen recently enough to still be worth showing.
+ *
+ * **This is the one place this board lets a marker outlive its fact, and it is
+ * bounded by three rules the plan settled — none of them optional:**
+ *
+ * *It never contradicts a later observation.* The echo only ever ADDS a row to
+ * the marked set. A pulse reporting `localDirty` marks for its own reason and
+ * needs no echo; a pulse reporting neither lets the echo expire on its own
+ * clock and does not extend it. The row's NOTE is untouched throughout and goes
+ * on reporting whatever the last pulse actually found — the echo makes a real
+ * event visible, it never makes a claim the note would contradict.
+ *
+ * *A lock never resurrects.* The echo starts only where a lock was SEEN
+ * (`localLocked` true in some pulse), never where one is inferred from dirt, an
+ * age, or a group. Two lockless pulses therefore produce nothing at all: there
+ * is no lock to echo, and inventing one would be the board asserting an event
+ * it never observed.
+ *
+ * *It is a marker, not a state.* Each key clears itself on its own timer rather
+ * than waiting for a pulse to clear it — the rule `ChangeMarks` already
+ * follows, and what keeps a board whose server has died from sitting lit
+ * forever. A frozen page shows its echoes expire and then shows nothing, which
+ * is the honest end.
+ *
+ * Split out and driven by an injected clock for the same reason `ChangeMarks`
+ * is: at the board's own rates the echo is invisible to a browser test —
+ * `FLEET_POLL_MS` is 4 s, so an assertion "the marker survived a lockless
+ * pulse" is really watching a timer that has not expired yet and passes just as
+ * happily with the echo removed. Driven by hand, the rule is exact.
+ */
+export class ActivityEcho {
+  private readonly timers = new Map<string, () => void>();
+  private readonly lit = new Set<string>();
+
+  constructor(
+    private readonly onChange: (lit: ReadonlySet<string>) => void,
+    private readonly schedule: (fn: () => void, ms: number) => () => void =
+      (fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); },
+  ) {}
+
+  /**
+   * Record this pulse: every row seen holding a lock starts (or restarts) its
+   * echo.
+   *
+   * **Restarted, not extended and not ignored** — the same rule `ChangeMarks`
+   * documents. A lock still held on the next pulse is a longer write, not a
+   * finished one, so the echo runs a full span from the latest sighting.
+   *
+   * Rows NOT holding a lock are left entirely alone: their echo, if any, keeps
+   * running down its own clock. That is the "never extends, never contradicts"
+   * half — this method is only ever told what was seen, never what was absent.
+   */
+  seen(locked: Iterable<string>): void {
+    let touched = false;
+    for (const key of locked) {
+      touched = true;
+      // Cancel first: the pending timeout belongs to the PREVIOUS sighting and
+      // would otherwise take this one's echo with it when it fires.
+      this.timers.get(key)?.();
+      this.lit.add(key);
+      this.timers.set(key, this.schedule(() => {
+        this.timers.delete(key);
+        this.lit.delete(key);
+        this.onChange(new Set(this.lit));
+      }, LOCK_ECHO_MS));
+    }
+    if (touched) this.onChange(new Set(this.lit));
+  }
+
+  /** Which rows are currently echoing a lock. */
+  get echoing(): ReadonlySet<string> {
+    return this.lit;
+  }
+
+  /** Drop every pending timer — the component is going away. */
+  dispose(): void {
+    for (const cancel of this.timers.values()) cancel();
+    this.timers.clear();
+    this.lit.clear();
+  }
+}
+
+/**
+ * Which rows wear the activity marker: those active in THIS pulse, plus those
+ * still echoing a lock seen in a recent one.
+ *
+ * A union, and the direction matters: the echo only ever adds. A row reporting
+ * `localDirty` right now is marked for its own reason whether or not it ever
+ * held a lock, and a row reporting nothing at all is marked only for as long as
+ * a lock it was actually seen holding is still echoing.
+ *
+ * Exported for test — it is the whole rendering rule, and vitest runs with
+ * `environment: 'node'`.
+ */
+export function activeRowKeys(
+  rows: readonly AgentRow[],
+  echoing: ReadonlySet<string>,
+): Set<string> {
+  const active = new Set<string>();
+  for (const row of rows) {
+    const key = rowKey(row);
+    if (isActive(row) || echoing.has(key)) active.add(key);
+  }
+  return active;
+}
+
+/**
  * How long a changed row wears its marker.
  *
  * **Three seconds, and the measurement decides it — not taste.** The value this
@@ -703,6 +873,88 @@ function useChangeMarks(rows: readonly AgentRow[]): ReadonlySet<string> {
   useEffect(() => () => marks.current?.dispose(), []);
 
   return lit;
+}
+
+/**
+ * Which rows are currently being written to — this pulse's signals, widened by
+ * the locks recently seen.
+ *
+ * A REF for the echo's bookkeeping and STATE for what renders, the same split
+ * `useChangeMarks` uses: the record of what was seen must not itself cause a
+ * render, and the set of lit keys must.
+ *
+ * The echo is fed from every pulse, including the first: unlike a change
+ * marker, a lock seen on the very first pulse is a real observation rather than
+ * a first sighting of something that might always have been true. There is no
+ * "starts silent" rule here, because nothing is being compared to a previous
+ * value — the field says *a write is happening*, and it says it on its own.
+ */
+function useActivity(rows: readonly AgentRow[]): ReadonlySet<string> {
+  const [echoing, setEchoing] = useState<ReadonlySet<string>>(() => new Set());
+  const echo = useRef<ActivityEcho | null>(null);
+  echo.current ??= new ActivityEcho(setEchoing);
+
+  useEffect(() => {
+    // Only what was SEEN locked. Rows without a lock are not mentioned at all,
+    // which is what keeps the echo from ever being extended or contradicted by
+    // an observation that found nothing.
+    echo.current!.seen(rows.filter((r) => r.localLocked).map(rowKey));
+  }, [rows]);
+
+  // Unmounting with echoes running would otherwise leave timeouts holding a
+  // setState against a gone component.
+  useEffect(() => () => echo.current?.dispose(), []);
+
+  return activeRowKeys(rows, echoing);
+}
+
+/**
+ * The mark a row wears while something is being written to it.
+ *
+ * **This wave gives it the smallest honest rendering and stops there.** The
+ * prominent form — a glowing bar down the row's left edge — is a later wave's
+ * work, and building it here would mean shipping a loud marker before the
+ * quiet one has been proven to read the right thing. The order was paid for:
+ * a glow over `group === 'working'` would have been, in the words this estate
+ * used for the same mistake, *a livelier lie*.
+ *
+ * **`aria-hidden`, like every other mark on this row.** The row's note already
+ * says what is happening in words — *uncommitted work in a local worktree* —
+ * and a screen reader must not hear the same fact twice. The mark is decoration
+ * on top of information and never the carrier of it.
+ *
+ * **The `title` names the marker's own limit, and that is a requirement rather
+ * than a nicety.** Every signal behind it is local: `fleet.ts` is explicit that
+ * `local_dirty` is *"true only on the machine doing the looking, and false is
+ * what every branch elsewhere reports"*, and `local_locked` reads
+ * `.git/index.lock` in a local worktree. An agent on another machine therefore
+ * produces no mark HERE, ever — its branch is not idle, it is unobservable from
+ * this checkout. A reader who takes an unmarked row for an idle one has been
+ * misled by a marker that was technically correct, so the marker says *in this
+ * checkout* rather than letting absence speak for itself.
+ *
+ * Deliberately NOT `[data-live-dot]` and NOT `[data-change-mark]`: three marks,
+ * three meanings, and no mark implemented by modifying another.
+ */
+function ActivityMark() {
+  return (
+    <span
+      aria-hidden
+      data-activity-mark
+      title="A write is in progress in this checkout"
+      // Beside the live dot in the row's left padding rather than in a track of
+      // its own — the same reasoning `LiveDot` documents, and the reason the
+      // six columns do not move to make room for a mark most rows never carry.
+      // Static: the row already carries two pulsing elements, and a third at a
+      // third scale competes rather than adds.
+      // At the row's very edge (`left-0`), where `LiveDot` sits at `left-1`
+      // with a 6px dot: the two never overlap, so a row carrying both shows two
+      // marks rather than one thickened one. That pairing is the standard
+      // `[data-change-mark]` set — *two marks, two meanings* — and a row CAN
+      // carry both: in the WORKING group, and being written to this instant.
+      className="h-3 w-0.5 shrink-0 self-center rounded-full bg-emerald-600 sm:absolute sm:left-0 sm:top-1/2 sm:-translate-y-1/2 dark:bg-emerald-400"
+    />
+  );
 }
 
 /**
@@ -1130,6 +1382,7 @@ function Row({
   pulse = 0,
   onStarting,
   marked = false,
+  active = false,
 }: {
   row: AgentRow;
   onOpenPlan?: AgentListProps['onOpenPlan'];
@@ -1150,6 +1403,16 @@ function Row({
   onStarting?: (active: boolean) => void;
   /** This row's PR status changed within the last `CHANGE_MARK_MS`. */
   marked?: boolean;
+  /**
+   * Something is being written to this row in THIS checkout — either the last
+   * pulse reported it, or a lock it was seen holding is still echoing.
+   *
+   * Passed in rather than computed from `row`, because the echo is a fact about
+   * recent PULSES and a row cannot see them. It also keeps the decision in one
+   * place: `activeRowKeys` answers for the whole fleet at once, so a row and
+   * the section around it can never disagree about which rows are active.
+   */
+  active?: boolean;
 }) {
   // Same convention as the card's Open control: a real anchor, so
   // cmd/ctrl/shift/middle-click open natively, and only a plain primary click is
@@ -1198,6 +1461,11 @@ function Row({
           the same `relative` box the live dot hangs in, so it takes no track
           and shifts no column. */}
       {marked && <ChangeMark />}
+      {/* The activity mark, beside the live dot and never instead of it. The
+          dot answers *is this row in WORKING* — an address, true for hours;
+          this answers *is something being written here* — a pulse, true while
+          it holds. A row can carry both, and then it carries two marks. */}
+      {active && <ActivityMark />}
       {isLive(row) && <LiveDot />}
       {/* The phase takes the REPO's place rather than adding a seventh cell to
           a row that already wraps on `feature/opus5-hardening-challenge-budget`.
@@ -1547,6 +1815,12 @@ export function AgentList({
   // exactly that case — the case it most exists for.
   const marked = useChangeMarks(fleet.rows);
 
+  // Which rows something is being written to. Fed the WHOLE fleet for the same
+  // reason the change marks are: a row's signals do not decide its group, but
+  // the group can change under it for other reasons, and a memory scoped to one
+  // section would lose a running echo the moment its row moved.
+  const active = useActivity(fleet.rows);
+
   // Which groups are folded. Seeded from `localStorage` on the first render
   // rather than in an effect: an effect would paint the crowded view once and
   // then fold it, which is a jump on every reload of a board that gets reloaded
@@ -1799,6 +2073,10 @@ export function AgentList({
                           // By the row's own identity, so a row that changed
                           // section carries its mark to where it now sits.
                           marked={marked.has(rowKey(r))}
+                          // Same identity, same reason — and answered for the
+                          // whole fleet at once, so no two places can disagree
+                          // about which rows are being written to.
+                          active={active.has(rowKey(r))}
                         />
                       ))}
                     </ul>

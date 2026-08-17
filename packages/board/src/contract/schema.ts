@@ -845,6 +845,53 @@ export const AgentRowSchema = z.object({
    * now": the same rule the PR countdown follows, for the same reason.
    */
   waitingDays: z.number().nullable().default(null),
+  /**
+   * A local worktree for this branch has uncommitted changes — *someone is
+   * editing*.
+   *
+   * The same fact `FleetBranchSchema.local_dirty` carries, forwarded onto the
+   * row unchanged. **Not new data**: the scan has produced it since #167 and
+   * `rowsFromPulse` already reads it, but only to hand to `classify()` — after
+   * which it was dropped, so no component could see it. A predicate about
+   * activity has to run where the row is rendered, and the row is what arrives
+   * there.
+   *
+   * Forwarded rather than re-derived, and that is the point: one scan, one
+   * answer. A second reading on this side could disagree with the group the
+   * first one produced.
+   *
+   * **LOCAL, and the marker that reads it must say so.** `fleet.ts` is explicit
+   * that this is *"true only on the machine doing the looking, and false is what
+   * every branch elsewhere reports"* — an agent on another machine produces no
+   * dirty signal here, ever. So false means *not observable from this checkout*,
+   * never *nobody is working*.
+   *
+   * Defaults to false so a pulse from an older server still validates. Absent
+   * and "no worktree here" are the same statement — and by `ABSENT IS NOT
+   * FALSE`, both leave the row UNMARKED rather than marked clean.
+   */
+  localDirty: z.boolean().default(false),
+  /**
+   * A local worktree for this branch is holding `.git/index.lock` — a write is
+   * in progress THIS INSTANT.
+   *
+   * `FleetBranchSchema.local_locked`, forwarded the same way and for the same
+   * reason. It is the sharpest signal the board has, it was fought for in
+   * `board-survives-its-agents` on the argument that a locked worktree must
+   * become its own signal rather than silence — and it landed in the contract
+   * and stopped there. Producing a signal and never rendering it is a quieter
+   * version of the defect that plan fixed.
+   *
+   * **It is also the one signal that can go stale before the next poll**, which
+   * is why the row's marker echoes a seen lock for a few seconds rather than
+   * reading this field alone: `.git/index.lock` lives from a fraction of a
+   * second to a few seconds and `FLEET_POLL_MS` is 4 s, so most locks are born
+   * and die BETWEEN two pulses. See `ActivityEcho`.
+   *
+   * Shares `localDirty`'s local-only limit, and defaults to false for the same
+   * reason.
+   */
+  localLocked: z.boolean().default(false),
 });
 export type AgentRow = z.infer<typeof AgentRowSchema>;
 
