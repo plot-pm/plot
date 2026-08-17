@@ -5,6 +5,7 @@ import {
   type Card,
   type DispatchInfo,
   type Fleet,
+  type Repair,
   type Stuck,
   type StuckState,
   type WaitingGroup,
@@ -677,6 +678,47 @@ export function showsCue(state: StuckState, actionTaken: boolean): boolean {
 }
 
 /**
+ * What the row says about the one repair this system performs by itself.
+ *
+ * **EVERY REPAIR IS REPORTED — running, pushed, or abandoned.** A silent
+ * automatic write is indistinguishable from a defect, which is the failure mode
+ * the whole stuck-branch plan exists to remove, and it is the one that would
+ * arrive here: the branch stays `artifact-conflict` for the entire repair
+ * (nothing about the refs changes until the push lands), so a row that only
+ * showed `stuck` would sit unchanged for five minutes while a machine wrote to
+ * the branch. Indistinguishable, from the outside, from the pulse ignoring it.
+ *
+ * **The failures are reported as loudly as the success.** `abandoned` is the
+ * repair's own gate stopping it — a failed rebuild, a red `test:board`, a
+ * rejected push — and it means nothing was pushed and this conflict is now a
+ * human's. A word that only appeared on success would be quietest exactly when a
+ * reader most needs it.
+ *
+ * "" for a branch nothing was attempted on, which renders as nothing at all.
+ *
+ * Exported for test: an implementation that reports only `pushed` passes every
+ * assertion that a successful repair is visible.
+ */
+export function repairWord(repair: Repair | null | undefined): string {
+  if (!repair) return '';
+  if (repair.state === 'running') return 'repairing — merge, rebuild, test:board';
+  switch (repair.outcome) {
+    case 'pushed':
+      return 'repaired automatically — rebuilt and pushed after test:board passed';
+    case 'abandoned':
+      // The reason is the script's own word, and it is carried rather than
+      // translated: `tests-failed` and `build-failed` end in the same place for
+      // the reader (nothing was pushed) and in different places for whoever
+      // opens the log.
+      return `repair abandoned${repair.reason ? ` — ${repair.reason}` : ''}; nothing was pushed`;
+    case 'refused':
+      return `repair refused${repair.reason ? ` — ${repair.reason}` : ''}`;
+    default:
+      return 'repair finished';
+  }
+}
+
+/**
  * How long a SEEN lock keeps the activity marker after the pulse that reported
  * it.
  *
@@ -1272,17 +1314,24 @@ function StuckCell({
   // reload starts the cue again, which is the honest answer to *is this still
   // waiting on me* when the board has only just started looking.
   const [actionTaken, setActionTaken] = useState(false);
-  if (!stuck) return null;
+  const repairLine = repairWord(row.repair);
+  // NOT `if (!stuck)` alone, and the difference is the whole point of reporting
+  // repairs at all. A SUCCESSFUL repair ends by pushing, which unsticks the
+  // branch — so on the very next pulse `stuck` is null while the repair is the
+  // freshest thing that happened to it. Returning early there would hide the
+  // report at exactly the moment it explains what a reader is looking at, and
+  // an automatic write nobody can see is the defect this plan exists to remove.
+  if (!stuck && !repairLine) return null;
 
-  const word = stuckWord(stuck.state);
-  const evidence = stuckEvidence(stuck);
-  const offers = offersAction(stuck.state);
-  const cue = showsCue(stuck.state, actionTaken);
+  const word = stuck ? stuckWord(stuck.state) : '';
+  const evidence = stuck ? stuckEvidence(stuck) : [];
+  const offers = stuck ? offersAction(stuck.state) : false;
+  const cue = stuck ? showsCue(stuck.state, actionTaken) : false;
 
   return (
     <span
       role="gridcell"
-      data-stuck={stuck.state}
+      data-stuck={stuck?.state ?? ''}
       // Its own line beneath the row's six columns (`col-span-full`) rather
       // than a seventh track. The evidence is three lines wide on a
       // `ci-failing` row and most rows carry none at all — a track sized for
@@ -1293,9 +1342,11 @@ function StuckCell({
       {/* The state as a WORD, in amber, and the word is the carrier — the
           colour only reinforces it. `title` names the state's own terms so a
           pointer gets the one sentence that explains the errand. */}
-      <span className="shrink-0 font-medium text-amber-700 dark:text-amber-500">
-        {word}
-      </span>
+      {word && (
+        <span className="shrink-0 font-medium text-amber-700 dark:text-amber-500">
+          {word}
+        </span>
+      )}
       {/* EVIDENCE TRAVELS WITH THE STATE. Each line is its own element rather
           than one joined sentence, so a reader (and a test) can find the
           `ci-failing` row's three lines separately — they are three different
@@ -1309,7 +1360,21 @@ function StuckCell({
           {line}
         </span>
       ))}
-      {offers && (
+      {/* WHAT THE MACHINE DID, on the same line as why it was stuck. A repair
+          is an event on this branch, and separating it from the state that
+          caused it would make a reader join two places to learn that the
+          conflict they are looking at is already being handled — or was, and
+          the handling gave up. */}
+      {repairLine && (
+        <span
+          data-repair={row.repair?.state ?? ''}
+          data-repair-outcome={row.repair?.outcome ?? ''}
+          className="min-w-0 text-slate-500 max-sm:whitespace-normal dark:text-slate-400"
+        >
+          {repairLine}
+        </span>
+      )}
+      {offers && stuck && (
         <StuckAction
           row={row}
           stuck={stuck}

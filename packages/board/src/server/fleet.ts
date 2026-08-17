@@ -15,6 +15,7 @@ import {
   type WorkerState,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
+import { repairFor, startRepair } from './resolver.js';
 import type { BuildBoardOptions } from './board.js';
 import { readBridge, writeBridge } from './pulse-bridge.js';
 
@@ -577,6 +578,52 @@ async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Prom
   }
 }
 
+/**
+ * Offer every branch in a landed pulse to the resolver, which refuses all but
+ * one state.
+ *
+ * **This function classifies NOTHING.** It calls `stuckState` — wave 1's
+ * detector, the same call `rowsFromPulse` makes with the same inputs — and hands
+ * the answer to `mayResolve`. Two consequences, both deliberate:
+ *
+ * *The entry condition lives in one place.* A local `conflicts.includes(...)`
+ * here would pass every artifact-only assertion and silently repair merges that
+ * need judgement as a whole, while the fence in `stuck.ts` still read correctly.
+ *
+ * *A branch is offered on the same facts the row shows.* If the board says
+ * `artifact conflict` and nothing is repaired, that is `mayResolve` refusing for
+ * a reason a reader can check against the set printed on the row — not two
+ * detectors disagreeing.
+ *
+ * The PR map is passed for one reason and used for none of the deciding: it is
+ * what makes `prState` available to `stuckState`, and `prState === 'conflicts'`
+ * is precisely the input that must produce a plain `conflict` — a host verdict
+ * with NO OBSERVED SET, which this path may never act on.
+ */
+function maybeRepair(
+  opts: BuildBoardOptions,
+  pulse: FleetPulse,
+  prs: Map<string, PrRecord> | null,
+): void {
+  for (const plan of pulse.plans) {
+    for (const wave of plan.waves) {
+      for (const b of wave.branches) {
+        const pr = prs?.get(b.branch) ?? null;
+        const stuck = stuckState({
+          state: b.state,
+          conflicts: b.conflicts,
+          conflictsKnown: b.conflicts_known,
+          localAhead: b.local_ahead,
+          prState: pr ? prState(pr) : null,
+          changedPaths: b.changed_paths,
+          failingChecks: pr?.failing_checks ?? [],
+        });
+        startRepair(b.branch, stuck, opts);
+      }
+    }
+  }
+}
+
 async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
   if (entry.running) return;
   entry.running = true;
@@ -611,6 +658,23 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
       approvedAt: entry.approvedAt,
       ideaPlans: entry.ideaPlans,
     });
+    // THE ONE AUTOMATIC WRITE, and it rides this timer rather than a request.
+    //
+    // On the SCAN's clock and inside its success path, for the reason the bridge
+    // write above is: a repair may only be started from a pulse that actually
+    // landed. Starting one from a failed scan would act on the last good
+    // answer — refs that may have moved — which is the stale-prediction mistake
+    // this plan named and then licensed nothing on top of.
+    //
+    // Off the REQUEST path entirely, which is what keeps the guard on
+    // `/api/dispatch` untouched. That route asks *where is the caller*, and a
+    // firing interval passes that trivially — so this deliberately never becomes
+    // a route at all. It is not reachable over the network, from any binding,
+    // localhost included: there is nothing to reach.
+    //
+    // `startRepair` decides. This loop only offers it every branch and it
+    // refuses all but one state — see `mayResolve`.
+    maybeRepair(opts, parsed, entry.prs);
   } catch (err) {
     // A failed refresh NEVER overwrites a good result. Replacing real state
     // with emptiness because one scan failed is what makes a monitoring view
@@ -1442,6 +1506,12 @@ export function rowsFromPulse(
             failingChecks: pr?.failing_checks ?? [],
             runHistory: runs?.get(b.branch) ?? [],
           }),
+          // WHAT THE MACHINE DID ABOUT IT — beside the state, never folded into
+          // it. A silent automatic write is indistinguishable from a defect, so
+          // the row says a repair ran and how it ended, whether it pushed or
+          // gave up. Null for every branch nothing was attempted on, which is
+          // nearly all of them.
+          repair: repairFor(b.branch, now),
         });
       }
     }
@@ -1565,6 +1635,11 @@ export function rowsFromPulse(
         failingChecks: pr.failing_checks ?? [],
         runHistory: runs?.get(branch) ?? [],
       }),
+      // A planless branch can never reach `artifact-conflict` — no conflict set
+      // was computed for it, so `conflictsKnown` is false two lines up and the
+      // resolver was never offered it. The field is present and null rather than
+      // absent: *nothing was attempted*, which is true and checkable.
+      repair: repairFor(branch, now),
     });
   }
 
