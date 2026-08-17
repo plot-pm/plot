@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-board
@@ -11,7 +11,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-17, Jan Wloka, plan-PR #190 merged
 - **Started:** 2026-08-17, Jan Wloka, `feature/working-rows-show-their-pace`
-- **Delivered:**
+- **Delivered:** 2026-08-17
 - **Started:** 2026-08-17, Jan Wloka, `feature/the-line-flashes-on-any-written-update`
 
 ## Problem
