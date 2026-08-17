@@ -96,6 +96,16 @@
 #                  Exception to "front matter wins": started is ADDITIVE —
 #                  canonical entries and the front-matter entry merge
 #                  (canonical first, front matter appended)
+#   rounds         how many rounds of /plot:challenge-the-plan the plan has been
+#                  through, read from the `CHALLENGE-THE-PLAN-METADATA` block
+#                  the skill writes. **OMITTED ENTIRELY when the plan carries no
+#                  such block** — absent is not zero. A plan nobody has
+#                  interrogated and a plan interrogated to no effect want
+#                  opposite reactions from a reader, so the field is missing
+#                  rather than 0, the same rule `claimed`/`eligible` follow on
+#                  the board side. A malformed or truncated block is reported
+#                  the same way: the round is simply absent, and every other
+#                  field still parses.
 #
 # title/sprint/story/assignee are the board-facing surface (`@plot-pm/board`
 # consumes this script instead of parsing plans itself). Front matter wins over
@@ -201,7 +211,11 @@ function reset_state() {
   canon_review = ""; canon_impl = ""; canon_approved = ""; canon_released = ""
   canon_delivered = ""
   h1_title = ""
-  in_fm = 0; section = ""; in_comment = 0; branches_seen = 0
+  # "" means the plan carries no readable round — NOT zero. Emitted by omitting
+  # the field, so a consumer cannot mistake "never interrogated" for "asked
+  # nothing".
+  rounds = ""
+  in_fm = 0; section = ""; in_comment = 0; in_challenge = 0; branches_seen = 0
   delete branches; n_branches = 0
   delete prs; n_prs = 0
   delete wave_names; delete wave_of; delete wave_seq; delete wave_count
@@ -279,7 +293,10 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   out = out ",\"delivered_raw\":\"" jesc(delivered) "\""
   out = out ",\"started_raw\":["
   for (i = 1; i <= n_started; i++) out = out (i > 1 ? "," : "") "\"" jesc(started[i]) "\""
-  out = out "]}"
+  out = out "]"
+  # OMITTED, not zeroed, when no block was found. The absence is the message.
+  if (rounds != "") out = out ",\"rounds\":" rounds
+  out = out "}"
   print out
 }
 BEGIN { branch_re = "`(" PREFIXES ")/[^`]+`" }
@@ -309,8 +326,31 @@ in_fm {
 }
 # Interior of multi-line HTML comments is non-content (template guidance
 # blocks); single-line "<!-- ... -->" placeholders are unaffected.
-in_comment { if ($0 ~ /-->/) in_comment = 0; next }
-/<!--/ && $0 !~ /-->/ { in_comment = 1; next }
+#
+# ONE exception, and it is deliberately keyed on a sentinel rather than on
+# "comments that look like JSON": /plot:challenge-the-plan writes its state into
+# the plan as `<!-- CHALLENGE-THE-PLAN-METADATA … END-… -->`, and the round it
+# records is the only thing in there this parser reports. Everything else in the
+# block (question history, category coverage) stays non-content — the script
+# collects, the skill interprets.
+in_comment {
+  if (in_challenge && rounds == "" && $0 ~ /^[ \t]*"round"[ \t]*:[ \t]*[0-9]+/) {
+    _r = $0
+    sub(/^[ \t]*"round"[ \t]*:[ \t]*/, "", _r)
+    sub(/[^0-9].*$/, "", _r)
+    if (_r != "") rounds = _r + 0
+  }
+  if ($0 ~ /-->/) { in_comment = 0; in_challenge = 0 }
+  next
+}
+/<!--/ && $0 !~ /-->/ {
+  in_comment = 1
+  # A truncated block never closes; it simply runs to EOF as a comment, and the
+  # round stays whatever was read before the truncation — absent if the "round"
+  # line was itself lost. Nothing else in the record is affected either way.
+  in_challenge = ($0 ~ /CHALLENGE-THE-PLAN-METADATA/) ? 1 : 0
+  next
+}
 # First H1 is the title fallback (front matter title: still wins in emit).
 /^#[ \t]/ && h1_title == "" { h1_title = trim(substr($0, 2)) }
 /^## / {
