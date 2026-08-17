@@ -82,7 +82,25 @@ share it or on one row whose branch does not exist.
 
 ## Design
 
-### A row in NOT STARTED is a plan
+### The plan is the row; its waves fold beneath it
+
+**Collapsed by default, expandable — not summarised away.** The first
+draft said the waves become a *detail* of the plan row. Interrogation
+kept the plan row and rejected the erasure: the branch names are the
+plan's own words for what it will do, and a reader who wants them should
+not have to open the plan file to get them back. They are folded, not
+discarded.
+
+This also fits what the section already is. `groupByPlan`
+(`AgentList.tsx:394`) exists and groups these rows today; what is missing
+is that the group has no head of its own and no folded state. This plan
+gives it both.
+
+**The cost, stated:** the section gains a second level of folding, on top
+of the group-level collapse that WAITING ON YOU and friends already have.
+That is real, and it is bounded — the inner fold exists only where a plan
+has more than one unstarted wave, which is exactly where the three
+identical rows appear today.
 
 One row per plan, not per unstarted branch. It carries:
 
@@ -93,10 +111,22 @@ One row per plan, not per unstarted branch. It carries:
 | Status | what it is waiting for |
 | Age | `waitingDays` — the plan's clock |
 
-**The waves become a detail of that row**, not rows of their own: *3
-waves, first eligible*. The reader learns what they actually need — this
-plan can be started, and here is how much of it there is — in one line
-instead of three.
+**The wave count and the first eligible wave show on the plan row** — *3
+waves, first eligible* — and the individual waves sit folded beneath it.
+The reader learns what they actually need in one line instead of three,
+and can still open the three.
+
+**The summary is derived from the group's own rows, not from a new
+field.** Measured: `waveSummary` lives on the CARD; a row knows only its
+own wave. But the group *holds* every row of the plan in this section, so
+counting them and reading their states answers *how many, and which is
+first* without touching the contract.
+
+The limit is worth recording rather than hiding: this counts the waves
+**in this section**, so a plan whose first wave already merged shows two
+where the plan file lists three. That is the honest number for the
+question the section answers — *what is not started* — and a reader
+wanting the full arc has the plan link on the row.
 
 **The indicator moves to the plan because that is where the state
 holds.** This is the same rule the other sections follow rather than a
@@ -121,9 +151,9 @@ row fills them differently (the branch cell carries the wave summary),
 but every column keeps its x. A reader scanning down the board does not
 lose alignment at the section boundary.
 
-**No contract change.** `waitingDays` exists, `waveSummary` exists, and
-the rows carry `plan` already. This is a grouping in the view, not a new
-fact.
+**No contract change.** `waitingDays` exists and the rows carry `plan`
+already; the wave count is derived from the group's own rows. This is a
+grouping and a sort in the view, not a new fact.
 
 ### The deferred case keeps its branch
 
@@ -138,31 +168,79 @@ comment there warns against flattening them: an earlier version wrote
 `deferred` as the note and *"a branch started and then shelved read as
 never begun, with its age and its PR erased."*
 
-**So deferred rows stay branch-rows**, with their own age and PR, inside
-the plan they belong to. A plan with one unstarted wave and one deferred
-branch shows a plan row and a branch row — which is the truth about it.
+**So deferred rows stay branch-rows**, with their own age and PR, and
+they sit **beneath their own plan row**, in the fold with that plan's
+other branches. Grouping them into a separate "shelved" section at the
+end was the alternative and was rejected: it separates a deferred branch
+from the plan that explains it, and plan-proximity is what makes the
+section readable at all.
+
+A plan with one unstarted wave and one deferred branch therefore shows a
+plan row with two branches folded under it — one that never began and one
+that was set down. Both keep their own words.
+
+### The section's sort is broken today, and this fixes it
+
+**Measured while planning:** `groupByPlan` sorts by
+
+```ts
+const urgency = (g) => Math.max(...g.rows.map((r) => r.ageMinutes ?? -1));
+```
+
+In NOT STARTED `ageMinutes` is `null` on **every** row, so every group
+scores `-1` and the sort does nothing. `plot-sprint-support` — approved
+**187 days** ago — sits wherever the map's insertion order happens to put
+it, beside a plan drafted this afternoon.
+
+So the section sorts by `waitingDays`, **oldest first**. It is the only
+clock that ticks here, which is the same reason the row shows it: the
+branch clock has nothing to say about work that never began.
+
+Sorting startable-first was considered and rejected. It reads as more
+actionable and buys less: the startable plans are already marked, and
+burying a six-month-old plan under a fresh one would hide exactly the
+drift this section exists to surface.
 
 ## Branches
 
 ### Grouping
 
 - `feature/not-started-counts-plans` — NOT STARTED renders one row per
-  plan with the plan's clock and its wave summary; deferred branches keep
-  their own rows; the indicator sits with the plan
+  plan with the plan's clock and a wave summary derived from its own
+  rows, the branches folded beneath it and expandable; the section sorts
+  by `waitingDays`, oldest first; deferred branches keep their own rows
+  under their plan; the indicator sits with the plan
 
 ## Done when
 
-- **A plan with three unstarted waves shows ONE row.** Assert the live
-  shape: `activity-shows-itself` with waves 2–4 unstarted renders once,
-  not three times.
+- **A plan with three unstarted waves shows ONE row by default**, with
+  its three branches folded beneath it. Assert the live shape:
+  `activity-shows-itself` with waves 2–4 unstarted renders one row.
+- **The fold OPENS and the three branch names come back.** Assert every
+  branch name is reachable — the pairing that matters: an implementation
+  that summarises the waves away passes the assertion above and loses the
+  plan's own words for what it will do.
+- **A plan with ONE unstarted wave gets no inner fold.** Assert no
+  expander where there is nothing to expand — a control that reveals one
+  row it already shows is noise.
 - **The row's age is `waitingDays`, not `ageMinutes`.** Assert
   `plot-sprint-support` reads 187 days rather than blank — today its
   branch has no tip, so the branch clock says nothing about the six
   months the plan has waited.
-- **The wave summary is on the row.** Assert it names how many waves
-  remain and that the first is eligible — the two facts the three
-  collapsed rows carried between them.
-- **A deferred branch keeps its OWN row, with its own PR and age.** The
+- **The wave summary is on the row and derived from the group's rows.**
+  Assert it names how many waves remain and that the first is eligible —
+  and assert no contract field was added to carry it.
+- **The summary counts only what is in this section.** Assert a plan
+  whose first wave already merged reports the remaining waves, not the
+  plan file's total — the honest number for the question this section
+  asks.
+- **The section sorts by `waitingDays`, oldest first.** Assert
+  `plot-sprint-support` (187 days) sorts above a plan approved today. The
+  pairing that matters: `groupByPlan`'s existing `ageMinutes` sort scores
+  every group in this section `-1`, so a test that only checks "the
+  groups are ordered" passes against a sort that does nothing.
+- **A deferred branch keeps its OWN row, with its own PR and age**, and
+  sits beneath its own plan row rather than in a separate section. The
   pairing that matters: an implementation that simply groups by plan
   passes every assertion above and erases exactly what the `fleet.ts`
   comment warns about — a started-then-shelved branch reading as never
@@ -196,3 +274,20 @@ title. `plot-sprint-support` carries 187 days today. This plan inherits
 that distinction rather than introducing it — and it is the strongest
 argument for the change, because 187 days is a fact about a plan that the
 board currently prints on a row named after a branch nobody ever created.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "groupByPlan already exists — how far should the folding go?", "a": "Expandable, not summarised away: the branch names are the plan's own words", "category": "ux"},
+    {"q": "groupByPlan sorts by ageMinutes, which is null on every row here", "a": "Sort by waitingDays, oldest first — the only clock that ticks in this section", "category": "technical"},
+    {"q": "waveSummary is on the CARD, not the row — where does the count come from?", "a": "Derived from the group's own rows; no contract change, and the limit is recorded", "category": "technical"},
+    {"q": "Deferred rows have PR and age — where do they sit?", "a": "Beneath their own plan row; a separate section would cut them from what explains them", "category": "ux"}
+  ],
+  "categoriesCovered": {
+    "technical": {"stack": true, "architecture": true, "implementation": true},
+    "ux": {"happyPath": true, "edgeCases": true, "accessibility": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
