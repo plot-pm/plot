@@ -16,3 +16,10 @@ node_modules/
 # (oh-my-claudecode writes session logs, a HUD cache, and project memory here;
 # these mutate on every run and are personal to whoever is working.)
 .omc/
+
+# Machine-local Plot state. The rest of `.plot` is project content (briefs,
+# templates, the review hold) and stays committed; this holds caches describing
+# THIS machine's refs and worktrees — the board's last-good pulse among them.
+# A checked-in pulse would be one clone telling another what its branches are
+# doing.
+.plot/state/
