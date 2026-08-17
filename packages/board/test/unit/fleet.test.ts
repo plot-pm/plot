@@ -538,6 +538,137 @@ describe('rowPhase — derived from the PAIR, never from the plan file alone', (
   });
 });
 
+// --- a claim is not a worker -------------------------------------------------
+//
+// On 2026-08-17 three rows sat in WORKING with a pulsing green dot while nobody
+// was working on any of them. The claim was real — a dispatcher pushed it — and
+// the worker was never started. `worker_state()` in plot-dispatch.sh had
+// distinguished five outcomes since the day it was written, and `grep -rn
+// "plot-worker.pid" packages/board/src` returned NOTHING: the information was
+// already richer than the row assumed and reached no screen.
+//
+// Read docs/plans/2026-08-17-dispatch-hands-over-work.md before changing any of
+// these. Each one exists because a weaker implementation passes without it.
+describe('classify — whether a worker is actually running', () => {
+  it('keeps failed and finished apart: their actions are opposite', () => {
+    // THE assertion of this change. One label over both — "ended", "stopped",
+    // anything — sends the reader to a log to find out which, and the two moves
+    // are restart versus review. That is the same one-label-two-states shape as
+    // `no commits yet` covering both an idle branch and a finished one.
+    const failed = classify('claimed', 'eligible', 3, QUIET, null, false, 0, '', 'failed', '1');
+    const finished = classify('claimed', 'eligible', 3, QUIET, null, false, 0, '', 'finished', '0');
+    expect(failed.note).not.toBe(finished.note);
+    expect(failed.note).toMatch(/failed/);
+    expect(finished.note).toMatch(/finished/);
+  });
+
+  it('sends a failed worker to waiting-on-you, not working', () => {
+    // A crashed worker with a pulsing dot is the exact misreport this exists to
+    // remove. Its age says `working` — three minutes into a 30-minute window —
+    // and only the exit code says otherwise, which is why the age is set to the
+    // value that would otherwise win.
+    const r = classify('claimed', 'eligible', 3, QUIET, null, false, 0, '', 'failed', '1');
+    expect(r.group).toBe('waiting-on-you');
+  });
+
+  it('names the exit code, so the row says HOW it died', () => {
+    const r = classify('wip', 'eligible', 3, QUIET, null, false, 0, '', 'failed', '137');
+    expect(r.note).toMatch(/137/);
+  });
+
+  it('sends a finished worker to waiting-on-you — it needs reviewing', () => {
+    const r = classify('claimed', 'eligible', 3, QUIET, null, false, 0, '', 'finished', '0');
+    expect(r.group).toBe('waiting-on-you');
+  });
+
+  it('says `ended` means the status was NOT recorded, never that it succeeded', () => {
+    // Guessing `finished` from an absent exit file is the same mistake in the
+    // other direction, and `finished` is the one answer that tells a reader to
+    // stop looking.
+    const r = classify('claimed', 'eligible', 3, QUIET, null, false, 0, '', 'ended', '');
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toMatch(/unknown/);
+    expect(r.note).not.toMatch(/finished/);
+  });
+
+  it('still reads a claim WITH a running worker as working', () => {
+    // The regression that matters most: a check that reads every claim as
+    // unstarted is indistinguishable from a broken fleet. Asserted past the
+    // quiet window, where the age alone would say `quiet` — so this pins the
+    // worker LIFTING the row rather than merely failing to sink it.
+    const r = classify('claimed', 'eligible', QUIET + 500, QUIET, null, false, 0, '', 'running', '', '4242');
+    expect(r.group).toBe('working');
+    expect(r.note).toMatch(/4242/);
+  });
+
+  it('never reads a pid of 0 as running — the value survives, it is not re-derived', () => {
+    // `kill -0 0` signals the whole process GROUP and succeeds, so a naive
+    // liveness check reports pid 0 alive forever. The scan rejects it and
+    // reports `none`, so `running` can never arrive here carrying a 0 — and
+    // this side must not re-derive liveness from the pid it is handed.
+    //
+    // Asserted from the direction that can actually fail: a `none` verdict
+    // carrying the rejected pid must NOT be talked back into running.
+    const r = classify('claimed', 'eligible', 3, QUIET, null, false, 0, '', 'none', '', '0');
+    expect(r.group).toBe('working'); // the fresh-claim group, unchanged
+    expect(r.note).not.toMatch(/running/);
+    expect(r.note).toMatch(/no known worker/);
+  });
+
+  it('says `claimed elsewhere` when there is nowhere on this machine to look', () => {
+    // A THIRD state, not a flavour of the second. The pid lives in the worktree,
+    // so a branch claimed and started on another machine has no path to check —
+    // and the two errands differ: look in this checkout versus ask the machine
+    // that took it.
+    const here = classify('claimed', 'eligible', 3, QUIET, null, false, 0, '', 'none');
+    const away = classify('claimed', 'eligible', 3, QUIET, null, false, 0, '', 'elsewhere');
+    expect(away.note).not.toBe(here.note);
+    expect(away.note).toMatch(/elsewhere/);
+    expect(here.note).toMatch(/no known worker/);
+  });
+
+  it('reads a missing pid as UNKNOWN, not as nobody — a hand-started worker is not dead', () => {
+    // `plot-dispatch` writes the pid only where it started the worker itself, so
+    // a hand-started agent leaves none — and hand-starting is the normal case
+    // for as long as `Worker command` is unset. Five agents were started that
+    // way in one session; reading a missing pid as "nobody is working" would
+    // have reported every one of them dead.
+    //
+    // So the GROUP does not move. Only the sentence stops promising commits.
+    const r = classify('claimed', 'eligible', 3, QUIET, null, false, 0, '', 'none');
+    expect(r.group).toBe('working');
+    expect(r.note).not.toMatch(/dead|nobody|not started/i);
+  });
+
+  it('leaves a caller that passes no worker at all answering as before', () => {
+    // Every caller predating the field. The group is what those callers were
+    // about, and it must not move for a field they do not set.
+    expect(classify('claimed', 'eligible', 3, QUIET).group).toBe('working');
+    expect(classify('claimed', 'eligible', QUIET + 1, QUIET).group).toBe('quiet');
+    expect(classify('wip', 'eligible', 5, QUIET).group).toBe('working');
+  });
+
+  it('does not let a stale worktree speak for a merged branch', () => {
+    // Merged work is done regardless of what a leftover worktree holds. A
+    // `failed` pid file from an earlier attempt must not drag a landed branch
+    // into waiting-on-you.
+    const r = classify('merged', 'complete', 90, QUIET, null, false, 0, '', 'failed', '1');
+    expect(r.group).toBe('done');
+  });
+
+  it('lets a PR outrank the worker: a review is a stronger statement', () => {
+    // A branch up for review waits on the review, whether or not a process is
+    // still sitting in its worktree. The worker arm is placed after the PR arm
+    // for exactly this, and the ordering is what this pins.
+    const pr: PrRecord = {
+      number: 7, head: 'feature/x', state: 'OPEN', draft: false,
+      checks: 'pending', review: '', url: '',
+    };
+    const r = classify('wip', 'eligible', 3, QUIET, pr, false, 0, '', 'failed', '1');
+    expect(r.group).toBe('waiting-on-machine');
+  });
+});
+
 describe('draftNote — a draft PR that is red must say so', () => {
   const pr = (over: Partial<PrRecord> = {}): PrRecord => ({
     number: 131, head: 'idea/x', state: 'OPEN', draft: true, checks: 'green',
@@ -1169,6 +1300,56 @@ describe('rowsFromPulse', () => {
 
     it('leaves a pulse reporting zero answering exactly as before', () => {
       const rows = rowsFromPulse(ahead('feature/d', 0), ages, 'plot', QUIET);
+      expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('quiet');
+    });
+  });
+
+  describe('the worker state reaches the row', () => {
+    // The plumbing, asserted separately from the classifier: a field the scan
+    // reports and nothing carries is a field nobody reads — which is precisely
+    // what `worker_state()` was for the whole time it existed.
+    const withWorker = (
+      worker: 'running' | 'finished' | 'failed' | 'ended' | 'none' | 'elsewhere',
+      exit = '', pid = '',
+    ): FleetPulse => ({
+      ...pulse,
+      plans: [{
+        file: '2026-08-15-example-plan.md',
+        waves: [{
+          name: 'Implementation', verdict: 'eligible',
+          branches: [{
+            branch: 'feature/d', state: 'claimed', deferred: false, claimed: '',
+            worker, worker_exit: exit, worker_pid: pid,
+          }],
+        }],
+      }],
+    });
+
+    it('carries a failed worker all the way to waiting-on-you, exit code included', () => {
+      const rows = rowsFromPulse(withWorker('failed', '2', '900'), ages, 'plot', QUIET);
+      const row = rows.find((r) => r.branch === 'feature/d')!;
+      expect(row.group).toBe('waiting-on-you');
+      expect(row.note).toMatch(/exit 2/);
+    });
+
+    it('carries a running worker\'s pid, so the reader can go look at the process', () => {
+      const rows = rowsFromPulse(withWorker('running', '', '900'), ages, 'plot', QUIET);
+      expect(rows.find((r) => r.branch === 'feature/d')!.note).toMatch(/900/);
+    });
+
+    it('renders the three claim cases as three different sentences', () => {
+      // The brief's table, end to end. All three must differ — collapsing any
+      // pair puts one errand's words on another errand's row.
+      const say = (w: 'running' | 'none' | 'elsewhere') =>
+        rowsFromPulse(withWorker(w, '', '900'), ages, 'plot', QUIET)
+          .find((r) => r.branch === 'feature/d')!.note;
+      expect(new Set([say('running'), say('none'), say('elsewhere')]).size).toBe(3);
+    });
+
+    it('leaves a pulse without the field answering exactly as before', () => {
+      // Every branch from a scan that predates the field. The base fixture
+      // carries none of the three, and the answer must not move.
+      const rows = rowsFromPulse(pulse, ages, 'plot', QUIET);
       expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('quiet');
     });
   });
