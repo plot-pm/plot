@@ -71,7 +71,15 @@ last-good payload behind it. The table above catches this mid-restart: pid 78577
 is the supervisor with **no listener** — exactly the window that serves
 `0 branches across 0 plans`.
 
-### The scan trips over the agents it is reporting
+**The cache exists; it is merely in the wrong place.** `fleet.ts:180` already
+holds `const caches = new Map<string, CacheEntry>()`, keyed per repo, with PR
+data cached beside the pulse under its own timestamp. Every request reads it and
+the scan refreshes it asynchronously — that design is right and is why the tab
+polls at 4 s without running a scan per request. It is process memory, so a
+restart takes it with the process. Nothing is missing from the mechanism except
+that it does not outlive the thing it is protecting against.
+
+### The scan sees a locked worktree and says nothing
 
 Since #137 `plot-fleet-scan.sh` runs `git status` inside every worktree on the
 machine. While an agent is mid-`commit` or mid-`rebase`, git holds
@@ -80,6 +88,39 @@ is the one that trips over them.**
 
 Not hypothetical: this session hit `index.lock` four times in the main repo
 alone, most recently while recording an approval, which took six retries.
+
+**An earlier draft of this plan had the defect wrong, and the measurement
+corrected it.** It claimed the scan reads a failed `git status` as a clean one.
+It does not: `plot-fleet-scan.sh:266` already reads the exit code, and the file
+argues the rule at length — *"a failure to observe is not evidence of
+cleanliness"*. That half is shipped and correct.
+
+What it does instead is `continue`:
+
+```sh
+else
+  # A failure to observe. The worktree is not reported at all — neither its
+  # dirtiness (unknown) nor its path (it may not be there).
+  continue
+fi
+```
+
+So one locked worktree does not corrupt the sweep and does not fail it — the
+sweep survives, and the branch answers from refs exactly as if this machine had
+no worktree for it. The row then reads *"claimed, no commits yet"*: absent, not
+false, which is the right instinct applied to the wrong question.
+
+**Because a lock is not an absence — it is the most informative state a
+worktree can be in.** `.git/index.lock` means *an agent is writing here, right
+now*, which is precisely what the fleet view exists to show. Today that fact is
+computed, discarded, and replaced by silence. The branch that looks least
+active is the one being committed to.
+
+So a lock becomes its own signal beside `local_dirty` and `local_ahead`, under
+the same five rules those obey. Three neighbouring facts, three questions:
+*someone is editing*, *finished work nobody else can see*, *a write is in
+progress this instant*. Collapsing any pair of them would repeat the
+one-label-two-states defect this story keeps finding.
 
 ## Design
 
@@ -109,6 +150,17 @@ inferring from those two — inference would silently capture anyone who happens
 to run the board with `PORT=0` — so the harness sets one that says exactly this:
 *exit when the process that started you is gone.*
 
+**One variable covers the agent case too, with no second mechanism.** Measured
+while writing this plan: eight board servers across three concurrent test runs,
+two of them started by agents checking their own work. Those agents run
+`pnpm test`, which goes through the same `helpers.mjs` — so their servers
+inherit the variable exactly as a human's do. The case that produces the most
+orphans needs no special handling, because it is the same case.
+
+**The already-running orphans are not this branch's problem**, and a reaper
+would be a second mechanism for a population that stops growing the moment the
+first one lands. They are killed by hand once; every future one dies on its own.
+
 **Interval, not signal.** There is no portable notification for "your parent
 died"; polling `process.ppid` is the mechanism, and at a low frequency it costs
 nothing. It also fails safe: if the check never runs, behaviour is exactly what
@@ -127,15 +179,31 @@ board — that argument was already made and shipped for the *unreachable* case,
 and a restart is the same case seen from the server's side rather than the
 page's.
 
-So the last successful pulse survives the process: written where a restart can
-find it, served with its age, and replaced the moment a real scan completes.
-**Stale is a state the page already renders** — the banner, the `(frozen)`
-footer and the stopped clocks exist — so this feeds a mechanism rather than
-inventing one.
+So the in-memory cache gains a copy on disk — `.plot/state/last-pulse.json`,
+beside the other `.plot/state` the fleet already keeps — written on each
+successful scan, read once at startup, and replaced the moment a real scan
+completes. **Stale is a state the page already renders** — the banner, the
+`(frozen)` footer and the stopped clocks exist — so this feeds a mechanism
+rather than inventing one.
 
-**A cache that outlives its usefulness is worse than none.** It is a restart
-bridge, not a store: too old and the honest answer is *"no data"*, which is what
-the board says today and is correct once the numbers are meaningless.
+**Rescanning immediately instead was the obvious alternative and is not
+enough.** A scan costs 500–1050 ms, and a cold boot was measured at 21.2 s
+during the dimming work; scanning at startup narrows the empty window without
+closing it, and a `--watch` restart storm — three agents editing
+`packages/board/` — reopens it on every save. The two compose rather than
+compete, so the file is read at startup *and* a scan is kicked off at once: the
+file covers the gap, the scan ends it.
+
+**It is a bridge, not a store, and that distinction is load-bearing.** Plot
+derives state from git (Principle 1), and a JSON file that outlives its
+usefulness is a second source of truth that can disagree with the repository.
+Past a threshold the honest answer is *"no data"* — which is what the board says
+today and is correct once the numbers are meaningless. The file is a cache with
+an expiry, never a record.
+
+**It is not the authority even while it is being served.** A scan that succeeds
+wins immediately, and a scan that fails does not overwrite it — the same
+one-directional rule the local signals obey.
 
 ### The scan reports a locked worktree as locked
 
@@ -156,30 +224,40 @@ poll is four seconds away and will find it unlocked. Reporting beats blocking.
 
 ## Branches
 
-### Survival
+### Lifetime
 
 - `bug/test-boards-die-with-their-run` — the server exits when the process that
   started it is gone, gated on an explicit env var the test harness sets; no
   change for a board started by a person
-- `feature/board-bridges-its-restart` — the last good pulse survives a `--watch`
-  restart and is served with its age, feeding #141's existing stale rendering
-- `bug/scan-survives-a-locked-worktree` — one locked worktree degrades to one
-  reported row instead of failing the sweep
 
-**One wave holding three branches, deliberately.** They touch different files —
-the server's own lifecycle, the pulse cache, and the scan — and none reads the
-others' work, so nothing orders them.
+### Continuity
 
-Writing them as three sub-headings would have said the opposite. Measured on
-this very plan: `plot-plan-meta.sh` read an earlier draft's three headings as
-three sequential waves, and `plot-fleet-scan.sh` would then have reported two of
-them `blocked` while the first was open — the same defect this session found and
-fixed in `dispatch-hands-over-work` hours earlier. **The wave boundary is the
-only ordering the fleet enforces**; a paragraph saying "these can run together"
-is an intention, not a decision.
+- `feature/board-bridges-its-restart` — the last good pulse is written to
+  `.plot/state/last-pulse.json`, read at startup beside an immediate rescan, and
+  served with its age through #141's existing stale rendering
+- `bug/scan-reports-a-locked-worktree` — a worktree holding `index.lock` becomes
+  its own signal rather than being skipped in silence
 
-The artifact will collide between them, as it does for every board pair;
-`.gitattributes` covers it.
+**Two waves, and the ordering was earned rather than assumed.** An earlier draft
+put all three in one wave: they touch different files — the server's lifecycle,
+the pulse cache, the scan — and none reads the others' work, so nothing *code*
+orders them.
+
+What orders them is the test environment. Measured while interrogating this
+plan: a full board run reported **two failures that vanished when the same file
+was run alone**, because eight board servers and three concurrent suites were
+competing for ports and CPU. Browser tests with timeouts lose that race and
+report it as an assertion failure.
+
+So the orphan fix goes first, alone, because **the other two waves cannot be
+trusted to fail honestly until it lands**. A red test in a polluted environment
+is indistinguishable from a red test in a broken one, and this session has
+already spent time on exactly that confusion. It costs one round of waiting and
+buys the ability to believe the next round.
+
+Wave 2's two branches run together — `plot-fleet-scan.sh` and the board's cache
+do not meet. The artifact will collide between them, as it does for every board
+pair; `.gitattributes` covers it.
 
 ## Done when
 
@@ -197,21 +275,32 @@ The artifact will collide between them, as it does for every board pair;
   suite, kill the runner, assert no `board-server.mjs` remains. This is the
   actual defect; every other assertion here is a component of it.
 - **A restart serves the previous pulse, labelled with its age**, rather than
-  `0 branches across 0 plans`.
+  `0 branches across 0 plans`. Assert across an actual process restart, not a
+  cleared in-memory map: the map is already correct, and its loss on restart is
+  the entire defect.
 - **A stale-enough cache is not served.** Assert the board says *no data*
   past the threshold: a bridge that never expires is a store, and a store of
   git-derived state is a second source of truth.
-- **A fresh scan replaces the cache immediately.** Assert the bridge never wins
+- **A fresh scan replaces the file immediately.** Assert the bridge never wins
   over a real answer.
-- **One locked worktree does not fail the sweep.** Assert the other worktrees
-  still report — the case that produced `0 branches across 0 plans` with five
-  agents running.
-- **A locked worktree is reported as locked, not as clean.** Assert the exit
-  code is read: `git status` failing and `git status` finding nothing both
-  produce empty output.
+- **A FAILED scan does not overwrite the file.** The one-directional rule: a
+  failure must not destroy the last good answer, which is the only thing
+  standing between a restart and an empty board.
+- **A startup rescan is issued alongside the file read.** Assert both happen —
+  the file alone leaves the board stale until the next poll, and the scan alone
+  leaves the measured 500–1050 ms (21.2 s cold) window empty.
+- **A locked worktree is reported as locked, not skipped.** Assert the row says
+  a write is in progress: today the exit code is read correctly and then
+  `continue` throws the answer away, so the branch reads *"claimed, no commits
+  yet"* while an agent is committing to it.
+- **A locked worktree is distinguishable from a MISSING one.** Assert the two
+  produce different rows: both fail `git status`, and collapsing them recreates
+  the absence ambiguity in a new place.
+- **`local_locked` never downgrades a group**, like its two neighbours. Assert
+  against a branch whose PR already answers.
 - **The scan does not retry or wait on a lock.** Assert the sweep's duration is
-  unchanged with a lock held — a scan that blocks makes the pulse late for
-  everyone.
+  unchanged with a lock held — a lock during a rebase can last seconds, the next
+  poll is 4 s away, and a scan that blocks makes the pulse late for everyone.
 - `pnpm run test:board`, `pnpm run test:reconcile`, `pnpm run typecheck`,
   `pnpm run validate` all pass.
 - `pnpm build:board` run in the implementing worktree and the artifact
@@ -243,3 +332,23 @@ in-page mechanism can report it — the document never loads.
 Also out of scope: making `plot-fleet-scan.sh` cheaper. Its cost is measured and
 accepted (6.6 ms per worktree); this plan is about what it does when a read
 fails, not how often it reads.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "The plan says the scan reads a failed git status as clean. Measured: plot-fleet-scan.sh:266 already reads the exit code and argues the rule at length. What it actually does is `continue` — the worktree is skipped silently.", "a": "Report it as its own signal. A lock is not an absence — it means an agent is writing HERE, RIGHT NOW, which is exactly what the fleet view exists to show. `local_locked` joins local_dirty and local_ahead under the same five rules: three neighbouring facts, three questions", "category": "technical-implementation"},
+    {"q": "The plan wants the pulse to survive a --watch restart. Measured: fleet.ts:180 already caches per repo with PR data beside it — but in process memory, which dies with the process. Where should it live?", "a": "On disk at .plot/state/last-pulse.json, read at startup BESIDE an immediate rescan. Rescanning alone narrows the window without closing it (500-1050ms, 21.2s cold boot). A bridge with an expiry, never a store — Principle 1 keeps git as the authority", "category": "technical-architecture"},
+    {"q": "The exit-with-your-parent gate keys on an env var only the test harness sets. But eight board servers were running from three concurrent test runs, two started by agents. Is one variable enough?", "a": "Yes. Agents run pnpm test, which goes through the same helpers.mjs, so their servers inherit the variable exactly as a human's do. The case producing the most orphans is the same case. Already-running orphans are killed by hand once; a reaper would be a second mechanism for a population that stops growing", "category": "domain-rules"},
+    {"q": "The three waves were planned parallel. But a full board run reported two failures that vanished when the same file ran alone — eight servers and three suites competing for ports and CPU.", "a": "Lifetime first, alone. The other two waves cannot be trusted to FAIL HONESTLY until it lands: a red test in a polluted environment is indistinguishable from one in a broken environment. Costs a round of waiting, buys the ability to believe the next round", "category": "tradeOffs"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "domain": {"rules": true, "workflows": false, "data": true},
+    "ux": {"happyPath": false, "edgeCases": true, "errors": true, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": true, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
