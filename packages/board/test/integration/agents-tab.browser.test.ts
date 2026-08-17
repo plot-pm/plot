@@ -1874,6 +1874,57 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
+  it('gives the PR cell 14rem, and makes the LONG BRANCH pay for it', async () => {
+    // The reported defect, measured in the browser rather than off the class
+    // name: the PR cell held `⑂116 no checks` at 9rem and nothing wider, while
+    // the window's slack sat in the branch's `1fr` drawing nothing.
+    //
+    // Both halves, because the first alone is passed by shapes the plan
+    // rejected: the cell is 224px (14rem) AND the branch elides to make room,
+    // rather than the row growing or the PR cell moving.
+    const long = 'feature/opus5-longhorizon-hardening-challenge-budget-and-more';
+    const page = await openAgentsAt(1024, fleet({
+      rows: [
+        row({ branch: 'feature/x', plan: 'beans', group: 'waiting-on-you',
+              ageMinutes: 20, note: 'awaiting review', branchUrl: `${GH}feature/x`,
+              pr: { number: 116, url: `${GH}../pull/116`, draft: false, state: 'none' } }),
+        row({ branch: long, plan: 'beans', group: 'waiting-on-you', ageMinutes: 30,
+              note: 'awaiting review', branchUrl: `${GH}feature/long` }),
+      ],
+    }));
+    try {
+      await expect.poll(() => rowFor(page, long).count()).toBe(1);
+      const cell = rowFor(page, 'feature/x').locator('[role="gridcell"]').nth(PR_CELL);
+      expect(Math.round((await cell.boundingBox())!.width)).toBe(224);
+      // The long branch elides — it did not widen the row or shove the PR cell.
+      // Measured as a CLIP rather than as a shorter string: `splitBranch` hands
+      // the browser two spans and lets `truncate` fold them, so the ellipsis is
+      // painted and `innerText` still reports the whole name. The fact that
+      // matters is that the head's content outgrew the box it was given.
+      // Asserted through `[data-branch]` rather than a Tailwind class name: the
+      // clip belongs to the head span, and the row's own stable hook is the
+      // anchor around it.
+      const clipped = await rowFor(page, long).locator('[data-branch]').evaluate(
+        (el) => Array.from(el.querySelectorAll('span'))
+          .some((s) => s.scrollWidth > s.clientWidth),
+      );
+      expect(clipped).toBe(true);
+      expect(await cellX(page, long, PR_CELL)).toBe(await cellX(page, 'feature/x', PR_CELL));
+      // And `⑂116 no checks` — the widest cell in the reported screenshot, the
+      // one 9rem could not hold — now fits inside its track rather than being
+      // clipped by it.
+      const fits = await cell.evaluate(
+        (el) => Array.from(el.querySelectorAll('span'))
+          .every((s) => s.scrollWidth <= s.clientWidth + 1),
+      );
+      expect(fits).toBe(true);
+      expect(await cell.innerText()).toContain('116');
+      expect(await cell.innerText()).toContain('no checks');
+    } finally {
+      await page.close();
+    }
+  });
+
   it('elides a long branch in the MIDDLE, so a shared prefix stays readable', async () => {
     // The decision that matters most about the truncation, and the one an
     // ordinary `truncate` gets exactly backwards. These six branches share
@@ -2120,8 +2171,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   }
 
   it('drops NOTHING at 375px — the card stacks, it does not shed columns', async () => {
-    // Measured: the fixed tracks need 544px before the branch column gets a
-    // single pixel, and a 375px phone is 169px short. So the row stops being a
+    // Measured: the fixed tracks need 624px before the branch column gets a
+    // single pixel, and a 375px phone is 249px short. So the row stops being a
     // row — but dropping columns was the cheaper answer and is wrong. The plan
     // name in particular is what `showPlanHeading` just made a row's own
     // responsibility, and removing it on a phone would re-open at one width the

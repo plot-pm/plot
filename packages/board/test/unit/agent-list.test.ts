@@ -14,7 +14,9 @@ import {
   readCollapsed,
   writeCollapsed,
   COLLAPSED_BY_DEFAULT,
+  CARD_BELOW_PX,
   GROUPS,
+  ROW_TRACKS,
   type PlanGroup,
 } from '../../src/app/components/AgentList.js';
 import { GROUP_ORDER } from '../../src/server/fleet.js';
@@ -502,5 +504,44 @@ describe('noteWithoutPr — the note is relieved of one duty, not replaced', () 
     expect(noteWithoutPr('see PR #130 green', pr(130))).toBe('see PR #130 green');
     expect(noteWithoutPr('PR #999 green', pr(130))).toBe('PR #999 green');
     expect(noteWithoutPr('PR #130 green', null)).toBe('PR #130 green');
+  });
+});
+
+describe('ROW_TRACKS — where the row\'s width goes', () => {
+  /** The six tracks, in order, read out of the one exported constant. */
+  const tracks = () => {
+    const inner = /grid-cols-\[(.+)\]/.exec(ROW_TRACKS)?.[1];
+    expect(inner, `ROW_TRACKS is not a Tailwind track list: ${ROW_TRACKS}`).toBeTruthy();
+    return inner!.split('_');
+  };
+
+  it('gives the PR column 14rem, taken from the branch and not from the window', () => {
+    // The reported defect: at 9rem the PR cell held `⑂116 no checks` and
+    // nothing wider, while the window's whole slack collected in the branch's
+    // `1fr` as a gap that draws nothing.
+    expect(tracks()).toEqual(['6rem', '10rem', '1fr', '14rem', '2.5rem', '1.25rem']);
+  });
+
+  it('keeps every track but the branch FIXED', () => {
+    // The pairing that matters, and the reason this asserts the shape rather
+    // than only the number. `minmax(9rem, auto)` on the PR cell and
+    // `max-content` on the branch both make the column WIDER and both let an
+    // edge move between rows — passing "the status got more space" while
+    // undoing what fixed tracks are for. Exactly one track may be flexible.
+    const flexible = tracks().filter((t) => !/^[\d.]+rem$/.test(t));
+    expect(flexible).toEqual(['1fr']);
+  });
+
+  it('still needs less than the card breakpoint before the branch gets a pixel', () => {
+    // The arithmetic `CARD_BELOW_PX` rests on, and the thing this change spent:
+    // the fixed tracks went from 460px to 540px, so the grid now needs 624px of
+    // the 640px breakpoint. Widening any fixed track again crosses it, and then
+    // `CARD_BELOW_PX` has to move too — this fails when that day comes.
+    const GAPS_AND_PADDING = 84;
+    const fixedPx = tracks()
+      .filter((t) => t !== '1fr')
+      .reduce((sum, t) => sum + Number.parseFloat(t) * 16, 0);
+    expect(fixedPx).toBe(540);
+    expect(fixedPx + GAPS_AND_PADDING).toBeLessThan(CARD_BELOW_PX);
   });
 });

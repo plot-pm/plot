@@ -169,7 +169,7 @@ export function waitingLabel(days: number): string {
  * every row.
  *
  * ```
- * 6rem   10rem   1fr     9rem   2.5rem   1.25rem
+ * 6rem   10rem   1fr     14rem  2.5rem   1.25rem
  * phase  plan    branch  pr     age      menu
  * ```
  *
@@ -188,8 +188,25 @@ export function waitingLabel(days: number): string {
  *
  * Exported for test: the tracks are the claim, and a test that reads the class
  * off one row cannot tell a shared constant from a lucky duplicate.
+ *
+ * **The PR track is `14rem`, and it took 80 px back from the branch rather than
+ * from the window.** `1fr` does not mean *take what you need*; it means take
+ * everything left over — so on a wide window every spare pixel collected
+ * between the branch name and the PR cell, as a gap that belongs to the branch
+ * column and draws nothing. The branch names were already legible in that
+ * gap's own screenshot; the PR cell at `9rem` was not, holding a glyph, a
+ * number and a word.
+ *
+ * Two wider-looking shapes were rejected, both for the same reason:
+ * `minmax(9rem, auto)` on the PR cell sizes it to content, so its edge wanders
+ * between rows; `max-content` on the branch sizes it to the longest name IN
+ * THAT SECTION, so two groups disagree about where the branch starts. Either
+ * gives back at one column what fixed tracks establish at all of them. The
+ * honest cost of a fixed `14rem` is that a narrow-but-not-mobile window elides
+ * the branch sooner — middle elision keeps both ends and `title` keeps the
+ * whole name.
  */
-export const ROW_TRACKS = 'grid-cols-[6rem_10rem_1fr_9rem_2.5rem_1.25rem]';
+export const ROW_TRACKS = 'grid-cols-[6rem_10rem_1fr_14rem_2.5rem_1.25rem]';
 
 /**
  * The PR a row carries, derived from the row rather than imported.
@@ -204,10 +221,15 @@ type AgentPr = NonNullable<AgentRow['pr']>;
 /**
  * Where the row stops being a row.
  *
- * Arithmetic, not taste: the fixed tracks total 460 px and the gaps and padding
- * add 84 px, so **the grid needs 544 px before the branch column gets a single
- * pixel** — and a 375 px phone is 169 px short. Tailwind's `sm` breakpoint is
+ * Arithmetic, not taste: the fixed tracks total 540 px and the gaps and padding
+ * add 84 px, so **the grid needs 624 px before the branch column gets a single
+ * pixel** — and a 375 px phone is 249 px short. Tailwind's `sm` breakpoint is
  * 640 px, the first stop above that number.
+ *
+ * The PR track's growth from `9rem` to `14rem` moved that number from 544 px to
+ * 624 px and left the breakpoint where it is — 640 px is still the first stop
+ * above it, with 16 px to spare. A further widening of any fixed track would
+ * cross it, and then this constant has to move too.
  *
  * Below it each row becomes a small block: the branch on its own line, with
  * plan, phase, PR and age wrapped beneath it. **Nothing is dropped and nothing
