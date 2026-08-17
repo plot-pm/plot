@@ -233,7 +233,7 @@ of the existing structure rather than needing a guard.
 
 - `feature/dispatch-writes-brief` — the dispatch skill invokes `/plot-implement`
   for the brief instead of leaving it to the caller; the brief template in
-  `plot-implement/SKILL.md` grows to the shape briefs actually take
+  `plot-implement/SKILL.md` grows to the shape briefs actually take → #158
 - `feature/fleet-sees-unstarted-claims` — the pulse carries `worker_state()`'s
   five outcomes plus the no-worktree case; a claimed branch with no known worker
   says so, and a failed one lands in `waiting-on-you`
