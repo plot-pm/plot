@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:**
 - **Story:** plot-board
@@ -11,9 +11,9 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-17, jwloka, plan-PR #171 merged (two interrogation rounds)
 - **Started:** 2026-08-17, Jan Wloka, `bug/acting-buttons-pin-the-double-click`
-- **Delivered:**
 - **Started:** 2026-08-17, Jan Wloka, `bug/start-work-watches-the-right-count`
 - **Started:** 2026-08-17, Jan Wloka, `feature/acting-buttons-spin-while-acting`
+- **Delivered:** 2026-08-17
 
 ## Problem
 
