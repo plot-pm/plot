@@ -319,14 +319,30 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   // ── Rows group by plan inside each waiting-group ──────────────────────────
 
   it('shows a sub-heading per plan, ordered by each plan\'s most urgent row', async () => {
-    const page = await openAgents();
+    // Both plans hold TWO rows on purpose. A single-row plan earns no heading
+    // (see the mixed-section test below), so the default fixture would leave
+    // one heading here — and one heading is in the right order whatever the
+    // sort does. The ordering assertion needs two to mean anything.
+    const page = await openAgents(fleet({
+      rows: [
+        ...fleet().rows.filter((r) => r.group !== 'working'),
+        row({ branch: 'feature/beans-old', plan: 'beans', planFile: 'p-beans.md',
+              group: 'working', ageMinutes: 200, note: 'last commit 200 min ago' }),
+        row({ branch: 'feature/beans-new', plan: 'beans', planFile: 'p-beans.md',
+              group: 'working', ageMinutes: 10, note: 'last commit 10 min ago' }),
+        row({ branch: 'feature/tom-a', plan: 'plant-tomatoes', planFile: 'p-tom.md',
+              group: 'working', ageMinutes: 50, note: 'last commit 50 min ago' }),
+        row({ branch: 'feature/tom-b', plan: 'plant-tomatoes', planFile: 'p-tom.md',
+              group: 'working', ageMinutes: 20, note: 'last commit 20 min ago' }),
+      ],
+    }));
     try {
       const headings = group(page, 'Working').getByRole('heading', { level: 3 });
       // `beans` holds the 200-minute row, `plant-tomatoes` the 50-minute one —
       // so beans first. Ordering by anything else would let a plan with one
       // stale branch outrank one whose branch just moved.
       await expect.poll(() => headings.allTextContents())
-        .toEqual(['beans(2)', 'plant-tomatoes(1)']);
+        .toEqual(['beans(2)', 'plant-tomatoes(2)']);
     } finally {
       await page.close();
     }
@@ -347,11 +363,26 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // The group that grows fastest over a working day is the first to become a
     // list one scrolls past — a rule with an exception for it is a rule someone
     // has to remember.
+    // TWO rows per plan, because a heading is earned by saving repetition and a
+    // one-row plan saves none. One row each would leave DONE headingless for
+    // the right reason and prove nothing about DONE being grouped at all.
     const rows = [
       ...fleet().rows,
       row({
         branch: 'feature/also-landed', plan: 'beans', group: 'done', state: 'merged',
         ageMinutes: 120, note: 'merged', branchUrl: '',
+      }),
+      row({
+        branch: 'feature/landed-too', plan: 'beans', group: 'done', state: 'merged',
+        ageMinutes: 130, note: 'merged', branchUrl: '',
+      }),
+      row({
+        branch: 'feature/tom-landed', plan: 'plant-tomatoes', group: 'done', state: 'merged',
+        ageMinutes: 140, note: 'merged', branchUrl: '',
+      }),
+      row({
+        branch: 'feature/tom-landed-too', plan: 'plant-tomatoes', group: 'done', state: 'merged',
+        ageMinutes: 150, note: 'merged', branchUrl: '',
       }),
     ];
     const page = await openAgents(fleet({ rows }));
@@ -1247,6 +1278,44 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
+  // ── A plan heading is earned per group, not per section ───────────────────
+
+  it('heads a plan with several rows and leaves a one-row plan bare', async () => {
+    // The mixed section is the whole reason this moved off a section-wide flag:
+    // one plan with several rows beside a plan with one. A single answer is
+    // wrong for one of them either way — it either heads the lonely row (a
+    // label for the one line under it, costing a line of height to say what
+    // that line already says) or strips the heading off the several.
+    const page = await openAgents(fleet({
+      rows: [
+        row({ branch: 'feature/many-a', plan: 'tomatoes', planFile: 'p-tom.md', group: 'working' }),
+        row({ branch: 'feature/many-b', plan: 'tomatoes', planFile: 'p-tom.md', group: 'working' }),
+        row({ branch: 'feature/lonely', plan: 'beans', planFile: 'p-beans.md', group: 'working' }),
+      ],
+    }));
+    try {
+      const working = group(page, 'Working');
+      await expect.poll(() => groupRows(page, 'Working').count()).toBe(3);
+      // Only the multi-row plan earns a heading.
+      const headings = await working.getByRole('heading', { level: 3 }).allTextContents();
+      // No space before the count: the gap is a margin on the tally's span, so
+      // it lives in CSS and never reaches textContent.
+      expect(headings.map((t) => t.trim())).toEqual(['tomatoes(2)']);
+      // And the half that is easy to lose: the unheaded row must name its own
+      // plan, or the name vanishes from the page entirely. A fix that only
+      // removes headings passes every assertion above and fails here.
+      const texts = await groupRows(page, 'Working').allTextContents();
+      const textFor = (branch: string) => texts.find((t) => t.includes(branch)) ?? '';
+      expect(textFor('feature/lonely')).toContain('beans');
+      // The headed rows do NOT repeat it — that repetition is what the heading
+      // was bought with.
+      expect(textFor('feature/many-a')).not.toContain('tomatoes');
+      expect(textFor('feature/many-b')).not.toContain('tomatoes');
+    } finally {
+      await page.close();
+    }
+  });
+
   it('keeps QUIET leading with its OLDEST — the inversion is confined', async () => {
     // A global change would silently reverse the group that most needs
     // oldest-first: `quiet` asks *has this died?*, and the longest-silent branch
@@ -1437,7 +1506,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await staleBanner(page).waitFor({ timeout: 10_000 });
       await expect.poll(() => page.getByRole('link', { name: 'feature/reviewed' }).count()).toBe(1);
       expect(await page.getByRole('link', { name: 'PR #130' }).count()).toBe(1);
-      expect(await group(page, 'Working').getByRole('heading', { level: 3 }).count()).toBe(2);
+      // One heading, not two: the default fixture's WORKING group holds `beans`
+      // with two rows and `plant-tomatoes` with one, and a one-row plan earns
+      // no heading. The point of the assertion is that the GROUPING survives a
+      // failed poll — the number is whatever the payload happens to contain.
+      expect(await group(page, 'Working').getByRole('heading', { level: 3 }).count()).toBe(1);
     } finally {
       await page.close();
     }

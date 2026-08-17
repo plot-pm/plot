@@ -24,6 +24,12 @@ Five further decisions, each reached by discarding the obvious answer:
 
 Pinned by 25 browser tests against the shipped artifact, each written against an assertion a weaker implementation passes without — one failed poll dimming nothing, both tabs dimming after the same *number* of failures, the Board tab reaching the state at all, the 500 and malformed-JSON cases staying clear, the overlay's own command being clickable and selectable while the board's controls are not, and the command and port round-tripping from a payload that names neither of this repo's defaults.
 
+**A plan heading is now earned per group, not per section.** Unrelated to the dimming and folded in because it lives in the same file: `showPlanHeadings(rowCount, planCount)` asked *should this section have headings at all*, so once any group in a section earned one, **every** group got one — including a plan holding a single row, whose heading labelled the one line beneath it and charged a line of height to repeat what that line already said. A section of one-row plans became a stack of alternating headings and rows.
+
+`showPlanHeading(group)` replaces it and asks the narrower question: a heading pays for itself by saving repetition, so it appears above two or more rows of one plan and nowhere else. Both clauses of the old rule are subsumed — the second IS this rule counted per group instead of summed across the section, and the first (two plans, one row each) turns out to be a case where headings are not wanted at all.
+
+The half that is easy to lose: a group without a heading has nowhere else to name its plan, so **its rows print the name themselves**. Heading and row now read one shared answer per group rather than computing it twice, which is how they would drift — a heading rendering while its rows also print the name says it twice; the reverse loses the name entirely. Pinned by a mixed-section test (one plan with several rows beside a plan with one), the case a section-wide answer cannot express, asserting both that the lonely row carries its plan name and that the headed rows do not repeat it.
+
 **Not covered, deliberately:** the IPv4/IPv6 case, where the server listens on `[::1]` and the browser resolves `127.0.0.1`. No overlay helps there — the document never loads — and it is recorded as a separate finding.
 
 <!--

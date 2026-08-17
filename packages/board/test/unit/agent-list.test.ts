@@ -3,7 +3,7 @@ import {
   groupByPlan,
   countdown,
   waitingLabel,
-  showPlanHeadings,
+  showPlanHeading,
   isStartable,
   isLive,
   isCollapsible,
@@ -12,6 +12,7 @@ import {
   writeCollapsed,
   COLLAPSED_BY_DEFAULT,
   GROUPS,
+  type PlanGroup,
 } from '../../src/app/components/AgentList.js';
 import { GROUP_ORDER } from '../../src/server/fleet.js';
 import { DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, type AgentRow } from '../../src/contract/schema.js';
@@ -138,24 +139,51 @@ describe('groupByPlan with unplanned rows', () => {
   });
 });
 
-describe('showPlanHeadings', () => {
-  // Both halves of the rule, and each is the case the other version got wrong.
-  it('labels several plans, so two names cannot run together unlabelled', () => {
-    expect(showPlanHeadings(2, 2)).toBe(true);
+describe('showPlanHeading — decided per group, not per section', () => {
+  const group = (plan: string, count: number): PlanGroup => ({
+    plan,
+    planFile: plan ? `docs/plans/${plan}.md` : '',
+    rows: Array.from({ length: count }, (_, i) => row({ branch: `b${i}`, plan })),
   });
 
-  it('labels one plan holding several rows, instead of printing its name on each', () => {
-    // The case that motivated grouping: six QUIET rows of one plan. `plans > 1`
-    // said no heading, so the plan name appeared six times down the column.
-    expect(showPlanHeadings(6, 1)).toBe(true);
+  it('labels a plan holding several rows, instead of printing its name on each', () => {
+    // The case that motivated grouping: six QUIET rows of one plan, whose name
+    // otherwise printed six times down the column.
+    expect(showPlanHeading(group('alpha', 6))).toBe(true);
   });
 
-  it('stays quiet for a single row, where a heading separates and saves nothing', () => {
-    expect(showPlanHeadings(1, 1)).toBe(false);
+  it('stays quiet for a single row, where the heading labels the one line below it', () => {
+    // The whole change: a heading above a single row says the plan name once —
+    // exactly as the row itself would — and charges a line of height for it.
+    expect(showPlanHeading(group('alpha', 1))).toBe(false);
+  });
+
+  it('stays quiet for two plans of one row each', () => {
+    // The reversal. The section-wide rule said `true` here to keep two names
+    // from running together unlabelled; that worry is real and now answered by
+    // the ROWS, which print their own plan name when their group has no
+    // heading. Pinned below in the mixed-section case.
+    expect(showPlanHeading(group('alpha', 1))).toBe(false);
+    expect(showPlanHeading(group('beta', 1))).toBe(false);
+  });
+
+  it('never labels a nameless group, however many rows it holds', () => {
+    // Rows no plan claims: there is nothing to head them WITH, and the
+    // section-wide version printed a bare "(3)".
+    expect(showPlanHeading(group('', 4))).toBe(false);
   });
 
   it('stays quiet for an empty group', () => {
-    expect(showPlanHeadings(0, 0)).toBe(false);
+    expect(showPlanHeading(group('alpha', 0))).toBe(false);
+  });
+
+  it('answers each group of a MIXED section on its own', () => {
+    // What a section-wide answer cannot express, and the reason this moved: one
+    // plan with several rows beside a plan with one. A single flag is wrong for
+    // one of them either way — heading the single row, or stripping the
+    // heading off the six.
+    expect(showPlanHeading(group('many', 3))).toBe(true);
+    expect(showPlanHeading(group('lonely', 1))).toBe(false);
   });
 });
 
