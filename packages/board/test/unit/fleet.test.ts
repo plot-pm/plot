@@ -2022,6 +2022,50 @@ describe('rowsFromPulse carries stuck detection onto the row', () => {
     expect(rowFor().stuck).toBeNull();
   });
 
+  it('sees a host-reported conflict whose checks read green', () => {
+    // `prState` is what the detector is handed, so the fold decides what the
+    // watcher can see at all. This is the live shape from PR #57 as the host
+    // finally reported it — `mergeable: conflicting` with a rollup that still
+    // said `green` — and `merge-tree` predicted nothing, so `conflicts` is
+    // empty: the host says *this does not merge* without saying where.
+    //
+    // Reported as a plain `conflict` and never `artifact-conflict`: that
+    // distinction rests on the SET being exactly one known file, and here there
+    // is no set at all.
+    const stuck = rowFor({}, failingPr({ checks: 'green', mergeable: 'conflicting' })).stuck;
+    expect(stuck?.state).toBe('conflict');
+    expect(stuck?.conflicts).toEqual([]);
+  });
+
+  it('does NOT claim a branch is stuck when the host could not say', () => {
+    // THE HONEST COST OF THIS FIX, asserted rather than left to be discovered.
+    //
+    // `mergeable: unknown` now yields `unknown`, so `prState === 'failing'` no
+    // longer fires for a row whose mergeability could not be read — a branch
+    // that today reports `ci-failing` reports nothing while GitHub is down.
+    //
+    // That is the correct trade and not a regression to route around: a stuck
+    // verdict derived from a pulse the host could not answer is a guess, and
+    // `stuck` is the one field a later wave is licensed to act on. The row
+    // still SAYS *cannot say whether it merges*, so nothing is hidden from the
+    // reader — only the machine-actionable claim is withheld. The state is
+    // re-read every 60 s, so the next readable pulse restores the verdict.
+    const stuck = rowFor({}, failingPr({ checks: 'failing', mergeable: 'unknown' })).stuck;
+    expect(stuck).toBeNull();
+    expect(rowFor({}, failingPr({ checks: 'failing', mergeable: 'unknown' })).note)
+      .toMatch(/cannot say whether it merges/);
+  });
+
+  it('still reports local evidence while the host is unreadable', () => {
+    // The pairing: suppressing the host-derived verdict must not suppress the
+    // ones this machine observed itself. An unreadable `mergeable` says nothing
+    // about a conflict `merge-tree` predicted or a commit that was never pushed.
+    const unreadable = { checks: 'failing', mergeable: 'unknown' };
+    expect(rowFor({ conflicts: ['src/app.ts'] }, failingPr(unreadable)).stuck?.state)
+      .toBe('conflict');
+    expect(rowFor({ local_ahead: 2 }, failingPr(unreadable)).stuck?.state).toBe('unpushed');
+  });
+
   it('does not change the group, the state or the note of a stuck row', () => {
     // A stuck branch KEEPS the group it belongs to; this adds a fact about it.
     // Folding stuckness into the group would put a conflicting PR and an
