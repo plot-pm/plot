@@ -80,6 +80,19 @@ export interface PrRecord {
   draft: boolean;
   /** green · pending · failing · none · unknown — see plot-host.sh pr-list --rich. */
   checks: string;
+  /**
+   * mergeable · conflicting · unknown — see plot-host.sh pr-list --rich.
+   *
+   * A SEPARATE question from `checks`, and the one that disambiguates it.
+   * GitHub starts no workflow for a PR that does not merge cleanly, so a
+   * conflicting PR reports an empty rollup — `checks: 'none'`, indistinguishable
+   * from a bot PR whose run is waiting for a human to approve it.
+   *
+   * `unknown` on every host that cannot answer (Bitbucket) and on every payload
+   * written before the field existed. Consumers must not read it as clean:
+   * absent is not false, the same rule the local signals obey.
+   */
+  mergeable?: string;
   /** APPROVED · CHANGES_REQUESTED · REVIEW_REQUIRED · "" — informational only. */
   review: string;
   /**
@@ -399,6 +412,12 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
       // normalized to "" here rather than left undefined — one absent-value
       // shape for every consumer to check.
       if (typeof pr.url !== 'string') pr.url = '';
+      // `mergeable` is newer still, and its absent value is `unknown` rather
+      // than "": the field answers a three-way question, and an adapter that
+      // cannot answer it is in exactly the position Bitbucket is in. Normalized
+      // here so `prState` never has to distinguish "the adapter is old" from
+      // "the host cannot say" — neither is a claim that the branch merges.
+      if (typeof pr.mergeable !== 'string' || !pr.mergeable) pr.mergeable = 'unknown';
       // A merged or declined PR must NOT reach `classify` by head: it would
       // answer for a branch whose git state has already answered, and reopen a
       // question the merge closed. Numbers are indexed regardless — a link to a
@@ -719,6 +738,29 @@ export function classify(
   // not-yet-pushed branches keep their git answer.
   if (pr && state !== 'merged' && state !== 'open') {
     const note = reviewNote(pr);
+    // THE CONFLICT OUTRANKS THE CHECKS, and it has to be said before the switch
+    // rather than inside it, because the value it corrects is `none`.
+    //
+    // GitHub starts no workflow for a branch that does not merge, so a
+    // conflicting PR reports an EMPTY rollup and falls into the `none` arm
+    // below — where the note reads *no checks*, which is true and useless: it
+    // names the symptom and withholds the cause, and the two situations that
+    // share those three words want opposite things. `no checks` on a bot PR
+    // wants a click; on this one it wants a rebase.
+    //
+    // `waiting-on-you` either way, and that moves nothing: a conflicting PR
+    // reports an EMPTY rollup, so every row this arm now answers was already
+    // landing in `waiting-on-you` through the `none` case below. Only the
+    // SENTENCE changes.
+    //
+    // Drafts included, and deliberately. The `green` arm below defers a draft
+    // to its author, but `none` never did — a draft with no checks has always
+    // been the author's errand — and a conflict is the strongest possible
+    // version of that errand. Adding a draft exemption here would move rows
+    // this change is not about, in the direction of saying less.
+    if (pr.mergeable === 'conflicting') {
+      return { group: 'waiting-on-you', note: withNote(`PR #${pr.number}, conflicts`, note) };
+    }
     switch (pr.checks) {
       case 'pending':
         return { group: 'waiting-on-machine', note: withNote(`PR #${pr.number}, CI running`, note) };
@@ -945,13 +987,65 @@ export function reviewNote(pr: PrRecord): string {
  */
 export function draftNote(pr: PrRecord): string {
   const base = `PR #${pr.number}, draft`;
+  // Same precedence as `classify`, and for the same reason: a conflicting draft
+  // reports an empty rollup, so reading `checks` first would say *no checks* on
+  // every one of them. A draft is not exempt from needing a rebase.
   const checks =
-    pr.checks === 'failing' ? 'checks failing'
-      : pr.checks === 'pending' ? 'CI running'
-        : pr.checks === 'none' ? 'no checks'
-          : pr.checks === 'unknown' ? 'checks unavailable'
-            : '';
+    pr.mergeable === 'conflicting' ? 'conflicts'
+      : pr.checks === 'failing' ? 'checks failing'
+        : pr.checks === 'pending' ? 'CI running'
+          : pr.checks === 'none' ? 'no checks'
+            : pr.checks === 'unknown' ? 'checks unavailable'
+              : '';
   return withNote(checks ? `${base}, ${checks}` : base, reviewNote(pr));
+}
+
+/**
+ * The PR's condition as a VALUE, for the row to render however it likes.
+ *
+ * The same facts `classify` spells into a sentence, stated as one of six words
+ * instead. The note keeps everything a PR state cannot say — *uncommitted work*,
+ * *blocked by an earlier wave*, *claimed elsewhere* — and is only relieved of
+ * this one duty; what changes is that the PR's condition stops existing SOLELY
+ * inside prose that a consumer would have to parse back apart.
+ *
+ * `conflicts` is checked FIRST, and that order is the whole point. GitHub starts
+ * no workflow for a branch that does not merge cleanly, so a conflicting PR
+ * always also reports an empty rollup: check `checks` first and every conflict
+ * in the repo reads `none`. That is the defect being fixed — measured twice,
+ * on PR #149 and PR #160, both of which said *no checks* while GitHub said
+ * *this branch has conflicts that must be resolved*. The conflict is the cause;
+ * the missing checks are its consequence, and a row that reports the consequence
+ * has told the truth and hidden the reason.
+ *
+ * Only the literal `conflicting` promotes. `unknown` mergeability — Bitbucket,
+ * or a PR GitHub has not finished computing — falls through to whatever `checks`
+ * can say, because absent is not a conflict any more than it is a clearance.
+ *
+ * `draft` is NOT consulted here. It is its own field on the row for the reason
+ * `AgentPr` states: a draft has CI like anything else, and answering both
+ * questions with one value is what kept WAITING ON A MACHINE empty.
+ */
+export function prState(pr: PrRecord): 'green' | 'pending' | 'failing' | 'none' | 'conflicts' | 'unknown' {
+  if (pr.mergeable === 'conflicting') return 'conflicts';
+  switch (pr.checks) {
+    case 'green': return 'green';
+    case 'pending': return 'pending';
+    case 'failing': return 'failing';
+    case 'none': return 'none';
+    // Anything the adapter could not report, including a value this build does
+    // not know. A new word from a future host must read as "cannot say", never
+    // as the reassuring end of the range.
+    default: return 'unknown';
+  }
+}
+
+/** The PR fields a row carries: the link, and the two independent conditions. */
+export function agentPr(pr: PrRecord): {
+  number: number; url: string; draft: boolean;
+  state: ReturnType<typeof prState>;
+} {
+  return { number: pr.number, url: pr.url ?? '', draft: pr.draft === true, state: prState(pr) };
 }
 
 function withNote(base: string, note: string): string {
@@ -1068,9 +1162,11 @@ export function rowsFromPulse(
           group,
           ageMinutes: age,
           note: b.claimed ? `${note} · ${b.claimed}` : note,
-          // The link the row could not offer before. `url` is the adapter's
-          // string or "", never anything this file composed.
-          pr: pr ? { number: pr.number, url: pr.url ?? '' } : null,
+          // The link the row could not offer before, and now the condition too.
+          // `url` is the adapter's string or "", never anything this file
+          // composed; `state` and `draft` are the same facts the note spells
+          // out, stated as values so the cell can format them.
+          pr: pr ? agentPr(pr) : null,
           // A MERGED branch gets no link, even where the base is known: the
           // remote page is gone, and this file's standing rule is that a missing
           // address renders as plain text rather than as an invented one. The
@@ -1188,7 +1284,7 @@ export function rowsFromPulse(
       branchUrl: urlBase
         ? `${urlBase}${branch.split('/').map(encodeURIComponent).join('/')}`
         : '',
-      pr: { number: pr.number, url: pr.url ?? '' },
+      pr: agentPr(pr),
       waitingDays: null,
     });
   }

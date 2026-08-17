@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  classify, compareWithinGroup, draftNote, humanAge, rowPhase, rowsFromPulse,
+  classify, compareWithinGroup, draftNote, humanAge, prState, rowPhase, rowsFromPulse,
   rateLimitBackoffMs,
 } from '../../src/server/fleet.js';
 import {
@@ -938,8 +938,12 @@ describe('rowsFromPulse', () => {
       }],
     ]);
     const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, prs);
+    // The number and the address, which is what this test is about. The row's
+    // `pr` also carries the PR's CONDITION now (`draft`, `state`) — asserted
+    // where those fields are the subject, so that adding one there does not
+    // fail an assertion about URLs here.
     expect(rows.find((r) => r.branch === 'feature/b')?.pr)
-      .toEqual({ number: 7, url: 'https://example.test/pr/7' });
+      .toMatchObject({ number: 7, url: 'https://example.test/pr/7' });
     // No PR is the common case, not a degraded one — and it must be null rather
     // than a fabricated address.
     expect(rows.find((r) => r.branch === 'feature/c')?.pr).toBeNull();
@@ -1364,7 +1368,8 @@ describe('rowsFromPulse', () => {
       }],
     ]);
     const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, prs);
-    expect(rows.find((r) => r.branch === 'feature/b')?.pr).toEqual({ number: 7, url: '' });
+    expect(rows.find((r) => r.branch === 'feature/b')?.pr)
+      .toMatchObject({ number: 7, url: '' });
   });
 });
 
@@ -1496,5 +1501,222 @@ describe('classify with PR data', () => {
     expect(classify('wip', 'eligible', 3, QUIET, null).group).toBe('working');
     expect(classify('claimed', 'eligible', 3, QUIET, null).group).toBe('working');
     expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null).group).toBe('quiet');
+  });
+});
+
+// The PR's condition as a FIELD rather than as prose.
+//
+// Before this, `AgentRow.pr` carried `{ number, url }` and nothing else: green,
+// draft and `no checks` existed only inside `note`, assembled by different
+// branches of `classify`. That is why one row read `PR #57 green` and the next
+// `PR #116, no checks` — nothing downstream could make them agree, and nothing
+// could render a badge from a sentence without parsing it back apart.
+describe('prState', () => {
+  const pr = (over: Partial<PrRecord> = {}): PrRecord => ({
+    number: 42, head: 'feature/x', state: 'OPEN', draft: false, checks: 'green',
+    mergeable: 'mergeable', review: '', url: 'https://example.test/pr/42', ...over,
+  });
+
+  it('states each check verdict as its own value', () => {
+    expect(prState(pr({ checks: 'green' }))).toBe('green');
+    expect(prState(pr({ checks: 'pending' }))).toBe('pending');
+    expect(prState(pr({ checks: 'failing' }))).toBe('failing');
+    expect(prState(pr({ checks: 'none' }))).toBe('none');
+  });
+
+  it('says conflicts, not no checks, for a conflicting PR', () => {
+    // The live shape from PR #149 and PR #160: mergeable=CONFLICTING and a
+    // genuinely EMPTY rollup, because GitHub starts no CI for a conflicting PR.
+    // Reading `checks` first renders every conflict in the repo as `none` —
+    // true about the symptom, silent about the cause.
+    const conflicting = pr({ checks: 'none', mergeable: 'conflicting' });
+    expect(prState(conflicting)).toBe('conflicts');
+  });
+
+  it('still says no checks for a workflow awaiting a human click', () => {
+    // The pairing that matters: one label for both situations is the defect,
+    // and a fix that renames all of them to `conflicts` is the same defect
+    // mirrored — this PR wants a click, not a rebase.
+    expect(prState(pr({ checks: 'none', mergeable: 'mergeable' }))).toBe('none');
+  });
+
+  it('never reports unknown mergeability as clean', () => {
+    // Bitbucket's path, and GitHub's not-yet-computed one. Absent is not false:
+    // the state falls back to what checks can say rather than claiming a merge.
+    expect(prState(pr({ checks: 'green', mergeable: 'unknown' }))).toBe('green');
+    expect(prState(pr({ checks: 'none', mergeable: 'unknown' }))).toBe('none');
+    // And a record from before the field existed answers the same way — an
+    // absent field is exactly the position a host that cannot say is in.
+    expect(prState(pr({ checks: 'none', mergeable: undefined }))).toBe('none');
+  });
+
+  it('reports a check verdict it does not recognise as unknown', () => {
+    // A word from a future host must read as "cannot say", never as the
+    // reassuring end of the range.
+    expect(prState(pr({ checks: 'unknown' }))).toBe('unknown');
+    expect(prState(pr({ checks: 'something-new' }))).toBe('unknown');
+  });
+
+  it('does not fold draft into the state', () => {
+    // A draft has CI like anything else, and the two are independent questions.
+    // Folding them would rebuild the short-circuit that kept WAITING ON A
+    // MACHINE empty — moving it out of the classifier and into the contract,
+    // where it is harder to see and shared by every consumer.
+    expect(prState(pr({ draft: true, checks: 'pending' }))).toBe('pending');
+    expect(prState(pr({ draft: true, checks: 'green' }))).toBe('green');
+    expect(prState(pr({ draft: true, checks: 'failing' }))).toBe('failing');
+  });
+});
+
+describe('the row carries the PR condition as fields', () => {
+  const pulse: FleetPulse = {
+    generatedAt: '2026-08-17T00:00:00Z',
+    plans: [{
+      file: '2026-08-17-p.md', slug: 'p', title: 'P', phase: 'approved', story: '',
+      waves: [{
+        name: 'One', verdict: 'eligible',
+        branches: [{
+          branch: 'feature/a', state: 'wip', claimed: '', local_dirty: false,
+          local_ahead: 0, worker: 'elsewhere', worker_exit: '', worker_pid: '',
+        }],
+      }],
+    }],
+    summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
+  } as never;
+  const ages = new Map<string, number | null>([['feature/a', 5]]);
+  const pr = (over: Partial<PrRecord> = {}): PrRecord => ({
+    number: 42, head: 'feature/a', state: 'OPEN', draft: false, checks: 'green',
+    mergeable: 'mergeable', review: '', url: 'https://host/pr/42', ...over,
+  });
+
+  const rowFor = (over: Partial<PrRecord> = {}) =>
+    rowsFromPulse(pulse, ages, 'plot', QUIET, new Map([['feature/a', pr(over)]]))
+      .find((r) => r.branch === 'feature/a')!;
+
+  it('puts state and draft on the row beside the number and url', () => {
+    // The wiring the pure-function tests cannot reach: `prState` answering
+    // correctly is worth nothing if `rowsFromPulse` never puts it on the row.
+    const row = rowFor();
+    expect(row.pr).toEqual({
+      number: 42, url: 'https://host/pr/42', draft: false, state: 'green',
+    });
+  });
+
+  it('keeps draft a SEPARATE field from the state', () => {
+    // Two facts, two fields — so a cell can render `⑂42 [draft] [CI running]`
+    // rather than having to pick one of them to show.
+    const row = rowFor({ draft: true, checks: 'pending' });
+    expect(row.pr!.draft).toBe(true);
+    expect(row.pr!.state).toBe('pending');
+  });
+
+  it('says conflicts on the row where GitHub reported a conflict', () => {
+    expect(rowFor({ checks: 'none', mergeable: 'conflicting' }).pr!.state).toBe('conflicts');
+  });
+
+  it('carries the state onto a planless PR row too', () => {
+    // The second place a row's `pr` is built. Two constructions of one field is
+    // how the two halves of a tab stop agreeing.
+    const prs = new Map([['bug/loose', pr({ head: 'bug/loose', checks: 'failing' })]]);
+    const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, prs);
+    const loose = rows.find((r) => r.branch === 'bug/loose')!;
+    expect(loose.pr!.state).toBe('failing');
+    expect(loose.pr!.draft).toBe(false);
+  });
+
+  it('leaves the note carrying what a PR state cannot say', () => {
+    // The note is not being replaced, only relieved of one duty. These three
+    // facts have no PR-state equivalent and must survive.
+    const blocked = rowsFromPulse(
+      {
+        ...pulse,
+        plans: [{
+          ...pulse.plans[0],
+          waves: [{
+            ...pulse.plans[0].waves[0],
+            verdict: 'blocked',
+            // `open` — the branch does not exist yet, which is the only state
+            // in which "an earlier wave has not landed" is the row's answer.
+            branches: [{ ...pulse.plans[0].waves[0].branches[0], state: 'open' }],
+          }],
+        }],
+      } as never,
+      new Map(), 'plot', QUIET);
+    expect(blocked[0].note).toMatch(/earlier wave/);
+
+    const claimed = rowsFromPulse(
+      {
+        ...pulse,
+        plans: [{
+          ...pulse.plans[0],
+          waves: [{
+            ...pulse.plans[0].waves[0],
+            branches: [{
+              ...pulse.plans[0].waves[0].branches[0],
+              claimed: 'claimed by someone',
+            }],
+          }],
+        }],
+      } as never,
+      ages, 'plot', QUIET);
+    expect(claimed[0].note).toMatch(/claimed by someone/);
+
+    // The third: local work no PR state could ever describe. Past the quiet
+    // window, which is where `localDirty` speaks — it LIFTS a branch out of
+    // quiet and never downgrades a livelier answer.
+    expect(classify('wip', 'eligible', QUIET + 1, QUIET, null, true, 0).note)
+      .toMatch(/uncommitted work/);
+  });
+});
+
+describe('the note says conflicts too', () => {
+  const pr = (over: Partial<PrRecord> = {}): PrRecord => ({
+    number: 42, head: 'feature/x', state: 'OPEN', draft: false, checks: 'none',
+    mergeable: 'conflicting', review: '', url: '', ...over,
+  });
+
+  it('replaces "no checks" with "conflicts" where the branch does not merge', () => {
+    // The field alone is not enough: leaving the note saying `no checks` would
+    // keep the sentence lying while only the badge told the truth, and the row
+    // shows both.
+    const r = classify('wip', 'eligible', 3, QUIET, pr());
+    expect(r.note).toMatch(/conflicts/);
+    expect(r.note).not.toMatch(/no checks/);
+    // A conflict is a person's errand — the group was already right.
+    expect(r.group).toBe('waiting-on-you');
+  });
+
+  it('says it inside the draft framing too', () => {
+    // A draft is not exempt from needing a rebase, and reading `checks` first
+    // would say `no checks` on every conflicting draft.
+    expect(draftNote(pr({ draft: true }))).toMatch(/draft, conflicts/);
+  });
+
+  it('moves no row — a conflicting PR was already waiting on you', () => {
+    // The safety assertion. A conflicting PR reports an EMPTY rollup, so every
+    // row this arm answers was already reaching `waiting-on-you` through the
+    // `none` case: the group is unchanged and only the SENTENCE is new.
+    //
+    // Drafts included. The `green` arm defers a draft to its author, but `none`
+    // never did — a draft with no checks has always been the author's errand —
+    // and a conflict is the strongest version of that errand.
+    for (const draft of [false, true]) {
+      const before = classify('wip', 'eligible', 3, QUIET,
+        pr({ draft, mergeable: 'mergeable' }));
+      const after = classify('wip', 'eligible', 3, QUIET, pr({ draft }));
+      expect(after.group).toBe(before.group);
+      expect(after.note).not.toBe(before.note);
+    }
+  });
+
+  it('leaves every non-conflicting note exactly as it was', () => {
+    // The pairing: a change that says `conflicts` everywhere passes the two
+    // assertions above.
+    expect(classify('wip', 'eligible', 3, QUIET, pr({ mergeable: 'mergeable' })).note)
+      .toMatch(/no checks/);
+    expect(classify('wip', 'eligible', 3, QUIET, pr({ mergeable: 'unknown' })).note)
+      .toMatch(/no checks/);
+    expect(classify('wip', 'eligible', 3, QUIET,
+      pr({ mergeable: 'mergeable', checks: 'green' })).note).toMatch(/#42 green/);
   });
 });

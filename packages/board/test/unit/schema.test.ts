@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { PlanMetaSchema, CardSchema, FleetBranchSchema } from '../../src/contract/schema';
+import {
+  PlanMetaSchema, CardSchema, FleetBranchSchema, AgentRowSchema,
+} from '../../src/contract/schema';
 
 describe('PlanMetaSchema — waves', () => {
   const base = { file: 'docs/plans/x.md', format: 'canonical', phase: 'approved' };
@@ -129,5 +131,43 @@ describe('FleetBranchSchema — the worker', () => {
     // And "" is the honest rendering of "no pid was recorded", which a number
     // has no room for: 0 is a real-looking pid, and `kill -0 0` succeeds.
     expect(FleetBranchSchema.parse({ ...base, worker_pid: '4242' }).worker_pid).toBe('4242');
+  });
+});
+
+describe('AgentRowSchema.pr', () => {
+  const row = (pr: unknown) => AgentRowSchema.parse({
+    repo: 'plot', branch: 'feature/x', plan: 'p', wave: 'One', state: 'wip',
+    group: 'waiting-on-you', ageMinutes: 3, note: 'n', pr,
+  });
+
+  it('carries the PR condition as fields, not only as a number and a url', () => {
+    const parsed = row({
+      number: 42, url: 'https://host/pr/42', draft: true, state: 'conflicts',
+    });
+    expect(parsed.pr).toEqual({
+      number: 42, url: 'https://host/pr/42', draft: true, state: 'conflicts',
+    });
+  });
+
+  it('defaults an older pulse to unknown rather than to clean', () => {
+    // A payload written before the field existed cannot claim a state. Absent
+    // is not green, and it is not "not a draft that passes" either — `unknown`
+    // is the honest reading, the same one Bitbucket gets.
+    const parsed = row({ number: 42, url: '' });
+    expect(parsed.pr!.state).toBe('unknown');
+    expect(parsed.pr!.draft).toBe(false);
+  });
+
+  it('rejects a state outside the six', () => {
+    // The enum is the contract. A seventh value — `draft`, most temptingly —
+    // would rebuild the short-circuit that kept WAITING ON A MACHINE empty.
+    expect(() => row({ number: 42, url: '', state: 'draft' })).toThrow();
+    expect(() => row({ number: 42, url: '', state: 'merged' })).toThrow();
+  });
+
+  it('accepts each of the six states', () => {
+    for (const s of ['green', 'pending', 'failing', 'none', 'conflicts', 'unknown']) {
+      expect(row({ number: 1, url: '', state: s }).pr!.state).toBe(s);
+    }
   });
 });
