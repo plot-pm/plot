@@ -12,6 +12,7 @@
 - **Approved:** 2026-08-17, jwloka, plan-PR #163 merged (four interrogation rounds)
 - **Started:** 2026-08-17, Jan Wloka, `feature/plot-approve-script`
 - **Delivered:**
+- **Started:** 2026-08-17, Jan Wloka, `bug/approve-button-needs-no-config`
 
 ## Problem
 
