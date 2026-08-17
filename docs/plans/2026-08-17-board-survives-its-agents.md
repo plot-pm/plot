@@ -136,6 +136,21 @@ launcher, it measures it. No cooperation from the caller, no cleanup code, and
 it survives the exact case that produces orphans — the one where no cleanup code
 runs at all.
 
+**Two neighbouring answers were checked and rejected.** Measured:
+`helpers.mjs:33` spawns **without `detached: true`**, so these are ordinary
+children — they were not deliberately cut loose, they were *orphaned*, and POSIX
+handed them to PID 1. And there is **no global teardown** in the board's test
+config at all; cleanup lives entirely in per-suite `after()` hooks.
+
+So a global teardown would be the obvious fix and is the wrong one: it runs when
+the suite ends **in order**, which is exactly the case `after()` already covers.
+The two orphans measured at 01:54 came from a run that did *not* end in
+order — a teardown would have missed both. The mechanism has to work when
+nothing gets to run, which is what leaves only the process asking about itself.
+
+Measured also: the server registers **no signal handler of any kind** — not even
+`SIGTERM`. So the polite path is not merely unreliable, it is absent.
+
 **It must apply to test servers only, and the distinction cannot be the ppid
 change.** Measured: the operator's own board is a child of the `--watch`
 supervisor, which *replaces its child on every restart* — so a naive "my parent
@@ -143,11 +158,13 @@ changed, therefore exit" would be true for both, and the operator's board would
 be the one that dies. Worse, a board started in a terminal that the operator
 then closes is deliberately allowed to keep running.
 
-The signal is instead **the environment the harness already sets**:
-`helpers.mjs` passes `PLOT_REPO_ROOT` and `PORT=0` to every server it starts,
-and the operator's board has neither. An explicit variable is better than
-inferring from those two — inference would silently capture anyone who happens
-to run the board with `PORT=0` — so the harness sets one that says exactly this:
+The signal is instead **a variable the harness sets on purpose**:
+`PLOT_EXIT_WITH_PARENT`. `helpers.mjs` already passes `PLOT_REPO_ROOT` and
+`PORT=0` to every server it starts, and the operator's board has neither — so
+either could serve as a tell. Neither should. `PLOT_REPO_ROOT` answers *where
+the repo is*, and deriving *die with your launcher* from it would surprise
+anyone who sets it for its actual meaning; `PORT=0` answers *pick a port for
+me*. **One variable, one question.** The new one says exactly what it does:
 *exit when the process that started you is gone.*
 
 **One variable covers the agent case too, with no second mechanism.** Measured
@@ -268,9 +285,15 @@ pair; `.gitattributes` covers it.
   regression that matters most — the naive form of this fix kills the
   operator's own board, because `--watch` replaces its child on every restart
   and the ppid changes there too.
-- **The gate is an explicit env var, not inferred from `PORT=0`.** Assert a
-  server started with `PORT=0` and without the variable keeps running:
-  inference would capture anyone who happens to pick a free port that way.
+- **The gate is `PLOT_EXIT_WITH_PARENT`, not inferred from anything else.**
+  Assert a server started with `PORT=0` **and** `PLOT_REPO_ROOT` but without the
+  new variable keeps running: both are already set on every test server, so
+  inferring from either would work by accident today and surprise whoever sets
+  them for their actual meaning tomorrow.
+- **A global teardown is not the mechanism.** Assert the exit happens when the
+  launcher is killed outright — a teardown runs only when the suite ends in
+  order, which is the case `after()` already covers and the case orphans do not
+  come from.
 - **No orphan survives a killed test run.** The end-to-end form: start the
   suite, kill the runner, assert no `board-server.mjs` remains. This is the
   actual defect; every other assertion here is a component of it.
@@ -335,12 +358,15 @@ fails, not how often it reads.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {"q": "The plan says the scan reads a failed git status as clean. Measured: plot-fleet-scan.sh:266 already reads the exit code and argues the rule at length. What it actually does is `continue` — the worktree is skipped silently.", "a": "Report it as its own signal. A lock is not an absence — it means an agent is writing HERE, RIGHT NOW, which is exactly what the fleet view exists to show. `local_locked` joins local_dirty and local_ahead under the same five rules: three neighbouring facts, three questions", "category": "technical-implementation"},
     {"q": "The plan wants the pulse to survive a --watch restart. Measured: fleet.ts:180 already caches per repo with PR data beside it — but in process memory, which dies with the process. Where should it live?", "a": "On disk at .plot/state/last-pulse.json, read at startup BESIDE an immediate rescan. Rescanning alone narrows the window without closing it (500-1050ms, 21.2s cold boot). A bridge with an expiry, never a store — Principle 1 keeps git as the authority", "category": "technical-architecture"},
     {"q": "The exit-with-your-parent gate keys on an env var only the test harness sets. But eight board servers were running from three concurrent test runs, two started by agents. Is one variable enough?", "a": "Yes. Agents run pnpm test, which goes through the same helpers.mjs, so their servers inherit the variable exactly as a human's do. The case producing the most orphans is the same case. Already-running orphans are killed by hand once; a reaper would be a second mechanism for a population that stops growing", "category": "domain-rules"},
     {"q": "The three waves were planned parallel. But a full board run reported two failures that vanished when the same file ran alone — eight servers and three suites competing for ports and CPU.", "a": "Lifetime first, alone. The other two waves cannot be trusted to FAIL HONESTLY until it lands: a red test in a polluted environment is indistinguishable from one in a broken environment. Costs a round of waiting, buys the ability to believe the next round", "category": "tradeOffs"}
+    {"q": "The plan relies on process.ppid polling. Measured: helpers.mjs spawns WITHOUT detached:true — these are ordinary children that were orphaned, not cut loose — and there is no global teardown at all; cleanup lives in per-suite after() hooks.", "a": "ppid polling stays. A global teardown runs when the suite ends IN ORDER, which is exactly what after() already covers — the two orphans measured at 01:54 came from a run that did not end in order, and a teardown would have missed both. The mechanism has to work when nothing gets to run", "category": "technical-architecture"},
+    {"q": "helpers.mjs already sets PLOT_REPO_ROOT and PORT=0 on every test server, and the operator board sets neither. Is a new variable needed?", "a": "Yes — PLOT_EXIT_WITH_PARENT. One variable, one question: PLOT_REPO_ROOT answers WHERE THE REPO IS, and deriving 'die with your launcher' from it would surprise anyone setting it for its actual meaning. Inferring would work by accident today and break tomorrow", "category": "technical-implementation"},
+    {"q": "The plan leaves already-running orphans out of scope, but they regrew several times tonight while agents ran their suites.", "a": "It stands. Once the fix lands no new orphan is created, so the population only shrinks; killing the existing ones is a one-line command already run twice today. A reaper would be a second mechanism aimed at a shrinking set — and one that kills other people's processes", "category": "tradeOffs"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
