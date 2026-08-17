@@ -10,8 +10,9 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-17, jwloka, plan-PR #152 merged (two interrogation rounds)
-- **Started:**
+- **Started:** 2026-08-17, Jan Wloka, `feature/dispatch-writes-brief`
 - **Delivered:**
+- **Started:** 2026-08-17, Jan Wloka, `feature/fleet-sees-unstarted-claims`
 
 ## Problem
 
