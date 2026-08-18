@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-board
@@ -11,8 +11,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-17, Jan Wloka, plan-PR #184 merged
 - **Started:**
-- **Delivered:**
-
+- **Delivered:** 2026-08-18
 ## Problem
 
 Asked on 2026-08-17: *can NOT STARTED colour its statuses the way the
@@ -229,7 +228,7 @@ second is an accusation, and only the second earns the scarce channel.
   waiting-state and the blocking wave's name onto the row; the board
   renders them as colour beside the words and colours only a Draft plan's
   first wave. No animation: the repo's history shows no long-waiting
-  Draft to calibrate one against
+  Draft to calibrate one against → #205
 
 ## Done when
 
