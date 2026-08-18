@@ -128,7 +128,7 @@ this cost is paid once per cache window rather than per request.
 
 ## Branches
 
-- `feature/the-pulse-reports-when-work-last-changed` — `changed_ago_seconds` in `plot-fleet-scan.sh`, computed from commits, worktree mtimes and the worker log, with editor leftovers excluded and an absent value for branches with no local worktree. Tests: a worktree touched a second ago reports near zero; one untouched for an hour reports that hour; a branch with no worktree reports absent, never zero; a `.tmp1` written now does not reset the clock.
+- `feature/the-pulse-reports-when-work-last-changed` — `changed_ago_seconds` in `plot-fleet-scan.sh`, computed from commits, worktree mtimes and the worker log, with editor leftovers excluded and an absent value for branches with no local worktree. Tests: a worktree touched a second ago reports near zero; one untouched for an hour reports that hour; a branch with no worktree reports absent, never zero; a `.tmp1` written now does not reset the clock. — PR #238
 
   **Wait for the file.** `plot-fleet-scan.sh` is held by two other plans' branches as this is written — the squash-merge detection fix (~558/621) and the ref-enumeration fix (~121/134/270), both with uncommitted work. This change sits beside the `local_dirty` computation, disjoint from both, but three agents in one 1200-line bash file produced several rebase rounds earlier the same day and the value here does not justify a fourth. Dispatch once those two have merged.
 
