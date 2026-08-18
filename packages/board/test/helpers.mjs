@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -303,4 +303,113 @@ export function makeRepo(spec = {}) {
     fs.writeFileSync(path.join(dir, s.file), s.content, 'utf8');
   }
   return tmp;
+}
+
+/**
+ * Run git in `cwd`, retrying only while `index.lock` is held.
+ *
+ * The suites that use this start a REAL board server against the very repo they
+ * then mutate (`startServer(fixture.repo)`), and that server rescans the repo
+ * every `REFRESH_MS`. Both sides want `.git/index.lock`, so on a loaded machine
+ * the test's own `checkout`/`commit`/`push` loses the race and throws an error
+ * that names git rather than the board. CI failed this way on a commit that
+ * added one markdown file and nothing else — 37 ms into the run.
+ *
+ * The concurrency cannot be designed away: "picks up a plan pushed to a NEW
+ * branch after the first read" asserts that the server sees changes in the repo
+ * it is watching, so the server must be running and the repo must be mutated.
+ *
+ * Contention is transient by definition — the holder finishes in milliseconds —
+ * so a bounded retry turns a spurious failure into a marginally slower test.
+ *
+ * Keyed on the lock message SPECIFICALLY. A blanket retry would paper over real
+ * git errors and turn a deterministic failure into a slow flaky one, which is
+ * the opposite of the goal: a broken test must still fail on its first attempt.
+ *
+ * This mirrors what `plot-fleet-scan.sh` already does in production, where an
+ * `index.lock` reads as "an agent is writing HERE, RIGHT NOW" — a state to
+ * handle, not an error to propagate. The asymmetry between the production code
+ * and its own harness was the bug.
+ */
+const HELD_BY_ANOTHER_GIT = /index\.lock/;
+
+export function git(cwd, { retries = 10, delayMs = 25 } = {}) {
+  return (...args) => {
+    // Defaults give ~250 ms of patience: ten ticks of 25 ms. Long enough for a
+    // scan holding the index to finish, short enough that a genuinely stuck
+    // lock fails the test rather than stalling the suite.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return execFileSync('git', args, {
+          cwd,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+      } catch (err) {
+        // ONLY `index.lock`, and only for a bounded number of attempts.
+        //
+        // Both halves are load-bearing. A blanket retry would turn a real,
+        // deterministic git failure into a slow flaky one — the exact defect
+        // this helper exists to remove, wearing the fix as a costume. And an
+        // unbounded one would hang the suite on a lock that never clears.
+        //
+        // `stderr` AND `message` are both consulted: stderr is where git puts
+        // it under the stdio this helper passes today, and message is what
+        // survives if a future caller changes that. Matching one field would
+        // make the guard silently conditional on a detail two lines above it.
+        const text = `${err?.stderr ?? ''}${err?.message ?? ''}`;
+        if (attempt >= retries || !HELD_BY_ANOTHER_GIT.test(text)) throw err;
+        // Synchronous by necessity — every caller uses this helper
+        // synchronously during fixture setup, so there is no `await` to reach
+        // for. Contention resolves in milliseconds, so a fixed delay beats a
+        // backoff: the worst case stays bounded at retries * delayMs
+        // and the common case pays one tick.
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+      }
+    }
+  };
+}
+
+/**
+ * Delete a fixture tree, retrying only while a dying process still writes into
+ * it.
+ *
+ * `after()` hooks await `server.stop()`, but that resolves when the SERVER
+ * exits — not when the `git` children it spawned mid-scan do. A grandchild is
+ * outside the scope of the SIGTERM sent to its parent, so it can still create
+ * `.git/index.lock` or an object file a few milliseconds after the server is
+ * gone. `rmSync` walks a directory, deletes what it saw, then `rmdir`s the
+ * parent; a file appearing between those two steps fails the `rmdir` with
+ * ENOTEMPTY. CI failed exactly this way on `outer/.git`.
+ *
+ * `force: true` does not cover this. It suppresses "no such file" — the
+ * absence of something expected — while this is the presence of something
+ * unexpected, the opposite failure.
+ *
+ * This is the same reasoning as `git` above, applied to the other half of the
+ * fixture's life: contention with a doomed process is transient by definition,
+ * so a bounded retry converts a spurious teardown failure into a marginally
+ * slower one. Awaiting the server was the previous attempt at this and did not
+ * hold, because it addressed the process that was waited for rather than the
+ * ones that were not.
+ *
+ * Bounded and specific for the same reason the git retry is: ENOTEMPTY/EBUSY
+ * clear on their own, and any other error means the fixture is wrong in a way
+ * patience cannot fix, so it must surface on the first attempt.
+ */
+const STILL_BEING_WRITTEN = new Set(['ENOTEMPTY', 'EBUSY', 'EPERM']);
+
+export function rmTree(target, { retries = 10, delayMs = 25 } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      fs.rmSync(target, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      if (attempt >= retries || !STILL_BEING_WRITTEN.has(err?.code)) throw err;
+      // Synchronous, to stay a drop-in for the `fs.rmSync` calls it replaces:
+      // `after()` hooks are not all async, and making them so to accommodate a
+      // cleanup helper would spread this detail across every suite.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+    }
+  }
 }

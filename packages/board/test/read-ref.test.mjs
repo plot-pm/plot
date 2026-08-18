@@ -38,7 +38,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { startServer, fetchRaw, SCRIPTS_DIR } from './helpers.mjs';
+import { startServer, fetchRaw, SCRIPTS_DIR, git, rmTree } from './helpers.mjs';
 
 const BRIDGE = '.plot/state/last-pulse.json';
 
@@ -54,9 +54,6 @@ const PLAN = `# The fleet API names its ref
 
 - \`feature/fleet-api-names-its-ref\` — the response says what it read
 `;
-
-const git = (cwd) => (...args) =>
-  execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
 /** A minimal repo with a remote — enough for the server to start and scan. */
 function makeRepo() {
@@ -83,7 +80,7 @@ function makeRepo() {
   g('remote', 'add', 'origin', remote);
   g('push', '-u', 'origin', 'main');
 
-  return { tmp, repo, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) };
+  return { tmp, repo, cleanup: () => rmTree(tmp) };
 }
 
 /**
@@ -103,7 +100,7 @@ function makeBrokenScan() {
     '#!/usr/bin/env bash\necho "scan is broken on purpose" >&2\nexit 3\n',
     { mode: 0o755 },
   );
-  return { dir, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
+  return { dir, cleanup: () => rmTree(dir) };
 }
 
 const fetchFleet = async (port) => JSON.parse((await fetchRaw(port, '/api/fleet')).body);
