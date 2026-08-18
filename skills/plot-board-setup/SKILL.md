@@ -31,7 +31,8 @@ the cards.
 
 **Input:** `$ARGUMENTS` is optional; `--dry-run` reports what would be written
 and changes nothing. `--start` skips setup entirely — it resolves the artifact,
-starts the board, prints the URL, and stops.
+starts the board, proves it answers, and prints the URL. The same rule governs
+it: a board that did not come up must say so.
 
 ## Two ceremony levels
 
