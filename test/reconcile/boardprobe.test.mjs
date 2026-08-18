@@ -211,10 +211,17 @@ test('probe: a host without a plugin directory falls through to checkout', () =>
   assert.equal(p.artifact_source, 'checkout');
 });
 
+const CLIS = ['gh', 'bb', 'jen'];
+
+/** Everything the probe and plot-config.sh shell out to. */
+const NEEDED = ['bash', 'git', 'find', 'grep', 'sed', 'awk', 'stat', 'wc',
+  'tr', 'head', 'cat', 'node', 'uname', 'dirname', 'basename', 'env'];
+
 /**
  * PATH-stub the three CLIs. `specs` maps a CLI name to {stdout, exit}; a name
- * that is omitted is simply absent from PATH, which is how the probe learns
- * `installed: false`. Mirrors stubHost() in test/e2e/helpers.mjs.
+ * that is omitted is simply not created, and the returned directory is meant
+ * to be the WHOLE of PATH (see isolatedPath), so omission means unfindable.
+ * Mirrors stubHost() in test/e2e/helpers.mjs.
  */
 function stubClis(specs) {
   const dir = fs.mkdtempSync(path.join(tmp, 'stub-'));
@@ -225,12 +232,33 @@ function stubClis(specs) {
     );
     fs.chmodSync(path.join(dir, name), 0o755);
   }
+  // The real tools the probe needs, symlinked in, so this directory can be the
+  // entire PATH. Resolved from the CURRENT PATH rather than hardcoded, because
+  // their location is not the same on every platform.
+  for (const tool of NEEDED) {
+    if (CLIS.includes(tool)) continue;
+    let real;
+    try {
+      real = execFileSync('sh', ['-c', `command -v ${tool}`], { encoding: 'utf8' }).trim();
+    } catch { continue; }
+    if (real) fs.symlinkSync(real, path.join(dir, tool));
+  }
   return dir;
 }
 
-/** PATH with ONLY the stub dir plus coreutils, so real CLIs cannot leak in. */
+/**
+ * PATH containing ONLY the stub dir, so a real gh/bb/jen cannot leak in.
+ *
+ * MEASURED 2026-08-18: appending `/usr/bin:/bin` — the previous approach — is
+ * not isolation. This repo's Linux CI ships a real `gh` at `/usr/bin/gh`,
+ * inside the very directory kept for coreutils, so `installed` came back true
+ * on CI while passing on macOS, where gh lives in /opt/homebrew/bin. A
+ * non-executable shadow file does not work either: bash's `command -v` reports
+ * it as found regardless of the executable bit. Hence: one directory, holding
+ * exactly what the probe may see.
+ */
 function isolatedPath(stubDir) {
-  return { PATH: `${stubDir}:/usr/bin:/bin` };
+  return { PATH: stubDir };
 }
 
 test('probe: reports gh auth ok on the documented success output', () => {

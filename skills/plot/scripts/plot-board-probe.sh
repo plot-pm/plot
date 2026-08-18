@@ -106,10 +106,34 @@ gh_workflows=false
 artifact=""
 artifact_source="none"
 
-# mtime, portably: BSD/macOS `stat -f %m`, GNU/Linux `stat -c %Y`. Plot's CI
-# runs on Linux, where `-f` is a DIFFERENT flag rather than an error, so the
-# BSD form must be tried first and its failure used as the signal.
-mtime() { stat -f '%m' "$1" 2>/dev/null || stat -c '%Y' "$1" 2>/dev/null; }
+# mtime, portably: BSD/macOS `stat -f %m`, GNU/Linux `stat -c %Y`.
+#
+# MEASURED 2026-08-18 on alpine (busybox) and confirmed against this repo's
+# Linux CI: `stat -f '%m' FILE` there does NOT fail cleanly. GNU/busybox read
+# `-f` as `--file-system`, fail on `%m` as a missing path, and then STILL
+# print a multi-line filesystem report for FILE before exiting 1. So a
+# `bsd || gnu` chain runs both halves and concatenates their stdout — the
+# caller gets seven lines of "Block size: 4096 …" with the real mtime tacked
+# on the end, and the arithmetic that consumes it dies on a non-integer.
+# `2>/dev/null` hides the error message but not the partial output.
+#
+# So the form is DETECTED ONCE against a known file rather than attempted per
+# call: exactly one branch may ever write to stdout. Probing `-c` first is
+# deliberate — GNU is the one that mis-parses the other's flag, so asking it
+# its own question first means the ambiguous form is never reached on Linux.
+_stat_fmt=""
+if [ -n "$(stat -c '%Y' "${BASH_SOURCE[0]}" 2>/dev/null)" ]; then
+  _stat_fmt="gnu"
+elif [ -n "$(stat -f '%m' "${BASH_SOURCE[0]}" 2>/dev/null)" ]; then
+  _stat_fmt="bsd"
+fi
+mtime() {
+  case "$_stat_fmt" in
+    gnu) stat -c '%Y' "$1" 2>/dev/null ;;
+    bsd) stat -f '%m' "$1" 2>/dev/null ;;
+    *)   return 1 ;;
+  esac
+}
 
 plugin_root="${PLOT_PLUGIN_ROOT:-$HOME/.claude/plugins}"
 
