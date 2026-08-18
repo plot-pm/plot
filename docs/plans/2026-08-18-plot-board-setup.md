@@ -18,6 +18,7 @@
 - New `plot-board-probe.sh`: read-only board-readiness probe reporting node version, repo shape, artifact location, config presence, plan count, and `gh`/`bb`/`jen` auth as `ok`/`failed`/`unknown`.
 - New `plot-board-verify.sh`: starts the board on an OS-assigned port, fetches `/api/board`, and reaps the server via `trap` on every exit path.
 - `/plot-init` now offers board setup when the repo has plans, closing a gap where nothing in adoption mentioned the board.
+- `/plot-board-setup --start` starts an already-configured board and prints its URL, without re-running setup.
 
 ## Motivation
 
@@ -73,6 +74,37 @@ rather than reading it, and all three shape the branches below:
    (`Discovery/Design/Development/Endgame/Released`), not the four plan phases.
    A gate naming those strings fails on a healthy board.
 
+### Amendment 2026-08-18: `--start`
+
+Added after approval, while wave 1 was in flight and `feature/plot-board-setup-skill`
+was still `open` and unclaimed. Recorded here rather than applied silently: a
+plan is frozen on approval, so a scope change is a fact the branch's worker and
+any later reader are entitled to see.
+
+**The gap.** Setup is a once-per-repo ceremony — probe, write config, verify.
+Starting the board is a daily action. Running the full probe-and-verify every
+time a person wants to look at their board is exactly the ceremony that
+Principle 10 says must scale with the weight of the change.
+
+**Why not a separate `/plot-show-board` skill.** It would need to resolve the
+artifact, and that is the one piece of logic with a measured defect in it —
+lexical path ordering selecting a stale build. A second implementation is a
+second place for that bug to live. One command knows where the artifact is, for
+the same reason `plot-host.sh` is the only thing that talks to `gh` and `bb`.
+
+**The shape**, following `/plot-dispatch`'s existing `--dry-run` / `--status`
+precedent:
+
+| Invocation | Does |
+|---|---|
+| `/plot-board-setup` | Full setup: probe, propose, write config, verify, summarise |
+| `/plot-board-setup --start` | Resolve the artifact, start the board, print the URL, stop |
+
+`--start` skips the config write and the auth checks entirely. It still refuses
+when `artifact_source` is `none`, because there is nothing to start — and it
+reports rather than repairs, since a repo that needs setup should be told to run
+setup.
+
 ### Open Points
 
 - [ ] Should the empty-board diagnosis run unconditionally rather than only
@@ -96,7 +128,7 @@ rather than reading it, and all three shape the branches below:
 
 ### Skill
 
-- `feature/plot-board-setup-skill` — `SKILL.md` + `README.md` for the new spoke, the `plot-config.sh` key documentation, the `/plot-init` extension row, and the four documentation indexes. Tasks 5–6. Depends on both scripts existing, hence the second wave.
+- `feature/plot-board-setup-skill` — `SKILL.md` + `README.md` for the new spoke, the `--start` mode, the `plot-config.sh` key documentation, the `/plot-init` extension row, and the four documentation indexes. Tasks 5–6. Depends on both scripts existing, hence the second wave.
 
 ## Notes
 

@@ -1088,7 +1088,28 @@ pass that case. So this command starts the board, fetches its data, and checks
 the cards.
 
 **Input:** `$ARGUMENTS` is optional; `--dry-run` reports what would be written
-and changes nothing.
+and changes nothing. `--start` skips setup entirely — it resolves the artifact,
+starts the board, prints the URL, and stops.
+
+## Two ceremony levels
+
+Setup is a once-per-repo ceremony. Starting the board is a daily action, and
+re-running the probe, the config write, and the auth checks every time someone
+wants to look at their board is ceremony that does not scale with the weight of
+the action (Manifesto Principle 10).
+
+| Invocation | Does |
+|---|---|
+| `/plot-board-setup` | Steps 1–5 below: probe, propose, write config, verify, summarise |
+| `/plot-board-setup --start` | Step 1 (probe only, for the artifact path), then start the board and print its URL |
+
+`--start` writes no config and runs no auth check. It refuses when
+`artifact_source` is `none` — there is nothing to start — and it reports that
+rather than repairing it: a repo that needs setup should be told to run setup.
+
+Unlike step 4b, `--start` leaves the board **running**; it is the thing the user
+asked for, not a probe. So it does not use `plot-board-verify.sh`, whose whole
+purpose is to reap the server it started.
 
 ## Model Guidance
 
@@ -1254,6 +1275,34 @@ Run: `pnpm test`
 
 Expected: PASS — the skills validator lists `plot-board-setup` among the parsed
 skills. A frontmatter error fails here with the offending file named.
+
+- [ ] **Step 2b: Check the `--start` path by hand**
+
+`--start` has no automated test — it leaves a server running by design, which is
+the one thing the test suite must never do. Walk it instead:
+
+```bash
+# The artifact path the probe reports:
+bash skills/plot/scripts/plot-board-probe.sh | python3 -c \
+  "import json,sys; print(json.load(sys.stdin)['artifact'])"
+```
+
+Follow the skill's own `--start` instructions against that path, confirm the
+board answers on the printed URL, then stop it. Then confirm the refusal — and
+note it **cannot** be checked from this repo, because the checkout itself holds
+an artifact at `skills/plot/scripts/board/board-server.mjs`, so the third
+fallback always succeeds here. Use a scratch repo:
+
+```bash
+SB=$(mktemp -d) && cd "$SB" && git init -q -b main
+printf '# T\n\n## Plot Config\n\n- **Plan directory:** docs/plans/\n' > CLAUDE.md
+PLOT_PLUGIN_ROOT=/nonexistent PLOT_NPM_BIN=/nonexistent \
+  bash <plot scripts dir>/plot-board-probe.sh | python3 -c \
+  "import json,sys; print(json.load(sys.stdin)['artifact_source'])"
+```
+
+Expected: `none` — the state on which `--start` must refuse and point at setup,
+rather than trying to repair anything. Clean up with `trash "$SB"`.
 
 - [ ] **Step 3: Write README.md**
 
