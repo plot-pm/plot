@@ -4,10 +4,11 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-18, jwloka, in-session
 
 ## Changelog
 
@@ -36,6 +37,22 @@ worker exited **0**, including:
 
 All three land on `worker=finished`, whose documented meaning is *review it*.
 Two of the three needed an answer, not a review, and the row could not say so.
+
+### The logic exists twice
+
+Found while preparing this plan, and it changes its shape. `worker_state()`
+lives in **`plot-dispatch.sh:136`**, and `plot-fleet-scan.sh` carries a second
+implementation of the same thing around line 444 — same `.plot-worker.pid`
+read, same `kill -0` liveness check, same rejection of pid `0` and non-numeric
+values, same exit-code mapping to `finished` / `ended` / `failed`.
+
+They agree today. A seventh state added to one and not the other would make
+them disagree about the same worker, which is worse than either being wrong
+alone: two consumers would report different verdicts from one fact, and
+whichever a reader consulted first would win.
+
+So this plan merges before it extends. That ordering is not tidiness — adding
+`stalled` twice is cheap now and is exactly how the two copies came to exist.
 
 ### What the exit code cannot see
 
@@ -125,12 +142,22 @@ it worth reporting.
 - [ ] Should `stalled` carry *what* is on the floor — a count, or the file
       names? The count is cheap; the names make the row actionable without a
       second command.
-- [ ] `/plot-dispatch --status` reports worker state too. Does it inherit this
-      classification, or is the scan the only consumer that needs it?
+- [x] `/plot-dispatch --status` reports worker state too. Does it inherit this
+      classification? **Yes, and it must** — measured 2026-08-18, the two carry
+      independent copies of the same logic (`plot-dispatch.sh:136` and
+      `plot-fleet-scan.sh:~444`). Wave 1 collapses them so wave 2 adds the state
+      once. Answering this by inspection rather than by asking is why the plan
+      grew a wave.
 
 ## Branches
 
-- `bug/finished-is-not-a-verdict` — the seventh state in `worker_state()`, the marker check, the temp-file exclusion, and the classification order. Tests: a worktree with an open PR and dirty files reads `finished`; one with a `TODO(you)` marker reads `waiting`; one with uncommitted work and no PR reads `stalled`; one with only a `.tmp1` reads `finished`.
+### One implementation
+
+- `bug/one-worker-state-not-two` — collapse the duplicate. `plot-fleet-scan.sh`'s inline copy (~line 444) and `plot-dispatch.sh`'s `worker_state()` (line 136) become one source. No behaviour changes: the six states, their names, and their outputs stay exactly as they are. Test: both consumers report the same state for the same worktree across all six cases, driven from one fixture.
+
+### The seventh state
+
+- `bug/finished-is-not-a-verdict` — `stalled`, the `TODO(you)`/`TODO(human)` marker check, the editor-leftover exclusion, and the classification order — added **once**, to the merged implementation. Tests: a worktree with an open PR and dirty files reads `finished`; one with a marker reads `waiting`; one with uncommitted work and no PR reads `stalled`; one with only a `.tmp1` reads `finished`.
 
 ## Notes
 
