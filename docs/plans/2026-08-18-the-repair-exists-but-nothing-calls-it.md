@@ -50,6 +50,8 @@ does not exist. The repair is gated on state alone and cannot be disabled
 without stopping the board — which the design in this plan calls non-optional.
 That is wave 2's remaining work, and it is now the only work here.
 
+**Wave 3 is built too** — `repairFor()` at `resolver.ts:175` returns what a row should say about its repair, rendered at `fleet.ts:1990`. Verified against the source. So two of the three waves are deferred as already-done, and the worker's full report is kept beside this plan as `2026-08-18-the-repair-exists-report.md`.
+
 Also reported and not acted on: `test:board` is order-dependent on main. One
 run failed *"does not overwrite the file when a scan FAILS"* while the branch
 changed no source, so the flake is main's, not the branch's.
@@ -206,7 +208,7 @@ leave.
 
 - `feature/the-repair-can-be-turned-off` — `PLOT_BOARD_REPAIR` gates the pulse-side repair, defaulting to on. Today the repair is gated on state alone, so an operator who wants to see artifact conflicts without the board acting on them has no way to say so — and the design calls that switch non-optional. Tests: `PLOT_BOARD_REPAIR=0` detects and reports but never writes; unset behaves exactly as today; the variable never converts a refusal into a repair.
 
-- `feature/a-repaired-row-says-so` — a row whose artifact the board repaired says so, with when. Tests: a repaired row names the repair and its age; a row that never conflicted says nothing; the note survives the next pulse rather than being erased by it.
+- `feature/a-repaired-row-says-so` <!-- deferred: verified already implemented 2026-08-17 — repairFor() at resolver.ts:175 returns what the row should say about a branch's repair, rendered at fleet.ts:1990. --> — a row whose artifact the board repaired says so, with when.
 
 ## Notes
 
