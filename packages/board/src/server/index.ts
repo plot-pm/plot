@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { buildBoard, renderPlanPage, renderStoryPage, type BuildBoardOptions } from './board.js';
 import { buildFleet } from './fleet.js';
+import { buildAttention } from './attention.js';
 import { dispatchAvailability, handleDispatch, SLUG_RE } from './dispatch.js';
 import { serverInfo } from './server-info.js';
 import { exitWithParent } from './lifetime.js';
@@ -137,6 +138,29 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       res.end(JSON.stringify(buildFleet(opts)));
     } catch (err) {
       console.error('Error building fleet:', err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+    }
+    return;
+  }
+
+  if (url.pathname === '/api/attention') {
+    // Reads the same cache `/api/fleet` does, through `buildFleet` — never its
+    // own scan, and never the raw pulse. Both halves of that matter: the cache
+    // is what keeps a 1.05 s scan off this single-threaded server, and building
+    // on the ROWS is what lets a caller audit these verdicts against
+    // `/api/fleet` without running anything.
+    //
+    // A GET beside the other two reads, above the blanket 405 by virtue of
+    // being one: this endpoint names candidates and reserves nothing. Claiming
+    // is `/api/claim` and starting is `/api/dispatch`, both deliberately
+    // separate — an agent asking what is available has not yet committed to
+    // doing it, and conflating the two would make a survey a mutation.
+    try {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(buildAttention(opts)));
+    } catch (err) {
+      console.error('Error building attention:', err);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
     }

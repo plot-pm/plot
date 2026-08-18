@@ -1372,6 +1372,39 @@ export const AgentRowSchema = z.object({
    * attempted* is the honest reading of a pulse that predates the resolver.
    */
   repair: RepairSchema.nullable().default(null),
+  /**
+   * What the scan found out about a worker on this branch —
+   * `FleetBranchSchema.worker`, forwarded onto the row unchanged.
+   *
+   * **Not new data**, and that is the whole justification. The scan has
+   * produced these eight states since `plot-worker-state.sh` grew them, and
+   * `rowsFromPulse` already reads them — but only to hand to `classify()`,
+   * after which the value was dropped and survived onto the row solely as
+   * PROSE inside `note`. The exact shape `localDirty` and `localLocked` were
+   * in before they were forwarded, and it is forwarded here for their reason:
+   * a consumer that needs the fact should read the fact.
+   *
+   * FORWARDED, NEVER RE-DERIVED. One scan, one answer. The pid-of-0 trap
+   * (`kill -0 0` signals the whole process group and succeeds) was sprung once
+   * by re-deriving liveness, and a structural test now asserts the check exists
+   * exactly once, in the shared classifier. This field is a copy of that
+   * classifier's verdict travelling outward — not a second opinion about it.
+   *
+   * A FIELD RATHER THAN A STRING MATCH, which is what `/api/attention` needed
+   * and could not honestly have. `note` distinguishes *waiting on an answer*
+   * from *stopped with work unfinished* in words only, and this file's standing
+   * rule — stated at `ELIGIBLE_NOTE` and again at `waitingOn` — is that nothing
+   * new may be built on matching prose: a reworded note does not break such a
+   * consumer, it makes it quietly stop classifying. Two of these states
+   * (`waiting`, `stalled`) name OPPOSITE moves — answer it versus resume it —
+   * so a consumer silently losing the distinction is the precise defect the
+   * split was made to end.
+   *
+   * Defaults to `elsewhere` so a pulse from an older scan still validates, and
+   * because `elsewhere` is the honest reading of a payload that predates the
+   * field: nobody could look, which licenses no claim about a worker either way.
+   */
+  worker: WorkerStateSchema.default('elsewhere'),
 });
 export type AgentRow = z.infer<typeof AgentRowSchema>;
 
@@ -1569,3 +1602,220 @@ export const FleetSchema = z.object({
   prError: z.string().nullable(),
 });
 export type Fleet = z.infer<typeof FleetSchema>;
+
+/* ------------------------------------------------------------------ */
+/* /api/attention — what needs doing, and by whom                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * WHY a row needs attention — a verdict, which is the one thing `/api/fleet`
+ * deliberately does not produce.
+ *
+ * The read path answers *what is true* and is silent on *what should I do*.
+ * That silence is not an oversight — a board for an eye that glances renders
+ * facts and lets a person conclude — but it means every consumer assembles the
+ * same conclusion by hand from `state`, `group`, `note`, `worker`, `localDirty`
+ * and `localAhead`. An operator did exactly that for an afternoon on
+ * 2026-08-18, in a shell guard beside the board, and it gathered nothing the
+ * board did not already have: its whole value was three lines of judgement.
+ *
+ * EVERY VERDICT TRACES TO A FACT THE SCAN ALREADY REPORTS, and the `evidence`
+ * field below carries the trace so a reader can check the claim rather than
+ * take it. A verdict the board guessed is the defect this repo has spent days
+ * removing; the rule that prevents it is that this enum can only ever RENAME
+ * something already in the payload.
+ *
+ * | verdict        | traces to                        | the move          |
+ * |----------------|----------------------------------|-------------------|
+ * | `abandoned`    | `worker: 'failed' \| 'ended'`     | restart it        |
+ * | `unfinished`   | `worker: 'stalled'`              | resume it         |
+ * | `question`     | `worker: 'waiting'`              | answer it         |
+ * | `ci-approval`  | `pr.state: 'none'`               | approve the run   |
+ * | `ci-failing`   | `pr.state: 'failing'`            | look at the checks|
+ * | `conflict`     | `pr.state: 'conflicts'`          | rebase it         |
+ * | `review`       | `worker: 'finished'`, or a green PR | review it      |
+ * | `unpushed`     | `stuck.state: 'unpushed'`        | push it           |
+ * | `eligible`     | `waitingOn: 'click'`             | claim it          |
+ *
+ * `abandoned` COVERS `failed` AND `ended` AND NOTHING ELSE. Both mean a process
+ * stopped and left nobody working, and both take the same move — restart it —
+ * which is the only test that matters for merging two states into one verdict.
+ * `stalled` is deliberately NOT among them: its move is *resume*, which sends a
+ * worker back to work rather than starting one over, and the guard that
+ * conflated them restarted a branch into work it had already done.
+ *
+ * `question` NEVER READS AS `abandoned`, and this is the verdict the prototype
+ * learned the hard way. It restarted one branch twice while its worker waited
+ * on an answer it had asked for; the second restart re-ran what the first had
+ * finished. Uncommitted files look identical whether a worker walked away or is
+ * holding the door open — only a marker IN THE TREE separates them, and the
+ * scan is what reads it.
+ */
+export const AttentionVerdictSchema = z.enum([
+  'abandoned',
+  'unfinished',
+  'question',
+  'ci-approval',
+  'ci-failing',
+  'conflict',
+  'review',
+  'unpushed',
+  'eligible',
+]);
+export type AttentionVerdict = z.infer<typeof AttentionVerdictSchema>;
+
+/**
+ * One thing that needs attention, with the fact that says so.
+ *
+ * EVIDENCE TRAVELS WITH THE VERDICT — the rule `StuckSchema` states for the
+ * same reason. An entry that says *abandoned* and makes the reader go find out
+ * why has moved the investigation rather than removed it, and worse, it cannot
+ * be audited: a caller has no way to tell a verdict read off the scan from one
+ * the endpoint invented. `evidence` names the row field the verdict came from,
+ * so the claim is checkable against `/api/fleet` without running anything.
+ */
+export const AttentionItemSchema = z.object({
+  /** The branch this is about, or "" for a PR that no plan's branch list names. */
+  branch: z.string().default(''),
+  /** Why it needs attention — see `AttentionVerdictSchema`. */
+  verdict: AttentionVerdictSchema,
+  /**
+   * The single move that clears it, in words — *restart it*, *answer it*.
+   *
+   * PROSE, and prose ONLY, deliberately. `verdict` is the value a consumer
+   * branches on; this is the sentence it shows a person. They are separate
+   * fields precisely so nobody has to parse the sentence to get the value —
+   * the "parser for a format nobody declared" shape this contract keeps
+   * removing. A reworded action must never change a caller's behaviour.
+   */
+  action: z.string(),
+  /**
+   * The row field this verdict was read from — `worker: failed`, `pr.state:
+   * none`. The audit trail, and the whole reason a caller can trust the list.
+   */
+  evidence: z.string(),
+  /**
+   * The PR number where one exists, else null.
+   *
+   * Null rather than 0: a branch with no PR has no number, and 0 is a number.
+   * The same rule every absent value in this file follows.
+   */
+  pr: z.number().nullable().default(null),
+  /** The plan file this branch belongs to, or "" for an unplanned PR. */
+  planFile: z.string().default(''),
+  /** The row's own note, verbatim — the fuller sentence the board renders. */
+  note: z.string().default(''),
+});
+export type AttentionItem = z.infer<typeof AttentionItemSchema>;
+
+/**
+ * A branch nobody has taken, with what an agent needs to take it.
+ *
+ * Its own shape rather than an `AttentionItem`, because it answers a different
+ * question. The other three lists say *something went wrong, here is the move*;
+ * this one says *here is work, here is where the specification is*. Forcing one
+ * shape over both would give every claimable branch an empty `evidence` and a
+ * `verdict` that never varies — a field carrying no information is worse than
+ * no field.
+ */
+export const ClaimableSchema = z.object({
+  branch: z.string(),
+  /** The plan's filename, as `/plan/<file>` wants it. */
+  plan: z.string(),
+  /** The wave this branch sits in — `(unnamed)` where the plan has no `###`. */
+  wave: z.string(),
+  /**
+   * Where this branch's hand-off brief IS or WOULD BE — a path, always, plus
+   * `briefExists` saying which of the two it is.
+   *
+   * BOTH FIELDS, because a missing brief is the NORMAL case rather than an
+   * error. `plot-dispatch.sh` reports `brief=missing` unconditionally and says
+   * why: it cannot write one and never will — a brief is interpretation, and
+   * `/plot-implement` owns it. So an eligible branch usually has none, and a
+   * path alone would be a confident claim about a file that is not there.
+   *
+   * The path is still worth reporting when the file is absent: it is where the
+   * caller should LOOK, and where `/plot-implement` will put it.
+   */
+  brief: z.string(),
+  /** Whether the file at `brief` exists. False is common and is not an error. */
+  briefExists: z.boolean().default(false),
+  /**
+   * How long this has been waiting to be started, in days, or null.
+   *
+   * `AgentRow.waitingDays` forwarded — a different clock from a branch's tip
+   * age, and the one that matters for work nobody has begun. Null where the
+   * plan's approval date is unavailable, never 0, which would claim it was
+   * approved today.
+   */
+  waitingDays: z.number().nullable().default(null),
+});
+export type Claimable = z.infer<typeof ClaimableSchema>;
+
+/**
+ * What needs attention right now, split by WHO can clear it.
+ *
+ * Four lists rather than one, and the split is by actor rather than by
+ * severity, because that is the question a caller actually has. An agent asks
+ * *what can I pick up* and reads `claimable`; it asks *what did my fleet drop*
+ * and reads `needsAgent`. A person asks *what is on me* and reads `needsHuman`
+ * and `waiting`. One ranked list would make every caller filter, and they would
+ * filter differently.
+ *
+ * READ-ONLY AND IDEMPOTENT. It NAMES candidates; it reserves nothing and starts
+ * nothing. `/api/dispatch` spawns work and is same-origin locked precisely
+ * because it does — keeping this endpoint read-only preserves the split this
+ * repo rests on, where read-only investigation gates every write, and it leaves
+ * the seam where a person can disagree with a verdict. That seam earned its
+ * place: the prototype's judgement was wrong twice before it learned about
+ * questions.
+ */
+export const AttentionSchema = z.object({
+  generatedAt: z.string(),
+  /**
+   * FALSE UNTIL THE FIRST SCAN LANDS — and the reason this field exists is that
+   * without it a cold cache and a quiet fleet are the same four empty lists.
+   *
+   * They are opposite facts. *Nothing to do* invites a caller to stop; *nothing
+   * has been read yet* invites it to wait and ask again. A caller that cannot
+   * tell them apart concludes the first, exits, and the fleet sits still — the
+   * failure `2026-08-18-not-yet-asked-is-not-nothing` shipped this same rule
+   * for on the board's own rows.
+   *
+   * `Fleet.ready` verbatim, not a second computation of it.
+   */
+  ready: z.boolean(),
+  /** Seconds since the cached scan completed, or null when none has. */
+  ageSeconds: z.number().nullable().default(null),
+  /**
+   * The commit the scan actually read, or null — `Fleet.readRef` forwarded.
+   *
+   * WHICH WORLD these verdicts are about. A verdict is a stronger claim than a
+   * fact, so it needs the provenance at least as much: *restart this branch* is
+   * advice, and advice about a world three pushes old is worse than none.
+   * Never filled in from `localHead` to avoid a null — those are different
+   * commits, and substituting one is the original defect wave 1 removed.
+   */
+  readRef: z.string().nullable().default(null),
+  /** Last scan error, if any — a failed refresh never clears a good result. */
+  error: z.string().nullable().default(null),
+  /** Work that stopped and needs a machine put back on it. */
+  needsAgent: z.array(AttentionItemSchema).default([]),
+  /** Work that cannot move without a person: a click, a look, a review. */
+  needsHuman: z.array(AttentionItemSchema).default([]),
+  /**
+   * Workers holding the door open on an unanswered question.
+   *
+   * ITS OWN LIST rather than part of `needsHuman`, although a person clears
+   * both. The distinction is what it costs to get it wrong: an unanswered
+   * question is the one state where the WRONG move — restarting — actively
+   * destroys work, by re-running what the worker already finished before it
+   * asked. Everything in `needsHuman` merely waits longer if ignored. A list
+   * that a caller can see and skip is not the same as one folded into a general
+   * pile, and the prototype folded it in twice.
+   */
+  waiting: z.array(AttentionItemSchema).default([]),
+  /** Branches nobody has taken, and where each one's specification is. */
+  claimable: z.array(ClaimableSchema).default([]),
+});
+export type Attention = z.infer<typeof AttentionSchema>;
