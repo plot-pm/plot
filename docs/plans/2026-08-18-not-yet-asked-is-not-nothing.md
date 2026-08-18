@@ -4,15 +4,15 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-18, jwloka, in-session
 - **Started:** 2026-08-18, Jan Wloka, `bug/the-board-says-when-it-has-not-asked`
-- **Delivered:**
-- **Released:**
+- **Delivered:** 2026-08-18, jwloka
+- **Released:** 2026-08-18, v2.5.2
 - **Started:** 2026-08-18, Jan Wloka, `bug/a-refresh-that-never-fires-is-not-a-cadence`
 
 ## Changelog

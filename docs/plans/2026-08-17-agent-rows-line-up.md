@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-board
@@ -14,6 +14,7 @@
 - **Started:** 2026-08-17, Jan Wloka, `feature/agent-rows-line-up`
 - **Started:** 2026-08-17, Jan Wloka, `feature/card-shows-interrogation-rounds`
 - **Delivered:** 2026-08-17
+- **Released:** 2026-08-18, v2.5.0
 
 ## Problem
 

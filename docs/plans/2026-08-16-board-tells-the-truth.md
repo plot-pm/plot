@@ -7,7 +7,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:**
 - **Story:** plot-board
@@ -17,6 +17,7 @@
 - **Approved:** 2026-08-16, jwloka, plan-PR #138 merged
 - **Started:** 2026-08-16, Jan Wloka, `bug/board-shows-staleness`
 - **Delivered:** 2026-08-16
+- **Released:** 2026-08-18, v2.5.0
 - **Started:** 2026-08-16, Jan Wloka, `bug/board-binds-port-zero`
 
 ## Problem

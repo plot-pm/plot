@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-board
@@ -12,6 +12,7 @@
 - **Approved:** 2026-08-17, Jan Wloka, plan-PR #184 merged
 - **Started:**
 - **Delivered:** 2026-08-18
+- **Released:** 2026-08-18, v2.5.0
 ## Problem
 
 Asked on 2026-08-17: *can NOT STARTED colour its statuses the way the

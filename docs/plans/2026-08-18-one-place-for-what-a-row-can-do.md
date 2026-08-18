@@ -4,14 +4,14 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-18, jwloka, in-session
 - **Started:** 2026-08-18, Jan Wloka, `bug/a-rows-actions-live-in-its-menu`
-- **Delivered:**
+- **Delivered:** 2026-08-18, jwloka
 - **Released:**
 
 ## Changelog

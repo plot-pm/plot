@@ -4,16 +4,15 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-18, jwloka, in-session
 - **Started:** 2026-08-18, Jan Wloka, `bug/the-scan-prunes-what-it-fetches`
-- **Delivered:**
-- **Released:**
-
+- **Delivered:** 2026-08-18, jwloka
+- **Released:** 2026-08-18, v2.5.2
 ## Changelog
 
 - `plot-fleet-scan.sh` no longer lets an unpruned remote-tracking ref keep a squash-merged branch in `wip`, so a finished wave completes without the operator knowing to run `git fetch --prune`.

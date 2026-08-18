@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:**
 - **Story:** plot-board
@@ -12,6 +12,7 @@
 - **Approved:** 2026-08-17, Jan Wloka, plan-PR #193 merged
 - **Started:** 2026-08-17, Jan Wloka, `bug/an-empty-conflict-set-is-not-a-refusal`
 - **Delivered:** 2026-08-17
+- **Released:** 2026-08-18, v2.5.0
 ## Problem
 
 Three defects, found within an hour of each other on 2026-08-17, all one

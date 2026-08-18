@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
@@ -12,6 +12,7 @@
 - **Approved:** 2026-08-18, jwloka, in-session
 - **Started:** 2026-08-18, Jan Wloka, `bug/a-smaller-pulse-is-not-silently-better`
 - **Delivered:** 2026-08-18, jwloka
+- **Released:** 2026-08-18, v2.5.1
 
 ## Changelog
 

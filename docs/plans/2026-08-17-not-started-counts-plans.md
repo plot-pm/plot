@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-board
@@ -12,6 +12,7 @@
 - **Approved:** 2026-08-17, Jan Wloka, plan-PR #188 merged
 - **Started:** 2026-08-17, Jan Wloka, `feature/not-started-counts-plans`
 - **Delivered:** 2026-08-17
+- **Released:** 2026-08-18, v2.5.0
 
 ## Problem
 

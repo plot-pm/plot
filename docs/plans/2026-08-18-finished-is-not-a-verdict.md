@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
@@ -13,6 +13,7 @@
 - **Started:** 2026-08-18, Jan Wloka, `bug/one-worker-state-not-two`
 - **Started:** 2026-08-18, Jan Wloka, `bug/finished-is-not-a-verdict`
 - **Delivered:** 2026-08-18, jwloka
+- **Released:** 2026-08-18, v2.5.2
 
 ## Changelog
 

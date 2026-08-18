@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:**
 - **Story:** plot-board
@@ -14,6 +14,7 @@
 - **Started:** 2026-08-17, Jan Wloka, `bug/start-work-watches-the-right-count`
 - **Started:** 2026-08-17, Jan Wloka, `feature/acting-buttons-spin-while-acting`
 - **Delivered:** 2026-08-17
+- **Released:** 2026-08-18, v2.5.0
 
 ## Problem
 
