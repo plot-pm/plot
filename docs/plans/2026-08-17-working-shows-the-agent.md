@@ -8,7 +8,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-08-19, Jan Wloka, plan-PR #203 merged
-- **Started:**
+- **Started:** 2026-08-19, Jan Wloka, `feature/the-worker-log-is-readable`
 - **Delivered:**
 - **Released:**
 
