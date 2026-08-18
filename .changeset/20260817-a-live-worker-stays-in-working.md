@@ -1,4 +1,5 @@
 ---
+"@plot-pm/board": patch
 ---
 
 board: a live worker keeps its row in WORKING

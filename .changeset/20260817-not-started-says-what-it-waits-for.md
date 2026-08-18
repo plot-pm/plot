@@ -1,4 +1,5 @@
 ---
+"@plot-pm/board": minor
 ---
 
 board: NOT STARTED says what each row is waiting for

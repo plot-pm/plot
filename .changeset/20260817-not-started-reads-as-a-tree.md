@@ -1,4 +1,5 @@
 ---
+"@plot-pm/board": patch
 ---
 
 board: NOT STARTED reads as a tree, not as a list of rows

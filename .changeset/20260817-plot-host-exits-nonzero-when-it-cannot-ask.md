@@ -1,4 +1,5 @@
 ---
+"@plot-pm/board": patch
 ---
 
 plot-host: a transport failure exits non-zero instead of answering NONE

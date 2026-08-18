@@ -1,4 +1,5 @@
 ---
+"@plot-pm/board": minor
 ---
 
 board: a row flashes on any observed fact that changed, not only its PR

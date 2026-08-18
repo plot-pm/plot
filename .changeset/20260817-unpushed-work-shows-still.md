@@ -1,4 +1,5 @@
 ---
+"@plot-pm/board": minor
 ---
 
 board: unpushed commits get a mark of their own

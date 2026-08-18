@@ -1,4 +1,5 @@
 ---
+"@plot-pm/board": patch
 ---
 
 board: the PR error shows the whole path

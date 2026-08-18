@@ -1,4 +1,5 @@
 ---
+"@plot-pm/board": minor
 ---
 
 board: the Agents tab can approve, and the marks get a column
