@@ -5,6 +5,7 @@ import {
   type Card,
   type DispatchInfo,
   type Fleet,
+  type PulseShrink,
   type Repair,
   type Stuck,
   type StuckState,
@@ -475,6 +476,47 @@ export function groupByPlan(rows: AgentRow[]): PlanGroup[] {
  * Clamped at zero: a poll can be late (a hidden tab, a slow response), and
  * "next in -2s" is not something a reader can act on.
  */
+/**
+ * What to tell an operator whose board just got smaller on a successful scan.
+ *
+ * NAMES WHAT VANISHED, and that is the whole reason the server sends identities
+ * rather than counts. "3 plans became 2" makes the reader open a terminal to
+ * find out which; the name lets them recognise the plan they delivered ninety
+ * seconds ago — expected, ignorable — or fail to recognise it, which is the
+ * defect and is worth their attention.
+ *
+ * BRANCHES ARE NAMED BEFORE PLANS when both are lost, because a lost branch is
+ * the sharper signal: losing a plan file has an innocent explanation an operator
+ * performs by hand, while a WORKING branch that disappears while its agent runs
+ * has none.
+ *
+ * The list is capped and the remainder counted rather than truncated silently —
+ * a banner that grows without bound stops being a banner, and "+4 more" is still
+ * a number the reader can act on.
+ */
+export function shrinkNote(shrink: PulseShrink, ageSeconds: number): string {
+  const parts: string[] = [];
+  if (shrink.branches.length > 0) parts.push(nameList(shrink.branches, 'branch', 'branches'));
+  if (shrink.plans.length > 0) parts.push(nameList(shrink.plans, 'plan', 'plans'));
+  // Both empty cannot happen — the server returns null rather than an empty
+  // shrink — but a banner rendering the word "undefined" over a healthy board
+  // would be worse than the bug, so the honest fallback is spelled out.
+  const lost = parts.length > 0 ? parts.join(' and ') : 'something it had a moment ago';
+  return `This scan succeeded but describes less than the last one: ${lost} `
+    + `disappeared in the last ${ageSeconds}s. The rows below are the NEW answer, `
+    + `not a frozen one — they may be right, or the scan may have read a moving `
+    + `working tree.`;
+}
+
+/** `a, b and 2 more branches` — at most three names, then a count. */
+function nameList(names: string[], one: string, many: string): string {
+  const shown = names.slice(0, 3);
+  const rest = names.length - shown.length;
+  const noun = names.length === 1 ? one : many;
+  const tail = rest > 0 ? ` and ${rest} more` : '';
+  return `${noun} ${shown.join(', ')}${tail}`;
+}
+
 export function countdown(ageSeconds: number | null, intervalSeconds: number): number | null {
   if (ageSeconds === null) return null;
   return Math.max(0, intervalSeconds - ageSeconds);
@@ -3641,6 +3683,28 @@ export function AgentList({
         <p className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
           Last scan failed: {fleet.error}
           {fleet.ready && ' — showing the last successful pulse below.'}
+        </p>
+      )}
+
+      {/* The scan SUCCEEDED and lost something, which is neither of the two
+          banners above and must not be dressed as either.
+
+          `stale` means the server stopped answering; `fleet.error` means it
+          answered to say its scan broke — in both, the numbers below are the
+          last GOOD ones. Here they are the NEW ones, accepted from a scan that
+          exited 0, and they describe less than the board knew a moment ago.
+          Saying "last scan failed" would be a plain lie about what happened, and
+          saying nothing is the defect this whole change exists to remove: rows
+          vanishing with no error and no staleness marker.
+
+          Below the other two on purpose. A dead server or a broken scan is the
+          bigger fact and outranks a shrink they can both explain. */}
+      {fleet.shrink && (
+        <p
+          role="status"
+          className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+        >
+          {shrinkNote(fleet.shrink, fleet.ageSeconds + tick)}
         </p>
       )}
 
