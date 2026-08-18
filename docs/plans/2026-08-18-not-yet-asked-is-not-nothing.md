@@ -181,7 +181,7 @@ the one it came from.
 
 ## Branches
 
-- `bug/the-board-says-when-it-has-not-asked` — a first-load state distinct from an empty one, on the sections and rows fed by host data; the git scan's freshness stays its own. Tests: a board rendered before the first PR fetch must not print `none` under WAITING ON A MACHINE, and must not present a branch with no PR data as though it had been checked; after a fetch that finds nothing, `none` reads exactly as today; a row's PR-derived fields never borrow the scan's age.
+- `bug/the-board-says-when-it-has-not-asked` — a first-load state distinct from an empty one, on the sections and rows fed by host data; the git scan's freshness stays its own. Tests: a board rendered before the first PR fetch must not print `none` under WAITING ON A MACHINE, and must not present a branch with no PR data as though it had been checked; after a fetch that finds nothing, `none` reads exactly as today; a row's PR-derived fields never borrow the scan's age. PR #221.
 
 - `bug/a-refresh-that-never-fires-is-not-a-cadence` — the PR timer stops losing a whole period to its own gate: `prNextAt` measured from the fetch's START rather than its finish, or the timer run at a fraction of the gate so a refused tick is retried within the period rather than a period later. Tests: with a fetch that takes any non-zero time, the observed age must stay under `PR_REFRESH_MS` across several cycles — the measured failure is 111 s against a 60 s setting; a rate-limit backoff must still hold the tick off for its full delay, which is the one case the gate exists for.
 
