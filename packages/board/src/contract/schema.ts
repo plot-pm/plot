@@ -518,6 +518,15 @@ export const DRAFT_PLAN_NOTE = 'plan not approved yet — still in review';
  * `DRAFT_PLAN_NOTE` this sentence is what a DONE row says about a branch git
  * cannot account for. It names the phase because *why is there no branch* is
  * the reader's next question, and "the work landed elsewhere" is the answer.
+ *
+ * ONE SENTENCE FOR BOTH ROUTES INTO THE SECTION, and deliberately so. A
+ * finished plan's branch reaches NOT STARTED as `open` when git has no ref for
+ * it, and as `deferred` when the plan itself shelved it — `plot-sprint-support`
+ * is annotated `deferred` and was measured under both readings on the same
+ * board. The REASON is identical either way and the sentence already says it:
+ * the work landed elsewhere, so no branch was needed. A second constant for the
+ * shelved case would split one fact in two and re-open the gap that let
+ * `deferred` rows skip the phase check for a wave.
  */
 export const FINISHED_PLAN_NOTE = 'plan finished — no branch was needed';
 

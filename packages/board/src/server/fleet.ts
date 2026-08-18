@@ -1095,6 +1095,14 @@ export function rowPhase(planPhase: string, state: BranchState): Phase | null {
  * DEFERRED joins DRAFT under `you`. Both wait on a person with no clock
  * running; they differ in which action — approve versus un-shelve — and the
  * note already says which.
+ *
+ * WITHIN A PLAN THAT CAN STILL MOVE, and that bound is `classify`'s to keep
+ * rather than this function's. A deferred branch of a `Delivered` or `Released`
+ * plan waits on nobody — the plan shipped and the shelf is part of its history
+ * — so `classify` sends it to DONE and the group guard above answers null for
+ * it. This function does not repeat that test: it derives from `group` for the
+ * same reason the Draft arm was deleted rather than left unreachable, and a
+ * second copy of the phase rule here would be the drift that pairing prevents.
  */
 /**
  * Does this PR ask NOTHING of a person right now?
@@ -1127,9 +1135,22 @@ export function waitingOnFor(
   planPhase: string | null,
 ): WaitingOn | null {
   if (group !== 'not-started') return null;
-  // A shelved branch waits on a person — a deliberate hand-back, and the one
-  // row here that a phase check does not account for. It reaches `not-started`
-  // by its own route, never through the `open` arm below.
+  // A shelved branch waits on a person — a deliberate hand-back. It reaches
+  // `not-started` by its own route, never through the `open` arm below.
+  //
+  // THAT ROUTE IS NOW GUARDED, and this line is correct because of it rather
+  // than in spite of it. It once read *the one row here that a phase check does
+  // not account for*, and that was true and was the defect: a deferred branch of
+  // a plan Released four months earlier answered `you`, naming a person who had
+  // nothing left to do. `classify` now asks the plan's phase in the deferred arm
+  // as well, so a finished plan's shelf leaves the section entirely and the
+  // group guard above returns null before this line can run.
+  //
+  // So the answer is UNCHANGED and its scope is narrower: every row still
+  // reaching here belongs to a plan that can move — `approved` or `draft` — and
+  // for those the hand-back is real. Somebody shelved this branch and somebody
+  // may un-shelve it, which is a person, with no clock running. The note beside
+  // the colour says which action.
   if (state === 'deferred') return 'you';
   if (state !== 'open') return null;
   // An earlier wave, WITHIN an approved plan — which is now the only kind of
@@ -1260,18 +1281,66 @@ export function classify(
    */
   workerDirtyPaths: readonly string[] = [],
 ): { group: WaitingGroup; note: string } {
-  // A deferred branch is not-started because nobody is working on it — the
-  // group is about the claim the row makes, not about the age of its last
-  // commit, so a fresh commit does not pull it into `working`. Work somebody
-  // gave up is not work in progress.
+  // A deferred branch is never `working` — the group is about the claim the row
+  // makes, not about the age of its last commit, so a fresh commit does not
+  // pull it in. Work somebody gave up is not work in progress.
   //
-  // But the NOTE is not the word `deferred`. That was the old answer and it
-  // displaced whatever else the row had to say: a branch started and then
-  // shelved read as never begun, with its age and its PR erased. The fact is
-  // carried by `state`, beside the note rather than instead of it — the same
-  // shape as the `no story` badge on a plan card. Mark the thing; do not bend
-  // the state to encode it.
+  // WHICH section it lands in is decided inside, and by the plan's phase before
+  // anything else. See there.
   if (state === 'deferred') {
+    // THE PHASE ANSWERS FIRST HERE TOO, and that is the whole of wave 2.
+    //
+    // #231 put the phase check at the top of the `open` arm below, and it
+    // worked for every row that reached NOT STARTED through it. Deferred rows
+    // reach the same section through THIS arm, above that one, and so never met
+    // the guard. Measured on the live board 2026-08-18, minutes after #231
+    // merged: three deferred rows still in NOT STARTED, one of them
+    // `feature/plot-sprint-support` — a plan Released in v1.0.0-beta.3, four
+    // months earlier, whose branch was never created because February's work
+    // landed directly on main.
+    //
+    // Two routes into one section, and a rule guarding one of them is not the
+    // rule. So the section's question is asked of the plan before it is asked of
+    // the shelf, whichever route brought the row here.
+    //
+    // ONLY THE TERMINAL PHASES, and the narrowing stops exactly there — this
+    // does not replace the `'you'` answer below, it bounds it. A deferred branch
+    // of an APPROVED plan genuinely waits on a person: somebody shelved it,
+    // somebody may un-shelve it, and `waitingOnFor` still colours it `you`. A
+    // deferred branch of a RELEASED plan waits on nobody — the plan shipped and
+    // the shelf is part of its history. `draft` keeps the old answer for the
+    // same reason it does in the `open` arm: a plan under review is not finished,
+    // and a shelved branch of one waits on a person twice over.
+    //
+    // ABOVE the three exits below rather than beside one of them. A shelved
+    // branch of a shipped plan is finished whether it was shelved with no
+    // commits, after a commit, or with a PR still open — those distinctions
+    // refine what a LIVE plan's shelf says, and a finished plan has nothing for
+    // them to refine.
+    if (planPhase === 'delivered' || planPhase === 'released') {
+      return { group: 'done', note: FINISHED_PLAN_NOTE };
+    }
+    // The allowlist, as in the `open` arm and for its reason: a phase the board
+    // has not been taught is not startable, and the sentence NAMES it rather
+    // than inventing a placement. `''` falls through untouched — a scan
+    // predating the field says nothing about the plan, and absent is not a
+    // guess. `feature/the-pulse-repairs-the-artifact` rendered `plan phase:
+    // NONE` in the same measurement, its plan unresolvable from the branch name;
+    // filing that under DONE would be the same guess in the other direction.
+    //
+    // No worktree check sits between this and the terminal arm above, unlike in
+    // the `open` arm where one deliberately does. There is nothing here for it
+    // to protect: a deferred row never reads `working`, because the group is
+    // about the claim the row makes and shelved work is not work in progress.
+    if (planPhase !== '' && planPhase !== 'approved' && planPhase !== 'draft') {
+      return { group: 'done', note: unknownPhaseNote(planPhase) };
+    }
+    // BELOW THE PHASE, THE SHELF STILL SPEAKS — and the note is not the word
+    // `deferred`. That was the old answer and it displaced whatever else the row
+    // had to say: a branch started and then shelved read as never begun, with
+    // its age and its PR erased. The fact is carried by `state`, beside the note
+    // rather than instead of it — the same shape as the `no story` badge on a
+    // plan card. Mark the thing; do not bend the state to encode it.
     if (pr) return { group: 'not-started', note: withNote(`PR #${pr.number}`, reviewNote(pr)) };
     if (ageMinutes === null) return { group: 'not-started', note: 'no commits' };
     return { group: 'not-started', note: `last commit ${humanAge(ageMinutes)} ago` };
