@@ -1102,6 +1102,15 @@ export function classify(
    */
   workerPid = '',
   /**
+   * What a `stalled` worker left uncommitted — see
+   * `FleetBranchSchema.worker_dirty_paths`. Named in the note so the row
+   * supports the decision it exists for: whether this branch is worth resuming.
+   *
+   * Empty for every other state, and empty is simply nothing to add — no state
+   * changes on account of it.
+   */
+  workerDirtyPaths: readonly string[] = [],
+  /**
    * A local worktree for this branch is holding `.git/index.lock` — see
    * `FleetBranchSchema.local_locked`. A write is in progress at this instant,
    * which is the most direct evidence of activity any of these signals carries.
@@ -1320,6 +1329,38 @@ export function classify(
     }
     if (worker === 'finished') {
       return { group: 'waiting-on-you', note: 'worker finished — review it' };
+    }
+    // ABOVE `stalled`, and the order carries the same weight it does in the
+    // scan: a marker is the worker saying *your turn*, and a worker that asked
+    // a question has almost always left the work it was doing uncommitted
+    // beside the question. Ranking dirtiness first would file every such branch
+    // under *resume it* and invite a restart into the same wait — measured
+    // happening twice to one branch, the second restart re-running work the
+    // first had finished.
+    if (worker === 'waiting') {
+      return { group: 'waiting-on-you', note: 'worker is waiting on an answer from you' };
+    }
+    // A person's errand too, but a different one: nothing is being asked, work
+    // is simply on the floor with no PR over it. The board REPORTS it and
+    // restarts nothing — relaunching is `/plot-dispatch`'s to do, and this row
+    // exists so a person can decide to.
+    if (worker === 'stalled') {
+      // NAME WHAT IS ON THE FLOOR. The row exists so a reader can decide
+      // whether to resume the branch, and the files are what that decision is
+      // made on — a bare count reads the same for three scratch notes and
+      // three half-finished modules. Capped at three names so one branch mid-
+      // refactor cannot push every other row off the screen, and the remainder
+      // is COUNTED rather than dropped: a silent truncation reads as "that is
+      // all of it".
+      const shown = workerDirtyPaths.slice(0, 3).join(', ');
+      const rest = workerDirtyPaths.length - 3;
+      const what = shown
+        ? ` (${shown}${rest > 0 ? ` +${rest} more` : ''})`
+        : '';
+      return {
+        group: 'waiting-on-you',
+        note: `worker stopped with work unfinished${what} — resume it`,
+      };
     }
     if (worker === 'ended') {
       return { group: 'waiting-on-you', note: 'worker ended, exit status unknown' };
@@ -1713,6 +1754,9 @@ export function rowsFromPulse(
           // sprung once already by re-deriving liveness, and this layer only
           // renders what it is handed.
           b.worker, b.worker_exit, b.worker_pid,
+          // What a `stalled` worker left uncommitted, so the note can name it.
+          // Empty for every other state, and empty adds nothing.
+          b.worker_dirty_paths,
           // A write in progress at this instant — the third local signal, and
           // the only one that can go stale before the next poll. Like its two
           // neighbours it may only lift a row out of quiet.

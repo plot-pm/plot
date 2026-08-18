@@ -91,6 +91,17 @@ function fixture(label) {
       assert.ok(b, `scan must report ${BRANCH}`);
       return { state: b.worker, pid: b.worker_pid, exit: b.worker_exit };
     },
+    /** Put a file in the worktree, or remove it when content is null. */
+    file(name, content) {
+      const f = path.join(this.wt, name);
+      if (content === null) fs.rmSync(f, { force: true });
+      else fs.writeFileSync(f, content);
+    },
+    /** Commit everything in the worktree without pushing it. */
+    commitLocally(message) {
+      git(this.wt, 'add', '-A');
+      git(this.wt, 'commit', '-qm', message);
+    },
     /** Plant the worker record plot-dispatch's wrapper would have written. */
     worker({ pid, exit } = {}) {
       const pidFile = path.join(this.wt, '.plot-worker.pid');
@@ -247,6 +258,187 @@ test('worker-state: the classification exists once, not once per consumer', () =
   // spawned, and that is the producer, not a second reader. plot-fleet-scan is
   // read-only and has no such excuse: touching the record at all would mean it
   // had started classifying again.
+  assert.doesNotMatch(code(bodies['plot-fleet-scan.sh']), /\.plot-worker\./,
+    'the read-only scan must not touch the worker record itself');
+});
+
+
+// ---------------------------------------------------------------------------
+// Wave 2: the task states — `waiting` and `stalled`
+// ---------------------------------------------------------------------------
+//
+// The six states above answer "how did the PROCESS end?". These two answer
+// "did the TASK finish?", and the whole defect is that the first cannot stand
+// in for the second: measured across seven worktrees in a four-agent fleet run,
+// EVERY worker exited 0 — including two that stopped mid-task. All three landed
+// on `finished`, whose move is *review it*, and two of them needed an answer.
+//
+// So every case below plants a CLEAN EXIT (`exit 0`) and varies only the TREE.
+// That is the point: the process record is identical throughout, and any
+// difference in the verdict comes from the worktree or from nowhere.
+
+test('worker-state: a clean exit is refined by the tree, from one fixture', () => {
+  const f = fixture('tasks');
+  f.worker({ pid: DEAD, exit: 0 });
+
+  // BOTH CONSUMERS AT EVERY STEP, exactly as the six-state test does. The PR
+  // fact is a new PARAMETER to the shared classifier, and a parameter one
+  // consumer passes and the other forgets is the same one-fact-two-verdicts
+  // drift wave 1 removed — re-entering through the very seam that fixed it.
+  const agree = (expected, dispatchWord, label) => {
+    const s = f.scanState();
+    const d = f.dispatchState();
+    assert.equal(s.state, expected, `scan on ${label}:\n${JSON.stringify(s)}`);
+    assert.equal(d.word, dispatchWord, `plot-dispatch on ${label}:\n${d.line}`);
+  };
+
+  // A tidy worktree: nothing on the floor, so the clean exit stands.
+  agree('finished', 'finished', 'a clean exit over a clean tree');
+
+  // UNCOMMITTED WORK AND NO PR — the state this wave exists to name. Note the
+  // process record has not changed: same pid, same `exit 0`, different verdict.
+  f.file('feature.ts', 'export const x = 1;\n');
+  agree('stalled', 'stalled', 'an uncommitted source file');
+
+  // ONLY AN EDITOR LEFTOVER IS NOT WORK. Measured 2026-08-18: a guard restarted
+  // a branch over an orphaned `plot-dispatch.sh.tmp1`, 10 KB belonging to no
+  // commit and no task, while the worker was making progress and had just
+  // committed.
+  f.file('feature.ts', null);
+  f.file('plot-dispatch.sh.tmp1', 'x'.repeat(64));
+  agree('finished', 'finished', 'only a .tmp1');
+  f.file('plot-dispatch.sh.tmp1', null);
+
+  // A MARKER OUTRANKS WORK ON THE FLOOR, and the file is dirty here on purpose:
+  // a worker that stops to ask a question has almost always left the work it
+  // was doing uncommitted beside the question. Checking dirtiness first would
+  // report every waiting branch `stalled` and invite a restart into the same
+  // wait — measured happening twice to one branch, the second restart re-running
+  // work the first had finished.
+  f.file('feature.ts', '// PLOT-BLOCKED: which retry semantics did you want?\n');
+  agree('waiting', 'waiting', 'the marker Plot defines, beside dirty work');
+
+  // THE TWO SPELLINGS THAT EMERGED FROM WORKERS stay recognised. They exist in
+  // trees right now, and dropping them would silently regress every worker
+  // already running — a `waiting` reported as `stalled` is the restart-into-the-
+  // wait this state prevents.
+  for (const marker of ['TODO(you)', 'TODO(human)']) {
+    f.file('feature.ts', `// ${marker}: which retry semantics did you want?\n`);
+    agree('waiting', 'waiting', `the emergent marker ${marker}`);
+  }
+  f.file('feature.ts', null);
+
+  // COMMITTED BUT UNPUSHED IS STILL WORK ONLY THIS MACHINE HOLDS. Committing
+  // clears dirtiness, so a worker that tidied up and stopped before pushing
+  // would otherwise read `finished` with nobody able to see its commits.
+  // Measured on the branch that fixed the other half of this: 3 commits ahead,
+  // 0 dirty files, no PR.
+  f.file('feature.ts', 'export const x = 1;\n');
+  f.commitLocally('the work nobody else can see');
+  agree('stalled', 'stalled', 'a local commit with no upstream copy');
+
+  f.cleanup();
+});
+
+test('worker-state: the log records the question, the tree records that it stands', () => {
+  // THE MARKER IS READ FROM THE TREE, NOT THE LOG, and this is the assertion
+  // that pins it. The log is the ONE file guaranteed to contain the marker
+  // whenever the worker mentioned writing one — a worker's final report says
+  // what it left behind — so a recursive grep over the worktree would answer
+  // `waiting` from the report of a question that was since ANSWERED.
+  //
+  // Measured: a restarted worker found its own question already answered in the
+  // commit above it and carried on without asking again. The log still held the
+  // question, and always will; only the tree cleared.
+  const f = fixture('logvtree');
+  f.worker({ pid: DEAD, exit: 0 });
+
+  f.file('.plot-worker.log',
+    'I stopped and wrote a PLOT-BLOCKED: marker asking about retry semantics.\n');
+  assert.equal(f.scanState().state, 'finished',
+    'a question in the LOG is history — the tree says it no longer stands');
+
+  // The same sentence, in a file that is part of the tree, IS the question.
+  f.file('question.md', 'PLOT-BLOCKED: which retry semantics did you want?\n');
+  assert.equal(f.scanState().state, 'waiting',
+    'the same marker in the TREE is a question still open');
+
+  f.cleanup();
+});
+
+test('worker-state: an open PR outranks everything the worktree still holds', () => {
+  // THE PR FACT IS A PARAMETER, supplied by the caller — the scan caches one
+  // host reply per branch per run behind its `--offline` gate, plot-dispatch
+  // asks per branch when a person types `--status`. Neither can be driven from
+  // this fixture, whose origin is a bare local repo with no host behind it, so
+  // the override is asserted where it actually lives: at the classifier.
+  //
+  // WORTH ASSERTING SEPARATELY rather than skipping. Work that reached review
+  // has left the worker's hands, so leftover local edits mean nothing there —
+  // and without this arm every branch under review with a scratch file in its
+  // worktree reads `stalled`, which is most of them.
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wstate-pr-'));
+  git(d, 'init', '-q', '-b', 'main', '.');
+  git(d, 'config', 'user.email', 'test@example.invalid');
+  git(d, 'config', 'user.name', 'Plot Test');
+  git(d, 'config', 'commit.gpgsign', 'false');
+  fs.writeFileSync(path.join(d, 'a.txt'), 'hi\n');
+  git(d, 'add', '-A');
+  git(d, 'commit', '-qm', 'init');
+  fs.writeFileSync(path.join(d, '.plot-worker.pid'), `${DEAD}\n`);
+  fs.writeFileSync(path.join(d, '.plot-worker.exit'), '0\n');
+
+  const classify = (prFact) => execFileSync('bash', ['-c',
+    `. ${JSON.stringify(shared)}; plot_worker_state ${JSON.stringify(d)} ${JSON.stringify(prFact)}`],
+    { encoding: 'utf8' }).split('\t')[0];
+
+  // Dirty AND carrying an open question — the two things that would otherwise
+  // answer `stalled` and `waiting`. The PR outranks both.
+  fs.writeFileSync(path.join(d, 'feature.ts'),
+    '// PLOT-BLOCKED: still wondering\nexport const x = 1;\n');
+  assert.equal(classify(''), 'waiting', 'without the PR fact, the tree answers');
+  assert.equal(classify('pr'), 'finished', 'with an open PR, the tree is moot');
+
+  // UNANSWERABLE IS NOT A YES, and the direction is the safe one. Offline, no
+  // backend, or a host returning 503 all afternoon must not manufacture the one
+  // state that tells a reader to stop looking. Anything that is not the fact
+  // falls through to the local signals.
+  for (const notAYes of ['', '-', 'CLOSED', 'NONE', 'maybe']) {
+    assert.equal(classify(notAYes), 'waiting',
+      `"${notAYes}" is not an open PR and must not read as one`);
+  }
+
+  fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('worker-state: the task states are added once, not once per consumer', () => {
+  // WAVE 1'S STRUCTURAL ASSERTION, EXTENDED TO WAVE 2. The states could agree
+  // today while the marker pattern or the leftover exclusion sat in two places
+  // waiting to drift — which is exactly the position wave 1 started from, and
+  // the reason it went first.
+  const bodies = {
+    'plot-dispatch.sh': fs.readFileSync(dispatch, 'utf8'),
+    'plot-fleet-scan.sh': fs.readFileSync(scan, 'utf8'),
+  };
+  const code = (s) => s.replace(/^\s*#.*$/gm, '');
+  const sharedCode = code(fs.readFileSync(shared, 'utf8'));
+
+  assert.match(sharedCode, /PLOT-BLOCKED/,
+    'the marker Plot defines lives with the classification');
+  assert.match(sharedCode, /tmp\[0-9\]\*/,
+    'so does the editor-leftover exclusion');
+
+  for (const [name, body] of Object.entries(bodies)) {
+    assert.doesNotMatch(code(body), /PLOT-BLOCKED|TODO\\\(\(you\|human\)\\\)/,
+      `${name} must ask the shared classifier for the marker, not re-derive it`);
+    assert.doesNotMatch(code(body), /tmp\[0-9\]\*/,
+      `${name} must not carry its own copy of the leftover exclusion`);
+  }
+
+  // The scan stays READ-ONLY over the worktree record, as wave 1 pinned. The
+  // new states read the tree, and reading is all they do — a `stalled` row
+  // names what is on the floor and restarts nothing. Relaunching is
+  // `/plot-dispatch`'s, and Manifesto Principle 1 keeps the pulse derived.
   assert.doesNotMatch(code(bodies['plot-fleet-scan.sh']), /\.plot-worker\./,
     'the read-only scan must not touch the worker record itself');
 });
