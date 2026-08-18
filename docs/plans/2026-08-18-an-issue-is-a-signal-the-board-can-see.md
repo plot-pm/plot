@@ -68,12 +68,34 @@ The board already renders plan rows and branch rows. An issue row carries what
 the host reports — number, title, age — and nothing Plot invents. It appears
 only when **no plan references it**, and disappears the moment one does.
 
+The row takes **the shape of a PR row**, which the board already renders and a
+reader already knows how to scan: a glyph, a number, and a link when the host
+gave one. Only the glyph differs — an issue is not a pull request, and the icon
+is what says so at a glance.
+
 ```
 WAITING ON YOU (4)
-  #228  Fleet scan asks the host once per branch          2h   ⋯
-        no plan references this issue                          └ Create plan
-  #227  Board showed a fleet-blocked wave as eligible     3h   ⋯
+  Discovery  scan-asks-once-per-branch                🎫 #228   2h   ⋯
+                                                                     └ Create plan
+  Discovery  a-blocked-wave-is-not-eligible           🎫 #227   3h   ⋯
 ```
+
+**The plan-name column carries an inferred name, and it is not a link.** The
+name is derived from the issue's title so the row reads like every other row in
+the section — but nothing is behind it yet, and a link to a plan that does not
+exist is the fabrication this board keeps removing. A row whose name links
+nowhere is honest about being a proposal.
+
+**The branch column is empty**, because there is no branch. Showing a derived
+branch name would put a plausible identifier where nothing exists — and the
+next reader could not tell it apart from a branch nobody has claimed, which is
+a row this board already renders and means something else entirely. The name
+that `/plot-idea` eventually chooses is its decision, made with the whole
+problem statement in hand rather than from a title.
+
+**The number links to the tracker**, following the PR cell's own rule exactly:
+a host that reported no address renders the number as plain text rather than as
+an invented link (`AgentList.tsx:3708-3722`).
 
 **The reference is what makes it disappear.** A plan that names `#228` in its
 body removes the row — no state is written back to the tracker, no label, no
@@ -125,10 +147,18 @@ limit would make a measured problem worse.
       section that implies something is missing.
 - [ ] Should a *closed* issue with an open plan say something? That is the
       inverse drift — work planned for a signal that has been withdrawn.
+- [ ] How is the plan name inferred from a title? A slug of the first words is
+      cheap and often wrong; a model reading the issue produces the name a
+      human would write. The row is a proposal either way, so a mediocre name
+      costs little — but it is the name a reader scans, and the same question
+      is answered elsewhere in this repo by naming the step Frontier.
+- [ ] Does the empty branch column look broken rather than deliberate? Every
+      other row in the section carries one. Worth a look at the rendered board
+      before deciding whether it needs a dash, a word, or nothing at all.
 
 ## Branches
 
-- `feature/the-board-sees-unplanned-issues` — the host adapter reports open issues, and the board lists those no plan references, in WAITING ON YOU, read-only. Tests: an issue with no referencing plan appears; one referenced by a plan does not; a repo with no tracker renders nothing rather than an empty section; a failed issue lookup reads as unknown rather than as "no issues" — the rule `an-outage-is-not-an-answer` established and this session applied five times.
+- `feature/the-board-sees-unplanned-issues` — the host adapter reports open issues, and the board lists those no plan references, in WAITING ON YOU, read-only. The row reuses the PR cell's shape with an issue glyph: an inferred plan name that is **not** a link, an **empty** branch column, and the number linking to the tracker. Tests: an issue with no referencing plan appears; one referenced by a plan does not; the inferred name renders as text and not as an anchor; the branch column is empty rather than carrying a derived name; an issue whose host gave no URL renders its number as plain text, as the PR cell already does; a repo with no tracker renders nothing rather than an empty section; a failed issue lookup reads as unknown rather than as "no issues" — the rule `an-outage-is-not-an-answer` established and this session applied five times.
 
 - `feature/an-issue-becomes-a-plan` — the row's one action hands the issue to `/plot-idea` as a problem statement, producing a Draft that references the issue. Tests: the created plan names the issue; the row disappears once it does; the plan is Draft, never Approved; nothing is written to the tracker.
 
