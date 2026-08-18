@@ -11,6 +11,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-18, jwloka, in-session
+- **Started:** 2026-08-19, Jan Wloka, `feature/the-pulse-reports-when-work-last-changed`
 
 ## Changelog
 
