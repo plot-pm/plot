@@ -159,7 +159,7 @@ it worth reporting.
 
 ### The seventh state
 
-- `bug/finished-is-not-a-verdict` — `stalled`, the `TODO(you)`/`TODO(human)` marker check, the editor-leftover exclusion, and the classification order — added **once**, to the merged implementation. Tests: a worktree with an open PR and dirty files reads `finished`; one with a marker reads `waiting`; one with uncommitted work and no PR reads `stalled`; one with only a `.tmp1` reads `finished`.
+- `bug/finished-is-not-a-verdict` — `stalled`, the `TODO(you)`/`TODO(human)` marker check, the editor-leftover exclusion, and the classification order — added **once**, to the merged implementation. Tests: a worktree with an open PR and dirty files reads `finished`; one with a marker reads `waiting`; one with uncommitted work and no PR reads `stalled`; one with only a `.tmp1` reads `finished`. → #219
 
 ## Notes
 
