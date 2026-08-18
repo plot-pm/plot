@@ -2,7 +2,7 @@
 "@plot-pm/board": patch
 ---
 
-board: NOT STARTED shows Approved plans, and nothing else
+board: the plan's phase answers first, in NOT STARTED and in WORKING
 
 The section groups by **branch state** and never asked the plan's **phase**. A
 branch with no ref reads as "never started" — which is true of a branch nobody
@@ -56,17 +56,43 @@ to an Approved plan nobody has started, and only the plan says which it is.
 answer there, and an Approved plan with unclaimed branches renders exactly as
 before — the phase is the first question, not a replacement for the second.
 
-Three orderings are deliberate and tested:
+## WORKING had the same gap, mirrored
 
-- **Below the local-worktree check.** Someone editing a branch of a shipped plan
-  is still someone editing; the board reports what is, not what the bookkeeping
-  says should be.
-- **Above the wave verdict.** A blocked wave of a finished plan is not blocked,
-  it is finished.
-- **Only for `open` branches.** A finished plan whose branch carries commits, a
-  claim or a PR keeps its git answer — drift between a plan's records and its
-  git state is worth seeing rather than smoothing over, the same rule `rowPhase`
-  already follows.
+Measured minutes after the case above:
+
+```
+WORKING (2)
+  Released  not-yet-asked-is-not-not…  bug/a-refresh-that-nev…  uncommitted work in a local worktree
+  Released  one-place-for-what-a-ro…   bug/a-rows-actions-live-in-its-menu  uncommitted work in a local worktree
+```
+
+Both PRs (#220, #224) merged and shipped in v2.5.2. **Both workers were dead.**
+What the board read as *someone is working here* was leftover scratch files —
+`agentlist_temp.tsx`, `.fleet_part1.js` — that the workers wrote after pushing
+and never cleaned up.
+
+So the rule is not "the phase decides NOT STARTED". The phase answers **first in
+every section**, and the local facts refine within it. Each section asks *what
+would move this forward*, and for a finished plan the answer is *nothing* — it
+is done. **Local debris is not work.**
+
+## The ordering, in two halves
+
+The split is by whether a phase can honestly say *nothing would move this
+forward*:
+
+- **Terminal phases (`delivered`, `released`) answer first**, above even the
+  local-worktree check. Only *finished* outranks the sight of somebody typing.
+- **`draft` and an unrecognised phase answer below it.** A plan under review
+  whose branch is being edited right now has someone working on it — the review
+  is what is outstanding, not the work — and a phase the board cannot read is
+  not evidence of anything.
+- **Both sit above the wave verdict.** A wave's ordering is a question about an
+  approved plan, and neither of these is one.
+- **Only `open` branches are affected.** A finished plan whose branch carries
+  commits, a claim or a PR keeps its git answer — drift between a plan's records
+  and its git state is worth seeing rather than smoothing over, the same rule
+  `rowPhase` already follows.
 
 **An allowlist, not a blocklist**, matching `prAsksNobody` in the same file and
 for its reason: a blocklist of finished phases would silently start claiming *an

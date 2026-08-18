@@ -884,11 +884,43 @@ describe('NOT STARTED shows Approved plans, and nothing else', () => {
     }
   });
 
-  it('lets a live local worktree outrank the phase, as it outranks the wave', () => {
-    // Someone editing a branch of a finished plan is still someone editing, and
-    // the board reports what IS rather than what the bookkeeping says should
-    // be. The same ordering the wave verdict already loses to.
-    expect(classify('open', 'eligible', null, QUIET, null, true, 0, 'released').group)
+  it('keeps a FINISHED plan out of WORKING, whatever its worktree holds', () => {
+    // THE MIRRORED CASE, measured 2026-08-18 minutes after the NOT STARTED one:
+    //
+    //     WORKING (2)
+    //       Released  not-yet-asked-is-not-not…  uncommitted work in a local worktree
+    //       Released  one-place-for-what-a-ro…   uncommitted work in a local worktree
+    //
+    // Both PRs (#220, #224) merged and shipped in v2.5.2, and both workers were
+    // dead. What the board read as *someone is working here* was leftover
+    // scratch files — `agentlist_temp.tsx`, `.fleet_part1.js` — that the
+    // workers wrote after pushing and never cleaned up.
+    //
+    // So the phase answers FIRST in every section, not only in this one. For a
+    // Released plan the question *what would move this forward* has one answer,
+    // *nothing — it is finished*, and *local debris is not work*.
+    for (const phase of ['delivered', 'released']) {
+      expect(classify('open', 'eligible', null, QUIET, null, true, 0, phase).group)
+        .toBe('done');
+      expect(classify('open', 'eligible', null, QUIET, null, false, 0, phase, 'elsewhere', '', '', true).group)
+        .toBe('done');
+    }
+  });
+
+  it('still lets a live worktree outrank the WAVE, within an approved plan', () => {
+    // The ordering the phase check did NOT take over. Someone editing a branch
+    // of a blocked wave is still someone editing — that plan is live, and the
+    // board reports what is rather than what the ordering says should be.
+    expect(classify('open', 'blocked', null, QUIET, null, true, 0, 'approved').group)
+      .toBe('working');
+  });
+
+  it('leaves a DRAFT plan\'s live worktree in WORKING', () => {
+    // Draft is not finished, and this is the line between the two halves of the
+    // rule. A plan under review whose branch is being edited right now HAS
+    // someone working on it — the review is what is outstanding, not the work.
+    // Only a terminal phase can say *nothing would move this forward*.
+    expect(classify('open', 'eligible', null, QUIET, null, true, 0, 'draft').group)
       .toBe('working');
   });
 });

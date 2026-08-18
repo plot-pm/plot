@@ -1363,6 +1363,39 @@ export function classify(
     }
   }
   if (state === 'open') {
+    // A FINISHED PLAN OUTRANKS EVERYTHING THIS ARM COULD SAY, INCLUDING A LIVE
+    // WORKTREE.
+    //
+    // Measured 2026-08-18, minutes after the NOT STARTED case this branch is
+    // named for, and it is the same defect mirrored into WORKING:
+    //
+    //     WORKING (2)
+    //       Released  not-yet-asked-is-not-not…  uncommitted work in a local worktree
+    //       Released  one-place-for-what-a-ro…   uncommitted work in a local worktree
+    //
+    // Both PRs (#220, #224) merged and shipped in v2.5.2. Both workers were
+    // DEAD. What the board read as *someone is working here* was leftover
+    // scratch files — `agentlist_temp.tsx`, `.fleet_part1.js` — written after
+    // the push and never cleaned up.
+    //
+    // So the rule is not "the phase decides NOT STARTED"; it is that the phase
+    // answers FIRST in every section, and the local facts refine within it.
+    // Each section asks *what would move this forward*, and for a finished plan
+    // the answer is *nothing* — it is done. **Local debris is not work.**
+    //
+    // ONLY THE TERMINAL PHASES sit here. `draft` and an unrecognised phase stay
+    // below the worktree check, because neither can honestly claim that nothing
+    // would move the row: a plan under review whose branch is being edited has
+    // someone working on it, and a phase the board cannot read is not evidence
+    // of anything. Only `delivered` and `released` mean *finished*, and only
+    // *finished* outranks the sight of somebody typing.
+    if (planPhase === 'delivered' || planPhase === 'released') {
+      // The work is done; no branch of it can be waiting for an agent or hold
+      // one working. The note accounts for the missing ref rather than leaving
+      // a DONE row unexplained — `plot-sprint-support` has no branch because
+      // the change went straight onto main.
+      return { group: 'done', note: FINISHED_PLAN_NOTE };
+    }
     // WORK IN A LOCAL WORKTREE OUTRANKS "nobody has started this".
     //
     // `open` means git has no ref for the branch — which is what a branch that
@@ -1382,7 +1415,13 @@ export function classify(
     //
     // Ordered ABOVE the wave verdict on purpose: someone editing a branch of a
     // blocked wave is still someone editing. The board reports what is, not
-    // what the ordering says should be.
+    // what the ordering says should be. A DRAFT plan keeps that too — a plan
+    // under review whose branch is being edited has someone working on it; the
+    // review is what is outstanding, not the work.
+    //
+    // And BELOW the terminal-phase check above, which is the one thing that
+    // outranks it. See there for the measurement: a shipped plan's leftover
+    // scratch files are not somebody working.
     if (localDirty || localLocked) {
       return workingLocally(localDirty, 0, localLocked);
     }
@@ -1412,13 +1451,18 @@ export function classify(
     // and the section grew to twenty rows, ten of them shipped work offered as
     // available. The sweep multiplied the defect rather than causing it.
     //
-    // ORDERED HERE, and both neighbours are deliberate. It sits BELOW the local
-    // worktree check because someone editing a branch of a shipped plan is
-    // still someone editing, and this file reports what is rather than what the
-    // bookkeeping says should be. It sits ABOVE the wave verdict because a
-    // blocked wave of a finished plan is not blocked, it is finished — the
-    // verdict refines the answer WITHIN `approved`, which is exactly the scope
-    // it keeps below.
+    // ORDERED IN TWO HALVES, and the split is by whether the phase can honestly
+    // say *nothing would move this forward*.
+    //
+    // The TERMINAL phases answer at the top of this arm, above even the local
+    // worktree check — see there for the measurement that put them there.
+    //
+    // `draft` and an unrecognised phase answer HERE, below it: a plan under
+    // review whose branch is being edited has someone working on it, and a
+    // phase the board cannot read is not evidence of anything. Both still sit
+    // ABOVE the wave verdict, because a wave's ordering is a question about an
+    // approved plan and neither of these is one — the verdict refines the
+    // answer WITHIN `approved`, which is exactly the scope it keeps below.
     //
     // AN ALLOWLIST, like `prAsksNobody` and for its reason: a blocklist of
     // finished phases would silently start claiming "an agent may take this"
@@ -1434,19 +1478,21 @@ export function classify(
       // A person, and the note names WHICH action — the reader's next question
       // is *waiting on what*, and here the answer is a review rather than
       // another branch. It also says what would unblock the row.
+      //
+      // BELOW the worktree check, unlike the terminal phases above. Draft is
+      // not finished: a plan under review whose branch is being edited right
+      // now has someone working on it, and only a terminal phase can say
+      // *nothing would move this forward*.
       return { group: 'waiting-on-you', note: DRAFT_PLAN_NOTE };
-    }
-    if (planPhase === 'delivered' || planPhase === 'released') {
-      // The work is done; no branch of it can be waiting for an agent. The note
-      // accounts for the missing ref rather than leaving a DONE row unexplained
-      // — `plot-sprint-support` has no branch because the change went straight
-      // onto main.
-      return { group: 'done', note: FINISHED_PLAN_NOTE };
     }
     if (planPhase !== '' && planPhase !== 'approved') {
       // A phase the board has not been taught. Not startable — see the
       // allowlist note above — and the sentence says the board cannot place it
       // rather than inventing a reason it cannot know.
+      //
+      // Below the worktree check with `draft`, and for the same reason: an
+      // unrecognised phase may not be a finished one, so it must not silently
+      // claim that live editing is debris.
       return { group: 'done', note: unknownPhaseNote(planPhase) };
     }
     // An earlier wave keeps the first word, WITHIN an approved plan. That scope
