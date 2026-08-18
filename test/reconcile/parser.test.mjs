@@ -328,3 +328,81 @@ test('plan-meta: template guidance comments still contribute no round', () => {
   const actual = parse('canonical-comment-block.md');
   assert.equal('rounds' in actual, false);
 });
+
+// `Issue:` — the plan's link to the tracker signal it answers. The board reads
+// this to decide which open issues are still unplanned, so "does a plan
+// reference #N" has to be answerable without reading prose.
+test('parser: issues reads the Issue field, and a list of them', () => {
+  // A LIST because one plan can answer several signals — the plan that
+  // introduced this field subsumes three (#226, #227, #228).
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-issue-'));
+  const f = path.join(dir, '2026-01-01-signals.md');
+  writeFileSync(f, `# A plan answering signals
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+- **Issue:** #228, #226
+
+## Motivation
+
+Cites #999 and PR #232 as history — neither is a signal this plan answers.
+
+## Branches
+
+- \`feature/foo\` — does a thing. → #232
+`);
+  const meta = JSON.parse(execFileSync('bash', [parser, f], { encoding: 'utf8' }).trim());
+  assert.deepEqual(meta.issues, [226, 228], 'sorted and numeric, like prs');
+  // THE POINT OF A DEDICATED FIELD. A body scan would read #999 as a signal and
+  // #232 as one too; `prs` keeps #232 because `→ #NNN` says PR, and `issues`
+  // keeps only what `Issue:` named.
+  assert.deepEqual(meta.prs, [232], 'the PR link is still a PR, not an issue');
+});
+
+test('parser: issues is empty when the plan names none', () => {
+  // Every plan written before this field existed must still parse, and a bare
+  // `#226` in prose is a citation rather than a reference.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-noissue-'));
+  const f = path.join(dir, '2026-01-01-plain.md');
+  writeFileSync(f, `# A plan with no issue
+
+## Status
+
+- **Phase:** Draft
+- **Type:** bug
+
+## Motivation
+
+Mentions #226 in passing.
+`);
+  const meta = JSON.parse(execFileSync('bash', [parser, f], { encoding: 'utf8' }).trim());
+  assert.deepEqual(meta.issues, [], 'absent is [], and prose is not a reference');
+});
+
+test('parser: issues reads front matter, and a placeholder is absent', () => {
+  // Front matter wins over the canonical body, the rule every other field
+  // follows; a template-fresh `<!-- ... -->` counts as absent rather than as a
+  // reference to nothing.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-fmissue-'));
+  const fm = path.join(dir, '2026-01-01-fm.md');
+  writeFileSync(fm, `---
+status: Approved
+issue: "#77"
+---
+# Front matter plan
+`);
+  const ph = path.join(dir, '2026-01-02-placeholder.md');
+  writeFileSync(ph, `# Template-fresh plan
+
+## Status
+
+- **Phase:** Draft
+- **Issue:** <!-- #NNN if this answers a tracker issue -->
+`);
+  const out = execFileSync('bash', [parser, fm, ph], { encoding: 'utf8' })
+    .trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(out[0].issues, [77]);
+  assert.deepEqual(out[1].issues, [], 'a placeholder names no issue');
+});

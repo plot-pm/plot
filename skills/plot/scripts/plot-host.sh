@@ -47,6 +47,23 @@
 #                                 to be failing. Empty on bitbucket (bb has no
 #                                 run listing) — unavailable, never "never
 #                                 failed".
+#   issue-list [--limit N]        open tracker issues as JSON lines:
+#                                 {"number":N,"title":"…","url":"…",
+#                                  "createdAt":"…"}
+#                                 READ-ONLY, and the only issue op here: Plot
+#                                 never writes to the tracker (no labels, no
+#                                 assignees, no close-on-merge), because a copy
+#                                 of tracker state ages into a lie.
+#                                 `url` is "" when the host omits it, and a
+#                                 consumer renders the number as plain text
+#                                 rather than inventing an address — the rule
+#                                 pr-list's `url` already follows.
+#                                 EXIT 4 on bitbucket: bb has no issue listing,
+#                                 and 4 says *this host cannot answer* where an
+#                                 empty list would say *there are none*. A
+#                                 failed lookup exits non-zero with an empty
+#                                 stdout, never a silent empty list — an outage
+#                                 is not an answer.
 #   pr-body <number> --body B     replace the PR description
 #
 # Backend resolution: $PLOT_HOST (github|bitbucket) wins — useful for tests —
@@ -499,6 +516,54 @@ case "$op" in
         | jq -c '.[] | {workflow:.workflowName,
                         conclusion:(if (.conclusion // "") == "" then .status else .conclusion end),
                         startedAt:.startedAt, url:.url}' 2>/dev/null || true
+    fi
+    ;;
+
+  issue-list)
+    # Open tracker issues — the board's inbox, and READ-ONLY in both
+    # directions. Nothing here writes a label, an assignee or a close: the
+    # manifesto keeps issues as signals rather than commitments, and a mirror
+    # of tracker state is the copy that ages into a lie.
+    #
+    # THREE OUTCOMES, KEPT APART. An empty list means the host answered and
+    # there are none; a non-zero exit with empty stdout means the question
+    # failed; exit 4 means this host cannot be asked at all. Collapsing any two
+    # of them reproduces `an-outage-is-not-an-answer` — a board that says "no
+    # issues" because it could not reach the tracker is stating a fact it does
+    # not have.
+    limit=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --limit) limit="${2:?}"; shift 2 ;;
+        *) die "issue-list: unknown arg $1" ;;
+      esac
+    done
+    limit_args=()
+    [ -n "$limit" ] && limit_args=(--limit "$limit")
+    if [ "$be" = "github" ]; then
+      # `gh issue list` — not `gh api /issues`. On GitHub every PR IS an issue,
+      # so the REST endpoint returns both, and every open PR would arrive here
+      # as a signal nobody had planned. The `gh` subcommand filters PRs out;
+      # this note exists because that trap is invisible while it works.
+      if out="$(gh issue list --state open ${limit_args[@]+"${limit_args[@]}"} \
+                  --json number,title,url,createdAt 2>/tmp/plot-host-err.$$)"; then
+        rm -f "/tmp/plot-host-err.$$"
+        jq -c '.[] | {number:.number,title:.title,url:(.url // ""),createdAt:(.createdAt // "")}' <<<"$out"
+      else
+        err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+        # NO empty-list fallback. `host_miss_or_fail` exists for a lookup whose
+        # subject is absent — one PR that does not exist. A LIST has no absent
+        # subject: if the call failed, the answer is unknown, and printing
+        # nothing while exiting non-zero is what says so.
+        echo "plot-host: $err" >&2
+        exit 3
+      fi
+    else
+      # bb has no issue listing, the same limit `runs` documents. Exit 4 rather
+      # than an empty list, so a consumer renders "this host cannot say"
+      # instead of a section implying the tracker is empty.
+      echo "plot-host: bitbucket has no issue listing (bb exposes none)" >&2
+      exit 4
     fi
     ;;
 
