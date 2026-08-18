@@ -90,9 +90,18 @@ Optional — a sprint with no release target behaves exactly as today. When
 present, two commands read it:
 
 **`/plot-release` refuses to cut past an active sprint's unfinished Must
-Haves.** Not the Should or Could tiers: MoSCoW already says which items are the
-commitment, and a gate that treated stretch goals as blocking would be one
-operators learn to force past.
+Haves, and asks about unfinished Should Haves.** The two tiers get two
+different treatments because they are two different promises: a Must Have is
+the commitment, a Should Have is what the sprint hoped to reach.
+
+A hard gate on Should Haves would be one operators learn to force past, and a
+flag that gets typed reflexively has stopped being a gate. But saying nothing
+is the failure this plan is about — a release cut with three Should Haves open
+is a decision, and a decision made without being asked is one nobody made.
+
+So: Must refuses and needs `--ignore-sprint`. Should prompts, names what is
+open, and takes yes or no in the moment. No flag, because the confirmation
+*is* the record that a person looked.
 
 ```
 plot-release: sprint the-board-tells-the-truth targets 2.5.2 and has
@@ -104,6 +113,23 @@ plot-release: sprint the-board-tells-the-truth targets 2.5.2 and has
 **`--ignore-sprint` is the named escape**, in the tradition of `--allow-local`
 and `--during-release`. A gate with no exit is one people route around by not
 declaring a release at all, which would cost the field its adoption.
+
+**The override writes itself into the sprint's Notes**, naming the version, the
+date, and the Must Haves that were open:
+
+```markdown
+## Notes
+
+- 2.5.2 cut 2026-08-18 with `--ignore-sprint`; 1 Must Have open:
+  [one-place-for-what-a-row-can-do]
+```
+
+The retrospective section already asks what the timebox changed, and this is
+exactly the kind of answer it cannot reconstruct later. A release command
+writing into a sprint file couples the two artifacts, and that coupling is
+accepted deliberately: the alternative is a fact that exists only in a shell
+history nobody rereads. It is the same reason `Approved:` and `Delivered:` are
+records in the plan rather than notes in a log.
 
 **`/plot-sprint close` reports whether the release was cut**, and does not
 refuse. Closing a sprint whose release slipped is a legitimate outcome; the
@@ -132,11 +158,29 @@ list an operator cannot check is worse than an unranked one they can: it hides
 its mistakes behind an order. Each row carries the sentence that earned it a
 place, so a wrong match is visible as a wrong match.
 
+**A model reads and judges — this is frontier work, and the Model Guidance
+table must say so.** The match is semantic, not lexical, and the measured case
+proves why: the goal *"the board tells the truth"* and the plan *"none printed
+before the first fetch"* share not one word and are obviously the same subject.
+Keyword overlap would rank that plan last.
+
+This is the one place in Plot where a smaller model cannot degrade gracefully
+into asking a human — the whole point is to stop handing the human 53 lines. So
+the step is Frontier (Opus) in the skill's Model Guidance table, and a smaller
+model falls back to the current behaviour: list them all, grouped by story, and
+say that is what it did.
+
 **What the ranking reads.** Titles and stories are already parsed. The
 distinguishing text is not: `plot-plan-meta.sh` reports `title`, `story`,
 `phase`, `type` and no `changelog`, though every plan has one and it is a
-one-line statement of what the plan changes. That is the field worth adding,
-and it is additive to the plan-format contract rather than a change to it.
+one-line statement of what the plan changes.
+
+Measured across all 53 plans before committing to that: the largest changelog
+is 10 entries over 23 lines, the typical one is 1-3 entries, and **no changelog
+in the repo contains a code block** — so entries are single lines, not
+multi-line markdown. The 72 backticks, links and quotes across them are what
+`jq -R` already handles for every other field. The field is therefore cheap and
+additive, which the measurement establishes rather than assumes.
 
 **A story match is strong evidence and not a rule.** 40 of 53 plans carry a
 story, and a goal about the board will mostly draw from `plot-board`. But this
@@ -168,21 +212,27 @@ shipping a version is still a sprint; the field is how one says otherwise.
 - [ ] Should the proposal run on an existing sprint too — *"which open plans
       now serve this goal?"* — or only at creation? Mid-sprint scope change is
       already a documented flow; this would give it the same help.
-- [ ] Does `changelog` belong in `plot-plan-meta.sh` for this alone? It is
-      also what `/plot-release` extracts by hand today, so the answer is
-      probably yes on its own merits.
+- [x] Does `changelog` belong in `plot-plan-meta.sh` for this alone? **Yes,
+      and the cost was measured rather than assumed** — largest changelog 10
+      entries, no code blocks anywhere, special characters already handled by
+      the escaping every other field uses. It is also what `/plot-release`
+      extracts by hand today, so it earns its place twice.
+- [ ] Should the Should-Have prompt appear when the release is cut from CI
+      rather than a terminal? A prompt nobody can answer is a hang. Likely it
+      degrades to the Must-Have gate plus a printed warning, but that is a
+      guess until somebody cuts a release from a workflow.
 
 ## Branches
 
 ### The field and its gate
 
-- `feature/a-sprint-names-its-release` — `Release:` in the sprint format and its parser, read by `/plot-release` as a gate on an active sprint's unfinished Must Haves, with `--ignore-sprint` as the escape. `/plot-sprint close` reports the release state and never refuses. Tests: a sprint with unfinished Must Haves refuses the release and names them; `--ignore-sprint` proceeds; finished Must Haves proceed silently; unfinished Should/Could items never block; a sprint with no `Release:` behaves exactly as today; closing a sprint whose release was not cut succeeds with a report.
+- `feature/a-sprint-names-its-release` — `Release:` in the sprint format and its parser, read by `/plot-release` as a gate on an active sprint's unfinished Must Haves, with `--ignore-sprint` as the escape. Unfinished Should Haves prompt rather than block, and an override records itself in the sprint's Notes. `/plot-sprint close` reports the release state and never refuses. Tests: a sprint with unfinished Must Haves refuses and names them; `--ignore-sprint` proceeds **and writes the version, the date and the open items into the sprint's Notes**; finished Must Haves with open Should Haves prompt and name them, and answering no cuts nothing; Could items never block or prompt; a sprint with no `Release:` behaves exactly as today; closing a sprint whose release was not cut succeeds with a report.
 
 ### The proposal
 
-- `feature/the-plan-meta-reports-a-changelog` — `plot-plan-meta.sh` reports the plan's `## Changelog` text, the one field that says what a plan changes. Additive to the contract. Tests: a plan with a changelog reports it; one without reports an empty value rather than failing; the existing fields are byte-identical.
+- `feature/the-plan-meta-reports-a-changelog` — `plot-plan-meta.sh` reports the plan's `## Changelog` entries, the one field that says what a plan changes. Additive to the contract, and measured before being proposed: 10 entries is the largest in the repo, no changelog contains a code block, and the 72 backticks/links/quotes across all of them are what `jq -R` already handles elsewhere. Tests: a plan with a changelog reports its entries; one without reports an empty value rather than failing; **a changelog containing backticks, a markdown link and a double quote survives the round trip**; the existing fields are byte-identical (the contract test that already pins them must keep passing untouched).
 
-- `feature/a-sprint-proposes-its-work` — sprint creation proposes plans that serve the stated goal, ranked, each row carrying the sentence that earned it a place, with `--all` for the full list. Proposes only; never adds. Tests: a goal about the board ranks board plans above unrelated ones; every proposed row shows its reason; a plan from another story can still be proposed; `--all` lists everything; nothing is written to the sprint without a selection.
+- `feature/a-sprint-proposes-its-work` — sprint creation proposes plans that serve the stated goal, ranked by a model reading goal against title, story and changelog, each row carrying the sentence that earned it a place, with `--all` for the full list. Proposes only; never adds. The skill's Model Guidance table names this step Frontier, with the documented fallback for smaller models: list everything grouped by story, and say that is what happened. Tests: a goal about the board ranks board plans above unrelated ones; **the measured semantic case — goal "the board tells the truth" against plan "none printed before the first fetch", sharing no word — ranks the plan highly**; every proposed row shows its reason; a plan from another story can still be proposed; `--all` lists everything; nothing is written to the sprint without a selection.
 
 ## Notes
 
