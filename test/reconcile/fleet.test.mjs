@@ -2497,3 +2497,225 @@ test('fleet: the worker read makes no host call, and leaves the prose untouched'
     'the prose report is unchanged — the worker fact travels in --json only');
   f.cleanup();
 });
+
+// --- the scan asks once, not once per branch --------------------------------
+//
+// Measured against bitbucket.org/quatico/ekzweb on 2026-08-18 (issue #228): 14
+// branches cost 39 `bb` calls and the scan did not finish inside 110 s. And on
+// THIS repo, on GitHub, the same day: 84 branches x 438 ms of `pr-state` = 34 s,
+// past the board's own 30 s timeout (`fleet.ts:260`), so the board served a
+// pulse 644 s old while reporting `Command failed`.
+//
+// The shape is the defect: `host_pr_state` resolved state PER BRANCH, so the
+// cost scaled with the branch count. One `pr-list` answers all of them.
+//
+// These tests count invocations of a stubbed host rather than timing anything —
+// a timing assertion on CI is a flake, and the count is the actual claim.
+
+// A plan with `n` branches, all of them PUSHED and in flight.
+//
+// THE FIXTURE IS THE ASSERTION HERE. Two costs scale differently and only one
+// of them is this defect:
+//
+//   * the JOIN's cost must be flat in the branch count — that is the fix;
+//   * PR #216's no-ref lookup is bounded by ABSENT branches, and must survive.
+//
+// A fixture of never-started branches cannot tell those apart: every branch
+// takes the no-ref arm, so the count rises for the legitimate reason and the
+// test would demand the removal of #216. Pushing every branch holds the absent
+// count at ZERO, so anything that still scales is the loop this change removes.
+const N_WAVE = (n, prefix = 'feature/b') =>
+  '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+  Array.from({ length: n }, (_, i) => `- \`${prefix}${i}\` — the work\n`).join('');
+
+// Build the repo AND push every branch, so none takes the no-ref arm.
+function makeInFlightRepo(prefix, n) {
+  const f = makeRepo(prefix, N_WAVE(n));
+  for (let i = 0; i < n; i++) {
+    f.work(`feature/b${i}`, `f${i}.txt`);
+    f.push('-u', 'origin', `feature/b${i}`);
+  }
+  git(f.dir, 'checkout', '-q', 'main');
+  return f;
+}
+
+// Counts every host invocation by op, so a growth in ANY op is caught rather
+// than only the one this fix happened to look at.
+const COUNTING_HOST = `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":0,"state":"NONE","draft":false,"url":""}' ;;
+  pr-list) : ;;
+  *) echo "{}" ;;
+esac
+`;
+
+function countCalls(f, host = COUNTING_HOST, args = ['p']) {
+  const h = hostShim(host);
+  const calls = path.join(h.dir, 'calls.txt');
+  const out = execFileSync('bash', [h.scan, ...args], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PLOT_TEST_CALLS: calls },
+  });
+  const ops = fs.existsSync(calls)
+    ? fs.readFileSync(calls, 'utf8').split('\n').filter(Boolean) : [];
+  h.cleanup();
+  return { out, ops, total: ops.length };
+}
+
+test('fleet: host calls do not grow with the branch count', () => {
+  // THE MEASURED FAILURE, reproduced as a count. Against the unchanged script
+  // this fails — verified by stashing the fix: 6 in-flight branches cost 6
+  // `pr-state` calls and 14 cost 14, so the difference IS the branch count and
+  // the assertion below reads `8 !== 0`.
+  //
+  // Two sizes of the SAME plan shape, every branch pushed. What is asserted is
+  // not an absolute budget — that would pin an implementation detail — but that
+  // the two sizes cost the SAME, which is what "constant" means and what the
+  // defect broke.
+  const small = makeInFlightRepo('plot-fleet-join-small-', 6);
+  const large = makeInFlightRepo('plot-fleet-join-large-', 14);
+
+  const s = countCalls(small);
+  const l = countCalls(large);
+
+  assert.equal(l.total - s.total, 0,
+    `host calls must not scale with branches: 6 branches cost ${s.total} ` +
+    `(${s.ops.join(',')}), 14 cost ${l.total} (${l.ops.join(',')})`);
+
+  small.cleanup();
+  large.cleanup();
+});
+
+test('fleet: a failed list reads as failure, never as "no PR"', () => {
+  // The 2026-08-17 trap in a new shape. `plot-host.sh` separates a lookup miss
+  // (exit 0, state NONE) from a transport failure (non-zero), and the join must
+  // keep that separation: a list that NEVER ARRIVED and a list with NOTHING IN
+  // IT are different facts.
+  //
+  // The branch here was squash-merged and its ref deleted, so it takes the
+  // no-ref arm. With a list that FAILED, the scan may not conclude "no PR" and
+  // must fall through to `open` — the safe direction, unchanged from before the
+  // join existed. Concluding `merged` or settling the wave would be the
+  // fabricated verdict; concluding a confident "no PR" is the same lie quieter.
+  const f = makeRepo('plot-fleet-joinfail-', ONE_WAVE('feature/squashed'));
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 42);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  // The list fails the way a 503 does: non-zero, nothing on stdout. The
+  // per-branch lookup still answers MERGED, and that answer must survive — a
+  // failed LIST must not suppress the no-ref lookup that #216 put there.
+  const { out } = countCalls(f, `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) exit 1 ;;
+  pr-state) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  assert.match(branchLine(out, 'feature/squashed'), / — merged$/,
+    'a failed list must not suppress the no-ref lookup that answers');
+  f.cleanup();
+});
+
+test('fleet: an empty list is not a failed list', () => {
+  // The other half of the same distinction. Here the list ARRIVES and is empty
+  // — real evidence that the repo has no PRs — while the per-branch lookup is
+  // never consulted for a branch that HAS a ref. The branch must read from its
+  // local state rather than inheriting a fabricated verdict either way.
+  const f = makeRepo('plot-fleet-joinempty-', ONE_WAVE('feature/inflight'));
+  f.work('feature/inflight', 'a.txt');
+  f.push('-u', 'origin', 'feature/inflight');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const { out, ops } = countCalls(f, `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) : ;;
+  pr-state) echo '{"number":0,"state":"NONE","draft":false,"url":""}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  assert.match(branchLine(out, 'feature/inflight'), / — in progress$/,
+    'an empty list that arrived is evidence, and the local state answers');
+  assert.equal(ops.filter((o) => o === 'pr-state').length, 0,
+    'a branch with a ref must not cost a per-branch lookup');
+  f.cleanup();
+});
+
+test('fleet: the no-ref lookup is bounded by absent branches, not by all', () => {
+  // THE OTHER SIDE OF THE SAME COIN, and the reason the test above pushes every
+  // branch. PR #216's per-branch lookup must SURVIVE this change: it asks about
+  // a branch with no ref, which a repo-wide list may legitimately not contain
+  // because its PR was never opened. Deleting it to make a call-count go down
+  // would trade this defect for that one.
+  //
+  // So the cost is bounded by ABSENT branches. Here 2 of 8 are absent, and the
+  // count must follow the 2 rather than the 8.
+  const f = makeRepo('plot-fleet-joinbound-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    Array.from({ length: 8 }, (_, i) => `- \`feature/b${i}\` — the work\n`).join(''));
+  for (let i = 0; i < 6; i++) {
+    f.work(`feature/b${i}`, `f${i}.txt`);
+    f.push('-u', 'origin', `feature/b${i}`);
+  }
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const { ops } = countCalls(f);
+  const asked = ops.filter((o) => o === 'pr-state').length;
+  assert.equal(asked, 2,
+    `only the 2 branches with no ref may be asked about individually, saw ${asked}`);
+  assert.equal(ops.filter((o) => o === 'pr-list').length, 1,
+    'the other 6 are answered by exactly one list');
+  f.cleanup();
+});
+
+test('fleet: a failed list does not answer for branches the join never covered', () => {
+  // THE 2026-08-17 TRAP, IN THE SHAPE THE JOIN GIVES IT. The scan must keep
+  // `plot-host.sh`'s distinction between a lookup MISS (exit 0, state NONE) and
+  // a TRANSPORT FAILURE (non-zero). A join makes that distinction easy to lose,
+  // because both arrive as "this branch is not in my table".
+  //
+  // Here the list FAILS and the branch has a ref, so nothing may be concluded
+  // about its PR at all. `worker_of` asks `reached_review`, whose contract is
+  // that an unanswerable host falls through to the LOCAL signals rather than
+  // manufacturing the state that tells a reader to stop looking.
+  //
+  // The assertion is on the call count rather than on a rendered word: with the
+  // list failed there is no cached answer, and the branch must NOT be rescued
+  // by a per-branch lookup — that would silently restore the N-call loop on
+  // exactly the day the host is unwell and can least afford it.
+  const f = makeRepo('plot-fleet-joinfail2-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    Array.from({ length: 8 }, (_, i) => `- \`feature/b${i}\` — the work\n`).join(''));
+  for (let i = 0; i < 8; i++) {
+    f.work(`feature/b${i}`, `f${i}.txt`);
+    f.push('-u', 'origin', `feature/b${i}`);
+  }
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const { ops } = countCalls(f, `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) exit 1 ;;
+  pr-state) echo '{"number":0,"state":"NONE","draft":false,"url":""}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  assert.equal(ops.filter((o) => o === 'pr-state').length, 0,
+    'a failed list must not fall back to one lookup per branch');
+  assert.equal(ops.filter((o) => o === 'pr-list').length, 1,
+    'the list is attempted exactly once, even when it fails');
+  f.cleanup();
+});

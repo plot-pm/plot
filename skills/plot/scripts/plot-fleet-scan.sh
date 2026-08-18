@@ -378,6 +378,139 @@ if [ "$HOST_LOOKUP_OK" = 1 ]; then
     && trap 'rm -rf "$HOST_STATE_CACHE" 2>/dev/null || true' EXIT INT TERM
 fi
 
+# The cache key. Shared by the join and by `host_pr_state`, because the two
+# must agree on it EXACTLY: a prefill written under one spelling and read under
+# another is a cache that silently never hits, which restores the per-branch
+# cost this whole change removes — and does it invisibly, since every answer is
+# still correct.
+#
+# The branch name contains slashes and a flat file per branch needs them gone,
+# but the mapping must be INJECTIVE. `tr '/' '_'` is not: `feature/a_b` and
+# `feature_a/b` are both legal refs and collapse to one key, and a collision
+# here serves one branch's verdict to another — which, when the verdict is
+# `merged`, settles a wave on a branch nobody looked at. Encoding `_` first
+# makes the substitution reversible, so distinct refs stay distinct.
+cache_key() { # $1=branch → a filename that is injective in the branch name
+  printf '%s' "$1" | sed 's/_/__/g; s|/|_|g'
+}
+
+# ---------------------------------------------------------------------------
+# ONE LIST, JOINED LOCALLY — not one lookup per branch
+# ---------------------------------------------------------------------------
+#
+# THE MEASUREMENT THAT FORCED THIS (issues #228 and #226, both 2026-08-18):
+#
+#   bitbucket/ekzweb   14 branches → 39 `bb` calls, scan unfinished at 110 s
+#   this repo, GitHub  84 branches × 438 ms      → 34 s observed
+#   one pr-list (all)                            → 1107 ms
+#
+# The board's `run()` helper times out at 30 s (`fleet.ts:260`), so the scan had
+# begun exceeding it on GitHub too: the board served a pulse 644 s old while
+# reporting `Command failed`, and the reason was invisible to the operator.
+#
+# The scan needs `branch → state` for a KNOWN SET of branches. That is a JOIN
+# over one response, not N lookups — and the ratio worsens with every branch
+# added, which is what makes it a shape problem rather than a tuning one.
+#
+# WHAT THE JOIN MAY NOT DO, and why it is written the way it is:
+#
+#   * AN EMPTY JOIN IS NOT A FAILED JOIN. `plot-host.sh` separates a lookup
+#     miss (exit 0, state NONE) from a transport failure (non-zero) — the
+#     distinction it grew on 2026-08-17, when GitHub returned 503 all afternoon
+#     and every branch read as having no PR. A join over a response that never
+#     arrived is that same trap in a new shape, so the list's EXIT CODE is
+#     checked before its payload is read, and a failed list prefills NOTHING.
+#     Branches then answer `-` (unanswerable) exactly as they did during an
+#     outage before this existed — never a confident "no PR".
+#
+#   * THE PAGE LIMIT IS NOT OPTIONAL. Measured on this repo 2026-08-18: 221 PRs
+#     exist and `pr-list --state all` returns 30 without `--limit`, because that
+#     is the host CLI's default. Joining against the newest 30 would silently
+#     lose 191 PRs — every older merged branch reading as "no PR", which is the
+#     fabricated verdict this scan refuses everywhere else. The limit is asked
+#     for explicitly and generously; one call for all 221 measured at 1.8 s.
+#
+#   * THE VOCABULARY IS THE HOST ADAPTER'S, UNCHANGED. `pr-list` already emits
+#     OPEN/MERGED/CLOSED per PR and already folds Bitbucket's DECLINED into
+#     CLOSED, the same three-way vocabulary `pr-state` produces. Nothing is
+#     translated here.
+#
+# ONE PR PER BRANCH, and the ordering decides which. A branch can carry several
+# PRs over its life — opened, closed, reopened — and `pr-list` returns all of
+# them. OPEN outranks MERGED outranks CLOSED, matching the walk `pr-state`
+# already performs on Bitbucket, so the join and the per-branch lookup cannot
+# disagree about the same branch.
+PR_LIST_LIMIT="${PLOT_PR_LIST_LIMIT:-1000}"
+prefill_pr_states() {
+  [ "$HOST_LOOKUP_OK" = 1 ] || return 0
+  [ -n "$HOST_STATE_CACHE" ] || return 0
+  local js br st key
+  # Exit code first: non-zero is a transport failure and its stdout is not an
+  # answer. A failed list leaves the cache EMPTY, so every branch falls through
+  # to the unanswerable `-` rather than to a fabricated "no PR".
+  js=$("$script_dir/plot-host.sh" pr-list --state all --limit "$PR_LIST_LIMIT" \
+         </dev/null 2>/dev/null) || return 0
+  # `pr-list` emits one compact JSON object per line. PARSED IN ONE PASS, and
+  # that is a correctness-of-cost property rather than a style preference:
+  # measured 2026-08-18 on this repo's 221 PRs, a `sed` per field per row —
+  # 442 forks — took 46 s, which is WORSE than the 34 s of host calls this
+  # change exists to remove. Trading N network round trips for N process forks
+  # is not a fix. One `sed` over the whole stream emits `branch<TAB>state`, and
+  # the loop below forks nothing at all.
+  #
+  # The fields are matched in their emitted order (`state` precedes `head`) and
+  # anchored to `","head":"` so a PR TITLE containing the word `state` cannot be
+  # mistaken for the field — titles are free text and this repo has several
+  # that name their own fields.
+  #
+  # `cache_key`'s substitution is inlined here for the same fork reason. It must
+  # stay IDENTICAL to that function; a divergence is a cache that silently never
+  # hits.
+  #
+  # STATE FIRST, BRANCH LAST. A branch name may contain almost anything; the
+  # state is a single bare word. Emitting `STATE<TAB>branch` lets the key
+  # encoding be one anchored substitution on the tail of the line, with no
+  # reconstruction of the separator afterwards.
+  # THE ROWS ARRIVE ALREADY RANKED, so this loop needs no memory of what it has
+  # seen and forks nothing to find out. `sort` below puts the winning row for
+  # each branch first; `last=` skips the rest of that branch's rows with a
+  # string compare. Reading the rank back from the file with `$(cat …)` would
+  # be a fork PER DUPLICATE ROW, which is what this loop was rewritten to avoid.
+  local last=""
+  while IFS="	" read -r st br; do
+    [ -n "$br" ] && [ -n "$st" ] || continue
+    [ "$br" = "$last" ] && continue
+    last="$br"
+    printf '%s' "$st" > "$HOST_STATE_CACHE/$br" 2>/dev/null || true
+  done <<EOF
+$(printf '%s\n' "$js" \
+  | sed -n 's/.*"state":"\([A-Z]*\)","head":"\([^"]*\)".*/\1	\2/p' \
+  | sed 's/_/__/g; s|/|_|g; s|^\([A-Z]*\)_|\1	|' \
+  | sed 's/^OPEN	/1	OPEN	/; s/^MERGED	/2	MERGED	/; s/^\([A-Z]\)/3	\1/' \
+  | sort -t"$(printf '\t')" -k3,3 -k1,1 | cut -f2,3)
+EOF
+  # The pipeline above, read left to right:
+  #   1. pull `STATE<TAB>branch` out of each JSON line, anchored on the two
+  #      fields' emitted adjacency so a free-text TITLE cannot impersonate them;
+  #   2. encode the branch into the injective cache key (`cache_key`, inlined);
+  #   3. prefix a RANK digit — OPEN 1, MERGED 2, everything else 3;
+  #   4. sort by branch, then rank, so each branch's winning row comes first;
+  #   5. drop the rank column again.
+  # The loop then keeps the first row per branch and skips the rest.
+  # THE LIST ARRIVED. Recorded as a fact of its own, because "the cache has no
+  # entry for this branch" means two different things and only this flag tells
+  # them apart: with the list in hand it is real evidence of no PR, without it
+  # the question was never answered. `host_pr_state` reads this to decide
+  # between NONE and `-`.
+  #
+  # The marker shares the cache directory with the per-branch files and CANNOT
+  # collide with one: `git check-ref-format` rejects a branch whose name starts
+  # with a dot, and the key encoding maps only `_` and `/`, so no branch key can
+  # begin with one either. The separation is git's rule, not a lucky prefix.
+  printf '1' > "$HOST_STATE_CACHE/.list-arrived" 2>/dev/null || true
+}
+prefill_pr_states
+
 # The cache stores the STATE WORD, not a yes/no, so a future reader can tell
 # "asked, answered CLOSED" from "asked, could not reach the host". `-` is the
 # unanswerable marker, and it is cached too: a host that is down stays down for
@@ -396,20 +529,27 @@ fi
 # Returns the STATE WORD, or `-` when the question could not be answered —
 # never a yes/no, so each caller applies its own test and a reader can still
 # tell "asked, answered CLOSED" from "asked, could not reach the host".
-host_pr_state() { # $1=branch → OPEN|MERGED|CLOSED|NONE|-
+# THE PER-BRANCH LOOKUP IS NOW OPT-IN, and that is the whole saving.
+#
+# `--ask` asks the host about this ONE branch when the join cannot answer. Only
+# the no-ref arm passes it (PR #216), and that is bounded by ABSENT branches
+# rather than by all of them — a branch with no ref may genuinely be missing
+# from a repo-wide list if its PR was never opened, so the list's silence about
+# it is not evidence.
+#
+# Without `--ask` an unjoined branch answers from the list alone: NONE when the
+# list arrived (real evidence — the repo has no PR for it) and `-` when it did
+# not (the question was never answered). Collapsing those two is the 2026-08-17
+# failure in a new shape and is what the `.list-arrived` marker prevents.
+host_pr_state() { # $1=branch [--ask] → OPEN|MERGED|CLOSED|NONE|-
   [ "$HOST_LOOKUP_OK" = 1 ] || { printf '%s' '-'; return; }
-  local br="$1" st js cache=""
-  # The branch name contains slashes and a flat file per branch needs them
-  # gone, but the mapping must be INJECTIVE. `tr '/' '_'` is not: `feature/a_b`
-  # and `feature_a/b` are both legal refs and collapse to one key, and a
-  # collision here serves one branch's verdict to another — which, when the
-  # verdict is `merged`, settles a wave on a branch nobody looked at. Encoding
-  # `_` first makes the substitution reversible, so distinct refs stay distinct.
-  [ -n "$HOST_STATE_CACHE" ] \
-    && cache="$HOST_STATE_CACHE/$(printf '%s' "$br" | sed 's/_/__/g; s|/|_|g')"
+  local br="$1" ask="${2:-}" st js cache=""
+  [ -n "$HOST_STATE_CACHE" ] && cache="$HOST_STATE_CACHE/$(cache_key "$br")"
   if [ -n "$cache" ] && [ -f "$cache" ]; then
-    st=$(cat "$cache" 2>/dev/null)
-  else
+    printf '%s' "$(cat "$cache" 2>/dev/null)"
+    return
+  fi
+  if [ "$ask" = "--ask" ]; then
     # Exit code first: non-zero is a transport failure and its stdout is not an
     # answer. Only then is the payload read.
     if js=$("$script_dir/plot-host.sh" pr-state "$br" </dev/null 2>/dev/null); then
@@ -418,16 +558,32 @@ host_pr_state() { # $1=branch → OPEN|MERGED|CLOSED|NONE|-
     else
       st='-'
     fi
+    # Cached even when it is `-`: a host that is down stays down for the length
+    # of a scan, and re-asking once per branch would multiply an outage by the
+    # branch count.
     [ -n "$cache" ] && printf '%s' "$st" > "$cache" 2>/dev/null
+    printf '%s' "$st"
+    return
   fi
-  printf '%s' "$st"
+  # Not asked, not joined. The list's own arrival decides which silence this is.
+  if [ -n "$HOST_STATE_CACHE" ] && [ -f "$HOST_STATE_CACHE/.list-arrived" ]; then
+    printf '%s' 'NONE'
+  else
+    printf '%s' '-'
+  fi
 }
 
 # Does the host say this branch's PR is MERGED? Anything else — OPEN, CLOSED,
 # NONE, an unreachable host, a malformed reply — is NOT a yes. Unchanged in
 # behaviour; only the lookup underneath it is now shared.
+#
+# THE ONE CALLER THAT MAY ASK PER BRANCH (PR #216). It is reached only from the
+# no-ref arm of `branch_state`, for a branch the repo-wide list may legitimately
+# not contain, and its cost is therefore bounded by ABSENT branches rather than
+# by all of them. The join answers everything else. Do not add `--ask` to a
+# caller that runs for every branch — that is the loop this change removed.
 merged_by_host() { # $1=branch → 0 when the host reports its PR MERGED
-  [ "$(host_pr_state "$1")" = "MERGED" ]
+  [ "$(host_pr_state "$1" --ask)" = "MERGED" ]
 }
 
 # Has this branch's work REACHED REVIEW — an open or merged PR?
