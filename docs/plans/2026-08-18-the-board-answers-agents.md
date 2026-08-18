@@ -229,7 +229,7 @@ one dataset is how they drift.
 
 ### Ask
 
-- `feature/api-attention-says-what-needs-you` — **replaces the narrower `/api/next` by `GET /api/attention`, see the amendment below.** The original scope (name one claimable branch) survives as one of four lists that endpoint returns.
+- `feature/api-attention-says-what-needs-you` — **replaces the narrower `/api/next` by `GET /api/attention`, see the amendment below.** The original scope (name one claimable branch) survives as one of four lists that endpoint returns. → #235
 
 ### Act
 
