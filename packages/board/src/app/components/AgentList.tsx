@@ -5,6 +5,7 @@ import {
   type Card,
   type DispatchInfo,
   type Fleet,
+  type IssueRow,
   type PulseShrink,
   type Repair,
   type Stuck,
@@ -276,12 +277,26 @@ export function isCollapsible(rowCount: number): boolean {
   return rowCount > 0;
 }
 
-function age(row: AgentRow): string {
-  if (row.ageMinutes === null) return '—';
-  if (row.ageMinutes < 60) return `${row.ageMinutes}m`;
-  const h = Math.floor(row.ageMinutes / 60);
+/**
+ * Minutes as the board says them: `45m`, `3h`, `2d`.
+ *
+ * Split out of `age` so an ISSUE row and a BRANCH row cannot render the same
+ * duration two ways. `age` takes an `AgentRow`, which an issue is deliberately
+ * not — and the alternative to sharing this was a second copy of four lines
+ * that would drift the first time either changed.
+ *
+ * Exported for test.
+ */
+export function ageLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  const h = Math.floor(minutes / 60);
   if (h < 24) return `${h}h`;
   return `${Math.floor(h / 24)}d`;
+}
+
+function age(row: AgentRow): string {
+  if (row.ageMinutes === null) return '—';
+  return ageLabel(row.ageMinutes);
 }
 
 /**
@@ -3788,6 +3803,165 @@ function PrGlyph() {
 }
 
 /**
+ * A plan name proposed from an issue title — a SLUG, computed here rather than
+ * inferred by a model.
+ *
+ * The plan's open point weighed the two: a slug of the first words is cheap and
+ * often wrong, while a model reading the issue writes the name a human would.
+ * Cheap wins here for a reason that is specific to this row — **the name is not
+ * a link and nothing is behind it.** It exists so the row scans like its
+ * neighbours, and `/plot-idea` chooses the real name later with the whole
+ * problem statement in hand. Paying a model call per issue per refresh to
+ * propose a string nobody clicks would buy accuracy that nothing consumes.
+ *
+ * The full title stays available in the cell's `title` attribute, so the
+ * truncation costs a hover rather than the fact.
+ *
+ * Exported for test.
+ */
+export function inferredPlanName(title: string): string {
+  const slug = title
+    .toLowerCase()
+    // Strip a leading `area:` prefix — trackers are full of them and the area
+    // is the one part of a title that says nothing about the work.
+    .replace(/^[a-z0-9 ]{1,20}:\s*/, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (!slug) return '';
+  const words = slug.split('-').filter(Boolean);
+  // Six words is where this repo's own plan slugs sit, and long enough to carry
+  // a subject and a verb. Truncated with no ellipsis: the name is a proposal,
+  // and a trailing "…" would suggest a longer name exists somewhere.
+  return words.slice(0, 6).join('-');
+}
+
+function IssueGlyph() {
+  return (
+    <svg
+      role="img"
+      aria-label="Issue"
+      viewBox="0 0 16 16"
+      className="inline-block h-3 w-3 shrink-0 align-[-0.1em]"
+      fill="currentColor"
+    >
+      {/* A dot inside a ring — the shape an issue wears on GitHub and GitLab
+          alike, and deliberately NOT the pull request's two verticals. The
+          glyph is the whole visual difference between this row and a PR row, so
+          it has to be legible at 12px and unmistakable beside one. */}
+      <path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" />
+      <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0Zm0 1.25a6.75 6.75 0 1 0 0 13.5 6.75 6.75 0 0 0 0-13.5Z" />
+    </svg>
+  );
+}
+
+/**
+ * An open tracker issue nobody has planned, on the SAME seven tracks as every
+ * other row in the fleet.
+ *
+ * The subject changes and the geometry does not — the rule `PlanRow` already
+ * states. Here the cells are filled like this:
+ *
+ * ```
+ * mark    phase       plan             branch   pr/note   age    menu
+ * (blank) Discovery   inferred name    (BLANK)  🎫 #228   2h     (blank)
+ * ```
+ *
+ * **The name is TEXT, never a link.** It is inferred from the issue's title so
+ * the row reads like its neighbours, but nothing is behind it: a link to a plan
+ * that does not exist is the fabrication this board keeps removing. A name that
+ * links nowhere is honest about being a proposal.
+ *
+ * **The branch track is EMPTY**, and empty is the content. A derived branch name
+ * would put a plausible identifier where nothing exists, and the next reader
+ * could not tell it from a branch nobody has claimed — a row this board already
+ * renders, meaning something else entirely.
+ *
+ * **The number links to the tracker, or does not.** `url` is "" when the host
+ * reported no address, and the number then renders as plain text rather than as
+ * an invented link — `PrCell`'s own rule, applied to the same problem.
+ *
+ * READ-ONLY. No menu, because every action this board offers a row writes
+ * somewhere, and nothing here may write to the tracker.
+ */
+function IssueRowView({ issue }: { issue: IssueRow }) {
+  const number = (
+    <span className="tabular-nums">
+      <IssueGlyph />
+      {issue.number}
+    </span>
+  );
+  return (
+    <li
+      role="row"
+      data-issue-row={issue.number}
+      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-slate-100 px-3 py-2 text-sm dark:border-slate-800 sm:grid ${ROW_TRACKS} sm:items-baseline sm:gap-x-3`}
+    >
+      {/* The marks cell every row carries. Empty — nothing is writing to an
+          issue — but present, because a row missing it lands every following
+          cell a column left of its neighbours. */}
+      <span role="gridcell" className={ACTIVITY_MARK_PLACE.row} />
+      {/* `Discovery` — the phase column's word for *not yet decided*, and the
+          honest one here: the issue has not entered the plan lifecycle, and this
+          row exists to ask whether it should. Not a fifth phase; the first one,
+          worn by something that is not a plan yet. */}
+      <span
+        role="gridcell"
+        className="min-w-0 shrink-0 truncate text-xs text-slate-500 dark:text-slate-400"
+        title="Not a plan yet — this row asks whether it should become one"
+      >
+        <span data-phase="Discovery">Discovery</span>
+      </span>
+      {/* The inferred name, in the plan track. TEXT, not an anchor — see above.
+          `data-issue-name` is what the test asserts is not an `<a>`. */}
+      <span role="gridcell" className="flex min-w-0 items-baseline gap-1">
+        {/* The same width the plan track's expander occupies elsewhere, so
+            these names begin at the same x as their neighbours'. */}
+        <span aria-hidden className="shrink-0 text-[10px] leading-none">{' '}</span>
+        <span
+          data-issue-name
+          className="min-w-0 truncate text-xs font-medium text-slate-700 dark:text-slate-300"
+          title={issue.title}
+        >
+          {inferredPlanName(issue.title)}
+        </span>
+      </span>
+      {/* The branch track, EMPTY on purpose — see the comment above. */}
+      <span role="gridcell" className="flex w-full min-w-0 items-baseline sm:w-auto" />
+      <span
+        role="gridcell"
+        className="flex min-w-0 items-baseline gap-1 text-xs text-slate-500 dark:text-slate-400"
+      >
+        {issue.url ? (
+          <a
+            href={issue.url}
+            target="_blank"
+            rel="noreferrer"
+            data-issue-link
+            className="shrink-0 text-blue-600 hover:underline dark:text-blue-400"
+          >
+            {number}
+          </a>
+        ) : (
+          <span data-issue-number className="shrink-0">{number}</span>
+        )}
+      </span>
+      {/* How long it has been sitting there — the one clock an issue has. */}
+      <span
+        role="gridcell"
+        className="shrink-0 text-right text-xs tabular-nums text-slate-500 dark:text-slate-400"
+        title={issue.ageMinutes === null ? undefined : 'Open this long, and unplanned'}
+      >
+        {issue.ageMinutes === null ? '' : ageLabel(issue.ageMinutes)}
+      </span>
+      {/* Actions: empty in this wave. The row's one action — turn it into a
+          plan — is the next branch of this plan, and an empty menu is better
+          than one offering something that does not work yet. */}
+      <span role="gridcell" className="w-5 shrink-0" />
+    </li>
+  );
+}
+
+/**
  * The PR cell, rendered from the row's FIELDS.
  *
  * What it replaces: a string search for `PR #<n>` inside the note, applied so
@@ -4056,6 +4230,19 @@ export function AgentList({
 
       {GROUPS.map(({ key, icon, label, hint }) => {
         const rows = fleet.rows.filter((r) => r.group === key);
+        // WAITING ON YOU is the section for what needs a human DECISION, and an
+        // unplanned issue is exactly that — the decision being *is this worth a
+        // plan?* rather than *fix it*. No other section can hold it: the row has
+        // no branch to be working, quiet or done, and nothing about it is
+        // waiting on a machine.
+        //
+        // Rendered only where the tracker actually ANSWERED. `unsupported` (a
+        // host with no issue listing) and `failed` (a lookup that did not come
+        // back) both yield no rows here, and the second says so below rather
+        // than passing for an empty inbox.
+        const issues = key === 'waiting-on-you' && fleet.issueAnswer === 'answered'
+          ? fleet.issues
+          : [];
         // Every waiting-group is grouped the same way, `done` included: it is
         // the group that grows fastest over a working day, so it is the first to
         // become a list one scrolls past. A rule with an exception for the group
@@ -4088,7 +4275,10 @@ export function AgentList({
         // An empty group is never foldable — it hides nothing, and its header
         // carries the HINT rather than `(0)`, which is the one thing in there
         // worth reading when there is nothing to list.
-        const collapsible = isCollapsible(rows.length);
+        // Issue rows count toward the fold and the tally: they are rows a
+        // reader sees, and a section reading `(2)` above four lines is the
+        // mismatch NOT STARTED already had to fix once.
+        const collapsible = isCollapsible(rows.length + issues.length);
         const isFolded = collapsible && collapsed.has(key);
         // The count and the hint occupy the same slot, and the count SURVIVES
         // folding: `QUIET (7)` states plainly that seven rows are hidden, while
@@ -4131,10 +4321,10 @@ export function AgentList({
         // number safe to fold: the branches behind an expander are described by
         // their plan's own summary (`3 waves, first eligible`), so nothing is
         // hidden by the smaller figure — it moves up a level with the rows.
-        const shown = countsPlans ? grouped.length : rows.length;
+        const shown = (countsPlans ? grouped.length : rows.length) + issues.length;
         const tally = (
           <span className="font-normal normal-case tracking-normal text-slate-400 dark:text-slate-600">
-            {rows.length > 0 ? `(${shown})` : emptyHint}
+            {rows.length + issues.length > 0 ? `(${shown})` : emptyHint}
           </span>
         );
         // Whether anything in this section is moving — and at which pace. The
@@ -4364,11 +4554,39 @@ export function AgentList({
                 // only thing on screen; this cell is what a reader sees once
                 // they open the section and look for the rows. A single site
                 // would leave whichever of those two readings unlabelled.
+                // `none` is only printed where there is nothing AT ALL. A
+                // section holding issue rows and no branches is not empty, and
+                // the word would sit above the rows contradicting them.
+                issues.length === 0 && (
                 <li role="row" className="px-3 py-2 text-sm text-slate-400 dark:text-slate-600">
                   <span role="gridcell">
                     {key === 'waiting-on-machine' && answer !== 'answered'
                       ? HOST_ANSWER_HINT[answer]
                       : 'none'}
+                  </span>
+                </li>
+                )
+              )}
+              {/* The unplanned issues, AFTER the branches. Work already under
+                  way outranks work nobody has committed to — the same
+                  actionable-first ordering `GROUPS` applies one level up. */}
+              {issues.map((issue) => (
+                <IssueRowView key={`issue-${issue.number}`} issue={issue} />
+              ))}
+              {/* AN OUTAGE IS NOT AN ANSWER. A failed issue lookup says so, in
+                  the section the rows would have appeared in. Silence here is
+                  precisely the defect: it is indistinguishable from an inbox
+                  with nothing in it, and a reader would conclude they had
+                  nothing to decide. */}
+              {key === 'waiting-on-you' && fleet.issueAnswer === 'failed' && (
+                <li
+                  role="row"
+                  data-issue-error
+                  className="border-t border-slate-100 px-3 py-2 text-sm text-amber-700 dark:border-slate-800 dark:text-amber-500"
+                >
+                  <span role="gridcell">
+                    Open issues could not be read, so this list may be incomplete
+                    {fleet.issueError ? ` — ${fleet.issueError}` : ''}
                   </span>
                 </li>
               )}

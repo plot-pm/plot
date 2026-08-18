@@ -1470,6 +1470,55 @@ export const PulseShrinkSchema = z.object({
 });
 export type PulseShrink = z.infer<typeof PulseShrinkSchema>;
 
+/**
+ * An open tracker issue that no plan references — a signal nobody has decided
+ * about yet.
+ *
+ * NOT AN `AgentRow`, and the distance is the point. Every field on that type
+ * describes a BRANCH (its state, its tip age, its PR, the plan governing it),
+ * and an issue has none of them: it has not entered the plan lifecycle, which
+ * is exactly what the manifesto means by keeping issues as the inbox. Giving it
+ * an `AgentRow` with six empty fields would make it a plan in an earlier state,
+ * and the four phases would then have a fifth in everything but name.
+ *
+ * So it is its own small shape, carrying only what a human needs to answer the
+ * one question the row exists for — *is this worth a plan?* — and nothing that
+ * mirrors tracker state. No labels, no assignee, no status: those age into lies
+ * the moment the tracker moves, and Plot never writes them back.
+ */
+export const IssueRowSchema = z.object({
+  number: z.number(),
+  title: z.string(),
+  /**
+   * The tracker address, or "" when the host reported none. The consumer then
+   * renders the number as PLAIN TEXT rather than inventing a link — the rule
+   * `AgentRow.pr.url` already follows, and for the same reason: a fabricated
+   * URL is indistinguishable from a real one until it 404s.
+   */
+  url: z.string().default(''),
+  /** Minutes since the issue was opened, or null when the host gave no date. */
+  ageMinutes: z.number().nullable().default(null),
+});
+export type IssueRow = z.infer<typeof IssueRowSchema>;
+
+/**
+ * Whether the tracker could be asked at all — THREE answers, kept apart.
+ *
+ * - `answered` — the host replied; `issues` is what it said, and an empty array
+ *   honestly means there are none unplanned.
+ * - `unsupported` — this host has no issue listing (Bitbucket; `bb` exposes
+ *   none). Nothing is missing and nothing is broken, so the board renders no
+ *   section rather than an empty one implying an empty tracker.
+ * - `failed` — the question was asked and did not come back.
+ *
+ * COLLAPSING ANY TWO REBUILDS `an-outage-is-not-an-answer`. An empty list is a
+ * claim about the tracker; a failed lookup is the absence of one, and a board
+ * that renders the second as the first tells a reader their inbox is clear
+ * using data it never received.
+ */
+export const IssueAnswerSchema = z.enum(['answered', 'unsupported', 'failed']);
+export type IssueAnswer = z.infer<typeof IssueAnswerSchema>;
+
 export const FleetSchema = z.object({
   generatedAt: z.string(),
   /** Seconds since the cached scan completed — the tab shows this. */
@@ -1600,6 +1649,24 @@ export const FleetSchema = z.object({
    */
   scanNextInSeconds: z.number().nullable().default(null),
   prError: z.string().nullable(),
+  /**
+   * Open tracker issues no plan references, for WAITING ON YOU.
+   *
+   * Beside `rows` rather than inside it — see `IssueRowSchema`. Defaults to []
+   * so a client talking to an older server validates; `issueAnswer` is what
+   * says whether that emptiness means anything, and a consumer must read the
+   * two TOGETHER. [] alone is not "no issues".
+   */
+  issues: z.array(IssueRowSchema).default([]),
+  /**
+   * Whether the tracker could be asked. Defaults to `unsupported`, which is the
+   * only safe default: an older server sends no issues and no answer, and
+   * reading that silence as `answered` would render "your inbox is clear" from
+   * a server that was never asked the question.
+   */
+  issueAnswer: IssueAnswerSchema.default('unsupported'),
+  /** The failure, when `issueAnswer` is `failed` — shown, never swallowed. */
+  issueError: z.string().nullable().default(null),
 });
 export type Fleet = z.infer<typeof FleetSchema>;
 

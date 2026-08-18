@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import {
   BLOCKED_NOTE,
@@ -13,6 +14,8 @@ import {
   type BranchState,
   type Fleet,
   type FleetPulse,
+  type IssueAnswer,
+  type IssueRow,
   type Phase,
   type PulseShrink,
   type StuckRun,
@@ -80,6 +83,18 @@ const PR_BACKOFF_MAX_MS = 120_000;
  * better here than a page-walking loop on a 5 s timer.
  */
 const PR_LIMIT = 300;
+
+/**
+ * How many open issues to ask for.
+ *
+ * Small where `PR_LIMIT` is large, because the two answer different questions.
+ * `prs` is asked for HISTORY — a delivered plan's card still links its merged
+ * PR — so it must reach back. Issues are asked for an INBOX, and an inbox is
+ * only ever the top of the list: past this many unplanned issues the board is
+ * not the thing that needs fixing. Capping it also bounds the response on a
+ * repo whose tracker is used as a discussion forum.
+ */
+const ISSUE_LIMIT = 50;
 
 /** One PR as the host adapter reports it, collapsed to what the tab needs. */
 export interface PrRecord {
@@ -205,6 +220,16 @@ interface CacheEntry {
    * a fetch can fail behind a VPN while `gh` works; sharing one staleness would
    * freeze data that was available the whole time.
    */
+  /**
+   * Open issues no plan references, and whether the tracker could be asked.
+   *
+   * Three fields for the same reason the contract has three: `issues` alone
+   * cannot distinguish an empty inbox from a host that was never asked. Kept
+   * across a failure like `prs`, so a fetch error does not retract rows.
+   */
+  issues: IssueRow[];
+  issueAnswer: IssueAnswer;
+  issueError: string | null;
   prs: Map<string, PrRecord> | null;
   /**
    * The same records keyed by PR NUMBER. The fleet tab asks "what is this
@@ -673,6 +698,136 @@ async function refreshRuns(
   entry.runs = runs;
 }
 
+/**
+ * Every issue number any plan in the repo references, from the `Issue:` field.
+ *
+ * READS EVERY PLAN FILE, deliberately, and not `pulse.plans`. The pulse carries
+ * active plans plus a rolling 24 hours of delivered ones — the right window for
+ * BRANCHES, whose work stops being actionable once it lands, and the wrong one
+ * for REFERENCES. A plan delivered last week is still the decision that was
+ * made about its issue, and reading the pulse would drop it from this set and
+ * put the issue back on the board a day later, under a heading that says nobody
+ * has decided about it. The reference is what makes the row disappear, so it has
+ * to outlive the branch.
+ *
+ * Affordable because it is ONE parser invocation over the whole directory:
+ * measured at 132 ms for 59 plans here, on the 60 s PR timer. (The scan's
+ * ~57 ms-per-plan figure prices one invocation per file, which is why it filters
+ * before parsing; batched, the per-file cost is a fraction of that.)
+ *
+ * A failure returns null rather than an empty set: empty would mean "no plan
+ * references anything", which would surface every issue in the tracker as
+ * unplanned. Null lets the caller decline to answer instead.
+ */
+async function referencedIssues(opts: BuildBoardOptions): Promise<Set<number> | null> {
+  const planDir = await planDirectory(opts);
+  const dir = path.join(opts.repoRoot, planDir);
+  let files: string[];
+  try {
+    files = fs.readdirSync(dir)
+      .filter((f) => f.endsWith('.md'))
+      .map((f) => path.join(dir, f))
+      .filter((f) => {
+        try { return fs.statSync(f).isFile(); } catch { return false; }
+      });
+  } catch {
+    return null; // no plan directory to read — not a claim that nothing is planned
+  }
+  if (files.length === 0) return new Set();
+  const referenced = new Set<number>();
+  try {
+    const out = await run('bash',
+      [path.join(opts.scriptsDir, 'plot-plan-meta.sh'), ...files], opts.repoRoot);
+    for (const line of out.split('\n')) {
+      if (!line.trim()) continue;
+      const meta = JSON.parse(line) as { issues?: number[] };
+      // Absent on an older parser, which is a repo whose plans cannot reference
+      // issues at all — [] is then the true answer rather than a fallback.
+      for (const n of meta.issues ?? []) referenced.add(n);
+    }
+  } catch {
+    return null;
+  }
+  return referenced;
+}
+
+/**
+ * Open tracker issues no plan references — the board's inbox.
+ *
+ * Runs on the PR timer beside `refreshPrs`, because it asks the same host at the
+ * same cadence and its cost belongs to the same budget.
+ *
+ * THE THREE OUTCOMES STAY APART, and this function is where the adapter's exit
+ * codes become them: 4 is `unsupported` (bb has no issue listing), any other
+ * failure is `failed`, and only a clean exit yields `answered`. A failed lookup
+ * KEEPS the last good list, the same rule `refreshPrs` follows — a row vanishing
+ * on a fetch error looks like someone planned the issue.
+ */
+async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
+  let raw: string;
+  try {
+    raw = await run('bash',
+      [path.join(opts.scriptsDir, 'plot-host.sh'), 'issue-list', '--limit', String(ISSUE_LIMIT)],
+      opts.repoRoot);
+  } catch (err) {
+    // Exit 4 is the adapter saying THIS HOST CANNOT BE ASKED — a standing fact
+    // about Bitbucket, not an outage. It clears any stale error and empties the
+    // list, because there is nothing to keep and nothing failed.
+    const code = (err as { code?: number | string }).code;
+    if (code === 4) {
+      entry.issues = [];
+      entry.issueAnswer = 'unsupported';
+      entry.issueError = null;
+      return;
+    }
+    entry.issueAnswer = 'failed';
+    entry.issueError = err instanceof Error ? err.message : String(err);
+    return; // `entry.issues` keeps its last good value on purpose
+  }
+  const open: { number: number; title: string; url: string; createdAt: string }[] = [];
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const issue = JSON.parse(line) as
+        { number: number; title?: string; url?: string; createdAt?: string };
+      open.push({
+        number: issue.number,
+        title: issue.title ?? '',
+        url: typeof issue.url === 'string' ? issue.url : '',
+        createdAt: typeof issue.createdAt === 'string' ? issue.createdAt : '',
+      });
+    } catch {
+      // One malformed line is not a reason to discard the rest, and not a
+      // reason to call the whole lookup failed either.
+    }
+  }
+  const referenced = await referencedIssues(opts);
+  if (referenced === null) {
+    // The plans could not be read, so "which of these is unplanned" has no
+    // answer. Reporting the unfiltered list would surface issues that ARE
+    // planned; reporting none would claim the inbox is clear. Neither is known.
+    entry.issueAnswer = 'failed';
+    entry.issueError = 'plans could not be read, so no issue can be called unplanned';
+    return;
+  }
+  const now = Date.now();
+  entry.issues = open
+    .filter((i) => !referenced.has(i.number))
+    .map((i) => {
+      const at = i.createdAt ? Date.parse(i.createdAt) : NaN;
+      return {
+        number: i.number,
+        title: i.title,
+        url: i.url,
+        // Null rather than 0 where the host gave no date: 0 would claim the
+        // issue was opened this instant.
+        ageMinutes: Number.isNaN(at) ? null : Math.max(0, Math.round((now - at) / 60_000)),
+      };
+    });
+  entry.issueAnswer = 'answered';
+  entry.issueError = null;
+}
+
 async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
   // Captured BEFORE the call, and this is the whole fix. `prNextAt` is the
   // cadence's anchor, and anchoring it to the finish made every period cost the
@@ -760,6 +915,15 @@ async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Prom
   entry.prRunning = true;
   try {
     await refreshPrs(opts, entry);
+    // On the SAME gate as the PR fetch, so the issue lookup cannot become a
+    // second cadence quietly spending the host budget the gate exists to ration
+    // — including its rate-limit backoff. Sequential rather than concurrent for
+    // the same reason: two calls at one instant is what a rate limit counts.
+    //
+    // After, and outside `refreshPrs`, because the two fail independently: a
+    // tracker outage must not blank the PR map, and a PR failure must not
+    // retract the inbox.
+    await refreshIssues(opts, entry);
   } finally {
     entry.prRunning = false;
   }
@@ -895,6 +1059,9 @@ function ensureCache(opts: BuildBoardOptions): CacheEntry {
     pulse: null, ages: new Map(), at: null, error: null, shrink: null, branchUrlBase: '',
     approvedAt: new Map(),
     ideaPlans: new Map(),
+    // `unsupported` before the first lookup, never `answered`: a board that
+    // has not asked must not render an empty inbox as a clear one.
+    issues: [], issueAnswer: 'unsupported', issueError: null,
     prs: null, prsByNumber: null, runs: new Map(), prAt: null, prError: null,
     // 0, so the first fetch happens immediately rather than a minute in.
     prNextAt: 0, prNextIsBackoff: false,
@@ -2424,5 +2591,11 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
     scanNextInSeconds:
       entry.at === null ? null : Math.max(0, Math.round((entry.at + REFRESH_MS - now) / 1000)),
     prError: entry.prError,
+    // The inbox travels with its ANSWER, never alone: a consumer reading
+    // `issues: []` without `issueAnswer` cannot tell an empty tracker from one
+    // that was never reachable, and would render the second as the first.
+    issues: entry.issues,
+    issueAnswer: entry.issueAnswer,
+    issueError: entry.issueError,
   };
 }
