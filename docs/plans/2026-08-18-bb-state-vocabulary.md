@@ -5,12 +5,17 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:**
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** same branch
+- **Approved:** 2026-08-18, Jan Wloka, in-session
+
+## Approval
+
+- **Assignee:** jwloka
 
 ## Changelog
 
