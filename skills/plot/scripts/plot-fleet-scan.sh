@@ -35,6 +35,17 @@
 #         The plan set also includes plans delivered inside a rolling 24 h
 #         window (see "the last day of finished work"), so work does not
 #         disappear at the moment it becomes finished.
+#         Plans are enumerated from `origin/<main>` (`git ls-tree`/`git show`),
+#         NOT from the working tree — so the list describes one atomic commit
+#         and does not change while rebases and worker commits rewrite the
+#         checkout underneath a running fleet. A consequence worth stating: an
+#         UNCOMMITTED plan is invisible, deliberately — the fleet view shows
+#         what is shared, and a plan only this machine has cannot be claimed by
+#         any worker. --json carries `plan_source` (ref | worktree), which
+#         reads `worktree` only when `origin/<main>` cannot be resolved at all.
+#         --json also carries `fetch_failed` and `fetch_error`: a failed fetch
+#         means these refs are older than the report implies, and that fact is
+#         now reported rather than discarded.
 #         --json additionally carries, per branch, what THIS MACHINE knows and
 #         the refs do not: `local_dirty` (a local worktree has uncommitted
 #         changes), `local_locked` (a local worktree holds `.git/index.lock` —
@@ -131,7 +142,35 @@ if [ -z "$MAIN" ]; then
 fi
 [ -n "$MAIN" ] || MAIN="main"
 
-[ "$do_fetch" = 1 ] && git fetch -q origin "$MAIN" 2>/dev/null
+# A FAILED FETCH IS A FACT, not a shrug. The old line was
+# `git fetch ... 2>/dev/null` with its status discarded: a GitHub 503, a
+# concurrent worker holding the ref lock, an offline laptop — every one of
+# them produced a scan indistinguishable from a healthy one, reporting refs
+# that were older than the banner claimed. That is the same failure this whole
+# plan is about, one layer up: the report was more confident than its evidence.
+#
+# The scan STILL RUNS on a failed fetch, and that is deliberate. `origin/$MAIN`
+# from an hour ago is a real answer about a real commit; refusing to report it
+# would trade a slightly stale board for no board at all, exactly when the
+# operator is most likely to be watching something go wrong. What changes is
+# that the staleness is CARRIED — `fetch_failed` in `--json`, a line in the
+# prose report — so a consumer can mark the view instead of trusting it blindly.
+#
+# --offline/--no-fetch is NOT a failure. The operator asked for local refs and
+# got them; there is nothing to report but the fact that no fetch was tried.
+FETCH_FAILED=0
+FETCH_ERROR=""
+if [ "$do_fetch" = 1 ]; then
+  if ! FETCH_ERROR=$(git fetch -q origin "$MAIN" 2>&1); then
+    FETCH_FAILED=1
+    # Collapsed to one line: git's multi-line advice is for a human at a
+    # terminal, and this string travels through JSON into a board cell.
+    FETCH_ERROR=$(printf '%s' "$FETCH_ERROR" | tr '\n' ' ' | sed 's/  */ /g; s/^ *//; s/ *$//')
+    [ -n "$FETCH_ERROR" ] || FETCH_ERROR="git fetch failed with no message"
+  else
+    FETCH_ERROR=""
+  fi
+fi
 
 # --loose promises "the prior wave's PRs are green and ready", which needs the
 # git host. An earlier version accepted ANY pushed commit — strictly weaker
@@ -910,17 +949,210 @@ sys.exit(0 if (time.time() - at) <= window else 1)
 ' "$DELIVERED_WINDOW_HOURS" 2>/dev/null
 }
 
+# ---------------------------------------------------------------------------
+# Plan enumeration: from the REF, not from the tree
+# ---------------------------------------------------------------------------
+#
+# THE SCAN NAMED A REF AND READ A DIRECTORY. Every fact below is derived from
+# `origin/$MAIN` and the banner says so, but the plan list was a filesystem
+# glob over `$ACTIVE_DIR` — and `git fetch` updates refs that a glob cannot
+# see. Measured in a two-clone sandbox, 2026-08-18:
+#
+#     origin/main active plans (the REF): 3
+#     working tree active plans:          2
+#     scan --json reports:                2 plans
+#
+# The fetch SUCCEEDED. `origin/main` genuinely carried the third plan, pushed
+# by a second agent minutes earlier. The scan reported two and exited 0, so
+# nothing anywhere could tell that answer from a correct one. The board's plan
+# list was only ever as current as the operator's last `git pull`.
+#
+# It is worse during the fleet run the board exists to watch: rebases,
+# checkouts and worker commits rewrite the working tree continuously, so the
+# glob can return a different set on each 5 s poll while exiting 0 every time.
+# That is the flicker `bug/a-smaller-pulse-is-not-silently-better` guards
+# against; this is the cause it guards against the symptom of.
+#
+# Reading the ref makes the scan describe ONE ATOMIC COMMIT. Two polls of the
+# same ref return the same plans no matter what is happening on disk, which is
+# what makes the count stable and the banner true.
+#
+# WORKTREE OBSERVATION STAYS LOCAL, and the split is the whole design:
+# `local_dirty`, `local_worktree` and the `.git/index.lock` check describe
+# THIS MACHINE on purpose — they are the one place the scan knows more than
+# the refs do, and moving them to the ref would delete the signal rather than
+# fix it. Plan enumeration comes from the ref; worktree observation is local.
+#
+# UNCOMMITTED PLANS BECOME INVISIBLE, and that is the intended behaviour rather
+# than an accepted cost. The plan's Open Points flagged it: `/plot-idea` writes
+# a plan file before committing it. Three reasons it is right:
+#   * The fleet view answers "what may a worker CLAIM". Workers are detached
+#     agents in other worktrees and on other machines, and not one of them can
+#     claim a plan that exists only in the operator's editor buffer. Showing it
+#     advertises work nobody can take.
+#   * The window is seconds wide. `/plot-idea` commits and pushes in the same
+#     flow (see skills/plot-idea/SKILL.md), so an uncommitted plan is a state
+#     inside one skill run, not a state anyone opens a board to watch.
+#   * A board that mixes shared state with one machine's scratch is the bug
+#     this file keeps fixing. `local_dirty` exists precisely so local facts
+#     travel LABELLED as local; an unlabelled local plan row is the thing that
+#     makes an operator trust a view that only they can see.
+#
+# The rule is: committed is shared, and the fleet view shows what is shared.
+#
+# WHEN THE REF CANNOT BE READ the scan falls back to the working tree and says
+# so. A fresh clone with no remote, a repo whose origin is unreachable and
+# whose refs were never fetched — for these `origin/$MAIN` names nothing, and
+# an empty plan list would be a confident lie in the one case where the
+# operator has no way to check it. Falling back is honest; falling back
+# SILENTLY would recreate this bug, so `plan_source` travels in --json.
+PLAN_SOURCE="ref"
+git rev-parse --verify --quiet "origin/$MAIN^{commit}" >/dev/null 2>&1 || PLAN_SOURCE="worktree"
+
+# Paths in the ref, listed for one directory. Returns the blob paths as they
+# are spelled in the tree, so `$ACTIVE_DIR` prefixes survive into the loop that
+# pattern-matches on `$DELIVERED_DIR` below.
+#
+# `-z` and a NUL-delimited read: a path is user data, and a plan filename
+# containing a newline would otherwise split into two nonexistent plans.
+ref_ls() { # $1=dir → newline-separated paths under it in origin/$MAIN
+  git ls-tree -z --name-only "origin/$MAIN" -- "$1" </dev/null 2>/dev/null \
+    | tr '\0' '\n' | grep '\.md$' || true
+}
+
+# The content of a ref path, materialized where plot-plan-meta.sh can parse it.
+#
+# THE PARSER TAKES FILES, not stdin: it is an awk pass keyed on FILENAME and it
+# checks `[ -f "$1" ]`. Rather than reshape the format contract from here — the
+# one script allowed to know what a plan looks like — the blob is written to a
+# temp file. The parser is unchanged, so the contract tests still describe it.
+#
+# SYMLINKS ARE RESOLVED IN REF-SPACE, and this is the subtlety the whole block
+# turns on. `$ACTIVE_DIR` holds symlinks into `$PLAN_DIR`, and in a git tree a
+# symlink is a mode-120000 blob whose CONTENT IS THE TARGET PATH. `readlink`
+# would answer from the working tree — the exact thing being moved away from —
+# so the link is followed with a second `git show` against the same ref. One
+# hop only: plot's indexes are links to files, never chains, and a bounded walk
+# beats a loop detector for a shape that cannot nest.
+# CREATED ONCE, EAGERLY, and that is a correction rather than a style choice:
+# `ref_plan_file` is called as `$(ref_plan_file ...)`, which runs it in a
+# SUBSHELL. A lazy `[ -z "$REF_TMP" ] && REF_TMP=$(mktemp -d)` inside it
+# assigns in the child and the parent never sees it — so every call made a
+# fresh directory, the parent's variable stayed empty, and the EXIT trap
+# cleaned nothing. Measured while writing this: three plans, three temp dirs,
+# none removed. The lifetime is owned out here, where the trap can see it.
+REF_TMP=""
+if [ "$PLAN_SOURCE" = "ref" ]; then
+  REF_TMP=$(mktemp -d "${TMPDIR:-/tmp}/plot-fleet-ref.XXXXXX") || REF_TMP=""
+  # The scan is read-only and short-lived, and the board polls it every 5 s —
+  # a directory that outlives the run would accumulate one per poll.
+  [ -n "$REF_TMP" ] && trap 'rm -rf "$REF_TMP"' EXIT INT TERM
+  # No temp dir means no way to hand the parser a file, so the ref path cannot
+  # work. Falling back to the checkout is the honest answer, and it announces
+  # itself through `plan_source` exactly like an unreadable ref.
+  [ -n "$REF_TMP" ] || PLAN_SOURCE="worktree"
+fi
+
+ref_plan_file() { # $1=path in ref → temp file path, or "" when unreadable
+  local p="$1" mode target content out
+  mode=$(git ls-tree "origin/$MAIN" -- "$p" </dev/null 2>/dev/null | awk '{print $1; exit}')
+  if [ "$mode" = "120000" ]; then
+    target=$(git show "origin/$MAIN:$p" </dev/null 2>/dev/null) || return 1
+    [ -n "$target" ] || return 1
+    case "$target" in
+      /*)
+        # AN ABSOLUTE TARGET IS NOT A PATH IN THE TREE. `ln -s "$(pwd)/…"`
+        # stores `/home/runner/work/…` in the blob, and a repository has no
+        # such directory — prefixing it with the link's dirname produces a path
+        # that resolves to nothing, which is how this first showed up: three
+        # board suites went from 104 passing to 93, every failure a plan that
+        # had silently vanished from the pulse.
+        #
+        # Only the BASENAME can be trusted, and only inside `$PLAN_DIR`. That
+        # is not a guess about where the plan is: an absolute link is
+        # machine-specific by construction, so its directory half describes a
+        # filesystem this scan may not be running on, while plot keeps every
+        # plan in one directory by config. Resolving there is the only reading
+        # that can be right on another machine.
+        p="$PLAN_DIR$(basename "$target")" ;;
+      *)
+        # Resolved against the LINK's directory, the same way the filesystem
+        # would resolve a relative link.
+        p=$(printf '%s' "$(dirname "$p")/$target" | sed 's#/\./#/#g')
+        # Collapse `a/b/../c` → `a/c` so the result is a path the tree can name.
+        while printf '%s' "$p" | grep -q '[^/][^/]*/\.\./'; do
+          p=$(printf '%s' "$p" | sed 's#[^/][^/]*/\.\./##')
+        done ;;
+    esac
+  fi
+  content=$(git show "origin/$MAIN:$p" </dev/null 2>/dev/null) || return 1
+  [ -n "$content" ] || return 1
+  [ -n "$REF_TMP" ] || return 1
+  # Named after the RESOLVED path so the basename the report prints is the
+  # plan's own filename, matching what the worktree enumeration produced.
+  out="$REF_TMP/$(basename "$p")"
+  printf '%s\n' "$content" > "$out" 2>/dev/null || return 1
+  printf '%s' "$out"
+}
+
 # Resolve which plans to report on.
+#
+# TWO PARALLEL ARRAYS, because a plan now has two paths that must not be
+# confused. `plans` keeps the path AS THE REF SPELLS IT — that is the plan's
+# identity, and it is what the `$DELIVERED_DIR`/`$ACTIVE_DIR` pattern matches
+# and what the reader sees. `plan_reads` holds the file to PARSE, which in ref
+# mode is a temp file holding the blob. In worktree mode the two are equal, so
+# every consumer below reads the same way in both modes.
 plans=()
+plan_reads=()
+
+# Add one plan by its ref path, materializing the blob. A path that cannot be
+# read is SKIPPED rather than guessed at — a dangling index entry is a
+# bookkeeping fault plot-reconcile-scan.sh reports, and inventing a row for it
+# here would hide the fault behind a plausible-looking plan.
+add_ref_plan() { # $1=path in ref
+  local f
+  f=$(ref_plan_file "$1") || return 0
+  [ -n "$f" ] || return 0
+  plans+=("$1")
+  plan_reads+=("$f")
+}
+
 if [ -n "$slug" ]; then
-  for cand in "$PLAN_DIR"*"$slug".md "$ACTIVE_DIR$slug.md" "$DELIVERED_DIR$slug.md"; do
-    [ -e "$cand" ] && { plans+=("$(cd "$(dirname "$cand")" && pwd)/$(basename "$cand")"); break; }
-  done
+  if [ "$PLAN_SOURCE" = "ref" ]; then
+    # Same precedence as the worktree form: the dated plan file first, then the
+    # active index, then delivered. `ref_ls` is filtered rather than globbed
+    # because the ref has no shell to expand `*`.
+    found=0
+    for cand in $(ref_ls "$PLAN_DIR" | grep "$slug\.md$") \
+                $(ref_ls "$ACTIVE_DIR" | grep "/$slug\.md$") \
+                $(ref_ls "$DELIVERED_DIR" | grep "/$slug\.md$"); do
+      add_ref_plan "$cand"
+      [ ${#plans[@]} -gt 0 ] && { found=1; break; }
+    done
+    [ "$found" = 1 ] || true
+  else
+    for cand in "$PLAN_DIR"*"$slug".md "$ACTIVE_DIR$slug.md" "$DELIVERED_DIR$slug.md"; do
+      [ -e "$cand" ] && {
+        plans+=("$(cd "$(dirname "$cand")" && pwd)/$(basename "$cand")")
+        plan_reads+=("${plans[${#plans[@]}-1]}")
+        break
+      }
+    done
+  fi
 else
-  for link in "$ACTIVE_DIR"*.md; do
-    [ -e "$link" ] || continue
-    plans+=("$link")
-  done
+  if [ "$PLAN_SOURCE" = "ref" ]; then
+    while IFS= read -r link; do
+      [ -n "$link" ] || continue
+      add_ref_plan "$link"
+    done <<< "$(ref_ls "$ACTIVE_DIR")"
+  else
+    for link in "$ACTIVE_DIR"*.md; do
+      [ -e "$link" ] || continue
+      plans+=("$link")
+      plan_reads+=("$link")
+    done
+  fi
   # Delivered candidates are appended, so the active plans keep their position
   # and order — a reader's list does not reshuffle when something is delivered.
   # They are still CANDIDATES here: the record check runs inside the plan loop,
@@ -931,10 +1163,25 @@ else
   # nothing to it: even an `open` branch under one is work somebody decided was
   # not needed. Naming one would send a dispatcher at finished work.
   if [ "$next_only" != 1 ]; then
-    while IFS= read -r link; do
-      [ -n "$link" ] || continue
-      plans+=("$link")
-    done <<< "$(delivered_candidates)"
+    if [ "$PLAN_SOURCE" = "ref" ]; then
+      # NO MTIME PRE-FILTER IN REF MODE, because a blob has no timestamp — and
+      # none is needed. The pre-filter's documented contract is that it may
+      # only OVER-admit, with `delivered_in_window` (the `Delivered:` record)
+      # having the last word. Admitting every delivered link and letting the
+      # record decide is that contract at its limit: strictly more correct,
+      # costing one parse per delivered plan. `delivered_candidates` stays for
+      # worktree mode, where mtime is real and cheap.
+      while IFS= read -r link; do
+        [ -n "$link" ] || continue
+        add_ref_plan "$link"
+      done <<< "$(ref_ls "$DELIVERED_DIR")"
+    else
+      while IFS= read -r link; do
+        [ -n "$link" ] || continue
+        plans+=("$link")
+        plan_reads+=("$link")
+      done <<< "$(delivered_candidates)"
+    fi
   fi
 fi
 
@@ -1118,12 +1365,18 @@ n_plans=0 n_waves=0 n_branches=0 n_claimed=0 n_eligible=0 n_blocked=0 n_deferred
 claimable=()
 plan_files=()
 
+plan_idx=-1
 for plan in "${plans[@]}"; do
+  # `plan` is the plan's IDENTITY (the path as the ref or the tree spells it);
+  # `plan_read` is the file to PARSE. They differ only in ref mode, where the
+  # second is a materialized blob — see "Plan enumeration" above.
+  plan_idx=$((plan_idx + 1))
+  plan_read="${plan_reads[$plan_idx]}"
   # Per-plan reset. State that survives into the next iteration is how the
   # plan parser once leaked a `## Branches` flag across files — same shape of
   # bug, so the accumulator is cleared where the plan loop begins.
   json_waves=""
-  meta=$("$script_dir/plot-plan-meta.sh" "$plan" --prefixes "$PREFIX_RE" 2>/dev/null) || continue
+  meta=$("$script_dir/plot-plan-meta.sh" "$plan_read" --prefixes "$PREFIX_RE" 2>/dev/null) || continue
   [ -n "$meta" ] || continue
 
   # The plan's own phase, carried onto the pulse so a consumer can derive a row
@@ -1153,12 +1406,34 @@ print(json.load(sys.stdin).get("phase", ""))
 
   n_plans=$((n_plans + 1))
   plan_target=$(readlink "$plan" 2>/dev/null && echo "" || true)
-  plan_files+=("$plan")
+
+  # The plan's DISPLAY NAME: the dated filename the link resolves to, never the
+  # index alias. In ref mode the resolution already happened in ref-space and
+  # the temp file was named after its result, so its basename IS the answer —
+  # `readlink` would ask the working tree, which is what this change stops
+  # doing. In worktree mode the readlink is unchanged.
+  if [ "$PLAN_SOURCE" = "ref" ]; then
+    plan_base=$(basename "$plan_read")
+  else
+    plan_base=$(basename "$(readlink "$plan" 2>/dev/null || echo "$plan")")
+  fi
+
+  # --log-pulse WRITES, so it needs a path in the working tree — a pulse line
+  # appended to a materialized blob would be discarded with the temp dir, and a
+  # ref is not writable in the first place. Enumeration moved to the ref; the
+  # one write this script performs stays where a write can persist and be
+  # committed. A plan present in the ref but not on this machine is simply not
+  # logged: the alternative is writing a file the operator never checked out.
+  if [ "$PLAN_SOURCE" = "ref" ]; then
+    [ -e "$PLAN_DIR$plan_base" ] && plan_files+=("$PLAN_DIR$plan_base")
+  else
+    plan_files+=("$plan")
+  fi
 
   # One awk pass over the parsed JSON would need a JSON parser; instead the
   # wave walk below is driven by plot-plan-meta.sh's own output via a tiny
   # python shim (present wherever the board's toolchain is).
-  [ "$quiet" = 1 ] || echo "== $(basename "$(readlink "$plan" 2>/dev/null || echo "$plan")") =="
+  [ "$quiet" = 1 ] || echo "== $plan_base =="
 
   wave_lines=$(printf '%s' "$meta" | python3 -c '
 import json, sys
@@ -1309,7 +1584,9 @@ for i, w in enumerate(d.get("waves", [])):
     [ "$verdict" = "blocked" ] && n_blocked=$((n_blocked + 1))
   done
   if [ "$as_json" = 1 ]; then
-    plan_base=$(basename "$(readlink "$plan" 2>/dev/null || echo "$plan")")
+    # `plan_base` was resolved once where the plan was admitted — in ref mode
+    # from the ref, in worktree mode by readlink. Recomputing it here would
+    # reintroduce a working-tree read on the JSON path only.
     json_plans+="${json_plans:+,}{\"file\":\"$(json_str "$plan_base")\""
     # The plan's own phase, reported verbatim. The board composes it with each
     # branch's git state into a row phase; nothing here decides which column
@@ -1367,9 +1644,20 @@ if [ "$as_json" = 1 ]; then
   #
   # `head` repeats `local_head` as an alias for one release. The board reads it
   # today; it goes away once the board reads the pair.
-  printf '{"main":"%s","read_ref":"%s","local_head":"%s","head":"%s","plans":[%s],' \
+  printf '{"main":"%s","read_ref":"%s","local_head":"%s","head":"%s",' \
     "$(json_str "$MAIN")" "$(json_str "$READ_REF")" "$(json_str "$LOCAL_HEAD")" \
-    "$(json_str "$HEAD_SHORT")" "$json_plans"
+    "$(json_str "$HEAD_SHORT")"
+  # Three more facts about the EVIDENCE, not about the fleet — a consumer that
+  # renders the numbers below should be able to say how much to trust them.
+  # They answer the question `read_ref` raises: that field names the ref, and
+  # these say whether reading it succeeded and whether the plans came from it.
+  #
+  # `fetch_failed` used to be discarded by `2>/dev/null`, so refs an hour old
+  # were reported with the confidence of refs a second old. `plan_source` says
+  # whether the plan list came from the ref or fell back to this checkout.
+  printf '"fetch_failed":%s,"fetch_error":"%s","plan_source":"%s","plans":[%s],' \
+    "$([ "$FETCH_FAILED" = 1 ] && echo true || echo false)" \
+    "$(json_str "$FETCH_ERROR")" "$(json_str "$PLAN_SOURCE")" "$json_plans"
   printf '"summary":{"plans":%d,"waves":%d,"branches":%d,"claimed":%d,' \
     "$n_plans" "$n_waves" "$n_branches" "$n_claimed"
   printf '"eligible":%d,"blocked":%d,"deferred":%d,"merge_detect":"%s"}}\n' \
@@ -1384,6 +1672,20 @@ fi
 if [ "$MERGE_SCAN_TRUNCATED" = 1 ]; then
   echo "  note: merge scan hit its limit of $MERGE_SCAN_LIMIT — older merges were not"
   echo "        examined; a branch merged before that point may still read as open."
+fi
+# A STALE PULSE SAYS SO. The fetch used to fail silently, which made a scan of
+# hour-old refs read exactly like a scan of current ones — the same
+# over-confidence, one layer up, that this plan fixes in the plan list.
+if [ "$FETCH_FAILED" = 1 ]; then
+  echo "  note: git fetch failed — these refs are as current as your last"
+  echo "        successful fetch, not as current as origin/$MAIN."
+  echo "        $FETCH_ERROR"
+fi
+# The fallback announces itself. Silent degradation here would recreate the
+# very bug being fixed: a working-tree plan list reported as if it were the ref.
+if [ "$PLAN_SOURCE" != "ref" ]; then
+  echo "  note: origin/$MAIN could not be read — plans were listed from this"
+  echo "        checkout instead, so the list is only as current as your last pull."
 fi
 echo "Pulse complete. This report is derived — nothing was changed."
 echo "summary: plans=$n_plans waves=$n_waves branches=$n_branches claimed=$n_claimed eligible=$n_eligible blocked=$n_blocked deferred=$n_deferred merge_detect=$MERGE_DETECT main=$MAIN"
