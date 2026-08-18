@@ -7,6 +7,10 @@
 - **Phase:** Planning
 - **Start:** YYYY-MM-DD
 - **End:** YYYY-MM-DD
+<!-- Optional. The version this sprint is working toward, named before it is
+     cut. With it, /plot-release refuses to cut past an unfinished Must Have
+     and asks about unfinished Should Haves. Without it, nothing changes. -->
+<!-- - **Release:** <version> -->
 
 ## Sprint Goal
 

@@ -20,7 +20,9 @@ Create a versioned release from delivered plans. This workflow can be run manual
 - `rc` — cut a release candidate tag and generate a verification checklist
 - A version number (e.g., `1.2.0`) or bump type (`major`, `minor`, `patch`) — cut the final release
 
-Examples: `/plot-release rc`, `/plot-release minor`, `/plot-release 1.2.0`
+`--ignore-sprint` may accompany any of these: it clears the sprint gate in step 0 and nothing else.
+
+Examples: `/plot-release rc`, `/plot-release minor`, `/plot-release 1.2.0`, `/plot-release 2.5.2 --ignore-sprint`
 
 <!-- keep in sync with plot/SKILL.md Setup -->
 ## Setup
@@ -39,15 +41,162 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
+| 0. Sprint Gate | Small | The states come from `plot-sprint-release.sh`; applying the rule is mechanical. The Should-Have question needs a person, not a bigger model |
 | 1. Determine Version | Mid | Heuristic: plan types → bump suggestion |
 | 2A. RC Path | Small | Git tag, template generation |
 | 2B. Release Notes | Mid | Discovery logic, changelog collection |
 | 3. Cross-check Notes | Frontier (orchestrator) + Small (subagents) | Orchestrator compares; small subagents can gather commit messages and plan changelogs in parallel |
 | 4-5. Hand-off, RC cleanup | Small | Template list, no-ops |
 | 5b. Record the Release in the Plans | Small | Mechanical per plan; the version comes from `git tag --contains`, not judgment. Gate on the sweep's real footer |
+| 5c. Sprint Override Record | Small | One line into `## Notes`, from facts step 0 already collected |
 | 6. Summary | Small | Formatting |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
+
+### 0. The Sprint Gate
+
+**Run this before anything else.** A release that has already been tagged
+cannot be un-cut, so the sprint's claim has to be checked while refusing is
+still cheap.
+
+**The gate applies to the final cut, not to an RC.** `/plot-release rc` proceeds
+past open Must Haves — report them, do not refuse. A release candidate is how a
+sprint's remaining work gets verified, so gating it would take away the tool
+operators use to finish the very items being gated on. The gate fires when the
+version becomes real.
+
+> Neither the plan nor the brief settled the RC case; this is the reading that
+> keeps the gate from blocking its own remedy. Worth confirming in review.
+
+```bash
+../plot/scripts/plot-sprint-release.sh 2>/dev/null
+```
+
+The script reports facts and decides nothing: the sprint's declared `Release:`
+target, and every Must/Should/Could item as `done`, `open` or `disputed`. Read
+its JSON and apply the rule below. It never exits non-zero for an unfinished
+item — a script that refused would be making this call itself.
+
+**No active sprint, or an active sprint with no `Release:` field → the gate
+does not apply.** Say so in one line and go to step 1. This is the majority
+case and must stay silent-ish: a sprint that groups work without shipping a
+version is still a sprint, and a repo that never declares one sees no change
+at all.
+
+**Otherwise, the two tiers get two different treatments**, because they are two
+different promises. A Must Have is the commitment; a Should Have is what the
+sprint hoped to reach.
+
+#### Must Haves refuse
+
+If any Must Have is `open` or `disputed`, **refuse and stop.** Name every one,
+and say what clears it:
+
+```
+plot-release: sprint the-board-tells-the-truth targets 2.5.2 and has
+              1 unfinished Must Have:
+                [one-place-for-what-a-row-can-do] — Approved, not delivered
+              Deliver it, move it to Deferred, or pass --ignore-sprint.
+```
+
+A `disputed` item is a checked box whose plan is not delivered — the same
+false-positive completion `/plot-sprint close` refuses on. Report it as what it
+is, not as merely unfinished:
+
+```
+                [alpha] — checked in the sprint, but the plan is not delivered
+```
+
+**`--ignore-sprint` is the named escape**, in the tradition of `--allow-local`
+and `--during-release`. A gate with no exit is one people route around by never
+declaring a release at all, which would cost the field its adoption.
+
+**It clears the sprint gate and nothing else.** Not the phase guardrails, not
+the delivered-plan checks, not step 5b's sweep. If you find yourself reaching
+for it to get past something else, that is a different problem.
+
+#### Should Haves prompt
+
+If the Must Haves are clear and any Should Have is `open` or `disputed`, **ask**
+— naming them — and take yes or no in the moment:
+
+```
+Sprint the-board-tells-the-truth targets 2.5.2. All Must Haves are done.
+3 Should Haves are open:
+  [the-board-answers-agents] — wave 1 delivered, wave 2 open
+  [plot-board-setup] — not delivered
+  Set the 32 delivered-but-unreleased plans to Released
+Cut 2.5.2 anyway?
+```
+
+**Answering no cuts nothing** — stop, changing no files.
+
+**There is no flag for this tier, deliberately.** A hard gate on stretch goals
+is one operators learn to force past, and a flag typed reflexively has stopped
+being a gate. But silence is the failure this whole step exists to fix: a
+release cut with three Should Haves open is a decision, and a decision made
+without being asked is one nobody made. **The confirmation is the record that a
+person looked.**
+
+#### Could Haves neither block nor prompt
+
+Report them in the summary if any are open. Nothing more.
+
+#### When nobody is there to answer
+
+Under `PLOT_UNATTENDED=1` — a release cut from CI rather than a terminal — the
+Should-Have **prompt becomes a warning**: name the open items, state that
+nobody was asked, and proceed. The Must-Have gate still **refuses**, in both
+modes.
+
+`PLOT_UNATTENDED` answers *may I ask?*, never *may I proceed?*. A variable set
+in the least-supervised environment must have strictly less power than the
+operator, so it never converts a refusal into a pass.
+
+> This clause is the local half of a wider fix. `PLOT_UNATTENDED` is defined
+> once, for the fifteen skills that tell an agent to ask, by
+> `docs/plans/2026-08-18-a-question-nobody-can-answer-is-a-hang.md`. That
+> branch had not landed when this gate was written, so the degradation is
+> implemented here and stated here; when the shared reference lands, this
+> section should point at it rather than restate it.
+
+#### The override writes itself into the sprint
+
+**When `--ignore-sprint` is used, record it in the sprint file's `## Notes`** —
+the version, the date, and the Must Haves that were open:
+
+```markdown
+## Notes
+
+- 2.5.2 cut 2026-08-18 with `--ignore-sprint`; 1 Must Have open:
+  [one-place-for-what-a-row-can-do]
+```
+
+**Write it directly under `## Notes`, not inside `### Scope Changes`.** That
+subsection logs what the sprint decided about its own contents; a release cut
+over its objection is something that happened *to* the sprint. Filing it there
+would bury the record under a scope log nobody reads for release facts.
+
+**Write it after the tag exists, in step 5c — not here.** Until then no version
+has been released, and a note claiming one is the same defect step 5b's
+"only run this once the tag exists" guards against. The gate's job in step 0 is
+to decide and to remember the open items; the writing happens once the thing
+being recorded is true.
+
+If the release is abandoned between step 0 and the tag, nothing was written and
+nothing needs undoing — which is the point of deferring it.
+
+Commit it with the release's other sprint-side changes.
+
+This couples a release command to a sprint file, and the coupling is accepted
+deliberately: the retrospective asks what the timebox changed, and this is
+exactly the fact it cannot reconstruct from a shell history nobody rereads. It
+is the same reason `Approved:` and `Delivered:` are records in the plan rather
+than lines in a log.
+
+**Two active sprints may target one release** — two teams, one train. That is
+legitimate and is not refused; the gate answers to both, and the message names
+which sprint each unfinished item came from.
 
 ### 1. Determine Version
 
@@ -94,7 +243,7 @@ git push origin v<version>-rc.<n>
 
 **Generate verification checklist:**
 
-Collect all delivered plans since the last release (via `docs/plans/delivered/` — check the Delivered date in each plan's Status section against the last release tag date). For each delivered feature or bug plan, extract the `## Changelog` section and create a checklist item. If a plan has a `Sprint: <name>` field, include the sprint name alongside the checklist item for context. Sprint completion is informational — it does not block the release.
+Collect all delivered plans since the last release (via `docs/plans/delivered/` — check the Delivered date in each plan's Status section against the last release tag date). For each delivered feature or bug plan, extract the `## Changelog` section and create a checklist item. If a plan has a `Sprint: <name>` field, include the sprint name alongside the checklist item for context. Whether the sprint blocks the release is decided in step 0, from its `Release:` field — not here.
 
 ```bash
 mkdir -p docs/releases
@@ -283,6 +432,15 @@ Not marked:
 summary: … unreleased_delivered=0 …
 ```
 
+#### 5c. Record a Sprint Override
+
+If step 0 was cleared with `--ignore-sprint`, **now** write the line it held
+into the sprint file's `## Notes` — the tag exists, so the version is finally a
+fact rather than an intention. Format and placement are in step 0.
+
+Nothing to write if `--ignore-sprint` was not used, or if no sprint declared a
+`Release:`. Idempotent: a note already present for this version is left alone.
+
 ### 6. Summary
 
 **Orient, don't enumerate** (Manifesto Principle 11): open the summary
@@ -295,6 +453,8 @@ Print:
   - `<slug>` — <type>
   - `<slug>` — <type>
 - Cross-check result: complete / gaps found
+- Sprint gate: passed / not applicable / **cleared with `--ignore-sprint`**, and
+  for the last, the Must Haves that were open and the sprint note written
 - Plans marked Released: `<slug>` → `<version>` for each, and every plan **not**
   marked with its reason (docs/infra, or unresolvable)
 - Release-recorded gate: paste the sweep's actual `summary:` footer from step 5b
