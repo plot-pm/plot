@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   classify, compareWithinGroup, draftNote, humanAge, prState, rowPhase, rowsFromPulse,
   rateLimitBackoffMs,
+  prGateOpen,
+  prNextDueAt,
   prAsksNobody,
   waitingOnFor,
 } from '../../src/server/fleet.js';
@@ -2285,5 +2287,185 @@ describe('rowsFromPulse carries stuck detection onto the row', () => {
       expect(() => AgentRowSchema.parse(rowFor(over))).not.toThrow();
     }
     expect(() => AgentRowSchema.parse(rowFor({}, failingPr()))).not.toThrow();
+  });
+});
+
+describe('the PR cadence does not lose a period to its own gate', () => {
+  // The measured defect, 2026-08-18:
+  //
+  //     74 branches across 37 plans · scanned 19s ago · PR data 111s ago
+  //
+  // against a PR_REFRESH_MS of 60_000, with a host call measured at 1.4 s and
+  // 4986/5000 quota remaining — so nothing was slow and nothing was throttled.
+  //
+  // The cause was two clocks set to the same period that could not both be met:
+  // `setInterval` fires at rigid multiples of 60 s, while `prNextAt` was stamped
+  // from the fetch's FINISH and so landed at 60 s + the call's duration. Every
+  // tick arrived just before its own gate, was refused, and the next came a full
+  // period later. Any non-zero fetch duration bought a 120 s cadence.
+  //
+  // These drive the REAL scheduling pair — `prNextDueAt` decides when the next
+  // fetch is due, `prGateOpen` decides whether a tick may pass — against a fake
+  // clock. A wall-clock test of a 60 s cadence cannot run in a suite, but the
+  // defect is arithmetic between two schedules, and this is that arithmetic
+  // with nothing modelled: revert the anchor in `prNextDueAt` and these fail.
+
+  const PERIOD = 60_000;
+
+  /**
+   * Run rigid interval ticks against the real gate and report the worst age the
+   * board would have displayed, plus how many ticks actually fetched.
+   *
+   * `nextDue` is the scheduling policy under test. The default is the shipped
+   * `prNextDueAt`; the defect is reproduced by passing the anchor it replaced.
+   */
+  function runCadence(
+    { duration, ticks = 8, jitter = 0, nextDue = prNextDueAt }:
+    {
+      duration: number; ticks?: number; jitter?: number;
+      nextDue?: (startedAt: number, backoff: number | null, now: number) =>
+        { at: number; hard: boolean };
+    },
+  ): { worstAge: number; fetches: number } {
+    // The start-up fetch, issued at t=0 and landing `duration` later.
+    let prAt = duration;
+    let due = nextDue(0, null, duration);
+    let fetches = 0;
+    let worstAge = 0;
+    for (let k = 1; k <= ticks; k++) {
+      const now = k * PERIOD + jitter;
+      // The age a reader would see at this instant, refresh or no refresh.
+      worstAge = Math.max(worstAge, now - prAt);
+      if (!prGateOpen(due.at, due.hard, now)) continue;
+      fetches++;
+      prAt = now + duration;
+      due = nextDue(now, null, prAt);
+    }
+    return { worstAge, fetches };
+  }
+
+  /**
+   * The anchor this branch replaced: next-due measured from the fetch's FINISH.
+   * Kept here, in the test, so the bug it caused stays reproducible after the
+   * source that caused it is gone — the control the Definition of Done asks for.
+   */
+  const anchoredToFinish = (_startedAt: number, backoff: number | null, now: number) =>
+    backoff !== null
+      ? { at: now + backoff, hard: true }
+      : { at: now + PERIOD, hard: false };
+
+  it('keeps the observed age under PR_REFRESH_MS across several cycles', () => {
+    // THE assertion. Every tick lands, so the age never reaches a second period.
+    const { worstAge, fetches } = runCadence({ duration: 1_400 });
+    expect(worstAge).toBeLessThan(PERIOD);
+    expect(fetches).toBe(8);
+  });
+
+  it('reproduces the measured 111 s failure with the old anchor', () => {
+    // The control. A test that passes both ways is not testing this bug: the
+    // replaced anchor is asserted to FAIL the bar the shipped one clears.
+    const { worstAge, fetches } = runCadence({
+      duration: 1_400, nextDue: anchoredToFinish,
+    });
+    expect(worstAge).toBeGreaterThan(PERIOD);
+    expect(worstAge).toBeGreaterThan(110_000);   // the reported 111 s
+    expect(fetches).toBe(4);                     // half the ticks refused
+  });
+
+  it('holds for any fetch slower than the timer slack, not just 1.4 s', () => {
+    // The defect was never about 1.4 s specifically. Anything the slack cannot
+    // absorb pushed the gate past the tick, and the cost was a whole period.
+    for (const duration of [1_300, 1_400, 5_000, 20_000]) {
+      expect(runCadence({ duration }).worstAge).toBeLessThan(PERIOD);
+      expect(runCadence({ duration, nextDue: anchoredToFinish }).worstAge)
+        .toBeGreaterThan(PERIOD);
+    }
+  });
+
+  it('survives a tick that arrives fractionally EARLY', () => {
+    // Anchoring to the start puts the gate and the tick on the same instant,
+    // which is correct and knife-edge: `setInterval` does not promise to fire
+    // late, and one millisecond early reopened the whole defect — one refusal
+    // still costs a full period. The slack absorbs exactly that.
+    for (const jitter of [-1, -2, -50, -1_000]) {
+      const { worstAge, fetches } = runCadence({ duration: 1_400, jitter });
+      expect(worstAge).toBeLessThan(PERIOD);
+      expect(fetches).toBe(8);
+    }
+  });
+});
+
+describe('prNextDueAt — one anchor for the cadence, another for a backoff', () => {
+  it('measures the ordinary cadence from the fetch START', () => {
+    // The fix, stated directly. A fetch that began at 1000 and ended at 2400 is
+    // next due at 61_000 — NOT 62_400, which is past the tick meant to serve it.
+    const due = prNextDueAt(1_000, null, 2_400);
+    expect(due).toEqual({ at: 61_000, hard: false });
+  });
+
+  it('does not let a slow call push the next one out by its own duration', () => {
+    // The property that matters, independent of any single number: the next due
+    // time depends on when we asked, never on how long the answer took.
+    for (const duration of [0, 1_400, 20_000]) {
+      expect(prNextDueAt(1_000, null, 1_000 + duration).at).toBe(61_000);
+    }
+  });
+
+  it('measures a rate-limit backoff from NOW, and marks it hard', () => {
+    // The host's "wait 90 seconds" starts when it said so, not when we asked —
+    // so this one anchor legitimately uses the finish, and says it is a floor.
+    const due = prNextDueAt(1_000, 90_000, 2_400);
+    expect(due).toEqual({ at: 92_400, hard: true });
+  });
+
+  it('returns an ordinary failure to the ordinary cadence', () => {
+    // A VPN blip is not a quota. It rejoins the normal rhythm on the normal
+    // anchor and is NOT hard — a blip must not buy a stricter gate.
+    const due = prNextDueAt(1_000, null, 5_000);
+    expect(due).toEqual({ at: 61_000, hard: false });
+  });
+});
+
+describe('prGateOpen — a cadence target bends, a host backoff does not', () => {
+  it('honours a cadence tick arriving fractionally early', () => {
+    // The soft case: this tick is the one the period is entitled to.
+    expect(prGateOpen(60_000, false, 59_999)).toBe(true);
+    expect(prGateOpen(60_000, false, 59_000)).toBe(true);
+  });
+
+  it('refuses a cadence tick that is early by more than the slack', () => {
+    // A tolerance on a clock, not a licence to fetch sooner. Two percent of the
+    // period; a tick half a period early is a bug, not jitter.
+    expect(prGateOpen(60_000, false, 30_000)).toBe(false);
+    expect(prGateOpen(60_000, false, 0)).toBe(false);
+  });
+
+  it('holds a rate-limit backoff for its FULL delay, with no slack at all', () => {
+    // THE load-bearing negative, and the reason `hard` exists. The gate is what
+    // turns a rate limit into a wait rather than a tighter loop; calling one
+    // millisecond before the host's reset spends quota to be refused again.
+    // A single tolerance wide enough for timer jitter would shave exactly this.
+    expect(prGateOpen(60_000, true, 59_999)).toBe(false);
+    expect(prGateOpen(60_000, true, 59_000)).toBe(false);
+    expect(prGateOpen(60_000, true, 60_000)).toBe(true);
+  });
+
+  it('holds a backoff that expires just after an ordinary tick', () => {
+    // The concrete way a blanket slack would break it: a 61 s reset with ticks
+    // at 60 s and 120 s. Soft would fire at 60 s — a second early, into a closed
+    // door. Hard waits for the next tick, which is what the backoff asked for.
+    expect(prGateOpen(61_000, true, 60_000)).toBe(false);
+    expect(prGateOpen(61_000, false, 60_000)).toBe(true);
+  });
+
+  it('holds the full 120 s ceiling backoff across two ordinary ticks', () => {
+    // End to end with the real backoff calculator: the bare GraphQL exhaustion
+    // message buys 120 s, and neither the 60 s tick nor the slack may cut it.
+    const backoff = rateLimitBackoffMs('GraphQL: API rate limit already exceeded');
+    const due = prNextDueAt(0, backoff, 0);
+    expect(due.hard).toBe(true);
+    expect(prGateOpen(due.at, due.hard, 60_000)).toBe(false);
+    expect(prGateOpen(due.at, due.hard, 119_999)).toBe(false);
+    expect(prGateOpen(due.at, due.hard, 120_000)).toBe(true);
   });
 });

@@ -221,12 +221,30 @@ interface CacheEntry {
   prAt: number | null;
   prError: string | null;
   /**
-   * Epoch ms before which the PR fetch must not fire again. Normally
-   * `prAt + PR_REFRESH_MS`; pushed further out when the host reports a rate
-   * limit, to the reset it named if it named one. A gate rather than a second
-   * timer: one clock decides, and a backoff cannot leave a timer orphaned.
+   * Epoch ms before which the PR fetch must not fire again. Normally the
+   * fetch's START plus `PR_REFRESH_MS`; pushed further out when the host
+   * reports a rate limit, to the reset it named if it named one. A gate rather
+   * than a second timer: one clock decides, and a backoff cannot leave a timer
+   * orphaned.
+   *
+   * Measured from the start and not the finish deliberately. Stamping it from
+   * the finish put it at `PR_REFRESH_MS` + the call's duration — just past the
+   * rigid interval tick meant to satisfy it, so that tick was refused and the
+   * next came a full period later. A 1.4 s call therefore bought a 120 s
+   * cadence from a 60 s setting, which is the 111 s age this repo measured on
+   * 2026-08-18.
    */
   prNextAt: number;
+  /**
+   * Whether `prNextAt` is a floor the HOST named rather than the ordinary
+   * cadence target. True only after a rate-limit backoff.
+   *
+   * The two are compared with different strictness — see `prGateOpen`. A
+   * cadence target tolerates a tick arriving fractionally early, because that
+   * tick is the one the period is entitled to; a host's backoff tolerates
+   * nothing, because calling before it is what exhausted the quota.
+   */
+  prNextIsBackoff: boolean;
   timer: NodeJS.Timeout | null;
   prTimer: NodeJS.Timeout | null;
   running: boolean;
@@ -506,6 +524,73 @@ export function rateLimitBackoffMs(message: string, now = Date.now()): number | 
 }
 
 /**
+ * How far before `prNextAt` an ordinary cadence tick may still be honoured, in
+ * ms. Two percent of the period — 1.2 s at the 60 s cadence.
+ *
+ * This exists because the timer and the gate are separate clocks that are meant
+ * to agree, and `setInterval` does not promise they will to the millisecond. A
+ * tick that arrives a hair EARLY is the tick this period is entitled to; with an
+ * exact `<` comparison it is refused, and — because the interval is rigid — the
+ * next one is a whole period later. That is the 111 s-against-60 s defect this
+ * constant closes, arriving by a different route: measuring from the fetch's
+ * start removes the systematic drift, and this absorbs the residual jitter that
+ * would otherwise reopen it one tick at a time.
+ *
+ * Deliberately small. It is a tolerance on a clock, not a licence to fetch
+ * sooner, and it is applied ONLY to the ordinary cadence — never to a rate-limit
+ * backoff, which is a floor the host named and this must not shave. See
+ * `prGateOpen`.
+ */
+const PR_TICK_SLACK_MS = PR_REFRESH_MS / 50;
+
+/**
+ * Whether the PR fetch may run now.
+ *
+ * The gate is load-bearing and nothing bypasses it: it is what turns a rate
+ * limit into a wait rather than a tighter loop. But it answers two different
+ * questions with one number, and they need different strictness:
+ *
+ * - **an ordinary cadence target** (`hard: false`) — "the next refresh is due
+ *   here". The timer is trying to hit this, so a tick landing fractionally
+ *   early is honoured rather than thrown away for a full period.
+ * - **a floor the host named** (`hard: true`) — "do not call before here". A
+ *   rate-limit backoff is a promise made to the host and is compared exactly,
+ *   with no slack whatsoever.
+ *
+ * Splitting them is the point. A single tolerance wide enough to absorb timer
+ * jitter is also wide enough to fire a second before a 61 s reset, which spends
+ * quota to be refused — the precise thing the backoff exists to prevent.
+ */
+export function prGateOpen(
+  nextAt: number, hard: boolean, now = Date.now(),
+): boolean {
+  if (hard) return now >= nextAt;
+  return now + PR_TICK_SLACK_MS >= nextAt;
+}
+
+/**
+ * When the PR fetch is next due, given when this one STARTED and how it ended.
+ *
+ * The one place the cadence's anchor is chosen, extracted so the choice is
+ * testable as arithmetic rather than only observable through a live 60 s timer.
+ * `refreshPrs` calls this and stores what it returns; there is no second copy.
+ *
+ * @param startedAt when the fetch that just ended began — the anchor for the
+ *   ordinary cadence, and the fix for the defect this function is named after.
+ *   Anchoring to the finish instead cost a whole period per cycle.
+ * @param backoff a rate-limit wait the host named, or null for success and for
+ *   ordinary failures, both of which rejoin the ordinary cadence.
+ * @param now the moment the fetch ended — a named backoff is measured from
+ *   here, because the host's clock started when it answered, not when we asked.
+ */
+export function prNextDueAt(
+  startedAt: number, backoff: number | null, now = Date.now(),
+): { at: number; hard: boolean } {
+  if (backoff !== null) return { at: now + backoff, hard: true };
+  return { at: startedAt + PR_REFRESH_MS, hard: false };
+}
+
+/**
  * How many of a branch's own recent runs to fetch.
  *
  * Small on purpose. The question the history answers is *has this branch been
@@ -587,6 +672,16 @@ async function refreshRuns(
 }
 
 async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
+  // Captured BEFORE the call, and this is the whole fix. `prNextAt` is the
+  // cadence's anchor, and anchoring it to the finish made every period cost the
+  // call's duration — the tick meant to satisfy it arrived just too early, was
+  // refused, and the next one came a period later. Anchoring to the start makes
+  // the gate open exactly when the rigid interval tick arrives.
+  //
+  // `prAt` still stamps at the finish: it answers "how old is this DATA", and
+  // data is not fetched until it has landed. Two questions, two stamps — the
+  // one place they were the same number is the defect.
+  const startedAt = Date.now();
   try {
     const out = await run('bash',
       [path.join(opts.scriptsDir, 'plot-host.sh'), 'pr-list', '--rich',
@@ -623,7 +718,9 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
     entry.prsByNumber = byNumber;
     await refreshRuns(opts, entry, map);
     entry.prAt = Date.now();
-    entry.prNextAt = entry.prAt + PR_REFRESH_MS;
+    const due = prNextDueAt(startedAt, null);
+    entry.prNextAt = due.at;
+    entry.prNextIsBackoff = due.hard;
     entry.prError = null;
   } catch (err) {
     // Same rule as the pulse: a failure keeps the last good map rather than
@@ -636,7 +733,13 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
     // failure keeps the ordinary rhythm — a VPN blip should recover in a
     // minute, not in two.
     const backoff = rateLimitBackoffMs(message);
-    entry.prNextAt = Date.now() + (backoff ?? PR_REFRESH_MS);
+    // A backoff is measured from NOW — the host's "wait 90 seconds" starts when
+    // it said so, not when we started asking. An ordinary failure rejoins the
+    // ordinary cadence, so it anchors to the start like a success does; a
+    // failed call should not push the next attempt out by its own duration.
+    const due = prNextDueAt(startedAt, backoff);
+    entry.prNextAt = due.at;
+    entry.prNextIsBackoff = due.hard;
   }
 }
 
@@ -644,9 +747,14 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
  * Fetch PRs if the cadence gate allows it. Called from the PR timer and once at
  * start-up; the gate (`prNextAt`) is what turns a rate-limit into a wait rather
  * than a tighter loop, so nothing may bypass it.
+ *
+ * `prGateOpen` does not bypass it — it reads it correctly. A rate-limit backoff
+ * is still compared exactly and still holds for its full delay; the tolerance
+ * applies only to the ordinary cadence, where the timer and the gate are two
+ * clocks trying to agree on the same instant.
  */
 async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
-  if (entry.prRunning || Date.now() < entry.prNextAt) return;
+  if (entry.prRunning || !prGateOpen(entry.prNextAt, entry.prNextIsBackoff)) return;
   entry.prRunning = true;
   try {
     await refreshPrs(opts, entry);
@@ -787,7 +895,7 @@ function ensureCache(opts: BuildBoardOptions): CacheEntry {
     ideaPlans: new Map(),
     prs: null, prsByNumber: null, runs: new Map(), prAt: null, prError: null,
     // 0, so the first fetch happens immediately rather than a minute in.
-    prNextAt: 0,
+    prNextAt: 0, prNextIsBackoff: false,
     timer: null, prTimer: null, running: false, prRunning: false,
   };
   caches.set(key, entry);
