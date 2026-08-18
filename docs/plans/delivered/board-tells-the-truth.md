@@ -1,0 +1,1 @@
+../2026-08-16-board-tells-the-truth.md
