@@ -65,6 +65,7 @@ Scripts in `skills/plot/scripts/` that any model tier can use:
 | `plot-pr-state.sh` | Query plan PR state (draft/ready/merged/closed) |
 | `plot-impl-status.sh` | Query all implementation PR states for a slug |
 | `plot-review-status.sh` | Check review freshness for sprint items |
+| `plot-sprint-release.sh` | A sprint's declared `Release:` target and the state of every MoSCoW item (`done`/`open`/`disputed`) as JSON — the facts behind the release gate, and nothing else: /plot-release applies the rule, this decides nothing and never exits non-zero for unfinished work. The plan estate outranks the checkbox where there is one to read, but only in one direction — a checked box over an undelivered plan is `disputed`, while an unchecked box over a delivered one is `done`, because /plot-deliver moves the plan and nobody re-ticks the box. Reports every active sprint, since two teams may share one train |
 | `plot-update-board.sh` | Update GitHub Projects board status for a PR |
 | `plot-plan-meta.sh` | Parse plan files → JSON (phase, type, title, sprint, story, assignee, branches, PRs, `Review:`/`Impl:` ceremony answers, `Approved:`/`Started:`/`Delivered:`/`Released:` transition records); the plan-format contract |
 | `plot-context.sh` | Read-only: which plan governs the current branch, its phase, wave, and PRs → JSON. Supplies plot-shaped facts to whatever writes session logs; Plot never writes them itself |

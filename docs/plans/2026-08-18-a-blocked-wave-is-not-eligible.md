@@ -88,6 +88,29 @@ rather than tolerating.
 outranks any branch state. If a plan is finished, none of its branches can be
 "not started", whatever the refs say.
 
+### WORKING has the same gap, in the opposite direction
+
+Measured 2026-08-18, minutes after the NOT STARTED case:
+
+```
+WORKING (2)
+  Released  not-yet-asked-is-not-not…  bug/a-refresh-that-nev…  uncommitted work in a local worktree
+  Released  one-place-for-what-a-ro…   bug/a-rows-actions-live-in-its-menu  uncommitted work in a local worktree
+```
+
+Both PRs (#220, #224) merged and shipped in v2.5.2. Both workers were dead.
+What the board read as *someone is working here* was leftover scratch files —
+`agentlist_temp.tsx`, `.fleet_part1.js` — that the workers wrote after pushing
+and never cleaned up.
+
+So the defect is not specific to NOT STARTED. **A `Released` plan cannot be in
+progress either**, whatever a worktree holds. The phase answers first in every
+section; the local facts refine within it.
+
+That widens the rule rather than adding a case to it: each section asks *what
+would move this forward*, and for a Released plan the answer is *nothing* — it
+is finished. Local debris is not work.
+
 ### The rule, stated positively
 
 The three cases above are one rule seen from three sides, and it is shorter as
@@ -231,7 +254,7 @@ not in collapsing them into one source.
 
 ## Branches
 
-- `bug/not-started-shows-approved-plans` — the section is filtered on the plan's phase first: `Approved` and nothing else. A `Draft` plan moves to WAITING ON YOU with what it waits on named (approval); `Delivered` and `Released` plans appear in neither. Measured on the live board: 10 plans in NOT STARTED, of which 3 were Approved, 7 Draft, plus one Released since v1.0.0-beta.3. Tests: each of the four phases lands in its documented section, driven from one fixture; the phase is read from the plan and never inferred from the branches; a plan that becomes Approved changes section on the next pulse without a restart.
+- `bug/not-started-shows-approved-plans` — the section is filtered on the plan's phase first: `Approved` and nothing else. A `Draft` plan moves to WAITING ON YOU with what it waits on named (approval); `Delivered` and `Released` plans appear in neither. Measured on the live board: 10 plans in NOT STARTED, of which 3 were Approved, 7 Draft, plus one Released since v1.0.0-beta.3. Tests: each of the four phases lands in its documented section, driven from one fixture; the phase is read from the plan and never inferred from the branches; a plan that becomes Approved changes section on the next pulse without a restart; **a Released plan with uncommitted files in a local worktree is not in WORKING** — the measured case, where two shipped plans read as in-progress because dead workers left scratch files behind. — PR #231
 
 - `bug/a-blocked-branch-says-it-is-blocked` — within NOT STARTED, a branch whose wave is blocked renders as blocked and **links to what it waits on**, using the `blockedBy` the schema already carries; only an eligible branch reads *"eligible — nobody has taken it"*. Merged branches do not appear as rows of an unstarted plan.
 

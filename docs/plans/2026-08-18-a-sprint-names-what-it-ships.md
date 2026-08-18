@@ -11,7 +11,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-18, jwloka, in-session
-- **Started:**
+- **Started:** 2026-08-18, Jan Wloka, `feature/a-sprint-names-its-release`
 - **Delivered:**
 - **Released:**
 
@@ -229,7 +229,7 @@ shipping a version is still a sprint; the field is how one says otherwise.
 
 ### The field and its gate
 
-- `feature/a-sprint-names-its-release` — `Release:` in the sprint format and its parser, read by `/plot-release` as a gate on an active sprint's unfinished Must Haves, with `--ignore-sprint` as the escape. Unfinished Should Haves prompt rather than block, and an override records itself in the sprint's Notes. `/plot-sprint close` reports the release state and never refuses. Tests: a sprint with unfinished Must Haves refuses and names them; `--ignore-sprint` proceeds **and writes the version, the date and the open items into the sprint's Notes**; finished Must Haves with open Should Haves prompt and name them, and answering no cuts nothing; Could items never block or prompt; a sprint with no `Release:` behaves exactly as today; closing a sprint whose release was not cut succeeds with a report.
+- `feature/a-sprint-names-its-release` — `Release:` in the sprint format and its parser, read by `/plot-release` as a gate on an active sprint's unfinished Must Haves, with `--ignore-sprint` as the escape. Unfinished Should Haves prompt rather than block, and an override records itself in the sprint's Notes. `/plot-sprint close` reports the release state and never refuses. Tests: a sprint with unfinished Must Haves refuses and names them; `--ignore-sprint` proceeds **and writes the version, the date and the open items into the sprint's Notes**; finished Must Haves with open Should Haves prompt and name them, and answering no cuts nothing; Could items never block or prompt; a sprint with no `Release:` behaves exactly as today; closing a sprint whose release was not cut succeeds with a report. → #229
 
 ### The proposal
 

@@ -7,6 +7,7 @@
 - **Phase:** Active
 - **Start:** 2026-08-18
 - **End:** 2026-08-22
+- **Release:** 2.5.3
 
 ## Sprint Goal
 

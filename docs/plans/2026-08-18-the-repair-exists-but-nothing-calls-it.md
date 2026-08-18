@@ -10,13 +10,51 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-18, jwloka, in-session
-- **Started:**
+- **Started:** 2026-08-18, Jan Wloka, `feature/the-scan-sees-a-repairable-conflict`
 - **Delivered:**
 - **Released:**
 
 ## Changelog
 
 - Plot detects an artifact-only merge conflict on a plan's branches and reports it as repairable, so the one conflict class that needs no judgement stops consuming an operator's attention.
+
+## Correction 2026-08-18: the premise was wrong
+
+**A dispatched worker verified that most of this plan was already built**, on
+2026-08-17 — the day *before* the plan asking for it was written. The plan's
+central claim, *"Nothing ever calls it"*, is false:
+
+| The plan asks for | Where it already is |
+|---|---|
+| conflict detection | `plot-fleet-scan.sh:822` `conflicts_of()` |
+| the exactly-the-artifact fence | `stuck.ts:115` `isArtifactOnly()` |
+| the trigger | `fleet.ts:806` `startRepair()` |
+
+All three verified by reading the source. The scan reports the conflict SET and
+`stuck.ts` classifies it one layer up — which is Principle 3 (scripts collect,
+skills interpret) applied more carefully than this plan proposed, since the
+plan wanted the classification in the shell.
+
+The error was mine and it was cheap to avoid: I grepped `plot-fleet-scan.sh`
+for a caller and concluded there was none, without looking in the board. A
+claim about what *nothing* does needs a wider search than a claim about what
+one file does.
+
+**The worker wrote no code**, correctly: implementing the brief would have
+duplicated working, tested code. `conflicts.test.mjs` already asserts the
+artifact-only set, the mixed set naming both files, the clean set, and that the
+scan writes nothing.
+
+**What survives.** One real gap, found by the same worker: `PLOT_BOARD_REPAIR`
+does not exist. The repair is gated on state alone and cannot be disabled
+without stopping the board — which the design in this plan calls non-optional.
+That is wave 2's remaining work, and it is now the only work here.
+
+**Wave 3 is built too** — `repairFor()` at `resolver.ts:175` returns what a row should say about its repair, rendered at `fleet.ts:1990`. Verified against the source. So two of the three waves are deferred as already-done, and the worker's full report is kept beside this plan as `2026-08-18-the-repair-exists-report.md`.
+
+Also reported and not acted on: `test:board` is order-dependent on main. One
+run failed *"does not overwrite the file when a scan FAILS"* while the branch
+changed no source, so the flake is main's, not the branch's.
 
 ## Motivation
 
@@ -166,11 +204,11 @@ leave.
 
 ## Branches
 
-- `feature/the-scan-sees-a-repairable-conflict` — `plot-fleet-scan.sh` reports `conflict:artifact` for a branch whose conflict set is exactly the generated artifact, and `conflict:manual` with the file list for anything else. Read-only: `git merge-tree` against `origin/main`, no worktree touched, nothing written. Tests: a branch conflicting only in the artifact reports `conflict:artifact`; one conflicting in the artifact AND a source file reports `conflict:manual` naming both; a cleanly mergeable branch reports neither; the scan writes nothing in every case.
+- `feature/the-pulse-repairs-the-artifact` <!-- deferred: verified already implemented 2026-08-17 — conflicts_of() at plot-fleet-scan.sh:822, isArtifactOnly() at stuck.ts:115, startRepair() at fleet.ts:806, all covered by conflicts.test.mjs. --> — detection and repair, already on main before this plan was written.
 
-- `feature/the-pulse-repairs-the-artifact` — the board's pulse invokes `plot-resolve-artifact.sh` when it sees `conflict:artifact`, honours every refusal the script makes, and repairs nothing else. Gated by `PLOT_BOARD_REPAIR` (default on). Tests: an artifact-only conflict is repaired without a click; a `conflict:manual` branch is never touched; each of the script's three refusals leaves the branch unchanged and is reported rather than retried in a loop; `PLOT_BOARD_REPAIR=0` detects and reports but does not write.
+- `feature/the-repair-can-be-turned-off` — `PLOT_BOARD_REPAIR` gates the pulse-side repair, defaulting to on. Today the repair is gated on state alone, so an operator who wants to see artifact conflicts without the board acting on them has no way to say so — and the design calls that switch non-optional. Tests: `PLOT_BOARD_REPAIR=0` detects and reports but never writes; unset behaves exactly as today; the variable never converts a refusal into a repair.
 
-- `feature/a-repaired-row-says-so` — a row whose artifact the board repaired says so, with when. Tests: a repaired row names the repair and its age; a row that never conflicted says nothing; the note survives the next pulse rather than being erased by it.
+- `feature/a-repaired-row-says-so` <!-- deferred: verified already implemented 2026-08-17 — repairFor() at resolver.ts:175 returns what the row should say about a branch's repair, rendered at fleet.ts:1990. --> — a row whose artifact the board repaired says so, with when.
 
 ## Notes
 

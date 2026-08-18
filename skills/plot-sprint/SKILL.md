@@ -70,6 +70,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | Create, commit, start | Small | Git commands, templates, file ops |
 | Status | Small | File existence checks for delivery state are mechanical; no judgment needed |
 | Close | Mid | False-positive detection (cross-reference `[x]` against `docs/plans/delivered/`) plus existing checkbox parsing |
+| Release state (close step 2b) | Small | `plot-sprint-release.sh` plus `git tag --list`; reports, never refuses |
 
 All sprint operations are structural (Small or Mid). No Frontier needed.
 
@@ -193,6 +194,31 @@ The `review_sha` annotation enables skip-if-unchanged review:
 Use `skills/plot/scripts/plot-review-status.sh <sprint-slug>` to get review freshness for all sprint items as JSON.
 
 Leave Start/End dates as placeholders — the user fills them during the Planning phase.
+
+#### The Release Target (optional)
+
+A sprint may name the version it is working toward:
+
+```markdown
+## Status
+
+- **Phase:** Active
+- **Start:** 2026-08-18
+- **End:** 2026-08-22
+- **Release:** 2.5.2
+```
+
+**Ask whether the sprint has one; do not assume.** A sprint that groups work
+without shipping a version is still a sprint, and one with no `Release:` field
+behaves exactly as it did before this field existed.
+
+When present, `/plot-release` reads it as a gate: it refuses to cut past an
+unfinished **Must Have** and asks about unfinished **Should Haves**. Could Haves
+neither block nor prompt. That is the whole of what the field does.
+
+**The version is never validated** — not here, not by the gate. `2.5.2` is named
+before it is cut, so there is nothing to check it against; a typo surfaces when
+the release command fails on its own terms.
 
 #### 6. Update Plan Files
 
@@ -409,6 +435,32 @@ If must-haves are incomplete, present three options:
 2. Move incomplete must-haves to Deferred — move each unchecked `- [ ]` line from `### Must Have` to `### Deferred`, preserving the original text
 3. Hold off (don't close yet)
 
+#### 2b. Report the Release State
+
+If the sprint declares a `Release:` target, say where it stands — and **do not
+refuse on it, ever.**
+
+```bash
+../plot/scripts/plot-sprint-release.sh <slug> 2>/dev/null
+git tag --list "v<release>"
+```
+
+Report one of:
+
+- **Cut** — the tag exists: `Release 2.5.2: cut.`
+- **Not cut** — no tag: `Release 2.5.2: not cut. 1 Must Have open.`
+- **Cut over the gate** — a `--ignore-sprint` line is in `## Notes`: quote it.
+
+**Closing a sprint whose release slipped is a legitimate outcome, and this step
+never blocks it.** A timebox that ends is the definition of a timebox; a command
+that would not let one end is lying about what a timebox is. The retrospective
+is where a slipped release gets discussed, and it can only discuss what close
+reported.
+
+This is deliberately unlike step 2's false-positive check, which *does* hold the
+close: that one catches a claim contradicted by the estate, which is a mistake
+to fix. An uncut release is not a mistake — it is news.
+
 > **Unattended (`PLOT_UNATTENDED=1`):** stop. All three options are live and
 > none is safe by default — closing over unfinished Must Haves and deferring
 > them are different claims about the same sprint, and both are the team's to
@@ -449,12 +501,15 @@ Print:
 - Closed: `<slug>`
 - Sprint: `[ ] Planning > [ ] Committed > [ ] Active > [x] Closed`
 - Must-haves: N/M complete
+- Release: `<version>` cut / not cut / cut over the gate (omit if no target)
 - Deferred: N items (if any moved)
 - Retrospective: captured / skipped
 - Suggested next actions:
   1. Review the retrospective action items
   2. Carry deferred items to the next sprint: `/plot-sprint <new-slug>: <goal>`
-  3. If all planned work is delivered: `/plot-release` to cut a release
+  3. If all planned work is delivered: `/plot-release` to cut a release — and
+     if this sprint declared a `Release:`, that command reads it as a gate
+     rather than as a suggestion
 
 ---
 
