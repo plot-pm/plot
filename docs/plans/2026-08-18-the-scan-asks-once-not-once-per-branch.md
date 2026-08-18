@@ -111,7 +111,7 @@ it: PR #216's host lookup for a branch with no ref, which asks about a specific
 branch that the repo-wide list may not contain if it was never opened as a PR.
 That call is bounded by absent branches, not by all branches.
 
-### 4. The cadence knows what a refresh costs
+### 5. The cadence knows what a refresh costs
 
 The board asks the adapter what one refresh costs on the configured host, and
 spaces its polling accordingly. `plot-host.sh backend` already reports which
@@ -154,6 +154,48 @@ host half and stopped short of generalising.
 is the rule the whole day has been about, and streaming makes it load-bearing
 rather than occasional: for most of the scan, most rows are genuinely partial.
 
+### 4. Not every branch is worth asking about
+
+Measured on this repo 2026-08-18, across the 84 branches the scan walks:
+
+| State | Count | Can it still change? |
+|---|---|---|
+| `merged` | **56 (67%)** | **no — terminal** |
+| `open` | 22 | yes |
+| `deferred` | 1 | no |
+
+**Two thirds of the work asks about facts that cannot change.** A merged branch
+stays merged; a deferred one stays deferred until a human edits the plan. The
+scan re-derives both on every pass, at full cost, forever — and the proportion
+worsens as a repo ages, because merged branches accumulate and open ones do not.
+
+So the split is not "important vs unimportant", which would need a judgement
+call the scan has no business making. It is **terminal vs live**, which is a
+property of the state itself:
+
+| Class | Which branches | Refresh |
+|---|---|---|
+| **live** | `open`, `claimed`, `wip`, anything with a worker | every pulse |
+| **terminal** | `merged`, `deferred`, plans that are `Released` | once, then cached until something local changes |
+
+**A terminal answer is cached until git contradicts it.** The invalidation is
+not a timer: if a ref reappears, a plan is edited, or a branch gains commits,
+the cached answer is discarded and the branch rejoins the live class. That
+keeps the cache a *derivation* rather than a *record*, which is the difference
+Principle 1 rests on — nothing is remembered that git cannot re-establish.
+
+**What this must not become.** A cache that survives a contradiction is a lie
+with a long half-life, and this repo has removed that shape repeatedly today: a
+stale tracking ref outranking the host, a `none` printed before the first
+fetch, a timer tick silently dropped. The rule that keeps this one honest is
+that **the cache is checked against git every pulse, and only the host call is
+skipped** — git is local and cheap, the host is remote and metered, and the
+whole saving lives in that asymmetry.
+
+The arithmetic: 22 live branches instead of 84 is a 74% reduction, on top of
+the join. Together they turn ~21 s of host work into a single call about a
+quarter of the branches.
+
 ### What must not change
 
 **A failed lookup must still read as a failure**, never as "no PR". That
@@ -181,6 +223,8 @@ render identically.
 ### Cadence
 
 - `feature/the-board-renders-what-has-arrived` — the scan emits its results as they resolve rather than as one document at the end, and the board renders each row with the sources it has, marking the rest as not-yet-arrived. Measured: git alone is 12.7 s on 84 branches, so even a perfect host fix leaves a wait worth filling. Tests: a row renders from plan facts before any git fact exists; a badge whose source has not arrived is absent rather than zero or guessed; a completed scan renders identically to today's; a scan that fails midway keeps what arrived and says the rest is unknown, rather than discarding the partial result.
+
+- `feature/a-terminal-branch-is-asked-once` — branches in a terminal state (`merged`, `deferred`, and branches of `Released` plans) are asked about once and cached, while live ones are re-derived every pulse. The cache is validated against git on every pass and discarded the moment git contradicts it — a reappearing ref, an edited plan, a new commit — so it stays a derivation rather than a record. Measured: 56 of 84 branches here are terminal, so 67% of the host work asks about facts that cannot change. Tests: a merged branch costs one host call across many pulses; a merged branch whose ref reappears is re-asked on the next pulse; an edited plan invalidates its branches' cached answers; a live branch is never cached; the cache never outlives the process, so a restart re-derives everything.
 
 - `bug/the-cadence-knows-what-a-refresh-costs` — the board's PR refresh accounts for the configured host's per-refresh cost rather than assuming one request. Tests: a Bitbucket-configured board makes measurably fewer requests per hour than the naive cadence; a GitHub-configured board is unchanged; the rate-limit backoff already in `fleet.ts` still holds for its full delay.
 
