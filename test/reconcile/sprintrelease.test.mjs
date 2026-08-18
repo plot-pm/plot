@@ -27,7 +27,7 @@ function run(cwd, ...args) {
 
 // A sprint repo: plans land in delivered/ or active/, items reference them by
 // slug. `release` omitted → no `Release:` line at all, the pre-existing shape.
-function repo({ release, must = [], should = [], could = [], delivered = [], active = [], activeSprint = true, phase = 'Active' } = {}) {
+function repo({ release, must = [], should = [], could = [], delivered = [], active = [], activeSprint = true, phase = 'Active', second } = {}) {
   const w = fs.mkdtempSync(path.join(tmp, 'r-'));
   git(w, 'init', '-q', '-b', 'main');
   git(w, 'config', 'user.email', 'test@example.invalid');
@@ -54,6 +54,12 @@ function repo({ release, must = [], should = [], could = [], delivered = [], act
     '## Retrospective\n\n## Notes\n\nSome note.\n';
   fs.writeFileSync(path.join(w, 'docs/sprints/2026-W34-demo.md'), body);
   if (activeSprint) fs.symlinkSync('../2026-W34-demo.md', path.join(w, 'docs/sprints/active/demo.md'));
+  if (second) {
+    fs.writeFileSync(path.join(w, 'docs/sprints/2026-W34-other.md'),
+      body.replace('# Sprint: Test', '# Sprint: Other')
+          .replace(/### Must Have\n\n[\s\S]*?\n\n### Should/, `### Must Have\n\n${second.must.join('\n')}\n\n### Should`));
+    fs.symlinkSync('../2026-W34-other.md', path.join(w, 'docs/sprints/active/other.md'));
+  }
   git(w, 'add', '-A');
   git(w, 'commit', '-qm', 'init');
   return w;
@@ -209,4 +215,44 @@ test('the phase is reported so the caller can tell an Active sprint from a Close
   // lets /plot-release decide, rather than filtering silently.
   const w = repo({ release: '2.5.2', phase: 'Planning' });
   assert.equal(run(w).phase, 'Planning');
+});
+
+// --- Two teams, one train ---------------------------------------------------
+
+test('two active sprints targeting one release are both reported, not refused', () => {
+  // The plan calls this legitimate — two teams, one train — so the script
+  // answers to both rather than making the caller pick. The output is an
+  // array for exactly this case.
+  const w = repo({
+    release: '2.5.2',
+    must: ['- [ ] [alpha] Do alpha'],
+    active: ['alpha', 'beta'],
+    second: { must: ['- [ ] [beta] Do beta'] },
+  });
+  const r = run(w);
+  assert.equal(r.sprints.length, 2, 'both active sprints are reported');
+  const slugs = r.sprints.map(x => x.sprint).sort();
+  assert.deepEqual(slugs, ['demo', 'other']);
+  for (const sp of r.sprints) {
+    assert.equal(sp.release, '2.5.2', 'each names its own target');
+    assert.equal(sp.must.length, 1);
+    assert.equal(sp.must[0].state, 'open');
+  }
+});
+
+test('with many sprints nothing is mirrored to the top level — picking one would be answering "which?"', () => {
+  const w = repo({ release: '2.5.2', must: ['- [ ] [alpha] Do alpha'], active: ['alpha'], second: { must: [] } });
+  const r = run(w);
+  assert.equal(r.sprint, '', 'no single sprint is promoted');
+  assert.equal(r.must.length, 0, 'and no single sprint\'s items are either');
+  assert.equal(r.sprints.length, 2, 'the facts are all still there, in the array');
+});
+
+test('the single-sprint case is mirrored at top level, so the common read needs no indexing', () => {
+  const w = repo({ release: '2.5.2', must: ['- [ ] [alpha] Do alpha'], active: ['alpha'] });
+  const r = run(w);
+  assert.equal(r.sprints.length, 1);
+  assert.equal(r.sprint, r.sprints[0].sprint);
+  assert.equal(r.release, r.sprints[0].release);
+  assert.deepEqual(r.must, r.sprints[0].must);
 });

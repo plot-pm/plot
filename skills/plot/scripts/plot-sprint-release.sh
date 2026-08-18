@@ -108,7 +108,19 @@ resolve_sprint() { # → "path\tnote"; one side is always empty
   local -a act=()
   while IFS= read -r l; do [ -n "$l" ] && act+=("$l"); done < <(ls "$SPRINT_DIR"/active/*.md 2>/dev/null)
   if [ "${#act[@]}" -eq 0 ]; then printf '\tno active sprint'; return 0; fi
-  if [ "${#act[@]}" -gt 1 ]; then printf '\t%s active sprints; name one' "${#act[@]}"; return 0; fi
+  # TWO ACTIVE SPRINTS MAY TARGET ONE RELEASE — two teams, one train. The plan
+  # calls that legitimate, so this is not refused; the caller gets every active
+  # sprint and answers to all of them. Which is why the output is an ARRAY.
+  if [ "${#act[@]}" -gt 1 ]; then
+    local out="" a t
+    for a in "${act[@]}"; do
+      t=$(cd "$SPRINT_DIR/active" && readlink "$(basename "$a")" 2>/dev/null) || t=""
+      [ -n "$t" ] && a="$SPRINT_DIR/active/$t"
+      out="$out$a"$'\n'
+    done
+    printf '%s\t' "${out%$'\n'}"
+    return 0
+  fi
   # An active entry is a symlink into the sprint dir; resolve it to the real file.
   local target
   target=$(cd "$SPRINT_DIR/active" && readlink "$(basename "${act[0]}")" 2>/dev/null) || target=""
@@ -120,23 +132,13 @@ resolve_sprint() { # → "path\tnote"; one side is always empty
 # note would put the note into FILE and leave the note empty. Measured, not
 # assumed — it is how this line failed the first time.
 _resolved="$(resolve_sprint "${1:-}")"
-FILE="${_resolved%%$'\t'*}"
+FILES="${_resolved%%$'\t'*}"
 resolve_note="${_resolved#*$'\t'}"
 
-if [ -z "$FILE" ] || [ ! -f "$FILE" ]; then
-  printf '{"sprint":"","file":"","phase":"","release":"","note":"%s","must":[],"should":[],"could":[]}\n' \
-    "$(jesc "${resolve_note:-sprint file not found}")"
-  exit 0
-fi
-
-base=$(basename "$FILE" .md)
-# `2026-W34-the-board-tells-the-truth` → `the-board-tells-the-truth`
-SLUG=$(printf '%s' "$base" | sed -E 's/^[0-9]{4}-W?[0-9]{2}(-[0-9]{2})?-//')
-
-# --- Status fields. Read from `## Status` only, so a `Release:` mentioned in
-# --- prose or a retrospective is not mistaken for the declared target.
-status_line() { # $1=field name → value or ""
-  awk -v want="$1" '
+# --- Per-sprint fields. Read from `## Status` only, so a `Release:` mentioned
+# --- in prose or a retrospective is not mistaken for the declared target.
+status_line() { # $1=file $2=field → value or ""
+  awk -v want="$2" '
     /^##[ \t]+Status[ \t]*$/ { in_s=1; next }
     /^##[ \t]/ { in_s=0 }
     in_s {
@@ -150,28 +152,19 @@ status_line() { # $1=field name → value or ""
         if (tolower(k) == tolower(want)) { print v; exit }
       }
     }
-  ' "$FILE"
+  ' "$1"
 }
 
-PHASE=$(status_line "Phase")
-RELEASE=$(status_line "Release")
-# A placeholder is not a declared target. `<version>`/`X.Y.Z` read as absent so
-# a template-shaped sprint behaves exactly like one with no field at all.
-case "$RELEASE" in
-  "<"*">"|"X.Y.Z"|"x.y.z"|"TBD"|"tbd") RELEASE="" ;;
-esac
-
-# --- Items per tier. NOT VALIDATED AS VERSIONS ANYWHERE: the plan is explicit
-# --- that the gate checks Must Haves, never the version string.
-emit_tier() { # $1=heading regex → JSON array
-  local out="[" first=1 line checked slug text delivered state
+# --- Items per tier. THE VERSION IS NEVER VALIDATED ANYWHERE: the plan is
+# --- explicit that the gate checks Must Haves, never the version string.
+emit_tier() { # $1=file $2=heading regex → JSON array
+  local f="$1" out="[" first=1 line checked slug text delivered state
   while IFS= read -r line; do
     case "$line" in
       "- [ ] "*) checked=false ;;
       "- [x] "*|"- [X] "*) checked=true ;;
       *) continue ;;
     esac
-    text=${line#- [?] }
     text=$(printf '%s' "$line" | sed -E 's/^- \[[ xX]\][ ]*//')
     # Strip the automation annotation — it is machinery, not the item's text.
     text=$(printf '%s' "$text" | sed -E 's/[ ]*<!--.*-->[ ]*$//' | sed -E 's/[ \t]+$//')
@@ -184,17 +177,65 @@ emit_tier() { # $1=heading regex → JSON array
     out="$out,\"checked\":$checked,\"delivered\":"
     case "$delivered" in none) out="$out\"none\"" ;; *) out="$out$delivered" ;; esac
     out="$out,\"state\":\"$state\"}"
-  done < <(awk -v want="$1" '
+  done < <(awk -v want="$2" '
     /^###[ \t]/ { in_t = ($0 ~ want) ? 1 : 0; next }
     /^##[ \t]/  { in_t = 0 }
     in_t
-  ' "$FILE")
+  ' "$f")
   printf '%s]' "$out"
 }
 
-printf '{"sprint":"%s","file":"%s","phase":"%s","release":"%s","note":""' \
-  "$(jesc "$SLUG")" "$(jesc "$FILE")" "$(jesc "$PHASE")" "$(jesc "$RELEASE")"
-printf ',"must":%s'   "$(emit_tier '[Mm]ust')"
-printf ',"should":%s' "$(emit_tier '[Ss]hould')"
-printf ',"could":%s'  "$(emit_tier '[Cc]ould')"
-printf '}\n'
+emit_sprint() { # $1=file → one JSON object
+  local f="$1" base slug phase release
+  base=$(basename "$f" .md)
+  # `2026-W34-the-board-tells-the-truth` → `the-board-tells-the-truth`
+  slug=$(printf '%s' "$base" | sed -E 's/^[0-9]{4}-W?[0-9]{2}(-[0-9]{2})?-//')
+  phase=$(status_line "$f" "Phase")
+  release=$(status_line "$f" "Release")
+  # A placeholder is not a declared target. `<version>`/`X.Y.Z` read as absent
+  # so a template-shaped sprint behaves exactly like one with no field at all.
+  case "$release" in
+    "<"*">"|"X.Y.Z"|"x.y.z"|"TBD"|"tbd") release="" ;;
+  esac
+  printf '{"sprint":"%s","file":"%s","phase":"%s","release":"%s"' \
+    "$(jesc "$slug")" "$(jesc "$f")" "$(jesc "$phase")" "$(jesc "$release")"
+  printf ',"must":%s'   "$(emit_tier "$f" '[Mm]ust')"
+  printf ',"should":%s' "$(emit_tier "$f" '[Ss]hould')"
+  printf ',"could":%s'  "$(emit_tier "$f" '[Cc]ould')"
+  printf '}'
+}
+
+# --- Output. `sprints` is an ARRAY because two active sprints may target one
+# --- release (two teams, one train) and the caller must answer to both. The
+# --- top-level `release`/`must`/`should`/`could` mirror the SINGLE sprint when
+# --- there is exactly one, so the common case reads without indexing.
+sprints=""
+first=1
+while IFS= read -r f; do
+  [ -n "$f" ] && [ -f "$f" ] || continue
+  [ $first -eq 1 ] || sprints="$sprints,"
+  first=0
+  sprints="$sprints$(emit_sprint "$f")"
+done <<<"$FILES"
+
+if [ -z "$sprints" ]; then
+  printf '{"sprints":[],"sprint":"","file":"","phase":"","release":"","note":"%s","must":[],"should":[],"could":[]}\n' \
+    "$(jesc "${resolve_note:-sprint file not found}")"
+  exit 0
+fi
+
+# Count the records without a JSON parser: emit_sprint yields exactly one
+# `{"sprint":` per file, so counting that key counts sprints.
+n=$(printf '%s' "$sprints" | grep -o '{"sprint":' | wc -l | tr -d ' ')
+printf '{"sprints":[%s],"note":"%s"' "$sprints" "$(jesc "$resolve_note")"
+if [ "$n" = "1" ]; then
+  # Mirror the single sprint's fields at top level — the overwhelmingly common
+  # shape, and one a caller should not have to index into.
+  one="${sprints#\{}"      # drop the inner object's opening brace
+  one="${one%\}}"          # and its closing one, leaving bare key:value pairs
+  printf ',%s}\n' "$one"  # spliced in, then the OUTER object is closed here
+else
+  # Many sprints: no top-level mirror to pick, because picking one would be
+  # answering "which sprint?" — the question this script refuses to answer.
+  printf ',"sprint":"","file":"","phase":"","release":"","must":[],"should":[],"could":[]}\n'
+fi
