@@ -177,6 +177,47 @@ test('worker-state: `elsewhere` stays the scan\'s alone', () => {
   f.cleanup();
 });
 
+test('worker-state: every answer carries three fields, always', () => {
+  // AN INVARIANT WITH TEETH, because `cut -f` is why it matters. POSIX `cut`
+  // prints a line UNCHANGED when it contains no delimiter, so `cut -f3` on a
+  // bare `none` yields "none" rather than "" — the state word would land in
+  // plot-dispatch's exit-code slot with no error anywhere. Every return here
+  // emits two tabs, including the ones with nothing to put between them, and
+  // the renderer's correctness rests on that rather than on remembering it.
+  const shell = (wt) => execFileSync('bash', ['-c',
+    `. ${JSON.stringify(shared)}; plot_worker_state ${JSON.stringify(wt)} | od -An -c | tr -s ' '`],
+    { encoding: 'utf8' });
+
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wstate-fields-'));
+  const rows = [];
+  const capture = () => {
+    const raw = execFileSync('bash', ['-c',
+      `. ${JSON.stringify(shared)}; plot_worker_state ${JSON.stringify(d)}`],
+      { encoding: 'utf8' });
+    rows.push(raw);
+    return raw;
+  };
+
+  capture();                                                            // none
+  fs.writeFileSync(path.join(d, '.plot-worker.pid'), `${DEAD}\n`);
+  capture();                                                            // ended
+  for (const code of ['0', '3', '', 'abc']) {
+    fs.writeFileSync(path.join(d, '.plot-worker.exit'), `${code}\n`);
+    capture();                                                          // the rest
+  }
+  fs.rmSync(path.join(d, '.plot-worker.exit'));
+  fs.writeFileSync(path.join(d, '.plot-worker.pid'), '0\n');
+  capture();                                                            // none again
+
+  for (const row of rows) {
+    assert.equal(row.split('\t').length, 3,
+      `every row is exactly three tab-separated fields, got ${JSON.stringify(row)}`);
+    assert.doesNotMatch(row, /\n/, `a row is one line, got ${JSON.stringify(row)}`);
+  }
+  assert.ok(shell(d).length > 0, 'and the function is reachable by sourcing alone');
+  fs.rmSync(d, { recursive: true, force: true });
+});
+
 test('worker-state: the classification exists once, not once per consumer', () => {
   // The structural assertion, and the one that actually prevents the regression.
   // The states above could all agree while the logic sat in two places waiting
