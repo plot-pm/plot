@@ -4,12 +4,12 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:**
+- **Approved:** 2026-08-18, jwloka, in-session
 - **Started:**
 - **Delivered:**
 - **Released:**

@@ -4,12 +4,12 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:**
+- **Approved:** 2026-08-18, jwloka, in-session
 - **Started:**
 - **Delivered:**
 - **Released:**
@@ -84,6 +84,43 @@ with one number while the rows it qualifies carry none, so a reader
 checking a single row has to remember that the page's age applies to it.
 Nobody does that, which is the entire report.
 
+### The gap is wider than the cadence, and that was measured
+
+Observed a third time, and this one carries the number:
+
+```
+74 branches across 37 plans · scanned 19s ago · PR data 111s ago · next in 0s
+```
+
+`PR_REFRESH_MS` is 60 000. **111 s is not a stale minute, it is a missed
+refresh** — and the cause is in `fleet.ts`, not on the host: a host call
+was measured at 1.4 s with 4986/5000 core quota remaining, so nothing is
+slow or throttled.
+
+The timer and the gate share one period:
+
+```
+fleet.ts:840  setInterval(() => maybeRefreshPrs(...), PR_REFRESH_MS)   // fires at 60s
+fleet.ts:626  entry.prNextAt = entry.prAt + PR_REFRESH_MS              // prAt is set AFTER the call
+fleet.ts:648  if (entry.prRunning || Date.now() < entry.prNextAt) return
+```
+
+`prAt` is stamped when the fetch *finishes*, so `prNextAt` lands at
+60 s + the call's duration. The tick at 60 s arrives just before it, is
+refused, and the next tick is at 120 s. **Every cycle where the fetch takes
+any time at all costs a whole period**, which is why the observed age sits
+near twice the configured one.
+
+The refusal is correct — `maybeRefreshPrs` must not bypass its gate, and
+the comment at 643-647 says so for the rate-limit case it was written for.
+The defect is that an ordinary tick is indistinguishable from a
+rate-limited one: both are silently dropped, and the display cannot say a
+refresh was skipped.
+
+This is why the section matters beyond first load. A view that is
+*supposed* to be at most 60 s old is routinely 120 s old, and prints the
+same `none` at both ages.
+
 ### Why this is worse for agents than for people
 
 `docs/plans/2026-08-18-the-board-answers-agents.md` exposes these verdicts
@@ -144,6 +181,8 @@ the one it came from.
 ## Branches
 
 - `bug/the-board-says-when-it-has-not-asked` — a first-load state distinct from an empty one, on the sections and rows fed by host data; the git scan's freshness stays its own. Tests: a board rendered before the first PR fetch must not print `none` under WAITING ON A MACHINE, and must not present a branch with no PR data as though it had been checked; after a fetch that finds nothing, `none` reads exactly as today; a row's PR-derived fields never borrow the scan's age.
+
+- `bug/a-refresh-that-never-fires-is-not-a-cadence` — the PR timer stops losing a whole period to its own gate: `prNextAt` measured from the fetch's START rather than its finish, or the timer run at a fraction of the gate so a refused tick is retried within the period rather than a period later. Tests: with a fetch that takes any non-zero time, the observed age must stay under `PR_REFRESH_MS` across several cycles — the measured failure is 111 s against a 60 s setting; a rate-limit backoff must still hold the tick off for its full delay, which is the one case the gate exists for.
 
 ## Notes
 
