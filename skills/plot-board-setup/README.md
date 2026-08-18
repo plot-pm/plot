@@ -54,6 +54,19 @@ checkout is the only signal that distinguishes "your board is serving" from
 "someone else's board owns the port" — and it is a judgment, which is why it
 lives in the skill rather than in a script.
 
+**Reproduced during this branch's own hand-walk, 2026-08-19.** A `curl` against
+7777 found nothing; seconds later `node <artifact>` printed *already running*
+and exited 0, because a board from a *different Plot installation*
+(`~/.claude/skills/plot/scripts/board/board-server.mjs`, pid confirmed via
+`lsof`) had taken the port in between. The fetch returned HTTP 200 — and **3**
+cards, in a checkout holding **59** plan files. Exit code and HTTP status both
+said success; only the card count said whose board it was.
+
+The comparison is order-of-magnitude, not equality. The same walk on a free
+port served **60** cards against those 59 files, because the board also carries
+delivered plans out of the index directories. Sixty against fifty-nine is a
+match; three is not.
+
 ## Why the verify step tolerates one failure
 
 Measured 2026-08-19 in this checkout, with 59 plans: the first run of a
@@ -63,10 +76,15 @@ consecutive runs immediately afterwards each returned the full 22 KB payload,
 and a direct measurement put the warm response at ~1.7 s.
 
 The cold path — first `node` start of that artifact, module load and JIT, over
-a plan directory that size — is the difference. `SKILL.md` therefore asks for a
-second run before a broken board is declared, and asks the agent to say which
-run it is quoting. One failure then a pass is a cold start; two failures are a
-finding.
+a plan directory that size — is the difference. Two later hand-walks put the
+cold fetch at 8.7 s and 9.5 s, both under the 10 s ceiling but not by much, and
+both far above the ~1.7 s warm figure. That is the margin: healthy, and close
+enough to the limit that a loaded machine crosses it.
+
+`SKILL.md` therefore asks for a second run before a broken board is declared,
+and asks the agent to say which run it is quoting. One failure then a pass is a
+cold start; two failures are a finding. Step S4, which owns its own `curl`,
+uses `--max-time 30` for the same reason.
 
 This is a note about the script's margin, not a defect fixed here:
 `plot-board-verify.sh` is wave-1 surface, and widening its timeout is a change

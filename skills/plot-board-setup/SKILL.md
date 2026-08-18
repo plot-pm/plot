@@ -268,19 +268,32 @@ of an exit code.
 evidence. Fetch the running board's own data:
 
 ```bash
-curl -sf --max-time 15 http://localhost:7777/api/board
+curl -sf --max-time 30 http://localhost:7777/api/board
 ```
 
 Assert the same shape step 4b asserts: JSON, a non-empty `columns` array, each
 entry carrying a `phase` and a `cards` array. Do not assert column names.
 
+Allow a generous timeout. Measured 2026-08-19 against a 59-plan repo, the first
+fetch after a cold start took 8.7–9.5 s; a 10 s margin sits close enough to that
+to turn a healthy board into a reported failure.
+
 This step is not optional, and it is what distinguishes the two messages above.
 When the port was already held, the payload comes from **that** board, serving
-**its** working directory — so compare its cards against the probe's
-`plan_files`. Plans you do not recognise, or a card count that cannot be
-reconciled with this repo's plan count, mean the board on 7777 belongs to
-another checkout. Say so, and name the choice: stop that board, or read it
-knowing whose it is.
+**its** working directory — so compare its total card count against the probe's
+`plan_files`. Expect the same order of magnitude, not equality: the board also
+carries delivered plans from the index directories, so a repo with 59 plan
+files legitimately serves ~60 cards.
+
+A count that cannot be reconciled at all is the signal. Measured 2026-08-19:
+`--start` in a 59-plan checkout printed *already running* and the board on 7777
+served **3** cards, because the port was held by a different Plot installation
+running from `~/.claude/skills/`. Three cards is not 59 by any accounting, and
+that mismatch is the only thing that caught it — the exit code was 0 and the
+fetch returned HTTP 200. Say so, and name the choice: stop that board, or read
+it knowing whose it is. **Never stop a board you did not start without asking**
+— it may be another worktree's, and that is the failure the port policy exists
+to avoid.
 
 **S5. Report.** Print the URL, whether *this* invocation started the board or
 found one already there, and the verification result. If the fetch failed, say
