@@ -2649,6 +2649,135 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
+  /**
+   * The WAITING ON A MACHINE section, header and body, as one reader sees it.
+   *
+   * Read from the rendered page rather than from the props, because the whole
+   * defect was a rendering one: every fact needed to tell the two situations
+   * apart was already in the payload and already in the footer, and the section
+   * printed one word for both anyway.
+   */
+  async function machineSection(page: Page): Promise<{ header: string; body: string }> {
+    const header = page.locator('h2', { hasText: 'Waiting on a machine' });
+    await header.waitFor({ timeout: 10_000 });
+    const body = page.locator('ul[aria-label="Waiting on a machine — agent branches"]');
+    await body.waitFor({ timeout: 10_000 });
+    return {
+      header: (await header.textContent()) ?? '',
+      body: (await body.textContent()) ?? '',
+    };
+  }
+
+  it('does not print `none` on a board that has not yet asked the host', async () => {
+    // THE REPORTED DEFECT, rendered. Measured 2026-08-18 from two screenshots
+    // of one board 22 seconds apart: at `PR data 22s ago` the section read
+    // `none` with no status on any row, and 22 seconds later the same board
+    // reported #57 `conflicts`, #196 `checks failing` since the previous day
+    // and #203 `CI running`. Nothing changed on the host. The operator read it
+    // as the board having lost its state; it had not yet fetched it.
+    //
+    // `prAgeSeconds: null` is the contract's own spelling of *it has never
+    // landed — not that it is fresh*, and it is the state every board is in for
+    // the first seconds after it opens.
+    const page = await openAgents(fleet({ prAgeSeconds: null, prNextInSeconds: null }));
+    try {
+      const { header, body } = await machineSection(page);
+      expect(body).not.toContain('none');
+      expect(body).toContain('not checked yet');
+      // And the header says it too, because QUIET and DONE prove a header can
+      // be the only part of a section on screen.
+      expect(header).toContain('not checked yet');
+      // The claim is WITHDRAWN, not merely reworded: the default hint promises
+      // a machine is working on it, which is exactly what an unasked board
+      // cannot support.
+      expect(header).not.toContain('CI will finish');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('reads exactly as today once a fetch has landed and found nothing', async () => {
+    // The other half, and the one a regression would take out silently. After
+    // an answer, `none` is a real observation — nothing is pending — and it
+    // must keep saying so in the same words. A fix that labelled every empty
+    // section `not checked yet` would trade one misreading for another.
+    const page = await openAgents(fleet({ prAgeSeconds: 4 }));
+    try {
+      const { header, body } = await machineSection(page);
+      expect(body).toContain('none');
+      expect(body).not.toContain('not checked yet');
+      expect(header).toContain('nothing — CI will finish');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('keeps ageing a fetched board rather than re-labelling it', async () => {
+    // A FIRST-LOAD STATE, NOT A STALENESS DISPLAY. 111 s against a 60 s
+    // `PR_REFRESH_MS` is the measured miss that
+    // `bug/a-refresh-that-never-fires-is-not-a-cadence` fixes — and it is still
+    // an ANSWER. The footer reports its age; the section must not start
+    // flickering between two labels every minute.
+    const page = await openAgents(fleet({ prAgeSeconds: 111, prNextInSeconds: 0 }));
+    try {
+      const { body } = await machineSection(page);
+      expect(body).toContain('none');
+      expect(body).not.toContain('not checked yet');
+      // The age is the footer's job, and it is still doing it.
+      await page.getByText(/PR data 11\ds ago/).waitFor({ timeout: 10_000 });
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('shows a FAILED first call as an outage, not as not-checked-yet', async () => {
+    // The plan's open question, decided in favour of a fourth state.
+    // `2026-08-17-an-outage-is-not-an-answer.md` (Delivered) established that
+    // an outage must be visible AS an outage: `unasked` clears itself within
+    // seconds and asks the reader for nothing, while this one waits for
+    // somebody to read the error.
+    //
+    // The server draws the same line: `refreshPrs` leaves `prAt` untouched when
+    // the call throws, so a null age BESIDE an error is a first fetch that
+    // failed rather than one not yet made.
+    const page = await openAgents(fleet({ prAgeSeconds: null, prError: 'gh: 503' }));
+    try {
+      const { header, body } = await machineSection(page);
+      expect(body).not.toContain('none');
+      expect(body).toContain('could not reach the host');
+      expect(body).not.toContain('not checked yet');
+      expect(header).toContain('could not reach the host');
+      // The existing banner still carries the message itself — the section says
+      // WHICH state it is in, the banner says what went wrong. Neither
+      // duplicates the other.
+      await page.locator('p', { hasText: 'PR data unavailable' })
+        .waitFor({ timeout: 10_000 });
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('never lets a host-fed section borrow the git scan\'s freshness', async () => {
+    // Two sources, two clocks. The git scan runs every few seconds and the host
+    // every 60, so a board that is git-fresh and host-unfetched is not an edge
+    // case — it is most of every minute, and it is precisely the board that was
+    // misread. A scan one second old must change nothing about what the
+    // unfetched section says.
+    const page = await openAgents(
+      fleet({ ageSeconds: 1, scanNextInSeconds: 3, prAgeSeconds: null, prNextInSeconds: null }));
+    try {
+      const { body } = await machineSection(page);
+      expect(body).toContain('not checked yet');
+      expect(body).not.toContain('none');
+      // Both ages are still reported separately, which is the separation the
+      // section is now honouring rather than replacing.
+      await page.getByText(/scanned \ds ago/).waitFor({ timeout: 10_000 });
+      await page.getByText(/no PR data yet/).waitFor({ timeout: 10_000 });
+    } finally {
+      await page.close();
+    }
+  });
+
   it('shows the WHOLE PR error, however long the path in it', async () => {
     // The message used to be cut at 80 characters, which is short enough to
     // land mid-path — and the cut carried no ellipsis, so

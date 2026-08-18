@@ -98,6 +98,91 @@ export function hostCannotReportCi(rows: readonly AgentRow[]): boolean {
 }
 
 /**
+ * Which clock the host-derived sections were read from.
+ *
+ * Four answers, because the board has four situations and printed one word for
+ * two of them. `none` under WAITING ON A MACHINE was shown both when the host
+ * had answered and reported nothing pending, and when the host had not been
+ * asked at all — opposite situations wanting opposite responses, with the
+ * reassuring one as the default.
+ *
+ * Measured 2026-08-18 from two screenshots of one board 22 seconds apart. At
+ * `PR data 22s ago` the section read `none` and no row carried a status; at
+ * `PR data 4s ago` the same board reported #57 `conflicts`, #196 `checks
+ * failing` since the previous day, and #203 `CI running`. Nothing changed on
+ * the host between them. A branch whose CI had been red overnight presented as
+ * unremarkable, and the operator read the board as having LOST its state when
+ * it had simply not yet fetched it.
+ *
+ * This is `docs/plans/2026-08-17-an-outage-is-not-an-answer.md`'s rule — a
+ * failure to observe must not be reported as an observation — at the one
+ * boundary that plan did not cross. An outage at least produces an error to
+ * carry; a first fetch that has not happened produces nothing at all, which is
+ * how it survived a plan written to catch exactly this shape.
+ *
+ * FOUR STATES, NOT THREE. `unreachable` is deliberately not folded into
+ * `unasked`, and that was the plan's one open question. Both mean *no host
+ * fact is on this board*, so one label would be defensible — but they want
+ * different responses. `unasked` resolves itself in seconds and asks the reader
+ * for nothing; `unreachable` will not resolve until somebody looks at the
+ * error, and `an-outage-is-not-an-answer` is the plan that established an
+ * outage must be visible AS an outage. Collapsing them would re-file a standing
+ * fault as a passing one.
+ *
+ * The distinction costs nothing to compute, because the server already draws
+ * it: `refreshPrs` leaves `prAt` untouched when the call throws (`fleet.ts`),
+ * so a null age beside an error is a FIRST fetch that failed, while a null age
+ * with no error is a fetch not yet made. The footer has read the pair this way
+ * all along — `· no PR data yet` is already gated on both.
+ *
+ * A FIRST-LOAD STATE, NOT A STALENESS DISPLAY. Once the host has answered,
+ * every later answer is `answered` no matter how old, because ordinary ageing
+ * is what the footer reports (`PR data 111s ago`) and re-labelling every
+ * section every 60 s would trade one misreading for a flicker. `prAgeSeconds`
+ * is therefore tested against null and never against a threshold.
+ *
+ * THE SCAN'S OWN AGE IS NOT CONSULTED. `fleet.ageSeconds` dates the git scan,
+ * which is cheap and runs every few seconds; `prAgeSeconds` dates the host,
+ * which is metered and runs every 60. Conflating them into one page age is what
+ * let a git-fresh board read as host-fresh, so a PR-derived field must never
+ * borrow the scan's clock.
+ *
+ * Exported for test.
+ */
+export type HostAnswer = 'answered' | 'unasked' | 'unreachable';
+
+/**
+ * Read the host's answer state off a fleet.
+ *
+ * Reads ONLY the two PR fields. Passing the whole fleet would let a later edit
+ * reach for `ageSeconds` and silently reintroduce the conflation this exists to
+ * remove, so the parameter names exactly what it is allowed to see.
+ */
+export function hostAnswer(
+  fleet: Pick<Fleet, 'prAgeSeconds' | 'prError'>,
+): HostAnswer {
+  if (fleet.prAgeSeconds !== null) return 'answered';
+  return fleet.prError ? 'unreachable' : 'unasked';
+}
+
+/**
+ * What an empty host-fed section says when the host has not answered.
+ *
+ * EVIDENCE, NOT VERDICT. Each says what happened to the call and stops there:
+ * no estimate, no retry count, and above all no *probably fine*. The rule the
+ * scan's own outputs follow — scripts collect, humans conclude (Manifesto
+ * Principle 3).
+ *
+ * Both must avoid the shape of the default hint (*nothing — CI will finish*),
+ * which is a CLAIM about the machines. An empty section that still implies
+ * something is running is the failure being corrected, whatever words it uses.
+ */
+export const HOST_ANSWER_HINT: Record<Exclude<HostAnswer, 'answered'>, string> = {
+  unasked: 'not checked yet',
+  unreachable: 'could not reach the host',
+};
+
+/**
  * Where the collapse state lives.
  *
  * `localStorage`, and that is a deliberate departure. The board's convention for
@@ -3900,10 +3985,28 @@ export function AgentList({
         // WAITING ON A MACHINE is the one group whose default hint makes a
         // CLAIM (*CI will finish*), so it is the one that must withdraw the
         // claim where the host cannot support it — see `hostCannotReportCi`.
+        //
+        // TWO WAYS TO LOSE THE CLAIM, AND NOT-YET-ASKED OUTRANKS CANNOT-REPORT.
+        // `hostCannotReportCi` concludes from the rows that this HOST will
+        // never answer; before the first fetch there are no PR rows to conclude
+        // from, so it answers `false` on its own guard and the section would
+        // fall back to the claiming hint. Asking `hostAnswer` first is what
+        // keeps the earlier, weaker fact from being narrated by the later,
+        // stronger one — and the order matters only because the two are true at
+        // once on a fresh board pointed at Bitbucket.
+        //
+        // THE HINT ONLY, NOT THE LABEL. The section keeps its name so a reader
+        // scanning headers finds it in the same place; what changes is the one
+        // slot that was making the false promise.
+        const answer = hostAnswer(fleet);
         const emptyHint =
-          key === 'waiting-on-machine' && hostCannotReportCi(fleet.rows)
-            ? HOST_CANNOT_REPORT_HINT
-            : hint;
+          key !== 'waiting-on-machine'
+            ? hint
+            : answer !== 'answered'
+              ? HOST_ANSWER_HINT[answer]
+              : hostCannotReportCi(fleet.rows)
+                ? HOST_CANNOT_REPORT_HINT
+                : hint;
         // THE TALLY COUNTS WHAT THE SECTION SHOWS.
         //
         // Everywhere else that is rows, and the number matches what a reader
@@ -4136,8 +4239,25 @@ export function AgentList({
               ) : (
                 // A row of one cell: the grid holds no branches, and saying so
                 // is still a row of the grid rather than something beside it.
+                //
+                // `none` IS AN OBSERVATION, so it is only printed where one was
+                // made. In WAITING ON A MACHINE before the host has answered
+                // the grid is empty because nobody asked, and the word for that
+                // is not the word for an empty answer — the whole defect, in the
+                // one cell a reader lands on after opening the section.
+                //
+                // Said HERE as well as in the header, not instead of it. The
+                // header's hint is the copy a reader sees while scanning, and
+                // the two sections that start folded prove headers can be the
+                // only thing on screen; this cell is what a reader sees once
+                // they open the section and look for the rows. A single site
+                // would leave whichever of those two readings unlabelled.
                 <li role="row" className="px-3 py-2 text-sm text-slate-400 dark:text-slate-600">
-                  <span role="gridcell">none</span>
+                  <span role="gridcell">
+                    {key === 'waiting-on-machine' && answer !== 'answered'
+                      ? HOST_ANSWER_HINT[answer]
+                      : 'none'}
+                  </span>
                 </li>
               )}
             </ul>
