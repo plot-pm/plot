@@ -8,6 +8,7 @@
 - **Delivered:** 2026-07-08
 - **Released:** 2026-07-07, v1.6.0
 - **Type:** feature
+- **Story:** plot-gates
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 
 ## Changelog

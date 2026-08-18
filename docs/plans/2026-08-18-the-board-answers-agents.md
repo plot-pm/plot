@@ -6,6 +6,7 @@
 
 - **Phase:** Approved
 - **Type:** feature
+- **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-18, jwloka, in-session

@@ -6,6 +6,7 @@
 
 - **Phase:** Draft
 - **Type:** feature
+- **Story:** plot-planning-model
 - **Review:** in-session
 - **Impl:** own branches
 
