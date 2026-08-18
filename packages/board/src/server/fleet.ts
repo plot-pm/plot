@@ -1102,15 +1102,6 @@ export function classify(
    */
   workerPid = '',
   /**
-   * What a `stalled` worker left uncommitted — see
-   * `FleetBranchSchema.worker_dirty_paths`. Named in the note so the row
-   * supports the decision it exists for: whether this branch is worth resuming.
-   *
-   * Empty for every other state, and empty is simply nothing to add — no state
-   * changes on account of it.
-   */
-  workerDirtyPaths: readonly string[] = [],
-  /**
    * A local worktree for this branch is holding `.git/index.lock` — see
    * `FleetBranchSchema.local_locked`. A write is in progress at this instant,
    * which is the most direct evidence of activity any of these signals carries.
@@ -1120,11 +1111,26 @@ export function classify(
    * answer, because it is observable only on the machine doing the looking and
    * false is what every branch elsewhere reports.
    *
-   * Last in the parameter list because it is the newest, so every existing caller
-   * is unchanged — a caller with nothing to say about a lock is a caller that
-   * could not look.
+   * Was last in the parameter list when it was the newest; `workerDirtyPaths`
+   * now holds that place, for the same reason and by the same rule.
    */
   localLocked = false,
+  /**
+   * What a `stalled` worker left uncommitted — see
+   * `FleetBranchSchema.worker_dirty_paths`. Named in the note so the row
+   * supports the decision it exists for: whether this branch is worth resuming.
+   *
+   * Empty for every other state, and empty is simply nothing to add — no state
+   * changes on account of it.
+   *
+   * LAST, BECAUSE IT IS THE NEWEST, and that rule is not a style preference
+   * here. Inserting it mid-list silently shifted every argument after it, and
+   * the spread-tuple callers in the suite fed a `boolean` into this slot and
+   * `undefined` into `localLocked` — six tests failed on a lock that had
+   * stopped arriving. The compiler did not object, so position is the only
+   * thing protecting these callers.
+   */
+  workerDirtyPaths: readonly string[] = [],
 ): { group: WaitingGroup; note: string } {
   // A deferred branch is not-started because nobody is working on it — the
   // group is about the claim the row makes, not about the age of its last
@@ -1754,13 +1760,13 @@ export function rowsFromPulse(
           // sprung once already by re-deriving liveness, and this layer only
           // renders what it is handed.
           b.worker, b.worker_exit, b.worker_pid,
-          // What a `stalled` worker left uncommitted, so the note can name it.
-          // Empty for every other state, and empty adds nothing.
-          b.worker_dirty_paths,
           // A write in progress at this instant — the third local signal, and
           // the only one that can go stale before the next poll. Like its two
           // neighbours it may only lift a row out of quiet.
-          b.local_locked);
+          b.local_locked,
+          // What a `stalled` worker left uncommitted, so the note can name it.
+          // Empty for every other state, and empty adds nothing.
+          b.worker_dirty_paths);
         // Derived once, read twice below — and derived from `group` rather than
         // re-deciding it, so a row `classify` placed outside `not-started`
         // cannot pick up a waiting-state by a rule that drifted apart from it.
