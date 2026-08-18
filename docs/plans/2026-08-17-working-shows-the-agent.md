@@ -86,6 +86,36 @@ This plan therefore covers both. The unit is not *the agent* and not *CI*;
 it is **an observable process on this machine**, reported in whichever
 section describes its state.
 
+#### The row nobody holds
+
+That unit has a consequence the two sections above do not yet state, and
+it was measured on 2026-08-18 while merging `bug/one-worker-state-not-two`:
+
+```
+guard: working=0                  <- the agent had exited, cleanly
+PR #218 OPEN, validate pending    <- a machine was working
+```
+
+Exit 0, branch pushed, PR open, CI still running. The row belonged to
+**neither** section: not WORKING, because no agent held it; not WAITING ON
+YOU, because there was nothing yet to review — the checks had not landed.
+
+It is the same defect as the WAITING-ON-YOU misfiling above, arriving from
+the other direction. There, an agent that was still an agent got filed
+under a result. Here, a running process gets filed nowhere, because the
+board asks *who holds this?* before it asks *is anything happening?*
+
+**So the section is decided by the process, not by the holder.** An agent
+is one kind of process, CI is another, a local `vitest` run is a third,
+and a row with any of them running belongs in the section that describes
+that process. A row with a holder AND a running check is in both
+situations at once and must say both — the same way an established row
+already says *working* and *unpushed work* together.
+
+This costs nothing to detect: both facts are already collected, and the
+board reads them today as one field. It is the reading that is too narrow,
+not the data.
+
 ### What is already observable
 
 | Fact | Where |
@@ -193,7 +223,10 @@ UI that implies otherwise would promise a channel that does not exist.
 - `feature/a-local-run-is-a-machine-working` — a process this board can
   see running in its own checkout puts its row in WAITING ON A MACHINE,
   with the same evidence-not-verdict rule: *a test run is in progress
-  here*, never *it will be done in three minutes*
+  here*, never *it will be done in three minutes*. The section is keyed on
+  the process, not on the holder: a row whose agent has exited while its
+  checks still run lands here rather than nowhere, and a row with both an
+  agent and a running check says both
 
 ## Done when
 
@@ -226,6 +259,14 @@ UI that implies otherwise would promise a channel that does not exist.
 - **A HOST-side pending check still lands there too.** Assert the
   existing path is unchanged — this widens the section, it does not
   replace what fills it.
+- **A row whose agent has exited while its checks still run is not
+  homeless.** Assert the measured case: exit 0, branch pushed, PR open,
+  checks pending, no worker alive — it lands in WAITING ON A MACHINE. The
+  pairing that matters: a rule keyed on the holder puts it in no section
+  at all, which is where this case was found.
+- **A row can hold an agent AND a running check at once**, and say both.
+  Assert that gaining a pending check does not evict a live worker from
+  WORKING — the two facts are independent and were only ever one field.
 
 ## Notes
 
