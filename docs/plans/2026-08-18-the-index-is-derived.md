@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Story:** plot-planning-model
 - **Review:** in-session
