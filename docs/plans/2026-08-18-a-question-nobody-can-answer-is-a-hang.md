@@ -153,7 +153,7 @@ the case it is mostly used in. A person at a terminal *should* be asked.
 
 ## Branches
 
-- `feature/skills-know-when-nobody-is-there` — `PLOT_UNATTENDED` documented once and referenced by the skills that ask, with each question site declaring its shape (default / refuse / stop). Tests: a skill under `PLOT_UNATTENDED=1` takes its documented path without calling the question tool; the same skill unset still asks; a gate refuses in both modes; the output names every question that was skipped.
+- `feature/skills-know-when-nobody-is-there` — `PLOT_UNATTENDED` documented once and referenced by the skills that ask, with each question site declaring its shape (default / refuse / stop). Tests: a skill under `PLOT_UNATTENDED=1` takes its documented path without calling the question tool; the same skill unset still asks; a gate refuses in both modes; the output names every question that was skipped. — PR #230
 
 - `feature/the-worker-command-says-nobody-is-watching` — this repo's own `Worker command` and `ralph-plot-sprint`'s loop set the variable, so dispatched workers stop depending on brief wording to avoid the hang. Tests: a dispatched worker runs with the variable set; a brief that says "ask the user" produces a decision or a clean stop rather than a wait.
 
