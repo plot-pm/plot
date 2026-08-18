@@ -156,8 +156,6 @@ test('worker-state: both consumers agree across every state, from one fixture', 
   f.cleanup();
 });
 
-
-
 test('worker-state: `elsewhere` stays the scan\'s alone', () => {
   // The one state the shared classifier does not produce. It answers "this
   // machine has no worktree to look in" — a question about the worktree LIST,
