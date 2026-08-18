@@ -234,6 +234,100 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Squash merges: the case where no local evidence survives at all
+# ---------------------------------------------------------------------------
+#
+# The merge walk above finds a branch whose PR produced a MERGE COMMIT. A
+# squash merge produces none: measured on the merge of PR #209, the commit on
+# the default branch has ONE parent and a subject naming `(#209)` — the PR
+# number, never the branch. So the exhaustive walk has nothing to match, and a
+# branch squash-merged and deleted reads `open`: the same word used for work
+# nobody has started. Its wave never completes, and the next wave stays blocked
+# forever.
+#
+# The data is not missing — it is simply not local. `pr-state` answers in one
+# call, and a branch with NO REF is exactly where that call is worth making:
+# nothing local is left to read, so the host is the only remaining source, and
+# the cost follows the count of ABSENT branches rather than all of them.
+#
+# THE FAILURE DIRECTION IS THE POINT. `plot-host.sh` already separates a lookup
+# miss (exit 0, state NONE) from a transport failure (non-zero) — the
+# distinction it grew on 2026-08-17, when GitHub returned 503 all afternoon and
+# every branch read as having no PR. Both arms land on today's `open` here, and
+# ONLY an explicit "MERGED" may move a branch off it. An unreachable host must
+# never manufacture a `merged`, because `merged` settles a wave and opens the
+# next one on work that may not have landed.
+#
+# GATED ONCE PER RUN, not per branch, and it honours --offline: that flag
+# promises no network, and a scan that promised no network and then called the
+# host would be lying in the direction of a slow ambient pulse. Without a
+# backend — or offline — the lookup is simply never attempted and every branch
+# answers exactly as it did before.
+HOST_LOOKUP_OK=0
+if [ "$do_fetch" = 1 ] \
+   && [ "$("$script_dir/plot-host.sh" backend 2>/dev/null)" != "none" ]; then
+  HOST_LOOKUP_OK=1
+fi
+
+# ONE ANSWER PER BRANCH PER RUN, cached on disk rather than in a variable.
+#
+# `branch_state` is called as `$(branch_state "$br")` — a SUBSHELL — so a
+# variable it assigned would be discarded the moment the substitution closed,
+# and every branch would pay the call again. The board polls this scan every
+# 5 s; a plan whose branches were all squash-merged would otherwise spend one
+# host call per branch, per poll, forever.
+#
+# A directory is the cache because it survives the subshell without restructuring
+# the caller, and it is created per run and removed on exit, so no answer ever
+# outlives the scan that fetched it — a stale `merged` read from a previous run
+# is exactly the fabricated verdict the failure direction above forbids.
+#
+# Cleanup is trapped rather than trailing: the script exits early in several
+# places (--next with nothing to start, no active plans), and a temp directory
+# left behind on those paths would accumulate one per poll.
+HOST_STATE_CACHE=""
+if [ "$HOST_LOOKUP_OK" = 1 ]; then
+  HOST_STATE_CACHE=$(mktemp -d 2>/dev/null) || HOST_STATE_CACHE=""
+  [ -n "$HOST_STATE_CACHE" ] \
+    && trap 'rm -rf "$HOST_STATE_CACHE" 2>/dev/null || true' EXIT INT TERM
+fi
+
+# Does the host say this branch's PR is MERGED? Anything else — OPEN, CLOSED,
+# NONE, an unreachable host, a malformed reply — is NOT a yes.
+#
+# The cache stores the STATE WORD, not the yes/no, so a future reader can tell
+# "asked, answered CLOSED" from "asked, could not reach the host". `-` is the
+# unanswerable marker, and it is cached too: a host that is down stays down for
+# the length of a scan, and re-asking once per branch would multiply an outage
+# by the branch count.
+merged_by_host() { # $1=branch → 0 when the host reports its PR MERGED
+  [ "$HOST_LOOKUP_OK" = 1 ] || return 1
+  local br="$1" st js cache=""
+  # The branch name contains slashes and a flat file per branch needs them
+  # gone, but the mapping must be INJECTIVE. `tr '/' '_'` is not: `feature/a_b`
+  # and `feature_a/b` are both legal refs and collapse to one key, and a
+  # collision here serves one branch's verdict to another — which, when the
+  # verdict is `merged`, settles a wave on a branch nobody looked at. Encoding
+  # `_` first makes the substitution reversible, so distinct refs stay distinct.
+  [ -n "$HOST_STATE_CACHE" ] \
+    && cache="$HOST_STATE_CACHE/$(printf '%s' "$br" | sed 's/_/__/g; s|/|_|g')"
+  if [ -n "$cache" ] && [ -f "$cache" ]; then
+    st=$(cat "$cache" 2>/dev/null)
+  else
+    # Exit code first: non-zero is a transport failure and its stdout is not an
+    # answer. Only then is the payload read.
+    if js=$("$script_dir/plot-host.sh" pr-state "$br" </dev/null 2>/dev/null); then
+      st=$(printf '%s' "$js" | sed -n 's/.*"state":"\([A-Z]*\)".*/\1/p')
+      [ -n "$st" ] || st='-'
+    else
+      st='-'
+    fi
+    [ -n "$cache" ] && printf '%s' "$st" > "$cache" 2>/dev/null
+  fi
+  [ "$st" = "MERGED" ]
+}
+
+# ---------------------------------------------------------------------------
 # Local worktrees: what the refs cannot see
 # ---------------------------------------------------------------------------
 #
@@ -913,6 +1007,12 @@ branch_state() {
     # never started — today's `open` stands. The fix may only move a branch
     # from `open` to `merged`, and only on positive evidence.
     merged_by_subject "$br" && { echo "merged"; return; }
+    # No merge commit names it — which is the ordinary case under a squash
+    # merge, not an exotic one. The local walk is now out of evidence, so the
+    # host is asked. It may only ever move this branch from `open` to `merged`:
+    # a miss, a CLOSED PR, or a host that cannot answer all fall through to the
+    # `open` below, exactly as before this call existed.
+    merged_by_host "$br" && { echo "merged"; return; }
     echo "open"; return
   fi
   # A CLAIM is a branch whose only commits beyond main are claim commits —

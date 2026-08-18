@@ -114,6 +114,17 @@ so an `open` can be weighed rather than trusted blindly:
 Under `truncated` or `none`, do not read `open` as "not started" when advising
 the next action — say what the scan could not see.
 
+**The local walk is not the only source.** A squash merge leaves no merge
+commit, so the walk above cannot see it. When a branch has **no ref at all** —
+nothing local left to read — the scan asks the host once for that branch, and a
+PR reported `MERGED` reads `merged`. This is what lets a wave complete in a
+repo that squash-merges by default.
+
+The lookup is skipped entirely with `--offline`/`--no-fetch`, and when the host
+cannot answer — unreachable, or no PR found — the branch reads `open` exactly
+as it did before. An unreachable host never becomes a fabricated `merged`, so
+an `open` under those conditions still carries the caveat above.
+
 ### 2. Report State
 
 Print the scan body as-is — it is already shaped for reading. Then give the
