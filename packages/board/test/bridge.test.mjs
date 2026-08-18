@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { startServer, fetchRaw, SCRIPTS_DIR, git } from './helpers.mjs';
+import { startServer, fetchRaw, SCRIPTS_DIR, git, rmTree } from './helpers.mjs';
 
 const BRIDGE = '.plot/state/last-pulse.json';
 
@@ -72,7 +72,7 @@ function makeRepo() {
   g('push', 'origin', claimed);
   g('checkout', 'main');
 
-  return { tmp, repo, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) };
+  return { tmp, repo, cleanup: () => rmTree(tmp) };
 }
 
 /**
@@ -95,7 +95,7 @@ function makeBrokenScan() {
     '#!/usr/bin/env bash\necho "scan is broken on purpose" >&2\nexit 3\n',
     { mode: 0o755 },
   );
-  return { dir, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
+  return { dir, cleanup: () => rmTree(dir) };
 }
 
 const fetchFleet = async (port) => JSON.parse((await fetchRaw(port, '/api/fleet')).body);

@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { git } from './helpers.mjs';
+import { git, rmTree } from './helpers.mjs';
 
 /** A scratch repo with one commit, so `git` has something real to do. */
 function makeGitRepo() {
@@ -115,5 +115,73 @@ describe('the test helper retries a held index.lock', () => {
       budget.retries + 1,
       'a lock failure must be retried up to the budget, then rethrown',
     );
+  });
+});
+
+describe('the teardown helper outlasts a process still writing into the tree', () => {
+  // INJECTED, not raced. A real writer cannot be made to lose the race
+  // reliably — measured here, a child recreating the file every 1 ms still let
+  // a plain `rmSync` succeed, so a test built that way would pass whether or
+  // not the retry existed. That is the defect this branch removes, so the
+  // failure is injected instead: the same reason the git test above counts
+  // invocations rather than timing them.
+  //
+  // What is asserted is the retry CONTRACT — transient codes are absorbed,
+  // everything else surfaces at once — which is the whole of what rmTree adds
+  // over `fs.rmSync`.
+  const withFailingRm = (times, code, body) => {
+    const real = fs.rmSync;
+    let calls = 0;
+    fs.rmSync = (...args) => {
+      calls++;
+      if (calls <= times) {
+        const err = new Error(`${code}: injected, '${args[0]}'`);
+        err.code = code;
+        throw err;
+      }
+      return real.apply(fs, args);
+    };
+    try {
+      return { result: body(), calls };
+    } finally {
+      fs.rmSync = real;
+    }
+  };
+
+  it('absorbs a transient ENOTEMPTY and still deletes the tree', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-rmtree-'));
+    fs.mkdirSync(path.join(root, 'outer/.git'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'outer/.git/HEAD'), 'ref: refs/heads/main\n', 'utf8');
+
+    // Three failures then success — the shape of a grandchild `git` that
+    // outlives the SIGTERM sent to the server and writes a few more times.
+    const { calls } = withFailingRm(3, 'ENOTEMPTY', () =>
+      rmTree(root, { retries: 10, delayMs: 1 }),
+    );
+
+    assert.equal(calls, 4, 'it retried past each transient failure, then succeeded');
+    assert.equal(fs.existsSync(root), false, 'the tree is actually gone, not merely attempted');
+  });
+
+  it('gives up on a code patience cannot fix, on the FIRST attempt', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-rmtree-'));
+    // EACCES is not a dying writer, it is a wrong fixture. Retrying it would
+    // spend the whole budget sleeping and then report the same error later —
+    // slower, and no more informative.
+    const { calls } = withFailingRm(99, 'EACCES', () => {
+      assert.throws(() => rmTree(root, { retries: 10, delayMs: 1 }), /EACCES/);
+    });
+    assert.equal(calls, 1, 'a non-transient error must not be retried even once');
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('exhausts a bounded budget rather than looping forever', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-rmtree-'));
+    // A lock that never clears must fail the suite, not hang it.
+    const { calls } = withFailingRm(99, 'ENOTEMPTY', () => {
+      assert.throws(() => rmTree(root, { retries: 3, delayMs: 1 }), /ENOTEMPTY/);
+    });
+    assert.equal(calls, 4, 'retries + 1 attempts, then the real error');
+    fs.rmSync(root, { recursive: true, force: true });
   });
 });

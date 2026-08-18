@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { startServer, fetchBoard, fetchRaw, git } from './helpers.mjs';
+import { startServer, fetchBoard, fetchRaw, git, rmTree } from './helpers.mjs';
 
 /** A plan on the default branch: approved, started — Development. */
 const APPROVED_PLAN = `# The board acts through plot
@@ -140,7 +140,7 @@ function makeRepoUnderReview() {
   return {
     repo,
     draftPath: `docs/plans/${draftName}`,
-    cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }),
+    cleanup: () => rmTree(tmp),
   };
 }
 
@@ -298,7 +298,7 @@ describe('board: a repo with no prefixed branches behaves exactly as before', ()
     // `kill()` only sends the signal, and `rmSync` then raced a live process:
     // three CI failures with `ENOTEMPTY` on this directory's `.git`.
     await server?.stop();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('serves the working-tree plans and an empty Discovery column', async () => {
@@ -360,7 +360,7 @@ describe('board: a plans dir NESTED in an unrelated repo borrows nothing from it
     // `kill()` only sends the signal, and `rmSync` then raced a live process:
     // three CI failures with `ENOTEMPTY` on this directory's `.git`.
     await server?.stop();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('shows only its own plans — never the enclosing repo\'s branch plans', async () => {

@@ -6,7 +6,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { startServer, fetchBoard, makeRepo } from './helpers.mjs';
+import { startServer, fetchBoard, makeRepo, rmTree } from './helpers.mjs';
 
 // ── Plan / sprint / story fixtures ───────────────────────────────────────────
 
@@ -91,7 +91,7 @@ describe('board: contract fields + frontmatter visibility', () => {
 
   after(() => {
     server?.kill();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('returns the 5 workflow phase columns in order', async () => {
@@ -166,7 +166,7 @@ describe('board: missing optional dirs', () => {
   });
   after(() => {
     server?.kill();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('serves a valid empty-ish board when sprints/stories dirs are absent', async () => {
@@ -191,7 +191,7 @@ describe('board: symlink dedup + broken symlink tolerance', () => {
   });
   after(() => {
     server?.kill();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('counts a plan symlinked from active/ exactly once, ignoring broken links', async () => {
@@ -215,7 +215,7 @@ describe('board: a directory named *.md is ignored, not fed to the parser', () =
   });
   after(() => {
     server?.kill();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('still serves the real plan and does not error on the .md directory', async () => {
@@ -244,7 +244,7 @@ describe('board: Approved splits into Ready vs In progress via Started records',
 
   after(() => {
     server?.kill();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('an Approved plan with no Started record sits at the end of Design', async () => {
@@ -315,7 +315,7 @@ describe('board: PR numbers reach the card, links never get invented', () => {
   });
   after(() => {
     server?.kill();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('carries every PR number the plan names, in order', async () => {
@@ -404,7 +404,7 @@ describe('board: a card carries its interrogation round, or carries nothing', ()
   });
   after(() => {
     server?.kill();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   const cardOf = (board, slug) =>

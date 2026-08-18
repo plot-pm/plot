@@ -23,6 +23,24 @@ the helper survives it. A non-lock error still fails on the first attempt. The
 race is load-dependent — it failed in CI under four-agent load and passed 11/11
 in isolation — so neither test relies on the race happening.
 
+The same race also broke teardown. `after()` hooks await `server.stop()`, but
+that resolves when the server process exits — not when the git children it
+spawned mid-scan do. A grandchild is outside the scope of that SIGTERM, so it
+can still write into the fixture while `rmSync` walks it, and `rmdir` then fails
+with ENOTEMPTY. CI failed exactly this way on `outer/.git`. Awaiting the server
+was the earlier attempt at this and did not hold, because it addressed the
+process that was waited for rather than the ones that were not.
+
+A matching `rmTree` helper retries only ENOTEMPTY/EBUSY/EPERM, and every
+suite that starts a server against a git repo now uses it. `read-ref` also
+carried its own non-retrying copy of the git helper; it now imports the shared
+one, so there is again a single implementation.
+
+Its tests inject the failure rather than race for it: a real writer could not be
+made to lose reliably — measured, a child recreating the file every 1 ms still
+let a plain `rmSync` succeed — so a test built that way would pass whether or
+not the retry existed.
+
 <!--
 bumps:
   skills:
