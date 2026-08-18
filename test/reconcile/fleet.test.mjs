@@ -1090,6 +1090,264 @@ test('fleet: --json carries the merged state and the detection source', () => {
   f.cleanup();
 });
 
+// --- squash merges: the case with no local evidence at all -------------------
+//
+// The walk above finds a branch whose PR produced a MERGE COMMIT. A squash
+// merge produces none — one parent, and a subject naming the PR number rather
+// than the branch — so a branch squash-merged and deleted reads `open`, the
+// same word used for work nobody has started. Its wave never completes and the
+// next wave stays blocked forever, which is what makes this a defect rather
+// than a cosmetic one.
+//
+// The remaining source is the host, and these tests pin BOTH directions: the
+// answer it supplies, and the answer it must never fabricate.
+
+// A shim directory holding every real script with plot-host.sh replaced. The
+// scan resolves its siblings by path, so the copy is what makes the stub
+// reachable — the same shape the --loose host tests use.
+function hostShim(body) {
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-sqhost-'));
+  const realScripts = path.dirname(scan);
+  fs.mkdirSync(path.join(shim, 'scripts'));
+  for (const f of fs.readdirSync(realScripts)) {
+    if (f.endsWith('.sh')) fs.copyFileSync(path.join(realScripts, f), path.join(shim, 'scripts', f));
+  }
+  fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), body);
+  fs.chmodSync(path.join(shim, 'scripts', 'plot-host.sh'), 0o755);
+  return {
+    scan: path.join(shim, 'scripts', 'plot-fleet-scan.sh'),
+    dir: shim,
+    cleanup() { fs.rmSync(shim, { recursive: true, force: true }); },
+  };
+}
+
+// Squash-merge `br` the way GitHub does: replay its tree onto the default
+// branch as ONE commit whose subject names the PR number, never the branch.
+function squashMerge(f, br, pr, main = 'main') {
+  git(f.dir, 'checkout', '-q', main);
+  git(f.dir, 'merge', '-q', '--squash', br);
+  git(f.dir, 'commit', '-qm', `feat: the work (#${pr})`);
+  // The premise, pinned rather than assumed: a squash merge has ONE parent, so
+  // the merge walk has nothing to match. If git ever changed this, the tests
+  // below would still pass while testing something else.
+  const parents = git(f.dir, 'log', '-1', '--format=%p').trim().split(/\s+/);
+  assert.equal(parents.length, 1, 'a squash merge must produce a single-parent commit');
+}
+
+test('fleet: a squash-merged, deleted branch reports merged and completes its wave', () => {
+  // The defect, end to end. Wave One's only branch was squash-merged and its
+  // ref deleted; nothing local names it. The wave must complete — and wave Two
+  // must become eligible, which is the consequence that matters: a wave that
+  // cannot complete blocks its successor permanently.
+  const f = makeRepo('plot-fleet-squash-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/squashed` — squash-merged and deleted\n\n### Two\n' +
+    '- `feature/next` — waits on wave one\n');
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 42);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state)
+    case "$2" in
+      feature/squashed) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+      *) echo '{"state":"NONE"}' ;;
+    esac ;;
+  *) echo "{}" ;;
+esac
+`);
+  // No --offline: that flag promises no network, and the host is the point.
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/squashed'), / — merged$/,
+    'a squash-merged branch is merged, not open');
+  assert.match(waveLine(out, 'One'), / — complete$/);
+  assert.match(waveLine(out, 'Two'), / — eligible$/,
+    'the successor wave must become reachable — the blocked-forever symptom');
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: an unreachable host keeps open — it never fabricates merged', () => {
+  // THE LOAD-BEARING DIRECTION. On 2026-08-17 GitHub returned 503 all
+  // afternoon; a scan that read an outage as MERGED would settle waves on work
+  // that never landed and open the next wave onto a seam that does not exist.
+  // `plot-host.sh` exits non-zero on transport failure, and that must degrade
+  // to exactly the answer this scan gave before the host was ever consulted.
+  const f = makeRepo('plot-fleet-squash503-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/squashed` — squash-merged and deleted\n\n### Two\n' +
+    '- `feature/next` — waits on wave one\n');
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 42);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo "plot-host: HTTP 503 (server error)" >&2; exit 1 ;;
+  *) echo "{}" ;;
+esac
+`);
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/squashed'), / — open$/,
+    'an unreachable host must never become a fabricated merged');
+  assert.match(waveLine(out, 'One'), / — eligible$/);
+  assert.match(waveLine(out, 'Two'), / — blocked$/,
+    'and the wave arithmetic must read exactly as it did before');
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: a host reporting NONE or CLOSED leaves the branch open', () => {
+  // The other two arms of the three-way reply. Only an explicit MERGED may
+  // move a branch off `open`: a lookup miss means no PR was ever opened, and a
+  // CLOSED PR means the work was abandoned — neither is landed work, and
+  // reading either as `merged` would settle a wave on nothing.
+  const f = makeRepo('plot-fleet-squashnone-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/nopr` — never had a PR\n- `feature/closed` — PR closed unmerged\n');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state)
+    case "$2" in
+      feature/closed) echo '{"number":9,"state":"CLOSED","draft":false,"url":"x"}' ;;
+      *) echo '{"state":"NONE"}' ;;
+    esac ;;
+  *) echo "{}" ;;
+esac
+`);
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/nopr'), / — open$/);
+  assert.match(branchLine(out, 'feature/closed'), / — open$/,
+    'a closed, unmerged PR is not landed work');
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: the host is asked once per absent branch, and never for a present ref', () => {
+  // COST, which is what decides whether this can live under a 5-second poll.
+  // `branch_state` runs inside a command substitution — a subshell — so a
+  // cached answer held in a variable would be discarded and every branch would
+  // pay again. The count is asserted rather than assumed: one call for the
+  // absent branch, none for the branch whose ref is still there, and no repeat.
+  const f = makeRepo('plot-fleet-squashcost-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/gone` — squash-merged and deleted\n- `feature/here` — still pushed\n');
+  f.work('feature/gone', 'g.txt');
+  f.push('-u', 'origin', 'feature/gone');
+  squashMerge(f, 'feature/gone', 42);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/gone');
+  f.work('feature/here', 'h.txt');
+  f.push('-u', 'origin', 'feature/here');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const h = hostShim(`#!/usr/bin/env bash
+[ "$1" = pr-state ] && printf '%s\\n' "$2" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  const calls = path.join(h.dir, 'calls.txt');
+  execFileSync('bash', [h.scan, 'p'], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PLOT_TEST_CALLS: calls },
+  });
+  const asked = fs.readFileSync(calls, 'utf8').split('\n').filter(Boolean);
+  assert.deepEqual(asked, ['feature/gone'],
+    'exactly one call, for the branch with no ref — a present ref answers locally');
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: --offline asks no host, so a squashed branch still reads open', () => {
+  // --offline promises no network and the board's ambient pulse relies on it.
+  // The host lookup is gated on the same flag: an offline scan reports exactly
+  // what it reported before this fix existed. A stub that fails loudly on any
+  // call would be indistinguishable from an outage here, so the CALL ITSELF is
+  // what the assertion watches.
+  const f = makeRepo('plot-fleet-squashoffline-', ONE_WAVE('feature/squashed'));
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 42);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  const h = hostShim(`#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  const calls = path.join(h.dir, 'calls.txt');
+  const out = execFileSync('bash', [h.scan, '--offline', 'p'], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PLOT_TEST_CALLS: calls },
+  });
+  assert.match(branchLine(out, 'feature/squashed'), / — open$/,
+    '--offline keeps the pre-fix answer rather than reaching the host');
+  assert.equal(fs.existsSync(calls), false,
+    `--offline must make no host call, saw: ${
+      fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8') : ''}`);
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: a recreated branch is not merged, whatever the host remembers', () => {
+  // The ordering invariant, now with a second way to break it. A branch name
+  // can be reused: merge `feature/retry`, delete it, recreate it for a second
+  // attempt. The host still answers MERGED — about the FIRST attempt — while
+  // the branch of that name carries new work that has not landed.
+  //
+  // The host lookup is safe only BY PLACEMENT, inside the no-ref arm. A
+  // recreated branch HAS a ref, so it must never reach the lookup at all.
+  const f = makeRepo('plot-fleet-squashreuse-', ONE_WAVE('feature/retry'));
+  f.work('feature/retry', 'a.txt');
+  f.push('-u', 'origin', 'feature/retry');
+  squashMerge(f, 'feature/retry', 42);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/retry');
+  // Deleting the REMOTE ref leaves the local branch behind; the second attempt
+  // recreates the name, which is the whole premise here.
+  git(f.dir, 'checkout', '-q', 'main');
+  git(f.dir, 'branch', '-qD', 'feature/retry');
+  // Second attempt, unlanded.
+  f.work('feature/retry', 'b.txt');
+  f.push('-u', 'origin', 'feature/retry');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/retry'), / — in progress$/,
+    'stale host evidence must not settle a wave on unlanded work');
+  h.cleanup();
+  f.cleanup();
+});
+
 // --- a worktree with uncommitted work is not quiet ---------------------------
 //
 // The fleet derives state from refs, and an agent editing files writes none —
