@@ -1386,6 +1386,232 @@ esac
   f.cleanup();
 });
 
+// --- the stale tracking ref: a leftover that DISABLES the host lookup --------
+//
+// `git fetch` does not remove remote-tracking refs for branches deleted
+// upstream; only `--prune` does. So a branch merged with --delete-branch
+// leaves `refs/remotes/origin/<br>` behind on every machine that fetched it.
+//
+// That leftover is not cosmetic. branch_state() picks its arm on the ref's
+// PRESENCE: with the ref there the scan takes the ancestry path, which a
+// squash merge breaks by construction, and the host lookup that would have
+// answered `merged` lives in the other arm and is never reached. Measured
+// 2026-08-18 — a wave could not be dispatched at all until someone happened to
+// prune by hand.
+//
+// The distinction these tests turn on: the deletion must happen SOMEWHERE
+// ELSE. `push origin --delete` from the repo under test removes that repo's
+// tracking ref as a side effect, which is why every test above it passes
+// without a prune. A SECOND CLONE deleting the branch is what the host does at
+// merge, and it is the only shape that leaves the stale ref behind.
+function deleteUpstreamElsewhere(f, br) {
+  const other = path.join(f.root, `other-${br.replace(/[^a-z0-9]/gi, '-')}`);
+  git(f.root, 'clone', '-q', path.join(f.root, 'origin.git'), other);
+  git(other, 'config', 'user.email', 'test@example.invalid');
+  git(other, 'config', 'user.name', 'Plot Test');
+  git(other, 'push', '-q', 'origin', '--delete', br);
+}
+
+test('fleet: a stale tracking ref does not outrank the host', () => {
+  // The defect end to end. The branch was squash-merged and deleted UPSTREAM,
+  // but this checkout still holds its tracking ref. The ref must be pruned by
+  // the scan's own fetch, so the no-ref arm is entered and the host answers.
+  //
+  // This test FAILS against the unpruned script — verified by stashing the fix
+  // and running it, which reported `in progress` / blocked. A test that passes
+  // both ways would not be testing this.
+  const f = makeRepo('plot-fleet-staleref-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/squashed` — squash-merged, deleted upstream\n\n### Two\n' +
+    '- `feature/next` — waits on wave one\n');
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 42);
+  f.push('origin', 'main');
+  deleteUpstreamElsewhere(f, 'feature/squashed');
+  // The local branch goes; the stale REMOTE-TRACKING ref is what remains, and
+  // it is the whole premise. Pinned rather than assumed — if a future git
+  // pruned on plain fetch, this test would still pass while testing nothing.
+  git(f.dir, 'checkout', '-q', 'main');
+  git(f.dir, 'branch', '-qD', 'feature/squashed');
+  assert.equal(
+    git(f.dir, 'for-each-ref', '--format=%(refname)',
+      'refs/remotes/origin/feature/squashed').trim(),
+    'refs/remotes/origin/feature/squashed',
+    'the premise: a stale tracking ref survives a deletion made elsewhere');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state)
+    case "$2" in
+      feature/squashed) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+      *) echo '{"state":"NONE"}' ;;
+    esac ;;
+  *) echo "{}" ;;
+esac
+`);
+  // No --offline: the fetch is what prunes, and the prune is the point.
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/squashed'), / — merged$/,
+    'a stale ref must not keep a squash-merged branch in wip');
+  assert.match(waveLine(out, 'One'), / — complete$/);
+  assert.match(waveLine(out, 'Two'), / — eligible$/,
+    'the consequence that mattered: the next wave could not be dispatched');
+  assert.equal(
+    git(f.dir, 'for-each-ref', '--format=%(refname)',
+      'refs/remotes/origin/feature/squashed').trim(), '',
+    'the scan’s fetch must have pruned the ref it no longer has upstream');
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: the prune uses an explicit refspec — a narrow fetch prunes nothing', () => {
+  // THE TRAP, pinned. `git fetch --prune origin <main>` prunes only
+  // `refs/remotes/origin/<main>`: naming a refspec scopes the prune to that
+  // refspec's destination namespace. The obvious fix — a bare `--prune` on the
+  // narrow fetch this scan already makes — is therefore a NO-OP for exactly
+  // the branches the prune exists to clear.
+  //
+  // Asserted against git directly rather than through the scan, because it is
+  // git's behaviour that makes the scan's refspec load-bearing. If a future git
+  // changed this, the line in the scan would look redundant and be removed.
+  const f = makeRepo('plot-fleet-prunescope-', ONE_WAVE('feature/gone'));
+  f.work('feature/gone', 'g.txt');
+  f.push('-u', 'origin', 'feature/gone');
+  deleteUpstreamElsewhere(f, 'feature/gone');
+  const ref = () => git(f.dir, 'for-each-ref', '--format=%(refname)',
+    'refs/remotes/origin/feature/gone').trim();
+
+  git(f.dir, 'fetch', '-q', '--prune', 'origin', 'main');
+  assert.equal(ref(), 'refs/remotes/origin/feature/gone',
+    'a refspec-scoped prune leaves refs outside that refspec alone');
+
+  git(f.dir, 'fetch', '-q', '--prune', 'origin', 'main',
+    '+refs/heads/*:refs/remotes/origin/*');
+  assert.equal(ref(), '',
+    'restating the heads refspec is what widens the prune to the whole mirror');
+  f.cleanup();
+});
+
+test('fleet: pruning never touches a live ref — unmerged work still reads wip', () => {
+  // The other direction. A branch with a ref and real unlanded work must be
+  // untouched by the prune and keep reading `wip`, whatever the host says
+  // about anything. A prune that removed live refs would report in-flight work
+  // as merged and open the next wave onto it.
+  const f = makeRepo('plot-fleet-prunelive-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/working` — real work, unlanded\n' +
+    '- `feature/squashed` — merged and deleted upstream\n');
+  f.work('feature/working', 'w.txt');
+  f.push('-u', 'origin', 'feature/working');
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 42);
+  f.push('origin', 'main');
+  deleteUpstreamElsewhere(f, 'feature/squashed');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/working'), / — in progress$/,
+    'a live ref with unlanded work is not the prune’s business');
+  assert.match(branchLine(out, 'feature/squashed'), / — merged$/);
+  assert.equal(
+    git(f.dir, 'for-each-ref', '--format=%(refname)',
+      'refs/remotes/origin/feature/working').trim(),
+    'refs/remotes/origin/feature/working',
+    'a branch the remote still has must keep its tracking ref');
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: a recreated branch survives the prune and is never merged', () => {
+  // The ordering invariant, re-pinned against the prune. The no-ref arm's
+  // placement is what keeps a recreated branch honest, and pruning is safe
+  // only because it does not reorder those arms — it removes refs the remote
+  // no longer has, and a recreated branch IS on the remote.
+  //
+  // The distinguishing shape: a stale ref for a DIFFERENT branch is present
+  // and pruneable in the same run, so a prune that removed refs indiscriminately
+  // would take the recreated branch's ref too and hand it to the host, which
+  // still answers MERGED about the first attempt.
+  const f = makeRepo('plot-fleet-prunereuse-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/retry` — recreated for a second attempt\n' +
+    '- `feature/done` — merged and deleted upstream\n');
+  f.work('feature/done', 'd.txt');
+  f.push('-u', 'origin', 'feature/done');
+  squashMerge(f, 'feature/done', 41);
+  f.push('origin', 'main');
+  deleteUpstreamElsewhere(f, 'feature/done');
+
+  f.work('feature/retry', 'a.txt');
+  f.push('-u', 'origin', 'feature/retry');
+  squashMerge(f, 'feature/retry', 42);
+  f.push('origin', 'main');
+  deleteUpstreamElsewhere(f, 'feature/retry');
+  git(f.dir, 'checkout', '-q', 'main');
+  git(f.dir, 'branch', '-qD', 'feature/retry');
+  // The second attempt: same name, new work, pushed — so the ref is LIVE.
+  f.work('feature/retry', 'b.txt');
+  f.push('-u', 'origin', 'feature/retry');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/retry'), / — in progress$/,
+    'stale host evidence must not settle a wave on unlanded work');
+  assert.match(branchLine(out, 'feature/done'), / — merged$/,
+    'the pruneable ref in the same run must still have been pruned');
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: --offline cannot prune, and says so', () => {
+  // The decided answer to the plan's Open Point. --offline skips the fetch, so
+  // it cannot prune; a stale ref survives and the branch reads `wip`. That is
+  // honest for a scan that asked nothing — but it must be STATED, because the
+  // symptom (a finished wave that will not complete) looks nothing like
+  // "you passed --offline".
+  const f = makeRepo('plot-fleet-offlineprune-', ONE_WAVE('feature/squashed'));
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 42);
+  f.push('origin', 'main');
+  deleteUpstreamElsewhere(f, 'feature/squashed');
+  git(f.dir, 'checkout', '-q', 'main');
+  git(f.dir, 'branch', '-qD', 'feature/squashed');
+
+  const out = f.run();   // f.run() passes --offline
+  assert.match(branchLine(out, 'feature/squashed'), / — in progress$/,
+    'an offline scan keeps whatever local refs exist — the honest answer');
+  assert.match(out, /--offline skipped the fetch, so stale remote-tracking refs were/,
+    'the consequence must be stated, not left to be discovered');
+  assert.match(out, /may read wip/);
+  assert.equal(
+    git(f.dir, 'for-each-ref', '--format=%(refname)',
+      'refs/remotes/origin/feature/squashed').trim(),
+    'refs/remotes/origin/feature/squashed',
+    '--offline must not reach the network to prune');
+  f.cleanup();
+});
+
 // --- a worktree with uncommitted work is not quiet ---------------------------
 //
 // The fleet derives state from refs, and an agent editing files writes none —

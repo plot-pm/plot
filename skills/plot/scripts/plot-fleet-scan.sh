@@ -2,7 +2,13 @@
 # Plot helper: fleet pulse — deterministic extractor for wave/claim state.
 # Usage: plot-fleet-scan.sh [--no-fetch] [--offline] [--next] [<slug>]
 #   --no-fetch  skip `git fetch`
-#   --offline   same (no network) — used for cheap, ambient pulses
+#   --offline   same (no network) — used for cheap, ambient pulses.
+#               The fetch also PRUNES remote-tracking refs, so skipping it
+#               keeps whatever stale refs this checkout holds: a branch merged
+#               and deleted upstream may read `wip` rather than `merged`, and
+#               its wave may read blocked. That is the honest answer for a scan
+#               that asked nothing, and the footer says so rather than leaving
+#               it to be discovered.
 #   --list-eligible  print EVERY claimable branch, one per line (exit 1 if none).
 #               For callers that need the count rather than one item — a dry
 #               run changes nothing, so its answer cannot go stale.
@@ -163,10 +169,46 @@ fi
 #
 # --offline/--no-fetch is NOT a failure. The operator asked for local refs and
 # got them; there is nothing to report but the fact that no fetch was tried.
+#
+# THE FETCH PRUNES WHAT IT FETCHES. `git fetch` does not remove
+# remote-tracking refs for branches deleted upstream; only `--prune` does. A
+# branch merged with --delete-branch therefore leaves `refs/remotes/origin/<br>`
+# behind on every machine that ever fetched it, and it survives until somebody
+# prunes for unrelated reasons. That leftover is not noise: branch_state()
+# picks its arm on the ref's PRESENCE, so a stale ref routes the branch into
+# the ancestry path — which a squash merge breaks by construction — and the
+# host lookup that would have answered `merged` is never reached. Measured
+# 2026-08-18: a wave could not be dispatched at all until an operator happened
+# to run `git fetch --prune` by hand.
+#
+# THE EXPLICIT REFSPEC IS REQUIRED, and this is the part that is easy to get
+# wrong: `git fetch --prune origin "$MAIN"` prunes NOTHING outside $MAIN.
+# Naming a refspec scopes the prune to that refspec's destination namespace, so
+# the narrow fetch this scan makes would prune only `refs/remotes/origin/$MAIN`
+# — a no-op for exactly the branches this exists to clear. Restating the
+# default heads refspec widens the prune back to the whole mirror while the
+# narrow one keeps the intent legible: fetch $MAIN, and while the connection is
+# open, make the local mirror match the remote.
+#
+# NOTHING HERE DEPENDS ON A STALE REF SURVIVING. The case to fear is a branch
+# deleted upstream while a local worktree still holds work: `local_ahead_of()`
+# reads `refs/remotes/origin/<br>..refs/heads/<br>`, so pruning removes its left
+# side. It already answers 0 on a missing ref by exit code rather than by
+# emptiness ("not observed → not reported"), which is the same answer it gives
+# for every branch living on another machine — so the count degrades to absent,
+# never to a wrong number. `local_dirty`, `local_locked` and `local_worktree`
+# read the worktree, not the mirror, so uncommitted work stays visible either
+# way. Conflict prediction is gated to wip|claimed and a pruned branch is
+# neither. The local `refs/heads/<br>` is untouched: --prune removes only
+# remote-tracking refs, so no local work is destroyed or hidden by this.
+#
+# ONE CONNECTION, NOT TWO. The prune rides the fetch already being made — no
+# extra round trip on a scan the board polls every five seconds.
 FETCH_FAILED=0
 FETCH_ERROR=""
 if [ "$do_fetch" = 1 ]; then
-  if ! FETCH_ERROR=$(git fetch -q origin "$MAIN" 2>&1); then
+  if ! FETCH_ERROR=$(git fetch -q --prune origin "$MAIN" \
+                       "+refs/heads/*:refs/remotes/origin/*" 2>&1); then
     FETCH_FAILED=1
     # Collapsed to one line: git's multi-line advice is for a human at a
     # terminal, and this string travels through JSON into a board cell.
@@ -336,16 +378,26 @@ if [ "$HOST_LOOKUP_OK" = 1 ]; then
     && trap 'rm -rf "$HOST_STATE_CACHE" 2>/dev/null || true' EXIT INT TERM
 fi
 
-# Does the host say this branch's PR is MERGED? Anything else — OPEN, CLOSED,
-# NONE, an unreachable host, a malformed reply — is NOT a yes.
-#
-# The cache stores the STATE WORD, not the yes/no, so a future reader can tell
+# The cache stores the STATE WORD, not a yes/no, so a future reader can tell
 # "asked, answered CLOSED" from "asked, could not reach the host". `-` is the
 # unanswerable marker, and it is cached too: a host that is down stays down for
 # the length of a scan, and re-asking once per branch would multiply an outage
 # by the branch count.
-merged_by_host() { # $1=branch → 0 when the host reports its PR MERGED
-  [ "$HOST_LOOKUP_OK" = 1 ] || return 1
+#
+# The host's PR state word for a branch, cached once per branch per run.
+#
+# SPLIT OUT OF `merged_by_host` so a SECOND question can reuse the SAME cached
+# reply. `worker_of` needs to know whether an OPEN PR exists — the fact that
+# outranks everything in the worker classification — and `merged` does not
+# answer it: a branch under review reads `wip` by ancestry and MERGED by
+# neither. Asking the host again would double the per-branch cost this cache
+# exists to avoid, on a scan the board polls every 5 s.
+#
+# Returns the STATE WORD, or `-` when the question could not be answered —
+# never a yes/no, so each caller applies its own test and a reader can still
+# tell "asked, answered CLOSED" from "asked, could not reach the host".
+host_pr_state() { # $1=branch → OPEN|MERGED|CLOSED|NONE|-
+  [ "$HOST_LOOKUP_OK" = 1 ] || { printf '%s' '-'; return; }
   local br="$1" st js cache=""
   # The branch name contains slashes and a flat file per branch needs them
   # gone, but the mapping must be INJECTIVE. `tr '/' '_'` is not: `feature/a_b`
@@ -368,7 +420,31 @@ merged_by_host() { # $1=branch → 0 when the host reports its PR MERGED
     fi
     [ -n "$cache" ] && printf '%s' "$st" > "$cache" 2>/dev/null
   fi
-  [ "$st" = "MERGED" ]
+  printf '%s' "$st"
+}
+
+# Does the host say this branch's PR is MERGED? Anything else — OPEN, CLOSED,
+# NONE, an unreachable host, a malformed reply — is NOT a yes. Unchanged in
+# behaviour; only the lookup underneath it is now shared.
+merged_by_host() { # $1=branch → 0 when the host reports its PR MERGED
+  [ "$(host_pr_state "$1")" = "MERGED" ]
+}
+
+# Has this branch's work REACHED REVIEW — an open or merged PR?
+#
+# The fact that outranks every local signal in the worker classification: work
+# under review has left the worker's hands, so leftover edits in its worktree
+# are not unfinished work. OPEN and MERGED both count; CLOSED does not, because
+# a closed PR is work that was rejected or withdrawn and whatever sits in the
+# worktree is back on the floor.
+#
+# UNANSWERABLE IS NOT A YES, and the direction matters. `-` — offline, no
+# backend, a host returning 503 all afternoon — must not manufacture the state
+# that tells a reader to stop looking. It falls through to the local signals,
+# so a branch with work on the floor reads `stalled`: go and look. That is the
+# safe direction for an answer nobody could verify.
+reached_review() { # $1=branch → 0 when an open or merged PR exists
+  case "$(host_pr_state "$1")" in OPEN|MERGED) return 0 ;; *) return 1 ;; esac
 }
 
 # ---------------------------------------------------------------------------
@@ -595,7 +671,21 @@ worker_of() { # $1=branch → "state\tpid\texit"
   # Everything below the worktree is the shared classifier's answer, already in
   # the tab-separated shape this function returns. plot-dispatch renders the
   # same facts as prose for `--status`.
-  plot_worker_state "$wt"
+  #
+  # THE PR FACT TRAVELS AS AN ARGUMENT, computed HERE where the host is already
+  # being asked and the answer is already cached. The classifier is called once
+  # per branch inside this loop and must not fork a `gh` of its own — and it
+  # must not break `--offline`, which promises no network. Both are properties
+  # of this caller, not of the classification, so the caller supplies the fact
+  # exactly as it supplies `elsewhere` above.
+  #
+  # `$st` IS NOT THIS FACT. It answers a ref/ancestry question — a branch under
+  # review reads `wip` — and `merged` there can come from a merge subject with
+  # no PR behind it at all. `reached_review` asks the one question that
+  # outranks the local signals: has this work left the worker's hands?
+  local pr_fact=""
+  reached_review "$br" && pr_fact="pr"
+  plot_worker_state "$wt" "$pr_fact"
 }
 
 # ---------------------------------------------------------------------------
@@ -1551,6 +1641,34 @@ for i, w in enumerate(d.get("waves", [])):
         json_branches+=",\"worker\":\"$(printf '%s' "$worker_row" | cut -f1)\""
         json_branches+=",\"worker_pid\":\"$(json_str "$(printf '%s' "$worker_row" | cut -f2)")\""
         json_branches+=",\"worker_exit\":\"$(json_str "$(printf '%s' "$worker_row" | cut -f3)")\""
+        # WHAT IS ON THE FLOOR, beside the verdict that named it.
+        #
+        # A COUNT WOULD HAVE BEEN CHEAPER AND IS NOT ENOUGH. `stalled` exists so
+        # a person can decide whether to resume a branch, and "3 uncommitted
+        # files" does not support that decision — three scratch notes and three
+        # half-finished modules read identically. The names make the row
+        # actionable without a second command, which is the only reason to
+        # report it rather than merely count it.
+        #
+        # A SIBLING FIELD, NOT A FOURTH COLUMN on the worker row. Every answer
+        # from the shared classifier carries exactly three tab-separated fields,
+        # and that is load-bearing: POSIX `cut` prints a line UNCHANGED when it
+        # holds no delimiter, so a row of a different width would land a
+        # filename in the exit-code slot with nothing erroring. One computation
+        # (`plot_worker_dirty`), two renderings — the split this whole file
+        # keeps.
+        #
+        # ONLY ON `stalled`, because only there does it answer anything. Beside
+        # `finished` the same list is the leftovers a merged branch happens to
+        # hold, and printing it would invite exactly the reading `stalled` was
+        # added to prevent.
+        if [ "$(printf '%s' "$worker_row" | cut -f1)" = "stalled" ]; then
+          json_branches+=",\"worker_dirty_paths\":$(json_array "$(plot_worker_dirty "$(local_worktree_of "$br" | cut -f1)")")"
+        else
+          # Empty rather than omitted: one absent-value shape for every
+          # consumer, the rule the local signals above already follow.
+          json_branches+=",\"worker_dirty_paths\":[]"
+        fi
         # WHICH FILES would collide, and whether the question was asked at all.
         # The two travel together on purpose: an empty list means "merges
         # cleanly" ONLY beside `conflicts_known: true`, and reading the list
@@ -1682,6 +1800,25 @@ if [ "$FETCH_FAILED" = 1 ]; then
   echo "  note: git fetch failed — these refs are as current as your last"
   echo "        successful fetch, not as current as origin/$MAIN."
   echo "        $FETCH_ERROR"
+  # A failed fetch also failed to PRUNE, and that has a sharper consequence
+  # than staleness alone: an unpruned ref sends branch_state() down the
+  # ancestry arm, where a squash merge reads `wip`. Said plainly, because the
+  # symptom — a finished wave that will not complete — looks nothing like
+  # "your fetch failed".
+  echo "        Stale remote-tracking refs were not pruned either, so a branch"
+  echo "        merged and deleted upstream may still read wip."
+fi
+# AN OFFLINE SCAN CANNOT PRUNE, and the answer that costs is not obvious.
+# --offline skips the fetch, so refs for branches deleted upstream survive, and
+# a surviving ref is what makes a squash-merged branch read `wip` and its wave
+# read blocked. Reporting the flag alone would leave the operator to derive
+# that; this states the consequence instead. Only under the prose report — the
+# machine renderings carry `fetch_failed` and the caller passed --offline
+# itself, so neither is being told something it does not know.
+if [ "$do_fetch" = 0 ]; then
+  echo "  note: --offline skipped the fetch, so stale remote-tracking refs were"
+  echo "        not pruned; a branch merged and deleted upstream may read wip"
+  echo "        and hold its wave blocked. Re-run without --offline to settle it."
 fi
 # The fallback announces itself. Silent degradation here would recreate the
 # very bug being fixed: a working-tree plan list reported as if it were the ref.
