@@ -42,3 +42,6 @@ no worktree to look in", asked before there is anything to look inside.
 The new contract test drives BOTH consumers from ONE fixture across every
 state — that agreement is the point — and asserts structurally that the
 liveness check exists once, so a re-inlined copy fails rather than drifts.
+It also pins that every answer carries three tab-separated fields: POSIX
+`cut` prints a line unchanged when it holds no delimiter, so a bare `none`
+would put the state word in the exit-code slot without erroring anywhere.
