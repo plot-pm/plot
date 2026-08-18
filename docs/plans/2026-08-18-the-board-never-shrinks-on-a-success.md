@@ -148,7 +148,7 @@ scan claims, and that is a fact the report should carry rather than discard.
 
 ### Symptom
 
-- `bug/a-smaller-pulse-is-not-silently-better` — compare incoming against cached, carry the discrepancy to the UI, and render the view as suspect rather than swapping it silently. Tests: a shrinking sequence must not produce an unmarked smaller board.
+- `bug/a-smaller-pulse-is-not-silently-better` — compare incoming against cached, carry the discrepancy to the UI, and render the view as suspect rather than swapping it silently. Tests: a shrinking sequence must not produce an unmarked smaller board. → #211
 
 ### Cause
 
