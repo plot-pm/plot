@@ -2,12 +2,6 @@
 "@plot-pm/board": patch
 ---
 
-<!--
-bumps:
-  skills:
-    plot: patch
--->
-
 board: a successful scan that describes less says so
 
 Rows vanished from the Agents tab and returned seconds later — including
@@ -51,3 +45,9 @@ Two details are load-bearing:
 This is the symptom fix, and it is valuable on its own: the cause — the scan
 globbing the working tree instead of the ref it claims to read — is a
 separate branch against `plot-fleet-scan.sh` and is untouched here.
+
+<!--
+bumps:
+  skills:
+    plot: patch
+-->
