@@ -168,7 +168,7 @@ path has, and every future adapter change gets it for free.
 
 ## Branches
 
-- `bug/bb-state-vocabulary` — the helper, the three call sites, and the stub-`bb` test
+- `bug/bb-state-vocabulary` — the helper, the three call sites, and the stub-`bb` test. PR #210.
 
 ## Notes
 
