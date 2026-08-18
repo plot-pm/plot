@@ -4,7 +4,7 @@
 // fails open on malformed input.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, execSync } from 'node:child_process';
+import { execFileSync, execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,28 +13,53 @@ import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const gate = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-phase-gate.sh');
 
-function repoWith({ branch, planPhase, stage, unstaged = [], extraPlans = {} }) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-gate-'));
+// The gate reads the plan from origin/<main>, so a fixture without a remote
+// exercises the fail-open path, not the gate. Every fixture here therefore gets
+// a real bare origin and pushes the plan to it: `planPhase` is the phase as
+// SHARED, which is the only phase the gate is allowed to act on.
+//
+// `localPhase` overwrites the plan in the working tree AFTER the push, without
+// pushing — the local-only edit that must not change the gate's answer.
+// `noRemote` drops the remote entirely, for the offline/fail-open tests.
+function repoWith({
+  branch, planPhase, stage, unstaged = [], extraPlans = {},
+  localPhase = null, noRemote = false,
+}) {
+  const tmp = mkdtempSync(path.join(tmpdir(), 'plot-gate-'));
+  const dir = path.join(tmp, 'repo');
+  mkdirSync(dir, { recursive: true });
   const sh = (c) => execSync(c, { cwd: dir, stdio: 'pipe' });
   sh('git init -q -b main && git config user.email t@t && git config user.name t && git config commit.gpgsign false');
   writeFileSync(path.join(dir, 'README.md'), 'x');
-  sh('git add . && git commit -qm init');
-  sh(`git checkout -qb ${branch}`);
+
+  const slug = branch.includes('/') ? branch.split('/')[1] : branch;
+  const planPath = path.join(dir, 'docs', 'plans', `2026-01-01-${slug}.md`);
+  const planBody = (phase) => `# P\n\n## Status\n\n- **Phase:** ${phase}\n- **Type:** feature\n`;
   if (planPhase) {
     mkdirSync(path.join(dir, 'docs', 'plans'), { recursive: true });
-    const slug = branch.split('/')[1];
-    writeFileSync(
-      path.join(dir, 'docs', 'plans', `2026-01-01-${slug}.md`),
-      `# P\n\n## Status\n\n- **Phase:** ${planPhase}\n- **Type:** feature\n`,
-    );
+    writeFileSync(planPath, planBody(planPhase));
   }
   for (const [name, phase] of Object.entries(extraPlans)) {
     mkdirSync(path.join(dir, 'docs', 'plans'), { recursive: true });
-    writeFileSync(
-      path.join(dir, 'docs', 'plans', name),
-      `# P\n\n## Status\n\n- **Phase:** ${phase}\n- **Type:** feature\n`,
-    );
+    writeFileSync(path.join(dir, 'docs', 'plans', name), planBody(phase));
   }
+  sh('git add -A && git commit -qm init');
+
+  // The shared ref: a bare origin holding exactly what was committed above.
+  if (!noRemote) {
+    const origin = path.join(tmp, 'origin.git');
+    execSync(`git init --bare -q -b main "${origin}"`, { cwd: tmp, stdio: 'pipe' });
+    sh(`git remote add origin "${origin}" && git push -q origin main`);
+    sh('git remote set-head origin main');
+  }
+
+  sh(`git checkout -qb ${branch}`);
+  // A local-only phase change: committed here, never pushed.
+  if (localPhase) {
+    writeFileSync(planPath, planBody(localPhase));
+    sh('git add -A && git commit -qm "local-only phase change"');
+  }
+
   for (const f of stage) {
     const full = path.join(dir, f);
     mkdirSync(path.dirname(full), { recursive: true });
@@ -49,14 +74,14 @@ function repoWith({ branch, planPhase, stage, unstaged = [], extraPlans = {} }) 
   return dir;
 }
 
+// stderr is captured on BOTH paths: the hook's most important message — "phase
+// unverified, allowing the commit" — rides an exit 0, so a helper that only
+// kept stderr from the failure path could not see the difference between
+// failing open and failing silently.
 function runGate(cwd, command = 'git commit -m x') {
   const input = JSON.stringify({ tool_input: { command } });
-  try {
-    execFileSync('bash', [gate], { cwd, input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-    return { code: 0 };
-  } catch (e) {
-    return { code: e.status, stderr: e.stderr?.toString() ?? '' };
-  }
+  const r = spawnSync('bash', [gate], { cwd, input, encoding: 'utf8' });
+  return { code: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
 }
 
 test('gate: blocks impl commit on Draft plan', () => {
@@ -157,4 +182,56 @@ test('gate: fails open on malformed input', () => {
     } catch (e) { return { code: e.status }; }
   })();
   assert.equal(r.code, 0);
+});
+
+// --- The gate reads what was SHARED, not what is in the working tree --------
+//
+// Both directions were reproduced in a sandbox 2026-08-18. The working tree is
+// the least trustworthy surface in a repo with several agents in it: it carries
+// whatever branch was last checked out plus whatever is uncommitted, and
+// neither is a fact anyone else shares.
+
+test('gate: a local-only approval does not open the gate', () => {
+  // The serious direction. Draft on origin/main, Approved only on this branch
+  // and never pushed. Manifesto P2 is "plans are approved before
+  // implementation" — a gate that accepts an approval nobody else can see
+  // enforces "someone typed Approved in this filesystem" instead.
+  const dir = repoWith({
+    branch: 'feature/x', planPhase: 'Draft', localPhase: 'Approved',
+    stage: ['src/a.js'],
+  });
+  const r = runGate(dir);
+  assert.equal(r.code, 2, 'an unpushed approval must not open the gate');
+  assert.match(r.stderr, /still Draft/);
+  // The refusal names the ref it read, so the operator knows where to look.
+  assert.match(r.stderr, /origin\/main/);
+});
+
+test('gate: a shared approval is not hidden by a local Draft copy', () => {
+  // The mirror direction: Approved on origin/main, an older Draft copy on the
+  // checked-out branch. Refusing here is how correctly-approved work got
+  // blocked three times in one session.
+  const dir = repoWith({
+    branch: 'feature/x', planPhase: 'Approved', localPhase: 'Draft',
+    stage: ['src/a.js'],
+  });
+  assert.equal(runGate(dir).code, 0, 'a shared approval must not be hidden by a local copy');
+});
+
+test('gate: offline — allows the commit AND says the phase went unverified', () => {
+  // A PreToolUse hook that refused every commit when origin/<main> is
+  // unreadable would make the repo unusable offline, and the fail-open is a
+  // deliberate property. But a silent allow is indistinguishable from a gate
+  // that ran and passed, so it must SAY the gate did not run. Both halves are
+  // the contract; testing only the exit code would let the line rot away.
+  const dir = repoWith({
+    branch: 'feature/x', planPhase: 'Draft', stage: ['src/a.js'], noRemote: true,
+  });
+  const r = runGate(dir);
+  assert.equal(r.code, 0, 'offline must not block the commit');
+  assert.match(r.stderr ?? '', /phase unverified/,
+    'failing open silently is the failure mode this line exists to prevent');
+  assert.match(r.stderr ?? '', /git fetch/, 'it must say how to restore the gate');
+  // Name what could not be read — an operator must not have to guess.
+  assert.match(r.stderr ?? '', /cannot read origin\/main/);
 });

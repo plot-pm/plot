@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Plot helper: fan out one worktree + one worker per eligible branch.
-# Usage: plot-dispatch.sh [--dry-run] [--no-start] [--offline] [--max N] <slug>
+# Usage: plot-dispatch.sh [--dry-run] [--no-start] [--offline] [--max N]
+#                         [--allow-local] <slug>
 #   --status    list fleet worktrees with worker pid, liveness, and last log
 #               line; then exit. Works regardless of plan phase.
 #   --stop <br> stop the worker on <br> (branch required — never "all").
@@ -8,6 +9,10 @@
 #   --no-start  create worktrees and claim refs, but start no workers
 #   --offline   skip `git fetch`
 #   --max N     dispatch at most N branches this run (default: all eligible)
+#   --allow-local  read the plan's phase from the working tree when
+#               origin/<main> cannot be resolved (no remote, fresh clone).
+#               The explicit escape for a remote-less repo — never a default,
+#               because a working-tree read is what this gate exists to avoid.
 #   <slug>      the plan to fan out
 # Output: one line per branch, each optionally followed by an indented
 #         `in flight:` line naming a branch that already holds files, then the
@@ -83,6 +88,7 @@ no_start=0
 mode=dispatch
 stop_branch=""
 offline=""
+allow_local=0
 max=0
 slug=""
 while [ $# -gt 0 ]; do
@@ -95,12 +101,13 @@ while [ $# -gt 0 ]; do
     --stop)     mode=stop; case "${2:-}" in */*) stop_branch="$2"; shift ;; esac ;;
     --no-start) no_start=1 ;;
     --offline|--no-fetch) offline="--offline" ;;
+    --allow-local) allow_local=1 ;;
     --max)      max="${2:?--max needs a value}"
                 case "$max" in
                   ''|*[!0-9]*) echo "plot-dispatch: --max needs a number, got '$max'" >&2; exit 1 ;;
                 esac
                 shift ;;
-    -h|--help)  sed -n '2,13p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,16p' "$0"; exit 0 ;;
     *)          slug="$1" ;;
   esac
   shift
@@ -217,33 +224,167 @@ fi
 # is a command the user invoked: if the plan's phase cannot be read, refusing
 # costs one confused re-run, while proceeding costs several agents doing
 # unapproved work. The damage is asymmetric, so the default is too.
+#
+# THE PHASE IS READ FROM THE SHARED REF, NOT THE WORKING TREE. The working tree
+# is the least trustworthy surface in a repo with several agents in it: it
+# carries whatever branch was last checked out plus whatever is uncommitted,
+# and neither is a fact anyone else shares. Reading it got this gate wrong in
+# BOTH directions, both reproduced 2026-08-18:
+#
+#   - it REFUSED approved work, when a concurrent agent's `git checkout` parked
+#     the shared checkout on a branch carrying an older copy of the plan. The
+#     approval was on origin/<main> the whole time.
+#   - it PERMITTED unapproved work, when an approval was committed to a local
+#     branch and never pushed. Manifesto P2 is "plans are approved before
+#     implementation"; a gate that accepts an approval nobody else can see
+#     enforces "someone typed Approved in this filesystem" instead.
+#
+# So the question the gate asks is: has this plan been approved WHERE EVERYONE
+# CAN SEE IT? `git show origin/<main>:<path>` is that question. There is
+# deliberately NO fallback to the working tree — that would reintroduce the bug
+# exactly where nothing can catch it. --allow-local is the explicit escape, and
+# it is named in the refusal so an operator learns it exists when they need it.
+MAIN=$(bash "$script_dir/plot-config.sh" get "Main branch")
+[ -n "$MAIN" ] || MAIN=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
+[ -n "$MAIN" ] || MAIN="main"
+[ -n "$offline" ] || git fetch -q origin "$MAIN" 2>/dev/null
+
 PLAN_DIR_CFG=$("$script_dir/plot-config.sh" get "Plan directory" "docs/plans/")
 ACTIVE_DIR_CFG=$("$script_dir/plot-config.sh" get "Active index" "docs/plans/active/")
-plan_file=""
-for cand in "$ACTIVE_DIR_CFG$slug.md" "$PLAN_DIR_CFG"*"$slug".md; do
-  [ -e "$cand" ] && { plan_file="$cand"; break; }
-done
 
-if [ -z "$plan_file" ]; then
-  echo "plot-dispatch: no plan found for '$slug' — looked in $ACTIVE_DIR_CFG and $PLAN_DIR_CFG" >&2
+gate_ref="origin/$MAIN"
+gate_sha=$(git rev-parse --verify --quiet "$gate_ref^{commit}" 2>/dev/null) || gate_sha=""
+
+# The plan as it exists on the shared ref. Path resolution runs against the ref
+# too (`git ls-tree`), not the filesystem: a plan that exists only locally must
+# not be found here, and a plan whose local copy was deleted must still gate.
+#
+# The active index is a directory of SYMLINKS, and git stores a symlink as mode
+# 120000 whose blob content is the TARGET PATH — so `git show <ref>:active/g.md`
+# yields the string "../2026-01-01-g.md", not the plan. On a filesystem `[ -e ]`
+# follows the link and this never comes up; against a ref it must be
+# dereferenced by hand, or the gate parses a one-line path as a plan and reports
+# an unreadable phase instead of the real one.
+deref_on_ref() { # $1=path on $gate_ref → prints the path the blob really lives at
+  local p="$1" target dir hops=0
+  while [ "$(git ls-tree "$gate_ref" -- "$p" 2>/dev/null | awk '{print $1}')" = "120000" ]; do
+    hops=$((hops + 1))
+    [ "$hops" -le 8 ] || return 1        # a symlink cycle must not hang the gate
+    target=$(git show "$gate_ref:$p" 2>/dev/null) || return 1
+    case "$target" in
+      /*) return 1 ;;                    # absolute: not a path within the ref
+      *)  dir=$(dirname "$p")
+          # Normalise ../ and ./ without touching the filesystem.
+          p=$(printf '%s\n' "$dir/$target" | awk -F/ '{
+                n=0
+                for (i=1; i<=NF; i++) {
+                  if ($i == "" || $i == ".") continue
+                  if ($i == "..") { if (n>0) n--; continue }
+                  s[++n]=$i
+                }
+                out=""
+                for (i=1; i<=n; i++) out = (i==1 ? s[i] : out "/" s[i])
+                print out
+              }') ;;
+    esac
+  done
+  printf '%s\n' "$p"
+}
+
+plan_path=""
+if [ -n "$gate_sha" ]; then
+  for cand in "$ACTIVE_DIR_CFG$slug.md" \
+              $(git ls-tree -r --name-only "$gate_ref" -- "$PLAN_DIR_CFG" 2>/dev/null \
+                | grep -E "/[0-9]{4}-[0-9]{2}-[0-9]{2}-${slug}\.md$|/${slug}\.md$"); do
+    git cat-file -e "$gate_ref:$cand" 2>/dev/null || continue
+    plan_path=$(deref_on_ref "$cand") || { plan_path=""; continue; }
+    [ -n "$plan_path" ] && break
+  done
+fi
+
+# --allow-local: read the working tree instead, and say so. The escape for a
+# repo with no remote at all; never reached silently.
+if [ -z "$gate_sha" ] && [ "$allow_local" = 1 ]; then
+  echo "plot-dispatch: cannot resolve '$gate_ref' — reading the working tree (--allow-local)." >&2
+  for cand in "$ACTIVE_DIR_CFG$slug.md" "$PLAN_DIR_CFG"*"$slug".md; do
+    [ -e "$cand" ] && { plan_path="$cand"; break; }
+  done
+fi
+
+if [ -z "$gate_sha" ] && [ "$allow_local" != 1 ]; then
+  echo "plot-dispatch: cannot resolve '$gate_ref' — refusing to dispatch." >&2
+  echo "  The phase gate reads the plan as it exists on the shared ref, so an" >&2
+  echo "  approval only you can see cannot open it. Run \`git fetch origin $MAIN\`," >&2
+  echo "  or pass --allow-local to gate on the working tree instead." >&2
   exit 1
 fi
 
-gate_meta=$("$script_dir/plot-plan-meta.sh" "$plan_file" 2>/dev/null) || gate_meta=""
+if [ -z "$plan_path" ]; then
+  if [ "$allow_local" = 1 ]; then
+    echo "plot-dispatch: no plan found for '$slug' — looked in $ACTIVE_DIR_CFG and $PLAN_DIR_CFG" >&2
+  else
+    echo "plot-dispatch: no plan for '$slug' on $gate_ref — looked in $ACTIVE_DIR_CFG and $PLAN_DIR_CFG" >&2
+    echo "  A plan that exists only in this working tree has not been shared yet: push it first." >&2
+  fi
+  exit 1
+fi
+
+# plot-plan-meta.sh is the format contract and takes a PATH, so the blob is
+# materialised into a temp file rather than parsed here — the parser stays the
+# one place that knows what a plan file looks like.
+#
+# The template's X's must TRAIL: BSD mktemp (macOS) rejects a template with a
+# suffix after them, while GNU accepts it. The first version wrote
+# `plot-gate-XXXXXX.md` and failed on macOS — and because the failure fell back
+# to the working tree, the gate silently went back to reading the exact surface
+# this fix exists to stop reading. Hence also: NO working-tree fallback below.
+# If the shared blob cannot be materialised, the gate refuses.
+plan_file="$plan_path"
+gate_blob=""
+if [ -n "$gate_sha" ]; then
+  gate_dir=$(mktemp -d "${TMPDIR:-/tmp}/plot-gate-XXXXXX") || gate_dir=""
+  if [ -n "$gate_dir" ]; then
+    trap 'rm -rf "$gate_dir"' EXIT
+    gate_blob="$gate_dir/$(basename "$plan_path")"
+    git show "$gate_ref:$plan_path" >"$gate_blob" 2>/dev/null || gate_blob=""
+  fi
+  if [ -z "$gate_blob" ]; then
+    echo "plot-dispatch: could not read '$gate_ref:$plan_path' — refusing to dispatch." >&2
+    echo "  The gate does not fall back to the working tree: an approval only you" >&2
+    echo "  can see must not open it. Pass --allow-local if that is what you mean." >&2
+    exit 1
+  fi
+else
+  gate_blob="$plan_path"   # --allow-local only; guarded above
+fi
+
+# What the gate actually read, for messages: the shared ref by default, the
+# working tree only under --allow-local. A refusal that names `origin/main@<sha>`
+# is debuggable in seconds; "still Draft" alone sent an operator looking at a
+# file that already said Approved.
+if [ -n "$gate_sha" ]; then
+  gate_source="$gate_ref@${gate_sha:0:8}:$plan_path"
+else
+  gate_source="$plan_path (working tree, --allow-local)"
+fi
+
+gate_meta=$("$script_dir/plot-plan-meta.sh" "$gate_blob" 2>/dev/null) || gate_meta=""
 gate_phase=$(printf '%s' "$gate_meta" | sed -n 's/.*"phase":"\([^"]*\)".*/\1/p')
 gate_impl=$(printf '%s' "$gate_meta" | sed -n 's/.*"impl":"\([^"]*\)".*/\1/p')
 
 case "$gate_phase" in
   approved) ;;
   draft)
-    echo "plot-dispatch: plan '$slug' is still Draft — nothing may be dispatched." >&2
+    echo "plot-dispatch: plan '$slug' is still Draft on $gate_source — nothing may be dispatched." >&2
+    echo "  The gate reads the plan as it exists on the shared ref. If you approved it" >&2
+    echo "  locally, push that approval; an approval nobody else can see is not one." >&2
     echo "  Review it, then: /plot-approve $slug" >&2
     exit 1 ;;
   delivered|released)
     echo "plot-dispatch: plan '$slug' is already $gate_phase — its work is done." >&2
     exit 1 ;;
   "")
-    echo "plot-dispatch: cannot read the phase of '$slug' ($plan_file)." >&2
+    echo "plot-dispatch: cannot read the phase of '$slug' ($gate_source)." >&2
     echo "  Refusing rather than guessing — dispatching starts real work." >&2
     exit 1 ;;
   *)
@@ -274,9 +415,8 @@ case "$gate_impl" in
     exit 1 ;;
 esac
 
-MAIN=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
-[ -n "$MAIN" ] || MAIN="main"
-[ -n "$offline" ] || git fetch -q origin "$MAIN" 2>/dev/null
+# MAIN was resolved and origin fetched above, before the phase gate — the gate
+# needs the shared ref to read the plan from it.
 
 # Worktrees live beside the repo, not inside it: a worktree nested in the repo
 # would show up in its own status and in every glob.

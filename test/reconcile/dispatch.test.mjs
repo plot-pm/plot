@@ -6,7 +6,7 @@
 // without doing any of it. These tests hold that line.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -1302,4 +1302,120 @@ test('plot-init: never raises the worker question', () => {
     'plot-init', 'SKILL.md'), 'utf8');
   assert.doesNotMatch(init, /Worker command/,
     'adoption must not ask how this project runs an agent headless');
+});
+
+// --- The phase gate reads what was SHARED, not the working tree -------------
+//
+// Both directions were reproduced in a sandbox 2026-08-18. The working tree is
+// the least trustworthy surface in a repo with several agents in it: it carries
+// whatever branch was last checked out plus whatever is uncommitted, and
+// neither is a fact anyone else shares.
+
+// A repo whose plan is `sharedPhase` on origin/main. `localPhase`, when given,
+// is committed to a branch that is checked out and never pushed — the
+// local-only edit the gate must ignore. `noRemote` drops the remote entirely.
+function repoWithSharedPlan({ sharedPhase, localPhase = null, label, noRemote = false }) {
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), `plot-shared-${label}-`));
+  const r = path.join(t, 'repo');
+  const plan = (phase) =>
+    `# G\n\n## Status\n\n- **Phase:** ${phase}\n- **Type:** feature\n- **Impl:** own branches\n\n## Branches\n\n- \`feature/g\` — one\n`;
+
+  if (noRemote) {
+    fs.mkdirSync(r, { recursive: true });
+    git(r, 'init', '-q', '-b', 'main', '.');
+  } else {
+    const o = path.join(t, 'origin.git');
+    git(t, 'init', '--bare', '-q', '-b', 'main', o);
+    git(t, 'clone', '-q', o, r);
+  }
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-g.md'), plan(sharedPhase));
+  fs.symlinkSync('../2026-01-01-g.md', path.join(r, 'plans', 'active', 'g.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  if (!noRemote) git(r, 'push', '-q', 'origin', 'main');
+
+  // The local-only divergence: committed on another branch, never pushed.
+  if (localPhase) {
+    git(r, 'checkout', '-q', '-b', 'other-agent-branch');
+    fs.writeFileSync(path.join(r, 'plans', '2026-01-01-g.md'), plan(localPhase));
+    git(r, 'commit', '-qam', 'local-only phase change');
+  }
+  return { tmp: t, repo: r };
+}
+
+// stderr is captured on BOTH paths: --allow-local announces itself on stderr
+// while exiting 0, so a helper that only kept stderr from the failure path
+// could not tell an announced escape from a silent one.
+function tryRun(args, cwd) {
+  const r = spawnSync('bash', [dispatch, ...args], { encoding: 'utf8', cwd });
+  return { code: r.status, out: r.stdout ?? '', err: r.stderr ?? '' };
+}
+
+test('dispatch: a local-only approval is refused', () => {
+  // The serious direction. Draft on origin/main, Approved only on a local
+  // branch that was never pushed. Manifesto P2 is "plans are approved before
+  // implementation" — a gate that accepts an approval nobody else can see
+  // enforces "someone typed Approved in this filesystem", and agents fan out
+  // on work nothing reviewed.
+  const { tmp, repo: r } = repoWithSharedPlan({
+    sharedPhase: 'Draft', localPhase: 'Approved', label: 'localonly',
+  });
+  const got = tryRun(['--dry-run', '--offline', 'g'], r);
+  assert.notEqual(got.code, 0, 'an unpushed approval must not open the gate');
+  assert.match(got.err, /still Draft/);
+  // The refusal names the ref it read — "still Draft" alone once sent an
+  // operator looking at a file that already said Approved.
+  assert.match(got.err, /origin\/main/);
+  assert.equal(git(r, 'ls-remote', '--heads', 'origin', 'feature/g').trim(), '',
+    'nothing may be claimed for an unapproved plan');
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('dispatch: a shared approval is not hidden by a parked checkout', () => {
+  // The mirror direction: Approved on origin/main, the checkout parked on
+  // another branch carrying an older Draft copy — how a concurrent agent's
+  // `git checkout` blocked two correctly-approved plans in one session.
+  const { tmp, repo: r } = repoWithSharedPlan({
+    sharedPhase: 'Approved', localPhase: 'Draft', label: 'parked',
+  });
+  assert.equal(git(r, 'branch', '--show-current').trim(), 'other-agent-branch');
+  const got = tryRun(['--dry-run', '--offline', 'g'], r);
+  assert.equal(got.code, 0, `a shared approval must dispatch:\n${got.err ?? ''}`);
+  assert.match(got.out, /feature\/g/);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('dispatch: refuses when origin/<main> cannot be resolved, and names the escape', () => {
+  // FAIL CLOSED, unlike plot-phase-gate.sh. The divergence is deliberate and
+  // the reason is blast radius: dispatch refusing costs one fan-out you retry;
+  // the hook refusing costs every commit in the repository. There is no
+  // fallback to the working tree — that would reintroduce the bug exactly
+  // where nothing can catch it.
+  const { tmp, repo: r } = repoWithSharedPlan({
+    sharedPhase: 'Approved', label: 'noremote', noRemote: true,
+  });
+  const got = tryRun(['--dry-run', '--offline', 'g'], r);
+  assert.notEqual(got.code, 0, 'an unresolvable ref must not fall back to the working tree');
+  assert.match(got.err, /cannot resolve 'origin\/main'/);
+  // The escape is named at the moment the operator needs it.
+  assert.match(got.err, /--allow-local/);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('dispatch: --allow-local is the explicit escape, and says it took it', () => {
+  const { tmp, repo: r } = repoWithSharedPlan({
+    sharedPhase: 'Approved', label: 'allowlocal', noRemote: true,
+  });
+  const got = tryRun(['--dry-run', '--offline', '--allow-local', 'g'], r);
+  assert.equal(got.code, 0, `--allow-local must dispatch:\n${got.err ?? ''}`);
+  assert.match(got.out, /feature\/g/);
+  // Never silent: an operator must be able to tell the gate read the working tree.
+  assert.match(got.err ?? '', /--allow-local/);
+  fs.rmSync(tmp, { recursive: true, force: true });
 });
