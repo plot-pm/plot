@@ -75,6 +75,8 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 All sprint operations are structural (Small or Mid). No Frontier needed.
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
+>
+> **No user present?** If `PLOT_UNATTENDED=1` is set, do not call the question tool — each question below declares what to do instead, and every skipped question is named in the output. See [Running unattended](../plot/docs/unattended.md).
 
 ## Sprint Lifecycle
 
@@ -144,6 +146,13 @@ ls docs/plans/active/ 2>/dev/null
 ```
 
 If plans exist, present: "Found N active plans. Add any to this sprint?" List them and let the user select which to include (or none). Selected plans are added as `[slug]` items under the appropriate MoSCoW tier.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** create the sprint with its tiers empty,
+> and stop before assigning anything. Which tier a plan belongs to is a
+> statement about what the team is committing to — it has no safe default, and
+> it is not derivable from the plan file, which is why this step asks rather
+> than computes. List the candidates so a person can place them in one pass.
+> `PLOT-UNASKED: Which plans, in which MoSCoW tier? — stopped — <n> active plans listed; sprint created empty`
 
 #### 5. Create Sprint File
 
@@ -407,6 +416,14 @@ Could Have:  0/1 complete
 ```
 
 **If false positives exist, do NOT proceed to close until the user resolves them.** Present three options:
+
+> **Unattended (`PLOT_UNATTENDED=1`):** **refuse, exactly as when a person is
+> present.** This is a gate, not a question — a checked box whose plan was never
+> delivered is a false claim, and option 3 ("override and close anyway") is a
+> person's judgement to record under their own name. `PLOT_UNATTENDED` grants no
+> authority the operator lacks, and it least of all grants the authority to
+> close a sprint over its own evidence. Report the false positives and stop.
+> `PLOT-UNASKED: How should <n> false-positive completions be resolved? — refused — gate; sprint not closed`
 1. **Run `/plot-deliver <slug>`** for each false-positive item (preferred — actually delivers the plan)
 2. **Uncheck the box** in the sprint file (acknowledges it's not really done)
 3. **Override and close anyway** (last resort) — requires logging a one-liner reason in the sprint file's `## Notes > ### Scope Changes` section, mirroring the existing scope-change log convention. Format: `- YYYY-MM-DD: Closed with [slug] marked complete despite plan not delivered — <reason>`
@@ -444,9 +461,21 @@ This is deliberately unlike step 2's false-positive check, which *does* hold the
 close: that one catches a claim contradicted by the estate, which is a mistake
 to fix. An uncut release is not a mistake — it is news.
 
+> **Unattended (`PLOT_UNATTENDED=1`):** stop. All three options are live and
+> none is safe by default — closing over unfinished Must Haves and deferring
+> them are different claims about the same sprint, and both are the team's to
+> make. Leave the sprint Active and name what is outstanding.
+> `PLOT-UNASKED: Close, defer, or hold with <n> Must Haves unfinished? — stopped — sprint left Active; the <n> are listed above`
+
 #### 3. Capture Retrospective
 
 Ask the user: "Add a retrospective? (optional)"
+
+> **Unattended (`PLOT_UNATTENDED=1`):** skip it and proceed — the step calls
+> itself optional, so its documented default is to continue. Write the Metrics
+> subsection, which is counted rather than recalled, and leave the prose
+> sections empty rather than inventing a retrospective nobody held.
+> `PLOT-UNASKED: Add a retrospective? — default — skipped; metrics written, prose left blank`
 
 If yes, prompt for:
 - What went well?

@@ -42,6 +42,8 @@ ready — propose it per smart defaults).
 | 6. Summary | Small | Orientation template |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor).
+>
+> **No user present?** If `PLOT_UNATTENDED=1` is set, do not call the question tool — each question below declares what to do instead, and every skipped question is named in the output. See [Running unattended](../plot/docs/unattended.md).
 
 ### 1. Locate the Plan
 
@@ -53,6 +55,9 @@ find `<slug>`. Requirements:
   nothing to start.
 - If no slug given and exactly one approved plan has no `Started:`
   records, propose it. Several → list them (Ready first) and ask.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** stop unless `$ARGUMENTS` named the plan.
+> `PLOT-UNASKED: Which plan should implementation start on? — stopped — <n> candidates listed; no branch created`
 - If the plan already has `Started:` records, this is a **resume**: same
   preflight, then re-orient ("branch X exists, PR #N open, plan section 3
   remains") instead of re-creating anything.

@@ -42,6 +42,8 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 All steps are mechanical: parse input, check state, move files, update metadata.
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
+>
+> **No user present?** If `PLOT_UNATTENDED=1` is set, do not call the question tool — each question below declares what to do instead, and every skipped question is named in the output. See [Running unattended](../plot/docs/unattended.md).
 
 ### 1. Parse Input
 
@@ -49,6 +51,11 @@ If `$ARGUMENTS` is empty or missing:
 - List delivered plans: `ls docs/plans/delivered/ 2>/dev/null`
 - If exactly one exists, propose: "Found delivered plan `<slug>`. Reject it?"
 - If multiple exist, list them and ask which one to reject
+
+> **Unattended (`PLOT_UNATTENDED=1`):** stop unless `$ARGUMENTS` named the slug.
+> Rejection reverses a recorded delivery — it is a person's correction of a
+> person's claim, and there is nothing for an agent to default to.
+> `PLOT-UNASKED: Which delivered plan should be rejected? — stopped — <n> candidates; none rejected`
 - If none exist, explain: "No delivered plans found in `docs/plans/delivered/`."
 
 Extract `slug` from `$ARGUMENTS` (first word — trimmed, lowercase, hyphens only).

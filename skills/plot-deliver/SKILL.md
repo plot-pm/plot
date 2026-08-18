@@ -49,6 +49,8 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 Step 5 is the prime example of subagent delegation: a frontier orchestrator handles the judgment (extracting deliverables, consolidating Done/Partial/Missing), while small subagents handle the data collection (running `gh pr diff`, reading PR metadata) in parallel. Without subagents, the frontier model does everything sequentially.
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
+>
+> **No user present?** If `PLOT_UNATTENDED=1` is set, do not call the question tool — each question below declares what to do instead, and every skipped question is named in the output. See [Running unattended](../plot/docs/unattended.md).
 
 ### 1. Parse Input
 
@@ -56,6 +58,9 @@ If `$ARGUMENTS` is empty or missing:
 - List active plans: `ls docs/plans/active/ 2>/dev/null`
 - If exactly one exists, propose: "Found plan `<slug>`. Deliver it?"
 - If multiple exist, list them and ask which one to deliver
+
+> **Unattended (`PLOT_UNATTENDED=1`):** stop unless `$ARGUMENTS` named the slug.
+> `PLOT-UNASKED: Which plan should be delivered? — stopped — <n> candidates; none delivered`
 - If none exist, explain: "No active plans found in `docs/plans/active/`."
 
 Extract `slug` from `$ARGUMENTS` (trimmed, lowercase, hyphens only).
@@ -110,6 +115,12 @@ Or for each PR number found in the Branches section:
   - If any open PRs have `draft: true`, list them and mark each one ready for review (`gh pr ready` / `bb pr edit --ready`) — this is part of the delivery flow, not optional
   - Split-home plans (`Impl: other repo`): the PR references carry a repo prefix (`owner/repo#N`) and `plot-impl-status.sh` resolves them in that repo via the host adapter — delivery works unchanged; only the merge itself happens over there
   - List all remaining open PRs and ask the user: "These PRs are still open. Merge them first, or deliver anyway?"
+
+> **Unattended (`PLOT_UNATTENDED=1`):** **refuse.** "Deliver anyway" over open
+> implementation PRs is one of Plot's four phase guardrails, and it stays a
+> refusal in both modes — delivering work that is not merged records something
+> untrue in the plan. List the open PRs and change nothing.
+> `PLOT-UNASKED: Merge the <n> open PRs first, or deliver anyway? — refused — gate; phase unchanged`
   - If user declines, stop and list the unfinished PRs
 - If any are `CLOSED` (not merged): warn — these need manual attention
 
@@ -179,6 +190,11 @@ Compare what the plan promised against what was actually delivered.
 4. **Present the checklist** to the user and **ask to confirm** the plan is complete enough to deliver.
    - If all items are done: "All deliverables verified. Proceed with delivery?"
    - If any are partial/missing: list them and ask "Deliver anyway, or hold off?"
+
+> **Unattended (`PLOT_UNATTENDED=1`):** stop. Whether partial work counts as
+> delivered is a judgement about the plan's intent, and it has no safe default
+> in either direction. Name what is partial or missing and leave the phase alone.
+> `PLOT-UNASKED: Deliver with <n> partial/missing items, or hold off? — stopped — phase unchanged`
    - If the user declines, stop — do not deliver.
 
 ### 6. Check for Release Note Entries

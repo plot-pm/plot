@@ -43,6 +43,8 @@ and changes nothing.
 | 5. Verify and summarise | Small | Read back what landed |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor).
+>
+> **No user present?** If `PLOT_UNATTENDED=1` is set, do not call the question tool — each question below declares what to do instead, and every skipped question is named in the output. See [Running unattended](../plot/docs/unattended.md).
 
 ## Steps
 
@@ -86,6 +88,14 @@ Then ask only what the probe **could not** answer:
 
 Do not ask about anything the probe answered confidently. A user who is asked
 to confirm their own git host learns that the tool is not paying attention.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** stop, and create nothing. Adoption is
+> the one command whose entire output is a set of answers a team has to live
+> with — and the Definition of Done question above says it is *always* worth
+> asking, because the probe finds candidate scripts but cannot see which one
+> gates a merge. Print the proposal in full so a person can accept it in one
+> pass, and write no files.
+> `PLOT-UNASKED: Confirm the proposed Plot Config (Definition of Done, ticket scheme, what stays canonical)? — stopped — proposal printed; no files created`
 
 ### 3. Write the config and skeleton
 

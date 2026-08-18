@@ -65,6 +65,8 @@ still defaults to writing nothing).
 | 4. Flag stalls | Mid–Frontier | Distinguishing "slow" from "stuck" needs context |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor).
+>
+> **No user present?** If `PLOT_UNATTENDED=1` is set, do not call the question tool — each question below declares what to do instead, and every skipped question is named in the output. See [Running unattended](../plot/docs/unattended.md).
 
 ## Vocabulary
 

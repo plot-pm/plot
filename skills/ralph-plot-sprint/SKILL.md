@@ -14,6 +14,19 @@ compatibility: Designed for Claude Code. Requires git and gh CLI.
 ---
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
+>
+> **No user present?** If `PLOT_UNATTENDED=1` is set, do not call the question tool — each question below declares what to do instead, and every skipped question is named in the output. See [Running unattended](../plot/docs/unattended.md).
+>
+> **This skill assumes nobody is present.** It is one iteration of a loop
+> `ralph-sprint.sh` drives headless, so the interaction line above describes the
+> rare case — a human debugging a single iteration by slug — and not the normal
+> one. The runner sets `PLOT_UNATTENDED=1`; treat it as set unless you can see
+> that it is not. Every step that would ask **stops and reports** rather than
+> taking a default, because a loop that guesses repeats its guess on every
+> iteration and buries the evidence under its own output.
+>
+> The DoD checks below and the CI gates are **not** questions and do not soften:
+> a non-compliant PR cannot be finalized in either mode.
 
 # ralph-plot-sprint
 
