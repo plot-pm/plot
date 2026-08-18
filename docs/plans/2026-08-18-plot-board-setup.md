@@ -91,7 +91,7 @@ rather than reading it, and all three shape the branches below:
 
 ### Scripts
 
-- `feature/plot-board-probe` — the read-only probe: JSON shape, artifact resolution (marketplaces-first, then newest mtime), three-state CLI auth. Tasks 1–3 of the implementation plan, with 22 contract tests in `test/reconcile/boardprobe.test.mjs`.
+- `feature/plot-board-probe` — the read-only probe: JSON shape, artifact resolution (marketplaces-first, then newest mtime), three-state CLI auth. Tasks 1–3 of the implementation plan, with 21 contract tests in `test/reconcile/boardprobe.test.mjs` (estimated 22 here; Tasks 1–3 define 5 + 7 + 9). PR #208.
 - `feature/plot-board-verify` — the trap-guarded verification script: start the board on an OS-assigned port, fetch `/api/board`, reap the server on every exit path. Task 4, with 4 contract tests in `test/reconcile/boardverify.test.mjs`.
 
 ### Skill
