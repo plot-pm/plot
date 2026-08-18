@@ -303,8 +303,14 @@ fi
 merged_by_host() { # $1=branch → 0 when the host reports its PR MERGED
   [ "$HOST_LOOKUP_OK" = 1 ] || return 1
   local br="$1" st js cache=""
-  # The branch name contains slashes; a flat file per branch needs them gone.
-  [ -n "$HOST_STATE_CACHE" ] && cache="$HOST_STATE_CACHE/$(printf '%s' "$br" | tr '/' '_')"
+  # The branch name contains slashes and a flat file per branch needs them
+  # gone, but the mapping must be INJECTIVE. `tr '/' '_'` is not: `feature/a_b`
+  # and `feature_a/b` are both legal refs and collapse to one key, and a
+  # collision here serves one branch's verdict to another — which, when the
+  # verdict is `merged`, settles a wave on a branch nobody looked at. Encoding
+  # `_` first makes the substitution reversible, so distinct refs stay distinct.
+  [ -n "$HOST_STATE_CACHE" ] \
+    && cache="$HOST_STATE_CACHE/$(printf '%s' "$br" | sed 's/_/__/g; s|/|_|g')"
   if [ -n "$cache" ] && [ -f "$cache" ]; then
     st=$(cat "$cache" 2>/dev/null)
   else

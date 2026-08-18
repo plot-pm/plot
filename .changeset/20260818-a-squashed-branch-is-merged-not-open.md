@@ -66,6 +66,13 @@ read from a previous run is exactly the fabricated verdict the failure
 direction forbids. A test asserts the call count — one for the absent branch,
 none for the branch whose ref is still there.
 
+The cache key is injective rather than a plain slash-to-underscore mapping:
+`feature/a_b/c` and `feature/a/b_c` are both legal refs that collapse to one
+key under the naive form, and the branch asked second would inherit the first's
+answer. A `merged` arriving that way settles a wave on a branch nobody looked
+at — the same fabricated verdict, reached through the cache instead of the
+host. Pinned by a test that fails against the naive mapping.
+
 <!--
 bumps:
   skills:

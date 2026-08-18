@@ -1310,6 +1310,44 @@ esac
   f.cleanup();
 });
 
+test('fleet: two branch names that collapse to one cache key keep separate verdicts', () => {
+  // The cache is a FILE PER BRANCH, so the key must be INJECTIVE. Under a naive
+  // slash-to-underscore mapping `feature/a_b/c` and `feature/a/b_c` both become
+  // `feature_a_b_c` — two legal refs, one key — and the branch asked second
+  // inherits the first's answer. When that answer is `merged`, a wave settles
+  // on a branch nobody looked at: the fabricated verdict this change is careful
+  // to avoid, arriving through the cache rather than through the host.
+  //
+  // Only the first is squash-merged; the second never existed.
+  const f = makeRepo('plot-fleet-squashkey-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/a_b/c` — squash-merged and deleted\n- `feature/a/b_c` — never started\n');
+  f.work('feature/a_b/c', 'k.txt');
+  f.push('-u', 'origin', 'feature/a_b/c');
+  squashMerge(f, 'feature/a_b/c', 42);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/a_b/c');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state)
+    case "$2" in
+      feature/a_b/c) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+      *) echo '{"state":"NONE"}' ;;
+    esac ;;
+  *) echo "{}" ;;
+esac
+`);
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/a_b/c'), / — merged$/);
+  assert.match(branchLine(out, 'feature/a/b_c'), / — open$/,
+    'a branch nobody merged must not inherit another branch\'s verdict');
+  h.cleanup();
+  f.cleanup();
+});
+
 test('fleet: a recreated branch is not merged, whatever the host remembers', () => {
   // The ordering invariant, now with a second way to break it. A branch name
   // can be reused: merge `feature/retry`, delete it, recreate it for a second
