@@ -353,10 +353,30 @@ test('worker-state: the log records the question, the tree records that it stand
   const f = fixture('logvtree');
   f.worker({ pid: DEAD, exit: 0 });
 
+  // NO `.gitignore` IN THIS FIXTURE, and that is the point rather than an
+  // oversight. The first version of this exclusion leaned on
+  // `--exclude-standard`, which honours the repo's own ignore rules — and Plot's
+  // repo happens to ignore `.plot-worker.*`, so every local run passed while CI,
+  // on a fixture without those lines, read `waiting`. An adopting repo that
+  // never ignored them would have hit the same thing silently and forever.
+  // Plot's own records must be excluded BECAUSE THEY ARE PLOT'S, never because
+  // a file Plot does not control happens to list them.
+  assert.ok(!fs.existsSync(path.join(f.wt, '.gitignore')),
+    'this fixture must not ignore .plot-worker.* — that is what it is testing');
+
   f.file('.plot-worker.log',
     'I stopped and wrote a PLOT-BLOCKED: marker asking about retry semantics.\n');
   assert.equal(f.scanState().state, 'finished',
     'a question in the LOG is history — the tree says it no longer stands');
+
+  // The whole `.plot-worker.*` family is excluded by one rule, so a sibling
+  // record is checked too — NOT the pid or exit file, whose CONTENT is parsed
+  // and would change the process verdict before the marker search is reached.
+  // A stray `.plot-worker.log.1` from a rotated log is the realistic case.
+  f.file('.plot-worker.log.1', 'PLOT-BLOCKED: an older run asked this\n');
+  assert.equal(f.scanState().state, 'finished',
+    "Plot's own records are never searched for markers");
+  f.file('.plot-worker.log.1', null);
 
   // The same sentence, in a file that is part of the tree, IS the question.
   f.file('question.md', 'PLOT-BLOCKED: which retry semantics did you want?\n');

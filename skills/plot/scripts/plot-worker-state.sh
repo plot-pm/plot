@@ -70,6 +70,18 @@
 # still ACCEPTS, and the set only ever grows by measurement.
 PLOT_BLOCKED_MARKER='PLOT-BLOCKED:|TODO\((you|human)\)'
 
+# Plot's OWN records inside a worktree — `.plot-worker.pid`, `.plot-worker.exit`,
+# `.plot-worker.log`, and anything else the fleet drops under that prefix (a
+# rotated `.plot-worker.log.1`, say).
+#
+# ONE PATTERN, USED BY BOTH EXCLUSIONS BELOW, because they had already drifted
+# apart inside this one file: the marker search excluded the whole prefix while
+# the dirty filter named exactly three files, so a rotated log was skipped by
+# one and counted as work by the other. Two answers about one file, which is the
+# shape this entire plan exists to remove — reproduced here at small scale
+# within an hour of removing it at large scale.
+PLOT_WORKER_RECORD='\.plot-worker\.'
+
 # Is a person being waited on inside this worktree?
 #
 # READ FROM THE TREE, NOT THE LOG. The log records that a question WAS asked;
@@ -79,13 +91,25 @@ PLOT_BLOCKED_MARKER='PLOT-BLOCKED:|TODO\((you|human)\)'
 # asking again — the log still held the question, and always will.
 #
 # `git grep` over the TRACKED TREE PLUS UNTRACKED FILES, never `grep -r` over
-# the directory. A worktree holds `node_modules`, build output, and
-# `.plot-worker.log` itself — and the log is the one file GUARANTEED to contain
-# the marker whenever the worker mentioned writing one, so a recursive grep
-# would answer `waiting` from exactly the source the paragraph above rules out.
-# `--untracked` is included because a marker a worker just wrote and has not
-# committed is the live case; `--exclude-standard` keeps ignored build output
-# out of it, and that pairing is what excludes the log without naming it.
+# the directory. A worktree holds `node_modules` and build output, and a
+# recursive grep would search all of it. `--untracked` is included because a
+# marker a worker just wrote and has not committed is the live case;
+# `--exclude-standard` keeps ignored build output out of it.
+#
+# PLOT'S OWN RECORDS ARE EXCLUDED BY NAME, not by hoping the repo ignores them.
+# `.plot-worker.log` is the one file GUARANTEED to contain the marker whenever
+# the worker mentioned writing one — its final report says what it left behind —
+# so searching it answers `waiting` from the report of a question that may since
+# have been ANSWERED. That is precisely the log-versus-tree distinction this
+# function exists to draw.
+#
+# RELYING ON `--exclude-standard` FOR THAT WAS A BUG, and CI caught it where a
+# local run could not. This repo's `.gitignore` lists the three `.plot-worker.*`
+# files, so the log was skipped here for a reason that belongs to THIS repo
+# rather than to Plot; a fixture repo without those lines searched the log and
+# read `waiting`. An adopting repo that never ignores them would have done the
+# same, silently, forever. The exclusion is Plot's own and must not be delegated
+# to a file Plot does not control.
 #
 # NOT `--no-index`, WHICH IS NOT A SPELLING OF THIS. Measured: `git grep
 # --no-index --untracked` is a fatal error — the two are mutually exclusive —
@@ -105,7 +129,8 @@ plot_worker_blocked() { # $1=worktree → 0 when a person owes this branch an an
   # same silent failure in the same reassuring direction as `--no-index`, from a
   # different cause. Two ways to write this wrongly is why the test asserts a
   # marker is FOUND rather than only that a clean tree is not `waiting`.
-  git -C "$wt" grep -qIE --untracked --exclude-standard "$PLOT_BLOCKED_MARKER" -- . 2>/dev/null
+  git -C "$wt" grep -qIE --untracked --exclude-standard "$PLOT_BLOCKED_MARKER" \
+    -- . ':(exclude).plot-worker.*' 2>/dev/null
 }
 
 # How much uncommitted work is on the floor, and in which files.
@@ -136,7 +161,7 @@ plot_worker_dirty() { # $1=worktree → the dirty files, one per line, leftovers
   # space, and a filename can contain spaces of its own.
   git -C "$wt" status --porcelain 2>/dev/null \
     | cut -c4- \
-    | grep -vE '(^|/)\.plot-worker\.(pid|exit|log)$' \
+    | grep -vE "(^|/)$PLOT_WORKER_RECORD" \
     | grep -vE '\.(tmp[0-9]*|swp|orig|rej|bak)$' || true
 }
 
