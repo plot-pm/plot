@@ -34,7 +34,8 @@ hours** — merge and delivery are minutes apart, so a pulse that dropped a plan
 the instant it was delivered would lose the work at the moment it finished. A
 delivered plan with no `Delivered:` date does not appear at all, and `--next`
 never names a branch from one). `--offline` / `--no-fetch` skip the `git fetch`
-for a network-free pulse. `--log-pulse` appends one line per plan to its
+for a network-free pulse — which also skips the prune that keeps merged
+branches from reading `wip` (see *The local walk is not the only source*). `--log-pulse` appends one line per plan to its
 `## Notes`. `--loose` relaxes wave eligibility (see below) — strict is the
 default and should stay that way.
 
@@ -124,6 +125,19 @@ The lookup is skipped entirely with `--offline`/`--no-fetch`, and when the host
 cannot answer — unreachable, or no PR found — the branch reads `open` exactly
 as it did before. An unreachable host never becomes a fabricated `merged`, so
 an `open` under those conditions still carries the caveat above.
+
+**Reaching that arm requires a pruned mirror.** `git fetch` does not remove
+remote-tracking refs for branches deleted upstream, so a branch merged with
+`--delete-branch` leaves `refs/remotes/origin/<branch>` behind. The state is
+chosen on that ref's *presence*: a leftover sends the branch down the ancestry
+path, which a squash merge breaks by construction, and the host is never asked
+— so the branch reads `wip` and its wave never completes. The scan's fetch
+therefore prunes, on the connection it already opens.
+
+`--offline`/`--no-fetch` skips the fetch, so it cannot prune either. An
+offline pulse keeps whatever stale refs the checkout holds and may report
+`wip` for merged work, holding a wave blocked; the footer says so. Re-run
+without `--offline` before concluding a wave is genuinely unfinished.
 
 ### 2. Report State
 

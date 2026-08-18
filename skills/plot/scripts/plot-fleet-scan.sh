@@ -2,7 +2,13 @@
 # Plot helper: fleet pulse — deterministic extractor for wave/claim state.
 # Usage: plot-fleet-scan.sh [--no-fetch] [--offline] [--next] [<slug>]
 #   --no-fetch  skip `git fetch`
-#   --offline   same (no network) — used for cheap, ambient pulses
+#   --offline   same (no network) — used for cheap, ambient pulses.
+#               The fetch also PRUNES remote-tracking refs, so skipping it
+#               keeps whatever stale refs this checkout holds: a branch merged
+#               and deleted upstream may read `wip` rather than `merged`, and
+#               its wave may read blocked. That is the honest answer for a scan
+#               that asked nothing, and the footer says so rather than leaving
+#               it to be discovered.
 #   --list-eligible  print EVERY claimable branch, one per line (exit 1 if none).
 #               For callers that need the count rather than one item — a dry
 #               run changes nothing, so its answer cannot go stale.
@@ -163,10 +169,46 @@ fi
 #
 # --offline/--no-fetch is NOT a failure. The operator asked for local refs and
 # got them; there is nothing to report but the fact that no fetch was tried.
+#
+# THE FETCH PRUNES WHAT IT FETCHES. `git fetch` does not remove
+# remote-tracking refs for branches deleted upstream; only `--prune` does. A
+# branch merged with --delete-branch therefore leaves `refs/remotes/origin/<br>`
+# behind on every machine that ever fetched it, and it survives until somebody
+# prunes for unrelated reasons. That leftover is not noise: branch_state()
+# picks its arm on the ref's PRESENCE, so a stale ref routes the branch into
+# the ancestry path — which a squash merge breaks by construction — and the
+# host lookup that would have answered `merged` is never reached. Measured
+# 2026-08-18: a wave could not be dispatched at all until an operator happened
+# to run `git fetch --prune` by hand.
+#
+# THE EXPLICIT REFSPEC IS REQUIRED, and this is the part that is easy to get
+# wrong: `git fetch --prune origin "$MAIN"` prunes NOTHING outside $MAIN.
+# Naming a refspec scopes the prune to that refspec's destination namespace, so
+# the narrow fetch this scan makes would prune only `refs/remotes/origin/$MAIN`
+# — a no-op for exactly the branches this exists to clear. Restating the
+# default heads refspec widens the prune back to the whole mirror while the
+# narrow one keeps the intent legible: fetch $MAIN, and while the connection is
+# open, make the local mirror match the remote.
+#
+# NOTHING HERE DEPENDS ON A STALE REF SURVIVING. The case to fear is a branch
+# deleted upstream while a local worktree still holds work: `local_ahead_of()`
+# reads `refs/remotes/origin/<br>..refs/heads/<br>`, so pruning removes its left
+# side. It already answers 0 on a missing ref by exit code rather than by
+# emptiness ("not observed → not reported"), which is the same answer it gives
+# for every branch living on another machine — so the count degrades to absent,
+# never to a wrong number. `local_dirty`, `local_locked` and `local_worktree`
+# read the worktree, not the mirror, so uncommitted work stays visible either
+# way. Conflict prediction is gated to wip|claimed and a pruned branch is
+# neither. The local `refs/heads/<br>` is untouched: --prune removes only
+# remote-tracking refs, so no local work is destroyed or hidden by this.
+#
+# ONE CONNECTION, NOT TWO. The prune rides the fetch already being made — no
+# extra round trip on a scan the board polls every five seconds.
 FETCH_FAILED=0
 FETCH_ERROR=""
 if [ "$do_fetch" = 1 ]; then
-  if ! FETCH_ERROR=$(git fetch -q origin "$MAIN" 2>&1); then
+  if ! FETCH_ERROR=$(git fetch -q --prune origin "$MAIN" \
+                       "+refs/heads/*:refs/remotes/origin/*" 2>&1); then
     FETCH_FAILED=1
     # Collapsed to one line: git's multi-line advice is for a human at a
     # terminal, and this string travels through JSON into a board cell.
@@ -1682,6 +1724,25 @@ if [ "$FETCH_FAILED" = 1 ]; then
   echo "  note: git fetch failed — these refs are as current as your last"
   echo "        successful fetch, not as current as origin/$MAIN."
   echo "        $FETCH_ERROR"
+  # A failed fetch also failed to PRUNE, and that has a sharper consequence
+  # than staleness alone: an unpruned ref sends branch_state() down the
+  # ancestry arm, where a squash merge reads `wip`. Said plainly, because the
+  # symptom — a finished wave that will not complete — looks nothing like
+  # "your fetch failed".
+  echo "        Stale remote-tracking refs were not pruned either, so a branch"
+  echo "        merged and deleted upstream may still read wip."
+fi
+# AN OFFLINE SCAN CANNOT PRUNE, and the answer that costs is not obvious.
+# --offline skips the fetch, so refs for branches deleted upstream survive, and
+# a surviving ref is what makes a squash-merged branch read `wip` and its wave
+# read blocked. Reporting the flag alone would leave the operator to derive
+# that; this states the consequence instead. Only under the prose report — the
+# machine renderings carry `fetch_failed` and the caller passed --offline
+# itself, so neither is being told something it does not know.
+if [ "$do_fetch" = 0 ]; then
+  echo "  note: --offline skipped the fetch, so stale remote-tracking refs were"
+  echo "        not pruned; a branch merged and deleted upstream may read wip"
+  echo "        and hold its wave blocked. Re-run without --offline to settle it."
 fi
 # The fallback announces itself. Silent degradation here would recreate the
 # very bug being fixed: a working-tree plan list reported as if it were the ref.
