@@ -147,6 +147,33 @@ should know it was noticed and traced, not tolerated: a label printed twice in
 adjacent lines is exactly the kind of detail that looks like a rendering bug
 and is really a placement one.
 
+### Blocked belongs in NOT STARTED — visibly blocked
+
+The section's question is *has this work started?*, and a blocked branch has
+not. It is unstarted work, and the other sections all answer a different
+question: WAITING ON YOU waits on a **person**, WAITING ON A MACHINE waits on a
+**machine**, WORKING has an **agent** in it. A branch waiting on another wave
+has none of those.
+
+Moving it elsewhere would also tear a plan apart. A plan's waves are its shape,
+and seeing `wave 2 — blocked` beside `wave 1 — eligible` is how a reader learns
+the order exists. Filing wave 2 in a different section hides the ordering that
+the gate is enforcing.
+
+**So the fix is not to move blocked rows out. It is to stop rendering them as
+claimable.** The two words the board must not confuse:
+
+| Branch state | Section | Rendered as |
+|---|---|---|
+| `open`, wave eligible | NOT STARTED | *eligible — nobody has taken it* |
+| `open`, wave blocked | NOT STARTED | *blocked — waits on `<wave>`* |
+| `claimed` | WORKING | the agent holding it |
+| `merged` | DONE | — |
+
+The schema already carries what the third column needs: `blockedBy` exists
+(`schema.ts:1291`) and is populated by the scan. The card is not short of data
+— it is not asking for it.
+
 ### Why it could not be reproduced when reported
 
 The plan involved lives in another repository (`ekzweb`), so the reporter's
@@ -193,9 +220,9 @@ not in collapsing them into one source.
 
 ## Branches
 
-- `bug/not-started-shows-approved-plans` — the section is filtered on the plan's phase first: `Approved` and nothing else. A `Draft` plan moves to WAITING ON YOU with what it waits on named (approval); `Delivered` and `Released` plans appear in neither. Measured on the live board: 10 plans in NOT STARTED, of which 3 were Approved, 7 Draft, plus one Released since v1.0.0-beta.3. Tests: each of the four phases lands in its documented section, driven from one fixture; a commit-less branch on an Approved plan is still offered, because within Approved the branch state is what refines the answer; the phase is read from the plan and never inferred from the branches; a plan that becomes Approved changes section on the next pulse without a restart.
+- `bug/not-started-shows-approved-plans` — the section is filtered on the plan's phase first: `Approved` and nothing else. A `Draft` plan moves to WAITING ON YOU with what it waits on named (approval); `Delivered` and `Released` plans appear in neither. Measured on the live board: 10 plans in NOT STARTED, of which 3 were Approved, 7 Draft, plus one Released since v1.0.0-beta.3. Tests: each of the four phases lands in its documented section, driven from one fixture; the phase is read from the plan and never inferred from the branches; a plan that becomes Approved changes section on the next pulse without a restart.
 
-- `bug/a-card-does-not-offer-a-blocked-branch` — reproduce the wave disagreement in a local fixture, then make the card render the wave count and branch availability its server already computed, with a cold pulse rendering as unknown rather than as available. Tests: a two-wave plan whose wave 2 is blocked never renders that branch as claimable; the card's wave count matches `waveSummary`; a card built with no pulse omits availability rather than assuming it; a genuinely eligible first wave is unchanged.
+- `bug/a-blocked-branch-says-it-is-blocked` — within NOT STARTED, a branch whose wave is blocked renders as blocked and names what it waits on, using the `blockedBy` the schema already carries; only an eligible branch reads *"eligible — nobody has taken it"*. Merged branches do not appear as rows of an unstarted plan. Tests: a blocked branch never renders as claimable and names its blocking wave; an eligible one is unchanged; a merged branch of an otherwise-unstarted plan is not offered; `blockedBy` absent renders as blocked without a name rather than as eligible.
 
 ## Notes
 
