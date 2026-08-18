@@ -940,7 +940,24 @@ branch_state() {
 quiet=0
 [ "$next_only" = 1 ] && quiet=1
 [ "$as_json" = 1 ] && quiet=1
-HEAD_SHORT=$(git rev-parse --short HEAD 2>/dev/null)
+# The ref this scan READ, and the ref the operator is STANDING ON. They are
+# different questions, and conflating them is the bug this block exists to
+# stop: every fact below is derived from `origin/$MAIN`, but the banner was
+# built from local `HEAD`. On `main` right after a fetch the two agree, which
+# is exactly why it survived — the common case made it look correct.
+#
+# When `origin/$MAIN` cannot be resolved (no remote, fresh clone) the ref is
+# reported as unknown. It does NOT fall back to `HEAD`: that would reintroduce
+# this bug in the one case where nothing can catch it, and a banner that says
+# "unknown" gets investigated in seconds where a real-looking SHA gets believed.
+READ_REF=$(git rev-parse --short "origin/$MAIN" 2>/dev/null) || READ_REF=""
+[ -n "$READ_REF" ] || READ_REF="unknown"
+LOCAL_HEAD=$(git rev-parse --short HEAD 2>/dev/null) || LOCAL_HEAD=""
+[ -n "$LOCAL_HEAD" ] || LOCAL_HEAD="unknown"
+# Kept as an alias for one release: the board reads `head` today (Agents tab),
+# and renaming a field out from under a live consumer is a break nobody asked
+# for. Removed once the board reads `read_ref`.
+HEAD_SHORT="$LOCAL_HEAD"
 json_plans=""
 
 # Emit a JSON string with the six characters JSON forbids escaped. Branch names
@@ -967,7 +984,28 @@ json_array() {
 }
 
 if [ "$next_only" != 1 ] && [ "$as_json" != 1 ]; then
-  banner="plot-fleet pulse — $HEAD_SHORT on origin/$MAIN"
+  banner="plot-fleet pulse — $READ_REF on origin/$MAIN"
+  # The local checkout and the ref this report was derived from disagree. That
+  # is worth one clause: the operator is looking at a tree this report does not
+  # describe. `behind` is how many commits of `origin/$MAIN` the checkout has
+  # not got — empty when the two share no ancestry to count across.
+  if [ "$READ_REF" != "unknown" ] && [ "$LOCAL_HEAD" != "$READ_REF" ]; then
+    behind=$(git rev-list --count "HEAD..origin/$MAIN" 2>/dev/null) || behind=""
+    # POINTS AT THE REPORT, NOT THE TREE. The measured failure was operators
+    # believing a stale report, so the clause has to say what this report
+    # describes — "your checkout is behind" is advice about the tree, and an
+    # operator who reads it still has no reason to doubt the numbers below.
+    #
+    # The count is included only when git could compute it. `behind` counts
+    # commits on origin/$MAIN the checkout lacks; on a diverged feature branch
+    # that is true but partial, so the SHA leads and the count trails as a
+    # parenthetical rather than being the claim.
+    if [ -n "$behind" ] && [ "$behind" != 0 ]; then
+      banner="$banner (not your checkout $LOCAL_HEAD, $behind behind)"
+    else
+      banner="$banner (not your checkout $LOCAL_HEAD)"
+    fi
+  fi
   if [ "$loose" = 1 ]; then
     if [ "$loose_verifiable" = 1 ]; then banner="$banner (loose eligibility)"
     else banner="$banner (--loose cannot verify PR readiness without a git host — using strict)"
@@ -1223,8 +1261,15 @@ fi
 # it asked for, not on how it asked. --next wins over it (handled above): that
 # is a different question with a one-line answer.
 if [ "$as_json" = 1 ]; then
-  printf '{"main":"%s","head":"%s","plans":[%s],' \
-    "$(json_str "$MAIN")" "$(json_str "$HEAD_SHORT")" "$json_plans"
+  # `read_ref` is the ref this document was derived from; `local_head` is the
+  # checkout it was derived ON. A consumer needs both to tell "the board is
+  # current" from "the board is current about an old world".
+  #
+  # `head` repeats `local_head` as an alias for one release. The board reads it
+  # today; it goes away once the board reads the pair.
+  printf '{"main":"%s","read_ref":"%s","local_head":"%s","head":"%s","plans":[%s],' \
+    "$(json_str "$MAIN")" "$(json_str "$READ_REF")" "$(json_str "$LOCAL_HEAD")" \
+    "$(json_str "$HEAD_SHORT")" "$json_plans"
   printf '"summary":{"plans":%d,"waves":%d,"branches":%d,"claimed":%d,' \
     "$n_plans" "$n_waves" "$n_branches" "$n_claimed"
   printf '"eligible":%d,"blocked":%d,"deferred":%d,"merge_detect":"%s"}}\n' \
