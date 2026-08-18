@@ -256,3 +256,19 @@ test('the single-sprint case is mirrored at top level, so the common read needs 
   assert.equal(r.release, r.sprints[0].release);
   assert.deepEqual(r.must, r.sprints[0].must);
 });
+
+// --- Paths ------------------------------------------------------------------
+
+test('the active symlink resolves to the real file, reported without an active/../ detour', () => {
+  // /plot-sprint start creates `active/<slug>.md -> ../<week>-<slug>.md`, so
+  // every active sprint arrives through a relative symlink. The path is
+  // normalized textually rather than with `readlink -f`/`realpath`: those
+  // differ between GNU and BSD — CI is Linux, most authors are on macOS — and
+  // both would return an absolute path where every other path here is
+  // repo-relative.
+  const w = repo({ release: '2.5.2' });
+  const r = run(w);
+  assert.equal(r.file, 'docs/sprints/2026-W34-demo.md');
+  assert.ok(!r.file.includes('..'), 'no unresolved parent segment');
+  assert.ok(!path.isAbsolute(r.file), 'stays repo-relative like every other path');
+});

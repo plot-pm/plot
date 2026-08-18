@@ -88,6 +88,20 @@ is_delivered() { # $1=slug → true|false
   [ -e "$DELIVERED_DIR/$1.md" ] && printf 'true' || printf 'false'
 }
 
+# Collapse `a/b/../c` → `a/c` textually. NOT `readlink -f` or `realpath`: the
+# first differs between GNU and BSD (and CI is Linux while most authors are on
+# macOS), and both would resolve to an absolute path when every other path this
+# script reports is repo-relative. Only the `x/../` case occurs here — an active
+# entry is a symlink to `../<file>` in the sprint dir.
+norm_path() {
+  local p="$1" prev=""
+  while [ "$p" != "$prev" ]; do
+    prev="$p"
+    p=$(printf '%s' "$p" | sed -E 's#(^|/)[^/]+/\.\./#\1#g')
+  done
+  printf '%s' "$p"
+}
+
 # Resolve the sprint file. An explicit slug wins; otherwise the single active
 # sprint. "Which sprint?" is a question, and a script that guessed would be
 # answering it — so zero and many are reported, never resolved.
@@ -115,7 +129,7 @@ resolve_sprint() { # → "path\tnote"; one side is always empty
     local out="" a t
     for a in "${act[@]}"; do
       t=$(cd "$SPRINT_DIR/active" && readlink "$(basename "$a")" 2>/dev/null) || t=""
-      [ -n "$t" ] && a="$SPRINT_DIR/active/$t"
+      [ -n "$t" ] && a="$(norm_path "$SPRINT_DIR/active/$t")"
       out="$out$a"$'\n'
     done
     printf '%s\t' "${out%$'\n'}"
@@ -124,7 +138,7 @@ resolve_sprint() { # → "path\tnote"; one side is always empty
   # An active entry is a symlink into the sprint dir; resolve it to the real file.
   local target
   target=$(cd "$SPRINT_DIR/active" && readlink "$(basename "${act[0]}")" 2>/dev/null) || target=""
-  if [ -n "$target" ]; then printf '%s\t' "$SPRINT_DIR/active/$target"; else printf '%s\t' "${act[0]}"; fi
+  if [ -n "$target" ]; then printf '%s\t' "$(norm_path "$SPRINT_DIR/active/$target")"; else printf '%s\t' "${act[0]}"; fi
 }
 
 # Split on the FIRST tab with parameter expansion, not `read -d`: with
