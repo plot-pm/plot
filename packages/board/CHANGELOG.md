@@ -1,5 +1,309 @@
 # @plot-pm/board
 
+## 0.5.1
+
+### Patch Changes
+
+- [#224](https://github.com/plot-pm/plot/pull/224) [`5bf408e`](https://github.com/plot-pm/plot/commit/5bf408e478d1bce283e20aaac4fbb21116e34fcf) Thanks [@jwloka](https://github.com/jwloka)! - board: every action a row offers lives in its menu
+
+  Four actions, two homes, and no rule telling them apart. _Open failing run_
+  and the conflict dispatch rendered inline in the row; _Start work_ and
+  _Approve_ rendered in the `⋯` menu. The split followed the order the four
+  were built in, and nothing else.
+
+  Reported while a row showed a CI failure — _why is "Open failing run" not in
+  the `⋯` menu?_ The honest answer was that nobody had decided.
+
+  The rule now: **the row says what IS, the menu says what you can DO.** Both
+  inline actions moved into the menu as items with their own conditions.
+  Navigation to a thing the row NAMES — its plan, its branch, its PR — stays
+  inline, because a `cmd`-click on a real link is worth more than a tidier
+  line. _Open failing run_ names none of those; it addresses a run, which the
+  row reports on rather than is.
+
+  Two measured costs, both gone:
+
+  **The run was reachable only while the row was red.** The link rendered on
+  `stuck.state === 'ci-failing'`, so the route to a run existed exactly as long
+  as the failure did, and a reader wanting the last run of a green branch had
+  no control at all. Its condition is now _a run URL exists_. The label
+  followed the condition — a green row offering _Open failing run_ would
+  promise a failure that is not there, so the item reads **Open last run** and
+  the row's own stuck cell keeps the word _failing_ for when it is true.
+
+  **The menu opened on nothing.** It rendered on every row, dimmed, on a layout
+  argument: rendering nothing would leave the right edge ragged and moving as
+  the five-second pulse gave and took actions. A later wave answered that — the
+  cell has a fixed `1.25rem` track, so the column holds still whether or not a
+  button is in it. What remained was a control that lies, measured lying on two
+  of six WAITING ON YOU rows. A row with no items now renders no button. **A
+  refusal is not an absence**: a row whose act the server declines still shows
+  its button and names the reason on it.
+
+  **The stuck cue did not move.** It is state rather than an action — it points
+  at something being wrong, and a signal reachable only by opening a menu is
+  not a signal. It renders in the row beside the word and the evidence it
+  describes.
+
+  Found on the way, and fixed here because the move exposed it: the
+  close-on-outside-click listener closed the menu on **capture**, while the
+  container that was supposed to stop it did so on React's **bubble** phase. The
+  close always won, so React 19 — which delegates to the root — unmounted the
+  menu before any handler inside it ran. The run link's click followed its href
+  and never fired `onTaken`, leaving the cue animating at an answered request.
+  It now hit-tests the target against the menu's own box.
+
+  The rule is a gate rather than a comment: a structural test scans every
+  component reachable from the row body, skips the menu, and fails on any `<a>`
+  or `<button>` that is not one of the row's three named-thing links. Verified
+  by putting the removed link back and watching it fail.
+
+  <!--
+  bumps:
+    skills:
+  -->
+
+  No skill version bumps: this is a board-side change only. Nothing under
+  `skills/` changed but the generated `board-server.mjs` artifact, which is
+  rebuilt output rather than authored skill content, and no skill documents what
+  a row's `⋯` menu holds — so no skill's behaviour changed.
+
+- [#219](https://github.com/plot-pm/plot/pull/219) [`a4ecf36`](https://github.com/plot-pm/plot/commit/a4ecf3632db03b9c40f7062a304eabcd742f481e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
+  bumps:
+    skills:
+      plot: minor
+      plot-dispatch: minor
+      plot-fleet: minor
+  -->
+
+  plot: `finished` is not a verdict
+
+  Every worker exits 0 — the one that opened its PR and reported cleanly, the one
+  that stopped rather than claim a test run it had not seen, and the one that
+  stopped to ask which retry semantics were wanted. Measured across seven
+  worktrees during a four-agent fleet run. All three read `finished`, whose
+  documented move is _review it_, and two of the three needed an answer instead.
+
+  The process reports how it TERMINATED, never whether the task is DONE. So a
+  clean exit is now refined by the tree, which is where the difference lives:
+
+  | Condition                    | State                                  |
+  | ---------------------------- | -------------------------------------- |
+  | process alive                | `running`                              |
+  | an open or merged PR         | `finished` — the work reached review   |
+  | a blocked marker in the tree | `waiting` — a person owes it an answer |
+  | uncommitted or unpushed work | `stalled` — work on the floor, no PR   |
+  | otherwise                    | `finished`                             |
+
+  Added **once**, to `plot-worker-state.sh`, which is the whole reason wave 1
+  merged the duplicate first. `failed`, `ended` and `none` are untouched: each
+  already says something specific about the process, and none of them is the
+  `finished`-means-everything blur this splits.
+
+  `waiting` and `stalled` are as opposite as `failed` and `finished` — _answer it_
+  sends a person to a question, _resume it_ sends a worker back to work. A marker
+  therefore outranks work on the floor: a worker that stops to ask has almost
+  always left its work uncommitted beside the question, and reporting that as
+  stalled invites a restart into the same wait. Measured happening twice to one
+  branch, the second restart re-running what the first had finished.
+
+  **Plot now names the marker: `PLOT-BLOCKED:`.** `TODO(you)` emerged from workers
+  and was documented nowhere, so it could drift into `TODO(human)` — which it
+  already had, in the same session — or into `ASK:` or prose, and a marker the
+  classifier cannot find is a `waiting` reported as `stalled`. Both emergent
+  spellings stay recognised beside the defined one: they exist in trees right now,
+  and dropping them would silently regress every worker already running. The
+  defined marker is what Plot **asks** for; the emergent ones are what it still
+  **accepts**.
+
+  The marker is read from the TREE, never the log. The log records that a question
+  _was asked_; only the tree records that it is still _unanswered_, and only the
+  tree clears when someone writes the answer.
+
+  **`stalled` carries what is on the floor** — the count and the file names, not
+  just a number. The names make the row actionable without a second command,
+  which is the point of reporting it at all.
+
+  **The PR fact travels as an argument**, supplied by each caller. The scan caches
+  one host reply per branch per run behind its `--offline` gate; `plot-dispatch
+--status` asks per branch when a person types it. A lookup inside the classifier
+  would fork a `gh` per branch on a scan the board polls every 5 s, or break
+  `--offline`'s promise of no network. Unanswerable is never a yes — offline, no
+  backend, or a host returning 503 falls through to the local signals and reads
+  `stalled`: _go and look_, rather than _stop looking_.
+
+  **Editor leftovers are not work** (`.tmp*`, `.swp`, `.orig`, `.rej`, `.bak`) —
+  a guard restarted a branch over an orphaned `plot-dispatch.sh.tmp1` while its
+  worker was making progress. Nor is Plot's own bookkeeping: `.plot-worker.pid`,
+  `.plot-worker.exit` and `.plot-worker.log` are untracked files the fleet writes
+  into the worktree, and counting them made every tidily-finished worker read
+  `stalled`. The exclusion stays narrow otherwise — an uncommitted source file is
+  exactly the case this detection exists for.
+
+  Two silent failures were caught while building this, both in the reassuring
+  direction and both invisible behind `2>/dev/null`. `git grep --no-index
+--untracked` is a fatal error (the flags are mutually exclusive), and `git grep
+-qIE <pattern> --untracked` parses `--untracked` as a revision — each exits 128
+  having matched nothing, so every waiting worker would have read `stalled`. And
+  an unpushed-count fallback against `origin/main` reported every clean branch
+  `stalled` in a repo with no remote, because `rev-list --count "..HEAD"` with an
+  empty left side counts the whole history from the root. Only the branch's own
+  `@{upstream}` answers that question; with no upstream it is unanswerable, and an
+  unanswerable question licenses no verdict.
+
+  The board reports both states in `waiting-on-you` with distinct notes — _waiting
+  on an answer from you_ versus _stopped with work unfinished — resume it_.
+
+  **Nothing is restarted.** The scan is read-only (Manifesto Principle 1); a
+  `stalled` row names the branch and what is on the floor, and the decision to
+  relaunch stays in `/plot-dispatch`. The reaper is untouched: it classifies
+  _empty_ claims and answers a different question, and a stalled worker has work
+  worth keeping.
+
+  The prototype `.dev/scripts/fleet-pulse.sh` — corrected three times by watching
+  it act — is deleted. Two things computing verdicts from one dataset is how they
+  drift, which is the defect wave 1 removed.
+
+- [#221](https://github.com/plot-pm/plot/pull/221) [`b54bcf3`](https://github.com/plot-pm/plot/commit/b54bcf3cea96c188745f533f0c3fdfd192834101) Thanks [@jwloka](https://github.com/jwloka)! - board: `none` is an observation, so it is only printed where one was made
+
+  `WAITING ON A MACHINE — none` was printed in two opposite situations: after
+  the host had answered and reported nothing pending, and before the host had
+  been asked at all. They want opposite responses from the reader, and the
+  reassuring one was the default.
+
+  Measured 2026-08-18 from two screenshots of one board 22 seconds apart. At
+  `PR data 22s ago` the section read `none` and no row carried a status. At
+  `PR data 4s ago` the same board reported [#57](https://github.com/plot-pm/plot/issues/57) `conflicts`, [#196](https://github.com/plot-pm/plot/issues/196) `checks
+failing` since the previous day, and [#203](https://github.com/plot-pm/plot/issues/203) `CI running`. Nothing changed on
+  the host between them. **A branch whose CI had been red overnight presented
+  as unremarkable**, and a branch the host reports as unmergeable presented the
+  same way. The operator's reading was that the board had lost its state; it
+  had not yet fetched it.
+
+  This is the rule `2026-08-17-an-outage-is-not-an-answer` established — a
+  failure to observe must not be reported as an observation — at the one
+  boundary that plan did not cross. An outage at least produces an error to
+  carry. A first fetch that has not happened produces nothing at all, which is
+  how it survived a plan written to catch exactly this shape.
+
+  The section now says which clock it was read from. Four states:
+
+  | Situation                  | Shown as                   |
+  | -------------------------- | -------------------------- |
+  | fetched, something pending | the rows, as today         |
+  | fetched, nothing pending   | `none` — unchanged         |
+  | not fetched yet            | `not checked yet`          |
+  | first fetch failed         | `could not reach the host` |
+
+  **A failed call is its own state, not a fourth spelling of the third.** Both
+  mean no host fact is on the board, so one label would have been defensible —
+  but `not checked yet` clears itself within seconds and asks the reader for
+  nothing, while an outage waits for somebody to read the error. Folding them
+  together would re-file a standing fault as a passing one, which is the
+  opposite of what `an-outage-is-not-an-answer` was for. The distinction costs
+  nothing to compute: `refreshPrs` already leaves `prAt` untouched when the
+  call throws, so a null age beside an error is a first fetch that FAILED
+  rather than one not yet made — and the footer has read the pair that way all
+  along.
+
+  **Header and body, not one or the other.** The header's hint is what a reader
+  sees while scanning, and QUIET and DONE prove a header can be the only part
+  of a section on screen; the empty-grid cell is what they see after opening
+  the section to look for rows. A single site would leave one of those two
+  readings unlabelled.
+
+  **A first-load state, not a staleness display.** Once the host has answered,
+  every later answer is an answer no matter how old: ordinary ageing is what
+  the footer already reports (`PR data 111s ago`), and re-labelling the section
+  every 60 s would trade one misreading for a flicker. The age is tested
+  against null and never against a threshold.
+
+  The two clocks stay separate, which was the point. `hostAnswer` takes
+  `Pick<Fleet, 'prAgeSeconds' | 'prError'>` rather than the whole fleet, so a
+  later edit reaching for the git scan's `ageSeconds` is a compile error rather
+  than a review comment — the window where rows are git-fresh and host-unfetched
+  is not an edge case, it is most of every minute.
+
+  <!--
+  bumps:
+    skills:
+  -->
+
+  No skill version bumps: this is a board-side change only. Nothing under
+  `skills/` reads or documents what the Agents tab prints in an empty section,
+  and the `/api/fleet` payload is unchanged — every field this distinction is
+  drawn from (`prAgeSeconds`, `prError`) was already in the contract and already
+  in the footer. Only the rendering conflated them.
+
+- [#222](https://github.com/plot-pm/plot/pull/222) [`8d96491`](https://github.com/plot-pm/plot/commit/8d964916c8d06915c7df0e17bc73f316e4ee10b2) Thanks [@jwloka](https://github.com/jwloka)! - plot-fleet: the scan prunes what it fetches, so a stale ref stops outranking the host
+
+  A branch squash-merged and deleted at merge reported `in progress` for as
+  long as one local ref nobody pruned still pointed at it. Measured
+  2026-08-18, minutes after PR [#218](https://github.com/plot-pm/plot/issues/218) merged: the host answered `MERGED`, the
+  remote had no such branch, no worktree and no claim remained — and
+  `--list-eligible` returned nothing, so wave 2 could not be dispatched at
+  all. `git fetch --prune` by hand cleared it and the wave opened
+  immediately.
+
+  `git fetch` does not remove remote-tracking refs for branches deleted
+  upstream; only `--prune` does, and the scan's fetch did not pass it. So
+  every branch merged with `--delete-branch` left one behind on every machine
+  that had fetched it, surviving until an operator pruned for unrelated
+  reasons — which is what made this look intermittent.
+
+  **The stale ref did not add noise; it disabled the check that would have
+  been right.** `branch_state()` picks its arm on the ref's PRESENCE: with
+  the ref there the scan takes the ancestry path, which a squash merge breaks
+  by construction (the squash commit does not contain the branch tip), so the
+  branch fell to `wip` — and the host lookup that would have answered
+  `merged` lives in the other arm and was never reached. Under a merge commit
+  the ancestry test is true anyway, which is why only squash merges expose
+  it; this repo squash-merges by default.
+
+  The fetch at the top of the scan now prunes, on the connection it already
+  opens. No new host call and no new logic: the stale ref never exists, the
+  no-ref arm is entered, and the host lookup added in [#216](https://github.com/plot-pm/plot/issues/216) answers.
+
+  **The merge lookup did not move.** It is safe only by placement — a branch
+  someone _recreated_ has a ref and takes the ancestry path deliberately, so
+  hoisting the lookup would report in-flight work as `merged` and open the
+  next wave onto work still being done. Pruning is safe precisely because it
+  reorders nothing: it makes the local view match the remote, and the
+  existing arms then apply as designed.
+
+  One detail is load-bearing and easy to get wrong. **The explicit refspec is
+  required.** `git fetch --prune origin <main>` prunes _nothing_ outside
+  `<main>`: naming a refspec scopes the prune to that refspec's destination
+  namespace. The obvious fix — a bare `--prune` on the narrow fetch the scan
+  already made — is therefore a no-op for exactly the branches it exists to
+  clear, and it looks correct. Restating the default heads refspec alongside
+  `<main>` widens the prune back to the whole mirror, still in one connection.
+  A test pins this against git directly, so the refspec is not later read as
+  redundant and removed.
+
+  Nothing depended on a stale ref surviving. `local_ahead_of()` reads
+  `refs/remotes/origin/<br>..refs/heads/<br>`, and already answers 0 on a
+  missing ref by exit code rather than by emptiness — the same answer it
+  gives for every branch living on another machine, so the count degrades to
+  absent rather than to a wrong number. `local_dirty`, `local_locked` and
+  `local_worktree` read the worktree rather than the mirror, so uncommitted
+  work stays visible; conflict prediction is gated to `wip|claimed`, which a
+  pruned branch is not; and `--prune` removes only remote-tracking refs, so
+  no local branch or work is touched.
+
+  `--offline` is decided and stated rather than left to be discovered: it
+  skips the fetch, so it cannot prune, and a surviving ref may keep a merged
+  branch reading `wip` and hold its wave blocked. That is the honest answer
+  for a scan that asked nothing — but the symptom looks nothing like "you
+  passed `--offline`", so the footer now says so, and a failed fetch says
+  that it failed to prune too.
+
+  <!--
+  bumps:
+    skills:
+      plot-fleet: patch
+  -->
+
 ## 0.5.0
 
 ### Minor Changes
@@ -430,11 +734,11 @@ time`), computed server-side where the wave verdict and the plan phase
   here, because this same change reworded a neighbouring note. The client
   no longer imports any note constant.
 
-    <!--
-    bumps:
-      skills:
-        plot: patch
-    -->
+      <!--
+      bumps:
+        skills:
+          plot: patch
+      -->
 
 - [#182](https://github.com/plot-pm/plot/pull/182) [`07eeceb`](https://github.com/plot-pm/plot/commit/07eecebe6b1d915e1d05fe8d35391c1bbb02f903) Thanks [@jwloka](https://github.com/jwloka)! - A row on the Agents tab now marks itself when something is actually being written to it, rather than when it happens to sit in the WORKING group.
 
