@@ -501,6 +501,44 @@ export const ELIGIBLE_NOTE = 'eligible — nobody has taken it';
 export const DRAFT_PLAN_NOTE = 'plan not approved yet — still in review';
 
 /**
+ * The note for a branch whose PLAN has already shipped or been delivered.
+ *
+ * The counterpart to `DRAFT_PLAN_NOTE` at the other end of the lifecycle, and
+ * it exists for the same reason: a finished plan's branch is `open` in git —
+ * bit-identical to a branch nobody has started — whenever the work landed
+ * somewhere else. `plot-sprint-support` shipped in v1.0.0-beta.3 and its single
+ * branch was never created, because the change went straight onto main.
+ *
+ * Measured 2026-08-18, after a hygiene sweep set 39 delivered plans to
+ * `Released`: **ten Released plans in NOT STARTED at once**, each offering a
+ * merged branch as available work. The sweep did not cause that — it multiplied
+ * a defect that had been hiding behind a single row.
+ *
+ * Rows carrying this note belong in `done`, never in `not-started`, so unlike
+ * `DRAFT_PLAN_NOTE` this sentence is what a DONE row says about a branch git
+ * cannot account for. It names the phase because *why is there no branch* is
+ * the reader's next question, and "the work landed elsewhere" is the answer.
+ */
+export const FINISHED_PLAN_NOTE = 'plan finished — no branch was needed';
+
+/**
+ * The note for a plan whose phase this board has never been taught.
+ *
+ * The allowlist's fallback, and it says the one honest thing available: the
+ * phase is NAMED and the placement is admitted as a guess. A row reading
+ * *plan phase `abandoned` — the board cannot place this* sends a reader to the
+ * plan; a row silently filed as startable sends an agent to a branch nobody
+ * decided on.
+ *
+ * Names the value verbatim rather than paraphrasing it, so the fix — teaching
+ * the board the phase, or fixing a typo in the plan file — is visible from the
+ * row itself.
+ */
+export function unknownPhaseNote(phase: string): string {
+  return `plan phase \`${phase}\` — the board cannot place this`;
+}
+
+/**
  * WHAT A NOT-STARTED ROW IS WAITING FOR — as a value, never as a sentence.
  *
  * Three answers, and the split is by *what would move this*, which is the

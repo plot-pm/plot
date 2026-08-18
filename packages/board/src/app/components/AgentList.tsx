@@ -35,7 +35,11 @@ export const GROUPS: { key: WaitingGroup; icon: string; label: string; hint: str
   { key: 'waiting-on-you', icon: '⚠', label: 'Waiting on you', hint: 'review, merge, decide' },
   { key: 'working', icon: '🤖', label: 'Working', hint: 'nothing to do — just look' },
   { key: 'waiting-on-machine', icon: '⏳', label: 'Waiting on a machine', hint: 'nothing — CI will finish' },
-  { key: 'not-started', icon: '📋', label: 'Not started', hint: 'nobody has taken it' },
+  // *approved* rather than only *nobody has taken it*: the section is filtered
+  // on the plan's phase first, so every row in it is one an agent may actually
+  // take. The old hint described the branch and let three unclaimable kinds of
+  // row in behind it.
+  { key: 'not-started', icon: '📋', label: 'Not started', hint: 'approved — nobody has taken it' },
   { key: 'quiet', icon: '💤', label: 'Quiet', hint: 'still thinking, or dead?' },
   { key: 'done', icon: '✅', label: 'Done', hint: 'merged' },
 ];

@@ -5,6 +5,8 @@ import {
   blockedNote,
   DRAFT_PLAN_NOTE,
   ELIGIBLE_NOTE,
+  FINISHED_PLAN_NOTE,
+  unknownPhaseNote,
   FleetPulseSchema,
   toBoardPhase,
   type AgentRow,
@@ -1125,15 +1127,33 @@ export function waitingOnFor(
   planPhase: string | null,
 ): WaitingOn | null {
   if (group !== 'not-started') return null;
-  // A shelved branch waits on a person, exactly as a Draft plan does — and it
-  // reaches `not-started` by its own route, never through the `open` arm below.
+  // A shelved branch waits on a person — a deliberate hand-back, and the one
+  // row here that a phase check does not account for. It reaches `not-started`
+  // by its own route, never through the `open` arm below.
   if (state === 'deferred') return 'you';
   if (state !== 'open') return null;
-  // An earlier wave first: true of a Draft plan's later waves too, and the more
-  // specific of the two. Their predecessors would still block them the instant
-  // the approval landed, so `time` is what those rows are actually waiting for.
+  // An earlier wave, WITHIN an approved plan — which is now the only kind of
+  // plan whose open branches reach this section at all.
   if (verdict !== 'eligible') return 'time';
-  if (planPhase === 'draft') return 'you';
+  // THE DRAFT ARM IS GONE, and its absence is the point rather than an
+  // oversight. It used to answer `you` for a Draft plan's first wave, because a
+  // Draft plan's branches sat in NOT STARTED and needed a colour saying they
+  // could not be taken. They no longer sit here: `classify` sends the whole
+  // plan to WAITING ON YOU, so the guard above returns null before this line
+  // could run.
+  //
+  // Deleted rather than left unreachable. A dead arm here is a SECOND rule
+  // asserting that Draft rows belong in this section — the drift this function
+  // exists to prevent, and the reason it derives from `group` rather than
+  // re-deciding it. The concern the old arm answered is answered better by the
+  // move: a four-wave Draft plan no longer puts four loud rows on the board for
+  // one pending approval, because it puts none.
+  //
+  // `planPhase` stays in the signature: the caller reads it from the same pair
+  // of facts, and a parameter removed here would silently shift the argument
+  // list of every spread-tuple caller in the suite — a trap this file has
+  // sprung once already.
+  void planPhase;
   return 'click';
 }
 
@@ -1366,22 +1386,74 @@ export function classify(
     if (localDirty || localLocked) {
       return workingLocally(localDirty, 0, localLocked);
     }
-    // An earlier wave keeps the first word. Both statements are true of a
-    // Draft plan's later waves, and the wave one is the more specific: it names
-    // a branch that must land, where the draft note names a review. Saying the
-    // weaker of two true things is how a note stops being worth reading.
-    if (verdict !== 'eligible') return { group: 'not-started', note: BLOCKED_NOTE };
-    // The DRAFT case. `eligible` is a wave verdict — an answer about ordering
-    // WITHIN a plan — and it is correct here: no earlier wave is outstanding.
-    // The row's sentence claims more than that, and the extra claim is what is
-    // false: a plan under review has not reached the hand-off point, and
-    // `plot-dispatch` refuses its branches.
+    // THE PLAN'S PHASE IS ASKED FIRST, AND IT DECIDES THE SECTION.
     //
-    // The group does NOT change. `not-started` is still exactly right — nobody
-    // has taken it, and nobody should — so this narrows the note and nothing
-    // else. Moving the row somewhere else would hide work that is genuinely
-    // coming, which is the opposite of what the tab is for.
-    if (planPhase === 'draft') return { group: 'not-started', note: DRAFT_PLAN_NOTE };
+    // NOT STARTED means *an agent may take this*, and only one phase means
+    // that. `Approved` is precisely *decided, not yet done* — the phase in
+    // which `/plot-dispatch` hands a branch to an agent, and the only one.
+    // Every other phase fails the section's own question:
+    //
+    //     Draft      no — waits on approval        WAITING ON YOU
+    //     Approved   YES                           NOT STARTED
+    //     Delivered  no — the work is done         DONE
+    //     Released   no — shipped                  DONE
+    //
+    // This is not a rule layered on top of the phase model; it IS the phase
+    // model, which is why it reads as one inclusion rather than three
+    // exclusions.
+    //
+    // The board grouped by BRANCH STATE and never asked, and that one omission
+    // explains every symptom at once: a branch with no ref reads as "never
+    // started", which is true of a branch nobody created and equally true of
+    // one deleted at merge four months ago. Measured here 2026-08-18 —
+    // ten plans in NOT STARTED, three Approved, seven Draft that
+    // `/plot-dispatch` refuses, and `plot-sprint-support`, Released since
+    // v1.0.0-beta.3. A later hygiene sweep set 39 delivered plans to `Released`
+    // and the section grew to twenty rows, ten of them shipped work offered as
+    // available. The sweep multiplied the defect rather than causing it.
+    //
+    // ORDERED HERE, and both neighbours are deliberate. It sits BELOW the local
+    // worktree check because someone editing a branch of a shipped plan is
+    // still someone editing, and this file reports what is rather than what the
+    // bookkeeping says should be. It sits ABOVE the wave verdict because a
+    // blocked wave of a finished plan is not blocked, it is finished — the
+    // verdict refines the answer WITHIN `approved`, which is exactly the scope
+    // it keeps below.
+    //
+    // AN ALLOWLIST, like `prAsksNobody` and for its reason: a blocklist of
+    // finished phases would silently start claiming "an agent may take this"
+    // the first time a phase is added, which is the direction that goes quiet
+    // rather than loud.
+    //
+    // "" IS NOT A PHASE AND MUST NOT BE TREATED AS ONE. A pulse from a scan
+    // predating the field says nothing about the plan, and absent is not a
+    // guess — reading it as unstartable would empty the section wholesale
+    // against an older scan. It falls through to the git answer, exactly as
+    // before.
+    if (planPhase === 'draft') {
+      // A person, and the note names WHICH action — the reader's next question
+      // is *waiting on what*, and here the answer is a review rather than
+      // another branch. It also says what would unblock the row.
+      return { group: 'waiting-on-you', note: DRAFT_PLAN_NOTE };
+    }
+    if (planPhase === 'delivered' || planPhase === 'released') {
+      // The work is done; no branch of it can be waiting for an agent. The note
+      // accounts for the missing ref rather than leaving a DONE row unexplained
+      // — `plot-sprint-support` has no branch because the change went straight
+      // onto main.
+      return { group: 'done', note: FINISHED_PLAN_NOTE };
+    }
+    if (planPhase !== '' && planPhase !== 'approved') {
+      // A phase the board has not been taught. Not startable — see the
+      // allowlist note above — and the sentence says the board cannot place it
+      // rather than inventing a reason it cannot know.
+      return { group: 'done', note: unknownPhaseNote(planPhase) };
+    }
+    // An earlier wave keeps the first word, WITHIN an approved plan. That scope
+    // is what the phase check above establishes: every row reaching here is one
+    // an agent may actually take, so the wave verdict is now the only thing
+    // left to refine.
+    if (verdict !== 'eligible') return { group: 'not-started', note: BLOCKED_NOTE };
     return { group: 'not-started', note: ELIGIBLE_NOTE };
   }
   // A WORKER THAT STOPPED is a person's errand, whatever the commit clock says.

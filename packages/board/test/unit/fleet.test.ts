@@ -146,20 +146,21 @@ describe('waitingOnFor — what a NOT STARTED row is waiting for', () => {
     expect(waitingOnFor('not-started', 'open', 'eligible', 'approved')).toBe('click');
   });
 
-  it('reads a Draft plan FIRST wave as waiting on you', () => {
-    expect(waitingOnFor('not-started', 'open', 'eligible', 'draft')).toBe('you');
-  });
-
-  it('reads a Draft plan LATER wave as waiting on time, not on you', () => {
-    // THE assertion the plan singles out. A Draft plan holds every one of its
-    // branches, and this repo's plans routinely have four waves — colouring
-    // each would put four loud rows on the board for ONE pending approval, and
-    // the later three would still be blocked the instant after it was granted.
+  it('answers nothing for a Draft plan, which no longer reaches this section', () => {
+    // The arm that used to answer `you` here is GONE, and its absence is the
+    // fix rather than a regression. A Draft plan's open branches now leave
+    // NOT STARTED entirely — `classify` sends the plan to WAITING ON YOU — so
+    // the group guard answers first and this function is never consulted.
     //
-    // It comes out right because the wave verdict is tested BEFORE the phase.
-    // An implementation checking the phase first passes every other assertion
-    // here and gets exactly this one wrong.
-    expect(waitingOnFor('not-started', 'open', 'blocked', 'draft')).toBe('time');
+    // The old concern was that a four-wave Draft plan would put four loud rows
+    // on the board for ONE pending approval. The move answers it better: it
+    // puts none.
+    //
+    // Asserted through the GROUP the row actually carries, because that is what
+    // the caller passes. A Draft row arriving here as `not-started` would be
+    // the two functions disagreeing, which is the drift this pairing prevents.
+    expect(waitingOnFor('waiting-on-you', 'open', 'eligible', 'draft')).toBe(null);
+    expect(waitingOnFor('waiting-on-you', 'open', 'blocked', 'draft')).toBe(null);
   });
 
   it('reads a blocked wave of an approved plan as waiting on time', () => {
@@ -634,29 +635,46 @@ describe('classify', () => {
     expect(r.note).toMatch(/approved|review/);
   });
 
-  it('keeps a drafted branch in not-started rather than moving it', () => {
-    // The group is still exactly right — nobody has taken it, and nobody
-    // should. Moving the row elsewhere would hide work that is genuinely
-    // coming, which is the opposite of what the tab is for. So the phase
-    // narrows the NOTE and nothing else.
+  it('MOVES a drafted branch out of not-started, to WAITING ON YOU', () => {
+    // REVERSED DELIBERATELY, and this test records the reversal rather than
+    // being quietly deleted.
+    //
+    // It used to assert the group stayed `not-started`, reasoning that nobody
+    // had taken the branch so the section was still right, and that moving the
+    // row would hide work that was genuinely coming. The first half is true and
+    // the second is answered by WHERE it moves: WAITING ON YOU is not a hiding
+    // place, it is the section for work that needs a person — and a plan
+    // awaiting approval needs exactly that.
+    //
+    // What the old reasoning missed is the section's own question. NOT STARTED
+    // means *an agent may take this*, and `/plot-dispatch` refuses every branch
+    // of a Draft plan. A row nobody may claim, filed under the one word that
+    // says it can be, is the defect however accurate its note.
     expect(classify('open', 'eligible', null, QUIET, null, false, 0, 'draft').group)
-      .toBe('not-started');
+      .toBe('waiting-on-you');
   });
 
-  it('lets an earlier wave keep the first word on a drafted plan', () => {
-    // Both statements are true of a Draft plan's later waves, and the wave one
-    // is more specific: it names a branch that must land, where the draft note
-    // names a review. Saying the weaker of two true things is how a note stops
-    // being worth reading.
+  it('says the plan waits on approval, wherever its waves stand', () => {
+    // The wave used to keep the first word on a Draft plan, as the more
+    // specific of two true things. Once the plan leaves the section that
+    // ordering is no longer a choice between notes: the row's section is
+    // decided by the phase, and the note must say what THAT section is about.
+    //
+    // It is also the more useful sentence now. A reader in WAITING ON YOU is
+    // looking for what they must do, and *an earlier wave* is not something
+    // they can act on — the approval is.
     const r = classify('open', 'blocked', null, QUIET, null, false, 0, 'draft');
-    expect(r.note).toMatch(/earlier wave/);
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toBe(DRAFT_PLAN_NOTE);
   });
 
-  it('narrows nothing for any phase but draft', () => {
-    // Only the literal `draft` may change an answer. Every other phase — and
-    // the empty string an older pulse sends — must read exactly as before,
-    // which is what keeps this additive.
-    for (const phase of ['approved', 'delivered', 'released', 'rejected', 'weird', '']) {
+  it('leaves the eligible sentence to APPROVED plans and unknown-phase pulses', () => {
+    // Narrowed from "every phase but draft". `delivered` and `released` no
+    // longer read as eligible — they are finished, and that is this branch's
+    // whole subject — so the list that keeps the old sentence is now the two
+    // cases that mean *an agent may take this*: an approved plan, and a pulse
+    // that reported no phase at all.
+    for (const phase of ['approved', '']) {
       expect(classify('open', 'eligible', null, QUIET, null, false, 0, phase).note)
         .toBe(ELIGIBLE_NOTE);
     }
@@ -732,6 +750,193 @@ describe('classify', () => {
     expect(humanAge(1440)).toBe('1 day');
     expect(humanAge(30300)).toBe('21 days');
     expect(classify('wip', 'eligible', 30300, QUIET).note).toMatch(/21 days/);
+  });
+});
+
+describe('NOT STARTED shows Approved plans, and nothing else', () => {
+  // THE SECTION'S OWN QUESTION, asked of the plan before it is asked of git.
+  //
+  // The board grouped by BRANCH STATE and never consulted the plan's phase, and
+  // a branch with no ref reads as "never started" — which is true of a branch
+  // nobody created and equally true of one deleted at merge four months ago.
+  //
+  // Measured on this board 2026-08-18, NOT STARTED held ten plans:
+  //
+  //     approved   3   <- the only ones /plot-dispatch will start
+  //     draft      7   <- refused with "plan not approved yet"
+  //     released   1   <- plot-sprint-support, shipped in v1.0.0-beta.3
+  //
+  // and after a hygiene sweep set 39 delivered plans to `Released`, twenty rows
+  // with ten of them Released — each offering a merged branch as available
+  // work. The sweep multiplied the defect rather than causing it.
+  //
+  // `Approved` is precisely the phase meaning *decided, not yet done*, and the
+  // only one in which `/plot-dispatch` hands a branch to an agent. Every other
+  // phase fails the section's question, so the fix is an INCLUSION rather than
+  // three exclusions.
+  //
+  // Within `Approved`, branch state is still what refines the answer — that is
+  // unchanged here, and deliberately: this is the first question, not a
+  // replacement for the second.
+
+  it('keeps an Approved plan\'s eligible branch exactly where it was', () => {
+    // The row the section exists for, and the one thing that must not move.
+    const r = classify('open', 'eligible', null, QUIET, null, false, 0, 'approved');
+    expect(r.group).toBe('not-started');
+    expect(r.note).toBe(ELIGIBLE_NOTE);
+  });
+
+  it('moves a DRAFT plan to WAITING ON YOU and names the approval', () => {
+    // A draft waits on a PERSON — that is what the section means — and the note
+    // says which action, because *blocked by what* is answered here by a review
+    // rather than by another branch.
+    const r = classify('open', 'eligible', null, QUIET, null, false, 0, 'draft');
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toBe(DRAFT_PLAN_NOTE);
+    expect(r.note).toMatch(/approved|review/);
+  });
+
+  it('keeps a RELEASED plan out of not-started — the measured case', () => {
+    // `plot-sprint-support`: Phase Released since v1.0.0-beta.3, one branch
+    // with no ref because the work landed directly on main and no branch was
+    // ever created. The board offered it as unstarted work for four months.
+    const r = classify('open', 'eligible', null, QUIET, null, false, 0, 'released');
+    expect(r.group).not.toBe('not-started');
+    expect(r.group).toBe('done');
+  });
+
+  it('keeps a DELIVERED plan out of not-started too', () => {
+    // The same statement one phase earlier: the work is done, so none of its
+    // branches can be waiting for an agent whatever the refs say.
+    const r = classify('open', 'eligible', null, QUIET, null, false, 0, 'delivered');
+    expect(r.group).toBe('done');
+  });
+
+  it('places all four phases from ONE fixture, each in its documented section', () => {
+    // The table from the plan, asserted as a table. Identical git state on all
+    // four rows — `open`, no ref, an eligible wave — so the phase is provably
+    // the only thing deciding the section.
+    const sectionFor = (phase: string) =>
+      classify('open', 'eligible', null, QUIET, null, false, 0, phase).group;
+    expect(sectionFor('draft')).toBe('waiting-on-you');
+    expect(sectionFor('approved')).toBe('not-started');
+    expect(sectionFor('delivered')).toBe('done');
+    expect(sectionFor('released')).toBe('done');
+  });
+
+  it('reads the phase from the PLAN and never infers it from the branches', () => {
+    // Inferring is the defect. A Released plan whose branch has no ref looks
+    // exactly like an Approved plan nobody started — that is the whole trap —
+    // so an implementation guessing from `state` gets this pair identical.
+    const released = classify('open', 'eligible', null, QUIET, null, false, 0, 'released');
+    const approved = classify('open', 'eligible', null, QUIET, null, false, 0, 'approved');
+    expect(released.group).not.toBe(approved.group);
+  });
+
+  it('is an ALLOWLIST — an unknown phase never becomes claimable', () => {
+    // The shape `prAsksNobody` argues for in this file: a blocklist would
+    // silently start claiming "an agent may take this" the first time a phase is
+    // added. A phase nobody has taught the board about is not startable.
+    expect(classify('open', 'eligible', null, QUIET, null, false, 0, 'abandoned').group)
+      .not.toBe('not-started');
+  });
+
+  it('leaves a pulse that reports NO phase exactly as it was', () => {
+    // The compatibility rule every parameter here follows: absent is not a
+    // guess. A caller that could not look must answer as before rather than
+    // have its rows swept out of the section — which would empty NOT STARTED
+    // wholesale against an older scan.
+    for (const phase of ['', undefined] as const) {
+      const r = phase === undefined
+        ? classify('open', 'eligible', null, QUIET)
+        : classify('open', 'eligible', null, QUIET, null, false, 0, phase);
+      expect(r.group).toBe('not-started');
+      expect(r.note).toBe(ELIGIBLE_NOTE);
+    }
+  });
+
+  it('answers on the PHASE before it asks about the wave', () => {
+    // A blocked wave of a finished plan is not "blocked" — it is finished. The
+    // wave verdict refines the answer WITHIN `approved`, and only there.
+    expect(classify('open', 'blocked', null, QUIET, null, false, 0, 'released').group)
+      .toBe('done');
+    // ...while inside `approved` the wave still keeps the first word, unchanged.
+    expect(classify('open', 'blocked', null, QUIET, null, false, 0, 'approved'))
+      .toEqual(classify('open', 'blocked', null, QUIET, null, false, 0));
+  });
+
+  it('changes no state but `open` — a branch with real work keeps its answer', () => {
+    // The phase may only answer for a branch that does not exist yet. A
+    // finished plan whose branch carries commits, a claim or a PR is drift
+    // worth SEEING rather than smoothing over — the same rule `rowPhase`
+    // follows where a plan's bookkeeping lags its git state.
+    for (const args of [
+      ['claimed', 'eligible', QUIET + 1],
+      ['wip', 'eligible', 5],
+      ['merged', 'complete', 1],
+      ['deferred', 'eligible', null],
+    ] as const) {
+      const [state, verdict, age] = args;
+      for (const phase of ['draft', 'delivered', 'released']) {
+        expect(classify(state, verdict, age, QUIET, null, false, 0, phase))
+          .toEqual(classify(state, verdict, age, QUIET, null, false, 0, 'approved'));
+      }
+    }
+  });
+
+  it('lets a live local worktree outrank the phase, as it outranks the wave', () => {
+    // Someone editing a branch of a finished plan is still someone editing, and
+    // the board reports what IS rather than what the bookkeeping says should
+    // be. The same ordering the wave verdict already loses to.
+    expect(classify('open', 'eligible', null, QUIET, null, true, 0, 'released').group)
+      .toBe('working');
+  });
+});
+
+describe('the section follows the plan through rowsFromPulse', () => {
+  // The wiring `classify` alone cannot reach: the phase must travel from the
+  // PLAN onto each of its rows, and the row's own group must follow it.
+  const pulseWith = (phase: string): FleetPulse => ({
+    main: 'main',
+    head: 'abc1234',
+    plans: [{
+      file: '2026-08-15-example-plan.md',
+      phase,
+      waves: [{
+        name: 'Implementation', verdict: 'eligible',
+        branches: [{ branch: 'feature/c', state: 'open', deferred: false, claimed: '' }],
+      }],
+    }],
+    summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
+  } as FleetPulse);
+
+  const rowFor = (phase: string) =>
+    rowsFromPulse(pulseWith(phase), new Map(), 'plot', QUIET)
+      .find((r) => r.branch === 'feature/c')!;
+
+  it('places each phase in its documented section, end to end', () => {
+    expect(rowFor('draft').group).toBe('waiting-on-you');
+    expect(rowFor('approved').group).toBe('not-started');
+    expect(rowFor('delivered').group).toBe('done');
+    expect(rowFor('released').group).toBe('done');
+  });
+
+  it('changes section on the next pulse when a plan is approved — nothing to clear', () => {
+    // DERIVED, NEVER STORED. Two scans of the SAME fixture differing only in
+    // the phase, which is exactly what approving a plan changes. A stored flag
+    // passes the test above and fails this one; a restart must not be required.
+    expect(rowFor('draft').group).toBe('waiting-on-you');
+    expect(rowFor('approved').group).toBe('not-started');
+    expect(rowFor('approved').note).toBe(ELIGIBLE_NOTE);
+  });
+
+  it('reports nothing to wait for once a row has left the section', () => {
+    // `waitingOn` is null outside `not-started` by construction — derived from
+    // the group rather than re-decided — so a Draft row moving to WAITING ON
+    // YOU cannot keep a colour that says it is claimable.
+    expect(rowFor('draft').waitingOn).toBe(null);
+    expect(rowFor('released').waitingOn).toBe(null);
+    expect(rowFor('approved').waitingOn).toBe('click');
   });
 });
 
