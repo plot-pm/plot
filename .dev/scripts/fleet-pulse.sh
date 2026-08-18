@@ -86,6 +86,19 @@ pass() {
     if   [ "$alive" = yes ];      then state="working";                        act=0
     elif [ -n "$merged" ];        then state="done (PR #$merged)";             act=0
     elif [ -n "$pr" ];            then state="awaiting-review (PR #$pr)";      act=0
+    # A WORKER THAT ASKED A QUESTION IS NOT ABANDONED. Measured 2026-08-18:
+    # this guard restarted one branch twice while its worker was waiting on an
+    # answer it had asked for in its report — the second restart re-ran work
+    # the first had already done. A `TODO(you)`/`TODO(human)` marker in the
+    # tree is the worker saying "your turn", and relaunching it into the same
+    # wait is a loop, not a rescue.
+    #
+    # Checked in the tree rather than in the log: the log records that a
+    # question WAS asked, the marker records that it is still UNANSWERED, and
+    # only the second one clears when the operator writes the answer.
+    elif git -C "$d" grep -lIE 'TODO\((you|human)\)' -- . >/dev/null 2>&1 ||
+         grep -rlIE 'TODO\((you|human)\)' "$d"/packages "$d"/skills "$d"/test 2>/dev/null | head -1 | grep -q .; then
+                                       state="WAITING (question unanswered)"; act=0
     elif [ "$dirty" != 0 ];       then state="ABANDONED ($dirty uncommitted)"; act=1
     elif [ "$ahead" -gt 1 ];      then state="ABANDONED ($ahead commits, no PR)"; act=1
     # One commit and nothing else is the claim by itself — dispatch made the
