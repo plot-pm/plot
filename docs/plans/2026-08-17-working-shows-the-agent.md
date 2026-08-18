@@ -332,7 +332,7 @@ in a wave whose shape the earlier ones are likely to change.
 ### Log
 
 - `feature/the-worker-log-is-readable` — the board serves a worker's log
-  on demand from its deterministic path; a WORKING row offers it
+  on demand from its deterministic path; a WORKING row offers it — PR #239
 
 ### Asking
 
