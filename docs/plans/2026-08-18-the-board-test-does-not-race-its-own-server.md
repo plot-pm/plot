@@ -4,10 +4,11 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-18, jwloka, in-session
 
 ## Changelog
 
@@ -115,11 +116,17 @@ still a race.
 
 ### Open Points
 
-- [ ] Do the other board suites share the fixture pattern? `discovery.test.mjs`
-      is where it was measured, but `startServer(...)` against a mutating repo
-      may appear elsewhere.
-- [ ] Should the retry live in the test helper or in a shared fixture module?
-      If more than one suite needs it, one implementation.
+- [x] Do the other board suites share the fixture pattern? **Yes — measured
+      2026-08-18.** `startServer` is called by six files: `bridge`, `approve`,
+      `board`, `claimed`, `dispatch`, and `discovery`, via the shared
+      `test/helpers.mjs`. `discovery.test.mjs` is where the failure was caught,
+      not where the exposure ends.
+- [x] Should the retry live in the test helper or a shared fixture module?
+      **The shared helper**, `test/helpers.mjs`, which all six already import.
+      One implementation, and a suite added tomorrow inherits it — the
+      difference between fixing a bug and fixing a class of bug. Fixing only
+      `discovery.test.mjs` would leave five suites failing the same way on a
+      busy machine, one at a time, each looking like a fresh mystery.
 - [ ] Is there a case for `plot-fleet-scan.sh` itself to retry on lock, rather
       than reporting? It currently reports deliberately, and that is right for
       the fleet view — but the board calls it on a 5 s timer and may prefer a
@@ -127,7 +134,9 @@ still a race.
 
 ## Branches
 
-- `bug/the-board-test-does-not-race-its-own-server` — bounded, lock-specific retry in the discovery fixture's git helper, and a check for the same pattern in the other board suites. Test: the retry path must be exercised deliberately (hold a lock, assert the helper still succeeds) rather than left to chance.
+- `bug/the-board-test-does-not-race-its-own-server` — bounded, lock-specific retry in the **shared** git helper in `packages/board/test/helpers.mjs`, so all six suites that call `startServer` inherit it (`bridge`, `approve`, `board`, `claimed`, `dispatch`, `discovery`). Keyed on `index.lock` in stderr specifically: a blanket retry would paper over real git errors and turn a deterministic failure into a slow flaky one.
+
+  Test: the retry path must be exercised deliberately — hold a lock, assert the helper still succeeds — rather than left to chance. A test that merely runs the suite proves nothing, since the race is load-dependent and the suite passes in isolation.
 
 ## Notes
 

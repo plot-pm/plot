@@ -4,10 +4,11 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-18, jwloka, in-session
 
 ## Changelog
 
@@ -115,13 +116,34 @@ rules are written down.
 - [ ] Should `--allow-local` exist at all, or should a remote-less repo be told
       to configure `Main branch` and use a local ref? An escape hatch that is
       easier to type than to justify becomes the default.
-- [ ] `plot-phase-gate.sh` (the PreToolUse hook blocking implementation commits
-      while a plan is Draft) reads the same way. It is the strongest gate in the
-      system and the one most worth checking next.
+- [x] `plot-phase-gate.sh` reads the same way. **Confirmed 2026-08-18** — it
+      globs `$PLAN_DIR` from the working tree (line 136) and parses what it
+      finds (line 145), exactly as `plot-dispatch.sh` does. It is in scope for
+      this plan's single branch: same defect, same fix, and shipping one without
+      the other leaves a gate that a local-only approval can open.
+
+      **It keeps failing open, and says so.** The hook refusing every commit
+      when `origin/$MAIN` is unreadable would make the repo unusable offline,
+      and `CLAUDE.md` records the fail-open as a deliberate property. So the
+      unresolvable case allows the commit *and* emits a line naming what could
+      not be checked:
+
+      ```
+      plot-phase-gate: cannot read origin/main — phase unverified,
+                       allowing the commit. Run `git fetch` to restore the gate.
+      ```
+
+      This is the one place the two consumers diverge, and the reason is their
+      blast radius. `plot-dispatch` refusing costs one fan-out that can be
+      retried; the hook refusing costs every commit in the repository. An
+      operator who sees the line knows the gate did not run — which is the whole
+      difference between failing open and failing silently.
 
 ## Branches
 
-- `bug/the-gate-reads-what-was-shared` — read the plan blob from `origin/$MAIN` in `plot-dispatch.sh`'s gate, refuse when the ref is unresolvable, name the ref in every refusal, and add `--allow-local` as the explicit escape. Tests: both sandbox reproductions above — a shared approval hidden by a parked checkout must dispatch, and a local-only approval must be refused.
+- `bug/the-gate-reads-what-was-shared` — read the plan blob from `origin/$MAIN` in **both** gates: `plot-dispatch.sh` (line 232) and `plot-phase-gate.sh` (line 145). Name the ref in every refusal, and add `--allow-local` as the explicit escape for the dispatch side. The two diverge only on the unresolvable case — dispatch refuses, the hook allows-and-says-so — and the divergence is deliberate, not an oversight.
+
+  Tests, in both directions and for both consumers: a shared approval hidden by a parked checkout must dispatch; a local-only approval must be refused; the hook must still allow a commit when `origin/$MAIN` is unreadable *and* must emit the unverified line when it does.
 
 ## Notes
 
