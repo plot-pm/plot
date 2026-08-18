@@ -249,7 +249,7 @@ outside the walked directories would have a row and no card.
 
 ## Branches
 
-- `feature/board-ui-polish` →  #132 — all three changes; the plan rides this branch and
+- `feature/board-ui-polish` →  #132 — all three changes; the plan rides this branch and → #132
   one PR carries plan and code
 
 ## Done when

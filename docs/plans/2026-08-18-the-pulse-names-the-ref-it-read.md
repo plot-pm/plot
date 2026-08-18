@@ -95,7 +95,7 @@ operator's call.
 
 ## Branches
 
-- `bug/pulse-names-the-ref-it-read` — the header, the `--json` fields, and a contract test that stands on a diverging branch and asserts the banner names `origin/main` rather than `HEAD`. PR #213.
+- `bug/pulse-names-the-ref-it-read` — the header, the `--json` fields, and a contract test that stands on a diverging branch and asserts the banner names `origin/main` rather than `HEAD`. → #213
 
 ## Notes
 
