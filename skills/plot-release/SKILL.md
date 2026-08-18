@@ -59,6 +59,15 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 cannot be un-cut, so the sprint's claim has to be checked while refusing is
 still cheap.
 
+**The gate applies to the final cut, not to an RC.** `/plot-release rc` proceeds
+past open Must Haves — report them, do not refuse. A release candidate is how a
+sprint's remaining work gets verified, so gating it would take away the tool
+operators use to finish the very items being gated on. The gate fires when the
+version becomes real.
+
+> Neither the plan nor the brief settled the RC case; this is the reading that
+> keeps the gate from blocking its own remedy. Worth confirming in review.
+
 ```bash
 ../plot/scripts/plot-sprint-release.sh 2>/dev/null
 ```
