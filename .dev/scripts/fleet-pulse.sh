@@ -75,7 +75,17 @@ pass() {
     alive=no
     [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && alive=yes
 
-    dirty=$(git -C "$d" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+    # UNTRACKED JUNK IS NOT WORK. Measured 2026-08-18: this guard restarted a
+    # branch because an abandoned `plot-dispatch.sh.tmp1` — a stray editor
+    # temp file belonging to no commit and no task — read as uncommitted work.
+    # The worker was making progress and had just committed.
+    #
+    # Editor and tool leftovers are excluded by suffix; everything else, tracked
+    # or not, still counts. A new source file a worker has not committed yet is
+    # exactly the case this guard exists for, so the exclusion must stay narrow.
+    dirty=$(git -C "$d" status --porcelain 2>/dev/null \
+      | grep -vE '\.(tmp[0-9]*|swp|orig|rej|bak)$' \
+      | wc -l | tr -d ' ')
     ahead=$(git -C "$d" log --oneline "origin/main..HEAD" 2>/dev/null | wc -l | tr -d ' ')
     pr=$(gh pr list --state open --head "$br" --json number --jq '.[0].number' 2>/dev/null || echo "")
     merged=$(gh pr list --state merged --head "$br" --json number --jq '.[0].number' 2>/dev/null || echo "")
