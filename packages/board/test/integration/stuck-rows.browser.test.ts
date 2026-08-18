@@ -544,12 +544,20 @@ describe('a stuck branch says so in its row', () => {
       expect(await healthy.locator('[data-stuck-link]').count()).toBe(0);
       // The row is still a row: its branch and its note are intact.
       expect(await healthy.locator('[data-branch]').count()).toBe(1);
-      // And it renders NO menu button. This asserted `1` until 2026-08-18, when
-      // the dimmed placeholder was withdrawn: a `⋯` that opens nothing is a
-      // control that lies, and this fixture's healthy row has nothing to do.
-      // The right edge holds still anyway — the cell keeps its fixed track
-      // whether or not a button is inside it.
-      expect(await healthy.locator('[data-row-actions]').count()).toBe(0);
+      // And its menu holds exactly ONE thing: its worker's log.
+      //
+      // The RULE here has not moved — a `⋯` that opens nothing is a control
+      // that lies — but its premise has. This asserted `1` until 2026-08-18,
+      // when the dimmed placeholder was withdrawn and a healthy row had nothing
+      // to do; it asserts `1` again since `the-worker-log-is-readable`, because
+      // this fixture's row is `group: 'working'` and a WORKING row IS an agent,
+      // so there is now one thing to do with it: read what it is saying.
+      //
+      // Asserted as the log ITEM and not merely as the menu's presence, so a
+      // future item appearing here has to be argued rather than absorbed.
+      expect(await healthy.locator('[data-row-actions]').count()).toBe(1);
+      await healthy.locator('[data-row-actions]').click();
+      expect(await healthy.locator('[data-worker-log-open]').count()).toBe(1);
     } finally {
       await page.close();
     }
