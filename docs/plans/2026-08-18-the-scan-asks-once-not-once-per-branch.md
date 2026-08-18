@@ -63,6 +63,30 @@ adapter knows a call costs three; the board knows the cadence; **neither knows
 the other.** Measured consequence: `HTTP 429 — Rate limit for this resource has
 been exceeded`, account-wide, with every `bb` call from the shell failing too.
 
+### It stopped hiding on GitHub too — measured here, today
+
+The defect was filed against Bitbucket because that is where it became fatal.
+Measured on **this repo, on GitHub**, 2026-08-18:
+
+```
+branches in the scan:     84
+one pr-state lookup:      438 ms
+84 x 438 ms:              ~37 s   ← observed: 34 s
+one pr-list (all PRs):    1107 ms
+```
+
+The board's `run()` helper times out at **30 s** (`fleet.ts:260`). So the scan
+now exceeds it on GitHub, and the board has been serving a cached pulse
+**644 seconds old** while reporting `Command failed`. The operator's view was
+stale for over ten minutes and the reason was invisible.
+
+**One list answers what 84 lookups take, and is 30x faster.** That ratio is the
+whole argument: paginating the scan would halve the wait by halving what is
+seen, while the join removes the wait and keeps the whole picture.
+
+The repo simply grew past the threshold. Nothing changed in the scan — 84
+branches did what 14 did on Bitbucket, one host generation later.
+
 ### Why GitHub hid it
 
 `gh pr view` is one request and fast, so N lookups stay under the timeout — the

@@ -174,6 +174,17 @@ The schema already carries what the third column needs: `blockedBy` exists
 (`schema.ts:1291`) and is populated by the scan. The card is not short of data
 — it is not asking for it.
 
+**And the blocker should be reachable, not merely named.** A reader who sees
+*blocked — waits on `feature/x`* has one question next: how far is `feature/x`?
+Answering it today means leaving the board. The blocker's address is already in
+the same pulse — its PR if it has one, its branch if it has commits — so the
+link costs a lookup the board has already done.
+
+Measured while writing this: `blockedBy` came back `null` for every row,
+because the scan the board runs had timed out. The field is designed and
+populated; whether it survives a working scan is the first thing the branch
+must check.
+
 ### Why it could not be reproduced when reported
 
 The plan involved lives in another repository (`ekzweb`), so the reporter's
@@ -222,7 +233,11 @@ not in collapsing them into one source.
 
 - `bug/not-started-shows-approved-plans` — the section is filtered on the plan's phase first: `Approved` and nothing else. A `Draft` plan moves to WAITING ON YOU with what it waits on named (approval); `Delivered` and `Released` plans appear in neither. Measured on the live board: 10 plans in NOT STARTED, of which 3 were Approved, 7 Draft, plus one Released since v1.0.0-beta.3. Tests: each of the four phases lands in its documented section, driven from one fixture; the phase is read from the plan and never inferred from the branches; a plan that becomes Approved changes section on the next pulse without a restart.
 
-- `bug/a-blocked-branch-says-it-is-blocked` — within NOT STARTED, a branch whose wave is blocked renders as blocked and names what it waits on, using the `blockedBy` the schema already carries; only an eligible branch reads *"eligible — nobody has taken it"*. Merged branches do not appear as rows of an unstarted plan. Tests: a blocked branch never renders as claimable and names its blocking wave; an eligible one is unchanged; a merged branch of an otherwise-unstarted plan is not offered; `blockedBy` absent renders as blocked without a name rather than as eligible.
+- `bug/a-blocked-branch-says-it-is-blocked` — within NOT STARTED, a branch whose wave is blocked renders as blocked and **links to what it waits on**, using the `blockedBy` the schema already carries; only an eligible branch reads *"eligible — nobody has taken it"*. Merged branches do not appear as rows of an unstarted plan.
+
+  **The link points at the blocker, and what that is depends on how far it got.** A wave is blocked by specific branches, and each of those has a most useful address: an open PR links to the PR, a branch with commits and no PR links to the branch, and a branch nobody has started has no address at all — it is a name in a plan, and the honest rendering is its name as text. The same rule the PR cell already follows (`AgentList.tsx:3708-3722`): a host that reported no address renders text, never an invented link.
+
+  Tests: a blocked branch never renders as claimable and names its blocker; a blocker with an open PR links to that PR; one with commits but no PR links to the branch; one never started renders as text with no anchor; `blockedBy` absent renders as blocked without a name rather than as eligible; an eligible branch is unchanged.
 
 ## Notes
 
