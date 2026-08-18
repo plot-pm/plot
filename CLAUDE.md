@@ -40,6 +40,7 @@ Plot is a hub-and-spoke skill system:
 |------|-------|---------|
 | Hub | `plot/` | Dispatcher — reads git state, suggests next action |
 | Command | `plot-init/` | Adopt Plot in a repo: probe what it already is, propose the config from that, create the skeleton, offer extensions only where a signal justifies them |
+| Command | `plot-board-setup/` | Set the board up in a project that has Plot: probe prerequisites, record git-host and CI config, then start the board and prove it serves |
 | Command | `plot-idea/` | Create plan with ceremony matched to the change (two-question triage, posture gates) |
 | Command | `plot-approve/` | Record the plan's approval through its declared review channel — and stop |
 | Command | `plot-implement/` | Start/resume implementation: staleness preflight, branch setup, hand-off brief, Started record |
@@ -70,6 +71,8 @@ Scripts in `skills/plot/scripts/` that any model tier can use:
 | `plot-plan-meta.sh` | Parse plan files → JSON (phase, type, title, sprint, story, assignee, branches, PRs, `Review:`/`Impl:` ceremony answers, `Approved:`/`Started:`/`Delivered:`/`Released:` transition records); the plan-format contract |
 | `plot-context.sh` | Read-only: which plan governs the current branch, its phase, wave, and PRs → JSON. Supplies plot-shaped facts to whatever writes session logs; Plot never writes them itself |
 | `plot-detect-repo.sh` | Read-only adoption probe → JSON (git host, DoD candidates, ticket scheme, commit style, existing planning systems, hub docs); every field is a proposal a human confirms |
+| `plot-board-probe.sh` | Read-only board-readiness probe → JSON (node version, repo shape, artifact location, config presence, plan count, `gh`/`bb`/`jen` auth). Auth is `ok`/`failed`/`unknown` — an unrecognised output reads as *cannot verify*, never as authenticated |
+| `plot-board-verify.sh` | Starts the board on an OS-assigned port, fetches `/api/board`, prints the payload, and reaps the server via `trap`. A script rather than skill prose *because* of the teardown: "always stop the server" is a rule an agent can believe it followed; the trap is a gate the shell enforces on every exit path |
 | `plot-config.sh` | Read a `## Plot Config` key with a default (`get <key> [default]`); includes the optional `Plan template` override key, the agent-runner keys (`Worker command`, `Approve command`), and the Plot 2 posture keys (`Plan PRs`, `Implementation home`, `Hosts plans`, `Tracker`, `Git host`) |
 | `plot-host.sh` | Git-host adapter (gh/bb): `backend`, `default-branch`, `pr-state`, `pr-create`, `pr-merge`, `pr-list`, `pr-body` — the ONE place that talks to the host CLI |
 | `plot-approve.sh` | The mechanical half of approving a plan: merge the plan PR, flip the phase, fill `Approved:`, clear the `.plot/hold` entry for each branch the plan names, update the sprint annotation, push via `plot-push-main.sh`. Idempotent — step 2 writes irreversibly to the host, so re-running is the repair for any interruption after it; every step tests the source it would have written, never a progress file. Refuses a non-Draft plan, a `Review:` other than `pr`, and a draft/closed/absent PR |

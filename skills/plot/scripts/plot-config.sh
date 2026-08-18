@@ -47,6 +47,13 @@
 #   Tracker             plot | jira | github-issues | linear  (+ URL)
 #                       (plot = plans in this repo ARE the tracker; absent = same)
 #   Git host            github | bitbucket            (resolves gh vs bb)
+#   CI                  jenkins | github-actions | none — which CI system this
+#                       project uses. Recorded by /plot-board-setup; not yet
+#                       read by the board.
+#   Jenkins instance    the slug or URL passed to a Jenkins CLI's -I flag.
+#                       Read back by /plot-board-setup to verify auth against
+#                       the right instance — without it the only runnable
+#                       check verifies nothing.
 #
 # `Plan template` is a repo-root-relative path to the plan template /plot-idea
 # instantiates; when absent, /plot-idea falls back to the shipped template.

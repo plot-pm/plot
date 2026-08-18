@@ -65,6 +65,11 @@ purpose is to reap the server it started.
 | S. `--start` | Mid | Mechanical to start; judgment to tell *your* board from another on the port |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor).
+>
+> **No user present?** If `PLOT_UNATTENDED=1` is set, do not call the question
+> tool — each question below declares what to do instead, and every skipped
+> question is named in the output. See
+> [Running unattended](../plot/docs/unattended.md).
 
 ## Steps
 
@@ -102,9 +107,24 @@ Ask only what the probe could not answer:
 
 - **The Jenkins instance** — when `jen` is installed, `ci_signals.jenkinsfile`
   is true, and no instance resolved from config or `JENKINS_INSTANCE`.
+
+  > **Unattended (`PLOT_UNATTENDED=1`):** refuse the key rather than guessing a
+  > slug. A wrong instance is worse than an absent one — `jen -I <bogus> auth
+  > status` prints `Keycloak: signed in` and exits 0, so a guessed slug buys a
+  > green light that verifies nothing. Write no `Jenkins instance` key, skip the
+  > `jen` auth check as `unknown`, and disclose:
+  >
+  > `PLOT-UNASKED: which Jenkins instance — refused — no Jenkins instance key written; jen auth unverified`
+
 - **Alias or project script** — a shared repo may prefer a `package.json`
   script. **Default when unasked: print an alias and write nothing**, because an
   alias touches no tracked file and so cannot surprise a shared repository.
+
+  > **Unattended (`PLOT_UNATTENDED=1`):** take that documented default — print
+  > the alias, write nothing. It is the choice that cannot surprise a shared
+  > repository, which is what makes it safe to take without asking. Disclose:
+  >
+  > `PLOT-UNASKED: alias or project script — default — alias printed, no tracked file written`
 
 Do not ask about anything the probe answered confidently. A user asked to
 confirm their own git host learns that the tool is not paying attention.

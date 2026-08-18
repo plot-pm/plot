@@ -67,6 +67,7 @@ Two designs shaped this, and it is worth being precise about what was taken and 
 |-------|-------------|
 | [plot](skills/plot/) | Hub & dispatcher — reads git state, suggests next action |
 | [plot-init](skills/plot-init/) | Adopt Plot in a repo — detects your setup and proposes the config |
+| [plot-board-setup](skills/plot-board-setup/) | Set up the local Kanban board — checks prerequisites, records config, proves it serves |
 | [plot-idea](skills/plot-idea/) | Create a plan: idea branch, plan file, and draft PR |
 | [plot-approve](skills/plot-approve/) | Record the plan's approval through its declared review channel |
 | [plot-implement](skills/plot-implement/) | Start/resume implementation: staleness preflight, branch setup, hand-off brief |
