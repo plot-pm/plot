@@ -152,7 +152,7 @@ scan claims, and that is a fact the report should carry rather than discard.
 
 ### Cause
 
-- `bug/the-scan-enumerates-the-ref` — enumerate plans from `origin/$MAIN` via `git ls-tree`/`git show`, keep worktree observation local, and stop discarding the fetch's failure. Tests: the sandbox above — a third plan pushed by another clone must be seen without a local pull, and the count must not depend on the working tree.
+- `bug/the-scan-enumerates-the-ref` — enumerate plans from `origin/$MAIN` via `git ls-tree`/`git show`, keep worktree observation local, and stop discarding the fetch's failure. Tests: the sandbox above — a third plan pushed by another clone must be seen without a local pull, and the count must not depend on the working tree. → #217
 
 ## Notes
 
