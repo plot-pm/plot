@@ -8,7 +8,7 @@ import {
   waitingOnFor,
 } from '../../src/server/fleet.js';
 import {
-  AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, toBoardPhase,
+  AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, toBoardPhase, unknownPhaseNote,
   type AgentRow, type FleetPulse,
 } from '../../src/contract/schema.js';
 import type { PrRecord } from '../../src/server/fleet.js';
@@ -865,16 +865,21 @@ describe('NOT STARTED shows Approved plans, and nothing else', () => {
       .toEqual(classify('open', 'blocked', null, QUIET, null, false, 0));
   });
 
-  it('changes no state but `open` — a branch with real work keeps its answer', () => {
+  it('changes no state that carries real work — a commit, a claim, a merge', () => {
     // The phase may only answer for a branch that does not exist yet. A
     // finished plan whose branch carries commits, a claim or a PR is drift
     // worth SEEING rather than smoothing over — the same rule `rowPhase`
     // follows where a plan's bookkeeping lags its git state.
+    //
+    // `deferred` LEFT THIS LIST in the wave after #231, and it left for the
+    // reason the list exists: it never carried real work. A deferred branch is
+    // a DECISION — the plan set it aside — so there is no git fact here for a
+    // phase check to smooth over. See *a deferred row answers to the phase
+    // too* below for what it does instead.
     for (const args of [
       ['claimed', 'eligible', QUIET + 1],
       ['wip', 'eligible', 5],
       ['merged', 'complete', 1],
-      ['deferred', 'eligible', null],
     ] as const) {
       const [state, verdict, age] = args;
       for (const phase of ['draft', 'delivered', 'released']) {
@@ -922,6 +927,173 @@ describe('NOT STARTED shows Approved plans, and nothing else', () => {
     // Only a terminal phase can say *nothing would move this forward*.
     expect(classify('open', 'eligible', null, QUIET, null, true, 0, 'draft').group)
       .toBe('working');
+  });
+});
+
+describe('a deferred row answers to the phase too', () => {
+  // WAVE 2 OF THE SAME RULE, and it exists because the rule had two doors and
+  // #231 put a guard on one of them.
+  //
+  // Measured on the live board 2026-08-18, immediately after #231 merged:
+  //
+  //     NOT STARTED: 20 rows - 17 open, 3 deferred
+  //       feature/the-pulse-repairs-the-artifact   plan phase: NONE
+  //       feature/a-repaired-row-says-so           plan phase: approved
+  //       feature/plot-sprint-support              plan phase: RELEASED
+  //
+  // The `open` rows moved as designed - three Released plans left the section.
+  // The `deferred` rows did not, because `classify` answers them in an arm ABOVE
+  // the one the phase check sits in: two routes into `not-started`, one guard.
+  //
+  // THE NARROWING IS EXACTLY THE TERMINAL PHASES, and no wider. A deferred
+  // branch of an Approved plan genuinely waits on a person: somebody shelved it,
+  // somebody may un-shelve it. A deferred branch of a RELEASED plan waits on
+  // nobody - the plan shipped and the shelf is part of the history.
+
+  it('keeps a deferred branch of a RELEASED plan out of not-started', () => {
+    // THE MEASURED CASE. `feature/plot-sprint-support` was annotated `deferred`
+    // because the branch was never created - February's work landed directly on
+    // main - and its plan has read `Released` since v1.0.0-beta.3 in April.
+    const r = classify('deferred', 'eligible', null, QUIET, null, false, 0, 'released');
+    expect(r.group).not.toBe('not-started');
+    expect(r.group).toBe('done');
+  });
+
+  it('keeps a deferred branch of a DELIVERED plan out of not-started too', () => {
+    // The same statement one phase earlier, for the same reason: the work is
+    // done, so nothing on the shelf is waiting for anyone to take it down.
+    expect(classify('deferred', 'eligible', null, QUIET, null, false, 0, 'delivered').group)
+      .toBe('done');
+  });
+
+  it('leaves a deferred branch of an APPROVED plan exactly where #231 left it', () => {
+    // The previous wave's behaviour, unchanged and deliberately so. This is the
+    // row the `deferred` arm was written for: a live plan, a branch handed back
+    // to a person, and a person is what it still waits on.
+    const r = classify('deferred', 'eligible', null, QUIET, null, false, 0, 'approved');
+    expect(r.group).toBe('not-started');
+    expect(waitingOnFor(r.group, 'deferred', 'eligible', 'approved')).toBe('you');
+  });
+
+  it('leaves a deferred branch of a DRAFT plan in not-started, waiting on you', () => {
+    // Draft is not finished. A shelved branch of a plan still under review
+    // waits on a person twice over - approve the plan, un-shelve the branch -
+    // and `you` is the honest answer to both. Only a TERMINAL phase can say
+    // *nothing would move this forward*, which is the same line the `open` arm
+    // draws between its two tiers.
+    const r = classify('deferred', 'eligible', null, QUIET, null, false, 0, 'draft');
+    expect(r.group).toBe('not-started');
+    expect(waitingOnFor(r.group, 'deferred', 'eligible', 'draft')).toBe('you');
+  });
+
+  it('leaves a deferred row of a pulse reporting NO phase exactly as it was', () => {
+    // Absent is not a guess - the compatibility rule every phase-reading line in
+    // this file follows. A scan predating the field must answer as before rather
+    // than have its shelved rows swept into DONE.
+    //
+    // **AND `''` IS NOT A TERMINAL PHASE.** `feature/the-pulse-repairs-the-artifact`
+    // rendered `plan phase: NONE` in the measurement above - its plan could not
+    // be resolved from the branch name at all. An unknown phase is not evidence
+    // that a plan is finished, and filing it under DONE would be the same guess
+    // in the opposite direction.
+    for (const phase of ['', undefined] as const) {
+      const r = phase === undefined
+        ? classify('deferred', 'eligible', null, QUIET)
+        : classify('deferred', 'eligible', null, QUIET, null, false, 0, phase);
+      expect(r.group).toBe('not-started');
+      expect(r.note).toBe('no commits');
+    }
+  });
+
+  it('does not treat an UNRECOGNISED phase as finished', () => {
+    // The allowlist, applied here as it is in the `open` arm: a phase the board
+    // has not been taught is placed with its name said aloud, never silently
+    // filed as shipped. `done` with the phase NAMED is the honest rendering -
+    // the row sends a reader to the plan rather than answering for it.
+    const r = classify('deferred', 'eligible', null, QUIET, null, false, 0, 'abandoned');
+    expect(r.group).not.toBe('not-started');
+    expect(r.note).toBe(unknownPhaseNote('abandoned'));
+  });
+
+  it('reads the phase from the PLAN, never from the deferred branch', () => {
+    // Inferring is the defect this whole plan exists to remove. A deferred
+    // branch of a Released plan and one of an Approved plan are bit-identical in
+    // git - both have no ref and no commits - so an implementation guessing from
+    // `state` returns the same answer for both.
+    const released = classify('deferred', 'eligible', null, QUIET, null, false, 0, 'released');
+    const approved = classify('deferred', 'eligible', null, QUIET, null, false, 0, 'approved');
+    expect(released.group).not.toBe(approved.group);
+  });
+
+  it('answers on the phase whatever ELSE the deferred row carries', () => {
+    // The deferred arm has three exits - a PR, a commit age, no commits - and the
+    // phase must answer above all three rather than beside one. A shelved branch
+    // of a shipped plan is finished whether it was shelved before any work, after
+    // a commit, or with a PR still open.
+    const pr = {
+      number: 41, draft: false, state: 'OPEN', checks: 'green', mergeable: 'mergeable',
+    } as PrRecord;
+    for (const phase of ['delivered', 'released']) {
+      expect(classify('deferred', 'eligible', null, QUIET, null, false, 0, phase).group).toBe('done');
+      expect(classify('deferred', 'eligible', 4_320, QUIET, null, false, 0, phase).group).toBe('done');
+      expect(classify('deferred', 'eligible', 12, QUIET, pr, false, 0, phase).group).toBe('done');
+    }
+  });
+
+  it('is not outranked by local debris, exactly as the open arm is not', () => {
+    // The mirrored measurement #231 recorded in WORKING: leftover scratch files
+    // from a dead worker are not somebody working. A shelved branch of a shipped
+    // plan with a dirty worktree is the same statement - local debris is not work.
+    for (const phase of ['delivered', 'released']) {
+      expect(classify('deferred', 'eligible', null, QUIET, null, true, 0, phase).group).toBe('done');
+      expect(classify('deferred', 'eligible', null, QUIET, null, false, 0, phase, 'elsewhere', '', '', true).group)
+        .toBe('done');
+    }
+  });
+
+  it('keeps the open-row answers of #231 bit-identical', () => {
+    // The previous wave's table, re-asserted here rather than trusted. This
+    // wave touches a DIFFERENT arm, and the cheapest proof of that is the four
+    // open-row placements answering exactly as they did.
+    const sectionFor = (phase: string) =>
+      classify('open', 'eligible', null, QUIET, null, false, 0, phase).group;
+    expect(sectionFor('draft')).toBe('waiting-on-you');
+    expect(sectionFor('approved')).toBe('not-started');
+    expect(sectionFor('delivered')).toBe('done');
+    expect(sectionFor('released')).toBe('done');
+  });
+
+  it('carries the section through rowsFromPulse for a deferred branch', () => {
+    // The wiring `classify` alone cannot reach: the phase must travel from the
+    // PLAN onto a deferred row, and the row's group must follow it. Same fixture
+    // shape as the open-row wiring test, differing only in the branch state.
+    const pulseWith = (phase: string): FleetPulse => ({
+      main: 'main',
+      head: 'abc1234',
+      plans: [{
+        file: '2026-02-10-plot-sprint-support.md',
+        phase,
+        waves: [{
+          name: 'Implementation', verdict: 'eligible',
+          branches: [{ branch: 'feature/plot-sprint-support', state: 'deferred', deferred: true, claimed: '' }],
+        }],
+      }],
+      summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 0, blocked: 0, deferred: 1 },
+    } as FleetPulse);
+    const rowFor = (phase: string) =>
+      rowsFromPulse(pulseWith(phase), new Map(), 'plot', QUIET)
+        .find((r) => r.branch === 'feature/plot-sprint-support')!;
+
+    expect(rowFor('released').group).toBe('done');
+    expect(rowFor('delivered').group).toBe('done');
+    expect(rowFor('approved').group).toBe('not-started');
+    // And the `deferred` FACT survives the move - the badge still has something
+    // to render from, in DONE as in NOT STARTED. The phase decides the section;
+    // it does not erase what the plan said about the branch.
+    expect(rowFor('released').state).toBe('deferred');
+    // Nothing to wait for once the row has left the section, by construction.
+    expect(rowFor('released').waitingOn).toBe(null);
+    expect(rowFor('approved').waitingOn).toBe('you');
   });
 });
 
