@@ -800,7 +800,39 @@ export const FleetPlanSchema = z.object({
 /** The raw `plot-fleet-scan.sh --json` document, parsed. */
 export const FleetPulseSchema = z.object({
   main: z.string(),
+  /**
+   * The LOCAL CHECKOUT, and only ever that — despite the name.
+   *
+   * `head` is `git rev-parse --short HEAD` in the scan, which is the tree the
+   * operator is standing on, NOT the ref the scan read (`origin/<main>`). On
+   * `main` after a fetch the two agree, which is why the misnomer survived.
+   *
+   * Kept because the scan still emits it, and read ONLY as a fallback for
+   * `local_head` — never for `read_ref`. Mapping it to the ref that was read is
+   * the precise bug this pair of fields exists to end.
+   */
   head: z.string(),
+  /**
+   * The ref the scan actually READ — `origin/<main>`, not the local checkout.
+   *
+   * Optional because it postdates the scan that emits only `head`: a pulse from
+   * an older scan (or a bridge file written by one) must still validate. Absent
+   * means THE SCAN DID NOT SAY, which is not the same as "the local head", and
+   * the two must never collapse — see `readRef` on `FleetSchema`.
+   *
+   * The scan reports the string `unknown` when `origin/<main>` cannot be
+   * resolved at all (no remote, fresh clone). That is a said-so-explicitly
+   * absence rather than a silent one, and it is deliberately NOT rewritten to
+   * `HEAD`: substituting the local ref where the read ref is unknown
+   * reintroduces the original defect exactly where it is hardest to notice.
+   */
+  read_ref: z.string().optional(),
+  /**
+   * The local checkout under its honest name, once the scan distinguishes the
+   * two. Optional for the same reason as `read_ref`; `head` is its fallback,
+   * because `head` has always carried this value.
+   */
+  local_head: z.string().optional(),
   plans: z.array(FleetPlanSchema),
   summary: z.object({
     plans: z.number(),
@@ -1324,6 +1356,47 @@ export const FleetSchema = z.object({
   generatedAt: z.string(),
   /** Seconds since the cached scan completed — the tab shows this. */
   ageSeconds: z.number(),
+  /**
+   * The commit the cached scan actually READ — the same honesty the tab gets
+   * from "scanned 10s ago", for a consumer that cannot see the tab.
+   *
+   * The gap this closes was measured, not imagined. During a two-agent dispatch
+   * on 2026-08-18 an operator read current-looking data while their local
+   * `origin/main` was behind other agents' pushes; three wrong diagnoses
+   * followed, including "the fleet endpoint is broken". The board was right
+   * every time — it simply could not say WHICH WORLD it was right about.
+   * `ageSeconds` dates the READ; this names what was read.
+   *
+   * NULL MEANS THE SCAN DID NOT SAY, and it may never be filled in from
+   * `localHead` to avoid a null. Those are different facts, and substituting
+   * one for the other is the original defect: a report signed with the name of
+   * a commit it did not read. Null before the first scan, and null against a
+   * scan predating `read_ref`.
+   *
+   * The string `unknown` is distinct from null: the scan looked and could not
+   * resolve the ref (no remote, fresh clone). Absence of an answer, either way,
+   * never reads as a confident one.
+   */
+  readRef: z.string().nullable().default(null),
+  /**
+   * How old that read is, in seconds — the age OF THE REF, stated beside it.
+   *
+   * The same number as `ageSeconds` by construction, because the board caches
+   * one scan and both facts come off it. It is named separately rather than
+   * left implicit: a consumer reading `readRef` must not have to know that a
+   * field named for the tab happens to date it. Null exactly when there is no
+   * scan to date — never 0, which would claim a read that just happened.
+   */
+  readRefAge: z.number().nullable().default(null),
+  /**
+   * The local checkout, which MAY DIFFER from `readRef` — and when it does,
+   * that difference is the whole answer.
+   *
+   * Reported even when it agrees with `readRef`, because "these two are the
+   * same" is a fact a consumer needs stated rather than inferred from one
+   * field's absence. Null when no scan has landed.
+   */
+  localHead: z.string().nullable().default(null),
   /** False until the first scan lands: "not ready yet", never an empty fleet. */
   ready: z.boolean(),
   /** Last scan error, if any. A failed refresh never clears a good result. */

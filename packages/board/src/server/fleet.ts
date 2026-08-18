@@ -2002,6 +2002,26 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
   return {
     generatedAt: new Date().toISOString(),
     ageSeconds,
+    // WHICH WORLD this answer is about, beside how old it is.
+    //
+    // `read_ref` is read when the scan sends it and NOT substituted when it does
+    // not. An older scan emits only `head`, which is `git rev-parse HEAD` — the
+    // local checkout, not the ref the scan read. Falling back to it here would
+    // manufacture the exact false statement this field exists to prevent, and
+    // would do it silently, on every consumer, until the scan caught up. Null
+    // says "the scan did not tell me"; that is the honest answer and a consumer
+    // can act on it.
+    readRef: entry.pulse?.read_ref ?? null,
+    // Dated by the scan that produced it, not by a clock of its own: the ref and
+    // its age come off one cached pulse, so they cannot disagree. Null rather
+    // than 0 when nothing has been read — 0 would assert a read that just
+    // happened, which is the confident-absent-value shape this file rejects.
+    readRefAge: entry.at === null ? null : ageSeconds,
+    // `head` IS the local head — that is all it has ever carried, under a name
+    // that implied more. So the fallback runs in this direction only: prefer the
+    // scan's explicit `local_head`, else the legacy field that means the same
+    // thing. Neither can mislead, because both are the same fact.
+    localHead: entry.pulse?.local_head ?? entry.pulse?.head ?? null,
     ready: entry.pulse !== null,
     error: entry.error,
     shrink: entry.shrink,
