@@ -33,7 +33,7 @@ agents, several branches, real tokens. Monitoring is automatable; committing to
 parallel work is a decision. This command therefore never runs itself, and
 `--dry-run` exists so the decision can be taken with the facts in hand.
 
-**Input:** `$ARGUMENTS` = `[--dry-run] [--no-start] [--max N] <slug>`,
+**Input:** `$ARGUMENTS` = `[--dry-run] [--no-start] [--max N] [--allow-local] <slug>`,
 or `--status` / `--stop <branch>` to inspect or stop running workers.
 
 ## Model Guidance
@@ -305,6 +305,16 @@ until you release it. Releasing is `/plot-reconcile`'s job.
   `plot-dispatch.sh` refuses a plan that is not Approved, or whose `Impl:`
   answer is not `own branches`, and it **fails closed** if the phase cannot be
   read. You cannot talk it into fanning out unapproved work.
+- **The phase is read from `origin/<main>`, never the working tree.** The
+  question the gate means to ask is *has this plan been approved where everyone
+  can see it?*, and only the shared ref answers it. So an approval committed
+  locally and never pushed does **not** open the gate — push it first — and a
+  checkout parked on another branch does **not** hide an approval that is
+  already shared. Every refusal names the ref and sha it read.
+- **`--allow-local` is the escape for a repo with no remote**, and nothing else.
+  It gates on the working tree and says so on stderr. Reach for it only when
+  `origin/<main>` genuinely cannot be resolved; using it to get past a refusal
+  is how unapproved work gets dispatched.
 - **Never dispatch a blocked wave.** Eligibility lives in
   `plot-fleet-scan.sh`; do not second-guess it or hand-pick a branch from a
   later wave.
