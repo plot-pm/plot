@@ -153,6 +153,65 @@ if [ -z "$artifact" ] && [ -n "$git_root" ] &&
   artifact_source="checkout"
 fi
 
+# --- CLI auth -----------------------------------------------------------
+# THREE STATES, NOT TWO. An unrecognised output is "unknown" — *cannot
+# verify* — and never "ok". A blocklist of known-bad phrasings would go stale
+# into silence; an allowlist of known-good ones goes stale into noise, and
+# noise is the direction that gets investigated.
+#
+# The regexes below match UNDOCUMENTED CLI output, MEASURED 2026-08-18 against
+# gh 2.x, bb, and jen. Upstream may reword any of them without notice; when
+# that happens the state degrades to "unknown" (cannot verify) rather than to
+# "ok", so drift surfaces as a visible question rather than a false green.
+# Re-measure and update the date if you touch these.
+#
+# The exit code alone decides nothing for jen: measured 2026-08-18,
+# `jen -I <slug> auth status` exits 0 and prints "Keycloak: signed in" for a
+# slug that does not exist, because the slug expands into a URL pattern
+# without being reached. Only the `Jenkins auth:` line carries the answer.
+
+cli_installed() { command -v "$1" >/dev/null 2>&1 && echo true || echo false; }
+
+# $1 = command output, $2 = exit status, $3 = success regex
+classify() {
+  local out="$1" status="$2" ok_re="$3"
+  if printf '%s' "$out" | grep -qiE "$ok_re"; then echo ok
+  elif [ "$status" -ne 0 ]; then echo failed
+  else echo unknown
+  fi
+}
+
+gh_installed=$(cli_installed gh); gh_auth="unknown"
+if [ "$gh_installed" = true ]; then
+  out=$(gh auth status 2>&1); st=$?
+  gh_auth=$(classify "$out" "$st" 'logged in to')
+fi
+
+bb_installed=$(cli_installed bb); bb_auth="unknown"
+if [ "$bb_installed" = true ]; then
+  out=$(bb auth status 2>&1); st=$?
+  bb_auth=$(classify "$out" "$st" 'logged in as')
+fi
+
+jen_installed=$(cli_installed jen); jen_auth="unknown"
+jen_instance=$(bash "$here/plot-config.sh" get "Jenkins instance" "" 2>/dev/null || echo "")
+[ -n "$jen_instance" ] || jen_instance="${JENKINS_INSTANCE:-}"
+if [ "$jen_installed" = true ]; then
+  if [ -n "$jen_instance" ]; then
+    out=$(jen -I "$jen_instance" auth status 2>&1); st=$?
+    # `NOT reachable` must be tested BEFORE `reachable`, since it contains it.
+    if printf '%s' "$out" | grep -qiE 'jenkins auth:[[:space:]]*not reachable'; then
+      jen_auth="failed"
+    else
+      jen_auth=$(classify "$out" "$st" 'jenkins auth:[[:space:]]*reachable')
+    fi
+  else
+    # No instance means the only runnable form is the one that verifies
+    # nothing. Report that we cannot tell, never that it is fine.
+    jen_auth="unknown"
+  fi
+fi
+
 cat <<JSON
 {
   "node": "$(j "$node_ver")",
@@ -166,9 +225,9 @@ cat <<JSON
   "plan_dir": "$(j "$plan_dir")",
   "plan_files": $plan_files,
   "git_host": "$(j "$git_host")",
-  "gh":  {"installed": false, "auth": "unknown"},
-  "bb":  {"installed": false, "auth": "unknown"},
-  "jen": {"installed": false, "auth": "unknown", "instance": ""},
+  "gh":  {"installed": $gh_installed, "auth": "$gh_auth"},
+  "bb":  {"installed": $bb_installed, "auth": "$bb_auth"},
+  "jen": {"installed": $jen_installed, "auth": "$jen_auth", "instance": "$(j "$jen_instance")"},
   "ci_signals": {"jenkinsfile": $jenkinsfile, "gh_workflows": $gh_workflows}
 }
 JSON

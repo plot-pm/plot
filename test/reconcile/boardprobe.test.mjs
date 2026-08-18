@@ -210,3 +210,130 @@ test('probe: a host without a plugin directory falls through to checkout', () =>
   });
   assert.equal(p.artifact_source, 'checkout');
 });
+
+/**
+ * PATH-stub the three CLIs. `specs` maps a CLI name to {stdout, exit}; a name
+ * that is omitted is simply absent from PATH, which is how the probe learns
+ * `installed: false`. Mirrors stubHost() in test/e2e/helpers.mjs.
+ */
+function stubClis(specs) {
+  const dir = fs.mkdtempSync(path.join(tmp, 'stub-'));
+  for (const [name, { stdout = '', exit = 0 }] of Object.entries(specs)) {
+    fs.writeFileSync(
+      path.join(dir, name),
+      `#!/usr/bin/env bash\ncat <<'STUBEOF'\n${stdout}\nSTUBEOF\nexit ${exit}\n`,
+    );
+    fs.chmodSync(path.join(dir, name), 0o755);
+  }
+  return dir;
+}
+
+/** PATH with ONLY the stub dir plus coreutils, so real CLIs cannot leak in. */
+function isolatedPath(stubDir) {
+  return { PATH: `${stubDir}:/usr/bin:/bin` };
+}
+
+test('probe: reports gh auth ok on the documented success output', () => {
+  const r = repoWith({}, { config: '- **Plan directory:** docs/plans/\n' });
+  const stub = stubClis({
+    gh: { stdout: 'github.com\n  ✓ Logged in to github.com account jwloka (keyring)' },
+  });
+  const p = probe(r, { env: isolatedPath(stub) });
+  assert.equal(p.gh.installed, true);
+  assert.equal(p.gh.auth, 'ok');
+});
+
+test('probe: reports gh auth failed on a nonzero exit', () => {
+  const r = repoWith({}, { config: '- **Plan directory:** docs/plans/\n' });
+  const stub = stubClis({
+    gh: { stdout: 'You are not logged into any GitHub hosts.', exit: 1 },
+  });
+  assert.equal(probe(r, { env: isolatedPath(stub) }).gh.auth, 'failed');
+});
+
+test('probe: reports bb auth ok on the documented success output', () => {
+  const r = repoWith({}, { config: '- **Plan directory:** docs/plans/\n' });
+  const stub = stubClis({ bb: { stdout: 'Logged in as: Jan Wloka (jwloka)' } });
+  const p = probe(r, { env: isolatedPath(stub) });
+  assert.equal(p.bb.installed, true);
+  assert.equal(p.bb.auth, 'ok');
+});
+
+test('probe: reports installed:false for a CLI absent from PATH', () => {
+  const r = repoWith({}, { config: '- **Plan directory:** docs/plans/\n' });
+  const stub = stubClis({});
+  const p = probe(r, { env: isolatedPath(stub) });
+  assert.equal(p.gh.installed, false);
+  assert.equal(p.bb.installed, false);
+  assert.equal(p.jen.installed, false);
+});
+
+test('probe: reports unknown for output it does not recognise', () => {
+  const r = repoWith({}, { config: '- **Plan directory:** docs/plans/\n' });
+  const stub = stubClis({ gh: { stdout: 'some future output nobody planned for' } });
+  assert.equal(probe(r, { env: isolatedPath(stub) }).gh.auth, 'unknown');
+});
+
+// --- the jen cases, which are the reason auth is an enum ------------------
+
+test('probe: jen reachable reads as ok', () => {
+  const r = repoWith({}, {
+    config: '- **Plan directory:** docs/plans/\n- **Jenkins instance:** apps\n',
+  });
+  const stub = stubClis({
+    jen: {
+      stdout: [
+        'Keycloak:      signed in',
+        'Instance:      apps (https://example.invalid)',
+        'Jenkins token: present',
+        'Jenkins auth:  reachable',
+      ].join('\n'),
+    },
+  });
+  const p = probe(r, { env: isolatedPath(stub) });
+  assert.equal(p.jen.installed, true);
+  assert.equal(p.jen.instance, 'apps');
+  assert.equal(p.jen.auth, 'ok');
+});
+
+test('probe: jen NOT reachable reads as failed even though it exits 0', () => {
+  // MEASURED 2026-08-18: `jen -I <slug> auth status` exits 0 and prints
+  // "Keycloak: signed in" for a slug that does not exist. Only the last line
+  // distinguishes reachable from not — the exit code cannot.
+  const r = repoWith({}, {
+    config: '- **Plan directory:** docs/plans/\n- **Jenkins instance:** apps\n',
+  });
+  const stub = stubClis({
+    jen: {
+      stdout: [
+        'Keycloak:      signed in',
+        'Instance:      apps (https://example.invalid)',
+        'Jenkins token: none',
+        'Jenkins auth:  NOT reachable',
+      ].join('\n'),
+      exit: 0,
+    },
+  });
+  assert.equal(probe(r, { env: isolatedPath(stub) }).jen.auth, 'failed');
+});
+
+test('probe: jen without a configured instance is unknown, never ok', () => {
+  const r = repoWith({}, { config: '- **Plan directory:** docs/plans/\n' });
+  const stub = stubClis({
+    jen: { stdout: 'error: no Jenkins instance — pass -I <slug|url>', exit: 1 },
+  });
+  const p = probe(r, { env: isolatedPath(stub) });
+  assert.equal(p.jen.installed, true);
+  assert.equal(p.jen.instance, '');
+  assert.equal(p.jen.auth, 'unknown');
+});
+
+test('probe: "signed in" alone never reads as ok', () => {
+  // The guard against the measured trap: Keycloak sign-in is a DIFFERENT
+  // question from Jenkins reachability, and only the latter is the answer.
+  const r = repoWith({}, {
+    config: '- **Plan directory:** docs/plans/\n- **Jenkins instance:** apps\n',
+  });
+  const stub = stubClis({ jen: { stdout: 'Keycloak:      signed in' } });
+  assert.notEqual(probe(r, { env: isolatedPath(stub) }).jen.auth, 'ok');
+});
