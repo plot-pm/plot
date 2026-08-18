@@ -9,7 +9,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.2.1
+  version: 1.3.0
 compatibility: >-
   Designed for Claude Code. Requires git and jq; gh (GitHub) or bb (Bitbucket)
   CLI adds open-PR precision — without one the sweep degrades to git

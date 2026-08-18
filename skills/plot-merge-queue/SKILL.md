@@ -8,7 +8,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 0.2.0
+  version: 0.2.1
 compatibility: >-
   Designed for Claude Code and Cursor. Requires git ≥ 2.38 (for
   `merge-tree --write-tree`) and python3.

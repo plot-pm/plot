@@ -1,5 +1,110 @@
 # plot
 
+## 2.6.0
+
+### Minor Changes
+
+- [#229](https://github.com/plot-pm/plot/pull/229) [`89d1cbc`](https://github.com/plot-pm/plot/commit/89d1cbc605f643a04d0efc364b89d37d1c3c2db6) Thanks [@jwloka](https://github.com/jwloka)! - A sprint can name the release it is working toward, and `/plot-release` reads it as a gate
+
+  `Release:` is a new optional field in the sprint format. When present,
+  `/plot-release` refuses to cut past an unfinished **Must Have** and names every
+  one; `--ignore-sprint` is the named escape, and using it writes the version, the
+  date and the open items into the sprint's `## Notes`. Unfinished **Should Haves**
+  prompt instead of blocking — no flag, because the confirmation is the record that
+  a person looked. **Could Haves** neither block nor prompt. Under
+  `PLOT_UNATTENDED=1` the prompt degrades to a warning while the Must-Have gate
+  still refuses.
+
+  `/plot-sprint close` reports the release state and never refuses on it: a timebox
+  whose release slipped still ends.
+
+  A sprint with no `Release:` behaves exactly as before.
+
+  New helper: `plot-sprint-release.sh` reports a sprint's target and per-item
+  states as JSON and decides nothing.
+
+  <!--
+  bumps:
+    skills:
+      plot: minor
+      plot-release: minor
+      plot-sprint: minor
+  -->
+
+- [#230](https://github.com/plot-pm/plot/pull/230) [`f44b816`](https://github.com/plot-pm/plot/commit/f44b816f58fe1a3df1d2f6bff9a2f3e7d1c1880e) Thanks [@jwloka](https://github.com/jwloka)! - Skills declare what to do when nobody is there to answer
+
+  Fifteen skills told an agent to use `AskUserQuestion`. Under `claude -p` there
+  is no one to answer, and the plan behind this change assumed the run would hang
+  until the harness killed it.
+
+  **Measured first, as the plan required — and the assumption was wrong.** The
+  tool is not registered at all under `claude -p`: it is absent from the session's
+  tool list and from the deferred tools `ToolSearch` can load. Nothing waits.
+
+  The real failure is quieter and worse. The agent notices the tool is missing,
+  writes what it would have asked into its prose, and **exits 0** — so a CI job
+  reading `$?` sees success and a dispatcher sees a finished worker. The refusal
+  exists only in text nobody parses. That is this repo's recurring defect, an
+  unobserved thing reported as an observed one, arriving through the exit code.
+
+  So the design holds but its purpose changes: not to prevent a wait, but to make
+  the skipped question land somewhere a machine reads, and to make the outcome a
+  decision a skill author wrote down rather than one a model improvised well.
+
+  - `PLOT_UNATTENDED=1`, stated explicitly and never inferred from a missing TTY
+  - Each question site declares its own shape — proceed with the documented
+    default, refuse, or report and stop cleanly
+  - Every skipped question is named in a greppable
+    `PLOT-UNASKED: <question> — <shape> — <outcome>` line, with a count per run
+  - **Gates refuse in both modes.** The variable answers _may I ask?_, never
+    _may I proceed?_
+
+  One shared reference (`skills/plot/docs/unattended.md`) with the shapes declared
+  inline at each question, rather than fifteen copies of an unattended clause: the
+  interaction line spread by copy, and copies are what drifted. A contract test
+  pins the reference, the links, the disclosure lines and the gates.
+
+  <!--
+  bumps:
+    skills:
+      plot: minor
+      plot-approve: minor
+      plot-deliver: minor
+      plot-dispatch: minor
+      plot-fleet: patch
+      plot-idea: minor
+      plot-implement: minor
+      plot-init: minor
+      plot-merge-queue: patch
+      plot-reconcile: minor
+      plot-reject: minor
+      plot-release: minor
+      plot-sprint: minor
+      ralph-plot-sprint: minor
+      challenge-the-plan: minor
+  -->
+
+### Patch Changes
+
+- [#232](https://github.com/plot-pm/plot/pull/232) [`0386bcb`](https://github.com/plot-pm/plot/commit/0386bcbf933b3d026f294dbaa53c499b135f6f7e) Thanks [@jwloka](https://github.com/jwloka)! - Fleet scan resolves branch PR state from one `pr-list` response joined locally,
+  instead of one `pr-state` lookup per branch.
+
+  Measured 2026-08-18: 84 branches x 438 ms was 34 s, past the board's own 30 s
+  `run()` timeout (`fleet.ts:260`) — so the board served a pulse 644 s old while
+  reporting `Command failed`. On Bitbucket (issue [#228](https://github.com/plot-pm/plot/issues/228)) 14 branches cost 39 `bb`
+  calls and the scan did not finish inside 110 s. On this repo the scan now makes
+  20 host calls for 86 branches instead of 87.
+
+  PR [#216](https://github.com/plot-pm/plot/issues/216)'s no-ref lookup stays: it asks about a branch a repo-wide list may
+  legitimately not contain, and is bounded by absent branches rather than by all
+  of them. A list that failed still reads as unanswerable, never as "no PR".
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
 ## 2.5.2
 
 ### Patch Changes
@@ -78,12 +183,12 @@
   -->
 
 - [#219](https://github.com/plot-pm/plot/pull/219) [`a4ecf36`](https://github.com/plot-pm/plot/commit/a4ecf3632db03b9c40f7062a304eabcd742f481e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-  bumps:
-    skills:
-      plot: minor
-      plot-dispatch: minor
-      plot-fleet: minor
-  -->
+    bumps:
+      skills:
+        plot: minor
+        plot-dispatch: minor
+        plot-fleet: minor
+    -->
 
   plot: `finished` is not a verdict
 
@@ -309,11 +414,11 @@
   -->
 
 - [#215](https://github.com/plot-pm/plot/pull/215) [`2175cb5`](https://github.com/plot-pm/plot/commit/2175cb561ec6d4e6cd1518e131b3a32556ebd73e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-    bumps:
-      skills:
-        plot: patch
-        plot-dispatch: patch
-    -->
+      bumps:
+        skills:
+          plot: patch
+          plot-dispatch: patch
+      -->
 
   plot: the phase gate reads the plan from the shared ref
 
@@ -556,11 +661,11 @@ kill` guard inside `cleanup` would abort the trap whenever `pid` was empty and
   skip the tempfile removal — the handler that exists to prevent a leak would
   become one.
 
-    <!--
-    bumps:
-      skills:
-        plot: patch
-    -->
+      <!--
+      bumps:
+        skills:
+          plot: patch
+      -->
 
 - [#214](https://github.com/plot-pm/plot/pull/214) [`890163c`](https://github.com/plot-pm/plot/commit/890163cb551d97c1e5bd34279ad2cbc4d0922e3b) Thanks [@jwloka](https://github.com/jwloka)! - Board test suite retries git calls when index.lock is held by the servers scan
 
