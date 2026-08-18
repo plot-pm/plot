@@ -218,7 +218,7 @@ render identically.
 
 ### Shape
 
-- `bug/the-scan-joins-one-pr-list` — `plot-fleet-scan.sh` resolves branch PR state from one `pr-list` response joined locally, instead of `host_pr_state()` per branch. The no-ref lookup from #216 stays, bounded by absent branches. Tests: a scan over N branches makes a constant number of host calls, asserted by counting invocations of a stubbed host — the measured failure is 39 calls for 14 branches, so a test that does not reproduce that against the unchanged script is not testing this; a failed list still reads as failure and never as "no PR"; the three-way state vocabulary is unchanged per branch.
+- `bug/the-scan-joins-one-pr-list` — `plot-fleet-scan.sh` resolves branch PR state from one `pr-list` response joined locally, instead of `host_pr_state()` per branch. The no-ref lookup from #216 stays, bounded by absent branches. Tests: a scan over N branches makes a constant number of host calls, asserted by counting invocations of a stubbed host — the measured failure is 39 calls for 14 branches, so a test that does not reproduce that against the unchanged script is not testing this; a failed list still reads as failure and never as "no PR"; the three-way state vocabulary is unchanged per branch. PR #232.
 
 ### Cadence
 
