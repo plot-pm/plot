@@ -4,10 +4,11 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Story:** plot-planning-model
 - **Approved:** 2026-02-11, eins78, in-session
+- **Delivered:** 2026-08-18, jwloka, verified against the source rather than a PR
 
 ## Approval
 
@@ -246,7 +247,7 @@ Spoke awareness tests:
 
 ## Branches
 
-- `feature/plot-sprint-support` — Implement sprint support: new skill, manifesto additions, spoke modifications → #7
+- `feature/plot-sprint-support` — Implement sprint support: new skill, manifesto additions, spoke modifications. **Landed directly on main on 2026-02-11, without a branch or a PR.** The plan recorded a PR number here until 2026-08-18; it pointed at an unrelated PR (the AskUserQuestion tool convention, merged 2026-03-15) and is removed rather than corrected, because no PR exists to name.
 
 ## Notes
 
