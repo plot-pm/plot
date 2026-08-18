@@ -66,6 +66,25 @@ read from a previous run is exactly the fabricated verdict the failure
 direction forbids. A test asserts the call count — one for the absent branch,
 none for the branch whose ref is still there.
 
+**One number the plan did not have, and it belongs in the open.** The board
+refreshes every 5 s without `--offline`, so it takes the host path: 720 scans
+an hour. The within-run cache bounds a scan to ONE call per absent branch, but
+across runs the arithmetic is 720 x (absent branches) — ~720 calls/hour for a
+single squash-merged branch, ~3600 for five. `gh pr view --json` is GraphQL, so
+these draw on the same 5000/hour budget this board exhausted on 2026-08-16.
+
+Measured worst case: 20 absent branches against a host that fails every lookup
+costs 4.1 s per scan versus 1.2 s offline — about 150 ms per absent branch. The
+board's refresh is off the request path, guarded against overlap, and capped at
+30 s, so nothing stalls; the cost is quota, not latency.
+
+That is bounded by the count of absent branches in ACTIVE plans, which is small
+in practice and shrinks as plans are delivered. It is left as measured rather
+than pre-optimised — the plan's own fallback, matching the PR number in the
+squash subject, is the offline answer worth reaching for if this proves too
+expensive, and it should be chosen against real numbers rather than this
+estimate.
+
 The cache key is injective rather than a plain slash-to-underscore mapping:
 `feature/a_b/c` and `feature/a/b_c` are both legal refs that collapse to one
 key under the naive form, and the branch asked second would inherit the first's
