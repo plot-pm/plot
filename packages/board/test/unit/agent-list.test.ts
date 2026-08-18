@@ -23,6 +23,7 @@ import {
   changedRows,
   isActive,
   isUnpushed,
+  waitingTone,
   activityPace,
   groupPace,
   ACTIVITY_MARK_PLACE,
@@ -307,6 +308,46 @@ describe('isUnpushed — finished work nobody else can see', () => {
   });
 });
 
+describe('waitingTone — only one of the three is loud', () => {
+  it('gives `needs you` the strong colour and nothing else', () => {
+    // The section is mostly `time`: measured, this session's pulse held 43 rows
+    // with multi-wave plans routinely showing two blocked rows per eligible
+    // one. A section where every row is coloured has coloured nothing, so only
+    // the state a person can END gets the loud colour.
+    const you = waitingTone('you');
+    expect(you).toContain('amber');
+    expect(waitingTone('click')).not.toContain('amber');
+    expect(waitingTone('time')).not.toContain('amber');
+  });
+
+  it('leaves a startable row looking like every other row', () => {
+    // THE pairing. `ready to start` is available, and taking it is optional —
+    // a colour of its own would make the section shout twice and mean once.
+    // An implementation colouring all three passes "is `you` loud?" and fails
+    // here.
+    expect(waitingTone('click')).toBe(waitingTone(null));
+  });
+
+  it('makes `waiting its turn` the quietest of the three', () => {
+    // Nothing to do, ever, and the most common state in a multi-wave plan.
+    expect(waitingTone('time')).not.toBe(waitingTone(null));
+    expect(waitingTone('time')).toContain('slate-400');
+  });
+
+  it('animates nothing — colour is a property, motion is an accusation', () => {
+    // `board-watches-for-stuck-branches` settled that motion marks an
+    // UNANSWERED REQUEST. A Draft plan minutes old is not that; it is the
+    // ordinary state of a plan just written, and animating it would interrupt
+    // a reader about their own work in progress. The escalation for a Draft
+    // that has sat for days is specified in the plan and deliberately unbuilt:
+    // 30 of this repo's 31 approved plans were approved the day they were
+    // drafted, so the state it would mark has never occurred here.
+    for (const w of ['you', 'click', 'time', null] as const) {
+      expect(waitingTone(w)).not.toMatch(/animate/);
+    }
+  });
+});
+
 describe('isActive — which rows are actually being written to', () => {
   it('marks a row holding a lock, and a row with uncommitted work', () => {
     // The two entrances, and they are ORs rather than a sequence: someone is
@@ -314,6 +355,29 @@ describe('isActive — which rows are actually being written to', () => {
     expect(isActive(row({ localLocked: true }))).toBe(true);
     expect(isActive(row({ localDirty: true }))).toBe(true);
     expect(isActive(row({ localLocked: true, localDirty: true }))).toBe(true);
+  });
+
+  it('never marks a MERGED branch, whatever its worktree holds', () => {
+    // Measured on screen: a row sitting in DONE with the activity mark. Both
+    // halves were true — merged, and a dirty checkout — and the row said two
+    // things that cannot both be acted on. The dirt was one leftover
+    // `.plot-worker.exit` nobody had cleaned up.
+    //
+    // Editing a merged branch's checkout is real and simply not what this mark
+    // means. `classify` already sends merged branches to `done` before looking
+    // at any local signal; this predicate now agrees with it rather than
+    // contradicting it one layer up.
+    expect(isActive(row({ state: 'merged', localDirty: true }))).toBe(false);
+    expect(isActive(row({ state: 'merged', localLocked: true }))).toBe(false);
+  });
+
+  it('still marks an UNMERGED branch with the same signals', () => {
+    // The pairing. A fix that suppressed the mark whenever a row sits in DONE —
+    // or worse, whenever a PR exists — would pass the assertion above and take
+    // the mark off every agent that is actually writing.
+    expect(isActive(row({ state: 'wip', localDirty: true }))).toBe(true);
+    expect(isActive(row({ state: 'claimed', localLocked: true }))).toBe(true);
+    expect(isActive(row({ state: 'open', localDirty: true }))).toBe(true);
   });
 
   it('does NOT mark a WORKING row that carries neither signal', () => {
@@ -940,7 +1004,10 @@ describe('the activity mark is a track with a travelling dot', () => {
     // heading would not sit the mark slightly wrong — it would hang it off
     // whatever ancestor happened to be `relative` and land it elsewhere on the
     // page. A class-name assertion on a shared string cannot see that.
-    expect(ACTIVITY_MARK_PLACE.row).toContain('sm:absolute');
+    // The row placement is no longer absolute at all — it is a grid cell. What
+    // the heading assertion below protects is unchanged: a heading has no
+    // positioned ancestor, so it must never borrow a positioned placement.
+    expect(ACTIVITY_MARK_PLACE.row).not.toContain('absolute');
     expect(ACTIVITY_MARK_PLACE.heading).not.toContain('absolute');
     // And the heading's mark is not positioned by any other route either.
     expect(ACTIVITY_MARK_PLACE.heading).not.toMatch(/\b(fixed|sticky|top-|left-|-translate-)/);
@@ -952,8 +1019,23 @@ describe('the activity mark is a track with a travelling dot', () => {
     // not by fragments: `sm:top-2` and `h-5` together are what put the mark on
     // the row's FIRST LINE rather than at its centre, which is the fix a
     // two-line row needed and which a partial assertion would let slip back.
+    // IN A TRACK, not in the padding. This asserted `sm:absolute sm:left-0`
+    // until the marks earned a column of their own: `left-0` is the ROW's edge,
+    // which sits outside the section's border, so every mark straddled the
+    // panel edge — and two marks on one row overlapped, because absolute boxes
+    // do not make room for each other. Measured on screen with the activity
+    // track and the unpushed bar on one branch.
+    //
+    // The cell that holds them is unconditional while its contents are not, so
+    // a row with no marks still occupies the track and the six columns beside
+    // it do not shift. That is the alignment `agent-rows-line-up` paid for, now
+    // held by a track rather than by keeping the marks outside the grid.
+    // NO padding of its own — the row already carries `py-2`, and a second pair
+    // here made every row as tall as a two-line one (both measured at 60px).
+    // The height comes from the row's content; `self-stretch` only takes it.
     expect(ACTIVITY_MARK_PLACE.row).toBe(
-      'relative flex h-5 w-3 shrink-0 items-center self-center sm:absolute sm:left-0 sm:top-2');
+      'relative flex w-full shrink-0 flex-col items-center justify-center gap-1 self-stretch');
+    expect(ACTIVITY_MARK_PLACE.row).not.toMatch(/\bpy-/);
   });
 
   it('gives the heading a box that fits a heading', () => {
@@ -1065,10 +1147,16 @@ describe('the activity mark is a track with a travelling dot', () => {
     // the mark between two lines in the first place. Measured: the first line
     // box begins 18.6px below the row's top edge, not the 8px or 10px a reader
     // would derive from the padding alone.
-    const mark = classesOf('activity-mark');
-    expect(mark).toContain('h-5');
+    // The cell answers this now: `self-stretch` takes the row's own height and
+    // `items-center` centres the marks across it. No number is stated at all —
+    // which is the strongest form of the same rule, since the line height it
+    // used to name (`h-5`) was itself a value that could go stale.
+    const mark = ACTIVITY_MARK_PLACE.row;
+    expect(mark).toContain('self-stretch');
     expect(mark).toContain('items-center');
     expect(mark).toContain('flex');
+    // And no hand-computed offset, which is the failure mode this guards.
+    expect(mark).not.toMatch(/\btop-\d/);
   });
 
   it('renders the dot as its own element inside the track', () => {
@@ -1082,16 +1170,25 @@ describe('the activity mark is a track with a travelling dot', () => {
     expect(dot).toContain('h-1.5 w-1.5');
   });
 
-  it('stays out of the six tracks, in the row\'s left padding', () => {
-    // Wave 1's home, kept: `sm:absolute` hangs the mark beside `LiveDot` in the
-    // padding rather than taking a seventh track, so the six real columns do
-    // not move in from the edge on every row in the fleet to reserve room for a
-    // mark most rows never carry. `left-0` against the dot's `left-1` is what
-    // keeps a row carrying both showing two marks rather than one thick one.
-    const mark = classesOf('activity-mark');
-    expect(mark).toContain('sm:absolute');
-    expect(mark).toContain('sm:left-0');
-    expect(classesOf('live-dot')).toContain('sm:left-1');
+  it('has a track of its own, and the cell holds it whether or not a mark is in it', () => {
+    // A SEVENTH TRACK, reversing wave 1's placement — and the reversal is the
+    // point. That wave hung the mark in the row's padding (`sm:absolute
+    // sm:left-0`) so six columns would not move in to reserve room for a mark
+    // most rows never carry. That argument held while there was ONE mark.
+    //
+    // There are now five, and a row can wear several: measured on screen, the
+    // activity track and the unpushed bar overlapped, because absolute boxes
+    // make no room for each other — and `left-0` is the ROW's edge, which sits
+    // outside the section's border, so every mark straddled the panel edge.
+    //
+    // In the track they stack in the flow. The cost was paid in the phase
+    // column, which gave up 1rem: see the breakpoint arithmetic further down.
+    const mark = ACTIVITY_MARK_PLACE.row;
+    expect(mark).not.toContain('absolute');
+    expect(mark).toContain('flex-col');
+    // The CELL is unconditional while its contents are not — that is what keeps
+    // a markless row's six other cells from shifting one column left.
+    expect(mark).toContain('w-full');
   });
 
   it('aligns to the row\'s FIRST LINE, not to the row\'s centre', () => {
@@ -1103,23 +1200,31 @@ describe('the activity mark is a track with a travelling dot', () => {
     // centred mark on a two-line row sits BETWEEN the lines rather than beside
     // the branch name.
     //
-    // `sm:top-2.5` is the row's `py-2` plus the half-step that centres the 2px
-    // track on the 20px line box. It stays there however tall the row grows.
-    const mark = classesOf('activity-mark');
-    expect(mark).toContain('sm:top-2');
-    // The centring form is GONE, both halves of it. Asserted negatively because
-    // leaving either behind would fight the new rule: `-translate-y-1/2` alone
-    // would lift the track half its height off the line — and the dot inside
-    // is driven by `translateX`, so a stray `translate-y` on the parent is a
-    // transform the travel would have to fight.
+    // Now a CELL rather than an offset, which answers the same question without
+    // arithmetic: `self-stretch` makes the box the full height of the row and
+    // `justify-center` centres the marks in it, so a row that grows a second
+    // line keeps its marks centred against the whole cell rather than against
+    // an assumption about the first line's height.
+    const mark = ACTIVITY_MARK_PLACE.row;
+    expect(mark).toContain('self-stretch');
+    expect(mark).toContain('justify-center');
+    // Every positioned form is GONE. Asserted negatively because leaving one
+    // behind would fight the cell: a stray `translate-y` on the parent is a
+    // transform the dot's own `translateX` travel would have to fight.
     expect(mark).not.toContain('sm:top-1/2');
     expect(mark).not.toContain('-translate-y-1/2');
+    expect(mark).not.toContain('sm:left-0');
   });
 });
 
 describe('isStartable — which NOT STARTED rows offer work', () => {
+  // A startable row: the FIELD says `click`, and the note is kept beside it
+  // because that is what the server sends — but nothing here reads it.
   const notStarted = (over: Partial<AgentRow> = {}) =>
-    row({ group: 'not-started', state: 'open', ageMinutes: null, note: ELIGIBLE_NOTE, ...over });
+    row({
+      group: 'not-started', state: 'open', ageMinutes: null,
+      waitingOn: 'click', note: ELIGIBLE_NOTE, ...over,
+    });
 
   it('offers a branch no earlier wave blocks', () => {
     expect(isStartable(notStarted())).toBe(true);
@@ -1131,16 +1236,24 @@ describe('isStartable — which NOT STARTED rows offer work', () => {
     // would offer to skip the ordering waves exist to express, and
     // plot-dispatch.sh refuses that branch — so the board would be inviting an
     // action the tool declines.
-    expect(isStartable(notStarted({ note: 'blocked by an earlier wave' }))).toBe(false);
+    expect(isStartable(notStarted({ waitingOn: 'time', note: 'blocked by Truth' }))).toBe(false);
   });
 
-  it('reads the eligible note from the contract, not from a copy of the sentence', () => {
-    // The split survives onto a row only as this note — the row carries no
-    // verdict field. A second copy of the sentence would let a reword take the
-    // button away with nothing failing, so the test asserts the SHARED
-    // constant is what the row is matched against.
-    expect(isStartable(notStarted({ note: ELIGIBLE_NOTE }))).toBe(true);
-    expect(isStartable(notStarted({ note: `${ELIGIBLE_NOTE} (probably)` }))).toBe(false);
+  it('reads the FIELD, and no wording of the note can change its answer', () => {
+    // This test used to assert the opposite mechanism — that the row is matched
+    // against the shared `ELIGIBLE_NOTE` constant — and its own reason for
+    // existing was that "a reword would take the button away with nothing
+    // failing". The reword arrived: the same change that added `waitingOn` gave
+    // the blocked note the wave's name.
+    //
+    // So the reason survives and the mechanism is inverted. The note is now
+    // prose for humans and decides nothing: a row with the WRONG note is still
+    // startable, and a row with the right note is not startable without the
+    // field. Those two are the assertion — a rule still reading the sentence
+    // passes neither.
+    expect(isStartable(notStarted({ waitingOn: 'click', note: 'anything at all' }))).toBe(true);
+    expect(isStartable(notStarted({ waitingOn: 'time', note: ELIGIBLE_NOTE }))).toBe(false);
+    expect(isStartable(notStarted({ waitingOn: null, note: ELIGIBLE_NOTE }))).toBe(false);
   });
 
   it('offers nothing on a row that already has a branch and a claim', () => {
@@ -1157,11 +1270,11 @@ describe('isStartable — which NOT STARTED rows offer work', () => {
     // refuses a drafted plan's branches exactly as it refuses a wave-blocked
     // one, so the button must not appear on either.
     //
-    // It comes out right by CONSTRUCTION — `isStartable` matches the eligible
-    // sentence, so any other note loses the button without a second rule to
-    // keep in step. Pinned anyway: that is a property worth failing loudly if
-    // someone later loosens the match to a substring.
-    expect(isStartable(notStarted({ note: DRAFT_PLAN_NOTE }))).toBe(false);
+    // It comes out right by CONSTRUCTION — a Draft plan's first wave is
+    // `waitingOn: 'you'`, and only `click` is startable, so there is no second
+    // rule to keep in step. Pinned anyway: worth failing loudly if someone
+    // later widens the predicate to "anything in not-started".
+    expect(isStartable(notStarted({ waitingOn: 'you', note: DRAFT_PLAN_NOTE }))).toBe(false);
   });
 
   it('offers nothing on a deferred branch, whatever group it lands in', () => {
@@ -1851,7 +1964,9 @@ describe('ROW_TRACKS — where the row\'s width goes', () => {
     // The reported defect: at 9rem the PR cell held `⑂116 no checks` and
     // nothing wider, while the window's whole slack collected in the branch's
     // `1fr` as a gap that draws nothing.
-    expect(tracks()).toEqual(['6rem', '10rem', '1fr', '14rem', '2.5rem', '1.25rem']);
+    // Seven tracks since the marks earned one: `1rem` for them, and the phase
+    // down to `5rem` to pay for it — see the breakpoint arithmetic below.
+    expect(tracks()).toEqual(['1rem', '5rem', '10rem', '1fr', '14rem', '2.5rem', '1.25rem']);
   });
 
   it('keeps every track but the branch FIXED', () => {
@@ -1869,11 +1984,19 @@ describe('ROW_TRACKS — where the row\'s width goes', () => {
     // the fixed tracks went from 460px to 540px, so the grid now needs 624px of
     // the 640px breakpoint. Widening any fixed track again crosses it, and then
     // `CARD_BELOW_PX` has to move too — this fails when that day comes.
-    const GAPS_AND_PADDING = 84;
+    // DERIVED from the track count, not hard-coded — and that is the fix this
+    // test needed as much as the code did. `84` was five gaps plus padding,
+    // correct for six tracks and silently wrong the moment a seventh arrived:
+    // it under-counted by one gap and would have passed a layout that overflows.
+    // A constant that only holds for the shape it was written against fails in
+    // the reassuring direction.
+    const GAP_PX = 12;
+    const PADDING_PX = 24;
+    const gapsAndPadding = (tracks().length - 1) * GAP_PX + PADDING_PX;
     const fixedPx = tracks()
       .filter((t) => t !== '1fr')
       .reduce((sum, t) => sum + Number.parseFloat(t) * 16, 0);
     expect(fixedPx).toBe(540);
-    expect(fixedPx + GAPS_AND_PADDING).toBeLessThan(CARD_BELOW_PX);
+    expect(fixedPx + gapsAndPadding).toBeLessThan(CARD_BELOW_PX);
   });
 });

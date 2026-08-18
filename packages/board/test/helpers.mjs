@@ -67,7 +67,32 @@ export function startServer(cwd, env = {}) {
       if (!match) return;
       done = true;
       clearTimeout(timer);
-      resolve({ port: Number(match[1]), kill: () => proc.kill('SIGTERM') });
+      resolve({
+        port: Number(match[1]),
+        kill: () => proc.kill('SIGTERM'),
+        /**
+         * SIGTERM, and then WAIT for the process to be gone.
+         *
+         * `kill()` only sends the signal. A test that kills its server and
+         * immediately `rmSync`s the directory the server is serving from is
+         * racing it: on 2026-08-17 `discovery.test.mjs` failed three times in
+         * CI with `ENOTEMPTY` on a `/tmp/plot-board-nested-…` checkout's `.git` —
+         * `recursive: true` had listed the tree, and the still-living server's
+         * git process created something inside it before the delete arrived.
+         *
+         * Never reproduced locally, reproduced every time on a loaded runner,
+         * and filed as a flake in two briefs. It is not one: it is a race with
+         * a loser that depends on scheduling.
+         *
+         * Resolves on `exit` rather than on a timer, so a fast machine pays
+         * nothing and a slow one pays exactly what it needs.
+         */
+        stop: () => new Promise((done) => {
+          if (proc.exitCode !== null || proc.signalCode !== null) return done();
+          proc.once('exit', () => done());
+          proc.kill('SIGTERM');
+        }),
+      });
     });
     proc.stderr.on('data', (chunk) => stderr.push(chunk.toString()));
     proc.on('error', (err) => {

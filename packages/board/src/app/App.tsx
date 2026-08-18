@@ -327,6 +327,22 @@ export function App() {
     dispatchInfo ? { ...b, dispatch: dispatchInfo } : b;
 
   /**
+   * The SAME treatment for approving, and it travels to the Agents tab.
+   *
+   * `board.approve` has existed since `board-becomes-operable` and reached the
+   * cards only: `Board.tsx` and `Swimlanes.tsx` pass it to `PlanCard`, and the
+   * Agents tab was never given it. So a plan PR sitting green and ready showed
+   * a dimmed three-dot menu on its row while the same plan's CARD offered the
+   * button — one board, two answers about the same act.
+   *
+   * Dimmed by the same rule as dispatch: a frozen page must not offer to write
+   * to the host on data it cannot vouch for.
+   */
+  const approveInfo = dimmed
+    ? { available: false, reason: BLOCKED_REASON }
+    : board?.approve;
+
+  /**
    * Coming back to a hidden tab RE-CHECKS instead of counting.
    *
    * Browsers throttle timers in hidden tabs, so a minimised window would
@@ -713,6 +729,11 @@ export function App() {
               // BOARD refreshes, which is what moves a started row.
               cardForPlanFile={cardForPlanFile}
               dispatch={dispatchInfo}
+              // The other half of what a row can DO. Until now the Agents tab
+              // was given only dispatch, so its menu could offer only `Start
+              // work` — and a Draft plan's row, whose one available act is
+              // approving, got a dead menu.
+              approve={approveInfo}
               pulse={pulse}
               onStarting={onStarting}
             />

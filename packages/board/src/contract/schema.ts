@@ -496,6 +496,60 @@ export const ELIGIBLE_NOTE = 'eligible — nobody has taken it';
  */
 export const DRAFT_PLAN_NOTE = 'plan not approved yet — still in review';
 
+/**
+ * WHAT A NOT-STARTED ROW IS WAITING FOR — as a value, never as a sentence.
+ *
+ * Three answers, and the split is by *what would move this*, which is the
+ * question a reader scanning the section is actually asking:
+ *
+ *   `you`   a person must act — the plan is still Draft, or the branch was
+ *           shelved. No clock is running; nothing in git can change it.
+ *   `click` eligible and unclaimed. Available, and taking it is optional.
+ *   `time`  blocked by an earlier wave. Nothing to do, ever — it resolves
+ *           itself when its predecessor lands.
+ *
+ * THREE, NOT FOUR: deferred joins Draft. Both wait on a person, and they differ
+ * only in *which* action — approve versus un-shelve — which the note already
+ * says. The field answers the coarse question; the prose answers the fine one.
+ *
+ * A FIELD RATHER THAN A STRING MATCH, and this is load-bearing. `isStartable`
+ * derives startability by comparing `note === ELIGIBLE_NOTE` — the "parser for a
+ * format nobody declared" shape #175 removed from the PR cell, which drops its
+ * answer silently the moment the wording drifts. Deriving a COLOUR that way
+ * would be worse, because this same change sharpens the notes: a rule matching
+ * on `blocked by an earlier wave` breaks the moment that sentence gains the
+ * wave's name, and it breaks by going quiet rather than by failing.
+ *
+ * Follows `pr.state` (#165) and `stuck` (#183), both of which replaced exactly
+ * this shape for exactly this reason.
+ *
+ * Null wherever the question does not arise — every row outside `not-started`.
+ * A row that is being worked on is not waiting for anything.
+ */
+export const WaitingOnSchema = z.enum(['you', 'click', 'time']);
+export type WaitingOn = z.infer<typeof WaitingOnSchema>;
+
+/**
+ * The note for a branch an earlier wave is holding back — without the name.
+ *
+ * The unnamed form is the FALLBACK, not the default: a plan with no `###`
+ * sub-headings has an unnamed wave and this is all that can honestly be said.
+ * Where the name exists, `blockedNote` appends it, because *blocked by which
+ * one?* is the reader's unavoidable next question and it costs one string.
+ *
+ * A constant plus a defined append, never a sentence assembled at three call
+ * sites: `isStartable` already keys on `ELIGIBLE_NOTE` by string comparison,
+ * and that is the shape this plan's own field replaces. Nothing new may be
+ * built on matching prose — but the prose must still be one thing rather than
+ * many, or the next reader cannot tell which spellings exist.
+ */
+export const BLOCKED_NOTE = 'blocked by an earlier wave';
+
+/** `blocked by `Truth`` where the wave has a name, the bare sentence where not. */
+export function blockedNote(wave: string | null): string {
+  return wave ? `blocked by ${wave}` : BLOCKED_NOTE;
+}
+
 export const FleetBranchSchema = z.object({
   branch: z.string(),
   state: BranchStateSchema,
@@ -1140,6 +1194,31 @@ export const AgentRowSchema = z.object({
    * and an unobserved row is marked nothing rather than marked clean.
    */
   localAhead: z.number().default(0),
+  /**
+   * What this row is waiting for — see `WaitingOnSchema`.
+   *
+   * Null outside `not-started`, and null is the honest answer there rather than
+   * a fourth value: a row being worked on, or waiting on CI, is not waiting for
+   * one of these three things. A consumer that finds null renders no colour.
+   *
+   * Defaults to null so a pulse from an older server still validates — and such
+   * a pulse then renders exactly as the board does today: in words, no colour.
+   */
+  waitingOn: WaitingOnSchema.nullable().default(null),
+  /**
+   * The name of the earlier wave blocking this row — `waitingOn: 'time'` only,
+   * null everywhere else.
+   *
+   * *Blocked by which one?* is the reader's unavoidable next question, and the
+   * server is the only place that can answer it: `verdict` lives on the WAVE
+   * (`FleetWaveSchema`) while the row carries only `wave`, its own name. So a
+   * row cannot see that it is blocked, let alone by what — the fact must travel.
+   *
+   * Null rather than "" for absence, because a wave can legitimately be unnamed
+   * (a plan with no `###` sub-headings). The note then reads *blocked by an
+   * earlier wave* with no name — the old sentence, and still true.
+   */
+  blockedBy: z.string().nullable().default(null),
   /**
    * Why this branch cannot move, or null — a fact ADDED to the row, never a
    * replacement for one.

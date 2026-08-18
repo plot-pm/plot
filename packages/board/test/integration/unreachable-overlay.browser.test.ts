@@ -50,7 +50,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     // this whole plan exists to withdraw.
     row({
       branch: 'feature/untaken', plan: 'plant-tomatoes', group: 'not-started',
-      state: 'open', phase: 'Design', ageMinutes: null, note: ELIGIBLE_NOTE,
+      state: 'open', phase: 'Design', ageMinutes: null, waitingOn: 'click' as const, note: ELIGIBLE_NOTE,
       branchUrl: `${GH}feature/untaken`, waitingDays: 22,
     }),
   ];

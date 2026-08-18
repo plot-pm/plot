@@ -54,7 +54,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     // is also the row that carries the Start work button.
     row({
       branch: 'feature/untaken', plan: 'plant-tomatoes', group: 'not-started',
-      state: 'open', phase: 'Design', ageMinutes: null, note: ELIGIBLE_NOTE,
+      state: 'open', phase: 'Design', ageMinutes: null, waitingOn: 'click' as const, note: ELIGIBLE_NOTE,
       branchUrl: `${GH}feature/untaken`, waitingDays: 22,
     }),
     // The other half of `not-started`, and the one that must NOT get a button:
@@ -63,7 +63,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     row({
       branch: 'feature/blocked', plan: 'plant-tomatoes', group: 'not-started',
       state: 'open', phase: 'Design', ageMinutes: null,
-      note: 'blocked by an earlier wave', branchUrl: `${GH}feature/blocked`,
+      waitingOn: 'time' as const, note: 'blocked by Truth', branchUrl: `${GH}feature/blocked`,
       waitingDays: 22,
     }),
     // A branch handed back: real commits inside the quiet window, under an
@@ -79,7 +79,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     // predating the `Approved:` field. It must show no waiting age at all.
     row({
       branch: 'feature/undated', plan: 'beans', group: 'not-started',
-      state: 'open', phase: 'Design', ageMinutes: null, note: ELIGIBLE_NOTE,
+      state: 'open', phase: 'Design', ageMinutes: null, waitingOn: 'click' as const, note: ELIGIBLE_NOTE,
       branchUrl: `${GH}feature/undated`, waitingDays: null,
     }),
     // A merged branch: its remote page is gone, so no branch link.
@@ -100,7 +100,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     row({
       branch: 'feature/ghost-ready', plan: 'ghost-plan',
       planFile: '2099-01-01-ghost-plan.md', group: 'not-started', state: 'open',
-      phase: 'Design', ageMinutes: null, note: ELIGIBLE_NOTE,
+      phase: 'Design', ageMinutes: null, waitingOn: 'click' as const, note: ELIGIBLE_NOTE,
       branchUrl: `${GH}feature/ghost-ready`,
     }),
   ];
@@ -545,15 +545,25 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // carried by colour and title, not by a second position.
     const page = await openAgents();
     try {
-      const untaken = rowFor(page, 'feature/untaken');
-      await expect.poll(() => untaken.getByTitle(/nobody has started it/).count()).toBe(1);
-      await expect.poll(() => untaken.getByTitle(/nobody has started it/).textContent())
+      // ON THE PLAN ROW, not on the branch. `waitingDays` dates the plan's own
+      // `Approved:` record, so every branch of one plan carries the same
+      // number — stating it per branch said one measurement three times. This
+      // asserted the branch row until the section learned to group; what it
+      // MEANS (one column, one answer, carried by colour and title) is
+      // unchanged and asserted here.
+      const untakenPlan = page.locator('li[data-plan-row]')
+        .filter({ hasText: 'plant-tomatoes' }).first();
+      await expect.poll(() => untakenPlan.getByTitle(/nobody has started it/).count()).toBe(1);
+      await expect.poll(() => untakenPlan.getByTitle(/nobody has started it/).textContent())
         .toBe('22d');
-      // And NOT beside it: the row must not carry the age twice. Asserted on
-      // the LAST cell rather than by searching the row for an em dash — the
-      // note reads "eligible — nobody has taken it" and contains one, so a
-      // text search finds the wrong thing and passes for the wrong reason.
-      await expect.poll(() => untaken.locator('span').last().textContent()).toBe('22d');
+      const untaken = rowFor(page, 'feature/untaken');
+      // ONCE, and on the plan row. This asserted the clock on the BRANCH's last
+      // cell to prove the row did not carry it twice; the branch now does not
+      // carry it at all, which satisfies that intent more strongly than the
+      // assertion could say. Stated directly instead: the number appears on the
+      // plan row and nowhere in the branch row beneath it.
+      await expect.poll(() => untaken.count()).toBe(1);
+      expect(await untaken.textContent()).not.toContain('22d');
       expect(await untaken.getByText(/waiting/).count()).toBe(0);
       // No approval date recorded — nothing rather than a zero or a "just now".
       const undated = rowFor(page, 'feature/undated');
@@ -661,7 +671,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // The prefix survives BELOW `sm`, and only there: a card has no columns
       // for a header to name, so the word `Development` would arrive with
       // nothing saying what it is. That half is asserted in the card tests.
-      const phaseCell = li.locator('[role="gridcell"]').first();
+      // NOT `.first()` — that is the marks cell now. The phase is the second,
+      // read by the named constant so this stays in step with the geometry
+      // constants above.
+      const phaseCell = li.locator('[role="gridcell"]').nth(PHASE_CELL);
       const name = await phaseCell.evaluate((el) => (el as HTMLElement).innerText);
       expect(name.trim()).toBe('Development');
       // The word itself is untouched, and visible.
@@ -759,8 +772,16 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   it('puts no badge on a branch nobody handed back', async () => {
     const page = await openAgents();
     try {
+      // The PHASE is on the plan row now: it is a property of the plan that a
+      // branch inherits, so stating it per branch said one word down a column.
+      // The badge's absence is still asserted on the BRANCH, which is where a
+      // badge would appear — the two halves live one level apart, and this
+      // asserted both on the branch until the section grew a plan row.
       const li = rowFor(page, 'feature/untaken');
-      await expect.poll(() => li.textContent()).toContain('Design');
+      await expect.poll(() => li.count()).toBe(1);
+      const plan = page.locator('li[data-plan-row]')
+        .filter({ hasText: 'plant-tomatoes' }).first();
+      expect(await plan.textContent()).toContain('Design');
       expect(await li.textContent()).not.toContain('deferred');
     } finally {
       await page.close();
@@ -808,7 +829,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgentsWithBoard();
     try {
       const li = rowFor(page, 'feature/blocked');
-      await expect.poll(() => li.textContent()).toContain('blocked by an earlier wave');
+      // NAMES THE WAVE now — *blocked by which one?* is the reader's next
+      // question, and the fixture's row says `blocked by Truth`.
+      await expect.poll(() => li.textContent()).toContain('blocked by Truth');
       const dots = menu(page, 'feature/blocked');
       await expect.poll(() => dots.count()).toBe(1);
       expect(await dots.getAttribute('aria-disabled')).toBe('true');
@@ -847,7 +870,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       const blocked = menu(page, 'feature/blocked');
       await expect.poll(() => blocked.count()).toBe(1);
-      expect(await blocked.getAttribute('title')).toContain('blocked by an earlier wave');
+      expect(await blocked.getAttribute('title')).toContain('blocked by Truth');
       // A different row, a different reason — so the title is read from the row
       // rather than being one string for every disabled menu.
       await expand(page, 'quiet');
@@ -1838,8 +1861,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     return Math.round(box!.x);
   }
 
-  const BRANCH_CELL = 2;
-  const PR_CELL = 3;
+  // Cell indices, and they moved by one when the marks earned a track of their
+  // own at the front of the row. Named rather than inlined precisely so this
+  // shift is one edit — a stale `nth()` scattered through the file would keep
+  // PASSING while measuring a different column, which is the quietest way for a
+  // geometry test to stop meaning what it says.
+  const PHASE_CELL = 1;
+  const BRANCH_CELL = 3;
+  const PR_CELL = 4;
   const AGE_CELL = 4;
 
   it('starts every branch cell at the same x, with a phase and without one', async () => {
@@ -2034,7 +2063,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         const tracks = await rows.first().evaluate(
           (el) => getComputedStyle(el).gridTemplateColumns,
         );
-        expect(tracks.split(' ')).toHaveLength(6);
+        // SEVEN since the marks earned a track of their own at the front.
+      expect(tracks.split(' ')).toHaveLength(7);
       }
     } finally {
       await page.close();
@@ -2528,7 +2558,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       const li = rowFor(page, 'feature/phone');
       await expect.poll(() => li.count()).toBe(1);
-      const phaseCell = li.locator('[role="gridcell"]').first();
+      // NOT `.first()` — that is the marks cell now. The phase is the second,
+      // read by the named constant so this stays in step with the geometry
+      // constants above.
+      const phaseCell = li.locator('[role="gridcell"]').nth(PHASE_CELL);
       // `innerText` reports the sr-only span as its own line, so the assertion
       // is on the words rather than on the exact spacing between them.
       const heard = await phaseCell.evaluate((el) => (el as HTMLElement).innerText);
@@ -2561,7 +2594,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(Math.abs(phase!.y - branch!.y)).toBeLessThan(branch!.height);
       // And it really is a grid with six tracks.
       const tracks = await li.evaluate((el) => getComputedStyle(el).gridTemplateColumns);
-      expect(tracks.split(' ')).toHaveLength(6);
+      // SEVEN since the marks earned a track of their own at the front.
+      expect(tracks.split(' ')).toHaveLength(7);
     } finally {
       await page.close();
     }
