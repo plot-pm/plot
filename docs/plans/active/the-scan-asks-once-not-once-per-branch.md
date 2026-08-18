@@ -1,0 +1,1 @@
+../2026-08-18-the-scan-asks-once-not-once-per-branch.md

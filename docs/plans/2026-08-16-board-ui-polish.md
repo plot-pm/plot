@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Story:** plot-board
 - **Review:** in-session
@@ -11,6 +11,7 @@
 - **Approved:** 2026-08-16, jwloka, in-session
 - **Started:** 2026-08-16, jwloka, `feature/board-ui-polish`
 - **Delivered:** 2026-08-16
+- **Released:** 2026-08-18, v2.5.0
 
 ## Problem
 
@@ -249,7 +250,7 @@ outside the walked directories would have a row and no card.
 
 ## Branches
 
-- `feature/board-ui-polish` →  #132 — all three changes; the plan rides this branch and
+- `feature/board-ui-polish` →  #132 — all three changes; the plan rides this branch and → #132
   one PR carries plan and code
 
 ## Done when

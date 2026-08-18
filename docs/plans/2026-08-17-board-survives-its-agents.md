@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:**
 - **Story:** plot-board
@@ -12,6 +12,7 @@
 - **Approved:** 2026-08-17, jwloka, plan-PR #157 merged (two interrogation rounds)
 - **Started:** 2026-08-17, Jan Wloka, `bug/test-boards-die-with-their-run`
 - **Delivered:** 2026-08-17
+- **Released:** 2026-08-18, v2.5.0
 - **Started:** 2026-08-17, Jan Wloka, `feature/board-bridges-its-restart`
 - **Started:** 2026-08-17, Jan Wloka, `bug/scan-reports-a-locked-worktree`
 

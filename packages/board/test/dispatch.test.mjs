@@ -19,6 +19,7 @@ import {
   makeRepo,
   makeStubScripts,
   request,
+  rmTree,
 } from './helpers.mjs';
 
 const APPROVED = `# Ship the widget
@@ -44,7 +45,7 @@ describe('POST /api/dispatch: allow-listed ahead of the 405, and only then', () 
   after(() => {
     server?.kill();
     stub?.cleanup();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('answers 202 with the slug and the log path the SERVER chose', async () => {
@@ -111,7 +112,7 @@ describe('POST /api/dispatch: a refused request spawns NOTHING', () => {
   after(() => {
     server?.kill();
     stub?.cleanup();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('refuses a cross-site Sec-Fetch-Site with 403', async () => {
@@ -178,7 +179,7 @@ describe('POST /api/dispatch: the binding is the authorisation', () => {
   after(() => {
     server?.kill();
     stub?.cleanup();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('refuses with 403 when HOST is not localhost', async () => {
@@ -218,7 +219,7 @@ describe('GET /api/board reports dispatch as available on localhost', () => {
   after(() => {
     server?.kill();
     stub?.cleanup();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('available, with no reason to give', async () => {

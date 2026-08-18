@@ -8,7 +8,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.1.0
+  version: 1.2.0
 compatibility: Designed for Claude Code and Cursor. Requires git. Sprint skeletons commit directly to main; planning refinement may optionally go through a draft PR (see "Refine via PR").
 ---
 
@@ -70,10 +70,13 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | Create, commit, start | Small | Git commands, templates, file ops |
 | Status | Small | File existence checks for delivery state are mechanical; no judgment needed |
 | Close | Mid | False-positive detection (cross-reference `[x]` against `docs/plans/delivered/`) plus existing checkbox parsing |
+| Release state (close step 2b) | Small | `plot-sprint-release.sh` plus `git tag --list`; reports, never refuses |
 
 All sprint operations are structural (Small or Mid). No Frontier needed.
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
+>
+> **No user present?** If `PLOT_UNATTENDED=1` is set, do not call the question tool — each question below declares what to do instead, and every skipped question is named in the output. See [Running unattended](../plot/docs/unattended.md).
 
 ## Sprint Lifecycle
 
@@ -144,6 +147,13 @@ ls docs/plans/active/ 2>/dev/null
 
 If plans exist, present: "Found N active plans. Add any to this sprint?" List them and let the user select which to include (or none). Selected plans are added as `[slug]` items under the appropriate MoSCoW tier.
 
+> **Unattended (`PLOT_UNATTENDED=1`):** create the sprint with its tiers empty,
+> and stop before assigning anything. Which tier a plan belongs to is a
+> statement about what the team is committing to — it has no safe default, and
+> it is not derivable from the plan file, which is why this step asks rather
+> than computes. List the candidates so a person can place them in one pass.
+> `PLOT-UNASKED: Which plans, in which MoSCoW tier? — stopped — <n> active plans listed; sprint created empty`
+
 #### 5. Create Sprint File
 
 ```bash
@@ -184,6 +194,31 @@ The `review_sha` annotation enables skip-if-unchanged review:
 Use `skills/plot/scripts/plot-review-status.sh <sprint-slug>` to get review freshness for all sprint items as JSON.
 
 Leave Start/End dates as placeholders — the user fills them during the Planning phase.
+
+#### The Release Target (optional)
+
+A sprint may name the version it is working toward:
+
+```markdown
+## Status
+
+- **Phase:** Active
+- **Start:** 2026-08-18
+- **End:** 2026-08-22
+- **Release:** 2.5.2
+```
+
+**Ask whether the sprint has one; do not assume.** A sprint that groups work
+without shipping a version is still a sprint, and one with no `Release:` field
+behaves exactly as it did before this field existed.
+
+When present, `/plot-release` reads it as a gate: it refuses to cut past an
+unfinished **Must Have** and asks about unfinished **Should Haves**. Could Haves
+neither block nor prompt. That is the whole of what the field does.
+
+**The version is never validated** — not here, not by the gate. `2.5.2` is named
+before it is cut, so there is nothing to check it against; a typo surfaces when
+the release command fails on its own terms.
 
 #### 6. Update Plan Files
 
@@ -381,6 +416,14 @@ Could Have:  0/1 complete
 ```
 
 **If false positives exist, do NOT proceed to close until the user resolves them.** Present three options:
+
+> **Unattended (`PLOT_UNATTENDED=1`):** **refuse, exactly as when a person is
+> present.** This is a gate, not a question — a checked box whose plan was never
+> delivered is a false claim, and option 3 ("override and close anyway") is a
+> person's judgement to record under their own name. `PLOT_UNATTENDED` grants no
+> authority the operator lacks, and it least of all grants the authority to
+> close a sprint over its own evidence. Report the false positives and stop.
+> `PLOT-UNASKED: How should <n> false-positive completions be resolved? — refused — gate; sprint not closed`
 1. **Run `/plot-deliver <slug>`** for each false-positive item (preferred — actually delivers the plan)
 2. **Uncheck the box** in the sprint file (acknowledges it's not really done)
 3. **Override and close anyway** (last resort) — requires logging a one-liner reason in the sprint file's `## Notes > ### Scope Changes` section, mirroring the existing scope-change log convention. Format: `- YYYY-MM-DD: Closed with [slug] marked complete despite plan not delivered — <reason>`
@@ -392,9 +435,47 @@ If must-haves are incomplete, present three options:
 2. Move incomplete must-haves to Deferred — move each unchecked `- [ ]` line from `### Must Have` to `### Deferred`, preserving the original text
 3. Hold off (don't close yet)
 
+#### 2b. Report the Release State
+
+If the sprint declares a `Release:` target, say where it stands — and **do not
+refuse on it, ever.**
+
+```bash
+../plot/scripts/plot-sprint-release.sh <slug> 2>/dev/null
+git tag --list "v<release>"
+```
+
+Report one of:
+
+- **Cut** — the tag exists: `Release 2.5.2: cut.`
+- **Not cut** — no tag: `Release 2.5.2: not cut. 1 Must Have open.`
+- **Cut over the gate** — a `--ignore-sprint` line is in `## Notes`: quote it.
+
+**Closing a sprint whose release slipped is a legitimate outcome, and this step
+never blocks it.** A timebox that ends is the definition of a timebox; a command
+that would not let one end is lying about what a timebox is. The retrospective
+is where a slipped release gets discussed, and it can only discuss what close
+reported.
+
+This is deliberately unlike step 2's false-positive check, which *does* hold the
+close: that one catches a claim contradicted by the estate, which is a mistake
+to fix. An uncut release is not a mistake — it is news.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** stop. All three options are live and
+> none is safe by default — closing over unfinished Must Haves and deferring
+> them are different claims about the same sprint, and both are the team's to
+> make. Leave the sprint Active and name what is outstanding.
+> `PLOT-UNASKED: Close, defer, or hold with <n> Must Haves unfinished? — stopped — sprint left Active; the <n> are listed above`
+
 #### 3. Capture Retrospective
 
 Ask the user: "Add a retrospective? (optional)"
+
+> **Unattended (`PLOT_UNATTENDED=1`):** skip it and proceed — the step calls
+> itself optional, so its documented default is to continue. Write the Metrics
+> subsection, which is counted rather than recalled, and leave the prose
+> sections empty rather than inventing a retrospective nobody held.
+> `PLOT-UNASKED: Add a retrospective? — default — skipped; metrics written, prose left blank`
 
 If yes, prompt for:
 - What went well?
@@ -420,12 +501,15 @@ Print:
 - Closed: `<slug>`
 - Sprint: `[ ] Planning > [ ] Committed > [ ] Active > [x] Closed`
 - Must-haves: N/M complete
+- Release: `<version>` cut / not cut / cut over the gate (omit if no target)
 - Deferred: N items (if any moved)
 - Retrospective: captured / skipped
 - Suggested next actions:
   1. Review the retrospective action items
   2. Carry deferred items to the next sprint: `/plot-sprint <new-slug>: <goal>`
-  3. If all planned work is delivered: `/plot-release` to cut a release
+  3. If all planned work is delivered: `/plot-release` to cut a release — and
+     if this sprint declared a `Release:`, that command reads it as a gate
+     rather than as a suggestion
 
 ---
 

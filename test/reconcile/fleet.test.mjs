@@ -1090,6 +1090,528 @@ test('fleet: --json carries the merged state and the detection source', () => {
   f.cleanup();
 });
 
+// --- squash merges: the case with no local evidence at all -------------------
+//
+// The walk above finds a branch whose PR produced a MERGE COMMIT. A squash
+// merge produces none — one parent, and a subject naming the PR number rather
+// than the branch — so a branch squash-merged and deleted reads `open`, the
+// same word used for work nobody has started. Its wave never completes and the
+// next wave stays blocked forever, which is what makes this a defect rather
+// than a cosmetic one.
+//
+// The remaining source is the host, and these tests pin BOTH directions: the
+// answer it supplies, and the answer it must never fabricate.
+
+// A shim directory holding every real script with plot-host.sh replaced. The
+// scan resolves its siblings by path, so the copy is what makes the stub
+// reachable — the same shape the --loose host tests use.
+function hostShim(body) {
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-sqhost-'));
+  const realScripts = path.dirname(scan);
+  fs.mkdirSync(path.join(shim, 'scripts'));
+  for (const f of fs.readdirSync(realScripts)) {
+    if (f.endsWith('.sh')) fs.copyFileSync(path.join(realScripts, f), path.join(shim, 'scripts', f));
+  }
+  fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), body);
+  fs.chmodSync(path.join(shim, 'scripts', 'plot-host.sh'), 0o755);
+  return {
+    scan: path.join(shim, 'scripts', 'plot-fleet-scan.sh'),
+    dir: shim,
+    cleanup() { fs.rmSync(shim, { recursive: true, force: true }); },
+  };
+}
+
+// Squash-merge `br` the way GitHub does: replay its tree onto the default
+// branch as ONE commit whose subject names the PR number, never the branch.
+function squashMerge(f, br, pr, main = 'main') {
+  git(f.dir, 'checkout', '-q', main);
+  git(f.dir, 'merge', '-q', '--squash', br);
+  git(f.dir, 'commit', '-qm', `feat: the work (#${pr})`);
+  // The premise, pinned rather than assumed: a squash merge has ONE parent, so
+  // the merge walk has nothing to match. If git ever changed this, the tests
+  // below would still pass while testing something else.
+  const parents = git(f.dir, 'log', '-1', '--format=%p').trim().split(/\s+/);
+  assert.equal(parents.length, 1, 'a squash merge must produce a single-parent commit');
+}
+
+test('fleet: a squash-merged, deleted branch reports merged and completes its wave', () => {
+  // The defect, end to end. Wave One's only branch was squash-merged and its
+  // ref deleted; nothing local names it. The wave must complete — and wave Two
+  // must become eligible, which is the consequence that matters: a wave that
+  // cannot complete blocks its successor permanently.
+  const f = makeRepo('plot-fleet-squash-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/squashed` — squash-merged and deleted\n\n### Two\n' +
+    '- `feature/next` — waits on wave one\n');
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 42);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state)
+    case "$2" in
+      feature/squashed) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+      *) echo '{"state":"NONE"}' ;;
+    esac ;;
+  *) echo "{}" ;;
+esac
+`);
+  // No --offline: that flag promises no network, and the host is the point.
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/squashed'), / — merged$/,
+    'a squash-merged branch is merged, not open');
+  assert.match(waveLine(out, 'One'), / — complete$/);
+  assert.match(waveLine(out, 'Two'), / — eligible$/,
+    'the successor wave must become reachable — the blocked-forever symptom');
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: an unreachable host keeps open — it never fabricates merged', () => {
+  // THE LOAD-BEARING DIRECTION. On 2026-08-17 GitHub returned 503 all
+  // afternoon; a scan that read an outage as MERGED would settle waves on work
+  // that never landed and open the next wave onto a seam that does not exist.
+  // `plot-host.sh` exits non-zero on transport failure, and that must degrade
+  // to exactly the answer this scan gave before the host was ever consulted.
+  const f = makeRepo('plot-fleet-squash503-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/squashed` — squash-merged and deleted\n\n### Two\n' +
+    '- `feature/next` — waits on wave one\n');
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 42);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo "plot-host: HTTP 503 (server error)" >&2; exit 1 ;;
+  *) echo "{}" ;;
+esac
+`);
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/squashed'), / — open$/,
+    'an unreachable host must never become a fabricated merged');
+  assert.match(waveLine(out, 'One'), / — eligible$/);
+  assert.match(waveLine(out, 'Two'), / — blocked$/,
+    'and the wave arithmetic must read exactly as it did before');
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: a host reporting NONE or CLOSED leaves the branch open', () => {
+  // The other two arms of the three-way reply. Only an explicit MERGED may
+  // move a branch off `open`: a lookup miss means no PR was ever opened, and a
+  // CLOSED PR means the work was abandoned — neither is landed work, and
+  // reading either as `merged` would settle a wave on nothing.
+  const f = makeRepo('plot-fleet-squashnone-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/nopr` — never had a PR\n- `feature/closed` — PR closed unmerged\n');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state)
+    case "$2" in
+      feature/closed) echo '{"number":9,"state":"CLOSED","draft":false,"url":"x"}' ;;
+      *) echo '{"state":"NONE"}' ;;
+    esac ;;
+  *) echo "{}" ;;
+esac
+`);
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/nopr'), / — open$/);
+  assert.match(branchLine(out, 'feature/closed'), / — open$/,
+    'a closed, unmerged PR is not landed work');
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: the host is asked once per absent branch, and never for a present ref', () => {
+  // COST, which is what decides whether this can live under a 5-second poll.
+  // `branch_state` runs inside a command substitution — a subshell — so a
+  // cached answer held in a variable would be discarded and every branch would
+  // pay again. The count is asserted rather than assumed: one call for the
+  // absent branch, none for the branch whose ref is still there, and no repeat.
+  const f = makeRepo('plot-fleet-squashcost-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/gone` — squash-merged and deleted\n- `feature/here` — still pushed\n');
+  f.work('feature/gone', 'g.txt');
+  f.push('-u', 'origin', 'feature/gone');
+  squashMerge(f, 'feature/gone', 42);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/gone');
+  f.work('feature/here', 'h.txt');
+  f.push('-u', 'origin', 'feature/here');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const h = hostShim(`#!/usr/bin/env bash
+[ "$1" = pr-state ] && printf '%s\\n' "$2" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  const calls = path.join(h.dir, 'calls.txt');
+  execFileSync('bash', [h.scan, 'p'], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PLOT_TEST_CALLS: calls },
+  });
+  const asked = fs.readFileSync(calls, 'utf8').split('\n').filter(Boolean);
+  assert.deepEqual(asked, ['feature/gone'],
+    'exactly one call, for the branch with no ref — a present ref answers locally');
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: --offline asks no host, so a squashed branch still reads open', () => {
+  // --offline promises no network and the board's ambient pulse relies on it.
+  // The host lookup is gated on the same flag: an offline scan reports exactly
+  // what it reported before this fix existed. A stub that fails loudly on any
+  // call would be indistinguishable from an outage here, so the CALL ITSELF is
+  // what the assertion watches.
+  const f = makeRepo('plot-fleet-squashoffline-', ONE_WAVE('feature/squashed'));
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 42);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  const h = hostShim(`#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  const calls = path.join(h.dir, 'calls.txt');
+  const out = execFileSync('bash', [h.scan, '--offline', 'p'], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PLOT_TEST_CALLS: calls },
+  });
+  assert.match(branchLine(out, 'feature/squashed'), / — open$/,
+    '--offline keeps the pre-fix answer rather than reaching the host');
+  assert.equal(fs.existsSync(calls), false,
+    `--offline must make no host call, saw: ${
+      fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8') : ''}`);
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: two branch names that collapse to one cache key keep separate verdicts', () => {
+  // The cache is a FILE PER BRANCH, so the key must be INJECTIVE. Under a naive
+  // slash-to-underscore mapping `feature/a_b/c` and `feature/a/b_c` both become
+  // `feature_a_b_c` — two legal refs, one key — and the branch asked second
+  // inherits the first's answer. When that answer is `merged`, a wave settles
+  // on a branch nobody looked at: the fabricated verdict this change is careful
+  // to avoid, arriving through the cache rather than through the host.
+  //
+  // Only the first is squash-merged; the second never existed.
+  const f = makeRepo('plot-fleet-squashkey-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/a_b/c` — squash-merged and deleted\n- `feature/a/b_c` — never started\n');
+  f.work('feature/a_b/c', 'k.txt');
+  f.push('-u', 'origin', 'feature/a_b/c');
+  squashMerge(f, 'feature/a_b/c', 42);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/a_b/c');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state)
+    case "$2" in
+      feature/a_b/c) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+      *) echo '{"state":"NONE"}' ;;
+    esac ;;
+  *) echo "{}" ;;
+esac
+`);
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/a_b/c'), / — merged$/);
+  assert.match(branchLine(out, 'feature/a/b_c'), / — open$/,
+    'a branch nobody merged must not inherit another branch\'s verdict');
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: a recreated branch is not merged, whatever the host remembers', () => {
+  // The ordering invariant, now with a second way to break it. A branch name
+  // can be reused: merge `feature/retry`, delete it, recreate it for a second
+  // attempt. The host still answers MERGED — about the FIRST attempt — while
+  // the branch of that name carries new work that has not landed.
+  //
+  // The host lookup is safe only BY PLACEMENT, inside the no-ref arm. A
+  // recreated branch HAS a ref, so it must never reach the lookup at all.
+  const f = makeRepo('plot-fleet-squashreuse-', ONE_WAVE('feature/retry'));
+  f.work('feature/retry', 'a.txt');
+  f.push('-u', 'origin', 'feature/retry');
+  squashMerge(f, 'feature/retry', 42);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/retry');
+  // Deleting the REMOTE ref leaves the local branch behind; the second attempt
+  // recreates the name, which is the whole premise here.
+  git(f.dir, 'checkout', '-q', 'main');
+  git(f.dir, 'branch', '-qD', 'feature/retry');
+  // Second attempt, unlanded.
+  f.work('feature/retry', 'b.txt');
+  f.push('-u', 'origin', 'feature/retry');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/retry'), / — in progress$/,
+    'stale host evidence must not settle a wave on unlanded work');
+  h.cleanup();
+  f.cleanup();
+});
+
+// --- the stale tracking ref: a leftover that DISABLES the host lookup --------
+//
+// `git fetch` does not remove remote-tracking refs for branches deleted
+// upstream; only `--prune` does. So a branch merged with --delete-branch
+// leaves `refs/remotes/origin/<br>` behind on every machine that fetched it.
+//
+// That leftover is not cosmetic. branch_state() picks its arm on the ref's
+// PRESENCE: with the ref there the scan takes the ancestry path, which a
+// squash merge breaks by construction, and the host lookup that would have
+// answered `merged` lives in the other arm and is never reached. Measured
+// 2026-08-18 — a wave could not be dispatched at all until someone happened to
+// prune by hand.
+//
+// The distinction these tests turn on: the deletion must happen SOMEWHERE
+// ELSE. `push origin --delete` from the repo under test removes that repo's
+// tracking ref as a side effect, which is why every test above it passes
+// without a prune. A SECOND CLONE deleting the branch is what the host does at
+// merge, and it is the only shape that leaves the stale ref behind.
+function deleteUpstreamElsewhere(f, br) {
+  const other = path.join(f.root, `other-${br.replace(/[^a-z0-9]/gi, '-')}`);
+  git(f.root, 'clone', '-q', path.join(f.root, 'origin.git'), other);
+  git(other, 'config', 'user.email', 'test@example.invalid');
+  git(other, 'config', 'user.name', 'Plot Test');
+  git(other, 'push', '-q', 'origin', '--delete', br);
+}
+
+test('fleet: a stale tracking ref does not outrank the host', () => {
+  // The defect end to end. The branch was squash-merged and deleted UPSTREAM,
+  // but this checkout still holds its tracking ref. The ref must be pruned by
+  // the scan's own fetch, so the no-ref arm is entered and the host answers.
+  //
+  // This test FAILS against the unpruned script — verified by stashing the fix
+  // and running it, which reported `in progress` / blocked. A test that passes
+  // both ways would not be testing this.
+  const f = makeRepo('plot-fleet-staleref-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/squashed` — squash-merged, deleted upstream\n\n### Two\n' +
+    '- `feature/next` — waits on wave one\n');
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 42);
+  f.push('origin', 'main');
+  deleteUpstreamElsewhere(f, 'feature/squashed');
+  // The local branch goes; the stale REMOTE-TRACKING ref is what remains, and
+  // it is the whole premise. Pinned rather than assumed — if a future git
+  // pruned on plain fetch, this test would still pass while testing nothing.
+  git(f.dir, 'checkout', '-q', 'main');
+  git(f.dir, 'branch', '-qD', 'feature/squashed');
+  assert.equal(
+    git(f.dir, 'for-each-ref', '--format=%(refname)',
+      'refs/remotes/origin/feature/squashed').trim(),
+    'refs/remotes/origin/feature/squashed',
+    'the premise: a stale tracking ref survives a deletion made elsewhere');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state)
+    case "$2" in
+      feature/squashed) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+      *) echo '{"state":"NONE"}' ;;
+    esac ;;
+  *) echo "{}" ;;
+esac
+`);
+  // No --offline: the fetch is what prunes, and the prune is the point.
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/squashed'), / — merged$/,
+    'a stale ref must not keep a squash-merged branch in wip');
+  assert.match(waveLine(out, 'One'), / — complete$/);
+  assert.match(waveLine(out, 'Two'), / — eligible$/,
+    'the consequence that mattered: the next wave could not be dispatched');
+  assert.equal(
+    git(f.dir, 'for-each-ref', '--format=%(refname)',
+      'refs/remotes/origin/feature/squashed').trim(), '',
+    'the scan’s fetch must have pruned the ref it no longer has upstream');
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: the prune uses an explicit refspec — a narrow fetch prunes nothing', () => {
+  // THE TRAP, pinned. `git fetch --prune origin <main>` prunes only
+  // `refs/remotes/origin/<main>`: naming a refspec scopes the prune to that
+  // refspec's destination namespace. The obvious fix — a bare `--prune` on the
+  // narrow fetch this scan already makes — is therefore a NO-OP for exactly
+  // the branches the prune exists to clear.
+  //
+  // Asserted against git directly rather than through the scan, because it is
+  // git's behaviour that makes the scan's refspec load-bearing. If a future git
+  // changed this, the line in the scan would look redundant and be removed.
+  const f = makeRepo('plot-fleet-prunescope-', ONE_WAVE('feature/gone'));
+  f.work('feature/gone', 'g.txt');
+  f.push('-u', 'origin', 'feature/gone');
+  deleteUpstreamElsewhere(f, 'feature/gone');
+  const ref = () => git(f.dir, 'for-each-ref', '--format=%(refname)',
+    'refs/remotes/origin/feature/gone').trim();
+
+  git(f.dir, 'fetch', '-q', '--prune', 'origin', 'main');
+  assert.equal(ref(), 'refs/remotes/origin/feature/gone',
+    'a refspec-scoped prune leaves refs outside that refspec alone');
+
+  git(f.dir, 'fetch', '-q', '--prune', 'origin', 'main',
+    '+refs/heads/*:refs/remotes/origin/*');
+  assert.equal(ref(), '',
+    'restating the heads refspec is what widens the prune to the whole mirror');
+  f.cleanup();
+});
+
+test('fleet: pruning never touches a live ref — unmerged work still reads wip', () => {
+  // The other direction. A branch with a ref and real unlanded work must be
+  // untouched by the prune and keep reading `wip`, whatever the host says
+  // about anything. A prune that removed live refs would report in-flight work
+  // as merged and open the next wave onto it.
+  const f = makeRepo('plot-fleet-prunelive-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/working` — real work, unlanded\n' +
+    '- `feature/squashed` — merged and deleted upstream\n');
+  f.work('feature/working', 'w.txt');
+  f.push('-u', 'origin', 'feature/working');
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 42);
+  f.push('origin', 'main');
+  deleteUpstreamElsewhere(f, 'feature/squashed');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/working'), / — in progress$/,
+    'a live ref with unlanded work is not the prune’s business');
+  assert.match(branchLine(out, 'feature/squashed'), / — merged$/);
+  assert.equal(
+    git(f.dir, 'for-each-ref', '--format=%(refname)',
+      'refs/remotes/origin/feature/working').trim(),
+    'refs/remotes/origin/feature/working',
+    'a branch the remote still has must keep its tracking ref');
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: a recreated branch survives the prune and is never merged', () => {
+  // The ordering invariant, re-pinned against the prune. The no-ref arm's
+  // placement is what keeps a recreated branch honest, and pruning is safe
+  // only because it does not reorder those arms — it removes refs the remote
+  // no longer has, and a recreated branch IS on the remote.
+  //
+  // The distinguishing shape: a stale ref for a DIFFERENT branch is present
+  // and pruneable in the same run, so a prune that removed refs indiscriminately
+  // would take the recreated branch's ref too and hand it to the host, which
+  // still answers MERGED about the first attempt.
+  const f = makeRepo('plot-fleet-prunereuse-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/retry` — recreated for a second attempt\n' +
+    '- `feature/done` — merged and deleted upstream\n');
+  f.work('feature/done', 'd.txt');
+  f.push('-u', 'origin', 'feature/done');
+  squashMerge(f, 'feature/done', 41);
+  f.push('origin', 'main');
+  deleteUpstreamElsewhere(f, 'feature/done');
+
+  f.work('feature/retry', 'a.txt');
+  f.push('-u', 'origin', 'feature/retry');
+  squashMerge(f, 'feature/retry', 42);
+  f.push('origin', 'main');
+  deleteUpstreamElsewhere(f, 'feature/retry');
+  git(f.dir, 'checkout', '-q', 'main');
+  git(f.dir, 'branch', '-qD', 'feature/retry');
+  // The second attempt: same name, new work, pushed — so the ref is LIVE.
+  f.work('feature/retry', 'b.txt');
+  f.push('-u', 'origin', 'feature/retry');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/retry'), / — in progress$/,
+    'stale host evidence must not settle a wave on unlanded work');
+  assert.match(branchLine(out, 'feature/done'), / — merged$/,
+    'the pruneable ref in the same run must still have been pruned');
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: --offline cannot prune, and says so', () => {
+  // The decided answer to the plan's Open Point. --offline skips the fetch, so
+  // it cannot prune; a stale ref survives and the branch reads `wip`. That is
+  // honest for a scan that asked nothing — but it must be STATED, because the
+  // symptom (a finished wave that will not complete) looks nothing like
+  // "you passed --offline".
+  const f = makeRepo('plot-fleet-offlineprune-', ONE_WAVE('feature/squashed'));
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 42);
+  f.push('origin', 'main');
+  deleteUpstreamElsewhere(f, 'feature/squashed');
+  git(f.dir, 'checkout', '-q', 'main');
+  git(f.dir, 'branch', '-qD', 'feature/squashed');
+
+  const out = f.run();   // f.run() passes --offline
+  assert.match(branchLine(out, 'feature/squashed'), / — in progress$/,
+    'an offline scan keeps whatever local refs exist — the honest answer');
+  assert.match(out, /--offline skipped the fetch, so stale remote-tracking refs were/,
+    'the consequence must be stated, not left to be discovered');
+  assert.match(out, /may read wip/);
+  assert.equal(
+    git(f.dir, 'for-each-ref', '--format=%(refname)',
+      'refs/remotes/origin/feature/squashed').trim(),
+    'refs/remotes/origin/feature/squashed',
+    '--offline must not reach the network to prune');
+  f.cleanup();
+});
+
 // --- a worktree with uncommitted work is not quiet ---------------------------
 //
 // The fleet derives state from refs, and an agent editing files writes none —
@@ -1973,5 +2495,227 @@ test('fleet: the worker read makes no host call, and leaves the prose untouched'
   assert.ok(!fs.existsSync(log), 'the worker read must make no host call');
   assert.match(branchLine(out, 'feature/silent'), / — claimed$/,
     'the prose report is unchanged — the worker fact travels in --json only');
+  f.cleanup();
+});
+
+// --- the scan asks once, not once per branch --------------------------------
+//
+// Measured against bitbucket.org/quatico/ekzweb on 2026-08-18 (issue #228): 14
+// branches cost 39 `bb` calls and the scan did not finish inside 110 s. And on
+// THIS repo, on GitHub, the same day: 84 branches x 438 ms of `pr-state` = 34 s,
+// past the board's own 30 s timeout (`fleet.ts:260`), so the board served a
+// pulse 644 s old while reporting `Command failed`.
+//
+// The shape is the defect: `host_pr_state` resolved state PER BRANCH, so the
+// cost scaled with the branch count. One `pr-list` answers all of them.
+//
+// These tests count invocations of a stubbed host rather than timing anything —
+// a timing assertion on CI is a flake, and the count is the actual claim.
+
+// A plan with `n` branches, all of them PUSHED and in flight.
+//
+// THE FIXTURE IS THE ASSERTION HERE. Two costs scale differently and only one
+// of them is this defect:
+//
+//   * the JOIN's cost must be flat in the branch count — that is the fix;
+//   * PR #216's no-ref lookup is bounded by ABSENT branches, and must survive.
+//
+// A fixture of never-started branches cannot tell those apart: every branch
+// takes the no-ref arm, so the count rises for the legitimate reason and the
+// test would demand the removal of #216. Pushing every branch holds the absent
+// count at ZERO, so anything that still scales is the loop this change removes.
+const N_WAVE = (n, prefix = 'feature/b') =>
+  '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+  Array.from({ length: n }, (_, i) => `- \`${prefix}${i}\` — the work\n`).join('');
+
+// Build the repo AND push every branch, so none takes the no-ref arm.
+function makeInFlightRepo(prefix, n) {
+  const f = makeRepo(prefix, N_WAVE(n));
+  for (let i = 0; i < n; i++) {
+    f.work(`feature/b${i}`, `f${i}.txt`);
+    f.push('-u', 'origin', `feature/b${i}`);
+  }
+  git(f.dir, 'checkout', '-q', 'main');
+  return f;
+}
+
+// Counts every host invocation by op, so a growth in ANY op is caught rather
+// than only the one this fix happened to look at.
+const COUNTING_HOST = `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":0,"state":"NONE","draft":false,"url":""}' ;;
+  pr-list) : ;;
+  *) echo "{}" ;;
+esac
+`;
+
+function countCalls(f, host = COUNTING_HOST, args = ['p']) {
+  const h = hostShim(host);
+  const calls = path.join(h.dir, 'calls.txt');
+  const out = execFileSync('bash', [h.scan, ...args], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PLOT_TEST_CALLS: calls },
+  });
+  const ops = fs.existsSync(calls)
+    ? fs.readFileSync(calls, 'utf8').split('\n').filter(Boolean) : [];
+  h.cleanup();
+  return { out, ops, total: ops.length };
+}
+
+test('fleet: host calls do not grow with the branch count', () => {
+  // THE MEASURED FAILURE, reproduced as a count. Against the unchanged script
+  // this fails — verified by stashing the fix: 6 in-flight branches cost 6
+  // `pr-state` calls and 14 cost 14, so the difference IS the branch count and
+  // the assertion below reads `8 !== 0`.
+  //
+  // Two sizes of the SAME plan shape, every branch pushed. What is asserted is
+  // not an absolute budget — that would pin an implementation detail — but that
+  // the two sizes cost the SAME, which is what "constant" means and what the
+  // defect broke.
+  const small = makeInFlightRepo('plot-fleet-join-small-', 6);
+  const large = makeInFlightRepo('plot-fleet-join-large-', 14);
+
+  const s = countCalls(small);
+  const l = countCalls(large);
+
+  assert.equal(l.total - s.total, 0,
+    `host calls must not scale with branches: 6 branches cost ${s.total} ` +
+    `(${s.ops.join(',')}), 14 cost ${l.total} (${l.ops.join(',')})`);
+
+  small.cleanup();
+  large.cleanup();
+});
+
+test('fleet: a failed list reads as failure, never as "no PR"', () => {
+  // The 2026-08-17 trap in a new shape. `plot-host.sh` separates a lookup miss
+  // (exit 0, state NONE) from a transport failure (non-zero), and the join must
+  // keep that separation: a list that NEVER ARRIVED and a list with NOTHING IN
+  // IT are different facts.
+  //
+  // The branch here was squash-merged and its ref deleted, so it takes the
+  // no-ref arm. With a list that FAILED, the scan may not conclude "no PR" and
+  // must fall through to `open` — the safe direction, unchanged from before the
+  // join existed. Concluding `merged` or settling the wave would be the
+  // fabricated verdict; concluding a confident "no PR" is the same lie quieter.
+  const f = makeRepo('plot-fleet-joinfail-', ONE_WAVE('feature/squashed'));
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 42);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  // The list fails the way a 503 does: non-zero, nothing on stdout. The
+  // per-branch lookup still answers MERGED, and that answer must survive — a
+  // failed LIST must not suppress the no-ref lookup that #216 put there.
+  const { out } = countCalls(f, `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) exit 1 ;;
+  pr-state) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  assert.match(branchLine(out, 'feature/squashed'), / — merged$/,
+    'a failed list must not suppress the no-ref lookup that answers');
+  f.cleanup();
+});
+
+test('fleet: an empty list is not a failed list', () => {
+  // The other half of the same distinction. Here the list ARRIVES and is empty
+  // — real evidence that the repo has no PRs — while the per-branch lookup is
+  // never consulted for a branch that HAS a ref. The branch must read from its
+  // local state rather than inheriting a fabricated verdict either way.
+  const f = makeRepo('plot-fleet-joinempty-', ONE_WAVE('feature/inflight'));
+  f.work('feature/inflight', 'a.txt');
+  f.push('-u', 'origin', 'feature/inflight');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const { out, ops } = countCalls(f, `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) : ;;
+  pr-state) echo '{"number":0,"state":"NONE","draft":false,"url":""}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  assert.match(branchLine(out, 'feature/inflight'), / — in progress$/,
+    'an empty list that arrived is evidence, and the local state answers');
+  assert.equal(ops.filter((o) => o === 'pr-state').length, 0,
+    'a branch with a ref must not cost a per-branch lookup');
+  f.cleanup();
+});
+
+test('fleet: the no-ref lookup is bounded by absent branches, not by all', () => {
+  // THE OTHER SIDE OF THE SAME COIN, and the reason the test above pushes every
+  // branch. PR #216's per-branch lookup must SURVIVE this change: it asks about
+  // a branch with no ref, which a repo-wide list may legitimately not contain
+  // because its PR was never opened. Deleting it to make a call-count go down
+  // would trade this defect for that one.
+  //
+  // So the cost is bounded by ABSENT branches. Here 2 of 8 are absent, and the
+  // count must follow the 2 rather than the 8.
+  const f = makeRepo('plot-fleet-joinbound-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    Array.from({ length: 8 }, (_, i) => `- \`feature/b${i}\` — the work\n`).join(''));
+  for (let i = 0; i < 6; i++) {
+    f.work(`feature/b${i}`, `f${i}.txt`);
+    f.push('-u', 'origin', `feature/b${i}`);
+  }
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const { ops } = countCalls(f);
+  const asked = ops.filter((o) => o === 'pr-state').length;
+  assert.equal(asked, 2,
+    `only the 2 branches with no ref may be asked about individually, saw ${asked}`);
+  assert.equal(ops.filter((o) => o === 'pr-list').length, 1,
+    'the other 6 are answered by exactly one list');
+  f.cleanup();
+});
+
+test('fleet: a failed list does not answer for branches the join never covered', () => {
+  // THE 2026-08-17 TRAP, IN THE SHAPE THE JOIN GIVES IT. The scan must keep
+  // `plot-host.sh`'s distinction between a lookup MISS (exit 0, state NONE) and
+  // a TRANSPORT FAILURE (non-zero). A join makes that distinction easy to lose,
+  // because both arrive as "this branch is not in my table".
+  //
+  // Here the list FAILS and the branch has a ref, so nothing may be concluded
+  // about its PR at all. `worker_of` asks `reached_review`, whose contract is
+  // that an unanswerable host falls through to the LOCAL signals rather than
+  // manufacturing the state that tells a reader to stop looking.
+  //
+  // The assertion is on the call count rather than on a rendered word: with the
+  // list failed there is no cached answer, and the branch must NOT be rescued
+  // by a per-branch lookup — that would silently restore the N-call loop on
+  // exactly the day the host is unwell and can least afford it.
+  const f = makeRepo('plot-fleet-joinfail2-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    Array.from({ length: 8 }, (_, i) => `- \`feature/b${i}\` — the work\n`).join(''));
+  for (let i = 0; i < 8; i++) {
+    f.work(`feature/b${i}`, `f${i}.txt`);
+    f.push('-u', 'origin', `feature/b${i}`);
+  }
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const { ops } = countCalls(f, `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) exit 1 ;;
+  pr-state) echo '{"number":0,"state":"NONE","draft":false,"url":""}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  assert.equal(ops.filter((o) => o === 'pr-state').length, 0,
+    'a failed list must not fall back to one lookup per branch');
+  assert.equal(ops.filter((o) => o === 'pr-list').length, 1,
+    'the list is attempted exactly once, even when it fails');
   f.cleanup();
 });

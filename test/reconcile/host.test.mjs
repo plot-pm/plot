@@ -37,6 +37,50 @@ function makeStubs({ ghJson = '{}', bbJson = '{}', ghFail = null, bbFail = null 
   return { dir, ghArgv: stub('gh', ghJson, ghFail), bbArgv: stub('bb', bbJson, bbFail) };
 }
 
+// A `bb` stub that REFUSES what the real `bb` refuses. The permissive stub above
+// swallows any argument, which is how `--state all` stayed pinned as correct in
+// this file for months while every real Bitbucket call failed: the test proved
+// the adapter SENT the flag, never that `bb` understood it.
+//
+// Measured against bb 1.0.0 on 2026-08-18:
+//   --state accepts open|merged|declined|superseded — no `all`, no `closed`
+//   --limit does not exist at all
+//
+// It appends one line per invocation (`>>`) rather than overwriting, because
+// `--state all` is expected to become SEVERAL calls; an overwriting stub would
+// show only the last and hide a missing one.
+function makeStrictBbStub({ json = '[]', perState = null } = {}) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-bb-'));
+  const callsFile = path.join(dir, 'bb.calls');
+  const cases = perState
+    ? Object.entries(perState)
+        .map(([s, v]) => `    ${s}) printf '%s' '${v.replace(/'/g, `'\\''`)}' ;;`)
+        .join('\n')
+    : '';
+  const body = `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${callsFile}"
+state=open
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --state) state="$2"; shift 2 ;;
+    --limit) echo "unknown flag: --limit" >&2; exit 1 ;;
+    *) shift ;;
+  esac
+done
+case "$state" in
+  open|merged|declined|superseded) ;;
+  *) echo "error: invalid --state '\${state}' (must be open, merged, declined, or superseded)" >&2; exit 1 ;;
+esac
+${cases ? `case "$state" in\n${cases}\n    *) printf '%s' '[]' ;;\nesac` : `printf '%s' '${json.replace(/'/g, `'\\''`)}'`}
+`;
+  writeFileSync(path.join(dir, 'bb'), body);
+  chmodSync(path.join(dir, 'bb'), 0o755);
+  return { dir, callsFile };
+}
+
+const callsOf = (file) =>
+  existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').filter(Boolean) : [];
+
 // Like `run`, but for the cases where the adapter is expected to FAIL: returns
 // the exit code and both streams instead of throwing, so a test can assert the
 // code, the silence on stdout, and the message on stderr as three separate
@@ -211,7 +255,11 @@ test('host: bb pr-state by branch resolves via pr-list filter (hit and miss)', (
   });
   const hit = JSON.parse(run(['pr-state', 'feature/a'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   assert.deepEqual(hit, { number: 4, state: 'OPEN', draft: false, url: 'https://example.test/pr/4' });
-  assert.deepEqual(argvOf(stubs.bbArgv), ['pr', 'list', '--state', 'all', '--json']);
+  // NOT `--state all`: bb has no such state. See the strict-stub tests below.
+  assert.ok(
+    argvOf(stubs.bbArgv).every((a) => a !== 'all'),
+    'pr-state must not send GitHub\'s `all` to bb',
+  );
   const miss = JSON.parse(run(['pr-state', 'feature/nope'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   assert.equal(miss.state, 'NONE');
 });
@@ -242,6 +290,36 @@ test('host: pr-list --rich reports an EMPTY rollup as none, not green', () => {
   const stubs = makeStubs({ ghJson: richGh('[]') });
   const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.equal(out.checks, 'none');
+});
+
+test('host: a RUNNING check reports pending, not green', () => {
+  // The defect this replaces, and it pointed the reassuring way: GitHub sends
+  // `conclusion: ""` for a check still running — an EMPTY STRING, not null —
+  // and the reader was `(.conclusion // .state)`. jq's `//` substitutes only
+  // null and false, so `$c` stayed `""`, matched none of the three tests, and
+  // fell through to `green`.
+  //
+  // A running CI therefore read as a passed CI, permanently: measured on the
+  // release PR while its `validate` job was in progress. WAITING ON A MACHINE
+  // was empty for the same reason, every time it was looked at.
+  //
+  // The field is `status` besides — `state` never existed on a rollup entry, so
+  // the fallback pointed nowhere even when it fired.
+  const running = '[{"name":"validate","conclusion":"","status":"IN_PROGRESS"}]';
+  const stubs = makeStubs({ ghJson: richGh(running) });
+  const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(out.checks, 'pending');
+});
+
+test('host: an empty conclusion on a CONCLUDED check still reads its status', () => {
+  // The pairing: a fix that simply preferred `.status` would report every
+  // finished check by the word GitHub uses for its lifecycle (`COMPLETED`)
+  // rather than by its outcome, turning failures green. The conclusion wins
+  // wherever it says anything.
+  const failed = '[{"name":"validate","conclusion":"FAILURE","status":"COMPLETED"}]';
+  const stubs = makeStubs({ ghJson: richGh(failed) });
+  const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(out.checks, 'failing');
 });
 
 test('host: pr-list --rich collapses the rollup to one of four states', () => {
@@ -467,4 +545,147 @@ test('host: runs on bitbucket reports nothing rather than something invented', (
   const stubs = makeStubs({ bbJson: '[]' });
   assert.equal(run(['runs', 'feature/x'], { env: { PLOT_HOST: 'bitbucket' }, stubs }).trim(), '');
   assert.equal(argvOf(stubs.bbArgv), null);
+});
+
+// --- bb --state vocabulary -------------------------------------------------
+//
+// bb speaks a different --state vocabulary than gh, and the adapter used to
+// translate only in the READING direction (DECLINED→CLOSED on the way out)
+// while sending the caller's GitHub word unchanged on the way in. These run
+// against makeStrictBbStub, which refuses what bb 1.0.0 refuses.
+
+test('host: pr-list --state all issues one bb call per real state', () => {
+  const bb = makeStrictBbStub({
+    perState: {
+      open: '[{"id":1,"title":"O","state":"OPEN","source":{"branch":{"name":"feature/o"}}}]',
+      merged: '[{"id":2,"title":"M","state":"MERGED","source":{"branch":{"name":"feature/m"}}}]',
+      declined: '[{"id":3,"title":"D","state":"DECLINED","source":{"branch":{"name":"feature/d"}}}]',
+    },
+  });
+  const out = execFileSync('bash', [adapter, 'pr-list', '--state', 'all'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  const rows = out.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+
+  // All three states arrive — the defect returned only the last one.
+  assert.deepEqual(rows.map((r) => r.state).sort(), ['CLOSED', 'MERGED', 'OPEN']);
+  assert.deepEqual(rows.map((r) => r.number).sort(), [1, 2, 3]);
+
+  const calls = callsOf(bb.callsFile);
+  assert.equal(calls.length, 3, 'one call per state, not one call with three flags');
+  assert.ok(calls.some((c) => c.includes('--state open')));
+  assert.ok(calls.some((c) => c.includes('--state merged')));
+  assert.ok(calls.some((c) => c.includes('--state declined')));
+  assert.ok(!calls.some((c) => c.includes('--state all')), 'bb has no `all` state');
+});
+
+test('host: pr-list --state closed sends bb its own word, declined', () => {
+  const bb = makeStrictBbStub({ json: '[]' });
+  execFileSync('bash', [adapter, 'pr-list', '--state', 'closed'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  const calls = callsOf(bb.callsFile);
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0].includes('--state declined'));
+  assert.ok(!calls[0].includes('closed'));
+});
+
+// The board calls with --limit 300. bb has no --limit and errors on it, so the
+// adapter must not forward it — and must say the cap cannot be honoured rather
+// than serving a short page as if it were the whole set.
+test('host: --limit never reaches bb, and the shortfall is reported', () => {
+  const bb = makeStrictBbStub({ json: '[]' });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--state', 'all', '--limit', '300'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.ok(!callsOf(bb.callsFile).some((c) => c.includes('--limit')));
+  assert.match(res.stderr, /limit/i);
+});
+
+// An unknown state is a caller bug. Returning an empty list would read as
+// "no PRs matched", which is the quiet wrong answer this adapter avoids.
+test('host: an unknown --state fails loudly instead of returning nothing', () => {
+  const bb = makeStrictBbStub({ json: '[]' });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'bogus'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.notEqual(res.status, 0);
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('host: pr-state by branch resolves without bb rejecting the call', () => {
+  const bb = makeStrictBbStub({
+    perState: {
+      open: '[{"id":4,"state":"OPEN","source":{"branch":{"name":"feature/a"}},"links":{"html":{"href":"https://example.test/pr/4"}}}]',
+    },
+  });
+  const out = JSON.parse(execFileSync('bash', [adapter, 'pr-state', 'feature/a'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  }));
+  assert.equal(out.number, 4);
+  assert.equal(out.state, 'OPEN');
+});
+
+// --- pr-state stops asking once it has an answer ---------------------------
+//
+// Resolving one branch to one PR walked all three states unconditionally, so
+// every lookup cost three network round trips whether or not the first one
+// answered. Measured against a real Bitbucket on 2026-08-18: ~10s per `bb`
+// call, so 25.7s per pr-state — and the board's fleet scan, which calls it
+// once per branch, exceeded its own timeout on a five-branch plan.
+//
+// The states are walked open → merged → declined and the filter takes the
+// FIRST match, so a later state can never overturn an earlier one. Stopping
+// at the first hit is therefore free: same answer, fewer calls.
+
+test('host: pr-state stops at the first state that answers', () => {
+  const bb = makeStrictBbStub({
+    perState: {
+      open: '[{"id":4,"state":"OPEN","source":{"branch":{"name":"feature/a"}},"links":{"html":{"href":"https://example.test/pr/4"}}}]',
+      merged: '[{"id":9,"state":"MERGED","source":{"branch":{"name":"feature/a"}},"links":{"html":{"href":"https://example.test/pr/9"}}}]',
+    },
+  });
+  const out = JSON.parse(execFileSync('bash', [adapter, 'pr-state', 'feature/a'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  }));
+  // The open PR wins, as it did before — this is a cost fix, not a behaviour one.
+  assert.equal(out.number, 4);
+  assert.equal(out.state, 'OPEN');
+  assert.equal(callsOf(bb.callsFile).length, 1, 'must not ask merged/declined once open answered');
+});
+
+// The saving must not cost coverage: a branch whose only PR was declined is
+// still found, it just pays for all three calls.
+test('host: pr-state still reaches a declined PR, at full cost', () => {
+  const bb = makeStrictBbStub({
+    perState: {
+      declined: '[{"id":7,"state":"DECLINED","source":{"branch":{"name":"feature/d"}},"links":{"html":{"href":"https://example.test/pr/7"}}}]',
+    },
+  });
+  const out = JSON.parse(execFileSync('bash', [adapter, 'pr-state', 'feature/d'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  }));
+  assert.equal(out.number, 7);
+  assert.equal(out.state, 'CLOSED');
+  assert.equal(callsOf(bb.callsFile).length, 3);
+});
+
+// A branch with no PR at all is the other full-cost case, and it must still
+// report NONE rather than treating the empty first page as a transport failure.
+test('host: pr-state reports NONE after exhausting every state', () => {
+  const bb = makeStrictBbStub({ json: '[]' });
+  const out = JSON.parse(execFileSync('bash', [adapter, 'pr-state', 'feature/nope'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  }));
+  assert.equal(out.state, 'NONE');
+  assert.equal(callsOf(bb.callsFile).length, 3);
 });

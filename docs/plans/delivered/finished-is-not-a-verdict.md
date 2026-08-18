@@ -1,0 +1,1 @@
+../2026-08-18-finished-is-not-a-verdict.md

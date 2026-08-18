@@ -9,7 +9,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.2.0
+  version: 1.3.0
 compatibility: >-
   Designed for Claude Code. Requires git and jq; gh (GitHub) or bb (Bitbucket)
   CLI adds open-PR precision — without one the sweep degrades to git
@@ -56,7 +56,15 @@ for your setup.
 
 The scan is mechanical; a small model can run it and relay the report verbatim. Deciding *what to do* about each finding — especially stale-branch deletion and orphan branches ahead of the main branch — is where a frontier tier earns its keep. Smaller tiers should present the findings and ask the human rather than act.
 
+> **Unattended (`PLOT_UNATTENDED=1`):** relay the report and act on nothing.
+> This command is read-only by design — it prints remediating commands and a
+> human decides which to run — so the unattended path is simply the whole
+> command: the scan runs, the findings print, and no branch is deleted.
+> `PLOT-UNASKED: Which of the <n> findings should be remediated? — stopped — report relayed; nothing deleted, nothing pushed`
+
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
+>
+> **No user present?** If `PLOT_UNATTENDED=1` is set, do not call the question tool — each question below declares what to do instead, and every skipped question is named in the output. See [Running unattended](../plot/docs/unattended.md).
 
 ## What you do
 

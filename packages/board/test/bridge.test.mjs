@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { startServer, fetchRaw, SCRIPTS_DIR } from './helpers.mjs';
+import { startServer, fetchRaw, SCRIPTS_DIR, git, rmTree } from './helpers.mjs';
 
 const BRIDGE = '.plot/state/last-pulse.json';
 
@@ -35,9 +35,6 @@ const PLAN = `# The board survives its own restart
 
 - \`feature/board-bridges-its-restart\` — the pulse outlives the process
 `;
-
-const git = (cwd) => (...args) =>
-  execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
 /**
  * A repo with a real remote and a real claim, so the pulse it produces has
@@ -75,7 +72,7 @@ function makeRepo() {
   g('push', 'origin', claimed);
   g('checkout', 'main');
 
-  return { tmp, repo, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) };
+  return { tmp, repo, cleanup: () => rmTree(tmp) };
 }
 
 /**
@@ -98,7 +95,7 @@ function makeBrokenScan() {
     '#!/usr/bin/env bash\necho "scan is broken on purpose" >&2\nexit 3\n',
     { mode: 0o755 },
   );
-  return { dir, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
+  return { dir, cleanup: () => rmTree(dir) };
 }
 
 const fetchFleet = async (port) => JSON.parse((await fetchRaw(port, '/api/fleet')).body);

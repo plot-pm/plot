@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-board
@@ -15,6 +15,7 @@
 - **Started:** 2026-08-16, jwloka, `feature/board-artifact-links`
 - **Started:** 2026-08-16, jwloka, `feature/board-start-work`
 - **Delivered:** 2026-08-16
+- **Released:** 2026-08-18, v2.5.0
 
 ## Approval
 

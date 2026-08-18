@@ -9,6 +9,7 @@ import {
   isLive,
   isCollapsible,
   noActionReason,
+  menuState,
   splitBranch,
   prStateWord,
   noteWithoutPr,
@@ -23,6 +24,7 @@ import {
   changedRows,
   isActive,
   isUnpushed,
+  waitingTone,
   activityPace,
   groupPace,
   ACTIVITY_MARK_PLACE,
@@ -31,9 +33,12 @@ import {
   LOCK_ECHO_MS,
   rowKey,
   watchedState,
-  isObservation,
+  isUnreadable,
+  sameWatched,
   hostCannotReportCi,
   HOST_CANNOT_REPORT_HINT,
+  hostAnswer,
+  HOST_ANSWER_HINT,
   type WatchedState,
   type PlanGroup,
 } from '../../src/app/components/AgentList.js';
@@ -306,6 +311,46 @@ describe('isUnpushed — finished work nobody else can see', () => {
   });
 });
 
+describe('waitingTone — only one of the three is loud', () => {
+  it('gives `needs you` the strong colour and nothing else', () => {
+    // The section is mostly `time`: measured, this session's pulse held 43 rows
+    // with multi-wave plans routinely showing two blocked rows per eligible
+    // one. A section where every row is coloured has coloured nothing, so only
+    // the state a person can END gets the loud colour.
+    const you = waitingTone('you');
+    expect(you).toContain('amber');
+    expect(waitingTone('click')).not.toContain('amber');
+    expect(waitingTone('time')).not.toContain('amber');
+  });
+
+  it('leaves a startable row looking like every other row', () => {
+    // THE pairing. `ready to start` is available, and taking it is optional —
+    // a colour of its own would make the section shout twice and mean once.
+    // An implementation colouring all three passes "is `you` loud?" and fails
+    // here.
+    expect(waitingTone('click')).toBe(waitingTone(null));
+  });
+
+  it('makes `waiting its turn` the quietest of the three', () => {
+    // Nothing to do, ever, and the most common state in a multi-wave plan.
+    expect(waitingTone('time')).not.toBe(waitingTone(null));
+    expect(waitingTone('time')).toContain('slate-400');
+  });
+
+  it('animates nothing — colour is a property, motion is an accusation', () => {
+    // `board-watches-for-stuck-branches` settled that motion marks an
+    // UNANSWERED REQUEST. A Draft plan minutes old is not that; it is the
+    // ordinary state of a plan just written, and animating it would interrupt
+    // a reader about their own work in progress. The escalation for a Draft
+    // that has sat for days is specified in the plan and deliberately unbuilt:
+    // 30 of this repo's 31 approved plans were approved the day they were
+    // drafted, so the state it would mark has never occurred here.
+    for (const w of ['you', 'click', 'time', null] as const) {
+      expect(waitingTone(w)).not.toMatch(/animate/);
+    }
+  });
+});
+
 describe('isActive — which rows are actually being written to', () => {
   it('marks a row holding a lock, and a row with uncommitted work', () => {
     // The two entrances, and they are ORs rather than a sequence: someone is
@@ -313,6 +358,29 @@ describe('isActive — which rows are actually being written to', () => {
     expect(isActive(row({ localLocked: true }))).toBe(true);
     expect(isActive(row({ localDirty: true }))).toBe(true);
     expect(isActive(row({ localLocked: true, localDirty: true }))).toBe(true);
+  });
+
+  it('never marks a MERGED branch, whatever its worktree holds', () => {
+    // Measured on screen: a row sitting in DONE with the activity mark. Both
+    // halves were true — merged, and a dirty checkout — and the row said two
+    // things that cannot both be acted on. The dirt was one leftover
+    // `.plot-worker.exit` nobody had cleaned up.
+    //
+    // Editing a merged branch's checkout is real and simply not what this mark
+    // means. `classify` already sends merged branches to `done` before looking
+    // at any local signal; this predicate now agrees with it rather than
+    // contradicting it one layer up.
+    expect(isActive(row({ state: 'merged', localDirty: true }))).toBe(false);
+    expect(isActive(row({ state: 'merged', localLocked: true }))).toBe(false);
+  });
+
+  it('still marks an UNMERGED branch with the same signals', () => {
+    // The pairing. A fix that suppressed the mark whenever a row sits in DONE —
+    // or worse, whenever a PR exists — would pass the assertion above and take
+    // the mark off every agent that is actually writing.
+    expect(isActive(row({ state: 'wip', localDirty: true }))).toBe(true);
+    expect(isActive(row({ state: 'claimed', localLocked: true }))).toBe(true);
+    expect(isActive(row({ state: 'open', localDirty: true }))).toBe(true);
   });
 
   it('does NOT mark a WORKING row that carries neither signal', () => {
@@ -939,7 +1007,10 @@ describe('the activity mark is a track with a travelling dot', () => {
     // heading would not sit the mark slightly wrong — it would hang it off
     // whatever ancestor happened to be `relative` and land it elsewhere on the
     // page. A class-name assertion on a shared string cannot see that.
-    expect(ACTIVITY_MARK_PLACE.row).toContain('sm:absolute');
+    // The row placement is no longer absolute at all — it is a grid cell. What
+    // the heading assertion below protects is unchanged: a heading has no
+    // positioned ancestor, so it must never borrow a positioned placement.
+    expect(ACTIVITY_MARK_PLACE.row).not.toContain('absolute');
     expect(ACTIVITY_MARK_PLACE.heading).not.toContain('absolute');
     // And the heading's mark is not positioned by any other route either.
     expect(ACTIVITY_MARK_PLACE.heading).not.toMatch(/\b(fixed|sticky|top-|left-|-translate-)/);
@@ -951,8 +1022,23 @@ describe('the activity mark is a track with a travelling dot', () => {
     // not by fragments: `sm:top-2` and `h-5` together are what put the mark on
     // the row's FIRST LINE rather than at its centre, which is the fix a
     // two-line row needed and which a partial assertion would let slip back.
+    // IN A TRACK, not in the padding. This asserted `sm:absolute sm:left-0`
+    // until the marks earned a column of their own: `left-0` is the ROW's edge,
+    // which sits outside the section's border, so every mark straddled the
+    // panel edge — and two marks on one row overlapped, because absolute boxes
+    // do not make room for each other. Measured on screen with the activity
+    // track and the unpushed bar on one branch.
+    //
+    // The cell that holds them is unconditional while its contents are not, so
+    // a row with no marks still occupies the track and the six columns beside
+    // it do not shift. That is the alignment `agent-rows-line-up` paid for, now
+    // held by a track rather than by keeping the marks outside the grid.
+    // NO padding of its own — the row already carries `py-2`, and a second pair
+    // here made every row as tall as a two-line one (both measured at 60px).
+    // The height comes from the row's content; `self-stretch` only takes it.
     expect(ACTIVITY_MARK_PLACE.row).toBe(
-      'relative flex h-5 w-3 shrink-0 items-center self-center sm:absolute sm:left-0 sm:top-2');
+      'relative flex w-full shrink-0 flex-col items-center justify-center gap-1 self-stretch');
+    expect(ACTIVITY_MARK_PLACE.row).not.toMatch(/\bpy-/);
   });
 
   it('gives the heading a box that fits a heading', () => {
@@ -1064,10 +1150,16 @@ describe('the activity mark is a track with a travelling dot', () => {
     // the mark between two lines in the first place. Measured: the first line
     // box begins 18.6px below the row's top edge, not the 8px or 10px a reader
     // would derive from the padding alone.
-    const mark = classesOf('activity-mark');
-    expect(mark).toContain('h-5');
+    // The cell answers this now: `self-stretch` takes the row's own height and
+    // `items-center` centres the marks across it. No number is stated at all —
+    // which is the strongest form of the same rule, since the line height it
+    // used to name (`h-5`) was itself a value that could go stale.
+    const mark = ACTIVITY_MARK_PLACE.row;
+    expect(mark).toContain('self-stretch');
     expect(mark).toContain('items-center');
     expect(mark).toContain('flex');
+    // And no hand-computed offset, which is the failure mode this guards.
+    expect(mark).not.toMatch(/\btop-\d/);
   });
 
   it('renders the dot as its own element inside the track', () => {
@@ -1081,16 +1173,25 @@ describe('the activity mark is a track with a travelling dot', () => {
     expect(dot).toContain('h-1.5 w-1.5');
   });
 
-  it('stays out of the six tracks, in the row\'s left padding', () => {
-    // Wave 1's home, kept: `sm:absolute` hangs the mark beside `LiveDot` in the
-    // padding rather than taking a seventh track, so the six real columns do
-    // not move in from the edge on every row in the fleet to reserve room for a
-    // mark most rows never carry. `left-0` against the dot's `left-1` is what
-    // keeps a row carrying both showing two marks rather than one thick one.
-    const mark = classesOf('activity-mark');
-    expect(mark).toContain('sm:absolute');
-    expect(mark).toContain('sm:left-0');
-    expect(classesOf('live-dot')).toContain('sm:left-1');
+  it('has a track of its own, and the cell holds it whether or not a mark is in it', () => {
+    // A SEVENTH TRACK, reversing wave 1's placement — and the reversal is the
+    // point. That wave hung the mark in the row's padding (`sm:absolute
+    // sm:left-0`) so six columns would not move in to reserve room for a mark
+    // most rows never carry. That argument held while there was ONE mark.
+    //
+    // There are now five, and a row can wear several: measured on screen, the
+    // activity track and the unpushed bar overlapped, because absolute boxes
+    // make no room for each other — and `left-0` is the ROW's edge, which sits
+    // outside the section's border, so every mark straddled the panel edge.
+    //
+    // In the track they stack in the flow. The cost was paid in the phase
+    // column, which gave up 1rem: see the breakpoint arithmetic further down.
+    const mark = ACTIVITY_MARK_PLACE.row;
+    expect(mark).not.toContain('absolute');
+    expect(mark).toContain('flex-col');
+    // The CELL is unconditional while its contents are not — that is what keeps
+    // a markless row's six other cells from shifting one column left.
+    expect(mark).toContain('w-full');
   });
 
   it('aligns to the row\'s FIRST LINE, not to the row\'s centre', () => {
@@ -1102,23 +1203,31 @@ describe('the activity mark is a track with a travelling dot', () => {
     // centred mark on a two-line row sits BETWEEN the lines rather than beside
     // the branch name.
     //
-    // `sm:top-2.5` is the row's `py-2` plus the half-step that centres the 2px
-    // track on the 20px line box. It stays there however tall the row grows.
-    const mark = classesOf('activity-mark');
-    expect(mark).toContain('sm:top-2');
-    // The centring form is GONE, both halves of it. Asserted negatively because
-    // leaving either behind would fight the new rule: `-translate-y-1/2` alone
-    // would lift the track half its height off the line — and the dot inside
-    // is driven by `translateX`, so a stray `translate-y` on the parent is a
-    // transform the travel would have to fight.
+    // Now a CELL rather than an offset, which answers the same question without
+    // arithmetic: `self-stretch` makes the box the full height of the row and
+    // `justify-center` centres the marks in it, so a row that grows a second
+    // line keeps its marks centred against the whole cell rather than against
+    // an assumption about the first line's height.
+    const mark = ACTIVITY_MARK_PLACE.row;
+    expect(mark).toContain('self-stretch');
+    expect(mark).toContain('justify-center');
+    // Every positioned form is GONE. Asserted negatively because leaving one
+    // behind would fight the cell: a stray `translate-y` on the parent is a
+    // transform the dot's own `translateX` travel would have to fight.
     expect(mark).not.toContain('sm:top-1/2');
     expect(mark).not.toContain('-translate-y-1/2');
+    expect(mark).not.toContain('sm:left-0');
   });
 });
 
 describe('isStartable — which NOT STARTED rows offer work', () => {
+  // A startable row: the FIELD says `click`, and the note is kept beside it
+  // because that is what the server sends — but nothing here reads it.
   const notStarted = (over: Partial<AgentRow> = {}) =>
-    row({ group: 'not-started', state: 'open', ageMinutes: null, note: ELIGIBLE_NOTE, ...over });
+    row({
+      group: 'not-started', state: 'open', ageMinutes: null,
+      waitingOn: 'click', note: ELIGIBLE_NOTE, ...over,
+    });
 
   it('offers a branch no earlier wave blocks', () => {
     expect(isStartable(notStarted())).toBe(true);
@@ -1130,16 +1239,24 @@ describe('isStartable — which NOT STARTED rows offer work', () => {
     // would offer to skip the ordering waves exist to express, and
     // plot-dispatch.sh refuses that branch — so the board would be inviting an
     // action the tool declines.
-    expect(isStartable(notStarted({ note: 'blocked by an earlier wave' }))).toBe(false);
+    expect(isStartable(notStarted({ waitingOn: 'time', note: 'blocked by Truth' }))).toBe(false);
   });
 
-  it('reads the eligible note from the contract, not from a copy of the sentence', () => {
-    // The split survives onto a row only as this note — the row carries no
-    // verdict field. A second copy of the sentence would let a reword take the
-    // button away with nothing failing, so the test asserts the SHARED
-    // constant is what the row is matched against.
-    expect(isStartable(notStarted({ note: ELIGIBLE_NOTE }))).toBe(true);
-    expect(isStartable(notStarted({ note: `${ELIGIBLE_NOTE} (probably)` }))).toBe(false);
+  it('reads the FIELD, and no wording of the note can change its answer', () => {
+    // This test used to assert the opposite mechanism — that the row is matched
+    // against the shared `ELIGIBLE_NOTE` constant — and its own reason for
+    // existing was that "a reword would take the button away with nothing
+    // failing". The reword arrived: the same change that added `waitingOn` gave
+    // the blocked note the wave's name.
+    //
+    // So the reason survives and the mechanism is inverted. The note is now
+    // prose for humans and decides nothing: a row with the WRONG note is still
+    // startable, and a row with the right note is not startable without the
+    // field. Those two are the assertion — a rule still reading the sentence
+    // passes neither.
+    expect(isStartable(notStarted({ waitingOn: 'click', note: 'anything at all' }))).toBe(true);
+    expect(isStartable(notStarted({ waitingOn: 'time', note: ELIGIBLE_NOTE }))).toBe(false);
+    expect(isStartable(notStarted({ waitingOn: null, note: ELIGIBLE_NOTE }))).toBe(false);
   });
 
   it('offers nothing on a row that already has a branch and a claim', () => {
@@ -1156,11 +1273,11 @@ describe('isStartable — which NOT STARTED rows offer work', () => {
     // refuses a drafted plan's branches exactly as it refuses a wave-blocked
     // one, so the button must not appear on either.
     //
-    // It comes out right by CONSTRUCTION — `isStartable` matches the eligible
-    // sentence, so any other note loses the button without a second rule to
-    // keep in step. Pinned anyway: that is a property worth failing loudly if
-    // someone later loosens the match to a substring.
-    expect(isStartable(notStarted({ note: DRAFT_PLAN_NOTE }))).toBe(false);
+    // It comes out right by CONSTRUCTION — a Draft plan's first wave is
+    // `waitingOn: 'you'`, and only `click` is startable, so there is no second
+    // rule to keep in step. Pinned anyway: worth failing loudly if someone
+    // later widens the predicate to "anything in not-started".
+    expect(isStartable(notStarted({ waitingOn: 'you', note: DRAFT_PLAN_NOTE }))).toBe(false);
   });
 
   it('offers nothing on a deferred branch, whatever group it lands in', () => {
@@ -1407,12 +1524,22 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
   it('does NOT mark a row whose watched value held, however much else moved', () => {
     // The marker is about the watched value ALONE. A new commit, a rewritten
     // note and a changed age are not what it claims.
+    // The row that MOVED must differ only in facts the marker does not watch.
+    // `group` used to be one of those and is now watched — a row changing
+    // section is precisely the news this wave widened the value to catch — so
+    // it is held constant here and asserted on its own below.
     const prior = observed(withState('a', 'green'));
     const moved = row({
       branch: 'a', pr: { number: 1, url: '', draft: false, state: 'green' },
-      note: 'last commit 1 min ago', ageMinutes: 1, group: 'working',
+      note: 'last commit 1 min ago', ageMinutes: 1,
     });
     expect(changedRows(prior, [moved]).changed.size).toBe(0);
+    // And the pairing: the same row moving SECTION does flash.
+    const movedSection = row({
+      branch: 'a', pr: { number: 1, url: '', draft: false, state: 'green' },
+      group: 'waiting-on-you',
+    });
+    expect(changedRows(prior, [movedSection]).changed.size).toBe(1);
   });
 
   it('marks a PR APPEARING — null is a value, not a gap', () => {
@@ -1438,7 +1565,11 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     const fresh = changedRows(new Map(), [withState('a', null)]);
     expect(fresh.changed.size).toBe(0);              // first sighting: silent
     expect(fresh.next.has('plot/a')).toBe(true);     // but REMEMBERED,
-    expect(fresh.next.get('plot/a')).toBe(null);     // as a known `null`
+    // …as a known `null` IN ITS PR SLOT. The memory holds a record now rather
+    // than a lone state, so the assertion reads the slot instead of the whole
+    // value — the distinction it protects (known-null vs never-seen) is the
+    // same one, one field in.
+    expect(fresh.next.get('plot/a')!.pr).toBe(null);
     // …so the PR that opens next is a change, not another first sighting.
     expect([...changedRows(fresh.next, [withState('a', 'pending')]).changed])
       .toEqual(['plot/a']);
@@ -1484,7 +1615,11 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     // Most rows: `not-started`, `quiet`, every fresh claim. An implementation
     // reading `row.pr.state` unguarded throws on precisely these.
     expect(() => changedRows(new Map(), [row({ pr: null })])).not.toThrow();
-    expect(watchedState(row({ pr: null }))).toBe(null);
+    // The PR SLOT is null; the record around it is not. That is the widening:
+    // a row with no PR still has a git state, a group, a wave and three local
+    // signals worth watching, and the crash this guards against is unchanged —
+    // reading `row.pr.state` unguarded still throws on exactly these rows.
+    expect(watchedState(row({ pr: null })).pr).toBe(null);
   });
 
   it('does NOT flash on green → unknown → green', () => {
@@ -1527,8 +1662,21 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     // the whole host the moment anything became readable.
     const first = changedRows(new Map(), [withState('a', 'unknown')]);
     expect(first.changed.size).toBe(0);
-    expect(first.next.has('plot/a')).toBe(false);
+    // The row IS recorded now, and that is the widening rather than a
+    // regression: its PR slot is unreadable, but the ten other watched facts —
+    // git state, group, wave, phase, the three local signals, stuck — were all
+    // observed by the local scan and are worth remembering. This asserted
+    // `.has() === false` while the watched value was a lone scalar, when there
+    // was genuinely nothing to keep.
+    //
+    // What must stay true is the SILENCE, and it is asserted either side: no
+    // flash on the first sighting, and none on the next unknown pulse.
+    expect(first.next.has('plot/a')).toBe(true);
+    expect(first.next.get('plot/a')!.pr).toBe('unknown');
     expect(changedRows(first.next, [withState('a', 'unknown')]).changed.size).toBe(0);
+    // And a real state arriving after an unreadable one does not flash either —
+    // that would be news about the host recovering, not about the branch.
+    expect(changedRows(first.next, [withState('a', 'green')]).changed.size).toBe(0);
   });
 
   it('still flashes every real transition', () => {
@@ -1553,10 +1701,60 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     // `unknown` is a fact about the OBSERVATION; every other value is a fact
     // about the world. Exported so the distinction is assertable rather than
     // buried in a comparison.
-    expect(isObservation('unknown')).toBe(true);
+    expect(isUnreadable('unknown')).toBe(true);
     for (const s of ['green', 'pending', 'failing', 'none', 'conflicts', null] as WatchedState[]) {
-      expect(isObservation(s)).toBe(false);
+      expect(isUnreadable(s)).toBe(false);
     }
+  });
+
+  // ── A row first seen while the host was down ──────────────────────────────
+  //
+  // The case the widened watched value creates. Under the old scalar rule such
+  // a row was never recorded — its only watched fact was unreadable, so there
+  // was nothing to remember. It now carries ten other facts, so it IS recorded,
+  // and the question is what its PR slot holds meanwhile.
+  //
+  // The answer: `unknown`, honestly, with the COMPARISON carrying the rule.
+  // Storing a value the board never observed would invent an observation, and a
+  // sentinel chosen to compare as different would flash the host's RECOVERY —
+  // news about GitHub rather than about the branch.
+
+  const watched = (over: Partial<WatchedState> = {}): WatchedState => ({
+    pr: null, prNumber: null, prDraft: false, state: 'wip', group: 'working',
+    wave: 'One', phase: 'Development', localDirty: false, localLocked: false,
+    localAhead: 0, stuck: null, ...over,
+  });
+
+  it('reads an unreadable PR slot as neither same nor changed', () => {
+    // `unknown` on either side is the host saying *I could not answer*, and a
+    // comparison against silence has no verdict. The row's other ten facts
+    // decide — exactly as they do while a KNOWN value is carried across an
+    // outage, which is the symmetry this keeps.
+    expect(sameWatched(watched({ pr: 'unknown' }), watched({ pr: 'green' }))).toBe(true);
+    expect(sameWatched(watched({ pr: 'green' }), watched({ pr: 'unknown' }))).toBe(true);
+    expect(sameWatched(watched({ pr: 'unknown' }), watched({ pr: 'unknown' }))).toBe(true);
+  });
+
+  it('still flashes on a LOCAL change while the PR is unreadable', () => {
+    // THE pairing. Suppressing the whole record for the outage's duration would
+    // silence an agent's edits for a remote host's reason — the marker going
+    // quiet exactly while someone writes. Only the PR SLOT is unreadable; the
+    // worktree was observed by the local scan either way.
+    expect(sameWatched(
+      watched({ pr: 'unknown', localDirty: false }),
+      watched({ pr: 'unknown', localDirty: true }),
+    )).toBe(false);
+  });
+
+  it('flashes when a PR APPEARS on a row whose state was never readable', () => {
+    // The stated cost of the decision, and its consolation: the row does not
+    // flash on the PR's first readable STATE, but `prNumber` going from null to
+    // a number is itself a change and does flash. What is lost is a moment
+    // about a host that was down — the cheaper of the two errors.
+    expect(sameWatched(
+      watched({ pr: 'unknown', prNumber: null }),
+      watched({ pr: 'unknown', prNumber: 42 }),
+    )).toBe(false);
   });
 });
 
@@ -1606,7 +1804,78 @@ describe('the empty WAITING ON A MACHINE section names the host\'s limit', () =>
     expect(HOST_CANNOT_REPORT_HINT).not.toMatch(/will finish/);
     expect(HOST_CANNOT_REPORT_HINT).toMatch(/cannot/);
   });
+});
 
+describe('the board says when it has not asked', () => {
+  it('reports a fetch that has landed as answered, at ANY age', () => {
+    // A FIRST-LOAD STATE, NOT A STALENESS DISPLAY. Once the host has answered,
+    // ordinary ageing is the footer's job (`PR data 111s ago`); re-labelling
+    // the section every 60 s would trade one misreading for a flicker. So the
+    // age is tested against null, never against a threshold — including the
+    // measured 111 s, which is a missed refresh and still an answer.
+    expect(hostAnswer({ prAgeSeconds: 0, prError: null })).toBe('answered');
+    expect(hostAnswer({ prAgeSeconds: 4, prError: null })).toBe('answered');
+    expect(hostAnswer({ prAgeSeconds: 111, prError: null })).toBe('answered');
+  });
+
+  it('separates a call not yet made from a call that answered nothing', () => {
+    // The defect itself. `prAgeSeconds === null` is documented in the contract
+    // as *it has never landed — not that it is fresh*, and the board printed
+    // the same `none` on both sides of that line.
+    expect(hostAnswer({ prAgeSeconds: null, prError: null })).toBe('unasked');
+    expect(hostAnswer({ prAgeSeconds: 22, prError: null })).toBe('answered');
+  });
+
+  it('keeps a failed FIRST call as its own state, not as not-checked-yet', () => {
+    // The plan's open question, decided. Both mean *no host fact is on this
+    // board*, but `unasked` resolves itself in seconds while `unreachable`
+    // waits for somebody to read the error —
+    // `2026-08-17-an-outage-is-not-an-answer.md` is the plan that established
+    // an outage must be visible AS an outage.
+    expect(hostAnswer({ prAgeSeconds: null, prError: 'gh: 503' })).toBe('unreachable');
+    expect(HOST_ANSWER_HINT.unreachable).not.toBe(HOST_ANSWER_HINT.unasked);
+  });
+
+  it('keeps DATA that landed once, even while the latest refresh is failing', () => {
+    // `refreshPrs` leaves `prAt` untouched when the call throws, deliberately:
+    // a failure keeps the last good map rather than blanking it. So an error
+    // beside a real age is stale data plus a live fault — the rows are still
+    // host facts and must not be re-labelled as unfetched. The error itself is
+    // already reported by the footer's own banner.
+    expect(hostAnswer({ prAgeSeconds: 30, prError: 'gh: 503' })).toBe('answered');
+  });
+
+  it('never consults the git scan\'s clock', () => {
+    // Two sources, two ages. The git scan is cheap and runs every few seconds;
+    // the host is metered and runs every 60, so the window where rows are
+    // git-fresh and PR-stale is most of every minute. Conflating them is what
+    // made an unfetched board read as a settled one — and the signature is a
+    // fresh `ageSeconds` beside a null `prAgeSeconds`.
+    expect(hostAnswer({ prAgeSeconds: null, prError: null, ageSeconds: 1 } as never))
+      .toBe('unasked');
+  });
+
+  it('states evidence and never a verdict', () => {
+    // The row says what happened to the CALL. It does not estimate, does not
+    // retry-count, and never says *probably fine* — and it must not inherit the
+    // shape of the default hint (*nothing — CI will finish*), which is a claim
+    // about the machines that an unfetched section cannot support.
+    for (const hint of Object.values(HOST_ANSWER_HINT)) {
+      expect(hint).not.toMatch(/will finish|probably|fine|nothing/i);
+    }
+    expect(HOST_ANSWER_HINT.unasked).toMatch(/not checked yet/);
+  });
+
+  it('says nothing about CI, which is the word it replaces', () => {
+    // `none` is an observation: the host answered and reported nothing
+    // pending. Neither replacement may be readable as that answer.
+    for (const hint of Object.values(HOST_ANSWER_HINT)) {
+      expect(hint).not.toBe('none');
+    }
+  });
+});
+
+describe('rowKey', () => {
   it('keys a row by repo AND branch', () => {
     // Two repos can carry the same branch name, and one board can show both.
     expect(rowKey({ repo: 'plot', branch: 'feature/x' })).toBe('plot/feature/x');
@@ -1769,7 +2038,9 @@ describe('ROW_TRACKS — where the row\'s width goes', () => {
     // The reported defect: at 9rem the PR cell held `⑂116 no checks` and
     // nothing wider, while the window's whole slack collected in the branch's
     // `1fr` as a gap that draws nothing.
-    expect(tracks()).toEqual(['6rem', '10rem', '1fr', '14rem', '2.5rem', '1.25rem']);
+    // Seven tracks since the marks earned one: `1rem` for them, and the phase
+    // down to `5rem` to pay for it — see the breakpoint arithmetic below.
+    expect(tracks()).toEqual(['1rem', '5rem', '10rem', '1fr', '14rem', '2.5rem', '1.25rem']);
   });
 
   it('keeps every track but the branch FIXED', () => {
@@ -1787,11 +2058,260 @@ describe('ROW_TRACKS — where the row\'s width goes', () => {
     // the fixed tracks went from 460px to 540px, so the grid now needs 624px of
     // the 640px breakpoint. Widening any fixed track again crosses it, and then
     // `CARD_BELOW_PX` has to move too — this fails when that day comes.
-    const GAPS_AND_PADDING = 84;
+    // DERIVED from the track count, not hard-coded — and that is the fix this
+    // test needed as much as the code did. `84` was five gaps plus padding,
+    // correct for six tracks and silently wrong the moment a seventh arrived:
+    // it under-counted by one gap and would have passed a layout that overflows.
+    // A constant that only holds for the shape it was written against fails in
+    // the reassuring direction.
+    const GAP_PX = 12;
+    const PADDING_PX = 24;
+    const gapsAndPadding = (tracks().length - 1) * GAP_PX + PADDING_PX;
     const fixedPx = tracks()
       .filter((t) => t !== '1fr')
       .reduce((sum, t) => sum + Number.parseFloat(t) * 16, 0);
     expect(fixedPx).toBe(540);
-    expect(fixedPx + GAPS_AND_PADDING).toBeLessThan(CARD_BELOW_PX);
+    expect(fixedPx + gapsAndPadding).toBeLessThan(CARD_BELOW_PX);
+  });
+});
+
+/**
+ * A ROW'S ACTIONS ALL LIVE IN ITS MENU — asserted structurally, because prose
+ * did not hold.
+ *
+ * `one-place-for-what-a-row-can-do` settled the rule the estate had been
+ * missing: **the row says what IS, the menu says what you can DO.** Before it,
+ * four actions lived in two homes — *Open failing run* and the conflict
+ * dispatch inline in the row, *Start work* and *Approve* in the `⋯` menu — and
+ * the split followed nothing but the order they were built in.
+ *
+ * **This is the gate, and the prose above is not.** CLAUDE.md's test for the
+ * difference is whether *"did I follow this?"* can be answered without doing
+ * the work: a rule in a comment can be, and was, rationalised past four times.
+ * The next action to arrive will be easiest to render in the row — the same
+ * reasoning that produced two homes in the first place — and this fails when it
+ * does, naming the element it found.
+ *
+ * **Read out of the SOURCE, not out of a rendered page.** A DOM assertion only
+ * catches an inline control that the fixture's state happens to render, and
+ * every one of the four was conditional: `Open failing run` appeared only while
+ * a row was `ci-failing`. A structural scan sees the element whether or not any
+ * test data reaches it.
+ */
+describe("a row's actions all live in its menu", () => {
+  const source = readFileSync(
+    new URL('../../src/app/components/AgentList.tsx', import.meta.url), 'utf8');
+
+  /**
+   * The source of one top-level `function Name(` declaration.
+   *
+   * It ends at the first `}` in COLUMN ZERO, which is where every top-level
+   * declaration in this file closes and nothing nested ever does. An earlier
+   * version sliced to *the next `function `* instead and was wrong in the
+   * direction that matters: past the last declaration there is no next one, so
+   * `PrCell` swallowed the rest of the file and the scan reported two toggle
+   * buttons that live hundreds of lines below it. A structural test whose
+   * boundaries are wrong reports strays that are not there — and, on the other
+   * side of the same error, misses ones that are.
+   */
+  function declaration(name: string): string {
+    const start = source.indexOf(`function ${name}(`);
+    expect(start, `no component named ${name}`).toBeGreaterThan(-1);
+    const end = source.indexOf('\n}\n', start);
+    expect(end, `${name} does not close in column zero`).toBeGreaterThan(-1);
+    return source.slice(start, end + 3);
+  }
+
+  /**
+   * Every component reachable from the ROW BODY, following what each mounts —
+   * and deliberately NOT entering `RowActions`, which is the one place actions
+   * are allowed to be.
+   *
+   * Transitive, because the row's own links are not written in `Row`: the
+   * branch is a `BranchName` and the PR a `PrCell`, so a scan of `Row` alone
+   * would read as clean while an inline action sat one component down. That is
+   * exactly where the next one would land.
+   */
+  function rowBodySources(): { name: string; source: string }[] {
+    const seen = new Set<string>(['RowActions']);
+    const out: { name: string; source: string }[] = [];
+    const queue = ['Row'];
+    while (queue.length) {
+      const name = queue.shift() as string;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const body = declaration(name);
+      out.push({ name, source: body });
+      for (const [, child] of body.matchAll(/<([A-Z][A-Za-z0-9]*)/g)) {
+        // `HTMLAnchorElement` and friends are types in handler signatures, not
+        // mounted components — they have no declaration and are skipped by the
+        // same check that skips anything already visited.
+        if (!seen.has(child) && source.includes(`function ${child}(`)) queue.push(child);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * The interactive elements a row body may contain — every one of them
+   * NAVIGATION to a thing the row itself names.
+   *
+   * That is the boundary, and it is narrower than "no links in the row". The
+   * plan keeps navigation inline deliberately: a `cmd`-click on a real plan or
+   * branch link is worth more than a tidier line, and the row is where the
+   * thing is named. What moved is the ERRAND — *Open failing run* addresses a
+   * run, which is something the row reports on rather than something the row
+   * is.
+   *
+   * Keyed on the `data-` hook rather than on the URL or the label, because both
+   * of those change for reasons that have nothing to do with this rule. An
+   * addition here is the deliberate decision the gate exists to force: a new
+   * entry is a claim that the row NAMES the thing, and it has to be argued in
+   * review rather than arrived at by rendering.
+   */
+  const ROW_NAVIGATION = ['data-branch', 'data-pr-link', 'href={`/plan/'];
+
+  it('renders no interactive element in a row body outside the menu', () => {
+    // THE GATE. Every `<a>` and `<button>` reachable from the row body, minus
+    // the row's own navigation — the remainder must be empty.
+    const strays: string[] = [];
+    for (const { name, source: body } of rowBodySources()) {
+      for (const m of body.matchAll(/<(a|button)[\s>]/g)) {
+        // The element's own attributes: up to the end of its opening tag, which
+        // is where its `data-` hook and `href` are.
+        const tagEnd = body.indexOf('>', m.index);
+        const tag = body.slice(m.index, tagEnd === -1 ? m.index + 400 : tagEnd);
+        if (ROW_NAVIGATION.some((hook) => tag.includes(hook))) continue;
+        strays.push(`${name}: ${tag.replace(/\s+/g, ' ').slice(0, 120)}`);
+      }
+    }
+    expect(
+      strays,
+      'An interactive element in a row body belongs in RowActions — the row says '
+        + 'what IS, the menu says what you can DO. If this is navigation to a '
+        + 'thing the row NAMES, add its hook to ROW_NAVIGATION and say why.',
+    ).toEqual([]);
+  });
+
+  it('finds a stray link when one is added back', () => {
+    // THE GATE'S OWN GATE. A scan that matched nothing — a wrong component
+    // name, a regex that never fires — passes the assertion above forever while
+    // gating nothing at all, which is the failure mode a structural test is
+    // most prone to. So the detector is run against a row body with the exact
+    // element this plan removed put back into it.
+    const withStray = declaration('Row').replace(
+      '<BranchName row={row} />',
+      '<BranchName row={row} /><a href={runUrl} data-stuck-link>Open failing run</a>',
+    );
+    expect(withStray).toContain('data-stuck-link');
+    const found = [...withStray.matchAll(/<(a|button)[\s>]/g)].filter((m) => {
+      const tag = withStray.slice(m.index, withStray.indexOf('>', m.index));
+      return !ROW_NAVIGATION.some((hook) => tag.includes(hook));
+    });
+    expect(found.length).toBe(1);
+  });
+
+  it('reaches the components the row mounts, not only Row itself', () => {
+    // The scan is transitive, and this is the property that makes it worth
+    // anything: the row's own links live in `BranchName` and `PrCell`, so a
+    // scan stopping at `Row` would read as clean while an inline action sat one
+    // component down — exactly where the next one would land.
+    const names = rowBodySources().map((c) => c.name);
+    expect(names).toContain('BranchName');
+    expect(names).toContain('PrCell');
+    // And it does NOT enter the menu, which is where actions are allowed.
+    expect(names).not.toContain('RowActions');
+  });
+
+  it('keeps the four actions in the menu, and the cue out of it', () => {
+    // The other half of the rule. The gate above proves nothing LEFT the menu
+    // for the row; this proves the four arrived — and that the one thing that
+    // must NOT move did not.
+    const menu = declaration('RowActions');
+    expect(menu).toContain('<StartWorkButton');
+    expect(menu).toContain('<ApproveButton');
+    expect(menu).toContain('data-stuck-link');
+    // The CUE is state, not an action: it points at something being wrong, and
+    // a signal reachable only by opening a menu is not a signal.
+    expect(menu).not.toContain('<StuckCue');
+    expect(declaration('StuckCell')).toContain('<StuckCue');
+  });
+});
+
+/**
+ * WHETHER THE MENU EXISTS, and whether anything in it can act — two questions,
+ * and the board asked only the second until 2026-08-18.
+ */
+describe('menuState — a refusal is not an absence', () => {
+  const none = {
+    canStart: false, canApprove: false, canResolve: false, hasRun: false,
+    serverWillAct: false, approveWillAct: false,
+  };
+
+  it('renders no menu at all on a row with nothing to offer', () => {
+    // The measured defect: the `⋯` rendered on every row, so two of six WAITING
+    // ON YOU rows carried a control that opened nothing.
+    expect(menuState(none)).toEqual({ present: false, enabled: false });
+  });
+
+  it('keeps the menu present but disabled where the server refuses', () => {
+    // There IS something to do here — you simply cannot do it from this
+    // binding. Rendering nothing would report a healthy row, which is the
+    // worse lie: the reason has to stay reachable.
+    expect(menuState({ ...none, canResolve: true })).toEqual({
+      present: true, enabled: false,
+    });
+    expect(menuState({ ...none, canStart: true })).toEqual({
+      present: true, enabled: false,
+    });
+    expect(menuState({ ...none, canApprove: true })).toEqual({
+      present: true, enabled: false,
+    });
+  });
+
+  it('enables the run link without asking whether the server will act', () => {
+    // NAVIGATION, so it carries no guard: there is no rerun route here, and
+    // opening the host's page is not a write. It reads the same over Tailscale
+    // as it does at the machine — which is why a row with only a run is
+    // enabled on a binding that refuses every dispatch.
+    expect(menuState({ ...none, hasRun: true })).toEqual({
+      present: true, enabled: true,
+    });
+  });
+
+  it('asks about ANY item, never one named item', () => {
+    // The defect this gate had in its first form: `enabled` was `canStart &&
+    // serverWillAct`, so a Draft plan's row — never startable by construction —
+    // had a dead menu on exactly the rows with something to do.
+    expect(menuState({ ...none, canApprove: true, approveWillAct: true }).enabled).toBe(true);
+    expect(menuState({ ...none, canResolve: true, serverWillAct: true }).enabled).toBe(true);
+    // And `Approve` answers to its OWN verdict, not to the dispatch one.
+    expect(menuState({ ...none, canApprove: true, serverWillAct: true }).enabled).toBe(false);
+  });
+
+  it('never enables a menu it does not render', () => {
+    // THE INVARIANT, over every combination rather than the four spot checks
+    // above. `enabled && !present` would put an openable menu behind a button
+    // that is not there — one line of reasoning across four disjuncts, and
+    // exactly the kind that gets re-derived wrongly in a later edit.
+    const bools = [false, true];
+    for (const canStart of bools)
+      for (const canApprove of bools)
+        for (const canResolve of bools)
+          for (const hasRun of bools)
+            for (const serverWillAct of bools)
+              for (const approveWillAct of bools) {
+                const state = menuState({
+                  canStart, canApprove, canResolve, hasRun,
+                  serverWillAct, approveWillAct,
+                });
+                expect(
+                  !state.enabled || state.present,
+                  `enabled without present: ${JSON.stringify({
+                    canStart, canApprove, canResolve, hasRun,
+                    serverWillAct, approveWillAct,
+                  })}`,
+                ).toBe(true);
+              }
   });
 });

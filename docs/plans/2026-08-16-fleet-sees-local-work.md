@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:**
 - **Story:** plot-board
@@ -15,6 +15,7 @@
 - **Approved:** 2026-08-16, jwloka, plan-PR #121 merged
 - **Started:** 2026-08-16, Jan Wloka, `bug/fleet-sees-local-work`
 - **Delivered:** 2026-08-16
+- **Released:** 2026-08-18, v2.5.0
 
 ## Changelog
 

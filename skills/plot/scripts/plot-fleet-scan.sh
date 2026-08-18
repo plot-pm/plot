@@ -2,7 +2,13 @@
 # Plot helper: fleet pulse — deterministic extractor for wave/claim state.
 # Usage: plot-fleet-scan.sh [--no-fetch] [--offline] [--next] [<slug>]
 #   --no-fetch  skip `git fetch`
-#   --offline   same (no network) — used for cheap, ambient pulses
+#   --offline   same (no network) — used for cheap, ambient pulses.
+#               The fetch also PRUNES remote-tracking refs, so skipping it
+#               keeps whatever stale refs this checkout holds: a branch merged
+#               and deleted upstream may read `wip` rather than `merged`, and
+#               its wave may read blocked. That is the honest answer for a scan
+#               that asked nothing, and the footer says so rather than leaving
+#               it to be discovered.
 #   --list-eligible  print EVERY claimable branch, one per line (exit 1 if none).
 #               For callers that need the count rather than one item — a dry
 #               run changes nothing, so its answer cannot go stale.
@@ -35,6 +41,17 @@
 #         The plan set also includes plans delivered inside a rolling 24 h
 #         window (see "the last day of finished work"), so work does not
 #         disappear at the moment it becomes finished.
+#         Plans are enumerated from `origin/<main>` (`git ls-tree`/`git show`),
+#         NOT from the working tree — so the list describes one atomic commit
+#         and does not change while rebases and worker commits rewrite the
+#         checkout underneath a running fleet. A consequence worth stating: an
+#         UNCOMMITTED plan is invisible, deliberately — the fleet view shows
+#         what is shared, and a plan only this machine has cannot be claimed by
+#         any worker. --json carries `plan_source` (ref | worktree), which
+#         reads `worktree` only when `origin/<main>` cannot be resolved at all.
+#         --json also carries `fetch_failed` and `fetch_error`: a failed fetch
+#         means these refs are older than the report implies, and that fact is
+#         now reported rather than discarded.
 #         --json additionally carries, per branch, what THIS MACHINE knows and
 #         the refs do not: `local_dirty` (a local worktree has uncommitted
 #         changes), `local_locked` (a local worktree holds `.git/index.lock` —
@@ -93,6 +110,11 @@
 set -uo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+# The shared worker classifier. Sourced by both this script and
+# plot-dispatch.sh so a worker has ONE state, not one per reader.
+# shellcheck source=plot-worker-state.sh
+. "$script_dir/plot-worker-state.sh"
 cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 
 do_fetch=1
@@ -131,7 +153,71 @@ if [ -z "$MAIN" ]; then
 fi
 [ -n "$MAIN" ] || MAIN="main"
 
-[ "$do_fetch" = 1 ] && git fetch -q origin "$MAIN" 2>/dev/null
+# A FAILED FETCH IS A FACT, not a shrug. The old line was
+# `git fetch ... 2>/dev/null` with its status discarded: a GitHub 503, a
+# concurrent worker holding the ref lock, an offline laptop — every one of
+# them produced a scan indistinguishable from a healthy one, reporting refs
+# that were older than the banner claimed. That is the same failure this whole
+# plan is about, one layer up: the report was more confident than its evidence.
+#
+# The scan STILL RUNS on a failed fetch, and that is deliberate. `origin/$MAIN`
+# from an hour ago is a real answer about a real commit; refusing to report it
+# would trade a slightly stale board for no board at all, exactly when the
+# operator is most likely to be watching something go wrong. What changes is
+# that the staleness is CARRIED — `fetch_failed` in `--json`, a line in the
+# prose report — so a consumer can mark the view instead of trusting it blindly.
+#
+# --offline/--no-fetch is NOT a failure. The operator asked for local refs and
+# got them; there is nothing to report but the fact that no fetch was tried.
+#
+# THE FETCH PRUNES WHAT IT FETCHES. `git fetch` does not remove
+# remote-tracking refs for branches deleted upstream; only `--prune` does. A
+# branch merged with --delete-branch therefore leaves `refs/remotes/origin/<br>`
+# behind on every machine that ever fetched it, and it survives until somebody
+# prunes for unrelated reasons. That leftover is not noise: branch_state()
+# picks its arm on the ref's PRESENCE, so a stale ref routes the branch into
+# the ancestry path — which a squash merge breaks by construction — and the
+# host lookup that would have answered `merged` is never reached. Measured
+# 2026-08-18: a wave could not be dispatched at all until an operator happened
+# to run `git fetch --prune` by hand.
+#
+# THE EXPLICIT REFSPEC IS REQUIRED, and this is the part that is easy to get
+# wrong: `git fetch --prune origin "$MAIN"` prunes NOTHING outside $MAIN.
+# Naming a refspec scopes the prune to that refspec's destination namespace, so
+# the narrow fetch this scan makes would prune only `refs/remotes/origin/$MAIN`
+# — a no-op for exactly the branches this exists to clear. Restating the
+# default heads refspec widens the prune back to the whole mirror while the
+# narrow one keeps the intent legible: fetch $MAIN, and while the connection is
+# open, make the local mirror match the remote.
+#
+# NOTHING HERE DEPENDS ON A STALE REF SURVIVING. The case to fear is a branch
+# deleted upstream while a local worktree still holds work: `local_ahead_of()`
+# reads `refs/remotes/origin/<br>..refs/heads/<br>`, so pruning removes its left
+# side. It already answers 0 on a missing ref by exit code rather than by
+# emptiness ("not observed → not reported"), which is the same answer it gives
+# for every branch living on another machine — so the count degrades to absent,
+# never to a wrong number. `local_dirty`, `local_locked` and `local_worktree`
+# read the worktree, not the mirror, so uncommitted work stays visible either
+# way. Conflict prediction is gated to wip|claimed and a pruned branch is
+# neither. The local `refs/heads/<br>` is untouched: --prune removes only
+# remote-tracking refs, so no local work is destroyed or hidden by this.
+#
+# ONE CONNECTION, NOT TWO. The prune rides the fetch already being made — no
+# extra round trip on a scan the board polls every five seconds.
+FETCH_FAILED=0
+FETCH_ERROR=""
+if [ "$do_fetch" = 1 ]; then
+  if ! FETCH_ERROR=$(git fetch -q --prune origin "$MAIN" \
+                       "+refs/heads/*:refs/remotes/origin/*" 2>&1); then
+    FETCH_FAILED=1
+    # Collapsed to one line: git's multi-line advice is for a human at a
+    # terminal, and this string travels through JSON into a board cell.
+    FETCH_ERROR=$(printf '%s' "$FETCH_ERROR" | tr '\n' ' ' | sed 's/  */ /g; s/^ *//; s/ *$//')
+    [ -n "$FETCH_ERROR" ] || FETCH_ERROR="git fetch failed with no message"
+  else
+    FETCH_ERROR=""
+  fi
+fi
 
 # --loose promises "the prior wave's PRs are green and ready", which needs the
 # git host. An earlier version accepted ANY pushed commit — strictly weaker
@@ -232,6 +318,290 @@ if printf '%s\n' "$MERGE_SUBJECTS" | grep -qE '^Merge pull request #[0-9]+ from 
 else
   MERGE_DETECT=none
 fi
+
+# ---------------------------------------------------------------------------
+# Squash merges: the case where no local evidence survives at all
+# ---------------------------------------------------------------------------
+#
+# The merge walk above finds a branch whose PR produced a MERGE COMMIT. A
+# squash merge produces none: measured on the merge of PR #209, the commit on
+# the default branch has ONE parent and a subject naming `(#209)` — the PR
+# number, never the branch. So the exhaustive walk has nothing to match, and a
+# branch squash-merged and deleted reads `open`: the same word used for work
+# nobody has started. Its wave never completes, and the next wave stays blocked
+# forever.
+#
+# The data is not missing — it is simply not local. `pr-state` answers in one
+# call, and a branch with NO REF is exactly where that call is worth making:
+# nothing local is left to read, so the host is the only remaining source, and
+# the cost follows the count of ABSENT branches rather than all of them.
+#
+# THE FAILURE DIRECTION IS THE POINT. `plot-host.sh` already separates a lookup
+# miss (exit 0, state NONE) from a transport failure (non-zero) — the
+# distinction it grew on 2026-08-17, when GitHub returned 503 all afternoon and
+# every branch read as having no PR. Both arms land on today's `open` here, and
+# ONLY an explicit "MERGED" may move a branch off it. An unreachable host must
+# never manufacture a `merged`, because `merged` settles a wave and opens the
+# next one on work that may not have landed.
+#
+# GATED ONCE PER RUN, not per branch, and it honours --offline: that flag
+# promises no network, and a scan that promised no network and then called the
+# host would be lying in the direction of a slow ambient pulse. Without a
+# backend — or offline — the lookup is simply never attempted and every branch
+# answers exactly as it did before.
+HOST_LOOKUP_OK=0
+if [ "$do_fetch" = 1 ] \
+   && [ "$("$script_dir/plot-host.sh" backend 2>/dev/null)" != "none" ]; then
+  HOST_LOOKUP_OK=1
+fi
+
+# ONE ANSWER PER BRANCH PER RUN, cached on disk rather than in a variable.
+#
+# `branch_state` is called as `$(branch_state "$br")` — a SUBSHELL — so a
+# variable it assigned would be discarded the moment the substitution closed,
+# and every branch would pay the call again. The board polls this scan every
+# 5 s; a plan whose branches were all squash-merged would otherwise spend one
+# host call per branch, per poll, forever.
+#
+# A directory is the cache because it survives the subshell without restructuring
+# the caller, and it is created per run and removed on exit, so no answer ever
+# outlives the scan that fetched it — a stale `merged` read from a previous run
+# is exactly the fabricated verdict the failure direction above forbids.
+#
+# Cleanup is trapped rather than trailing: the script exits early in several
+# places (--next with nothing to start, no active plans), and a temp directory
+# left behind on those paths would accumulate one per poll.
+HOST_STATE_CACHE=""
+if [ "$HOST_LOOKUP_OK" = 1 ]; then
+  HOST_STATE_CACHE=$(mktemp -d 2>/dev/null) || HOST_STATE_CACHE=""
+  [ -n "$HOST_STATE_CACHE" ] \
+    && trap 'rm -rf "$HOST_STATE_CACHE" 2>/dev/null || true' EXIT INT TERM
+fi
+
+# The cache key. Shared by the join and by `host_pr_state`, because the two
+# must agree on it EXACTLY: a prefill written under one spelling and read under
+# another is a cache that silently never hits, which restores the per-branch
+# cost this whole change removes — and does it invisibly, since every answer is
+# still correct.
+#
+# The branch name contains slashes and a flat file per branch needs them gone,
+# but the mapping must be INJECTIVE. `tr '/' '_'` is not: `feature/a_b` and
+# `feature_a/b` are both legal refs and collapse to one key, and a collision
+# here serves one branch's verdict to another — which, when the verdict is
+# `merged`, settles a wave on a branch nobody looked at. Encoding `_` first
+# makes the substitution reversible, so distinct refs stay distinct.
+cache_key() { # $1=branch → a filename that is injective in the branch name
+  printf '%s' "$1" | sed 's/_/__/g; s|/|_|g'
+}
+
+# ---------------------------------------------------------------------------
+# ONE LIST, JOINED LOCALLY — not one lookup per branch
+# ---------------------------------------------------------------------------
+#
+# THE MEASUREMENT THAT FORCED THIS (issues #228 and #226, both 2026-08-18):
+#
+#   bitbucket/ekzweb   14 branches → 39 `bb` calls, scan unfinished at 110 s
+#   this repo, GitHub  84 branches × 438 ms      → 34 s observed
+#   one pr-list (all)                            → 1107 ms
+#
+# The board's `run()` helper times out at 30 s (`fleet.ts:260`), so the scan had
+# begun exceeding it on GitHub too: the board served a pulse 644 s old while
+# reporting `Command failed`, and the reason was invisible to the operator.
+#
+# The scan needs `branch → state` for a KNOWN SET of branches. That is a JOIN
+# over one response, not N lookups — and the ratio worsens with every branch
+# added, which is what makes it a shape problem rather than a tuning one.
+#
+# WHAT THE JOIN MAY NOT DO, and why it is written the way it is:
+#
+#   * AN EMPTY JOIN IS NOT A FAILED JOIN. `plot-host.sh` separates a lookup
+#     miss (exit 0, state NONE) from a transport failure (non-zero) — the
+#     distinction it grew on 2026-08-17, when GitHub returned 503 all afternoon
+#     and every branch read as having no PR. A join over a response that never
+#     arrived is that same trap in a new shape, so the list's EXIT CODE is
+#     checked before its payload is read, and a failed list prefills NOTHING.
+#     Branches then answer `-` (unanswerable) exactly as they did during an
+#     outage before this existed — never a confident "no PR".
+#
+#   * THE PAGE LIMIT IS NOT OPTIONAL. Measured on this repo 2026-08-18: 221 PRs
+#     exist and `pr-list --state all` returns 30 without `--limit`, because that
+#     is the host CLI's default. Joining against the newest 30 would silently
+#     lose 191 PRs — every older merged branch reading as "no PR", which is the
+#     fabricated verdict this scan refuses everywhere else. The limit is asked
+#     for explicitly and generously; one call for all 221 measured at 1.8 s.
+#
+#   * THE VOCABULARY IS THE HOST ADAPTER'S, UNCHANGED. `pr-list` already emits
+#     OPEN/MERGED/CLOSED per PR and already folds Bitbucket's DECLINED into
+#     CLOSED, the same three-way vocabulary `pr-state` produces. Nothing is
+#     translated here.
+#
+# ONE PR PER BRANCH, and the ordering decides which. A branch can carry several
+# PRs over its life — opened, closed, reopened — and `pr-list` returns all of
+# them. OPEN outranks MERGED outranks CLOSED, matching the walk `pr-state`
+# already performs on Bitbucket, so the join and the per-branch lookup cannot
+# disagree about the same branch.
+PR_LIST_LIMIT="${PLOT_PR_LIST_LIMIT:-1000}"
+prefill_pr_states() {
+  [ "$HOST_LOOKUP_OK" = 1 ] || return 0
+  [ -n "$HOST_STATE_CACHE" ] || return 0
+  local js br st key
+  # Exit code first: non-zero is a transport failure and its stdout is not an
+  # answer. A failed list leaves the cache EMPTY, so every branch falls through
+  # to the unanswerable `-` rather than to a fabricated "no PR".
+  js=$("$script_dir/plot-host.sh" pr-list --state all --limit "$PR_LIST_LIMIT" \
+         </dev/null 2>/dev/null) || return 0
+  # `pr-list` emits one compact JSON object per line. PARSED IN ONE PASS, and
+  # that is a correctness-of-cost property rather than a style preference:
+  # measured 2026-08-18 on this repo's 221 PRs, a `sed` per field per row —
+  # 442 forks — took 46 s, which is WORSE than the 34 s of host calls this
+  # change exists to remove. Trading N network round trips for N process forks
+  # is not a fix. One `sed` over the whole stream emits `branch<TAB>state`, and
+  # the loop below forks nothing at all.
+  #
+  # The fields are matched in their emitted order (`state` precedes `head`) and
+  # anchored to `","head":"` so a PR TITLE containing the word `state` cannot be
+  # mistaken for the field — titles are free text and this repo has several
+  # that name their own fields.
+  #
+  # `cache_key`'s substitution is inlined here for the same fork reason. It must
+  # stay IDENTICAL to that function; a divergence is a cache that silently never
+  # hits.
+  #
+  # STATE FIRST, BRANCH LAST. A branch name may contain almost anything; the
+  # state is a single bare word. Emitting `STATE<TAB>branch` lets the key
+  # encoding be one anchored substitution on the tail of the line, with no
+  # reconstruction of the separator afterwards.
+  # THE ROWS ARRIVE ALREADY RANKED, so this loop needs no memory of what it has
+  # seen and forks nothing to find out. `sort` below puts the winning row for
+  # each branch first; `last=` skips the rest of that branch's rows with a
+  # string compare. Reading the rank back from the file with `$(cat …)` would
+  # be a fork PER DUPLICATE ROW, which is what this loop was rewritten to avoid.
+  local last=""
+  while IFS="	" read -r st br; do
+    [ -n "$br" ] && [ -n "$st" ] || continue
+    [ "$br" = "$last" ] && continue
+    last="$br"
+    printf '%s' "$st" > "$HOST_STATE_CACHE/$br" 2>/dev/null || true
+  done <<EOF
+$(printf '%s\n' "$js" \
+  | sed -n 's/.*"state":"\([A-Z]*\)","head":"\([^"]*\)".*/\1	\2/p' \
+  | sed 's/_/__/g; s|/|_|g; s|^\([A-Z]*\)_|\1	|' \
+  | sed 's/^OPEN	/1	OPEN	/; s/^MERGED	/2	MERGED	/; s/^\([A-Z]\)/3	\1/' \
+  | sort -t"$(printf '\t')" -k3,3 -k1,1 | cut -f2,3)
+EOF
+  # The pipeline above, read left to right:
+  #   1. pull `STATE<TAB>branch` out of each JSON line, anchored on the two
+  #      fields' emitted adjacency so a free-text TITLE cannot impersonate them;
+  #   2. encode the branch into the injective cache key (`cache_key`, inlined);
+  #   3. prefix a RANK digit — OPEN 1, MERGED 2, everything else 3;
+  #   4. sort by branch, then rank, so each branch's winning row comes first;
+  #   5. drop the rank column again.
+  # The loop then keeps the first row per branch and skips the rest.
+  # THE LIST ARRIVED. Recorded as a fact of its own, because "the cache has no
+  # entry for this branch" means two different things and only this flag tells
+  # them apart: with the list in hand it is real evidence of no PR, without it
+  # the question was never answered. `host_pr_state` reads this to decide
+  # between NONE and `-`.
+  #
+  # The marker shares the cache directory with the per-branch files and CANNOT
+  # collide with one: `git check-ref-format` rejects a branch whose name starts
+  # with a dot, and the key encoding maps only `_` and `/`, so no branch key can
+  # begin with one either. The separation is git's rule, not a lucky prefix.
+  printf '1' > "$HOST_STATE_CACHE/.list-arrived" 2>/dev/null || true
+}
+prefill_pr_states
+
+# The cache stores the STATE WORD, not a yes/no, so a future reader can tell
+# "asked, answered CLOSED" from "asked, could not reach the host". `-` is the
+# unanswerable marker, and it is cached too: a host that is down stays down for
+# the length of a scan, and re-asking once per branch would multiply an outage
+# by the branch count.
+#
+# The host's PR state word for a branch, cached once per branch per run.
+#
+# SPLIT OUT OF `merged_by_host` so a SECOND question can reuse the SAME cached
+# reply. `worker_of` needs to know whether an OPEN PR exists — the fact that
+# outranks everything in the worker classification — and `merged` does not
+# answer it: a branch under review reads `wip` by ancestry and MERGED by
+# neither. Asking the host again would double the per-branch cost this cache
+# exists to avoid, on a scan the board polls every 5 s.
+#
+# Returns the STATE WORD, or `-` when the question could not be answered —
+# never a yes/no, so each caller applies its own test and a reader can still
+# tell "asked, answered CLOSED" from "asked, could not reach the host".
+# THE PER-BRANCH LOOKUP IS NOW OPT-IN, and that is the whole saving.
+#
+# `--ask` asks the host about this ONE branch when the join cannot answer. Only
+# the no-ref arm passes it (PR #216), and that is bounded by ABSENT branches
+# rather than by all of them — a branch with no ref may genuinely be missing
+# from a repo-wide list if its PR was never opened, so the list's silence about
+# it is not evidence.
+#
+# Without `--ask` an unjoined branch answers from the list alone: NONE when the
+# list arrived (real evidence — the repo has no PR for it) and `-` when it did
+# not (the question was never answered). Collapsing those two is the 2026-08-17
+# failure in a new shape and is what the `.list-arrived` marker prevents.
+host_pr_state() { # $1=branch [--ask] → OPEN|MERGED|CLOSED|NONE|-
+  [ "$HOST_LOOKUP_OK" = 1 ] || { printf '%s' '-'; return; }
+  local br="$1" ask="${2:-}" st js cache=""
+  [ -n "$HOST_STATE_CACHE" ] && cache="$HOST_STATE_CACHE/$(cache_key "$br")"
+  if [ -n "$cache" ] && [ -f "$cache" ]; then
+    printf '%s' "$(cat "$cache" 2>/dev/null)"
+    return
+  fi
+  if [ "$ask" = "--ask" ]; then
+    # Exit code first: non-zero is a transport failure and its stdout is not an
+    # answer. Only then is the payload read.
+    if js=$("$script_dir/plot-host.sh" pr-state "$br" </dev/null 2>/dev/null); then
+      st=$(printf '%s' "$js" | sed -n 's/.*"state":"\([A-Z]*\)".*/\1/p')
+      [ -n "$st" ] || st='-'
+    else
+      st='-'
+    fi
+    # Cached even when it is `-`: a host that is down stays down for the length
+    # of a scan, and re-asking once per branch would multiply an outage by the
+    # branch count.
+    [ -n "$cache" ] && printf '%s' "$st" > "$cache" 2>/dev/null
+    printf '%s' "$st"
+    return
+  fi
+  # Not asked, not joined. The list's own arrival decides which silence this is.
+  if [ -n "$HOST_STATE_CACHE" ] && [ -f "$HOST_STATE_CACHE/.list-arrived" ]; then
+    printf '%s' 'NONE'
+  else
+    printf '%s' '-'
+  fi
+}
+
+# Does the host say this branch's PR is MERGED? Anything else — OPEN, CLOSED,
+# NONE, an unreachable host, a malformed reply — is NOT a yes. Unchanged in
+# behaviour; only the lookup underneath it is now shared.
+#
+# THE ONE CALLER THAT MAY ASK PER BRANCH (PR #216). It is reached only from the
+# no-ref arm of `branch_state`, for a branch the repo-wide list may legitimately
+# not contain, and its cost is therefore bounded by ABSENT branches rather than
+# by all of them. The join answers everything else. Do not add `--ask` to a
+# caller that runs for every branch — that is the loop this change removed.
+merged_by_host() { # $1=branch → 0 when the host reports its PR MERGED
+  [ "$(host_pr_state "$1" --ask)" = "MERGED" ]
+}
+
+# Has this branch's work REACHED REVIEW — an open or merged PR?
+#
+# The fact that outranks every local signal in the worker classification: work
+# under review has left the worker's hands, so leftover edits in its worktree
+# are not unfinished work. OPEN and MERGED both count; CLOSED does not, because
+# a closed PR is work that was rejected or withdrawn and whatever sits in the
+# worktree is back on the floor.
+#
+# UNANSWERABLE IS NOT A YES, and the direction matters. `-` — offline, no
+# backend, a host returning 503 all afternoon — must not manufacture the state
+# that tells a reader to stop looking. It falls through to the local signals,
+# so a branch with work on the floor reads `stalled`: go and look. That is the
+# safe direction for an answer nobody could verify.
+reached_review() { # $1=branch → 0 when an open or merged PR exists
+  case "$(host_pr_state "$1")" in OPEN|MERGED) return 0 ;; *) return 1 ;; esac
+}
 
 # ---------------------------------------------------------------------------
 # Local worktrees: what the refs cannot see
@@ -406,6 +776,13 @@ local_worktree_of() { # $1=branch → "path\tdirty\tlocked" or ""
 # the row assumed and reached no screen. This reports it; it invents no new
 # liveness check.
 #
+# THE CLASSIFICATION ITSELF NOW LIVES IN plot-worker-state.sh, sourced above and
+# shared with plot-dispatch.sh. It used to live here TWICE — this file carried
+# its own copy of the pid read, the `kill -0`, and the exit-code mapping. The
+# copies agreed on five of six states and had already drifted apart on the
+# sixth. What remains here is `elsewhere` plus the tab-separated rendering the
+# JSON consumes.
+#
 # SIX VALUES, because the absence of a worktree is a THIRD kind of answer and
 # not the second one. The pid lives in the worktree (`$wt/.plot-worker.pid`),
 # so a branch claimed and started on ANOTHER machine has no path to look at:
@@ -440,27 +817,31 @@ local_worktree_of() { # $1=branch → "path\tdirty\tlocked" or ""
 # record is the same mistake in the other direction, and `finished` is the one
 # answer that tells a reader to stop looking.
 worker_of() { # $1=branch → "state\tpid\texit"
-  local br="$1" wt pid code
+  local br="$1" wt
   wt=$(printf '%s' "$WORKTREES" | awk -F'\t' -v b="$br" '$1==b {print $2; exit}')
   # No worktree here: this machine cannot answer the question at all. Not the
-  # same as looking and finding nothing.
+  # same as looking and finding nothing. This is the one state the shared
+  # classifier does not produce — it is a question about the worktree LIST,
+  # asked before there is any worktree to look inside.
   [ -n "$wt" ] || { printf 'elsewhere\t\t'; return; }
-  [ -f "$wt/.plot-worker.pid" ] || { printf 'none\t\t'; return; }
-  pid=$(cat "$wt/.plot-worker.pid" 2>/dev/null | tr -d ' \n')
-  [ -n "$pid" ] || { printf 'none\t\t'; return; }
-  case "$pid" in 0|*[!0-9]*) printf 'none\t\t'; return ;; esac
-  if kill -0 "$pid" 2>/dev/null; then printf 'running\t%s\t' "$pid"; return; fi
-  if [ -f "$wt/.plot-worker.exit" ]; then
-    code=$(cat "$wt/.plot-worker.exit" 2>/dev/null | tr -d ' \n')
-    case "$code" in
-      0)           printf 'finished\t%s\t0' "$pid"; return ;;
-      ''|*[!0-9]*) printf 'ended\t%s\t' "$pid"; return ;;
-      *)           printf 'failed\t%s\t%s' "$pid" "$code"; return ;;
-    esac
-  fi
-  # No exit file: a worker started before the code was recorded, or one killed
-  # outright. Unknown is its own answer.
-  printf 'ended\t%s\t' "$pid"
+  # Everything below the worktree is the shared classifier's answer, already in
+  # the tab-separated shape this function returns. plot-dispatch renders the
+  # same facts as prose for `--status`.
+  #
+  # THE PR FACT TRAVELS AS AN ARGUMENT, computed HERE where the host is already
+  # being asked and the answer is already cached. The classifier is called once
+  # per branch inside this loop and must not fork a `gh` of its own — and it
+  # must not break `--offline`, which promises no network. Both are properties
+  # of this caller, not of the classification, so the caller supplies the fact
+  # exactly as it supplies `elsewhere` above.
+  #
+  # `$st` IS NOT THIS FACT. It answers a ref/ancestry question — a branch under
+  # review reads `wip` — and `merged` there can come from a merge subject with
+  # no PR behind it at all. `reached_review` asks the one question that
+  # outranks the local signals: has this work left the worker's hands?
+  local pr_fact=""
+  reached_review "$br" && pr_fact="pr"
+  plot_worker_state "$wt" "$pr_fact"
 }
 
 # ---------------------------------------------------------------------------
@@ -816,17 +1197,210 @@ sys.exit(0 if (time.time() - at) <= window else 1)
 ' "$DELIVERED_WINDOW_HOURS" 2>/dev/null
 }
 
+# ---------------------------------------------------------------------------
+# Plan enumeration: from the REF, not from the tree
+# ---------------------------------------------------------------------------
+#
+# THE SCAN NAMED A REF AND READ A DIRECTORY. Every fact below is derived from
+# `origin/$MAIN` and the banner says so, but the plan list was a filesystem
+# glob over `$ACTIVE_DIR` — and `git fetch` updates refs that a glob cannot
+# see. Measured in a two-clone sandbox, 2026-08-18:
+#
+#     origin/main active plans (the REF): 3
+#     working tree active plans:          2
+#     scan --json reports:                2 plans
+#
+# The fetch SUCCEEDED. `origin/main` genuinely carried the third plan, pushed
+# by a second agent minutes earlier. The scan reported two and exited 0, so
+# nothing anywhere could tell that answer from a correct one. The board's plan
+# list was only ever as current as the operator's last `git pull`.
+#
+# It is worse during the fleet run the board exists to watch: rebases,
+# checkouts and worker commits rewrite the working tree continuously, so the
+# glob can return a different set on each 5 s poll while exiting 0 every time.
+# That is the flicker `bug/a-smaller-pulse-is-not-silently-better` guards
+# against; this is the cause it guards against the symptom of.
+#
+# Reading the ref makes the scan describe ONE ATOMIC COMMIT. Two polls of the
+# same ref return the same plans no matter what is happening on disk, which is
+# what makes the count stable and the banner true.
+#
+# WORKTREE OBSERVATION STAYS LOCAL, and the split is the whole design:
+# `local_dirty`, `local_worktree` and the `.git/index.lock` check describe
+# THIS MACHINE on purpose — they are the one place the scan knows more than
+# the refs do, and moving them to the ref would delete the signal rather than
+# fix it. Plan enumeration comes from the ref; worktree observation is local.
+#
+# UNCOMMITTED PLANS BECOME INVISIBLE, and that is the intended behaviour rather
+# than an accepted cost. The plan's Open Points flagged it: `/plot-idea` writes
+# a plan file before committing it. Three reasons it is right:
+#   * The fleet view answers "what may a worker CLAIM". Workers are detached
+#     agents in other worktrees and on other machines, and not one of them can
+#     claim a plan that exists only in the operator's editor buffer. Showing it
+#     advertises work nobody can take.
+#   * The window is seconds wide. `/plot-idea` commits and pushes in the same
+#     flow (see skills/plot-idea/SKILL.md), so an uncommitted plan is a state
+#     inside one skill run, not a state anyone opens a board to watch.
+#   * A board that mixes shared state with one machine's scratch is the bug
+#     this file keeps fixing. `local_dirty` exists precisely so local facts
+#     travel LABELLED as local; an unlabelled local plan row is the thing that
+#     makes an operator trust a view that only they can see.
+#
+# The rule is: committed is shared, and the fleet view shows what is shared.
+#
+# WHEN THE REF CANNOT BE READ the scan falls back to the working tree and says
+# so. A fresh clone with no remote, a repo whose origin is unreachable and
+# whose refs were never fetched — for these `origin/$MAIN` names nothing, and
+# an empty plan list would be a confident lie in the one case where the
+# operator has no way to check it. Falling back is honest; falling back
+# SILENTLY would recreate this bug, so `plan_source` travels in --json.
+PLAN_SOURCE="ref"
+git rev-parse --verify --quiet "origin/$MAIN^{commit}" >/dev/null 2>&1 || PLAN_SOURCE="worktree"
+
+# Paths in the ref, listed for one directory. Returns the blob paths as they
+# are spelled in the tree, so `$ACTIVE_DIR` prefixes survive into the loop that
+# pattern-matches on `$DELIVERED_DIR` below.
+#
+# `-z` and a NUL-delimited read: a path is user data, and a plan filename
+# containing a newline would otherwise split into two nonexistent plans.
+ref_ls() { # $1=dir → newline-separated paths under it in origin/$MAIN
+  git ls-tree -z --name-only "origin/$MAIN" -- "$1" </dev/null 2>/dev/null \
+    | tr '\0' '\n' | grep '\.md$' || true
+}
+
+# The content of a ref path, materialized where plot-plan-meta.sh can parse it.
+#
+# THE PARSER TAKES FILES, not stdin: it is an awk pass keyed on FILENAME and it
+# checks `[ -f "$1" ]`. Rather than reshape the format contract from here — the
+# one script allowed to know what a plan looks like — the blob is written to a
+# temp file. The parser is unchanged, so the contract tests still describe it.
+#
+# SYMLINKS ARE RESOLVED IN REF-SPACE, and this is the subtlety the whole block
+# turns on. `$ACTIVE_DIR` holds symlinks into `$PLAN_DIR`, and in a git tree a
+# symlink is a mode-120000 blob whose CONTENT IS THE TARGET PATH. `readlink`
+# would answer from the working tree — the exact thing being moved away from —
+# so the link is followed with a second `git show` against the same ref. One
+# hop only: plot's indexes are links to files, never chains, and a bounded walk
+# beats a loop detector for a shape that cannot nest.
+# CREATED ONCE, EAGERLY, and that is a correction rather than a style choice:
+# `ref_plan_file` is called as `$(ref_plan_file ...)`, which runs it in a
+# SUBSHELL. A lazy `[ -z "$REF_TMP" ] && REF_TMP=$(mktemp -d)` inside it
+# assigns in the child and the parent never sees it — so every call made a
+# fresh directory, the parent's variable stayed empty, and the EXIT trap
+# cleaned nothing. Measured while writing this: three plans, three temp dirs,
+# none removed. The lifetime is owned out here, where the trap can see it.
+REF_TMP=""
+if [ "$PLAN_SOURCE" = "ref" ]; then
+  REF_TMP=$(mktemp -d "${TMPDIR:-/tmp}/plot-fleet-ref.XXXXXX") || REF_TMP=""
+  # The scan is read-only and short-lived, and the board polls it every 5 s —
+  # a directory that outlives the run would accumulate one per poll.
+  [ -n "$REF_TMP" ] && trap 'rm -rf "$REF_TMP"' EXIT INT TERM
+  # No temp dir means no way to hand the parser a file, so the ref path cannot
+  # work. Falling back to the checkout is the honest answer, and it announces
+  # itself through `plan_source` exactly like an unreadable ref.
+  [ -n "$REF_TMP" ] || PLAN_SOURCE="worktree"
+fi
+
+ref_plan_file() { # $1=path in ref → temp file path, or "" when unreadable
+  local p="$1" mode target content out
+  mode=$(git ls-tree "origin/$MAIN" -- "$p" </dev/null 2>/dev/null | awk '{print $1; exit}')
+  if [ "$mode" = "120000" ]; then
+    target=$(git show "origin/$MAIN:$p" </dev/null 2>/dev/null) || return 1
+    [ -n "$target" ] || return 1
+    case "$target" in
+      /*)
+        # AN ABSOLUTE TARGET IS NOT A PATH IN THE TREE. `ln -s "$(pwd)/…"`
+        # stores `/home/runner/work/…` in the blob, and a repository has no
+        # such directory — prefixing it with the link's dirname produces a path
+        # that resolves to nothing, which is how this first showed up: three
+        # board suites went from 104 passing to 93, every failure a plan that
+        # had silently vanished from the pulse.
+        #
+        # Only the BASENAME can be trusted, and only inside `$PLAN_DIR`. That
+        # is not a guess about where the plan is: an absolute link is
+        # machine-specific by construction, so its directory half describes a
+        # filesystem this scan may not be running on, while plot keeps every
+        # plan in one directory by config. Resolving there is the only reading
+        # that can be right on another machine.
+        p="$PLAN_DIR$(basename "$target")" ;;
+      *)
+        # Resolved against the LINK's directory, the same way the filesystem
+        # would resolve a relative link.
+        p=$(printf '%s' "$(dirname "$p")/$target" | sed 's#/\./#/#g')
+        # Collapse `a/b/../c` → `a/c` so the result is a path the tree can name.
+        while printf '%s' "$p" | grep -q '[^/][^/]*/\.\./'; do
+          p=$(printf '%s' "$p" | sed 's#[^/][^/]*/\.\./##')
+        done ;;
+    esac
+  fi
+  content=$(git show "origin/$MAIN:$p" </dev/null 2>/dev/null) || return 1
+  [ -n "$content" ] || return 1
+  [ -n "$REF_TMP" ] || return 1
+  # Named after the RESOLVED path so the basename the report prints is the
+  # plan's own filename, matching what the worktree enumeration produced.
+  out="$REF_TMP/$(basename "$p")"
+  printf '%s\n' "$content" > "$out" 2>/dev/null || return 1
+  printf '%s' "$out"
+}
+
 # Resolve which plans to report on.
+#
+# TWO PARALLEL ARRAYS, because a plan now has two paths that must not be
+# confused. `plans` keeps the path AS THE REF SPELLS IT — that is the plan's
+# identity, and it is what the `$DELIVERED_DIR`/`$ACTIVE_DIR` pattern matches
+# and what the reader sees. `plan_reads` holds the file to PARSE, which in ref
+# mode is a temp file holding the blob. In worktree mode the two are equal, so
+# every consumer below reads the same way in both modes.
 plans=()
+plan_reads=()
+
+# Add one plan by its ref path, materializing the blob. A path that cannot be
+# read is SKIPPED rather than guessed at — a dangling index entry is a
+# bookkeeping fault plot-reconcile-scan.sh reports, and inventing a row for it
+# here would hide the fault behind a plausible-looking plan.
+add_ref_plan() { # $1=path in ref
+  local f
+  f=$(ref_plan_file "$1") || return 0
+  [ -n "$f" ] || return 0
+  plans+=("$1")
+  plan_reads+=("$f")
+}
+
 if [ -n "$slug" ]; then
-  for cand in "$PLAN_DIR"*"$slug".md "$ACTIVE_DIR$slug.md" "$DELIVERED_DIR$slug.md"; do
-    [ -e "$cand" ] && { plans+=("$(cd "$(dirname "$cand")" && pwd)/$(basename "$cand")"); break; }
-  done
+  if [ "$PLAN_SOURCE" = "ref" ]; then
+    # Same precedence as the worktree form: the dated plan file first, then the
+    # active index, then delivered. `ref_ls` is filtered rather than globbed
+    # because the ref has no shell to expand `*`.
+    found=0
+    for cand in $(ref_ls "$PLAN_DIR" | grep "$slug\.md$") \
+                $(ref_ls "$ACTIVE_DIR" | grep "/$slug\.md$") \
+                $(ref_ls "$DELIVERED_DIR" | grep "/$slug\.md$"); do
+      add_ref_plan "$cand"
+      [ ${#plans[@]} -gt 0 ] && { found=1; break; }
+    done
+    [ "$found" = 1 ] || true
+  else
+    for cand in "$PLAN_DIR"*"$slug".md "$ACTIVE_DIR$slug.md" "$DELIVERED_DIR$slug.md"; do
+      [ -e "$cand" ] && {
+        plans+=("$(cd "$(dirname "$cand")" && pwd)/$(basename "$cand")")
+        plan_reads+=("${plans[${#plans[@]}-1]}")
+        break
+      }
+    done
+  fi
 else
-  for link in "$ACTIVE_DIR"*.md; do
-    [ -e "$link" ] || continue
-    plans+=("$link")
-  done
+  if [ "$PLAN_SOURCE" = "ref" ]; then
+    while IFS= read -r link; do
+      [ -n "$link" ] || continue
+      add_ref_plan "$link"
+    done <<< "$(ref_ls "$ACTIVE_DIR")"
+  else
+    for link in "$ACTIVE_DIR"*.md; do
+      [ -e "$link" ] || continue
+      plans+=("$link")
+      plan_reads+=("$link")
+    done
+  fi
   # Delivered candidates are appended, so the active plans keep their position
   # and order — a reader's list does not reshuffle when something is delivered.
   # They are still CANDIDATES here: the record check runs inside the plan loop,
@@ -837,10 +1411,25 @@ else
   # nothing to it: even an `open` branch under one is work somebody decided was
   # not needed. Naming one would send a dispatcher at finished work.
   if [ "$next_only" != 1 ]; then
-    while IFS= read -r link; do
-      [ -n "$link" ] || continue
-      plans+=("$link")
-    done <<< "$(delivered_candidates)"
+    if [ "$PLAN_SOURCE" = "ref" ]; then
+      # NO MTIME PRE-FILTER IN REF MODE, because a blob has no timestamp — and
+      # none is needed. The pre-filter's documented contract is that it may
+      # only OVER-admit, with `delivered_in_window` (the `Delivered:` record)
+      # having the last word. Admitting every delivered link and letting the
+      # record decide is that contract at its limit: strictly more correct,
+      # costing one parse per delivered plan. `delivered_candidates` stays for
+      # worktree mode, where mtime is real and cheap.
+      while IFS= read -r link; do
+        [ -n "$link" ] || continue
+        add_ref_plan "$link"
+      done <<< "$(ref_ls "$DELIVERED_DIR")"
+    else
+      while IFS= read -r link; do
+        [ -n "$link" ] || continue
+        plans+=("$link")
+        plan_reads+=("$link")
+      done <<< "$(delivered_candidates)"
+    fi
   fi
 fi
 
@@ -913,6 +1502,12 @@ branch_state() {
     # never started — today's `open` stands. The fix may only move a branch
     # from `open` to `merged`, and only on positive evidence.
     merged_by_subject "$br" && { echo "merged"; return; }
+    # No merge commit names it — which is the ordinary case under a squash
+    # merge, not an exotic one. The local walk is now out of evidence, so the
+    # host is asked. It may only ever move this branch from `open` to `merged`:
+    # a miss, a CLOSED PR, or a host that cannot answer all fall through to the
+    # `open` below, exactly as before this call existed.
+    merged_by_host "$br" && { echo "merged"; return; }
     echo "open"; return
   fi
   # A CLAIM is a branch whose only commits beyond main are claim commits —
@@ -940,7 +1535,24 @@ branch_state() {
 quiet=0
 [ "$next_only" = 1 ] && quiet=1
 [ "$as_json" = 1 ] && quiet=1
-HEAD_SHORT=$(git rev-parse --short HEAD 2>/dev/null)
+# The ref this scan READ, and the ref the operator is STANDING ON. They are
+# different questions, and conflating them is the bug this block exists to
+# stop: every fact below is derived from `origin/$MAIN`, but the banner was
+# built from local `HEAD`. On `main` right after a fetch the two agree, which
+# is exactly why it survived — the common case made it look correct.
+#
+# When `origin/$MAIN` cannot be resolved (no remote, fresh clone) the ref is
+# reported as unknown. It does NOT fall back to `HEAD`: that would reintroduce
+# this bug in the one case where nothing can catch it, and a banner that says
+# "unknown" gets investigated in seconds where a real-looking SHA gets believed.
+READ_REF=$(git rev-parse --short "origin/$MAIN" 2>/dev/null) || READ_REF=""
+[ -n "$READ_REF" ] || READ_REF="unknown"
+LOCAL_HEAD=$(git rev-parse --short HEAD 2>/dev/null) || LOCAL_HEAD=""
+[ -n "$LOCAL_HEAD" ] || LOCAL_HEAD="unknown"
+# Kept as an alias for one release: the board reads `head` today (Agents tab),
+# and renaming a field out from under a live consumer is a break nobody asked
+# for. Removed once the board reads `read_ref`.
+HEAD_SHORT="$LOCAL_HEAD"
 json_plans=""
 
 # Emit a JSON string with the six characters JSON forbids escaped. Branch names
@@ -967,7 +1579,28 @@ json_array() {
 }
 
 if [ "$next_only" != 1 ] && [ "$as_json" != 1 ]; then
-  banner="plot-fleet pulse — $HEAD_SHORT on origin/$MAIN"
+  banner="plot-fleet pulse — $READ_REF on origin/$MAIN"
+  # The local checkout and the ref this report was derived from disagree. That
+  # is worth one clause: the operator is looking at a tree this report does not
+  # describe. `behind` is how many commits of `origin/$MAIN` the checkout has
+  # not got — empty when the two share no ancestry to count across.
+  if [ "$READ_REF" != "unknown" ] && [ "$LOCAL_HEAD" != "$READ_REF" ]; then
+    behind=$(git rev-list --count "HEAD..origin/$MAIN" 2>/dev/null) || behind=""
+    # POINTS AT THE REPORT, NOT THE TREE. The measured failure was operators
+    # believing a stale report, so the clause has to say what this report
+    # describes — "your checkout is behind" is advice about the tree, and an
+    # operator who reads it still has no reason to doubt the numbers below.
+    #
+    # The count is included only when git could compute it. `behind` counts
+    # commits on origin/$MAIN the checkout lacks; on a diverged feature branch
+    # that is true but partial, so the SHA leads and the count trails as a
+    # parenthetical rather than being the claim.
+    if [ -n "$behind" ] && [ "$behind" != 0 ]; then
+      banner="$banner (not your checkout $LOCAL_HEAD, $behind behind)"
+    else
+      banner="$banner (not your checkout $LOCAL_HEAD)"
+    fi
+  fi
   if [ "$loose" = 1 ]; then
     if [ "$loose_verifiable" = 1 ]; then banner="$banner (loose eligibility)"
     else banner="$banner (--loose cannot verify PR readiness without a git host — using strict)"
@@ -980,12 +1613,18 @@ n_plans=0 n_waves=0 n_branches=0 n_claimed=0 n_eligible=0 n_blocked=0 n_deferred
 claimable=()
 plan_files=()
 
+plan_idx=-1
 for plan in "${plans[@]}"; do
+  # `plan` is the plan's IDENTITY (the path as the ref or the tree spells it);
+  # `plan_read` is the file to PARSE. They differ only in ref mode, where the
+  # second is a materialized blob — see "Plan enumeration" above.
+  plan_idx=$((plan_idx + 1))
+  plan_read="${plan_reads[$plan_idx]}"
   # Per-plan reset. State that survives into the next iteration is how the
   # plan parser once leaked a `## Branches` flag across files — same shape of
   # bug, so the accumulator is cleared where the plan loop begins.
   json_waves=""
-  meta=$("$script_dir/plot-plan-meta.sh" "$plan" --prefixes "$PREFIX_RE" 2>/dev/null) || continue
+  meta=$("$script_dir/plot-plan-meta.sh" "$plan_read" --prefixes "$PREFIX_RE" 2>/dev/null) || continue
   [ -n "$meta" ] || continue
 
   # The plan's own phase, carried onto the pulse so a consumer can derive a row
@@ -1015,12 +1654,34 @@ print(json.load(sys.stdin).get("phase", ""))
 
   n_plans=$((n_plans + 1))
   plan_target=$(readlink "$plan" 2>/dev/null && echo "" || true)
-  plan_files+=("$plan")
+
+  # The plan's DISPLAY NAME: the dated filename the link resolves to, never the
+  # index alias. In ref mode the resolution already happened in ref-space and
+  # the temp file was named after its result, so its basename IS the answer —
+  # `readlink` would ask the working tree, which is what this change stops
+  # doing. In worktree mode the readlink is unchanged.
+  if [ "$PLAN_SOURCE" = "ref" ]; then
+    plan_base=$(basename "$plan_read")
+  else
+    plan_base=$(basename "$(readlink "$plan" 2>/dev/null || echo "$plan")")
+  fi
+
+  # --log-pulse WRITES, so it needs a path in the working tree — a pulse line
+  # appended to a materialized blob would be discarded with the temp dir, and a
+  # ref is not writable in the first place. Enumeration moved to the ref; the
+  # one write this script performs stays where a write can persist and be
+  # committed. A plan present in the ref but not on this machine is simply not
+  # logged: the alternative is writing a file the operator never checked out.
+  if [ "$PLAN_SOURCE" = "ref" ]; then
+    [ -e "$PLAN_DIR$plan_base" ] && plan_files+=("$PLAN_DIR$plan_base")
+  else
+    plan_files+=("$plan")
+  fi
 
   # One awk pass over the parsed JSON would need a JSON parser; instead the
   # wave walk below is driven by plot-plan-meta.sh's own output via a tiny
   # python shim (present wherever the board's toolchain is).
-  [ "$quiet" = 1 ] || echo "== $(basename "$(readlink "$plan" 2>/dev/null || echo "$plan")") =="
+  [ "$quiet" = 1 ] || echo "== $plan_base =="
 
   wave_lines=$(printf '%s' "$meta" | python3 -c '
 import json, sys
@@ -1136,6 +1797,34 @@ for i, w in enumerate(d.get("waves", [])):
         json_branches+=",\"worker\":\"$(printf '%s' "$worker_row" | cut -f1)\""
         json_branches+=",\"worker_pid\":\"$(json_str "$(printf '%s' "$worker_row" | cut -f2)")\""
         json_branches+=",\"worker_exit\":\"$(json_str "$(printf '%s' "$worker_row" | cut -f3)")\""
+        # WHAT IS ON THE FLOOR, beside the verdict that named it.
+        #
+        # A COUNT WOULD HAVE BEEN CHEAPER AND IS NOT ENOUGH. `stalled` exists so
+        # a person can decide whether to resume a branch, and "3 uncommitted
+        # files" does not support that decision — three scratch notes and three
+        # half-finished modules read identically. The names make the row
+        # actionable without a second command, which is the only reason to
+        # report it rather than merely count it.
+        #
+        # A SIBLING FIELD, NOT A FOURTH COLUMN on the worker row. Every answer
+        # from the shared classifier carries exactly three tab-separated fields,
+        # and that is load-bearing: POSIX `cut` prints a line UNCHANGED when it
+        # holds no delimiter, so a row of a different width would land a
+        # filename in the exit-code slot with nothing erroring. One computation
+        # (`plot_worker_dirty`), two renderings — the split this whole file
+        # keeps.
+        #
+        # ONLY ON `stalled`, because only there does it answer anything. Beside
+        # `finished` the same list is the leftovers a merged branch happens to
+        # hold, and printing it would invite exactly the reading `stalled` was
+        # added to prevent.
+        if [ "$(printf '%s' "$worker_row" | cut -f1)" = "stalled" ]; then
+          json_branches+=",\"worker_dirty_paths\":$(json_array "$(plot_worker_dirty "$(local_worktree_of "$br" | cut -f1)")")"
+        else
+          # Empty rather than omitted: one absent-value shape for every
+          # consumer, the rule the local signals above already follow.
+          json_branches+=",\"worker_dirty_paths\":[]"
+        fi
         # WHICH FILES would collide, and whether the question was asked at all.
         # The two travel together on purpose: an empty list means "merges
         # cleanly" ONLY beside `conflicts_known: true`, and reading the list
@@ -1171,7 +1860,9 @@ for i, w in enumerate(d.get("waves", [])):
     [ "$verdict" = "blocked" ] && n_blocked=$((n_blocked + 1))
   done
   if [ "$as_json" = 1 ]; then
-    plan_base=$(basename "$(readlink "$plan" 2>/dev/null || echo "$plan")")
+    # `plan_base` was resolved once where the plan was admitted — in ref mode
+    # from the ref, in worktree mode by readlink. Recomputing it here would
+    # reintroduce a working-tree read on the JSON path only.
     json_plans+="${json_plans:+,}{\"file\":\"$(json_str "$plan_base")\""
     # The plan's own phase, reported verbatim. The board composes it with each
     # branch's git state into a row phase; nothing here decides which column
@@ -1223,8 +1914,26 @@ fi
 # it asked for, not on how it asked. --next wins over it (handled above): that
 # is a different question with a one-line answer.
 if [ "$as_json" = 1 ]; then
-  printf '{"main":"%s","head":"%s","plans":[%s],' \
-    "$(json_str "$MAIN")" "$(json_str "$HEAD_SHORT")" "$json_plans"
+  # `read_ref` is the ref this document was derived from; `local_head` is the
+  # checkout it was derived ON. A consumer needs both to tell "the board is
+  # current" from "the board is current about an old world".
+  #
+  # `head` repeats `local_head` as an alias for one release. The board reads it
+  # today; it goes away once the board reads the pair.
+  printf '{"main":"%s","read_ref":"%s","local_head":"%s","head":"%s",' \
+    "$(json_str "$MAIN")" "$(json_str "$READ_REF")" "$(json_str "$LOCAL_HEAD")" \
+    "$(json_str "$HEAD_SHORT")"
+  # Three more facts about the EVIDENCE, not about the fleet — a consumer that
+  # renders the numbers below should be able to say how much to trust them.
+  # They answer the question `read_ref` raises: that field names the ref, and
+  # these say whether reading it succeeded and whether the plans came from it.
+  #
+  # `fetch_failed` used to be discarded by `2>/dev/null`, so refs an hour old
+  # were reported with the confidence of refs a second old. `plan_source` says
+  # whether the plan list came from the ref or fell back to this checkout.
+  printf '"fetch_failed":%s,"fetch_error":"%s","plan_source":"%s","plans":[%s],' \
+    "$([ "$FETCH_FAILED" = 1 ] && echo true || echo false)" \
+    "$(json_str "$FETCH_ERROR")" "$(json_str "$PLAN_SOURCE")" "$json_plans"
   printf '"summary":{"plans":%d,"waves":%d,"branches":%d,"claimed":%d,' \
     "$n_plans" "$n_waves" "$n_branches" "$n_claimed"
   printf '"eligible":%d,"blocked":%d,"deferred":%d,"merge_detect":"%s"}}\n' \
@@ -1239,6 +1948,39 @@ fi
 if [ "$MERGE_SCAN_TRUNCATED" = 1 ]; then
   echo "  note: merge scan hit its limit of $MERGE_SCAN_LIMIT — older merges were not"
   echo "        examined; a branch merged before that point may still read as open."
+fi
+# A STALE PULSE SAYS SO. The fetch used to fail silently, which made a scan of
+# hour-old refs read exactly like a scan of current ones — the same
+# over-confidence, one layer up, that this plan fixes in the plan list.
+if [ "$FETCH_FAILED" = 1 ]; then
+  echo "  note: git fetch failed — these refs are as current as your last"
+  echo "        successful fetch, not as current as origin/$MAIN."
+  echo "        $FETCH_ERROR"
+  # A failed fetch also failed to PRUNE, and that has a sharper consequence
+  # than staleness alone: an unpruned ref sends branch_state() down the
+  # ancestry arm, where a squash merge reads `wip`. Said plainly, because the
+  # symptom — a finished wave that will not complete — looks nothing like
+  # "your fetch failed".
+  echo "        Stale remote-tracking refs were not pruned either, so a branch"
+  echo "        merged and deleted upstream may still read wip."
+fi
+# AN OFFLINE SCAN CANNOT PRUNE, and the answer that costs is not obvious.
+# --offline skips the fetch, so refs for branches deleted upstream survive, and
+# a surviving ref is what makes a squash-merged branch read `wip` and its wave
+# read blocked. Reporting the flag alone would leave the operator to derive
+# that; this states the consequence instead. Only under the prose report — the
+# machine renderings carry `fetch_failed` and the caller passed --offline
+# itself, so neither is being told something it does not know.
+if [ "$do_fetch" = 0 ]; then
+  echo "  note: --offline skipped the fetch, so stale remote-tracking refs were"
+  echo "        not pruned; a branch merged and deleted upstream may read wip"
+  echo "        and hold its wave blocked. Re-run without --offline to settle it."
+fi
+# The fallback announces itself. Silent degradation here would recreate the
+# very bug being fixed: a working-tree plan list reported as if it were the ref.
+if [ "$PLAN_SOURCE" != "ref" ]; then
+  echo "  note: origin/$MAIN could not be read — plans were listed from this"
+  echo "        checkout instead, so the list is only as current as your last pull."
 fi
 echo "Pulse complete. This report is derived — nothing was changed."
 echo "summary: plans=$n_plans waves=$n_waves branches=$n_branches claimed=$n_claimed eligible=$n_eligible blocked=$n_blocked deferred=$n_deferred merge_detect=$MERGE_DETECT main=$MAIN"

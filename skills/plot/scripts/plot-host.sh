@@ -129,6 +129,32 @@ host_miss_or_fail() {
   return 3
 }
 
+# Bitbucket's --state vocabulary is not GitHub's, and this adapter used to
+# translate in one direction only: every response mapper turns DECLINED into
+# CLOSED, while the request carried the caller's GitHub word unchanged. `bb`
+# then rejects `--state all` and `--state closed` outright, so every
+# history-wide query failed with an invalid --state error.
+#
+# `all` becomes SEPARATE CALLS, not repeated flags. `bb` 1.0.0 accepts
+# `--state open --state merged` and silently keeps only the last — measured
+# 2026-08-18: that pair returned 50 PRs, all MERGED, with the 3 open ones
+# gone. No error, a plausible list. One call per state avoids depending on a
+# `bb` fix, and the three states partition the set (74 PRs, 74 unique ids,
+# 0 duplicates on the repo measured).
+#
+# `superseded` is deliberately NOT part of `all`: such a PR is replaced by a
+# newer one for the same branch, and a board with one row per branch would
+# show that branch twice. `gh`'s `all` has no equivalent, so nothing is lost.
+# A caller wanting it asks for it by name.
+bb_states_for() {
+  case "$1" in
+    all)    printf 'open\nmerged\ndeclined\n' ;;
+    closed) printf 'declined\n' ;;
+    open|merged|declined|superseded) printf '%s\n' "$1" ;;
+    *) die "unknown --state '$1' for the bitbucket backend (open|merged|closed|declined|superseded|all)" ;;
+  esac
+}
+
 backend() {
   if [ -n "${PLOT_HOST:-}" ]; then
     case "$PLOT_HOST" in
@@ -200,8 +226,36 @@ case "$op" in
         # arrived is evidence, an list that never arrived is not. The `jq` NONE
         # below is therefore kept (it reads a real answer) while the failure path
         # goes through `host_miss_or_fail` like the others.
-        if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state all --json 2>/tmp/plot-host-err.$$)"; then
+        # One call per state, walked newest-relevant first: an open PR for a
+        # branch outranks a merged one, which outranks a declined one.
+        #
+        # STOP AT THE FIRST STATE THAT ANSWERS. Because the ordering already
+        # decides the winner, a later state can never overturn an earlier one —
+        # so asking for it is pure cost. And the cost is not small: measured
+        # against a real Bitbucket on 2026-08-18, one `bb` call takes ~10s, so
+        # walking all three unconditionally made every branch lookup ~26s. The
+        # board's fleet scan calls this once per branch and exceeded its own
+        # timeout on a five-branch plan.
+        #
+        # A declined-only or PR-less branch still pays for all three; those are
+        # the cases where the third call is the one carrying the answer.
+        out=""; bb_rc=0
+        bb_all_states="$(bb_states_for all)" || exit 1
+        for _s in $bb_all_states; do
+          if _part="$(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state "$_s" --json 2>/tmp/plot-host-err.$$)"; then
+            out="$out$_part"
+            # `jq -e` exits non-zero on null/false, so this asks "did this state
+            # contain the branch?" without a second parse of the whole page.
+            if jq -e --arg b "$ref" 'any(.[]; .source.branch.name==$b)' >/dev/null 2>&1 <<<"$_part"; then
+              break
+            fi
+          else
+            bb_rc=1; break
+          fi
+        done
+        if [ "$bb_rc" = 0 ]; then
           rm -f "/tmp/plot-host-err.$$"
+          out="$(jq -c -s 'add // []' <<<"$out")"
           jq -c --arg b "$ref" '[.[] | select(.source.branch.name==$b)][0] // null
                | if .==null then {number:0,state:"NONE",draft:false,url:""}
                  else {number:.id,state:(if .state=="DECLINED" then "CLOSED" else .state end),draft:(.draft // false),url:.links.html.href} end' <<<"$out"
@@ -352,10 +406,10 @@ case "$op" in
               draft:.isDraft,
               checks:(
                 if (.statusCheckRollup|length) == 0 then "none"
-                elif any(.statusCheckRollup[]; (.conclusion // .state) as $c
+                elif any(.statusCheckRollup[]; (if (.conclusion // "") != "" then .conclusion else (.status // .state) end) as $c
                          | $c=="FAILURE" or $c=="ERROR" or $c=="CANCELLED"
                            or $c=="TIMED_OUT" or $c=="ACTION_REQUIRED") then "failing"
-                elif any(.statusCheckRollup[]; (.conclusion // .state) as $c
+                elif any(.statusCheckRollup[]; (if (.conclusion // "") != "" then .conclusion else (.status // .state) end) as $c
                          | $c=="PENDING" or $c=="IN_PROGRESS" or $c=="QUEUED"
                            or $c=="WAITING" or $c==null) then "pending"
                 else "green" end),
@@ -366,7 +420,7 @@ case "$op" in
               review:(.reviewDecision // ""),
               url:.url,
               failing_checks:[
-                .statusCheckRollup[]? | select((.conclusion // .state) as $c
+                .statusCheckRollup[]? | select((if (.conclusion // "") != "" then .conclusion else (.status // .state) end) as $c
                   | $c=="FAILURE" or $c=="ERROR" or $c=="CANCELLED"
                     or $c=="TIMED_OUT" or $c=="ACTION_REQUIRED")
                 | (.name // .context // "")] | map(select(. != ""))
@@ -382,12 +436,29 @@ case "$op" in
       # checks:"unknown" and mergeable:"unknown" — a consumer must render those
       # as "unavailable", never as green and never as clean. An honest gap beats
       # an invented answer, and absent is not false.
+      # `bb pr list` has no --limit: it returns a fixed page (50 at 1.0.0).
+      # Forwarding it errors with `unknown flag`, and dropping it silently
+      # would serve a short page as if it were the whole set — the quiet wrong
+      # answer this adapter refuses elsewhere. So it is dropped AND said.
+      if [ -n "$limit" ]; then
+        echo "plot-host: bitbucket ignores --limit $limit; bb returns a fixed page (50 at 1.0.0)" >&2
+      fi
+      # Resolve the states BEFORE the loop. `for s in $(bb_states_for …)` runs
+      # the helper in a subshell, where `die` exits that subshell only: the
+      # loop would then iterate an empty list and the command would succeed
+      # with no output — an unknown state reading as "no PRs matched", which
+      # is the exact failure this translation exists to remove.
+      bb_states="$(bb_states_for "$state")" || exit 1
       if [ "$rich" = 1 ]; then
-        bb pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} --json \
-          | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),failing_checks:[]}'
+        for _s in $bb_states; do
+          bb pr list --state "$_s" --json \
+            | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),failing_checks:[]}'
+        done
       else
-        bb pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} --json \
-          | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name}'
+        for _s in $bb_states; do
+          bb pr list --state "$_s" --json \
+            | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name}'
+        done
       fi
     fi
     ;;

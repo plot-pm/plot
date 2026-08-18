@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-board
@@ -13,6 +13,7 @@
 - **Started:** 2026-08-17, Jan Wloka, `feature/working-rows-pulse`
 - **Started:** 2026-08-17, Jan Wloka, `feature/agent-groups-collapse`
 - **Delivered:** 2026-08-17
+- **Released:** 2026-08-18, v2.5.0
 
 ## Problem
 

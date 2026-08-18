@@ -4,10 +4,12 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Released
 - **Type:** feature
 - **Story:** plot-planning-model
 - **Approved:** 2026-02-11, eins78, in-session
+- **Delivered:** 2026-08-18, jwloka, verified against the source rather than a PR
+- **Released:** 2026-04-05, v1.0.0-beta.3 — resolved by ancestry rather than by a PR: the skill's creating commit (c4f90dd, 2026-02-11) is first contained in that tag. The reconcile scan cannot resolve this plan at all, because no PR exists to read a version from, so the version is recorded here by hand and the way it was found is recorded with it.
 
 ## Approval
 
@@ -93,6 +95,14 @@ Closed sprints stay in place (Principle 8) and are identified by their Phase fie
 <!-- Optional. Filled during /plot-sprint close. -->
 
 ## Notes
+
+> **Followed by** `docs/plans/2026-08-18-a-sprint-names-what-it-ships.md`.
+> This plan built sprints; that one closes two gaps found the first time one
+> was actually created, on 2026-08-18 — a sprint cannot declare the release it
+> is working toward, and its plan-selection step lists every plan in the repo
+> rather than the ones serving the stated goal. Neither was visible from the
+> design; both were visible within minutes of use.
+
 
 <!-- Session log, decisions, links -->
 ```
@@ -246,7 +256,7 @@ Spoke awareness tests:
 
 ## Branches
 
-- `feature/plot-sprint-support` — Implement sprint support: new skill, manifesto additions, spoke modifications → #7
+- `feature/plot-sprint-support` <!-- deferred: never created — the work landed directly on main on 2026-02-11, so no ref, no PR and no merge commit exist for the scan to find. Annotated 2026-08-18, when the plan was verified Delivered against the source and the fleet still offered this branch as "eligible — nobody has taken it", six months after the work shipped. --> — Implement sprint support: new skill, manifesto additions, spoke modifications. The plan recorded a PR number here until 2026-08-18; it pointed at an unrelated PR (the AskUserQuestion tool convention, merged 2026-03-15) and is removed rather than corrected, because no PR exists to name.
 
 ## Notes
 

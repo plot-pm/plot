@@ -449,6 +449,10 @@ export type WaveVerdict = z.infer<typeof WaveVerdictSchema>;
  */
 export const WorkerStateSchema = z.enum([
   'running', 'finished', 'failed', 'ended', 'none', 'elsewhere',
+  // Two TASK states beside the six PROCESS states above, added 2026-08-18.
+  // Both arrive where the process exited 0 and the tree says the task did not
+  // finish with it — see `worker` below for why the exit code cannot tell.
+  'waiting', 'stalled',
 ]);
 export type WorkerState = z.infer<typeof WorkerStateSchema>;
 
@@ -495,6 +499,107 @@ export const ELIGIBLE_NOTE = 'eligible — nobody has taken it';
  * unblock it, which "blocked" alone does not.
  */
 export const DRAFT_PLAN_NOTE = 'plan not approved yet — still in review';
+
+/**
+ * The note for a branch whose PLAN has already shipped or been delivered.
+ *
+ * The counterpart to `DRAFT_PLAN_NOTE` at the other end of the lifecycle, and
+ * it exists for the same reason: a finished plan's branch is `open` in git —
+ * bit-identical to a branch nobody has started — whenever the work landed
+ * somewhere else. `plot-sprint-support` shipped in v1.0.0-beta.3 and its single
+ * branch was never created, because the change went straight onto main.
+ *
+ * Measured 2026-08-18, after a hygiene sweep set 39 delivered plans to
+ * `Released`: **ten Released plans in NOT STARTED at once**, each offering a
+ * merged branch as available work. The sweep did not cause that — it multiplied
+ * a defect that had been hiding behind a single row.
+ *
+ * Rows carrying this note belong in `done`, never in `not-started`, so unlike
+ * `DRAFT_PLAN_NOTE` this sentence is what a DONE row says about a branch git
+ * cannot account for. It names the phase because *why is there no branch* is
+ * the reader's next question, and "the work landed elsewhere" is the answer.
+ *
+ * ONE SENTENCE FOR BOTH ROUTES INTO THE SECTION, and deliberately so. A
+ * finished plan's branch reaches NOT STARTED as `open` when git has no ref for
+ * it, and as `deferred` when the plan itself shelved it — `plot-sprint-support`
+ * is annotated `deferred` and was measured under both readings on the same
+ * board. The REASON is identical either way and the sentence already says it:
+ * the work landed elsewhere, so no branch was needed. A second constant for the
+ * shelved case would split one fact in two and re-open the gap that let
+ * `deferred` rows skip the phase check for a wave.
+ */
+export const FINISHED_PLAN_NOTE = 'plan finished — no branch was needed';
+
+/**
+ * The note for a plan whose phase this board has never been taught.
+ *
+ * The allowlist's fallback, and it says the one honest thing available: the
+ * phase is NAMED and the placement is admitted as a guess. A row reading
+ * *plan phase `abandoned` — the board cannot place this* sends a reader to the
+ * plan; a row silently filed as startable sends an agent to a branch nobody
+ * decided on.
+ *
+ * Names the value verbatim rather than paraphrasing it, so the fix — teaching
+ * the board the phase, or fixing a typo in the plan file — is visible from the
+ * row itself.
+ */
+export function unknownPhaseNote(phase: string): string {
+  return `plan phase \`${phase}\` — the board cannot place this`;
+}
+
+/**
+ * WHAT A NOT-STARTED ROW IS WAITING FOR — as a value, never as a sentence.
+ *
+ * Three answers, and the split is by *what would move this*, which is the
+ * question a reader scanning the section is actually asking:
+ *
+ *   `you`   a person must act — the plan is still Draft, or the branch was
+ *           shelved. No clock is running; nothing in git can change it.
+ *   `click` eligible and unclaimed. Available, and taking it is optional.
+ *   `time`  blocked by an earlier wave. Nothing to do, ever — it resolves
+ *           itself when its predecessor lands.
+ *
+ * THREE, NOT FOUR: deferred joins Draft. Both wait on a person, and they differ
+ * only in *which* action — approve versus un-shelve — which the note already
+ * says. The field answers the coarse question; the prose answers the fine one.
+ *
+ * A FIELD RATHER THAN A STRING MATCH, and this is load-bearing. `isStartable`
+ * derives startability by comparing `note === ELIGIBLE_NOTE` — the "parser for a
+ * format nobody declared" shape #175 removed from the PR cell, which drops its
+ * answer silently the moment the wording drifts. Deriving a COLOUR that way
+ * would be worse, because this same change sharpens the notes: a rule matching
+ * on `blocked by an earlier wave` breaks the moment that sentence gains the
+ * wave's name, and it breaks by going quiet rather than by failing.
+ *
+ * Follows `pr.state` (#165) and `stuck` (#183), both of which replaced exactly
+ * this shape for exactly this reason.
+ *
+ * Null wherever the question does not arise — every row outside `not-started`.
+ * A row that is being worked on is not waiting for anything.
+ */
+export const WaitingOnSchema = z.enum(['you', 'click', 'time']);
+export type WaitingOn = z.infer<typeof WaitingOnSchema>;
+
+/**
+ * The note for a branch an earlier wave is holding back — without the name.
+ *
+ * The unnamed form is the FALLBACK, not the default: a plan with no `###`
+ * sub-headings has an unnamed wave and this is all that can honestly be said.
+ * Where the name exists, `blockedNote` appends it, because *blocked by which
+ * one?* is the reader's unavoidable next question and it costs one string.
+ *
+ * A constant plus a defined append, never a sentence assembled at three call
+ * sites: `isStartable` already keys on `ELIGIBLE_NOTE` by string comparison,
+ * and that is the shape this plan's own field replaces. Nothing new may be
+ * built on matching prose — but the prose must still be one thing rather than
+ * many, or the next reader cannot tell which spellings exist.
+ */
+export const BLOCKED_NOTE = 'blocked by an earlier wave';
+
+/** `blocked by `Truth`` where the wave has a name, the bare sentence where not. */
+export function blockedNote(wave: string | null): string {
+  return wave ? `blocked by ${wave}` : BLOCKED_NOTE;
+}
 
 export const FleetBranchSchema = z.object({
   branch: z.string(),
@@ -598,17 +703,34 @@ export const FleetBranchSchema = z.object({
    * Three rows sat in WORKING with a pulsing dot on 2026-08-17 while nobody was
    * working on any of them — the claim was real, the worker was never started.
    *
-   * SIX VALUES, and every one of them earns its place by naming a different
+   * EIGHT VALUES, and every one of them earns its place by naming a different
    * next move:
    *
    * | value       | the reader's move                                 |
    * |-------------|---------------------------------------------------|
    * | `running`   | leave it alone                                    |
    * | `finished`  | review it                                         |
+   * | `waiting`   | answer it — a marker in the tree asks a question  |
+   * | `stalled`   | resume it — work is on the floor and has no PR    |
    * | `failed`    | restart it — `worker_exit` says how it died       |
    * | `ended`     | read the log; the exit status was not recorded    |
    * | `none`      | a worktree is here, but no pid — look in it       |
    * | `elsewhere` | no worktree here — ask the machine that took it   |
+   *
+   * `waiting` AND `stalled` SPLIT WHAT `finished` USED TO COVER, and they
+   * arrive only where the process exited 0. Measured across seven worktrees in
+   * a four-agent fleet run: EVERY worker exited 0 — the one that opened its PR,
+   * the one that stopped rather than claim a test run it had not seen, and the
+   * one that stopped to ask which retry semantics were wanted. All three read
+   * `finished`, whose move is *review it*, and two of the three needed an
+   * answer instead. The exit code reports how a process TERMINATED, never
+   * whether the task is DONE; only the tree separates them.
+   *
+   * Their moves are as opposite as `failed` and `finished`: *answer it* sends a
+   * person to a question, *resume it* sends a worker back to work. Reporting
+   * `waiting` as `stalled` is the worse direction — it invites a restart into
+   * the same wait, which is a loop rather than a rescue, and was measured
+   * happening twice to one branch — so a marker outranks work on the floor.
    *
    * `failed` and `finished` stay apart because their actions are OPPOSITE —
    * restart versus review — and one label over both sends the reader to a log to
@@ -656,6 +778,23 @@ export const FleetBranchSchema = z.object({
    * is the one answer that tells a reader to stop looking.
    */
   worker_exit: z.string().default(''),
+  /**
+   * What a `stalled` worker left on the floor — the uncommitted files by name.
+   *
+   * NAMES RATHER THAN A COUNT, and the count was the cheaper option. `stalled`
+   * exists so a person can decide whether to resume a branch, and "3
+   * uncommitted files" does not support that decision: three scratch notes and
+   * three half-finished modules read identically. The names make the row
+   * actionable without a second command, which is the only reason to report
+   * this rather than merely count it.
+   *
+   * EMPTY ON EVERY OTHER STATE, deliberately. Beside `finished` the same list
+   * is whatever leftovers a merged branch happens to hold, and showing it would
+   * invite exactly the reading `stalled` was added to prevent. Editor leftovers
+   * (`.tmp*`, `.swp`, `.orig`, `.rej`, `.bak`) and Plot's own `.plot-worker.*`
+   * records are already excluded upstream — they are not work.
+   */
+  worker_dirty_paths: z.array(z.string()).default([]),
   /**
    * The files that would collide merging this branch into the default branch.
    *
@@ -746,7 +885,39 @@ export const FleetPlanSchema = z.object({
 /** The raw `plot-fleet-scan.sh --json` document, parsed. */
 export const FleetPulseSchema = z.object({
   main: z.string(),
+  /**
+   * The LOCAL CHECKOUT, and only ever that — despite the name.
+   *
+   * `head` is `git rev-parse --short HEAD` in the scan, which is the tree the
+   * operator is standing on, NOT the ref the scan read (`origin/<main>`). On
+   * `main` after a fetch the two agree, which is why the misnomer survived.
+   *
+   * Kept because the scan still emits it, and read ONLY as a fallback for
+   * `local_head` — never for `read_ref`. Mapping it to the ref that was read is
+   * the precise bug this pair of fields exists to end.
+   */
   head: z.string(),
+  /**
+   * The ref the scan actually READ — `origin/<main>`, not the local checkout.
+   *
+   * Optional because it postdates the scan that emits only `head`: a pulse from
+   * an older scan (or a bridge file written by one) must still validate. Absent
+   * means THE SCAN DID NOT SAY, which is not the same as "the local head", and
+   * the two must never collapse — see `readRef` on `FleetSchema`.
+   *
+   * The scan reports the string `unknown` when `origin/<main>` cannot be
+   * resolved at all (no remote, fresh clone). That is a said-so-explicitly
+   * absence rather than a silent one, and it is deliberately NOT rewritten to
+   * `HEAD`: substituting the local ref where the read ref is unknown
+   * reintroduces the original defect exactly where it is hardest to notice.
+   */
+  read_ref: z.string().optional(),
+  /**
+   * The local checkout under its honest name, once the scan distinguishes the
+   * two. Optional for the same reason as `read_ref`; `head` is its fallback,
+   * because `head` has always carried this value.
+   */
+  local_head: z.string().optional(),
   plans: z.array(FleetPlanSchema),
   summary: z.object({
     plans: z.number(),
@@ -1141,6 +1312,31 @@ export const AgentRowSchema = z.object({
    */
   localAhead: z.number().default(0),
   /**
+   * What this row is waiting for — see `WaitingOnSchema`.
+   *
+   * Null outside `not-started`, and null is the honest answer there rather than
+   * a fourth value: a row being worked on, or waiting on CI, is not waiting for
+   * one of these three things. A consumer that finds null renders no colour.
+   *
+   * Defaults to null so a pulse from an older server still validates — and such
+   * a pulse then renders exactly as the board does today: in words, no colour.
+   */
+  waitingOn: WaitingOnSchema.nullable().default(null),
+  /**
+   * The name of the earlier wave blocking this row — `waitingOn: 'time'` only,
+   * null everywhere else.
+   *
+   * *Blocked by which one?* is the reader's unavoidable next question, and the
+   * server is the only place that can answer it: `verdict` lives on the WAVE
+   * (`FleetWaveSchema`) while the row carries only `wave`, its own name. So a
+   * row cannot see that it is blocked, let alone by what — the fact must travel.
+   *
+   * Null rather than "" for absence, because a wave can legitimately be unnamed
+   * (a plan with no `###` sub-headings). The note then reads *blocked by an
+   * earlier wave* with no name — the old sentence, and still true.
+   */
+  blockedBy: z.string().nullable().default(null),
+  /**
    * Why this branch cannot move, or null — a fact ADDED to the row, never a
    * replacement for one.
    *
@@ -1179,14 +1375,136 @@ export const AgentRowSchema = z.object({
 });
 export type AgentRow = z.infer<typeof AgentRowSchema>;
 
+/**
+ * What a successful scan LOST relative to the one before it.
+ *
+ * ## Why a success needs a guard at all
+ *
+ * The cache already refuses to let a FAILED refresh overwrite a good result,
+ * and says why: replacing real state with emptiness because one scan failed is
+ * what makes a monitoring view untrustworthy. That rule has an unstated
+ * assumption underneath it — *any success is authoritative* — and it is false.
+ * A scan can exit 0, emit schema-valid JSON, and describe fewer plans than the
+ * scan before it. Measured 2026-08-18: `origin/main` carried three plans, the
+ * scan reported two, because it enumerates the working tree rather than the ref
+ * it names. Nothing treated the smaller answer as suspicious, so it was cached,
+ * rendered, and replaced by the next full one — rows vanishing and returning
+ * seconds later, with no error and no staleness marker.
+ *
+ * ## Why it is carried rather than acted on
+ *
+ * A smaller pulse is NOT rejected. Plans really do get delivered, and a
+ * monitoring view that cannot shrink is a different kind of lie — it would keep
+ * a dead row forever. So the new pulse is accepted (it may well be correct) and
+ * this rides beside it, letting the tab MARK the view instead of swapping it
+ * without comment. *Degrade, do not hide*, the rule the bridge already follows
+ * for staleness.
+ *
+ * Null is the overwhelmingly common case and the only one that renders nothing:
+ * a view flagged on every poll is a view nobody reads.
+ */
+export const PulseShrinkSchema = z.object({
+  /**
+   * Plan files present in the previous pulse and absent from this one, BY NAME.
+   *
+   * Identities rather than counts, and the extra set difference is the point.
+   * "3 plans became 2" cannot tell an operator whether the plan that vanished is
+   * one they just delivered — expected — or one another agent pushed a minute
+   * ago, which is the defect. The name answers that at a glance.
+   *
+   * It also catches a shape counts cannot see: one plan appearing while another
+   * disappears leaves the total unchanged, so a count comparison passes it in
+   * silence even though a row really did vanish.
+   */
+  plans: z.array(z.string()),
+  /**
+   * Branches that were in the previous pulse and are not in this one, by branch
+   * name — including branches whose PLAN survived. A plan that keeps its file
+   * but loses a wave's branches produces no plan-level difference at all, and
+   * that is precisely the reported symptom: WORKING rows for agents that were
+   * demonstrably running, gone and then back.
+   */
+  branches: z.array(z.string()),
+  /**
+   * Epoch ms of the pulse these were lost FROM — the age of the larger answer,
+   * not of this one.
+   *
+   * The tab needs it to say *how long ago the board knew more*, which is what
+   * makes the mark actionable: seconds old is a scan caught mid-rebase, minutes
+   * old is a plan that genuinely went away.
+   */
+  previousAt: z.number(),
+});
+export type PulseShrink = z.infer<typeof PulseShrinkSchema>;
+
 export const FleetSchema = z.object({
   generatedAt: z.string(),
   /** Seconds since the cached scan completed — the tab shows this. */
   ageSeconds: z.number(),
+  /**
+   * The commit the cached scan actually READ — the same honesty the tab gets
+   * from "scanned 10s ago", for a consumer that cannot see the tab.
+   *
+   * The gap this closes was measured, not imagined. During a two-agent dispatch
+   * on 2026-08-18 an operator read current-looking data while their local
+   * `origin/main` was behind other agents' pushes; three wrong diagnoses
+   * followed, including "the fleet endpoint is broken". The board was right
+   * every time — it simply could not say WHICH WORLD it was right about.
+   * `ageSeconds` dates the READ; this names what was read.
+   *
+   * NULL MEANS THE SCAN DID NOT SAY, and it may never be filled in from
+   * `localHead` to avoid a null. Those are different facts, and substituting
+   * one for the other is the original defect: a report signed with the name of
+   * a commit it did not read. Null before the first scan, and null against a
+   * scan predating `read_ref`.
+   *
+   * The string `unknown` is distinct from null: the scan looked and could not
+   * resolve the ref (no remote, fresh clone). Absence of an answer, either way,
+   * never reads as a confident one.
+   */
+  readRef: z.string().nullable().default(null),
+  /**
+   * How old that read is, in seconds — the age OF THE REF, stated beside it.
+   *
+   * The same number as `ageSeconds` by construction, because the board caches
+   * one scan and both facts come off it. It is named separately rather than
+   * left implicit: a consumer reading `readRef` must not have to know that a
+   * field named for the tab happens to date it. Null exactly when there is no
+   * scan to date — never 0, which would claim a read that just happened.
+   */
+  readRefAge: z.number().nullable().default(null),
+  /**
+   * The local checkout, which MAY DIFFER from `readRef` — and when it does,
+   * that difference is the whole answer.
+   *
+   * Reported even when it agrees with `readRef`, because "these two are the
+   * same" is a fact a consumer needs stated rather than inferred from one
+   * field's absence. Null when no scan has landed.
+   */
+  localHead: z.string().nullable().default(null),
   /** False until the first scan lands: "not ready yet", never an empty fleet. */
   ready: z.boolean(),
   /** Last scan error, if any. A failed refresh never clears a good result. */
   error: z.string().nullable(),
+  /**
+   * What the most recent SUCCESSFUL scan lost relative to its predecessor.
+   *
+   * A DIFFERENT condition from `error`, and beside it rather than folded into
+   * it, because the two are opposites in the one way that matters: `error` is a
+   * scan that failed and whose result was therefore discarded, this is a scan
+   * that SUCCEEDED and whose result was accepted. Reporting a shrink as an error
+   * would claim the numbers below are the last good ones when they are in fact
+   * the new ones.
+   *
+   * Cleared by the first scan that does not shrink — it describes the last
+   * transition, never an accumulated history. A mark that outlived the condition
+   * would leave the tab flagged permanently after one blip, which is the same
+   * "flags everything, so flags nothing" failure `stuck` avoids by staying null.
+   *
+   * Defaults to null so a payload from an older server still validates, and null
+   * reads as *nothing was compared* — which for that server is true.
+   */
+  shrink: PulseShrinkSchema.nullable().default(null),
   rows: z.array(AgentRowSchema),
   summary: FleetPulseSchema.shape.summary,
   /**

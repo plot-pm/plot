@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Plot helper: fan out one worktree + one worker per eligible branch.
-# Usage: plot-dispatch.sh [--dry-run] [--no-start] [--offline] [--max N] <slug>
+# Usage: plot-dispatch.sh [--dry-run] [--no-start] [--offline] [--max N]
+#                         [--allow-local] <slug>
 #   --status    list fleet worktrees with worker pid, liveness, and last log
 #               line; then exit. Works regardless of plan phase.
 #   --stop <br> stop the worker on <br> (branch required — never "all").
@@ -8,6 +9,10 @@
 #   --no-start  create worktrees and claim refs, but start no workers
 #   --offline   skip `git fetch`
 #   --max N     dispatch at most N branches this run (default: all eligible)
+#   --allow-local  read the plan's phase from the working tree when
+#               origin/<main> cannot be resolved (no remote, fresh clone).
+#               The explicit escape for a remote-less repo — never a default,
+#               because a working-tree read is what this gate exists to avoid.
 #   <slug>      the plan to fan out
 # Output: one line per branch, each optionally followed by an indented
 #         `in flight:` line naming a branch that already holds files, then the
@@ -78,11 +83,17 @@ set -uo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
+# The shared worker classifier. Sourced by both this script and
+# plot-fleet-scan.sh so a worker has ONE state, not one per reader.
+# shellcheck source=plot-worker-state.sh
+. "$script_dir/plot-worker-state.sh"
+
 dry_run=0
 no_start=0
 mode=dispatch
 stop_branch=""
 offline=""
+allow_local=0
 max=0
 slug=""
 while [ $# -gt 0 ]; do
@@ -95,12 +106,13 @@ while [ $# -gt 0 ]; do
     --stop)     mode=stop; case "${2:-}" in */*) stop_branch="$2"; shift ;; esac ;;
     --no-start) no_start=1 ;;
     --offline|--no-fetch) offline="--offline" ;;
+    --allow-local) allow_local=1 ;;
     --max)      max="${2:?--max needs a value}"
                 case "$max" in
                   ''|*[!0-9]*) echo "plot-dispatch: --max needs a number, got '$max'" >&2; exit 1 ;;
                 esac
                 shift ;;
-    -h|--help)  sed -n '2,13p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,16p' "$0"; exit 0 ;;
     *)          slug="$1" ;;
   esac
   shift
@@ -119,46 +131,84 @@ git rev-parse --git-dir >/dev/null 2>&1 || { echo "not a git repository" >&2; ex
 repo_root_early=$(git rev-parse --show-toplevel)
 wt_root_early=$(cd "$repo_root_early/.." && pwd)
 
-# States: "running <pid>" | "finished <pid>" | "failed <pid> (exit N)"
+# States: "running <pid>" | "finished <pid>" | "waiting <pid> (answer it)"
+#       | "stalled <pid> (work unfinished)" | "failed <pid> (exit N)"
 #       | "ended <pid> (status unknown)" | "no worker"
 #
-# `kill -0` only separates running from not-running. Whether a stopped worker
-# finished its job or crashed is gone unless the exit code was recorded — and
-# reporting a completed worker as "dead" reads as a crash, which is how a
-# healthy fleet looks broken. The wrapper in start_worker writes the code.
-worker_state() { # $1=worktree
-  local wt="$1" pid code
-  [ -f "$wt/.plot-worker.pid" ] || { echo "no worker"; return; }
-  pid=$(cat "$wt/.plot-worker.pid" 2>/dev/null | tr -d ' \n')
-  [ -n "$pid" ] || { echo "no worker"; return; }
-  # `kill -0 0` signals the whole process GROUP and succeeds, so pid 0 would
-  # read as running forever. It is never a real worker pid.
-  case "$pid" in 0|*[!0-9]*) echo "no worker"; return ;; esac
-  if kill -0 "$pid" 2>/dev/null; then echo "running $pid"; return; fi
-  if [ -f "$wt/.plot-worker.exit" ]; then
-    code=$(cat "$wt/.plot-worker.exit" 2>/dev/null | tr -d ' \n')
-    case "$code" in
-      0)  echo "finished $pid" ;;
-      "") echo "ended $pid (status unknown)" ;;
-      *)  echo "failed $pid (exit $code)" ;;
-    esac
-    return
-  fi
-  # No exit file: a worker started before this was recorded, or one killed
-  # outright. Unknown is its own answer — guessing "finished" would be the
-  # same mistake in the other direction.
-  echo "ended $pid (status unknown)"
+# THE CLASSIFICATION LIVES IN plot-worker-state.sh, sourced above and shared
+# with plot-fleet-scan.sh. This function is now only the RENDERING half: it
+# turns the shared facts into the prose `--status` has always printed. The scan
+# renders the same facts as tab-separated JSON fields.
+#
+# The two copies of this logic agreed on five of six states and split on the
+# sixth (a non-numeric exit code), which is what a duplicate does while nobody
+# is looking. `no worker` is spelled that way HERE and `none` in the scan —
+# both are the shared `none`, rendered for their own audience.
+# Has this branch's work reached review — an open or merged PR?
+#
+# ASKED HERE TOO, AND THAT IS THE POINT. The PR fact outranks every local signal
+# in the classification, so a consumer that cannot supply it reports `stalled`
+# where the other reports `finished` — the same one-fact-two-verdicts drift
+# wave 1 removed, re-entering through the new parameter. The contract test
+# drives both consumers from one fixture precisely to catch that.
+#
+# AFFORDABLE HERE, unlike in the scan's inner loop. `--status` runs when a
+# person types it and iterates the handful of `plot-wt-*` worktrees on this
+# disk; the scan is polled by the board every 5 s across every branch of every
+# plan, which is why IT caches one reply per branch per run. Same question, two
+# costs, and only one of them needs the machinery.
+#
+# `--offline` IS HONOURED, because it promises no network and a flag that lied
+# would be worse than a slower answer. Offline, or with no backend, the fact is
+# simply not supplied and the local signals answer alone — `stalled` rather
+# than `finished`, which sends a reader to look rather than telling them to stop.
+reached_review() { # $1=branch → 0 when an open or merged PR exists
+  [ -z "$offline" ] || return 1
+  [ -n "$1" ] && [ "$1" != "?" ] || return 1
+  [ "$("$script_dir/plot-host.sh" backend 2>/dev/null)" != "none" ] || return 1
+  local js st
+  # Exit code first: a non-zero is a transport failure and its stdout is not an
+  # answer. GitHub returned 503 all afternoon on 2026-08-17, and a reader that
+  # trusted the payload on failure would have called every branch reviewed.
+  js=$("$script_dir/plot-host.sh" pr-state "$1" </dev/null 2>/dev/null) || return 1
+  st=$(printf '%s' "$js" | sed -n 's/.*"state":"\([A-Z]*\)".*/\1/p')
+  case "$st" in OPEN|MERGED) return 0 ;; *) return 1 ;; esac
+}
+
+worker_state() { # $1=worktree [$2=branch]
+  local row state pid code pr_fact=""
+  reached_review "${2:-}" && pr_fact="pr"
+  row=$(plot_worker_state "$1" "$pr_fact")
+  state=$(printf '%s' "$row" | cut -f1)
+  pid=$(printf '%s' "$row" | cut -f2)
+  code=$(printf '%s' "$row" | cut -f3)
+  case "$state" in
+    running)  echo "running $pid" ;;
+    finished) echo "finished $pid" ;;
+    # THE TWO TASK STATES, rendered as prose here and as bare words in the
+    # scan's JSON — one computation, two renderings, the split this file's
+    # `worker_state` exists to keep. Each names the move rather than the
+    # condition: a reader of `--status` is deciding what to do next, and
+    # "answer it" versus "resume it" is that decision.
+    waiting)  echo "waiting $pid (answer it)" ;;
+    stalled)  echo "stalled $pid (work unfinished)" ;;
+    failed)   echo "failed $pid (exit $code)" ;;
+    ended)    echo "ended $pid (status unknown)" ;;
+    *)        echo "no worker" ;;
+  esac
 }
 
 if [ "$mode" = "status" ]; then
-  n_live=0 n_done=0 n_failed=0 n_ended=0 n_none=0
+  n_live=0 n_done=0 n_waiting=0 n_stalled=0 n_failed=0 n_ended=0 n_none=0
   for wt in "$wt_root_early"/plot-wt-*; do
     [ -d "$wt" ] || continue
     br=$(git -C "$wt" branch --show-current 2>/dev/null || echo "?")
-    st=$(worker_state "$wt")
+    st=$(worker_state "$wt" "$br")
     case "$st" in
       running*)  n_live=$((n_live + 1)) ;;
       finished*) n_done=$((n_done + 1)) ;;
+      waiting*)  n_waiting=$((n_waiting + 1)) ;;
+      stalled*)  n_stalled=$((n_stalled + 1)) ;;
       failed*)   n_failed=$((n_failed + 1)) ;;
       ended*)    n_ended=$((n_ended + 1)) ;;
       *)         n_none=$((n_none + 1)) ;;
@@ -170,9 +220,9 @@ if [ "$mode" = "status" ]; then
       echo "      last: $(tail -1 "$wt/.plot-worker.log" 2>/dev/null)"
     fi
   done
-  [ $((n_live + n_done + n_failed + n_ended + n_none)) -gt 0 ] \
+  [ $((n_live + n_done + n_waiting + n_stalled + n_failed + n_ended + n_none)) -gt 0 ] \
     || echo "  (no fleet worktrees under $wt_root_early)"
-  echo "summary: running=$n_live finished=$n_done failed=$n_failed ended=$n_ended no_worker=$n_none"
+  echo "summary: running=$n_live finished=$n_done waiting=$n_waiting stalled=$n_stalled failed=$n_failed ended=$n_ended no_worker=$n_none"
   exit 0
 fi
 
@@ -186,7 +236,7 @@ if [ "$mode" = "stop" ]; then
   fi
   wt="$wt_root_early/plot-wt-$(printf '%s' "$stop_branch" | tr '/' '-')"
   [ -d "$wt" ] || { echo "plot-dispatch: no worktree for '$stop_branch' at $wt" >&2; exit 1; }
-  st=$(worker_state "$wt")
+  st=$(worker_state "$wt" "$stop_branch")
   case "$st" in
     running*)
       pid=${st#running }
@@ -196,7 +246,7 @@ if [ "$mode" = "stop" ]; then
       # and deleting either would be the kind of write this design avoids.
       echo "  worktree kept at $wt — the claim stands until you release it"
       ;;
-    finished*|failed*|ended*) echo "$stop_branch is not running ($st)" ;;
+    finished*|waiting*|stalled*|failed*|ended*) echo "$stop_branch is not running ($st)" ;;
     *)      echo "$stop_branch has no worker" ;;
   esac
   exit 0
@@ -217,33 +267,167 @@ fi
 # is a command the user invoked: if the plan's phase cannot be read, refusing
 # costs one confused re-run, while proceeding costs several agents doing
 # unapproved work. The damage is asymmetric, so the default is too.
+#
+# THE PHASE IS READ FROM THE SHARED REF, NOT THE WORKING TREE. The working tree
+# is the least trustworthy surface in a repo with several agents in it: it
+# carries whatever branch was last checked out plus whatever is uncommitted,
+# and neither is a fact anyone else shares. Reading it got this gate wrong in
+# BOTH directions, both reproduced 2026-08-18:
+#
+#   - it REFUSED approved work, when a concurrent agent's `git checkout` parked
+#     the shared checkout on a branch carrying an older copy of the plan. The
+#     approval was on origin/<main> the whole time.
+#   - it PERMITTED unapproved work, when an approval was committed to a local
+#     branch and never pushed. Manifesto P2 is "plans are approved before
+#     implementation"; a gate that accepts an approval nobody else can see
+#     enforces "someone typed Approved in this filesystem" instead.
+#
+# So the question the gate asks is: has this plan been approved WHERE EVERYONE
+# CAN SEE IT? `git show origin/<main>:<path>` is that question. There is
+# deliberately NO fallback to the working tree — that would reintroduce the bug
+# exactly where nothing can catch it. --allow-local is the explicit escape, and
+# it is named in the refusal so an operator learns it exists when they need it.
+MAIN=$(bash "$script_dir/plot-config.sh" get "Main branch")
+[ -n "$MAIN" ] || MAIN=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
+[ -n "$MAIN" ] || MAIN="main"
+[ -n "$offline" ] || git fetch -q origin "$MAIN" 2>/dev/null
+
 PLAN_DIR_CFG=$("$script_dir/plot-config.sh" get "Plan directory" "docs/plans/")
 ACTIVE_DIR_CFG=$("$script_dir/plot-config.sh" get "Active index" "docs/plans/active/")
-plan_file=""
-for cand in "$ACTIVE_DIR_CFG$slug.md" "$PLAN_DIR_CFG"*"$slug".md; do
-  [ -e "$cand" ] && { plan_file="$cand"; break; }
-done
 
-if [ -z "$plan_file" ]; then
-  echo "plot-dispatch: no plan found for '$slug' — looked in $ACTIVE_DIR_CFG and $PLAN_DIR_CFG" >&2
+gate_ref="origin/$MAIN"
+gate_sha=$(git rev-parse --verify --quiet "$gate_ref^{commit}" 2>/dev/null) || gate_sha=""
+
+# The plan as it exists on the shared ref. Path resolution runs against the ref
+# too (`git ls-tree`), not the filesystem: a plan that exists only locally must
+# not be found here, and a plan whose local copy was deleted must still gate.
+#
+# The active index is a directory of SYMLINKS, and git stores a symlink as mode
+# 120000 whose blob content is the TARGET PATH — so `git show <ref>:active/g.md`
+# yields the string "../2026-01-01-g.md", not the plan. On a filesystem `[ -e ]`
+# follows the link and this never comes up; against a ref it must be
+# dereferenced by hand, or the gate parses a one-line path as a plan and reports
+# an unreadable phase instead of the real one.
+deref_on_ref() { # $1=path on $gate_ref → prints the path the blob really lives at
+  local p="$1" target dir hops=0
+  while [ "$(git ls-tree "$gate_ref" -- "$p" 2>/dev/null | awk '{print $1}')" = "120000" ]; do
+    hops=$((hops + 1))
+    [ "$hops" -le 8 ] || return 1        # a symlink cycle must not hang the gate
+    target=$(git show "$gate_ref:$p" 2>/dev/null) || return 1
+    case "$target" in
+      /*) return 1 ;;                    # absolute: not a path within the ref
+      *)  dir=$(dirname "$p")
+          # Normalise ../ and ./ without touching the filesystem.
+          p=$(printf '%s\n' "$dir/$target" | awk -F/ '{
+                n=0
+                for (i=1; i<=NF; i++) {
+                  if ($i == "" || $i == ".") continue
+                  if ($i == "..") { if (n>0) n--; continue }
+                  s[++n]=$i
+                }
+                out=""
+                for (i=1; i<=n; i++) out = (i==1 ? s[i] : out "/" s[i])
+                print out
+              }') ;;
+    esac
+  done
+  printf '%s\n' "$p"
+}
+
+plan_path=""
+if [ -n "$gate_sha" ]; then
+  for cand in "$ACTIVE_DIR_CFG$slug.md" \
+              $(git ls-tree -r --name-only "$gate_ref" -- "$PLAN_DIR_CFG" 2>/dev/null \
+                | grep -E "/[0-9]{4}-[0-9]{2}-[0-9]{2}-${slug}\.md$|/${slug}\.md$"); do
+    git cat-file -e "$gate_ref:$cand" 2>/dev/null || continue
+    plan_path=$(deref_on_ref "$cand") || { plan_path=""; continue; }
+    [ -n "$plan_path" ] && break
+  done
+fi
+
+# --allow-local: read the working tree instead, and say so. The escape for a
+# repo with no remote at all; never reached silently.
+if [ -z "$gate_sha" ] && [ "$allow_local" = 1 ]; then
+  echo "plot-dispatch: cannot resolve '$gate_ref' — reading the working tree (--allow-local)." >&2
+  for cand in "$ACTIVE_DIR_CFG$slug.md" "$PLAN_DIR_CFG"*"$slug".md; do
+    [ -e "$cand" ] && { plan_path="$cand"; break; }
+  done
+fi
+
+if [ -z "$gate_sha" ] && [ "$allow_local" != 1 ]; then
+  echo "plot-dispatch: cannot resolve '$gate_ref' — refusing to dispatch." >&2
+  echo "  The phase gate reads the plan as it exists on the shared ref, so an" >&2
+  echo "  approval only you can see cannot open it. Run \`git fetch origin $MAIN\`," >&2
+  echo "  or pass --allow-local to gate on the working tree instead." >&2
   exit 1
 fi
 
-gate_meta=$("$script_dir/plot-plan-meta.sh" "$plan_file" 2>/dev/null) || gate_meta=""
+if [ -z "$plan_path" ]; then
+  if [ "$allow_local" = 1 ]; then
+    echo "plot-dispatch: no plan found for '$slug' — looked in $ACTIVE_DIR_CFG and $PLAN_DIR_CFG" >&2
+  else
+    echo "plot-dispatch: no plan for '$slug' on $gate_ref — looked in $ACTIVE_DIR_CFG and $PLAN_DIR_CFG" >&2
+    echo "  A plan that exists only in this working tree has not been shared yet: push it first." >&2
+  fi
+  exit 1
+fi
+
+# plot-plan-meta.sh is the format contract and takes a PATH, so the blob is
+# materialised into a temp file rather than parsed here — the parser stays the
+# one place that knows what a plan file looks like.
+#
+# The template's X's must TRAIL: BSD mktemp (macOS) rejects a template with a
+# suffix after them, while GNU accepts it. The first version wrote
+# `plot-gate-XXXXXX.md` and failed on macOS — and because the failure fell back
+# to the working tree, the gate silently went back to reading the exact surface
+# this fix exists to stop reading. Hence also: NO working-tree fallback below.
+# If the shared blob cannot be materialised, the gate refuses.
+plan_file="$plan_path"
+gate_blob=""
+if [ -n "$gate_sha" ]; then
+  gate_dir=$(mktemp -d "${TMPDIR:-/tmp}/plot-gate-XXXXXX") || gate_dir=""
+  if [ -n "$gate_dir" ]; then
+    trap 'rm -rf "$gate_dir"' EXIT
+    gate_blob="$gate_dir/$(basename "$plan_path")"
+    git show "$gate_ref:$plan_path" >"$gate_blob" 2>/dev/null || gate_blob=""
+  fi
+  if [ -z "$gate_blob" ]; then
+    echo "plot-dispatch: could not read '$gate_ref:$plan_path' — refusing to dispatch." >&2
+    echo "  The gate does not fall back to the working tree: an approval only you" >&2
+    echo "  can see must not open it. Pass --allow-local if that is what you mean." >&2
+    exit 1
+  fi
+else
+  gate_blob="$plan_path"   # --allow-local only; guarded above
+fi
+
+# What the gate actually read, for messages: the shared ref by default, the
+# working tree only under --allow-local. A refusal that names `origin/main@<sha>`
+# is debuggable in seconds; "still Draft" alone sent an operator looking at a
+# file that already said Approved.
+if [ -n "$gate_sha" ]; then
+  gate_source="$gate_ref@${gate_sha:0:8}:$plan_path"
+else
+  gate_source="$plan_path (working tree, --allow-local)"
+fi
+
+gate_meta=$("$script_dir/plot-plan-meta.sh" "$gate_blob" 2>/dev/null) || gate_meta=""
 gate_phase=$(printf '%s' "$gate_meta" | sed -n 's/.*"phase":"\([^"]*\)".*/\1/p')
 gate_impl=$(printf '%s' "$gate_meta" | sed -n 's/.*"impl":"\([^"]*\)".*/\1/p')
 
 case "$gate_phase" in
   approved) ;;
   draft)
-    echo "plot-dispatch: plan '$slug' is still Draft — nothing may be dispatched." >&2
+    echo "plot-dispatch: plan '$slug' is still Draft on $gate_source — nothing may be dispatched." >&2
+    echo "  The gate reads the plan as it exists on the shared ref. If you approved it" >&2
+    echo "  locally, push that approval; an approval nobody else can see is not one." >&2
     echo "  Review it, then: /plot-approve $slug" >&2
     exit 1 ;;
   delivered|released)
     echo "plot-dispatch: plan '$slug' is already $gate_phase — its work is done." >&2
     exit 1 ;;
   "")
-    echo "plot-dispatch: cannot read the phase of '$slug' ($plan_file)." >&2
+    echo "plot-dispatch: cannot read the phase of '$slug' ($gate_source)." >&2
     echo "  Refusing rather than guessing — dispatching starts real work." >&2
     exit 1 ;;
   *)
@@ -274,9 +458,8 @@ case "$gate_impl" in
     exit 1 ;;
 esac
 
-MAIN=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
-[ -n "$MAIN" ] || MAIN="main"
-[ -n "$offline" ] || git fetch -q origin "$MAIN" 2>/dev/null
+# MAIN was resolved and origin fetched above, before the phase gate — the gate
+# needs the shared ref to read the plan from it.
 
 # Worktrees live beside the repo, not inside it: a worktree nested in the repo
 # would show up in its own status and in every glob.

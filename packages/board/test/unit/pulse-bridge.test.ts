@@ -32,6 +32,7 @@ const PULSE: FleetPulse = {
         // makes the round-trip assertion mean "everything" rather than
         // "everything I remembered".
         conflicts: [], conflicts_known: false, changed_paths: [],
+        worker_dirty_paths: [],
       }],
     }],
   }],

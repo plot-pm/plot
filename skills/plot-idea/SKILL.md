@@ -11,7 +11,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 2.0.0
+  version: 2.1.0
 compatibility: Designed for Claude Code and Cursor. Requires git. Host operations (PRs, default branch) go through plot-host.sh (GitHub or Bitbucket).
 ---
 
@@ -55,6 +55,8 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 9. Summary | Small | Template formatting |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
+>
+> **No user present?** If `PLOT_UNATTENDED=1` is set, do not call the question tool — each question below declares what to do instead, and every skipped question is named in the output. See [Running unattended](../plot/docs/unattended.md).
 
 ### 1. Parse Input
 
@@ -131,7 +133,11 @@ available) and — once per repo, not per plan — suggest declaring them:
 - **Duplicate detection:**
   - `ls docs/plans/active/ 2>/dev/null` + `../plot/scripts/plot-host.sh pr-list | jq -r .head | grep '^idea/'` to find existing plans and idea branches
   - **Hard gate:** if a plan with the identical slug already exists (file or branch), stop and ask the user to pick a different name
+    - **Unattended (`PLOT_UNATTENDED=1`):** refuses identically — it is a gate, and inventing `<slug>-2` would defeat it.
+      `PLOT-UNASKED: Pick a different slug, since <slug> already exists? — refused — gate; nothing created`
   - **Soft warning:** if any existing plan title shares 3+ significant words with the proposed title, warn the user and ask to confirm this is intentionally separate work (only check Draft/Approved plans, not Delivered ones)
+    - **Unattended (`PLOT_UNATTENDED=1`):** proceed — it is a warning by construction, not a gate — but name the overlapping plans in the output.
+      `PLOT-UNASKED: Is this intentionally separate from <slug>? — default — proceeded; the overlap is listed above`
 
 > **Smaller models:** Skip the title similarity check. Enforce the hard gate (identical slug) only. Ask the user: "Could not check for similar plan titles. Please verify manually that this doesn't overlap with existing plans."
 
@@ -206,6 +212,13 @@ Ask the user what **Type** to use, presenting this reference:
 | `infra` | CI, build, tooling, release automation | GitHub Actions, Dockerfile, linter config, deps |
 
 Always ask — don't infer from the title.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** stop unless the Type was given in
+> `$ARGUMENTS`. **Do not infer it from the title** — that is the one thing the
+> line above forbids, and being unattended is not a reason to start doing it.
+> Type drives release notes and the version bump, so a wrong guess propagates
+> well past this plan. Write no plan file.
+> `PLOT-UNASKED: What Type is this plan (feature/bug/docs/infra)? — stopped — no plan file written`
 
 **Where the plan file goes depends on the recorded answers:**
 

@@ -91,6 +91,12 @@ test('flow b: same-branch draft blocks code, hold lifecycle, approval flips the 
     sh(sb.work, 'git add -A');
     assert.equal(runGate(sb.work, 'git commit -m plan'), 0, 'plan-only commit must pass while Draft');
     sh(sb.work, 'git commit -qm "plot: Flow B plan"');
+    // The gate reads the plan from a SHARED ref, so the same-branch flow has to
+    // share the branch — which is what it does in practice (a worker pushes its
+    // first commit as soon as it exists). Until then there is nothing anyone
+    // else can see, and the gate says the phase went unverified rather than
+    // blocking a repo out of its own bootstrap.
+    sh(sb.work, 'git push -qu origin feature/flow-b');
 
     // review hold on a ticket-slugged branch (non-prefix): write → block → clear
     sh(sb.work, 'git checkout -q main && git checkout -qb TICKET-9-side');
@@ -110,8 +116,12 @@ test('flow b: same-branch draft blocks code, hold lifecycle, approval flips the 
     assert.equal(runGate(sb.work, 'git add -A && git commit -m impl'), 2, 'draft same-branch plan must block code');
     sh(sb.work, 'git add -A');
 
-    // approval recorded in-file → same command now passes
+    // approval recorded in-file AND SHARED → same command now passes. An
+    // approval that exists only in this working tree is exactly what must not
+    // open the gate, so the flow commits and pushes it.
     recordApproval(sb.work, rel, { channel: 'in-session' });
+    sh(sb.work, 'git add -A && git commit -qm "plot: approve Flow B" && git push -q origin feature/flow-b');
+    fs.writeFileSync(path.join(sb.work, 'src/b.js'), 'y');
     sh(sb.work, 'git add -A');
     assert.equal(runGate(sb.work, 'git commit -m impl'), 0, 'approved plan must unblock');
     const meta = planMeta(sb.work, rel);

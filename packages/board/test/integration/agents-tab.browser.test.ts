@@ -54,7 +54,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     // is also the row that carries the Start work button.
     row({
       branch: 'feature/untaken', plan: 'plant-tomatoes', group: 'not-started',
-      state: 'open', phase: 'Design', ageMinutes: null, note: ELIGIBLE_NOTE,
+      state: 'open', phase: 'Design', ageMinutes: null, waitingOn: 'click' as const, note: ELIGIBLE_NOTE,
       branchUrl: `${GH}feature/untaken`, waitingDays: 22,
     }),
     // The other half of `not-started`, and the one that must NOT get a button:
@@ -63,7 +63,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     row({
       branch: 'feature/blocked', plan: 'plant-tomatoes', group: 'not-started',
       state: 'open', phase: 'Design', ageMinutes: null,
-      note: 'blocked by an earlier wave', branchUrl: `${GH}feature/blocked`,
+      waitingOn: 'time' as const, note: 'blocked by Truth', branchUrl: `${GH}feature/blocked`,
       waitingDays: 22,
     }),
     // A branch handed back: real commits inside the quiet window, under an
@@ -79,7 +79,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     // predating the `Approved:` field. It must show no waiting age at all.
     row({
       branch: 'feature/undated', plan: 'beans', group: 'not-started',
-      state: 'open', phase: 'Design', ageMinutes: null, note: ELIGIBLE_NOTE,
+      state: 'open', phase: 'Design', ageMinutes: null, waitingOn: 'click' as const, note: ELIGIBLE_NOTE,
       branchUrl: `${GH}feature/undated`, waitingDays: null,
     }),
     // A merged branch: its remote page is gone, so no branch link.
@@ -100,7 +100,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     row({
       branch: 'feature/ghost-ready', plan: 'ghost-plan',
       planFile: '2099-01-01-ghost-plan.md', group: 'not-started', state: 'open',
-      phase: 'Design', ageMinutes: null, note: ELIGIBLE_NOTE,
+      phase: 'Design', ageMinutes: null, waitingOn: 'click' as const, note: ELIGIBLE_NOTE,
       branchUrl: `${GH}feature/ghost-ready`,
     }),
   ];
@@ -545,15 +545,25 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // carried by colour and title, not by a second position.
     const page = await openAgents();
     try {
-      const untaken = rowFor(page, 'feature/untaken');
-      await expect.poll(() => untaken.getByTitle(/nobody has started it/).count()).toBe(1);
-      await expect.poll(() => untaken.getByTitle(/nobody has started it/).textContent())
+      // ON THE PLAN ROW, not on the branch. `waitingDays` dates the plan's own
+      // `Approved:` record, so every branch of one plan carries the same
+      // number — stating it per branch said one measurement three times. This
+      // asserted the branch row until the section learned to group; what it
+      // MEANS (one column, one answer, carried by colour and title) is
+      // unchanged and asserted here.
+      const untakenPlan = page.locator('li[data-plan-row]')
+        .filter({ hasText: 'plant-tomatoes' }).first();
+      await expect.poll(() => untakenPlan.getByTitle(/nobody has started it/).count()).toBe(1);
+      await expect.poll(() => untakenPlan.getByTitle(/nobody has started it/).textContent())
         .toBe('22d');
-      // And NOT beside it: the row must not carry the age twice. Asserted on
-      // the LAST cell rather than by searching the row for an em dash — the
-      // note reads "eligible — nobody has taken it" and contains one, so a
-      // text search finds the wrong thing and passes for the wrong reason.
-      await expect.poll(() => untaken.locator('span').last().textContent()).toBe('22d');
+      const untaken = rowFor(page, 'feature/untaken');
+      // ONCE, and on the plan row. This asserted the clock on the BRANCH's last
+      // cell to prove the row did not carry it twice; the branch now does not
+      // carry it at all, which satisfies that intent more strongly than the
+      // assertion could say. Stated directly instead: the number appears on the
+      // plan row and nowhere in the branch row beneath it.
+      await expect.poll(() => untaken.count()).toBe(1);
+      expect(await untaken.textContent()).not.toContain('22d');
       expect(await untaken.getByText(/waiting/).count()).toBe(0);
       // No approval date recorded — nothing rather than a zero or a "just now".
       const undated = rowFor(page, 'feature/undated');
@@ -661,7 +671,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // The prefix survives BELOW `sm`, and only there: a card has no columns
       // for a header to name, so the word `Development` would arrive with
       // nothing saying what it is. That half is asserted in the card tests.
-      const phaseCell = li.locator('[role="gridcell"]').first();
+      // NOT `.first()` — that is the marks cell now. The phase is the second,
+      // read by the named constant so this stays in step with the geometry
+      // constants above.
+      const phaseCell = li.locator('[role="gridcell"]').nth(PHASE_CELL);
       const name = await phaseCell.evaluate((el) => (el as HTMLElement).innerText);
       expect(name.trim()).toBe('Development');
       // The word itself is untouched, and visible.
@@ -759,8 +772,16 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   it('puts no badge on a branch nobody handed back', async () => {
     const page = await openAgents();
     try {
+      // The PHASE is on the plan row now: it is a property of the plan that a
+      // branch inherits, so stating it per branch said one word down a column.
+      // The badge's absence is still asserted on the BRANCH, which is where a
+      // badge would appear — the two halves live one level apart, and this
+      // asserted both on the branch until the section grew a plan row.
       const li = rowFor(page, 'feature/untaken');
-      await expect.poll(() => li.textContent()).toContain('Design');
+      await expect.poll(() => li.count()).toBe(1);
+      const plan = page.locator('li[data-plan-row]')
+        .filter({ hasText: 'plant-tomatoes' }).first();
+      expect(await plan.textContent()).toContain('Design');
       expect(await li.textContent()).not.toContain('deferred');
     } finally {
       await page.close();
@@ -800,94 +821,124 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('renders the menu DISABLED on a row blocked by an earlier wave', async () => {
-    // The deliberate exception to this estate's rule against greyed-out
-    // controls, and it turns on what a control CLAIMS: a dead `Start work`
-    // would name an action that does not exist here, while a dimmed three-dot
-    // menu claims only *this is where actions would be*, true on every row.
+  it('renders NO menu on a row blocked by an earlier wave', async () => {
+    // **This asserted a DIMMED menu until 2026-08-18**, on the reasoning that a
+    // dead `Start work` names an action that does not exist here while a dimmed
+    // three-dot menu claims only *this is where actions would be*, true on
+    // every row.
+    //
+    // `one-place-for-what-a-row-can-do` withdrew that exception. The claim is
+    // not the whole cost: a `⋯` that opens nothing is a control that lies, and
+    // it was measured lying on two of six WAITING ON YOU rows. The row already
+    // says what it is, and an absent control claims nothing at all.
+    //
+    // The reason it was allowed — a ragged, moving right edge — was answered by
+    // the fixed track this cell has since gained; see the right-edge test below,
+    // which now measures exactly that.
     const page = await openAgentsWithBoard();
     try {
       const li = rowFor(page, 'feature/blocked');
-      await expect.poll(() => li.textContent()).toContain('blocked by an earlier wave');
-      const dots = menu(page, 'feature/blocked');
-      await expect.poll(() => dots.count()).toBe(1);
-      expect(await dots.getAttribute('aria-disabled')).toBe('true');
-      // Never the native attribute — see the focusability assertion below.
-      expect(await dots.getAttribute('disabled')).toBeNull();
-      // And activating it opens nothing. Dispatched rather than clicked: the
-      // driver's own actionability check treats `aria-disabled` as disabled and
-      // would wait forever — itself evidence the attribute is doing its job —
-      // so the event is forced past that to prove the HANDLER declines too.
-      await dots.dispatchEvent('click');
+      // NAMES THE WAVE — *blocked by which one?* is the reader's next
+      // question, and the fixture's row says `blocked by Truth`. This is the
+      // half that matters more now: with no control to carry a title, the ROW
+      // is where the explanation lives.
+      await expect.poll(() => li.textContent()).toContain('blocked by Truth');
+      expect(await menu(page, 'feature/blocked').count()).toBe(0);
       expect(await li.getByRole('button', { name: 'Start work' }).count()).toBe(0);
     } finally {
       await page.close();
     }
   });
 
-  it('keeps the disabled menu FOCUSABLE, so its explanation stays reachable', async () => {
-    // `disabled` would drop the control out of the tab order and take the
-    // reason with it — putting the explanation out of reach of anyone not
+  it('keeps a REFUSED menu focusable, so its explanation stays reachable', async () => {
+    // A REFUSAL IS NOT AN ABSENCE, and this is the case that survived the
+    // withdrawal above. A row whose act the server declines still HAS something
+    // to do — you cannot do it from this binding — so it keeps its button and
+    // names the reason on it.
+    //
+    // `disabled` would drop that control out of the tab order and take the
+    // reason with it, putting the explanation out of reach of anyone not
     // hovering with a mouse. `aria-disabled` suppresses activation and keeps it.
+    // Asserted on the shipped artifact in `stuck-rows.browser.test.ts`, which
+    // has a non-localhost binding to refuse with; here the fixture's server
+    // acts, so this file asserts the shape the enabled control keeps.
     const page = await openAgentsWithBoard();
     try {
-      const dots = menu(page, 'feature/blocked');
+      const dots = menu(page, 'feature/untaken');
       await expect.poll(() => dots.count()).toBe(1);
       await dots.focus();
       expect(await dots.evaluate((el) => el === document.activeElement)).toBe(true);
+      // Never the native attribute, on either side of the enabled/refused line.
+      expect(await dots.getAttribute('disabled')).toBeNull();
     } finally {
       await page.close();
     }
   });
 
-  it('says WHY in the row\'s own words, not a generic "no actions"', async () => {
-    // A disabled control without a reason makes people guess, and the row
-    // already knows: the note beside it is the whole explanation.
+  it("says WHY in the row's own words, not a generic \"no actions\"", async () => {
+    // The reason did not disappear with the dimmed menu — it moved to where it
+    // was always more useful. A row with nothing to do now carries its
+    // explanation in the NOTE beside it rather than in the `title` of a control
+    // that is no longer there, and the note is visible without hovering.
     const page = await openAgentsWithBoard();
     try {
-      const blocked = menu(page, 'feature/blocked');
-      await expect.poll(() => blocked.count()).toBe(1);
-      expect(await blocked.getAttribute('title')).toContain('blocked by an earlier wave');
-      // A different row, a different reason — so the title is read from the row
-      // rather than being one string for every disabled menu.
+      const blocked = rowFor(page, 'feature/blocked');
+      await expect.poll(() => blocked.textContent()).toContain('blocked by Truth');
+      expect(await menu(page, 'feature/blocked').count()).toBe(0);
+      // A different row, a different reason — so the words are read from the
+      // row rather than being one string for every row with nothing to do.
       await expand(page, 'quiet');
-      const quiet = menu(page, 'feature/ghost');
-      await expect.poll(() => quiet.count()).toBe(1);
-      expect(await quiet.getAttribute('title')).toContain('no commit for 16 hours');
+      const quiet = rowFor(page, 'feature/ghost');
+      await expect.poll(() => quiet.textContent()).toContain('no commit for 16 hours');
+      expect(await menu(page, 'feature/ghost').count()).toBe(0);
     } finally {
       await page.close();
     }
   });
 
   it('keeps the right edge still when a row gains or loses its action', async () => {
-    // The layout argument that decides the disabled menu at all: with most rows
-    // carrying no action, rendering nothing would leave the right edge ragged
-    // AND moving, since the pulse re-scans every five seconds.
+    // THE ARGUMENT THAT USED TO REQUIRE A DIMMED MENU, now measured directly
+    // against the thing that replaced it. Rendering nothing was rejected
+    // because most rows have no action, so the right edge would be ragged AND
+    // moving as the five-second pulse gave and took actions.
+    //
+    // The cell has since gained a fixed `1.25rem` track of its own, and the
+    // GRIDCELL still renders unconditionally while only the button inside it is
+    // conditional. So the column holds still on its own, and the placeholder
+    // was paying for something it no longer bought. This asserts that
+    // directly: a row WITH a menu and a row WITHOUT one line up.
     const page = await openAgentsWithBoard();
     try {
       await expect.poll(() => menu(page, 'feature/untaken').count()).toBe(1);
-      const enabled = await menu(page, 'feature/untaken').boundingBox();
-      const disabled = await menu(page, 'feature/blocked').boundingBox();
-      expect(enabled!.width).toBe(disabled!.width);
-      // And both sit at the same right edge, which is the thing that must not
-      // move as a row's action comes and goes.
-      expect(Math.round(enabled!.x + enabled!.width))
-        .toBe(Math.round(disabled!.x + disabled!.width));
+      // The row with an action, and a row with none — the exact pair whose
+      // divergence the old placeholder existed to prevent.
+      expect(await menu(page, 'feature/blocked').count()).toBe(0);
+      const withAction = await rowFor(page, 'feature/untaken')
+        .locator('[role="gridcell"]').last().boundingBox();
+      const without = await rowFor(page, 'feature/blocked')
+        .locator('[role="gridcell"]').last().boundingBox();
+      // Same width and same right edge, with no button in one of them.
+      expect(withAction!.width).toBe(without!.width);
+      expect(Math.round(withAction!.x + withAction!.width))
+        .toBe(Math.round(without!.x + without!.width));
     } finally {
       await page.close();
     }
   });
 
-  it('renders a disabled menu on a row whose plan has no board card', async () => {
+  it('renders no menu on a row whose plan has no board card', async () => {
     // StartWorkButton takes a Card and a row is not one, so the card is looked
     // up by planFile. A plan outside the walked directories has a row and no
     // card — it gets no ACTION rather than a broken one, the same honest
     // fallback the plan link already makes.
+    //
+    // And now no CONTROL either: with nothing behind it, the `⋯` was the empty
+    // menu in its purest form.
     const page = await openAgentsWithBoard();
     try {
       const li = rowFor(page, 'feature/ghost-ready');
       await expect.poll(() => li.textContent()).toContain(ELIGIBLE_NOTE);
-      expect(await menu(page, 'feature/ghost-ready').getAttribute('aria-disabled')).toBe('true');
+      expect(await menu(page, 'feature/ghost-ready').count()).toBe(0);
       expect(await li.getByRole('button', { name: 'Start work' }).count()).toBe(0);
     } finally {
       await page.close();
@@ -897,7 +948,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   it('offers no ACTION on rows that already have a branch and a claim', async () => {
     // Working, quiet and waiting rows are somebody's already. Offering to start
     // one invites exactly the double-dispatch fleet-sees-merged-branches was
-    // written to prevent. The menu is still there — dimmed, claiming nothing.
+    // written to prevent.
+    //
+    // The menu is no longer "still there, dimmed" — it is not there. Same
+    // conclusion for the reader, one fewer control that lies.
     const page = await openAgentsWithBoard();
     try {
       await expect.poll(() => menu(page, 'feature/untaken').count()).toBe(1);
@@ -905,11 +959,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expandAll(page);
       for (const branch of ['feature/beans-a', 'feature/reviewed', 'feature/landed',
         'feature/ghost', 'feature/shelved']) {
-        expect(await menu(page, branch).getAttribute('aria-disabled')).toBe('true');
-        // Forced past the driver's actionability check — see the disabled-menu
-        // test above — so this asserts the handler declines, not merely that
-        // the attribute is present.
-        await menu(page, branch).dispatchEvent('click');
+        expect(await menu(page, branch).count(), `${branch} rendered a menu`).toBe(0);
         expect(await rowFor(page, branch).getByRole('button', { name: 'Start work' }).count())
           .toBe(0);
       }
@@ -946,8 +996,13 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   it('offers no action at all before the board has said whether it can dispatch', async () => {
     // `openAgents` does not wait for /api/board, so no cards and no dispatch
     // capability have landed. A control whose outcome is unknown is worse than
-    // no control — the same rule PlanCard follows. The menu renders dimmed,
-    // which claims nothing about dispatch either way.
+    // no control — the same rule PlanCard follows.
+    //
+    // This asserted a DIMMED menu until 2026-08-18. With no card and no
+    // dispatch verdict there is no item to hold, and a menu with no items now
+    // renders no button — the empty `⋯` in its purest form, on a page that
+    // knows nothing yet. The claim the old dimmed control made (*this is where
+    // actions would be*) is exactly the claim this page cannot support.
     const page = await browser.newPage();
     try {
       await page.route('**/api/board', (route) => route.abort('connectionrefused'));
@@ -960,7 +1015,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // not-started BRANCH row, which now sits one click in.
       await expandPlans(page);
       await rowFor(page, 'feature/untaken').waitFor({ timeout: 10_000 });
-      expect(await menu(page, 'feature/untaken').getAttribute('aria-disabled')).toBe('true');
+      expect(await menu(page, 'feature/untaken').count()).toBe(0);
       expect(await startButtons(page).count()).toBe(0);
     } finally {
       await page.close();
@@ -1838,8 +1893,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     return Math.round(box!.x);
   }
 
-  const BRANCH_CELL = 2;
-  const PR_CELL = 3;
+  // Cell indices, and they moved by one when the marks earned a track of their
+  // own at the front of the row. Named rather than inlined precisely so this
+  // shift is one edit — a stale `nth()` scattered through the file would keep
+  // PASSING while measuring a different column, which is the quietest way for a
+  // geometry test to stop meaning what it says.
+  const PHASE_CELL = 1;
+  const BRANCH_CELL = 3;
+  const PR_CELL = 4;
   const AGE_CELL = 4;
 
   it('starts every branch cell at the same x, with a phase and without one', async () => {
@@ -2034,7 +2095,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         const tracks = await rows.first().evaluate(
           (el) => getComputedStyle(el).gridTemplateColumns,
         );
-        expect(tracks.split(' ')).toHaveLength(6);
+        // SEVEN since the marks earned a track of their own at the front.
+      expect(tracks.split(' ')).toHaveLength(7);
       }
     } finally {
       await page.close();
@@ -2528,7 +2590,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       const li = rowFor(page, 'feature/phone');
       await expect.poll(() => li.count()).toBe(1);
-      const phaseCell = li.locator('[role="gridcell"]').first();
+      // NOT `.first()` — that is the marks cell now. The phase is the second,
+      // read by the named constant so this stays in step with the geometry
+      // constants above.
+      const phaseCell = li.locator('[role="gridcell"]').nth(PHASE_CELL);
       // `innerText` reports the sr-only span as its own line, so the assertion
       // is on the words rather than on the exact spacing between them.
       const heard = await phaseCell.evaluate((el) => (el as HTMLElement).innerText);
@@ -2561,7 +2626,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(Math.abs(phase!.y - branch!.y)).toBeLessThan(branch!.height);
       // And it really is a grid with six tracks.
       const tracks = await li.evaluate((el) => getComputedStyle(el).gridTemplateColumns);
-      expect(tracks.split(' ')).toHaveLength(6);
+      // SEVEN since the marks earned a track of their own at the front.
+      expect(tracks.split(' ')).toHaveLength(7);
     } finally {
       await page.close();
     }
@@ -2578,6 +2644,135 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // Every card the board has, exactly as with no parameter at all.
       expect(await page.locator('article').count()).toBe(8);
       expect(await page.locator('article[data-highlighted="true"]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  /**
+   * The WAITING ON A MACHINE section, header and body, as one reader sees it.
+   *
+   * Read from the rendered page rather than from the props, because the whole
+   * defect was a rendering one: every fact needed to tell the two situations
+   * apart was already in the payload and already in the footer, and the section
+   * printed one word for both anyway.
+   */
+  async function machineSection(page: Page): Promise<{ header: string; body: string }> {
+    const header = page.locator('h2', { hasText: 'Waiting on a machine' });
+    await header.waitFor({ timeout: 10_000 });
+    const body = page.locator('ul[aria-label="Waiting on a machine — agent branches"]');
+    await body.waitFor({ timeout: 10_000 });
+    return {
+      header: (await header.textContent()) ?? '',
+      body: (await body.textContent()) ?? '',
+    };
+  }
+
+  it('does not print `none` on a board that has not yet asked the host', async () => {
+    // THE REPORTED DEFECT, rendered. Measured 2026-08-18 from two screenshots
+    // of one board 22 seconds apart: at `PR data 22s ago` the section read
+    // `none` with no status on any row, and 22 seconds later the same board
+    // reported #57 `conflicts`, #196 `checks failing` since the previous day
+    // and #203 `CI running`. Nothing changed on the host. The operator read it
+    // as the board having lost its state; it had not yet fetched it.
+    //
+    // `prAgeSeconds: null` is the contract's own spelling of *it has never
+    // landed — not that it is fresh*, and it is the state every board is in for
+    // the first seconds after it opens.
+    const page = await openAgents(fleet({ prAgeSeconds: null, prNextInSeconds: null }));
+    try {
+      const { header, body } = await machineSection(page);
+      expect(body).not.toContain('none');
+      expect(body).toContain('not checked yet');
+      // And the header says it too, because QUIET and DONE prove a header can
+      // be the only part of a section on screen.
+      expect(header).toContain('not checked yet');
+      // The claim is WITHDRAWN, not merely reworded: the default hint promises
+      // a machine is working on it, which is exactly what an unasked board
+      // cannot support.
+      expect(header).not.toContain('CI will finish');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('reads exactly as today once a fetch has landed and found nothing', async () => {
+    // The other half, and the one a regression would take out silently. After
+    // an answer, `none` is a real observation — nothing is pending — and it
+    // must keep saying so in the same words. A fix that labelled every empty
+    // section `not checked yet` would trade one misreading for another.
+    const page = await openAgents(fleet({ prAgeSeconds: 4 }));
+    try {
+      const { header, body } = await machineSection(page);
+      expect(body).toContain('none');
+      expect(body).not.toContain('not checked yet');
+      expect(header).toContain('nothing — CI will finish');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('keeps ageing a fetched board rather than re-labelling it', async () => {
+    // A FIRST-LOAD STATE, NOT A STALENESS DISPLAY. 111 s against a 60 s
+    // `PR_REFRESH_MS` is the measured miss that
+    // `bug/a-refresh-that-never-fires-is-not-a-cadence` fixes — and it is still
+    // an ANSWER. The footer reports its age; the section must not start
+    // flickering between two labels every minute.
+    const page = await openAgents(fleet({ prAgeSeconds: 111, prNextInSeconds: 0 }));
+    try {
+      const { body } = await machineSection(page);
+      expect(body).toContain('none');
+      expect(body).not.toContain('not checked yet');
+      // The age is the footer's job, and it is still doing it.
+      await page.getByText(/PR data 11\ds ago/).waitFor({ timeout: 10_000 });
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('shows a FAILED first call as an outage, not as not-checked-yet', async () => {
+    // The plan's open question, decided in favour of a fourth state.
+    // `2026-08-17-an-outage-is-not-an-answer.md` (Delivered) established that
+    // an outage must be visible AS an outage: `unasked` clears itself within
+    // seconds and asks the reader for nothing, while this one waits for
+    // somebody to read the error.
+    //
+    // The server draws the same line: `refreshPrs` leaves `prAt` untouched when
+    // the call throws, so a null age BESIDE an error is a first fetch that
+    // failed rather than one not yet made.
+    const page = await openAgents(fleet({ prAgeSeconds: null, prError: 'gh: 503' }));
+    try {
+      const { header, body } = await machineSection(page);
+      expect(body).not.toContain('none');
+      expect(body).toContain('could not reach the host');
+      expect(body).not.toContain('not checked yet');
+      expect(header).toContain('could not reach the host');
+      // The existing banner still carries the message itself — the section says
+      // WHICH state it is in, the banner says what went wrong. Neither
+      // duplicates the other.
+      await page.locator('p', { hasText: 'PR data unavailable' })
+        .waitFor({ timeout: 10_000 });
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('never lets a host-fed section borrow the git scan\'s freshness', async () => {
+    // Two sources, two clocks. The git scan runs every few seconds and the host
+    // every 60, so a board that is git-fresh and host-unfetched is not an edge
+    // case — it is most of every minute, and it is precisely the board that was
+    // misread. A scan one second old must change nothing about what the
+    // unfetched section says.
+    const page = await openAgents(
+      fleet({ ageSeconds: 1, scanNextInSeconds: 3, prAgeSeconds: null, prNextInSeconds: null }));
+    try {
+      const { body } = await machineSection(page);
+      expect(body).toContain('not checked yet');
+      expect(body).not.toContain('none');
+      // Both ages are still reported separately, which is the separation the
+      // section is now honouring rather than replacing.
+      await page.getByText(/scanned \ds ago/).waitFor({ timeout: 10_000 });
+      await page.getByText(/no PR data yet/).waitFor({ timeout: 10_000 });
     } finally {
       await page.close();
     }

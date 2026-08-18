@@ -1,0 +1,1 @@
+../2026-08-18-the-pulse-measures-progress-not-elapsed-time.md

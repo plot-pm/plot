@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
 import {
-  ELIGIBLE_NOTE,
   type AgentRow,
+  type WaitingOn,
   type Card,
   type DispatchInfo,
   type Fleet,
+  type PulseShrink,
   type Repair,
   type Stuck,
   type StuckState,
   type WaitingGroup,
 } from '../../contract/schema.js';
+import { ApproveButton } from './ApproveButton.js';
+import { isDraft } from './PlanCard.js';
 import { StartWorkButton } from './StartWorkButton.js';
 
 /**
@@ -32,7 +35,11 @@ export const GROUPS: { key: WaitingGroup; icon: string; label: string; hint: str
   { key: 'waiting-on-you', icon: '⚠', label: 'Waiting on you', hint: 'review, merge, decide' },
   { key: 'working', icon: '🤖', label: 'Working', hint: 'nothing to do — just look' },
   { key: 'waiting-on-machine', icon: '⏳', label: 'Waiting on a machine', hint: 'nothing — CI will finish' },
-  { key: 'not-started', icon: '📋', label: 'Not started', hint: 'nobody has taken it' },
+  // *approved* rather than only *nobody has taken it*: the section is filtered
+  // on the plan's phase first, so every row in it is one an agent may actually
+  // take. The old hint described the branch and let three unclaimable kinds of
+  // row in behind it.
+  { key: 'not-started', icon: '📋', label: 'Not started', hint: 'approved — nobody has taken it' },
   { key: 'quiet', icon: '💤', label: 'Quiet', hint: 'still thinking, or dead?' },
   { key: 'done', icon: '✅', label: 'Done', hint: 'merged' },
 ];
@@ -93,6 +100,91 @@ export function hostCannotReportCi(rows: readonly AgentRow[]): boolean {
   const withPr = rows.filter((r) => r.pr);
   return withPr.length > 0 && withPr.every((r) => r.pr!.state === 'unknown');
 }
+
+/**
+ * Which clock the host-derived sections were read from.
+ *
+ * Four answers, because the board has four situations and printed one word for
+ * two of them. `none` under WAITING ON A MACHINE was shown both when the host
+ * had answered and reported nothing pending, and when the host had not been
+ * asked at all — opposite situations wanting opposite responses, with the
+ * reassuring one as the default.
+ *
+ * Measured 2026-08-18 from two screenshots of one board 22 seconds apart. At
+ * `PR data 22s ago` the section read `none` and no row carried a status; at
+ * `PR data 4s ago` the same board reported #57 `conflicts`, #196 `checks
+ * failing` since the previous day, and #203 `CI running`. Nothing changed on
+ * the host between them. A branch whose CI had been red overnight presented as
+ * unremarkable, and the operator read the board as having LOST its state when
+ * it had simply not yet fetched it.
+ *
+ * This is `docs/plans/2026-08-17-an-outage-is-not-an-answer.md`'s rule — a
+ * failure to observe must not be reported as an observation — at the one
+ * boundary that plan did not cross. An outage at least produces an error to
+ * carry; a first fetch that has not happened produces nothing at all, which is
+ * how it survived a plan written to catch exactly this shape.
+ *
+ * FOUR STATES, NOT THREE. `unreachable` is deliberately not folded into
+ * `unasked`, and that was the plan's one open question. Both mean *no host
+ * fact is on this board*, so one label would be defensible — but they want
+ * different responses. `unasked` resolves itself in seconds and asks the reader
+ * for nothing; `unreachable` will not resolve until somebody looks at the
+ * error, and `an-outage-is-not-an-answer` is the plan that established an
+ * outage must be visible AS an outage. Collapsing them would re-file a standing
+ * fault as a passing one.
+ *
+ * The distinction costs nothing to compute, because the server already draws
+ * it: `refreshPrs` leaves `prAt` untouched when the call throws (`fleet.ts`),
+ * so a null age beside an error is a FIRST fetch that failed, while a null age
+ * with no error is a fetch not yet made. The footer has read the pair this way
+ * all along — `· no PR data yet` is already gated on both.
+ *
+ * A FIRST-LOAD STATE, NOT A STALENESS DISPLAY. Once the host has answered,
+ * every later answer is `answered` no matter how old, because ordinary ageing
+ * is what the footer reports (`PR data 111s ago`) and re-labelling every
+ * section every 60 s would trade one misreading for a flicker. `prAgeSeconds`
+ * is therefore tested against null and never against a threshold.
+ *
+ * THE SCAN'S OWN AGE IS NOT CONSULTED. `fleet.ageSeconds` dates the git scan,
+ * which is cheap and runs every few seconds; `prAgeSeconds` dates the host,
+ * which is metered and runs every 60. Conflating them into one page age is what
+ * let a git-fresh board read as host-fresh, so a PR-derived field must never
+ * borrow the scan's clock.
+ *
+ * Exported for test.
+ */
+export type HostAnswer = 'answered' | 'unasked' | 'unreachable';
+
+/**
+ * Read the host's answer state off a fleet.
+ *
+ * Reads ONLY the two PR fields. Passing the whole fleet would let a later edit
+ * reach for `ageSeconds` and silently reintroduce the conflation this exists to
+ * remove, so the parameter names exactly what it is allowed to see.
+ */
+export function hostAnswer(
+  fleet: Pick<Fleet, 'prAgeSeconds' | 'prError'>,
+): HostAnswer {
+  if (fleet.prAgeSeconds !== null) return 'answered';
+  return fleet.prError ? 'unreachable' : 'unasked';
+}
+
+/**
+ * What an empty host-fed section says when the host has not answered.
+ *
+ * EVIDENCE, NOT VERDICT. Each says what happened to the call and stops there:
+ * no estimate, no retry count, and above all no *probably fine*. The rule the
+ * scan's own outputs follow — scripts collect, humans conclude (Manifesto
+ * Principle 3).
+ *
+ * Both must avoid the shape of the default hint (*nothing — CI will finish*),
+ * which is a CLAIM about the machines. An empty section that still implies
+ * something is running is the failure being corrected, whatever words it uses.
+ */
+export const HOST_ANSWER_HINT: Record<Exclude<HostAnswer, 'answered'>, string> = {
+  unasked: 'not checked yet',
+  unreachable: 'could not reach the host',
+};
 
 /**
  * Where the collapse state lives.
@@ -251,7 +343,29 @@ export function waitingLabel(days: number): string {
  * the branch sooner — middle elision keeps both ends and `title` keeps the
  * whole name.
  */
-export const ROW_TRACKS = 'grid-cols-[6rem_10rem_1fr_14rem_2.5rem_1.25rem]';
+// A TRACK OF THEIR OWN for the marks, first and 1.5rem wide.
+//
+// They used to hang in the row's left PADDING via `sm:absolute sm:left-0`,
+// on the argument that six columns should not move to make room for a mark
+// most rows never carry. That held while there was one mark. There are now
+// five — live dot, change wash, activity track, unpushed bar, stuck cue —
+// and a row can wear several at once: measured on screen, two of them
+// overlapped and both hung half outside the section's own border, because
+// `left-0` is the row's edge and the section's border sits inside it.
+//
+// 1rem for the marks, and 5rem for the phase beside it — neither number is a
+// preference, both are what the breakpoint had left.
+//
+// A seventh track costs twice: its own width AND a sixth gap. The fixed tracks
+// plus gaps must stay under `CARD_BELOW_PX` (640px), and 1.5rem of marks with
+// the phase at 6rem came to 652px. So the phase gave up 1rem — it holds one
+// word (`Development` is the longest and truncates either way) where the marks
+// column holds a 12px mark that had nowhere legal to sit at all. The fixed tracks may total at most 540px before the grid needs more
+// than the 640px `CARD_BELOW_PX` it turns into a card at; 1.5rem crossed that
+// by exactly 8px. The test that caught it predicted this day in its own
+// comment. 16px still holds the widest mark (a 12px track) inside the panel,
+// which is what the column is for; the slack either side is what was spent.
+export const ROW_TRACKS = 'grid-cols-[1rem_5rem_10rem_1fr_14rem_2.5rem_1.25rem]';
 
 /**
  * The PR a row carries, derived from the row rather than imported.
@@ -451,6 +565,47 @@ export function groupByPlan(rows: AgentRow[]): PlanGroup[] {
  * Clamped at zero: a poll can be late (a hidden tab, a slow response), and
  * "next in -2s" is not something a reader can act on.
  */
+/**
+ * What to tell an operator whose board just got smaller on a successful scan.
+ *
+ * NAMES WHAT VANISHED, and that is the whole reason the server sends identities
+ * rather than counts. "3 plans became 2" makes the reader open a terminal to
+ * find out which; the name lets them recognise the plan they delivered ninety
+ * seconds ago — expected, ignorable — or fail to recognise it, which is the
+ * defect and is worth their attention.
+ *
+ * BRANCHES ARE NAMED BEFORE PLANS when both are lost, because a lost branch is
+ * the sharper signal: losing a plan file has an innocent explanation an operator
+ * performs by hand, while a WORKING branch that disappears while its agent runs
+ * has none.
+ *
+ * The list is capped and the remainder counted rather than truncated silently —
+ * a banner that grows without bound stops being a banner, and "+4 more" is still
+ * a number the reader can act on.
+ */
+export function shrinkNote(shrink: PulseShrink, ageSeconds: number): string {
+  const parts: string[] = [];
+  if (shrink.branches.length > 0) parts.push(nameList(shrink.branches, 'branch', 'branches'));
+  if (shrink.plans.length > 0) parts.push(nameList(shrink.plans, 'plan', 'plans'));
+  // Both empty cannot happen — the server returns null rather than an empty
+  // shrink — but a banner rendering the word "undefined" over a healthy board
+  // would be worse than the bug, so the honest fallback is spelled out.
+  const lost = parts.length > 0 ? parts.join(' and ') : 'something it had a moment ago';
+  return `This scan succeeded but describes less than the last one: ${lost} `
+    + `disappeared in the last ${ageSeconds}s. The rows below are the NEW answer, `
+    + `not a frozen one — they may be right, or the scan may have read a moving `
+    + `working tree.`;
+}
+
+/** `a, b and 2 more branches` — at most three names, then a count. */
+function nameList(names: string[], one: string, many: string): string {
+  const shown = names.slice(0, 3);
+  const rest = names.length - shown.length;
+  const noun = names.length === 1 ? one : many;
+  const tail = rest > 0 ? ` and ${rest} more` : '';
+  return `${noun} ${shown.join(', ')}${tail}`;
+}
+
 export function countdown(ageSeconds: number | null, intervalSeconds: number): number | null {
   if (ageSeconds === null) return null;
   return Math.max(0, intervalSeconds - ageSeconds);
@@ -643,21 +798,80 @@ export function showsWaveFold(group: PlanGroup): boolean {
  * buttons, and the note already says *blocked by an earlier wave*, which is the
  * whole explanation.
  *
- * The row carries no `verdict` field, so the split survives onto it only as the
- * note the server composed — matched against the shared `ELIGIBLE_NOTE`
- * constant rather than against a copy of the sentence, so a reword moves both
- * sides at once. `state === 'open'` is the branch that exists as a plan line
- * and nothing more, which is what there is to start.
+ * READS THE FIELD, not the sentence. Until `waitingOn` existed this compared
+ * `note === ELIGIBLE_NOTE` — the "parser for a format nobody declared" shape
+ * #175 removed from the PR cell, and the one that fails SILENTLY: a reworded
+ * note does not break the button, it makes it quietly stop appearing. The same
+ * change that added the field also sharpened a neighbouring note (*blocked by
+ * an earlier wave* gained the wave's name), which is exactly the drift this was
+ * always one edit away from.
+ *
+ * `state === 'open'` is kept beside it: `waitingOn: 'click'` already implies it
+ * server-side, and asserting it here costs nothing and documents that a row
+ * with a ref is not a row to start.
  *
  * Never on `working` or `quiet` rows, which already have a branch and a claim:
  * offering to start one invites the double-dispatch `fleet-sees-merged-branches`
- * was written to prevent. The group check is what excludes them.
+ * was written to prevent. `waitingOn` is null everywhere outside `not-started`,
+ * so those rows are excluded by construction rather than by a group check that
+ * could drift from the server's own answer.
  *
  * Exported for test — the negative (a blocked row gets nothing) is the half a
  * naive implementation gets wrong.
  */
 export function isStartable(row: AgentRow): boolean {
-  return row.group === 'not-started' && row.state === 'open' && row.note === ELIGIBLE_NOTE;
+  return row.waitingOn === 'click' && row.state === 'open';
+}
+
+/**
+ * The note's colour, by what the row is waiting for.
+ *
+ * ONLY ONE OF THE THREE IS LOUD, and that is the whole design. `needs you` is
+ * the state a person can end; the other two are stated, not shouted:
+ *
+ *   `you`    amber — a person must act, and nothing in git will change it
+ *   `click`  the ordinary note colour — available, and taking it is optional
+ *   `time`   dimmer still — nothing to do, ever, and the most common state in
+ *            a multi-wave plan
+ *
+ * A section where every row is coloured has coloured nothing. Measured for
+ * scale: this session's pulse held 43 rows, with multi-wave plans routinely
+ * showing two blocked rows for every eligible one — so `time` is the state the
+ * section is mostly made of, and making it quiet is what lets `you` read.
+ *
+ * COLOUR IS ADDED BESIDE THE WORDS, NEVER INSTEAD OF THEM. The notes already
+ * say the right things and are simply invisible until read; this makes them
+ * visible at distance. A reader with no colour perception loses nothing — the
+ * sentence is the same one that is there today. The contract states the rule
+ * for `pr.state` already: *carried as a symbol AND a word, never as colour
+ * alone.*
+ *
+ * NOTHING ANIMATES HERE. `board-watches-for-stuck-branches` established that
+ * motion marks an unanswered request — something waiting on you that will keep
+ * waiting. A Draft plan minutes old is not that; it is the ordinary state of a
+ * plan just written, and animating it would interrupt a reader about their own
+ * work in progress. The escalation for a Draft that has sat for DAYS is
+ * specified in the plan and deliberately not built: measured before approval,
+ * 30 of this repo's 31 approved plans were approved the same day they were
+ * drafted and one took a single day, so the state it would mark has never
+ * occurred here. Choosing a threshold would mean inventing the first case it is
+ * meant to measure, and a wrong one trains the reader to ignore the cue.
+ *
+ * Exported for test: the pairing that matters is that a `click` row and a row
+ * outside the section are NOT distinguishable by colour — only `you` is.
+ */
+export function waitingTone(waitingOn: WaitingOn | null): string {
+  switch (waitingOn) {
+    case 'you':
+      return 'text-amber-700 dark:text-amber-400';
+    case 'time':
+      return 'text-slate-400 dark:text-slate-600';
+    default:
+      // `click`, and every row outside NOT STARTED, keep the note's ordinary
+      // colour. Giving `click` one of its own would make the section shout
+      // twice and mean once.
+      return 'text-slate-500 dark:text-slate-400';
+  }
 }
 
 /**
@@ -720,7 +934,27 @@ export function isLive(row: AgentRow): boolean {
  * Exported for test: the negative — a WORKING row with neither signal — is the
  * half an implementation that kept reading the group gets wrong.
  */
-export function isActive(row: Pick<AgentRow, 'localLocked' | 'localDirty'>): boolean {
+export function isActive(
+  row: Pick<AgentRow, 'localLocked' | 'localDirty' | 'state'>,
+): boolean {
+  // A MERGED BRANCH IS NOT ACTIVE, whatever its worktree still holds.
+  //
+  // Measured on screen: a row in DONE carrying the activity mark. Both halves
+  // were individually true — `state: merged` and `local_dirty: true` — and the
+  // row said two things that cannot both be acted on. The dirt was one leftover
+  // `.plot-worker.exit` in a worktree nobody had removed.
+  //
+  // Editing a merged branch's checkout is a real thing to do and a real thing
+  // to see; it is simply not what this mark means. The mark says *work is
+  // happening on this branch*, and after the merge there is no work on it left
+  // to happen — which is why `classify` sends merged branches to `done` before
+  // it looks at any local signal. This predicate now agrees with that instead
+  // of contradicting it one layer up.
+  //
+  // The mirror of the WORKING defect fixed the same day, and worth naming as
+  // one shape: there a running agent LOST its place because a single condition
+  // decided; here a finished branch KEPT a mark for the same reason.
+  if (row.state === 'merged') return false;
   return row.localLocked || row.localDirty;
 }
 
@@ -840,10 +1074,14 @@ export function offersAction(state: StuckState): boolean {
  *
  * **`offersAction` answers about the state; this answers about the row.** The
  * distinction is not pedantic, and a screenshot found it: `conflict` is a state
- * that offers an action, but `StuckAction` falls back to the words *no dispatch
- * available for this plan* when the row has no card or the board has not said
- * whether it will act. The cue rendered anyway, so an animated dot sat pointing
- * at a sentence saying nothing could be asked.
+ * that offers an action, but the row has nothing to offer when it has no card
+ * or the board has not said whether it will act. The cue rendered anyway, so an
+ * animated dot sat pointing at a sentence saying nothing could be asked.
+ *
+ * Since the actions moved into the menu (`one-place-for-what-a-row-can-do`) the
+ * same question decides whether the MENU holds a stuck row's item, so this is
+ * now asked in two places and must keep giving one answer. A cue pointing at a
+ * menu without the item is the same defect in its second form.
  *
  * That breaks the rule the cue exists under: **motion marks an unanswered
  * request, and where nothing can be asked there is no request.** It is the same
@@ -1117,24 +1355,91 @@ export function rowKey(row: Pick<AgentRow, 'repo' | 'branch'>): string {
   return `${row.repo}/${row.branch}`;
 }
 
-/** The watched value: the six PR states plus *no PR*, as one value. */
-export type WatchedState = NonNullable<AgentRow['pr']>['state'] | null;
+/** The six PR states plus *no PR*, as one value — the row's PR slot. */
+export type WatchedPrState = NonNullable<AgentRow['pr']>['state'] | null;
 
 /**
- * The one value each row is watched by.
+ * Every OBSERVED fact on a row, and no DERIVED TIME.
+ *
+ * **The boundary is the feature, not a caveat.** The request was *highlight the
+ * whole line on every written update*, and a literal reading of "everything
+ * visible" flashes a completely idle row once a minute: the note on a WORKING
+ * row reads *"last commit 1 min ago"* and `ageMinutes` ticks beneath it, so
+ * `1 min ago → 2 min ago` would be an "update". After an hour at the board every
+ * row would have flashed sixty times and the marker would mean nothing.
+ *
+ * So the line is drawn where the contract already draws it:
+ *
+ * | Watched | Not watched | Because |
+ * |---|---|---|
+ * | `pr` (state, number, draft) | `ageMinutes` | derived from a timestamp and a clock |
+ * | `localDirty`, `localLocked` | `waitingDays` | a SECOND clock, per its own doc |
+ * | `localAhead` | `note` | it EMBEDS a clock — see below |
+ * | `state`, `group`, `wave`, `phase` | | |
+ * | `stuck` | | |
+ *
+ * **A fact changes because the world changed; a clock changes because time
+ * passed**, and only the first is news.
+ *
+ * **`note` is excluded despite being server-observed**, and it is the trap this
+ * whole rule exists to avoid. It is a sentence assembled around the ages —
+ * *"last commit 18 min ago"* — so an implementation watching the row's rendered
+ * note passes every positive assertion (a new commit really does rewrite it) and
+ * flashes every row once a minute. Provenance is not sufficient here; what the
+ * value is MADE OF decides.
+ *
+ * A new commit still flashes, which is the reported gap: the tip moving changes
+ * `state`/`group`/`localAhead` — facts — even though the sentence beside them
+ * changed for a clock's reason.
+ */
+export interface WatchedState {
+  /** null where the row carries no PR at all — a value, not a gap. */
+  pr: WatchedPrState;
+  prNumber: number | null;
+  prDraft: boolean | null;
+  state: AgentRow['state'];
+  group: AgentRow['group'];
+  wave: string;
+  phase: AgentRow['phase'];
+  localDirty: boolean;
+  localLocked: boolean;
+  localAhead: number;
+  /** Serialised, because `stuck` is an object and this map is compared by value. */
+  stuck: string | null;
+}
+
+/**
+ * The value each row is watched by.
  *
  * `pr` is `.nullable().default(null)` and MOST rows carry none — `not-started`,
  * `quiet`, and every fresh claim — so this reads through an optional chain
  * rather than `row.pr.state`, which crashes on precisely those rows.
  *
- * *No PR* is the seventh value, not a gap: `null → pending` is a PR opening,
- * often the most interesting transition a branch has, and `pending → null` is
- * one merged or closed out from under the row. Both are the watched value
- * changing, which keeps the rule single instead of adding an exception about
- * which changes count.
+ * *No PR* is a value, not a gap: `null → pending` is a PR opening, often the
+ * most interesting transition a branch has, and `pending → null` is one merged
+ * or closed out from under the row. Both are the watched value changing, which
+ * keeps the rule single instead of adding an exception about which changes
+ * count.
+ *
+ * `stuck` is serialised rather than held as an object because the comparison
+ * downstream is by value: two structurally equal `stuck` objects arrive as
+ * different references on every pulse, and a reference test would flash every
+ * stuck row four times a second.
  */
 export function watchedState(row: AgentRow): WatchedState {
-  return row.pr?.state ?? null;
+  return {
+    pr: row.pr?.state ?? null,
+    prNumber: row.pr?.number ?? null,
+    prDraft: row.pr?.draft ?? null,
+    state: row.state,
+    group: row.group,
+    wave: row.wave,
+    phase: row.phase,
+    localDirty: row.localDirty,
+    localLocked: row.localLocked,
+    localAhead: row.localAhead,
+    stuck: row.stuck === null ? null : JSON.stringify(row.stuck),
+  };
 }
 
 /**
@@ -1175,7 +1480,7 @@ export function watchedState(row: AgentRow): WatchedState {
  * carried: the map is one value deep per visible row, not a log.
  *
  * **`unknown` is not a transition, in either direction, and it is not
- * remembered.** See `isObservation`: it is a fact about the OBSERVATION, and
+ * remembered.** See `isUnreadable`: it is a fact about the OBSERVATION, and
  * this function reports changes in the WORLD.
  */
 export function changedRows(
@@ -1186,25 +1491,103 @@ export function changedRows(
   const next = new Map<string, WatchedState>();
   for (const row of rows) {
     const key = rowKey(row);
-    const now = watchedState(row);
-    // An unreadable pulse carries the LAST KNOWN value forward rather than
+    const was = prior.get(key) ?? null;
+    // An unreadable PR slot carries the LAST KNOWN value forward rather than
     // storing `unknown`, and that is what makes the suppression symmetric with
     // a single rule instead of two. Storing `unknown` would silence the
     // outage's first pulse and then flash on the recovery — or, worse, lose a
     // real change that happened during the outage: `green → unknown → failing`
     // must still flash, and it only can if the memory still holds `green` when
     // `failing` arrives. What is skipped is the moment, never the fact.
-    if (isObservation(now)) {
-      if (prior.has(key)) next.set(key, prior.get(key)!);
-      continue;
-    }
-    // `.has()`, never `prior.get(key) != null` — a stored `null` is a KNOWN
-    // value and an absent key is not, and the two are indistinguishable to a
-    // truthiness test.
-    if (prior.has(key) && prior.get(key) !== now) changed.add(key);
+    //
+    // **Per SLOT, not per row**, and that is what widening the watched value
+    // forces: a GitHub 503 makes the PR unreadable and says nothing whatever
+    // about whether a worktree is dirty. Freezing the whole record for the
+    // outage's duration would suppress a real local change for a remote host's
+    // reason — the marker going quiet exactly while an agent writes.
+    const now = carryUnreadable(watchedState(row), was);
+    // `.has()`, never a truthiness test — a stored value with a `null` PR is
+    // KNOWN and an absent key is not, and the two are indistinguishable to one.
+    if (prior.has(key) && !sameWatched(was!, now)) changed.add(key);
     next.set(key, now);
   }
   return { changed, next };
+}
+
+/**
+ * The watched value with any UNREADABLE slot replaced by the last known one.
+ *
+ * Only `pr` can be unreadable: it is the sole watched fact with an `unknown`
+ * value, because it is the sole one that comes from a remote host that can fail
+ * to answer. Every other watched fact is observed by the local scan, which
+ * either ran or did not — there is no third answer to carry across.
+ *
+ * **With NO prior value there is nothing to carry, and this is the case the
+ * widening makes newly interesting.** Under the old scalar rule such a row was
+ * not recorded at all: its only watched value was unreadable, so there was
+ * nothing to remember. Now it carries nine other facts worth remembering, so it
+ * IS recorded — and the question is what its PR slot should hold meanwhile.
+ *
+ * **DECIDED: it holds `unknown`, and `sameWatched` treats `unknown` as not
+ * comparable rather than as a value.**
+ *
+ * The three answers to *what should the slot hold* are the same three this
+ * repo keeps distinguishing, one field along: `null` means OBSERVED AND THERE
+ * IS NO PR, a state means observed with that state, and `unknown` means I
+ * COULD NOT ASK. Storing anything else here would invent an observation the
+ * board never made — and a sentinel chosen to compare as *different* would
+ * flash the host's recovery, which is news about GitHub rather than about the
+ * branch.
+ *
+ * So the memory is honest and the COMPARISON carries the rule: an `unknown` on
+ * either side answers neither *same* nor *changed*, because it is the absence
+ * of an answer. That is exactly what the paragraph above already promises for
+ * the carried case — *what is skipped is the moment, never the fact* — applied
+ * to the one case that has no fact to carry yet.
+ *
+ * The stated cost: a row whose PR was never once readable does not flash on the
+ * first state it is finally seen in. `prNumber` covers most of it — `null` to a
+ * number IS a change and does flash — and the residue (a PR readable only from
+ * its second state onward) is a moment lost about a host that was down, which
+ * is the cheaper of the two errors.
+ */
+function carryUnreadable(now: WatchedState, was: WatchedState | null): WatchedState {
+  if (!isUnreadable(now.pr) || was === null) return now;
+  return { ...now, pr: was.pr, prNumber: was.prNumber, prDraft: was.prDraft };
+}
+
+/**
+ * Whether two watched values describe the same world.
+ *
+ * By VALUE, field by field. The record is rebuilt from the row on every pulse,
+ * so a reference test would call every row changed four times a second — and
+ * `stuck` arrives as a fresh object each time, which is why `watchedState`
+ * serialises it rather than leaving an object to be compared here.
+ *
+ * Exported for test: it is half the rule, and the half that decides whether a
+ * ticking clock is news.
+ */
+export function sameWatched(a: WatchedState, b: WatchedState): boolean {
+  // `unknown` on EITHER side is not a value, so it cannot differ from one. It
+  // is the host saying *I could not answer*, and a comparison against silence
+  // has no verdict — the row's other ten facts decide, exactly as they do while
+  // a known value is being carried forward across an outage.
+  //
+  // Written as its own clause rather than folded into the equality so that the
+  // asymmetry is visible: every other field below compares by value because
+  // every other field HAS one.
+  const prComparable = !isUnreadable(a.pr) && !isUnreadable(b.pr);
+  return (!prComparable || a.pr === b.pr)
+    && a.prNumber === b.prNumber
+    && a.prDraft === b.prDraft
+    && a.state === b.state
+    && a.group === b.group
+    && a.wave === b.wave
+    && a.phase === b.phase
+    && a.localDirty === b.localDirty
+    && a.localLocked === b.localLocked
+    && a.localAhead === b.localAhead
+    && a.stuck === b.stuck;
 }
 
 /**
@@ -1239,9 +1622,21 @@ export function changedRows(
  * from *no PR* — a row whose PR merged during an outage would then be
  * permanently confused with one whose mergeability could not be read.
  *
+ * **It takes the PR SLOT, not the whole watched record**, because `pr.state` is
+ * the only watched fact that can be unreadable — the only one whose source is a
+ * remote host rather than the local scan. The principle is universal (*I cannot
+ * say right now* is never a change in the world) and it happens to bind on
+ * exactly one field, which is why the suppression is applied per slot in
+ * `carryUnreadable` rather than to the row as a whole.
+ *
+ * NAMED FOR WHAT IT ANSWERS. It was `isUnreadable`, which reads as its own
+ * opposite at every call site: it returns TRUE for `unknown`, the one value
+ * that is not an observation. A predicate whose name inverts its answer is a
+ * defect waiting for a reader in a hurry.
+ *
  * Exported for test.
  */
-export function isObservation(state: WatchedState): boolean {
+export function isUnreadable(state: WatchedPrState): boolean {
   return state === 'unknown';
 }
 
@@ -1420,7 +1815,12 @@ export type ActivityPace = 'fast' | 'slow';
  * gave every WORKING row the fast pace, passes any assertion that only checks
  * "the dot moves".
  */
-export function activityPace(row: Pick<AgentRow, 'localLocked' | 'localDirty'>): ActivityPace {
+export function activityPace(
+  // `state` travels because `isActive` reads it: a merged branch is not active,
+  // so it has no pace either. The narrow Pick is what surfaced that — a wider
+  // signature would have compiled and quietly graded a finished branch.
+  row: Pick<AgentRow, 'localLocked' | 'localDirty' | 'state'>,
+): ActivityPace {
   return isActive(row) ? 'fast' : 'slow';
 }
 
@@ -1565,7 +1965,23 @@ export const ACTIVITY_MARK_PLACE = {
   // FIRST LINE's own box (`sm:top-2` is the row's `py-2`, `h-5` is one line of
   // `text-sm`) rather than to the row's centre — a row carrying a status line
   // is twice as tall, and `top-1/2` would put the mark between its two lines.
-  row: 'relative flex h-5 w-3 shrink-0 items-center self-center sm:absolute sm:left-0 sm:top-2',
+  // IN THE FIRST TRACK, not hanging in the row's padding. `sm:absolute
+  // sm:left-0` put the mark at the row's edge — which is OUTSIDE the section's
+  // border, so every mark straddled the panel edge, and two marks on one row
+  // overlapped because absolute boxes do not make room for each other.
+  //
+  // In the flow they stack: `flex-col` with a small gap, centred in a 1.5rem
+  // column. `h-full` rather than `h-5` so a two-line row (one carrying a stuck
+  // status) centres its marks against the whole cell.
+  // NO padding of its own. The ROW already carries `py-2`, and adding a second
+  // pair here made every row as tall as a two-line one — measured, a plain row
+  // and a row with a status line both came out at 60px, which would have made
+  // every alignment assertion below hold on the defect too.
+  //
+  // `self-stretch` still takes the row's full height so the marks centre
+  // against whatever the row grew to; the height comes from the row's content,
+  // never from this cell.
+  row: 'relative flex w-full shrink-0 flex-col items-center justify-center gap-1 self-stretch',
   // In a HEADING the mark simply FLOWS. The `<h2>` is a flex row and the mark
   // takes its place after the tally like any other child — there is no grid
   // here to stay out of, and no `relative` box to hang in.
@@ -1583,7 +1999,7 @@ export const ACTIVITY_MARK_PLACE = {
   heading: 'relative flex h-3 w-3 shrink-0 items-center self-center',
 } as const;
 
-function ActivityMark({ pace, place = 'row' }: { pace: ActivityPace; place?: 'row' | 'heading' }) {
+function ActivityMark({ pace, place = 'row', inTrack = false }: { pace: ActivityPace; place?: 'row' | 'heading'; inTrack?: boolean }) {
   const fast = pace === 'fast';
   return (
     <span
@@ -1612,7 +2028,7 @@ function ActivityMark({ pace, place = 'row' }: { pace: ActivityPace; place?: 'ro
       // ROW. That rested on an assumption which has since broken: *the row is
       // `py-2` around ONE line of `text-sm`*, so centring on the row and
       // centring on the line were the same pixel. The stuck cell then landed as
-      // its own line beneath the six columns (`sm:col-start-2 sm:col-end-[-1]`),
+      // its own line beneath the columns (`sm:col-start-3 sm:col-end-[-1]`),
       // and a row carrying a status line is roughly twice as tall — so `top-1/2`
       // put the mark BETWEEN the two lines instead of beside the branch name.
       //
@@ -1633,7 +2049,10 @@ function ActivityMark({ pace, place = 'row' }: { pace: ActivityPace; place?: 'ro
       // row and is wrong on exactly the rows carrying the most information.
       // Anything measuring itself against the ROW's height is suspect; this
       // measured itself against the row and meant the line.
-      className={ACTIVITY_MARK_PLACE[place]}
+      // In the marks TRACK the parent cell already positions and sizes; the
+      // mark is then just a 12px box in the flow. Outside it (the heading) the
+      // placement map still applies.
+      className={inTrack ? 'relative flex h-2 w-3 shrink-0 items-center' : ACTIVITY_MARK_PLACE[place]}
     >
       {/* The TRACK the dot rides: a faint 2px rule, centred on the line box by
           the flex above. Dim on purpose — what reads from a distance is a
@@ -1717,7 +2136,7 @@ export function isUnpushed(row: AgentRow): boolean {
  * The title carries the same local-only limit its field does: this is what THIS
  * checkout can see, and a branch worked on elsewhere reports nothing here.
  */
-function UnpushedMark({ ahead }: { ahead: number }) {
+function UnpushedMark({ ahead, inTrack = false }: { ahead: number; inTrack?: boolean }) {
   return (
     <span
       aria-hidden
@@ -1732,7 +2151,7 @@ function UnpushedMark({ ahead }: { ahead: number }) {
       // activity mark — reusing its placement map rather than restating the
       // string, so a change to the row's padding moves both marks together
       // instead of moving one and stranding the other.
-      className={ACTIVITY_MARK_PLACE.row}
+      className={inTrack ? 'relative flex h-1 w-3 shrink-0 items-center' : ACTIVITY_MARK_PLACE.row}
     >
       {/* A flat rule at FULL opacity where the activity track sits at 25%, and
           with no dot riding it. Against the activity mark the difference reads
@@ -1878,6 +2297,51 @@ export function noActionReason(row: AgentRow): string {
 }
 
 /**
+ * What a row's menu holds, and therefore whether it exists at all.
+ *
+ * **Two questions, and the old code asked only one.** `enabled` is *can
+ * something in here act right now*; `present` is *is there anything in here at
+ * all*. They came apart the moment the menu learned to refuse: a row whose one
+ * act the server declines has an item, a reason, and nothing it can do — and
+ * collapsing that into a single flag forces a choice between a control that
+ * lies and a reason nobody can reach.
+ *
+ * **A REFUSAL IS NOT AN ABSENCE.** A declined act still renders the button,
+ * `aria-disabled`, with the reason on it. Only a row with no item at all
+ * renders none — the empty `⋯` that was measured lying on two of six WAITING ON
+ * YOU rows.
+ *
+ * The run link joins `enabled` without a `willAct` term because it is
+ * NAVIGATION: there is no rerun route on this server, so opening the host's
+ * page is not a write and reads the same over Tailscale as it does at the
+ * machine. The two dispatching items ask whether the server will act because
+ * they ask the server to act.
+ *
+ * Exported for test, and the invariant is the reason: `enabled` must never be
+ * true while `present` is false, or the board renders an openable menu with no
+ * button to open it. That is one line of reasoning about four disjuncts, which
+ * is exactly the kind that survives a refactor by being re-derived wrongly.
+ */
+export function menuState(items: {
+  canStart: boolean;
+  canApprove: boolean;
+  canResolve: boolean;
+  hasRun: boolean;
+  serverWillAct: boolean;
+  approveWillAct: boolean;
+}): { present: boolean; enabled: boolean } {
+  const { canStart, canApprove, canResolve, hasRun, serverWillAct, approveWillAct } = items;
+  return {
+    present: canStart || canApprove || canResolve || hasRun,
+    enabled:
+      (canStart && serverWillAct) ||
+      (canApprove && approveWillAct) ||
+      (canResolve && serverWillAct) ||
+      hasRun,
+  };
+}
+
+/**
  * What a stuck branch says in its row: which of the four, the evidence, and —
  * for the two the pulse cannot fix — the action, ON THE ROW.
  *
@@ -1899,24 +2363,21 @@ export function noActionReason(row: AgentRow): string {
  */
 function StuckCell({
   row,
-  card,
-  dispatch,
-  pulse,
-  onStarting,
+  cue,
 }: {
   row: AgentRow;
-  card: Card | null;
-  dispatch?: DispatchInfo;
-  pulse: number;
-  onStarting?: (active: boolean) => void;
+  /**
+   * Whether this row's request is still unanswered — see `showsCue`.
+   *
+   * A PROP rather than state of its own, and the reason is that the action left
+   * this cell. The click that answers the request now happens in the row's
+   * menu, one cell away, so the `actionTaken` flag has to live somewhere both
+   * can reach: the row itself. This cell renders the mark; it no longer owns
+   * the question.
+   */
+  cue: boolean;
 }) {
   const stuck = row.stuck;
-  // **Taken, not resolved.** The cue answers a REQUEST, and the request is
-  // answered by the click — whether the click worked is what the row's other
-  // marks report on the next pulse. Local to the row and not persisted: a
-  // reload starts the cue again, which is the honest answer to *is this still
-  // waiting on me* when the board has only just started looking.
-  const [actionTaken, setActionTaken] = useState(false);
   const repairLine = repairWord(row.repair);
   // NOT `if (!stuck)` alone, and the difference is the whole point of reporting
   // repairs at all. A SUCCESSFUL repair ends by pushing, which unsticks the
@@ -1928,11 +2389,6 @@ function StuckCell({
 
   const word = stuck ? stuckWord(stuck.state) : '';
   const evidence = stuck ? stuckEvidence(stuck) : [];
-  const offers = stuck ? offersAction(stuck.state) : false;
-  // The cue follows what this ROW can actually ask, not what its state usually
-  // offers — `StuckAction` falls back to words in three places, and an animated
-  // dot beside one of them points at a request nobody can make.
-  const cue = stuck ? showsCue(actionReachable(stuck, card, dispatch), actionTaken) : false;
 
   return (
     <span
@@ -1952,7 +2408,12 @@ function StuckCell({
       // row. `2 / -1` starts it where the row's own content starts, and because
       // the phase track is FIXED it lands identically whether or not that row
       // has a phase — which is the property the fixed tracks exist for.
-      className="flex w-full flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs sm:col-start-2 sm:col-end-[-1]"
+      // COLUMN 3, not 2: the marks earned a track at the front, so the cell
+      // that used to begin past the phase now begins past the MARKS and runs
+      // under the phase — the exact defect this span was written to fix,
+      // reintroduced by a column inserted before it. Measured: the evidence
+      // line started at x=57 where the phase cell ends at 130.
+      className="flex w-full flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs sm:col-start-3 sm:col-end-[-1]"
     >
       {/* The state as a WORD, in amber, and the word is the carrier — the
           colour only reinforces it. `title` names the state's own terms so a
@@ -1989,179 +2450,153 @@ function StuckCell({
           {repairLine}
         </span>
       )}
-      {offers && stuck && (
-        <StuckAction
-          row={row}
-          stuck={stuck}
-          card={card}
-          dispatch={dispatch}
-          pulse={pulse}
-          onStarting={onStarting}
-          cue={cue}
-          onTaken={() => setActionTaken(true)}
-        />
-      )}
-    </span>
-  );
-}
+      {/* THE CUE STAYS IN THE ROW while the action it used to sit beside now
+          lives in the three-dot menu. It is state, not an action — it says
+          *this one is waiting on you*, and a signal reachable only by opening a
+          menu is not a signal. `one-place-for-what-a-row-can-do` moved the
+          actions and was explicit that this must not follow them.
 
-/**
- * The action a stuck row offers, with its cue — and the refusal when the server
- * will not act.
- *
- * **Over a non-localhost binding the cue SHOWS and the action REFUSES, naming
- * the reason.** Measured: `/api/dispatch` is available only on localhost —
- * *whoever reaches localhost:7777 is sitting at the machine that owns the
- * worktrees* — so on a Tailscale address the board is a reading surface. The
- * INFORMATION is true everywhere, so hiding the cue would let a phone report a
- * healthy fleet while two branches sit stuck: a worse lie than an action you
- * cannot take from where you are. `RowActions` already does exactly this when
- * the server will not act, and this follows it rather than inventing a second
- * posture.
- *
- * **Two states, two actions, and they are not the same kind of thing.**
- *
- * `conflict` dispatches a worker through the EXISTING guarded route — the same
- * `/api/dispatch` a Start work click uses, with the same script deciding
- * everything about which branch and whether the wave is open. This wave adds no
- * route and grants the board no new authority.
- *
- * `ci-failing` offers a LINK to the failing run, not a rerun. There is no rerun
- * route on this server and adding one would be a write path this wave is fenced
- * away from — so the honest action is the one that takes the reader to where the
- * rerun button already lives, on the host. It is navigation, so it carries no
- * guard and reads the same over Tailscale as it does at the machine; the cue
- * beside it is what says the request is still unanswered.
- */
-function StuckAction({
-  row,
-  stuck,
-  card,
-  dispatch,
-  pulse,
-  onStarting,
-  cue,
-  onTaken,
-}: {
-  row: AgentRow;
-  stuck: Stuck;
-  card: Card | null;
-  dispatch?: DispatchInfo;
-  pulse: number;
-  onStarting?: (active: boolean) => void;
-  /** Whether the request is still unanswered — see `showsCue`. */
-  cue: boolean;
-  /** The request has been answered. Fired on the click, never on the repair. */
-  onTaken: () => void;
-}) {
-  // The run to open: the newest one the host reported. `[]` is *no run listing
-  // available* (Bitbucket has none), never *this branch has never failed* — so
-  // an absent URL yields no link rather than an invented address, the rule the
-  // branch and PR cells already follow.
-  const runUrl = stuck.runHistory.find((r) => r.url)?.url ?? '';
+          It points at the WORD and the evidence to its left rather than at a
+          control to its right, which is what it always described: the row's own
+          statement of what is wrong. The action is one `⋯` away, and the menu's
+          accessible name carries the branch.
 
-  return (
-    <span
-      data-stuck-action
-      className="flex shrink-0 items-baseline gap-1"
-      onClick={(e) => e.stopPropagation()}
-    >
-      {/* The cue BESIDE the action, never instead of it. Motion is never the
-          sole carrier — the action carries a word, and this points at it. */}
+          Rendered LAST so it trails the evidence — the mark that says *unanswered*
+          reads as a qualifier on the whole statement rather than as a bullet in
+          front of it. */}
       {cue && <StuckCue />}
-      {stuck.state === 'ci-failing' ? (
-        runUrl ? (
-          <a
-            href={runUrl}
-            target="_blank"
-            rel="noreferrer"
-            data-stuck-link
-            onClick={onTaken}
-            // The reason reaches the ACCESSIBLE NAME, which is the half the
-            // animation cannot carry: a screen reader hears what is stuck and
-            // what this opens, and never hears the cue at all.
-            aria-label={`Open the failing run for ${row.branch} — ${stuckWord(stuck.state)}`}
-            className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
-          >
-            Open failing run
-          </a>
-        ) : (
-          // No address, so no link — and the row says why rather than
-          // rendering a dead control. Absent is a real answer here.
-          <span className="text-xs text-slate-400 dark:text-slate-600">
-            no run link available
-          </span>
-        )
-      ) : card && dispatch ? (
-        // The conflict case, through the route that already exists. Wrapped so
-        // the click marks the request answered whatever the dispatch then does
-        // — the cue tracks the ASKING, and `StartWorkButton` reports on the
-        // doing in its own words.
-        <span onClick={onTaken}>
-          <StartWorkButton
-            card={card}
-            dispatch={dispatch}
-            pulse={pulse}
-            onStarting={onStarting}
-          />
-        </span>
-      ) : (
-        // No card, or a board that has not said whether it will act. The same
-        // honest fallback the plan link and the row menu make: say so, rather
-        // than offering a button whose outcome is unknown.
-        <span className="text-xs text-slate-400 dark:text-slate-600">
-          no dispatch available for this plan
-        </span>
-      )}
     </span>
   );
 }
 
 /**
- * The row's actions, behind a three-dot menu at the right edge.
+ * Where a stuck row's actions used to live — and the note explaining why the
+ * space is empty.
+ *
+ * **`StuckAction` was deleted on 2026-08-18.** It rendered two of this board's
+ * four actions inline in the row — *Open failing run* as a link, and the
+ * conflict dispatch as a `StartWorkButton` — while the other two rendered in
+ * the three-dot menu. Nothing distinguished the two homes except which action
+ * was built first, and `one-place-for-what-a-row-can-do` settled the rule that
+ * had been missing: **the row says what IS, the menu says what you can DO.**
+ * Both moved into {@link RowActions}, each as an item with its own condition.
+ *
+ * **The CUE did not move, and that distinction is the whole design.** It is
+ * state rather than an action: it points at something being wrong, and the plan
+ * that added it was explicit that motion is never the sole carrier. A signal
+ * behind a click is not a signal. So {@link StuckCell} renders it directly now,
+ * beside the stuck WORD and its evidence — which is what it points at, and
+ * which reads better than pointing at a control one line to its right.
+ *
+ * This comment is left where the component was because the arrangement it
+ * replaced is the kind that regrows: the next action is easiest to render in
+ * the row, and *easiest* is exactly the reasoning that produced two homes. The
+ * gate against that is a test, not this note — see the structural assertion in
+ * `test/unit/agent-list.test.ts`.
+ */
+
+/**
+ * The row's actions, behind a three-dot menu at the right edge. **All of them.**
  *
  * `Start work` used to sit at the far right AFTER the age, so the line read
  * *what · state · age · act* — the action behind the quietest number on it. And
- * it is about to stop being alone: `board-becomes-operable` adds `Approve`, and
- * every further action would widen a row that already carries phase, plan,
- * branch, note, PR and age and wraps on long branch names.
+ * it stopped being alone: `board-becomes-operable` added `Approve`, and every
+ * further action would widen a row that already carries phase, plan, branch,
+ * note, PR and age and wraps on long branch names.
  *
- * The menu holds only things that CHANGE something. Navigation stays in the row,
- * where the thing is named — a `cmd`-click on a real plan or branch link is
- * worth more than a tidier line. The menu acts; the row shows.
+ * **A ROW'S ACTIONS ALL LIVE HERE, and until 2026-08-18 two of them did not.**
+ * *Open failing run* and the conflict dispatch rendered inline in the stuck
+ * cell, and the split followed no stated rule — it followed the order the four
+ * were built in. The rule now: **the row says what IS, the menu says what you
+ * can DO.** One place to look, one place to add to.
  *
- * **With no action it renders anyway, disabled.** A deliberate exception to the
- * rule this estate applies elsewhere (*a button whose usual state is "you
- * cannot" teaches people to ignore buttons*), and the distinction is what a
- * control CLAIMS. A dead `Start work` lies: it names an action that does not
- * exist here. A dimmed three-dot menu claims only *this is where actions would
- * be*, which is true on every row.
+ * The old comment here said *the menu holds only things that CHANGE something;
+ * navigation stays in the row*, which is still true and is not the boundary
+ * that failed. Navigation to the thing the row NAMES — its plan, its branch,
+ * its PR — stays inline, because a `cmd`-click on a real link is worth more
+ * than a tidier line. *Open failing run* names none of those: it addresses a
+ * run, which is a thing the row reports on rather than a thing the row is. It
+ * is an errand, and errands live here.
  *
- * The layout argument decides it. Most rows have no action, so rendering nothing
- * would leave the right edge ragged — and MOVING, since the pulse re-scans every
- * five seconds and a row gaining or losing its action would shift the column
- * under someone's eyes. That is the same objection this view raises against
- * groups that fold themselves.
+ * **Each ITEM asks for what it needs.** An item whose precondition is missing
+ * simply is not there — that rule already governed this body and now governs
+ * twice as much of it. The four conditions are independent by construction, and
+ * none is written as another's `else`: see the note on `canApprove` below.
  *
- * `aria-disabled`, never the native `disabled`: a natively disabled element
- * leaves the tab order and takes the explanation with it, putting it out of
- * reach of anyone who is not hovering with a mouse.
+ * **With no item it renders NOTHING — not a dimmed button.** This reverses the
+ * deliberate exception recorded here, and the reversal was earned rather than
+ * assumed. The old argument was layout: rendering nothing would leave the right
+ * edge ragged and MOVING, since the pulse re-scans every five seconds. That
+ * argument was answered by a later wave — the cell has a fixed `1.25rem` track
+ * of its own, so the column holds still whether or not a button is inside it,
+ * and the gridcell below still renders unconditionally. What remains is the
+ * cost: a `⋯` that opens nothing is a control that lies, and it was measured
+ * lying on two of six WAITING ON YOU rows. The row already says what it is; an
+ * absent control claims nothing.
+ *
+ * `aria-disabled`, never the native `disabled`, on the button that DOES render:
+ * a natively disabled element leaves the tab order and takes the explanation
+ * with it, putting it out of reach of anyone who is not hovering with a mouse.
+ * That path is still reached — a row whose only act is refused by the server
+ * keeps its button and names the refusal, because a refusal is not an absence.
  */
 function RowActions({
   row,
   card,
   dispatch,
+  approve,
   pulse,
   onStarting,
+  onTaken,
 }: {
   row: AgentRow;
   card: Card | null;
   dispatch?: DispatchInfo;
+  /** Whether this server will act on Approve, and why not — the plan-PR half. */
+  approve?: DispatchInfo;
   pulse: number;
   onStarting?: (active: boolean) => void;
+  /**
+   * A stuck row's request has been answered — fired on the click that opens the
+   * run or dispatches the conflict, never on whatever happens next.
+   *
+   * The menu holds the actions; the CUE that says the request is unanswered
+   * stays in the row, one cell away. So the click has to travel back out to the
+   * cell that owns that state, and this is the wire. Absent on rows that carry
+   * no cue, where there is nothing to answer.
+   */
+  onTaken?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  // The menu's own box, so a click inside it can be told from a click outside.
+  // See the close-on-outside-click effect below for why propagation cannot do
+  // this job.
+  const menu = useRef<HTMLDivElement>(null);
   const canStart = Boolean(card && dispatch && isStartable(row));
+  // THE OTHER ACT A ROW CAN OFFER, and the reason this menu had to stop asking
+  // only about starting.
+  //
+  // Measured: `enabled` was `canStart && serverWillAct`, so the menu opened
+  // only where `Start work` was possible — and a Draft plan's row is never
+  // startable, by construction. Its one available act is approving, and the
+  // menu was therefore dead on exactly the rows that had something to do. The
+  // same plan's CARD offered the button all along: one board, two answers.
+  //
+  // `isDraft(card)` is the card's own gate, reused rather than re-derived from
+  // the row's phase — `plot-approve.sh` accepts phase `draft` and refuses every
+  // other one, and two spellings of that rule would drift.
+  // THE ROW MUST AGREE WITH THE CARD, and this is where forgetting that shows.
+  //
+  // `isDraft(card)` alone put an Approve button on a branch BLOCKED by an
+  // earlier wave: its plan is genuinely Draft, so the card said yes — while the
+  // row itself is waiting on time and has nothing a person can act on. That is
+  // the plan-level answer applied to a branch-level row, which is the confusion
+  // this section spent the evening separating.
+  //
+  // `waitingOn === 'you'` is the row's own word for *a person must act*: a
+  // Draft plan's FIRST wave, or a shelved branch. A blocked row says `time` and
+  // is excluded by construction rather than by a second rule that could drift.
+  const canApprove = Boolean(card && approve && isDraft(card) && row.waitingOn === 'you');
   // The menu opens only if something inside it could ACT.
   //
   // `canStart` answers "is this row startable"; it does not answer "will the
@@ -2175,9 +2610,66 @@ function RowActions({
   // rather than reading as a bug. Same pattern the row already uses for a row
   // with nothing to do.
   const serverWillAct = dispatch?.available ?? false;
-  const enabled = canStart && serverWillAct;
+  const approveWillAct = approve?.available ?? false;
+  // THE RUN THIS ROW LAST HAD, and the one condition this move deliberately
+  // WIDENED. It used to be reachable only while `stuck.state === 'ci-failing'`,
+  // so the route to a run existed exactly as long as the row was red and was
+  // invisible the rest of the time — a reader wanting the last run of a green
+  // branch had no control at all. The condition is now *a run URL exists*.
+  //
+  // `[]` is *no run listing available* (Bitbucket has none), never *this branch
+  // has never failed* — so an absent URL yields no item rather than an invented
+  // address, the rule the branch and PR cells already follow. The words *no run
+  // link available* that used to stand in the row for this case are gone with
+  // it: an item that is not there says the same thing more quietly, which is
+  // the empty-menu rule applied one level in.
+  //
+  // **HOW FAR THE WIDENING ACTUALLY REACHES, and it is less far than the words
+  // *a run URL exists* suggest.** `runHistory` is a field of `stuck`, not of
+  // the row, so it is only ever populated on a row the detector called stuck.
+  // A branch that is green in every sense carries `stuck: null` and no run
+  // history to read, and this offers it nothing.
+  //
+  // What the widening does reach is every row the detector marked — including
+  // states that are NOT `ci-failing` and the `ci-failing` row whose newest run
+  // has since gone green. That was the reported case and it is fixed. Carrying
+  // the run on the row itself, so a wholly healthy branch could offer its last
+  // one too, is a change to what the server SENDS rather than to what this
+  // renders, and it belongs to whichever plan wants it.
+  const runUrl = row.stuck?.runHistory.find((r) => r.url)?.url ?? '';
+  // THE CONFLICT, through the route that already exists — the same
+  // `/api/dispatch` a Start work click uses, with the same script deciding
+  // which branch and whether the wave is open. Moving it here added no route
+  // and granted the board no new authority.
+  //
+  // Unlike the run link this asks for a card and a dispatch verdict, because a
+  // dispatch needs a plan to name and an answer about whether the server acts.
+  // `actionReachable` asks the same question for the cue, and the two must keep
+  // agreeing: a cue pointing at a menu without this item is the defect that
+  // function was written to remove, in its second form.
+  const canResolve = Boolean(
+    row.stuck?.state === 'conflict' && card && dispatch,
+  );
+  // ANY item, not one named item. The menu opens if something inside it could
+  // act; which something it is, is the menu's own business.
+  //
+  // The run link is NAVIGATION and carries no guard — it reads the same over
+  // Tailscale as it does at the machine, because there is no rerun route here
+  // and opening the host's page is not a write. So it joins this gate without a
+  // `WillAct` term, which is not an oversight: the two dispatching items ask
+  // whether the server will act because they ask the server to act.
+  // Whether the menu EXISTS, and whether anything in it can act — two questions,
+  // and the old code asked only the second. See {@link menuState}.
+  const { present: hasItems, enabled } = menuState({
+    canStart, canApprove, canResolve, hasRun: Boolean(runUrl),
+    serverWillAct, approveWillAct,
+  });
   const reason =
-    canStart && !serverWillAct && dispatch?.reason ? dispatch.reason : noActionReason(row);
+    canStart && !serverWillAct && dispatch?.reason
+      ? dispatch.reason
+      : canResolve && !serverWillAct && dispatch?.reason
+        ? dispatch.reason
+        : noActionReason(row);
 
   // Close on Escape and on any click outside. A menu that survives a click
   // elsewhere on a view that repaints every five seconds is a menu that ends up
@@ -2185,11 +2677,30 @@ function RowActions({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    const onDown = () => setOpen(false);
+    // A CLICK INSIDE THE MENU IS NOT A CLICK OUTSIDE IT, and this has to be
+    // decided by hit-testing the target rather than by the container stopping
+    // propagation.
+    //
+    // The comment here used to claim the container did stop it. It does not,
+    // and could not: the container's `onClick` is a React handler, which runs
+    // when the event BUBBLES, while this listener runs on CAPTURE — so the
+    // close always won the race. React 19 delegates to the root container, so
+    // by the time the event bubbled back up the menu had already unmounted and
+    // every handler inside it went with it.
+    //
+    // Measured on the run link the day it moved in: the click reached the `<a>`
+    // — the browser followed the href — and React's `onClick` never fired, so
+    // the cue that the click was supposed to answer went on animating. The
+    // existing items were reachable only because neither of them needed a
+    // handler of its OWN to survive the close: `StartWorkButton` fires a fetch
+    // from a handler that is itself inside the menu, and it worked because the
+    // fetch was already in flight before the unmount.
+    const onDown = (e: globalThis.MouseEvent) => {
+      if (menu.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
     document.addEventListener('keydown', onKey);
-    // Capture phase, so the menu closes before a click lands anywhere else —
-    // and the menu's own container stops propagation rather than relying on
-    // hit-testing the target against a ref.
+    // Capture phase, so the menu closes before a click lands anywhere else.
     document.addEventListener('click', onDown, true);
     return () => {
       document.removeEventListener('keydown', onKey);
@@ -2208,40 +2719,135 @@ function RowActions({
       className="relative w-5 shrink-0 text-right"
       onClick={(e) => e.stopPropagation()}
     >
-      <button
-        type="button"
-        data-row-actions
-        aria-haspopup="menu"
-        aria-expanded={open}
-        // Never the native attribute. `aria-disabled` keeps the control
-        // focusable, so the title explaining WHY is reachable by keyboard.
-        aria-disabled={!enabled || undefined}
-        aria-label={enabled ? `Actions for ${row.branch}` : reason}
-        title={enabled ? `Actions for ${row.branch}` : reason}
-        onClick={() => { if (enabled) setOpen((v) => !v); }}
-        className={
-          enabled
-            ? 'text-xs leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'
-            : // Very dim: a row with nothing to do stays quiet, and the menu
-              // reads as scenery rather than as an offer.
-              'cursor-default text-xs leading-none text-slate-300 dark:text-slate-700'
-        }
-      >
-        ⋯
-      </button>
-      {open && enabled && card && dispatch && (
+      {/* THE CELL IS UNCONDITIONAL, the button inside it is not — and that
+          split is what lets a row render no menu without the column moving.
+          The track is a fixed `1.25rem`, so the right edge holds still whether
+          or not anything is in it, which is the property the old dimmed
+          placeholder was reaching for before the track existed. */}
+      {hasItems && (
+        <button
+          type="button"
+          data-row-actions
+          aria-haspopup="menu"
+          aria-expanded={open}
+          // Never the native attribute. `aria-disabled` keeps the control
+          // focusable, so the title explaining WHY is reachable by keyboard.
+          aria-disabled={!enabled || undefined}
+          aria-label={enabled ? `Actions for ${row.branch}` : reason}
+          title={enabled ? `Actions for ${row.branch}` : reason}
+          onClick={() => { if (enabled) setOpen((v) => !v); }}
+          className={
+            enabled
+              ? 'text-xs leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'
+              : // Very dim, and this branch now means something narrower than
+                // it used to: not *a row with nothing to do* — such a row
+                // renders no button at all — but a row whose act the server
+                // has REFUSED. The reason is on the control; the dimness says
+                // not from here.
+                'cursor-default text-xs leading-none text-slate-300 dark:text-slate-700'
+          }
+        >
+          ⋯
+        </button>
+      )}
+      {/* NO `card` GATE. It read `open && enabled && card`, and requiring a card
+          for the whole BODY is the same defect one level up that requiring
+          `dispatch` was one level down: *Open failing run* needs no card at all
+          — a row outside the walked plan directories has a run and no card, and
+          gating the body on one would render an empty menu on exactly the row
+          whose item does not need it.
+
+          Each ITEM asks for what it needs, and an item whose precondition is
+          missing simply is not there. That is now the body's only rule. */}
+      {open && enabled && (
         <div
           role="menu"
+          ref={menu}
           className="absolute right-0 z-10 mt-1 min-w-max rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
         >
-          <div role="menuitem" className="px-2 py-1 text-left">
-            <StartWorkButton
-              card={card}
-              dispatch={dispatch}
-              pulse={pulse}
-              onStarting={onStarting}
-            />
-          </div>
+          {canStart && dispatch && card && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <StartWorkButton
+                card={card}
+                dispatch={dispatch}
+                pulse={pulse}
+                onStarting={onStarting}
+              />
+            </div>
+          )}
+          {/* Approving a plan and starting a branch are MUTUALLY EXCLUSIVE by
+              construction — `isStartable` needs `waitingOn: 'click'`, which a
+              Draft plan's row never has, and `isDraft` needs phase Discovery,
+              which a startable row never has. They are written as two
+              independent items rather than as an if/else so that neither
+              becomes the other's fallback: if that ever changes, the menu shows
+              both instead of silently picking one. */}
+          {canApprove && approve && card && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <ApproveButton card={card} approve={approve} onApproving={onStarting} />
+            </div>
+          )}
+          {/* THE CONFLICT DISPATCH, moved here on 2026-08-18 from the stuck
+              cell. Same route, same button, same guard — only its home changed.
+
+              Wrapped so the click marks the request answered whatever the
+              dispatch then does: the cue tracks the ASKING, and
+              `StartWorkButton` reports on the doing in its own words. The wrap
+              is why `onTaken` had to travel into this menu at all. */}
+          {canResolve && card && dispatch && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <span onClick={onTaken}>
+                <StartWorkButton
+                  card={card}
+                  dispatch={dispatch}
+                  pulse={pulse}
+                  onStarting={onStarting}
+                />
+              </span>
+            </div>
+          )}
+          {/* THE RUN, moved here from an inline link in the stuck cell — and
+              widened on the way: its condition is *a run URL exists*, not *this
+              row is failing*, so the last run of a GREEN branch is reachable
+              too. That widening is the plan's, proposed and flagged rather than
+              smuggled.
+
+              **The WORD *failing* went with the condition.** The plan's table
+              still names this item *Open failing run*, and that name was true
+              only under the condition the same table widened — on a green row
+              it would promise a failure that is not there. The label follows
+              what the item now does: it opens the last run, whatever that run
+              said. The row's own stuck cell is where *failing* is stated, in
+              words, and it states it only when true.
+
+              **The accessible name keeps the branch.** The menu is already
+              scoped to one row, so the branch reads as redundant from inside
+              it — but a menu item's name is announced without its opener, and
+              nothing else in the item says which of a dozen rows this run
+              belongs to. The plan left this open; redundant context costs a
+              few words and missing context costs the click. The STATE left the
+              name for the same reason the word did: it was `— CI failed`, no
+              longer true of every row that offers this.
+
+              Navigation, so it stays an `<a>` with a real `href` — a
+              `cmd`-click opens the run in a tab, and a button pretending to be
+              a link would take that away. It is in the MENU because it is an
+              errand rather than a name the row carries; see the note above. */}
+          {runUrl && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <a
+                href={runUrl}
+                target="_blank"
+                rel="noreferrer"
+                data-stuck-link
+                onClick={onTaken}
+                aria-label={`Open the last run for ${row.branch}`}
+                className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+              >
+                Open last run
+              </a>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -2299,6 +2905,13 @@ export interface AgentListProps {
    * outcome is unknown. Same rule `PlanCard` follows.
    */
   dispatch?: DispatchInfo;
+  /**
+   * Whether this server will act on Approve, and why not — the plan-PR half of
+   * acting, and the half this tab was never given. `board.approve` reached the
+   * CARDS from the day it shipped; a row whose one available act was approving
+   * got a dead menu while the same plan's card offered the button.
+   */
+  approve?: DispatchInfo;
   /** Bumps once per BOARD refresh; the Start work button counts these. */
   pulse?: number;
   /** A Start work click became outstanding (true) or settled (false). */
@@ -2498,7 +3111,10 @@ function PlanRow({
     <li
       role="row"
       data-plan-row={group.plan}
-      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-slate-200/60 px-3 py-2 text-sm last:border-0 sm:grid ${ROW_TRACKS} sm:items-baseline sm:gap-x-3 dark:border-slate-800`}
+      // NO BORDER: the plan row heads a group that draws one line under
+      // itself and its branches together. A rule here would fall between
+      // a plan and its own first branch.
+      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2 text-sm sm:grid ${ROW_TRACKS} sm:items-baseline sm:gap-x-3`}
     >
       {/* The activity mark, hanging in the row's own `relative` box the way it
           does on a branch row — no track, no shift. It reaches the plan row
@@ -2510,11 +3126,34 @@ function PlanRow({
           are by definition not in WORKING, so the slow pace has no case to
           state here. A plan row shows a mark exactly when one of its branches
           is being written to. */}
-      {active && <ActivityMark pace="fast" />}
-      {/* Phase: empty. A plan row's phase would be the plan's phase, which is
-          Approved for everything in this section — a column showing one word on
-          every row is the chrome the phase cell replaced the repo to avoid. */}
-      <span role="gridcell" className="min-w-0 shrink-0 truncate text-xs" />
+      {/* The same unconditional marks cell the branch rows carry — a plan row
+          without one would land its remaining cells a column left of theirs,
+          which is exactly the alignment the tracks exist to hold. */}
+      <span role="gridcell" className={ACTIVITY_MARK_PLACE.row}>
+        {active && <ActivityMark pace="fast" inTrack />}
+      </span>
+      {/* THE PLAN'S PHASE, stated here and nowhere else in the group.
+          
+          This cell was empty on the argument that a plan row's phase "is
+          Approved for everything in this section" — a column showing one word
+          on every row. That stopped being true when the section learned to hold
+          Draft plans: `Discovery` and `Design` now sit side by side here, and
+          they are the difference between *needs your approval* and *ready to
+          start*. The phase is a property of the PLAN, so the plan row is where
+          it belongs; the branches beneath inherit it and no longer repeat it.
+          
+          Read from the group's rows rather than from a plan field, because a
+          row is what carries `phase` — and they agree by construction, all
+          being branches of one plan. */}
+      <span
+        role="gridcell"
+        className="min-w-0 shrink-0 truncate text-xs text-slate-500 dark:text-slate-400"
+        title={group.rows[0]?.phase ? `Phase: ${group.rows[0].phase}` : undefined}
+      >
+        {group.rows[0]?.phase && (
+          <span data-phase={group.rows[0].phase}>{group.rows[0].phase}</span>
+        )}
+      </span>
       {/* The plan, in the plan track — and it is a HEADING as well as a cell,
           because the rows below it are its branches. The expander wraps the
           name rather than sitting beside it: a separate caret would need a
@@ -2589,10 +3228,12 @@ function Row({
   planInHeading = false,
   card = null,
   dispatch,
+  approve,
   pulse = 0,
   onStarting,
   marked = false,
   active = false,
+  inPlanGroup = false,
 }: {
   row: AgentRow;
   onOpenPlan?: AgentListProps['onOpenPlan'];
@@ -2603,10 +3244,21 @@ function Row({
    * the group wordier than it was before grouping.
    */
   planInHeading?: boolean;
+  /**
+   * True when this row sits inside a plan group that draws its own separator.
+   *
+   * A plan and its branches are ONE block on this board, so the rule belongs to
+   * the group: a row drawing its own inside one puts a line between a plan and
+   * its first branch, which is the pair that must NOT be divided. Everywhere
+   * else the row is the unit and keeps its border.
+   */
+  inPlanGroup?: boolean;
   /** This row's plan as a board card, or null where the board has none. */
   card?: Card | null;
   /** Whether this server will act on Start work, and why not. */
   dispatch?: DispatchInfo;
+  /** Whether this server will act on Approve, and why not — the plan-PR half. */
+  approve?: DispatchInfo;
   /** Bumps once per board refresh; the Start work button counts these. */
   pulse?: number;
   /** A Start work click became outstanding (true) or settled (false). */
@@ -2641,6 +3293,25 @@ function Row({
   // drift.
   const note = noteWithoutPr(row.note, row.pr);
 
+  // **Taken, not resolved.** The cue answers a REQUEST, and the request is
+  // answered by the click — whether the click worked is what the row's other
+  // marks report on the next pulse. Local to the row and not persisted: a
+  // reload starts the cue again, which is the honest answer to *is this still
+  // waiting on me* when the board has only just started looking.
+  //
+  // **On the ROW rather than in the stuck cell, and the move is why.** The cue
+  // renders in `StuckCell` and the click that answers it now happens in
+  // `RowActions` — two siblings, so the flag they share has to sit above both.
+  // It lived inside the cell while the cell held both halves.
+  const [actionTaken, setActionTaken] = useState(false);
+  // The cue follows what this ROW can actually ask, not what its state usually
+  // offers — the menu omits an item whose precondition is missing, and an
+  // animated dot pointing at a menu with nothing in it marks a request nobody
+  // can make.
+  const cue = row.stuck
+    ? showsCue(actionReachable(row.stuck, card, dispatch), actionTaken)
+    : false;
+
   return (
     // Below `sm` a card, at `sm` and above a grid — and the two are one element
     // rather than two renders. A JS breakpoint would need a resize listener on
@@ -2654,7 +3325,13 @@ function Row({
     <li
       role="row"
       data-agent-row
-      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-slate-200/60 px-3 py-2 text-sm last:border-0 sm:grid ${ROW_TRACKS} sm:items-baseline sm:gap-x-3 dark:border-slate-800`}
+      // Inside a plan group the RULE belongs to the group, which draws one line
+      // under the plan and its branches together. A row drawing its own there
+      // would put a line between a plan and its first branch — the defect this
+      // replaces. Everywhere else the row is the unit, and keeps its own.
+      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2 text-sm sm:grid ${ROW_TRACKS} sm:items-baseline sm:gap-x-3 ${
+        inPlanGroup ? '' : 'border-b border-slate-200/60 last:border-0 dark:border-slate-800'
+      }`}
     >
       {/* The live indicator, on `working` rows only. `self-center` because the
           row aligns on the text baseline and a dot carries no text to align —
@@ -2685,16 +3362,29 @@ function Row({
           `isActive` itself is untouched. Widening happens HERE, at the render,
           where the second path is visibly a second statement rather than a
           quietly loosened predicate — and where the pace keeps the two apart. */}
-      {(active || isLive(row)) && (
-        <ActivityMark pace={active ? 'fast' : activityPace(row)} />
-      )}
-      {/* FINISHED WORK NOBODY ELSE CAN SEE — a separate question from the one
-          above, asked separately. Not an `else`, and not folded into the
-          condition: a row can be written to AND hold unpushed commits at the
-          same moment, and either shape would lose whichever it tested second.
-          Two facts, two marks, rendered independently. */}
-      {isUnpushed(row) && <UnpushedMark ahead={row.localAhead} />}
-      {isLive(row) && <LiveDot />}
+      {/* THE MARKS, in a track of their own — and the CELL is unconditional
+          while everything in it is conditional.
+          
+          That split is the whole reason this works as a column. A row without
+          marks must still occupy the track, or its remaining six cells shift
+          one column left and the board loses the alignment `agent-rows-line-up`
+          paid for. So the container always renders; what is inside it does not.
+          
+          Stacked rather than overlaid: a row can carry several marks at once —
+          measured on screen, the activity track and the unpushed bar collided
+          when both hung absolutely at `left-0`. */}
+      <span role="gridcell" className={ACTIVITY_MARK_PLACE.row}>
+        {(active || isLive(row)) && (
+          <ActivityMark pace={active ? 'fast' : activityPace(row)} inTrack />
+        )}
+        {/* FINISHED WORK NOBODY ELSE CAN SEE — a separate question from the one
+            above, asked separately. Not an `else`, and not folded into the
+            condition: a row can be written to AND hold unpushed commits at the
+            same moment, and either shape would lose whichever it tested second.
+            Two facts, two marks, rendered independently. */}
+        {isUnpushed(row) && <UnpushedMark ahead={row.localAhead} inTrack />}
+        {isLive(row) && <LiveDot />}
+      </span>
       {/* The phase takes the REPO's place rather than adding a seventh cell to
           a row that already wraps on `feature/opus5-hardening-challenge-budget`.
           The repo is the right thing to give up: constant in a one-repo board,
@@ -2738,7 +3428,18 @@ function Row({
         className="min-w-0 shrink-0 truncate text-xs text-slate-500 dark:text-slate-400"
         title={row.phase ? `Phase: ${row.phase}` : undefined}
       >
-        {row.phase && (
+        {/* NOT inside a plan group. The phase is a property of the PLAN, and
+            the branch merely inherits it — so in a group the plan row states it
+            once and the branches beneath do not repeat it down a column. Same
+            bargain `planInHeading` already makes one cell along, and the cell
+            still renders so the tracks hold their width. */}
+        {/* A DEFERRED branch keeps its phase, exactly as it keeps its own age.
+            It is not a plan line waiting to be started — it was started and
+            handed back, so *nobody is working on this* (the phase) and *someone
+            gave it up* (the badge) are two facts and each alone is wrong. The
+            same exception the age cell makes one column along: a property of
+            the plan is repetition, a property of the branch is information. */}
+        {(!inPlanGroup || row.state === 'deferred') && row.phase && (
           <>
             <span className="sr-only sm:hidden">Phase: </span>
             <span data-phase={row.phase}>{row.phase}</span>
@@ -2848,7 +3549,12 @@ function Row({
         {note && (
           <span
             data-row-note
-            className="min-w-0 truncate text-xs text-slate-500 max-sm:whitespace-normal dark:text-slate-400"
+            // The waiting-state travels as an attribute as well as a colour:
+            // a test asserting the colour alone would pass against a rule
+            // keyed on the note's WORDING, which is the shape this change
+            // exists to remove.
+            data-waiting-on={row.waitingOn ?? undefined}
+            className={`min-w-0 truncate text-xs max-sm:whitespace-normal ${waitingTone(row.waitingOn)}`}
             title={note}
           >
             {note}
@@ -2865,7 +3571,21 @@ function Row({
           colour and title rather than by a second position.
           
           Still nothing where no approval date is recorded: absent, not zero. */}
-      {row.ageMinutes === null && row.waitingDays !== null ? (
+      {/* IN A PLAN GROUP the waiting clock belongs to the PLAN ROW, which
+          states it once. Every branch of a plan shares one `waitingDays` — it
+          dates the plan's own `Approved:` record — so repeating it down the
+          column says the same number three times and reads like three
+          measurements.
+
+          Only the INHERITED clock is suppressed. A deferred branch in the same
+          group carries a real `ageMinutes` of its own, and that survives: an
+          earlier version of this section erased a shelved branch's age and PR,
+          and `fleet.ts` still carries the warning — *a branch started and then
+          shelved read as never begun*. A property of the plan is repetition; a
+          property of the branch is information. */}
+      {inPlanGroup && row.ageMinutes === null ? (
+        <span role="gridcell" className="shrink-0 text-right text-xs tabular-nums" />
+      ) : row.ageMinutes === null && row.waitingDays !== null ? (
         <span
           role="gridcell"
           className="shrink-0 text-right text-xs tabular-nums text-amber-700 dark:text-amber-500"
@@ -2904,8 +3624,10 @@ function Row({
         row={row}
         card={card}
         dispatch={dispatch}
+        approve={approve}
         pulse={pulse}
         onStarting={onStarting}
+        onTaken={() => setActionTaken(true)}
       />
       {/* Why this branch cannot MOVE — a different question from where it is
           waiting, and the one nothing on this row could answer. It renders
@@ -2917,13 +3639,7 @@ function Row({
           moves a row or opens a section. And on the common row it renders
           nothing at all: `stuck` is null for most branches, which is what makes
           a populated one worth looking at. */}
-      <StuckCell
-        row={row}
-        card={card}
-        dispatch={dispatch}
-        pulse={pulse}
-        onStarting={onStarting}
-      />
+      <StuckCell row={row} cue={cue} />
     </li>
   );
 }
@@ -3047,6 +3763,7 @@ export function AgentList({
   onOpenPlan,
   cardForPlanFile,
   dispatch,
+  approve,
   pulse = 0,
   onStarting,
 }: AgentListProps) {
@@ -3207,6 +3924,28 @@ export function AgentList({
         </p>
       )}
 
+      {/* The scan SUCCEEDED and lost something, which is neither of the two
+          banners above and must not be dressed as either.
+
+          `stale` means the server stopped answering; `fleet.error` means it
+          answered to say its scan broke — in both, the numbers below are the
+          last GOOD ones. Here they are the NEW ones, accepted from a scan that
+          exited 0, and they describe less than the board knew a moment ago.
+          Saying "last scan failed" would be a plain lie about what happened, and
+          saying nothing is the defect this whole change exists to remove: rows
+          vanishing with no error and no staleness marker.
+
+          Below the other two on purpose. A dead server or a broken scan is the
+          bigger fact and outranks a shrink they can both explain. */}
+      {fleet.shrink && (
+        <p
+          role="status"
+          className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+        >
+          {shrinkNote(fleet.shrink, fleet.ageSeconds + tick)}
+        </p>
+      )}
+
       {GROUPS.map(({ key, icon, label, hint }) => {
         const rows = fleet.rows.filter((r) => r.group === key);
         // Every waiting-group is grouped the same way, `done` included: it is
@@ -3250,13 +3989,44 @@ export function AgentList({
         // WAITING ON A MACHINE is the one group whose default hint makes a
         // CLAIM (*CI will finish*), so it is the one that must withdraw the
         // claim where the host cannot support it — see `hostCannotReportCi`.
+        //
+        // TWO WAYS TO LOSE THE CLAIM, AND NOT-YET-ASKED OUTRANKS CANNOT-REPORT.
+        // `hostCannotReportCi` concludes from the rows that this HOST will
+        // never answer; before the first fetch there are no PR rows to conclude
+        // from, so it answers `false` on its own guard and the section would
+        // fall back to the claiming hint. Asking `hostAnswer` first is what
+        // keeps the earlier, weaker fact from being narrated by the later,
+        // stronger one — and the order matters only because the two are true at
+        // once on a fresh board pointed at Bitbucket.
+        //
+        // THE HINT ONLY, NOT THE LABEL. The section keeps its name so a reader
+        // scanning headers finds it in the same place; what changes is the one
+        // slot that was making the false promise.
+        const answer = hostAnswer(fleet);
         const emptyHint =
-          key === 'waiting-on-machine' && hostCannotReportCi(fleet.rows)
-            ? HOST_CANNOT_REPORT_HINT
-            : hint;
+          key !== 'waiting-on-machine'
+            ? hint
+            : answer !== 'answered'
+              ? HOST_ANSWER_HINT[answer]
+              : hostCannotReportCi(fleet.rows)
+                ? HOST_CANNOT_REPORT_HINT
+                : hint;
+        // THE TALLY COUNTS WHAT THE SECTION SHOWS.
+        //
+        // Everywhere else that is rows, and the number matches what a reader
+        // sees. In NOT STARTED it stopped matching when the section learned to
+        // render one row per PLAN: a five-wave plan is one visible line and
+        // five rows, so the heading read `(6)` above three lines. Measured on
+        // screen with `working-shows-the-agent` folded.
+        //
+        // Counting the same thing the section renders is also what makes the
+        // number safe to fold: the branches behind an expander are described by
+        // their plan's own summary (`3 waves, first eligible`), so nothing is
+        // hidden by the smaller figure — it moves up a level with the rows.
+        const shown = countsPlans ? grouped.length : rows.length;
         const tally = (
           <span className="font-normal normal-case tracking-normal text-slate-400 dark:text-slate-600">
-            {rows.length > 0 ? `(${rows.length})` : emptyHint}
+            {rows.length > 0 ? `(${shown})` : emptyHint}
           </span>
         );
         // Whether anything in this section is moving — and at which pace. The
@@ -3346,7 +4116,26 @@ export function AgentList({
                     const foldable = showsWaveFold(group);
                     const expanded = foldable ? openPlans.has(group.plan) : null;
                     return (
-                      <li role="rowgroup" key={group.plan}>
+                      // THE RULE BELONGS TO THE GROUP, NOT TO ITS ROWS.
+                      //
+                      // A plan and its branches are one thing on this board, and
+                      // the border used to be drawn by every row including the
+                      // plan's own — so the line fell BETWEEN a plan and its
+                      // first branch, and no line fell between one plan and the
+                      // next. Each visual block therefore held one plan's
+                      // branches and the following plan's heading: the separator
+                      // was dividing exactly the wrong pair.
+                      //
+                      // `last:border-0` could not save it, because the plan row
+                      // is never the last child of its own group.
+                      //
+                      // Drawn here, once per plan, and the rows inside drop
+                      // theirs (see `PlanRow` / `Row`, keyed on `inPlanGroup`).
+                      <li
+                        role="rowgroup"
+                        key={group.plan}
+                        className="border-b border-slate-200/60 last:border-0 dark:border-slate-800"
+                      >
                         <PlanRow
                           group={group}
                           onOpenPlan={onOpenPlan}
@@ -3373,12 +4162,14 @@ export function AgentList({
                                 key={rowKey(r)}
                                 row={r}
                                 onOpenPlan={onOpenPlan}
+                                inPlanGroup
                                 // The plan row above names it, so the branch
                                 // rows do not repeat it — the same bargain a
                                 // sub-heading makes with the rows beneath it.
                                 planInHeading
                                 card={cardForPlanFile?.(r.planFile) ?? null}
                                 dispatch={dispatch}
+                                approve={approve}
                                 pulse={pulse}
                                 onStarting={onStarting}
                                 marked={marked.has(rowKey(r))}
@@ -3433,6 +4224,7 @@ export function AgentList({
                           // are startable ever use it.
                           card={cardForPlanFile?.(r.planFile) ?? null}
                           dispatch={dispatch}
+                          approve={approve}
                           pulse={pulse}
                           onStarting={onStarting}
                           // By the row's own identity, so a row that changed
@@ -3451,8 +4243,25 @@ export function AgentList({
               ) : (
                 // A row of one cell: the grid holds no branches, and saying so
                 // is still a row of the grid rather than something beside it.
+                //
+                // `none` IS AN OBSERVATION, so it is only printed where one was
+                // made. In WAITING ON A MACHINE before the host has answered
+                // the grid is empty because nobody asked, and the word for that
+                // is not the word for an empty answer — the whole defect, in the
+                // one cell a reader lands on after opening the section.
+                //
+                // Said HERE as well as in the header, not instead of it. The
+                // header's hint is the copy a reader sees while scanning, and
+                // the two sections that start folded prove headers can be the
+                // only thing on screen; this cell is what a reader sees once
+                // they open the section and look for the rows. A single site
+                // would leave whichever of those two readings unlabelled.
                 <li role="row" className="px-3 py-2 text-sm text-slate-400 dark:text-slate-600">
-                  <span role="gridcell">none</span>
+                  <span role="gridcell">
+                    {key === 'waiting-on-machine' && answer !== 'answered'
+                      ? HOST_ANSWER_HINT[answer]
+                      : 'none'}
+                  </span>
                 </li>
               )}
             </ul>

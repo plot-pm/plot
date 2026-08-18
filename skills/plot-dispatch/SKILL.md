@@ -9,7 +9,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 0.4.0
+  version: 0.7.0
 compatibility: >-
   Designed for Claude Code and Cursor. Requires git with worktree support and
   python3. Starting workers needs a `Worker command` in Plot Config; the first
@@ -33,7 +33,7 @@ agents, several branches, real tokens. Monitoring is automatable; committing to
 parallel work is a decision. This command therefore never runs itself, and
 `--dry-run` exists so the decision can be taken with the facts in hand.
 
-**Input:** `$ARGUMENTS` = `[--dry-run] [--no-start] [--max N] <slug>`,
+**Input:** `$ARGUMENTS` = `[--dry-run] [--no-start] [--max N] [--allow-local] <slug>`,
 or `--status` / `--stop <branch>` to inspect or stop running workers.
 
 ## Model Guidance
@@ -48,6 +48,8 @@ or `--status` / `--stop <branch>` to inspect or stop running workers.
 | 6. Report | Small | Read the footer counts and `worker=`; relay a failed `Started:` booking verbatim |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor).
+>
+> **No user present?** If `PLOT_UNATTENDED=1` is set, do not call the question tool — each question below declares what to do instead, and every skipped question is named in the output. See [Running unattended](../plot/docs/unattended.md).
 
 ## Steps
 
@@ -78,6 +80,14 @@ Then ask how many to start. Do not assume "all eligible" is what the user
 wants — each worker costs tokens and produces a PR someone must review. Name
 the real constraint: *"4 branches are eligible. Each becomes a PR. How many do
 you want running?"* Use `--max N` to honour the answer.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** stop. Fan-out spends tokens and creates
+> PRs a person must review, and "all eligible" is precisely the assumption this
+> step exists to prevent — an unattended run must not make that call by
+> defaulting to it. Report the dry run in full, including any `in flight:`
+> lines, and start nothing. A caller that genuinely wants a fixed number passes
+> `--max N` explicitly, which *is* the answer and leaves nothing to ask.
+> `PLOT-UNASKED: How many of <n> eligible branches to start? — stopped — dry run shown; no worktree created, no worker started`
 
 #### Read the `in flight:` lines
 
@@ -142,6 +152,14 @@ of asking here:
 |---|---|---|
 | a command | `- **Worker command:** <what they said>` | dispatch starts workers |
 | empty | `- **Worker command:** none` | asked; this repo starts them by hand |
+
+> **Unattended (`PLOT_UNATTENDED=1`):** stop, and write **nothing** to
+> `## Plot Config`. Both answers above are durable configuration, so an
+> unattended default would not merely act unasked — it would record a choice
+> nobody made and stop the question ever being asked again. `none` in
+> particular means *a person considered this and declined*, which is a claim an
+> agent cannot truthfully make. Prepare no worktrees.
+> `PLOT-UNASKED: How does this project run an agent headless? — stopped — Worker command absent; config left untouched`
 
 `none` is a **deliberate absence**, and recording it is what stops the question
 returning. An empty answer is first-class — hand-starting works, and the config
@@ -305,6 +323,16 @@ until you release it. Releasing is `/plot-reconcile`'s job.
   `plot-dispatch.sh` refuses a plan that is not Approved, or whose `Impl:`
   answer is not `own branches`, and it **fails closed** if the phase cannot be
   read. You cannot talk it into fanning out unapproved work.
+- **The phase is read from `origin/<main>`, never the working tree.** The
+  question the gate means to ask is *has this plan been approved where everyone
+  can see it?*, and only the shared ref answers it. So an approval committed
+  locally and never pushed does **not** open the gate — push it first — and a
+  checkout parked on another branch does **not** hide an approval that is
+  already shared. Every refusal names the ref and sha it read.
+- **`--allow-local` is the escape for a repo with no remote**, and nothing else.
+  It gates on the working tree and says so on stderr. Reach for it only when
+  `origin/<main>` genuinely cannot be resolved; using it to get past a refusal
+  is how unapproved work gets dispatched.
 - **Never dispatch a blocked wave.** Eligibility lives in
   `plot-fleet-scan.sh`; do not second-guess it or hand-pick a branch from a
   later wave.

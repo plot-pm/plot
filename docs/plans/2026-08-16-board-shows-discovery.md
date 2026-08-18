@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** pr
@@ -11,6 +11,7 @@
 - **Approved:** 2026-08-16, jwloka, plan-PR #127 merged
 - **Started:** 2026-08-16, jwloka, `bug/board-shows-discovery`
 - **Delivered:** 2026-08-16
+- **Released:** 2026-08-18, v2.5.0
 
 ## Problem
 

@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { startServer, fetchBoard, fetchRaw } from './helpers.mjs';
+import { startServer, fetchBoard, fetchRaw, git, rmTree } from './helpers.mjs';
 
 /** A plan on the default branch: approved, started — Development. */
 const APPROVED_PLAN = `# The board acts through plot
@@ -56,9 +56,6 @@ const SAME_BRANCH_PLAN = `# Work carried on its own branch
 
 - \`feature/carries-its-own-plan\` — plan and code together
 `;
-
-const git = (cwd) => (...args) =>
-  execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
 /**
  * A repo shaped like a real one mid-review: an approved plan merged to the
@@ -143,7 +140,7 @@ function makeRepoUnderReview() {
   return {
     repo,
     draftPath: `docs/plans/${draftName}`,
-    cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }),
+    cleanup: () => rmTree(tmp),
   };
 }
 
@@ -296,9 +293,12 @@ describe('board: a repo with no prefixed branches behaves exactly as before', ()
     server = await startServer(tmp);
   });
 
-  after(() => {
-    server?.kill();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+  after(async () => {
+    // AWAIT the server's exit before deleting the tree it is serving from.
+    // `kill()` only sends the signal, and `rmSync` then raced a live process:
+    // three CI failures with `ENOTEMPTY` on this directory's `.git`.
+    await server?.stop();
+    if (tmp) rmTree(tmp);
   });
 
   it('serves the working-tree plans and an empty Discovery column', async () => {
@@ -355,9 +355,12 @@ describe('board: a plans dir NESTED in an unrelated repo borrows nothing from it
     server = await startServer(nested);
   });
 
-  after(() => {
-    server?.kill();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+  after(async () => {
+    // AWAIT the server's exit before deleting the tree it is serving from.
+    // `kill()` only sends the signal, and `rmSync` then raced a live process:
+    // three CI failures with `ENOTEMPTY` on this directory's `.git`.
+    await server?.stop();
+    if (tmp) rmTree(tmp);
   });
 
   it('shows only its own plans — never the enclosing repo\'s branch plans', async () => {

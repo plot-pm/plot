@@ -25,6 +25,7 @@ import {
   makeStubScripts,
   request,
   writeApproveCommand,
+  rmTree,
 } from './helpers.mjs';
 
 const DRAFT = `# Ship the widget
@@ -81,7 +82,7 @@ describe('POST /api/approve: allow-listed ahead of the 405, and only then', () =
   after(() => {
     server?.kill();
     stub?.cleanup();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('answers 202 with the slug and the log path the SERVER chose', async () => {
@@ -140,7 +141,7 @@ describe('POST /api/approve: a refused request runs NOTHING', () => {
   after(() => {
     server?.kill();
     stub?.cleanup();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('refuses a cross-site Sec-Fetch-Site with 403', async () => {
@@ -199,7 +200,7 @@ describe('POST /api/approve: the binding is the authorisation', () => {
   after(() => {
     server?.kill();
     stub?.cleanup();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('refuses with 403 when HOST is not localhost, and runs nothing', async () => {
@@ -231,7 +232,7 @@ describe('a board with NO `Approve command` can approve', () => {
   after(() => {
     server?.kill();
     stub?.cleanup();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('`Start work` and `Approve` give the SAME availability answer', async () => {
@@ -280,7 +281,7 @@ describe('`Approve command`, when declared, still wins', () => {
   after(() => {
     server?.kill();
     stub?.cleanup();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('runs the configured command, not the script', async () => {
@@ -310,7 +311,7 @@ describe('POST /api/approve: a failing command reports its OWN words', () => {
   after(() => {
     server?.kill();
     stub?.cleanup();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('writes the command\'s message to the log the 202 named', async () => {
@@ -368,7 +369,7 @@ describe('POST /api/approve: a command that succeeds says so', () => {
   after(() => {
     server?.kill();
     stub?.cleanup();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('reports `done` once the command exits 0', async () => {

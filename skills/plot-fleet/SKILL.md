@@ -10,7 +10,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 0.2.0
+  version: 0.4.1
 compatibility: >-
   Designed for Claude Code and Cursor. Requires git and python3. No git-host
   CLI needed — the pulse reads refs, not pull requests.
@@ -34,7 +34,8 @@ hours** — merge and delivery are minutes apart, so a pulse that dropped a plan
 the instant it was delivered would lose the work at the moment it finished. A
 delivered plan with no `Delivered:` date does not appear at all, and `--next`
 never names a branch from one). `--offline` / `--no-fetch` skip the `git fetch`
-for a network-free pulse. `--log-pulse` appends one line per plan to its
+for a network-free pulse — which also skips the prune that keeps merged
+branches from reading `wip` (see *The local walk is not the only source*). `--log-pulse` appends one line per plan to its
 `## Notes`. `--loose` relaxes wave eligibility (see below) — strict is the
 default and should stay that way.
 
@@ -64,6 +65,8 @@ still defaults to writing nothing).
 | 4. Flag stalls | Mid–Frontier | Distinguishing "slow" from "stuck" needs context |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor).
+>
+> **No user present?** If `PLOT_UNATTENDED=1` is set, do not call the question tool — each question below declares what to do instead, and every skipped question is named in the output. See [Running unattended](../plot/docs/unattended.md).
 
 ## Vocabulary
 
@@ -80,6 +83,47 @@ this command as a heartbeat.
 | **blocked** | A prior wave still has outstanding work |
 | **claimed** | A branch whose only commits beyond main are empty `plot: claim …` markers |
 | **deferred** | Annotated `<!-- deferred: … -->`; never counts as outstanding |
+
+### Worker states
+
+`--json` carries a `worker` field per branch. Six describe the **process**; two
+describe the **task**, and the split matters because the process cannot answer
+the task's question. Measured across seven worktrees in a four-agent fleet run:
+*every* worker exited 0, including two that stopped mid-task. All three read
+`finished`, whose move is *review it*, and two of them needed an answer instead.
+
+| State | The reader's move |
+|-------|-------------------|
+| `running` | Leave it alone |
+| `finished` | Review it — the work reached a PR, or nothing was left behind |
+| `waiting` | **Answer it** — a marker in the tree asks a question |
+| `stalled` | **Resume it** — work is on the floor and no PR covers it |
+| `failed` | Restart it; `worker_exit` says how it died |
+| `ended` | Read the log; the exit status was not recorded |
+| `none` | A worktree is here but no pid — look in it. Unknown, never "nobody" |
+| `elsewhere` | No worktree here — ask the machine that took it |
+
+`waiting` and `stalled` are as opposite as `failed` and `finished`: one sends a
+**person** to a question, the other sends a **worker** back to work. Never
+report a `waiting` branch as stalled — relaunching it walks into the same wait,
+which is a loop rather than a rescue, and was measured happening twice to one
+branch.
+
+### The blocked marker
+
+A worker that stops to ask a person something writes **`PLOT-BLOCKED:`** into a
+file in its worktree, followed by the question. That token is what makes
+`waiting` detectable; `TODO(you)` and `TODO(human)` are also recognised, because
+they emerged from workers before Plot named anything and still exist in trees.
+
+Two properties are load-bearing:
+
+- **In the tree, not only in the log.** The log records that a question *was
+  asked*; only the tree records that it is still *unanswered*, and only the tree
+  clears when someone writes the answer.
+- **Removed when answered.** A marker left behind after its question is settled
+  reports `waiting` forever, and a row nobody can clear is one people learn to
+  ignore.
 
 ## Steps
 
@@ -114,6 +158,30 @@ so an `open` can be weighed rather than trusted blindly:
 Under `truncated` or `none`, do not read `open` as "not started" when advising
 the next action — say what the scan could not see.
 
+**The local walk is not the only source.** A squash merge leaves no merge
+commit, so the walk above cannot see it. When a branch has **no ref at all** —
+nothing local left to read — the scan asks the host once for that branch, and a
+PR reported `MERGED` reads `merged`. This is what lets a wave complete in a
+repo that squash-merges by default.
+
+The lookup is skipped entirely with `--offline`/`--no-fetch`, and when the host
+cannot answer — unreachable, or no PR found — the branch reads `open` exactly
+as it did before. An unreachable host never becomes a fabricated `merged`, so
+an `open` under those conditions still carries the caveat above.
+
+**Reaching that arm requires a pruned mirror.** `git fetch` does not remove
+remote-tracking refs for branches deleted upstream, so a branch merged with
+`--delete-branch` leaves `refs/remotes/origin/<branch>` behind. The state is
+chosen on that ref's *presence*: a leftover sends the branch down the ancestry
+path, which a squash merge breaks by construction, and the host is never asked
+— so the branch reads `wip` and its wave never completes. The scan's fetch
+therefore prunes, on the connection it already opens.
+
+`--offline`/`--no-fetch` skips the fetch, so it cannot prune either. An
+offline pulse keeps whatever stale refs the checkout holds and may report
+`wip` for merged work, holding a wave blocked; the footer says so. Re-run
+without `--offline` before concluding a wave is genuinely unfinished.
+
 ### 2. Report State
 
 Print the scan body as-is — it is already shaped for reading. Then give the
@@ -137,6 +205,13 @@ Name the signal, then advise (Principle 11 — guidance is part of the workflow)
   error.
 
 ### 4. Flag Stalls — carefully
+
+A `worker: stalled` branch is a **different** finding from a stale claim, and
+the two must not be merged in the report. `stalled` means a worker ran and
+stopped with work on the floor — that work is worth keeping, and naming what is
+uncommitted is the useful thing to say. A stale claim means nothing was ever
+built. Restarting a stalled branch is `/plot-dispatch`'s to do and this
+command's to *report*; it starts nothing.
 
 A branch claimed long ago with no work on it is *suspicious*, not *broken*: a
 worker may be thinking, or may be dead. This command **never** reaps. Report

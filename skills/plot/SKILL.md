@@ -9,7 +9,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 2.3.0
+  version: 2.6.0
 compatibility: Designed for Claude Code and Cursor. Requires git. Host operations (PRs, default branch) go through plot-host.sh (GitHub or Bitbucket).
 ---
 
@@ -186,6 +186,7 @@ The Release phase includes an RC verification loop. Individual plans don't track
 - **Sprint files:** `docs/sprints/YYYY-Www-<slug>.md` — ISO week-prefixed, committed directly to main
 - **Sprint active index:** `docs/sprints/active/<slug>.md` — symlinks to active sprints
 - **User questions:** When a step says "ask", "propose", "warn and confirm", or "list and ask", use the `AskUserQuestion` tool (Claude Code) or `ask_question` (Cursor). This ensures the agent pauses for a real answer instead of continuing with assumptions.
+- **Nobody to ask:** When `PLOT_UNATTENDED=1` is set, the question tool is not called at all — each question site declares whether to take its documented default, refuse, or stop cleanly, and every skipped question is named in the output. The variable answers *may I ask?*, never *may I proceed?*: gates refuse in both modes. See [Running unattended](docs/unattended.md).
 
 ## Guardrails
 
