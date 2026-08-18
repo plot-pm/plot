@@ -217,10 +217,13 @@ shipping a version is still a sprint; the field is how one says otherwise.
       entries, no code blocks anywhere, special characters already handled by
       the escaping every other field uses. It is also what `/plot-release`
       extracts by hand today, so it earns its place twice.
-- [ ] Should the Should-Have prompt appear when the release is cut from CI
-      rather than a terminal? A prompt nobody can answer is a hang. Likely it
-      degrades to the Must-Have gate plus a printed warning, but that is a
-      guess until somebody cuts a release from a workflow.
+- [x] Should the Should-Have prompt appear when the release is cut from CI
+      rather than a terminal? **No, and the mechanism turned out to be wider
+      than this plan** — no Plot script reads a keyboard, so the wait is the
+      agent's tool call under `claude -p`, and fifteen skills share it.
+      Answered by `docs/plans/2026-08-18-a-question-nobody-can-answer-is-a-hang.md`:
+      under `PLOT_UNATTENDED=1` the prompt becomes a warning and the release
+      proceeds, while the Must-Have gate still refuses.
 
 ## Branches
 
