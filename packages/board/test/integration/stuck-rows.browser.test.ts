@@ -269,26 +269,29 @@ describe('a stuck branch says so in its row', () => {
     }
   });
 
-  it('offers the last run from a row that is NOT failing', async () => {
+  it('offers the last run when the newest run is GREEN', async () => {
     // THE WIDENING, and the plan proposed it deliberately. The link used to
     // render only while `stuck.state === 'ci-failing'`, so the route to a run
-    // existed exactly as long as the row was red — a reader wanting the last
-    // run of a green branch had no control at all.
+    // existed exactly as long as the row was red — and the reported case is
+    // precisely a row whose newest run has since passed.
+    //
+    // How far the widening reaches is bounded by the DATA, not by this
+    // condition: `runHistory` is a field of `stuck`, so a branch that is green
+    // in every sense carries no run history at all and offers nothing. That
+    // limit belongs to what the server sends, and is recorded on `runUrl`.
     const green = fleet();
     green.rows = [
       row({
-        branch: 'feature/green', group: 'working', stuck: null,
+        branch: 'feature/green', group: 'working',
         branchUrl: `${GH}feature/green`,
+        stuck: stuck({
+          state: 'ci-failing',
+          runHistory: [
+            { workflow: 'validate', conclusion: 'success', startedAt: '10:19', url: 'https://github.com/tiny/garden/actions/runs/9' },
+          ],
+        }),
       }),
     ];
-    // The run history rides on the row rather than on a stuck state, which is
-    // the point: this row is not stuck and still has a last run.
-    (green.rows[0] as AgentRow & { stuck: Stuck | null }).stuck = stuck({
-      state: 'ci-failing',
-      runHistory: [
-        { workflow: 'validate', conclusion: 'success', startedAt: '10:19', url: 'https://github.com/tiny/garden/actions/runs/9' },
-      ],
-    });
     const page = await open(green);
     try {
       const r = rowFor(page, 'feature/green');

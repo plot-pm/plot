@@ -9,6 +9,7 @@ import {
   isLive,
   isCollapsible,
   noActionReason,
+  menuState,
   splitBranch,
   prStateWord,
   noteWithoutPr,
@@ -2161,5 +2162,83 @@ describe("a row's actions all live in its menu", () => {
     // a signal reachable only by opening a menu is not a signal.
     expect(menu).not.toContain('<StuckCue');
     expect(declaration('StuckCell')).toContain('<StuckCue');
+  });
+});
+
+/**
+ * WHETHER THE MENU EXISTS, and whether anything in it can act — two questions,
+ * and the board asked only the second until 2026-08-18.
+ */
+describe('menuState — a refusal is not an absence', () => {
+  const none = {
+    canStart: false, canApprove: false, canResolve: false, hasRun: false,
+    serverWillAct: false, approveWillAct: false,
+  };
+
+  it('renders no menu at all on a row with nothing to offer', () => {
+    // The measured defect: the `⋯` rendered on every row, so two of six WAITING
+    // ON YOU rows carried a control that opened nothing.
+    expect(menuState(none)).toEqual({ present: false, enabled: false });
+  });
+
+  it('keeps the menu present but disabled where the server refuses', () => {
+    // There IS something to do here — you simply cannot do it from this
+    // binding. Rendering nothing would report a healthy row, which is the
+    // worse lie: the reason has to stay reachable.
+    expect(menuState({ ...none, canResolve: true })).toEqual({
+      present: true, enabled: false,
+    });
+    expect(menuState({ ...none, canStart: true })).toEqual({
+      present: true, enabled: false,
+    });
+    expect(menuState({ ...none, canApprove: true })).toEqual({
+      present: true, enabled: false,
+    });
+  });
+
+  it('enables the run link without asking whether the server will act', () => {
+    // NAVIGATION, so it carries no guard: there is no rerun route here, and
+    // opening the host's page is not a write. It reads the same over Tailscale
+    // as it does at the machine — which is why a row with only a run is
+    // enabled on a binding that refuses every dispatch.
+    expect(menuState({ ...none, hasRun: true })).toEqual({
+      present: true, enabled: true,
+    });
+  });
+
+  it('asks about ANY item, never one named item', () => {
+    // The defect this gate had in its first form: `enabled` was `canStart &&
+    // serverWillAct`, so a Draft plan's row — never startable by construction —
+    // had a dead menu on exactly the rows with something to do.
+    expect(menuState({ ...none, canApprove: true, approveWillAct: true }).enabled).toBe(true);
+    expect(menuState({ ...none, canResolve: true, serverWillAct: true }).enabled).toBe(true);
+    // And `Approve` answers to its OWN verdict, not to the dispatch one.
+    expect(menuState({ ...none, canApprove: true, serverWillAct: true }).enabled).toBe(false);
+  });
+
+  it('never enables a menu it does not render', () => {
+    // THE INVARIANT, over every combination rather than the four spot checks
+    // above. `enabled && !present` would put an openable menu behind a button
+    // that is not there — one line of reasoning across four disjuncts, and
+    // exactly the kind that gets re-derived wrongly in a later edit.
+    const bools = [false, true];
+    for (const canStart of bools)
+      for (const canApprove of bools)
+        for (const canResolve of bools)
+          for (const hasRun of bools)
+            for (const serverWillAct of bools)
+              for (const approveWillAct of bools) {
+                const state = menuState({
+                  canStart, canApprove, canResolve, hasRun,
+                  serverWillAct, approveWillAct,
+                });
+                expect(
+                  !state.enabled || state.present,
+                  `enabled without present: ${JSON.stringify({
+                    canStart, canApprove, canResolve, hasRun,
+                    serverWillAct, approveWillAct,
+                  })}`,
+                ).toBe(true);
+              }
   });
 });

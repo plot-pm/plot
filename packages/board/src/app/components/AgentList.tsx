@@ -2208,6 +2208,51 @@ export function noActionReason(row: AgentRow): string {
 }
 
 /**
+ * What a row's menu holds, and therefore whether it exists at all.
+ *
+ * **Two questions, and the old code asked only one.** `enabled` is *can
+ * something in here act right now*; `present` is *is there anything in here at
+ * all*. They came apart the moment the menu learned to refuse: a row whose one
+ * act the server declines has an item, a reason, and nothing it can do — and
+ * collapsing that into a single flag forces a choice between a control that
+ * lies and a reason nobody can reach.
+ *
+ * **A REFUSAL IS NOT AN ABSENCE.** A declined act still renders the button,
+ * `aria-disabled`, with the reason on it. Only a row with no item at all
+ * renders none — the empty `⋯` that was measured lying on two of six WAITING ON
+ * YOU rows.
+ *
+ * The run link joins `enabled` without a `willAct` term because it is
+ * NAVIGATION: there is no rerun route on this server, so opening the host's
+ * page is not a write and reads the same over Tailscale as it does at the
+ * machine. The two dispatching items ask whether the server will act because
+ * they ask the server to act.
+ *
+ * Exported for test, and the invariant is the reason: `enabled` must never be
+ * true while `present` is false, or the board renders an openable menu with no
+ * button to open it. That is one line of reasoning about four disjuncts, which
+ * is exactly the kind that survives a refactor by being re-derived wrongly.
+ */
+export function menuState(items: {
+  canStart: boolean;
+  canApprove: boolean;
+  canResolve: boolean;
+  hasRun: boolean;
+  serverWillAct: boolean;
+  approveWillAct: boolean;
+}): { present: boolean; enabled: boolean } {
+  const { canStart, canApprove, canResolve, hasRun, serverWillAct, approveWillAct } = items;
+  return {
+    present: canStart || canApprove || canResolve || hasRun,
+    enabled:
+      (canStart && serverWillAct) ||
+      (canApprove && approveWillAct) ||
+      (canResolve && serverWillAct) ||
+      hasRun,
+  };
+}
+
+/**
  * What a stuck branch says in its row: which of the four, the evidence, and —
  * for the two the pulse cannot fix — the action, ON THE ROW.
  *
@@ -2489,6 +2534,19 @@ function RowActions({
   // link available* that used to stand in the row for this case are gone with
   // it: an item that is not there says the same thing more quietly, which is
   // the empty-menu rule applied one level in.
+  //
+  // **HOW FAR THE WIDENING ACTUALLY REACHES, and it is less far than the words
+  // *a run URL exists* suggest.** `runHistory` is a field of `stuck`, not of
+  // the row, so it is only ever populated on a row the detector called stuck.
+  // A branch that is green in every sense carries `stuck: null` and no run
+  // history to read, and this offers it nothing.
+  //
+  // What the widening does reach is every row the detector marked — including
+  // states that are NOT `ci-failing` and the `ci-failing` row whose newest run
+  // has since gone green. That was the reported case and it is fixed. Carrying
+  // the run on the row itself, so a wholly healthy branch could offer its last
+  // one too, is a change to what the server SENDS rather than to what this
+  // renders, and it belongs to whichever plan wants it.
   const runUrl = row.stuck?.runHistory.find((r) => r.url)?.url ?? '';
   // THE CONFLICT, through the route that already exists — the same
   // `/api/dispatch` a Start work click uses, with the same script deciding
@@ -2511,20 +2569,12 @@ function RowActions({
   // and opening the host's page is not a write. So it joins this gate without a
   // `WillAct` term, which is not an oversight: the two dispatching items ask
   // whether the server will act because they ask the server to act.
-  const enabled =
-    (canStart && serverWillAct) ||
-    (canApprove && approveWillAct) ||
-    (canResolve && serverWillAct) ||
-    Boolean(runUrl);
-  // Whether the menu EXISTS at all — a different question from whether it is
-  // enabled, and the one the old code never asked.
-  //
-  // A `⋯` that opens nothing is a control that lies, and it was measured lying
-  // on two of six WAITING ON YOU rows. But a REFUSAL IS NOT AN ABSENCE: a row
-  // whose conflict the server declines to dispatch from this binding still has
-  // something to do — you simply cannot do it from here — so it keeps its
-  // button and names the refusal. Only a row with no item at all renders none.
-  const hasItems = canStart || canApprove || canResolve || Boolean(runUrl);
+  // Whether the menu EXISTS, and whether anything in it can act — two questions,
+  // and the old code asked only the second. See {@link menuState}.
+  const { present: hasItems, enabled } = menuState({
+    canStart, canApprove, canResolve, hasRun: Boolean(runUrl),
+    serverWillAct, approveWillAct,
+  });
   const reason =
     canStart && !serverWillAct && dispatch?.reason
       ? dispatch.reason
@@ -2586,27 +2636,30 @@ function RowActions({
           or not anything is in it, which is the property the old dimmed
           placeholder was reaching for before the track existed. */}
       {hasItems && (
-      <button
-        type="button"
-        data-row-actions
-        aria-haspopup="menu"
-        aria-expanded={open}
-        // Never the native attribute. `aria-disabled` keeps the control
-        // focusable, so the title explaining WHY is reachable by keyboard.
-        aria-disabled={!enabled || undefined}
-        aria-label={enabled ? `Actions for ${row.branch}` : reason}
-        title={enabled ? `Actions for ${row.branch}` : reason}
-        onClick={() => { if (enabled) setOpen((v) => !v); }}
-        className={
-          enabled
-            ? 'text-xs leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'
-            : // Very dim: a row with nothing to do stays quiet, and the menu
-              // reads as scenery rather than as an offer.
-              'cursor-default text-xs leading-none text-slate-300 dark:text-slate-700'
-        }
-      >
-        ⋯
-      </button>
+        <button
+          type="button"
+          data-row-actions
+          aria-haspopup="menu"
+          aria-expanded={open}
+          // Never the native attribute. `aria-disabled` keeps the control
+          // focusable, so the title explaining WHY is reachable by keyboard.
+          aria-disabled={!enabled || undefined}
+          aria-label={enabled ? `Actions for ${row.branch}` : reason}
+          title={enabled ? `Actions for ${row.branch}` : reason}
+          onClick={() => { if (enabled) setOpen((v) => !v); }}
+          className={
+            enabled
+              ? 'text-xs leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'
+              : // Very dim, and this branch now means something narrower than
+                // it used to: not *a row with nothing to do* — such a row
+                // renders no button at all — but a row whose act the server
+                // has REFUSED. The reason is on the control; the dimness says
+                // not from here.
+                'cursor-default text-xs leading-none text-slate-300 dark:text-slate-700'
+          }
+        >
+          ⋯
+        </button>
       )}
       {/* NO `card` GATE. It read `open && enabled && card`, and requiring a card
           for the whole BODY is the same defect one level up that requiring
