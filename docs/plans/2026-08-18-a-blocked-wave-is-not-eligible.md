@@ -11,7 +11,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-18, jwloka, in-session
-- **Started:**
+- **Started:** 2026-08-18, Jan Wloka, `bug/not-started-shows-approved-plans`
 - **Delivered:**
 - **Released:**
 
