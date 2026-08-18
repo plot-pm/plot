@@ -1070,10 +1070,14 @@ export function offersAction(state: StuckState): boolean {
  *
  * **`offersAction` answers about the state; this answers about the row.** The
  * distinction is not pedantic, and a screenshot found it: `conflict` is a state
- * that offers an action, but `StuckAction` falls back to the words *no dispatch
- * available for this plan* when the row has no card or the board has not said
- * whether it will act. The cue rendered anyway, so an animated dot sat pointing
- * at a sentence saying nothing could be asked.
+ * that offers an action, but the row has nothing to offer when it has no card
+ * or the board has not said whether it will act. The cue rendered anyway, so an
+ * animated dot sat pointing at a sentence saying nothing could be asked.
+ *
+ * Since the actions moved into the menu (`one-place-for-what-a-row-can-do`) the
+ * same question decides whether the MENU holds a stuck row's item, so this is
+ * now asked in two places and must keep giving one answer. A cue pointing at a
+ * menu without the item is the same defect in its second form.
  *
  * That breaks the rule the cue exists under: **motion marks an unanswered
  * request, and where nothing can be asked there is no request.** It is the same
@@ -2289,6 +2293,51 @@ export function noActionReason(row: AgentRow): string {
 }
 
 /**
+ * What a row's menu holds, and therefore whether it exists at all.
+ *
+ * **Two questions, and the old code asked only one.** `enabled` is *can
+ * something in here act right now*; `present` is *is there anything in here at
+ * all*. They came apart the moment the menu learned to refuse: a row whose one
+ * act the server declines has an item, a reason, and nothing it can do — and
+ * collapsing that into a single flag forces a choice between a control that
+ * lies and a reason nobody can reach.
+ *
+ * **A REFUSAL IS NOT AN ABSENCE.** A declined act still renders the button,
+ * `aria-disabled`, with the reason on it. Only a row with no item at all
+ * renders none — the empty `⋯` that was measured lying on two of six WAITING ON
+ * YOU rows.
+ *
+ * The run link joins `enabled` without a `willAct` term because it is
+ * NAVIGATION: there is no rerun route on this server, so opening the host's
+ * page is not a write and reads the same over Tailscale as it does at the
+ * machine. The two dispatching items ask whether the server will act because
+ * they ask the server to act.
+ *
+ * Exported for test, and the invariant is the reason: `enabled` must never be
+ * true while `present` is false, or the board renders an openable menu with no
+ * button to open it. That is one line of reasoning about four disjuncts, which
+ * is exactly the kind that survives a refactor by being re-derived wrongly.
+ */
+export function menuState(items: {
+  canStart: boolean;
+  canApprove: boolean;
+  canResolve: boolean;
+  hasRun: boolean;
+  serverWillAct: boolean;
+  approveWillAct: boolean;
+}): { present: boolean; enabled: boolean } {
+  const { canStart, canApprove, canResolve, hasRun, serverWillAct, approveWillAct } = items;
+  return {
+    present: canStart || canApprove || canResolve || hasRun,
+    enabled:
+      (canStart && serverWillAct) ||
+      (canApprove && approveWillAct) ||
+      (canResolve && serverWillAct) ||
+      hasRun,
+  };
+}
+
+/**
  * What a stuck branch says in its row: which of the four, the evidence, and —
  * for the two the pulse cannot fix — the action, ON THE ROW.
  *
@@ -2310,26 +2359,21 @@ export function noActionReason(row: AgentRow): string {
  */
 function StuckCell({
   row,
-  card,
-  dispatch,
-  pulse,
-  onStarting,
+  cue,
 }: {
   row: AgentRow;
-  card: Card | null;
-  dispatch?: DispatchInfo;
-  /** Whether this server will act on Approve, and why not — the plan-PR half. */
-  approve?: DispatchInfo;
-  pulse: number;
-  onStarting?: (active: boolean) => void;
+  /**
+   * Whether this row's request is still unanswered — see `showsCue`.
+   *
+   * A PROP rather than state of its own, and the reason is that the action left
+   * this cell. The click that answers the request now happens in the row's
+   * menu, one cell away, so the `actionTaken` flag has to live somewhere both
+   * can reach: the row itself. This cell renders the mark; it no longer owns
+   * the question.
+   */
+  cue: boolean;
 }) {
   const stuck = row.stuck;
-  // **Taken, not resolved.** The cue answers a REQUEST, and the request is
-  // answered by the click — whether the click worked is what the row's other
-  // marks report on the next pulse. Local to the row and not persisted: a
-  // reload starts the cue again, which is the honest answer to *is this still
-  // waiting on me* when the board has only just started looking.
-  const [actionTaken, setActionTaken] = useState(false);
   const repairLine = repairWord(row.repair);
   // NOT `if (!stuck)` alone, and the difference is the whole point of reporting
   // repairs at all. A SUCCESSFUL repair ends by pushing, which unsticks the
@@ -2341,11 +2385,6 @@ function StuckCell({
 
   const word = stuck ? stuckWord(stuck.state) : '';
   const evidence = stuck ? stuckEvidence(stuck) : [];
-  const offers = stuck ? offersAction(stuck.state) : false;
-  // The cue follows what this ROW can actually ask, not what its state usually
-  // offers — `StuckAction` falls back to words in three places, and an animated
-  // dot beside one of them points at a request nobody can make.
-  const cue = stuck ? showsCue(actionReachable(stuck, card, dispatch), actionTaken) : false;
 
   return (
     <span
@@ -2407,163 +2446,95 @@ function StuckCell({
           {repairLine}
         </span>
       )}
-      {offers && stuck && (
-        <StuckAction
-          row={row}
-          stuck={stuck}
-          card={card}
-          dispatch={dispatch}
-          pulse={pulse}
-          onStarting={onStarting}
-          cue={cue}
-          onTaken={() => setActionTaken(true)}
-        />
-      )}
-    </span>
-  );
-}
+      {/* THE CUE STAYS IN THE ROW while the action it used to sit beside now
+          lives in the three-dot menu. It is state, not an action — it says
+          *this one is waiting on you*, and a signal reachable only by opening a
+          menu is not a signal. `one-place-for-what-a-row-can-do` moved the
+          actions and was explicit that this must not follow them.
 
-/**
- * The action a stuck row offers, with its cue — and the refusal when the server
- * will not act.
- *
- * **Over a non-localhost binding the cue SHOWS and the action REFUSES, naming
- * the reason.** Measured: `/api/dispatch` is available only on localhost —
- * *whoever reaches localhost:7777 is sitting at the machine that owns the
- * worktrees* — so on a Tailscale address the board is a reading surface. The
- * INFORMATION is true everywhere, so hiding the cue would let a phone report a
- * healthy fleet while two branches sit stuck: a worse lie than an action you
- * cannot take from where you are. `RowActions` already does exactly this when
- * the server will not act, and this follows it rather than inventing a second
- * posture.
- *
- * **Two states, two actions, and they are not the same kind of thing.**
- *
- * `conflict` dispatches a worker through the EXISTING guarded route — the same
- * `/api/dispatch` a Start work click uses, with the same script deciding
- * everything about which branch and whether the wave is open. This wave adds no
- * route and grants the board no new authority.
- *
- * `ci-failing` offers a LINK to the failing run, not a rerun. There is no rerun
- * route on this server and adding one would be a write path this wave is fenced
- * away from — so the honest action is the one that takes the reader to where the
- * rerun button already lives, on the host. It is navigation, so it carries no
- * guard and reads the same over Tailscale as it does at the machine; the cue
- * beside it is what says the request is still unanswered.
- */
-function StuckAction({
-  row,
-  stuck,
-  card,
-  dispatch,
-  pulse,
-  onStarting,
-  cue,
-  onTaken,
-}: {
-  row: AgentRow;
-  stuck: Stuck;
-  card: Card | null;
-  dispatch?: DispatchInfo;
-  pulse: number;
-  onStarting?: (active: boolean) => void;
-  /** Whether the request is still unanswered — see `showsCue`. */
-  cue: boolean;
-  /** The request has been answered. Fired on the click, never on the repair. */
-  onTaken: () => void;
-}) {
-  // The run to open: the newest one the host reported. `[]` is *no run listing
-  // available* (Bitbucket has none), never *this branch has never failed* — so
-  // an absent URL yields no link rather than an invented address, the rule the
-  // branch and PR cells already follow.
-  const runUrl = stuck.runHistory.find((r) => r.url)?.url ?? '';
+          It points at the WORD and the evidence to its left rather than at a
+          control to its right, which is what it always described: the row's own
+          statement of what is wrong. The action is one `⋯` away, and the menu's
+          accessible name carries the branch.
 
-  return (
-    <span
-      data-stuck-action
-      className="flex shrink-0 items-baseline gap-1"
-      onClick={(e) => e.stopPropagation()}
-    >
-      {/* The cue BESIDE the action, never instead of it. Motion is never the
-          sole carrier — the action carries a word, and this points at it. */}
+          Rendered LAST so it trails the evidence — the mark that says *unanswered*
+          reads as a qualifier on the whole statement rather than as a bullet in
+          front of it. */}
       {cue && <StuckCue />}
-      {stuck.state === 'ci-failing' ? (
-        runUrl ? (
-          <a
-            href={runUrl}
-            target="_blank"
-            rel="noreferrer"
-            data-stuck-link
-            onClick={onTaken}
-            // The reason reaches the ACCESSIBLE NAME, which is the half the
-            // animation cannot carry: a screen reader hears what is stuck and
-            // what this opens, and never hears the cue at all.
-            aria-label={`Open the failing run for ${row.branch} — ${stuckWord(stuck.state)}`}
-            className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
-          >
-            Open failing run
-          </a>
-        ) : (
-          // No address, so no link — and the row says why rather than
-          // rendering a dead control. Absent is a real answer here.
-          <span className="text-xs text-slate-400 dark:text-slate-600">
-            no run link available
-          </span>
-        )
-      ) : card && dispatch ? (
-        // The conflict case, through the route that already exists. Wrapped so
-        // the click marks the request answered whatever the dispatch then does
-        // — the cue tracks the ASKING, and `StartWorkButton` reports on the
-        // doing in its own words.
-        <span onClick={onTaken}>
-          <StartWorkButton
-            card={card}
-            dispatch={dispatch}
-            pulse={pulse}
-            onStarting={onStarting}
-          />
-        </span>
-      ) : (
-        // No card, or a board that has not said whether it will act. The same
-        // honest fallback the plan link and the row menu make: say so, rather
-        // than offering a button whose outcome is unknown.
-        <span className="text-xs text-slate-400 dark:text-slate-600">
-          no dispatch available for this plan
-        </span>
-      )}
     </span>
   );
 }
 
 /**
- * The row's actions, behind a three-dot menu at the right edge.
+ * Where a stuck row's actions used to live — and the note explaining why the
+ * space is empty.
+ *
+ * **`StuckAction` was deleted on 2026-08-18.** It rendered two of this board's
+ * four actions inline in the row — *Open failing run* as a link, and the
+ * conflict dispatch as a `StartWorkButton` — while the other two rendered in
+ * the three-dot menu. Nothing distinguished the two homes except which action
+ * was built first, and `one-place-for-what-a-row-can-do` settled the rule that
+ * had been missing: **the row says what IS, the menu says what you can DO.**
+ * Both moved into {@link RowActions}, each as an item with its own condition.
+ *
+ * **The CUE did not move, and that distinction is the whole design.** It is
+ * state rather than an action: it points at something being wrong, and the plan
+ * that added it was explicit that motion is never the sole carrier. A signal
+ * behind a click is not a signal. So {@link StuckCell} renders it directly now,
+ * beside the stuck WORD and its evidence — which is what it points at, and
+ * which reads better than pointing at a control one line to its right.
+ *
+ * This comment is left where the component was because the arrangement it
+ * replaced is the kind that regrows: the next action is easiest to render in
+ * the row, and *easiest* is exactly the reasoning that produced two homes. The
+ * gate against that is a test, not this note — see the structural assertion in
+ * `test/unit/agent-list.test.ts`.
+ */
+
+/**
+ * The row's actions, behind a three-dot menu at the right edge. **All of them.**
  *
  * `Start work` used to sit at the far right AFTER the age, so the line read
  * *what · state · age · act* — the action behind the quietest number on it. And
- * it is about to stop being alone: `board-becomes-operable` adds `Approve`, and
- * every further action would widen a row that already carries phase, plan,
- * branch, note, PR and age and wraps on long branch names.
+ * it stopped being alone: `board-becomes-operable` added `Approve`, and every
+ * further action would widen a row that already carries phase, plan, branch,
+ * note, PR and age and wraps on long branch names.
  *
- * The menu holds only things that CHANGE something. Navigation stays in the row,
- * where the thing is named — a `cmd`-click on a real plan or branch link is
- * worth more than a tidier line. The menu acts; the row shows.
+ * **A ROW'S ACTIONS ALL LIVE HERE, and until 2026-08-18 two of them did not.**
+ * *Open failing run* and the conflict dispatch rendered inline in the stuck
+ * cell, and the split followed no stated rule — it followed the order the four
+ * were built in. The rule now: **the row says what IS, the menu says what you
+ * can DO.** One place to look, one place to add to.
  *
- * **With no action it renders anyway, disabled.** A deliberate exception to the
- * rule this estate applies elsewhere (*a button whose usual state is "you
- * cannot" teaches people to ignore buttons*), and the distinction is what a
- * control CLAIMS. A dead `Start work` lies: it names an action that does not
- * exist here. A dimmed three-dot menu claims only *this is where actions would
- * be*, which is true on every row.
+ * The old comment here said *the menu holds only things that CHANGE something;
+ * navigation stays in the row*, which is still true and is not the boundary
+ * that failed. Navigation to the thing the row NAMES — its plan, its branch,
+ * its PR — stays inline, because a `cmd`-click on a real link is worth more
+ * than a tidier line. *Open failing run* names none of those: it addresses a
+ * run, which is a thing the row reports on rather than a thing the row is. It
+ * is an errand, and errands live here.
  *
- * The layout argument decides it. Most rows have no action, so rendering nothing
- * would leave the right edge ragged — and MOVING, since the pulse re-scans every
- * five seconds and a row gaining or losing its action would shift the column
- * under someone's eyes. That is the same objection this view raises against
- * groups that fold themselves.
+ * **Each ITEM asks for what it needs.** An item whose precondition is missing
+ * simply is not there — that rule already governed this body and now governs
+ * twice as much of it. The four conditions are independent by construction, and
+ * none is written as another's `else`: see the note on `canApprove` below.
  *
- * `aria-disabled`, never the native `disabled`: a natively disabled element
- * leaves the tab order and takes the explanation with it, putting it out of
- * reach of anyone who is not hovering with a mouse.
+ * **With no item it renders NOTHING — not a dimmed button.** This reverses the
+ * deliberate exception recorded here, and the reversal was earned rather than
+ * assumed. The old argument was layout: rendering nothing would leave the right
+ * edge ragged and MOVING, since the pulse re-scans every five seconds. That
+ * argument was answered by a later wave — the cell has a fixed `1.25rem` track
+ * of its own, so the column holds still whether or not a button is inside it,
+ * and the gridcell below still renders unconditionally. What remains is the
+ * cost: a `⋯` that opens nothing is a control that lies, and it was measured
+ * lying on two of six WAITING ON YOU rows. The row already says what it is; an
+ * absent control claims nothing.
+ *
+ * `aria-disabled`, never the native `disabled`, on the button that DOES render:
+ * a natively disabled element leaves the tab order and takes the explanation
+ * with it, putting it out of reach of anyone who is not hovering with a mouse.
+ * That path is still reached — a row whose only act is refused by the server
+ * keeps its button and names the refusal, because a refusal is not an absence.
  */
 function RowActions({
   row,
@@ -2572,6 +2543,7 @@ function RowActions({
   approve,
   pulse,
   onStarting,
+  onTaken,
 }: {
   row: AgentRow;
   card: Card | null;
@@ -2580,8 +2552,22 @@ function RowActions({
   approve?: DispatchInfo;
   pulse: number;
   onStarting?: (active: boolean) => void;
+  /**
+   * A stuck row's request has been answered — fired on the click that opens the
+   * run or dispatches the conflict, never on whatever happens next.
+   *
+   * The menu holds the actions; the CUE that says the request is unanswered
+   * stays in the row, one cell away. So the click has to travel back out to the
+   * cell that owns that state, and this is the wire. Absent on rows that carry
+   * no cue, where there is nothing to answer.
+   */
+  onTaken?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  // The menu's own box, so a click inside it can be told from a click outside.
+  // See the close-on-outside-click effect below for why propagation cannot do
+  // this job.
+  const menu = useRef<HTMLDivElement>(null);
   const canStart = Boolean(card && dispatch && isStartable(row));
   // THE OTHER ACT A ROW CAN OFFER, and the reason this menu had to stop asking
   // only about starting.
@@ -2621,11 +2607,65 @@ function RowActions({
   // with nothing to do.
   const serverWillAct = dispatch?.available ?? false;
   const approveWillAct = approve?.available ?? false;
-  // ANY act, not one named act. The menu opens if something inside it could
-  // change the world; which something it is, is the menu's own business.
-  const enabled = (canStart && serverWillAct) || (canApprove && approveWillAct);
+  // THE RUN THIS ROW LAST HAD, and the one condition this move deliberately
+  // WIDENED. It used to be reachable only while `stuck.state === 'ci-failing'`,
+  // so the route to a run existed exactly as long as the row was red and was
+  // invisible the rest of the time — a reader wanting the last run of a green
+  // branch had no control at all. The condition is now *a run URL exists*.
+  //
+  // `[]` is *no run listing available* (Bitbucket has none), never *this branch
+  // has never failed* — so an absent URL yields no item rather than an invented
+  // address, the rule the branch and PR cells already follow. The words *no run
+  // link available* that used to stand in the row for this case are gone with
+  // it: an item that is not there says the same thing more quietly, which is
+  // the empty-menu rule applied one level in.
+  //
+  // **HOW FAR THE WIDENING ACTUALLY REACHES, and it is less far than the words
+  // *a run URL exists* suggest.** `runHistory` is a field of `stuck`, not of
+  // the row, so it is only ever populated on a row the detector called stuck.
+  // A branch that is green in every sense carries `stuck: null` and no run
+  // history to read, and this offers it nothing.
+  //
+  // What the widening does reach is every row the detector marked — including
+  // states that are NOT `ci-failing` and the `ci-failing` row whose newest run
+  // has since gone green. That was the reported case and it is fixed. Carrying
+  // the run on the row itself, so a wholly healthy branch could offer its last
+  // one too, is a change to what the server SENDS rather than to what this
+  // renders, and it belongs to whichever plan wants it.
+  const runUrl = row.stuck?.runHistory.find((r) => r.url)?.url ?? '';
+  // THE CONFLICT, through the route that already exists — the same
+  // `/api/dispatch` a Start work click uses, with the same script deciding
+  // which branch and whether the wave is open. Moving it here added no route
+  // and granted the board no new authority.
+  //
+  // Unlike the run link this asks for a card and a dispatch verdict, because a
+  // dispatch needs a plan to name and an answer about whether the server acts.
+  // `actionReachable` asks the same question for the cue, and the two must keep
+  // agreeing: a cue pointing at a menu without this item is the defect that
+  // function was written to remove, in its second form.
+  const canResolve = Boolean(
+    row.stuck?.state === 'conflict' && card && dispatch,
+  );
+  // ANY item, not one named item. The menu opens if something inside it could
+  // act; which something it is, is the menu's own business.
+  //
+  // The run link is NAVIGATION and carries no guard — it reads the same over
+  // Tailscale as it does at the machine, because there is no rerun route here
+  // and opening the host's page is not a write. So it joins this gate without a
+  // `WillAct` term, which is not an oversight: the two dispatching items ask
+  // whether the server will act because they ask the server to act.
+  // Whether the menu EXISTS, and whether anything in it can act — two questions,
+  // and the old code asked only the second. See {@link menuState}.
+  const { present: hasItems, enabled } = menuState({
+    canStart, canApprove, canResolve, hasRun: Boolean(runUrl),
+    serverWillAct, approveWillAct,
+  });
   const reason =
-    canStart && !serverWillAct && dispatch?.reason ? dispatch.reason : noActionReason(row);
+    canStart && !serverWillAct && dispatch?.reason
+      ? dispatch.reason
+      : canResolve && !serverWillAct && dispatch?.reason
+        ? dispatch.reason
+        : noActionReason(row);
 
   // Close on Escape and on any click outside. A menu that survives a click
   // elsewhere on a view that repaints every five seconds is a menu that ends up
@@ -2633,11 +2673,30 @@ function RowActions({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    const onDown = () => setOpen(false);
+    // A CLICK INSIDE THE MENU IS NOT A CLICK OUTSIDE IT, and this has to be
+    // decided by hit-testing the target rather than by the container stopping
+    // propagation.
+    //
+    // The comment here used to claim the container did stop it. It does not,
+    // and could not: the container's `onClick` is a React handler, which runs
+    // when the event BUBBLES, while this listener runs on CAPTURE — so the
+    // close always won the race. React 19 delegates to the root container, so
+    // by the time the event bubbled back up the menu had already unmounted and
+    // every handler inside it went with it.
+    //
+    // Measured on the run link the day it moved in: the click reached the `<a>`
+    // — the browser followed the href — and React's `onClick` never fired, so
+    // the cue that the click was supposed to answer went on animating. The
+    // existing items were reachable only because neither of them needed a
+    // handler of its OWN to survive the close: `StartWorkButton` fires a fetch
+    // from a handler that is itself inside the menu, and it worked because the
+    // fetch was already in flight before the unmount.
+    const onDown = (e: globalThis.MouseEvent) => {
+      if (menu.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
     document.addEventListener('keydown', onKey);
-    // Capture phase, so the menu closes before a click lands anywhere else —
-    // and the menu's own container stops propagation rather than relying on
-    // hit-testing the target against a ref.
+    // Capture phase, so the menu closes before a click lands anywhere else.
     document.addEventListener('click', onDown, true);
     return () => {
       document.removeEventListener('keydown', onKey);
@@ -2656,38 +2715,53 @@ function RowActions({
       className="relative w-5 shrink-0 text-right"
       onClick={(e) => e.stopPropagation()}
     >
-      <button
-        type="button"
-        data-row-actions
-        aria-haspopup="menu"
-        aria-expanded={open}
-        // Never the native attribute. `aria-disabled` keeps the control
-        // focusable, so the title explaining WHY is reachable by keyboard.
-        aria-disabled={!enabled || undefined}
-        aria-label={enabled ? `Actions for ${row.branch}` : reason}
-        title={enabled ? `Actions for ${row.branch}` : reason}
-        onClick={() => { if (enabled) setOpen((v) => !v); }}
-        className={
-          enabled
-            ? 'text-xs leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'
-            : // Very dim: a row with nothing to do stays quiet, and the menu
-              // reads as scenery rather than as an offer.
-              'cursor-default text-xs leading-none text-slate-300 dark:text-slate-700'
-        }
-      >
-        ⋯
-      </button>
-      {/* `card` only — NOT `card && dispatch`. Requiring dispatch here was the
-          second half of the same defect the gate above had: a Draft plan's row
-          has nothing to dispatch, so the body rendered empty even once the menu
-          could open. Each ITEM asks for what it needs, and an item whose
-          precondition is missing simply is not there. */}
-      {open && enabled && card && (
+      {/* THE CELL IS UNCONDITIONAL, the button inside it is not — and that
+          split is what lets a row render no menu without the column moving.
+          The track is a fixed `1.25rem`, so the right edge holds still whether
+          or not anything is in it, which is the property the old dimmed
+          placeholder was reaching for before the track existed. */}
+      {hasItems && (
+        <button
+          type="button"
+          data-row-actions
+          aria-haspopup="menu"
+          aria-expanded={open}
+          // Never the native attribute. `aria-disabled` keeps the control
+          // focusable, so the title explaining WHY is reachable by keyboard.
+          aria-disabled={!enabled || undefined}
+          aria-label={enabled ? `Actions for ${row.branch}` : reason}
+          title={enabled ? `Actions for ${row.branch}` : reason}
+          onClick={() => { if (enabled) setOpen((v) => !v); }}
+          className={
+            enabled
+              ? 'text-xs leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'
+              : // Very dim, and this branch now means something narrower than
+                // it used to: not *a row with nothing to do* — such a row
+                // renders no button at all — but a row whose act the server
+                // has REFUSED. The reason is on the control; the dimness says
+                // not from here.
+                'cursor-default text-xs leading-none text-slate-300 dark:text-slate-700'
+          }
+        >
+          ⋯
+        </button>
+      )}
+      {/* NO `card` GATE. It read `open && enabled && card`, and requiring a card
+          for the whole BODY is the same defect one level up that requiring
+          `dispatch` was one level down: *Open failing run* needs no card at all
+          — a row outside the walked plan directories has a run and no card, and
+          gating the body on one would render an empty menu on exactly the row
+          whose item does not need it.
+
+          Each ITEM asks for what it needs, and an item whose precondition is
+          missing simply is not there. That is now the body's only rule. */}
+      {open && enabled && (
         <div
           role="menu"
+          ref={menu}
           className="absolute right-0 z-10 mt-1 min-w-max rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
         >
-          {canStart && dispatch && (
+          {canStart && dispatch && card && (
             <div role="menuitem" className="px-2 py-1 text-left">
               <StartWorkButton
                 card={card}
@@ -2704,9 +2778,70 @@ function RowActions({
               independent items rather than as an if/else so that neither
               becomes the other's fallback: if that ever changes, the menu shows
               both instead of silently picking one. */}
-          {canApprove && approve && (
+          {canApprove && approve && card && (
             <div role="menuitem" className="px-2 py-1 text-left">
               <ApproveButton card={card} approve={approve} onApproving={onStarting} />
+            </div>
+          )}
+          {/* THE CONFLICT DISPATCH, moved here on 2026-08-18 from the stuck
+              cell. Same route, same button, same guard — only its home changed.
+
+              Wrapped so the click marks the request answered whatever the
+              dispatch then does: the cue tracks the ASKING, and
+              `StartWorkButton` reports on the doing in its own words. The wrap
+              is why `onTaken` had to travel into this menu at all. */}
+          {canResolve && card && dispatch && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <span onClick={onTaken}>
+                <StartWorkButton
+                  card={card}
+                  dispatch={dispatch}
+                  pulse={pulse}
+                  onStarting={onStarting}
+                />
+              </span>
+            </div>
+          )}
+          {/* THE RUN, moved here from an inline link in the stuck cell — and
+              widened on the way: its condition is *a run URL exists*, not *this
+              row is failing*, so the last run of a GREEN branch is reachable
+              too. That widening is the plan's, proposed and flagged rather than
+              smuggled.
+
+              **The WORD *failing* went with the condition.** The plan's table
+              still names this item *Open failing run*, and that name was true
+              only under the condition the same table widened — on a green row
+              it would promise a failure that is not there. The label follows
+              what the item now does: it opens the last run, whatever that run
+              said. The row's own stuck cell is where *failing* is stated, in
+              words, and it states it only when true.
+
+              **The accessible name keeps the branch.** The menu is already
+              scoped to one row, so the branch reads as redundant from inside
+              it — but a menu item's name is announced without its opener, and
+              nothing else in the item says which of a dozen rows this run
+              belongs to. The plan left this open; redundant context costs a
+              few words and missing context costs the click. The STATE left the
+              name for the same reason the word did: it was `— CI failed`, no
+              longer true of every row that offers this.
+
+              Navigation, so it stays an `<a>` with a real `href` — a
+              `cmd`-click opens the run in a tab, and a button pretending to be
+              a link would take that away. It is in the MENU because it is an
+              errand rather than a name the row carries; see the note above. */}
+          {runUrl && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <a
+                href={runUrl}
+                target="_blank"
+                rel="noreferrer"
+                data-stuck-link
+                onClick={onTaken}
+                aria-label={`Open the last run for ${row.branch}`}
+                className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+              >
+                Open last run
+              </a>
             </div>
           )}
         </div>
@@ -3154,6 +3289,25 @@ function Row({
   // drift.
   const note = noteWithoutPr(row.note, row.pr);
 
+  // **Taken, not resolved.** The cue answers a REQUEST, and the request is
+  // answered by the click — whether the click worked is what the row's other
+  // marks report on the next pulse. Local to the row and not persisted: a
+  // reload starts the cue again, which is the honest answer to *is this still
+  // waiting on me* when the board has only just started looking.
+  //
+  // **On the ROW rather than in the stuck cell, and the move is why.** The cue
+  // renders in `StuckCell` and the click that answers it now happens in
+  // `RowActions` — two siblings, so the flag they share has to sit above both.
+  // It lived inside the cell while the cell held both halves.
+  const [actionTaken, setActionTaken] = useState(false);
+  // The cue follows what this ROW can actually ask, not what its state usually
+  // offers — the menu omits an item whose precondition is missing, and an
+  // animated dot pointing at a menu with nothing in it marks a request nobody
+  // can make.
+  const cue = row.stuck
+    ? showsCue(actionReachable(row.stuck, card, dispatch), actionTaken)
+    : false;
+
   return (
     // Below `sm` a card, at `sm` and above a grid — and the two are one element
     // rather than two renders. A JS breakpoint would need a resize listener on
@@ -3469,6 +3623,7 @@ function Row({
         approve={approve}
         pulse={pulse}
         onStarting={onStarting}
+        onTaken={() => setActionTaken(true)}
       />
       {/* Why this branch cannot MOVE — a different question from where it is
           waiting, and the one nothing on this row could answer. It renders
@@ -3480,13 +3635,7 @@ function Row({
           moves a row or opens a section. And on the common row it renders
           nothing at all: `stuck` is null for most branches, which is what makes
           a populated one worth looking at. */}
-      <StuckCell
-        row={row}
-        card={card}
-        dispatch={dispatch}
-        pulse={pulse}
-        onStarting={onStarting}
-      />
+      <StuckCell row={row} cue={cue} />
     </li>
   );
 }

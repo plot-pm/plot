@@ -9,6 +9,7 @@ import {
   isLive,
   isCollapsible,
   noActionReason,
+  menuState,
   splitBranch,
   prStateWord,
   noteWithoutPr,
@@ -2071,5 +2072,246 @@ describe('ROW_TRACKS — where the row\'s width goes', () => {
       .reduce((sum, t) => sum + Number.parseFloat(t) * 16, 0);
     expect(fixedPx).toBe(540);
     expect(fixedPx + gapsAndPadding).toBeLessThan(CARD_BELOW_PX);
+  });
+});
+
+/**
+ * A ROW'S ACTIONS ALL LIVE IN ITS MENU — asserted structurally, because prose
+ * did not hold.
+ *
+ * `one-place-for-what-a-row-can-do` settled the rule the estate had been
+ * missing: **the row says what IS, the menu says what you can DO.** Before it,
+ * four actions lived in two homes — *Open failing run* and the conflict
+ * dispatch inline in the row, *Start work* and *Approve* in the `⋯` menu — and
+ * the split followed nothing but the order they were built in.
+ *
+ * **This is the gate, and the prose above is not.** CLAUDE.md's test for the
+ * difference is whether *"did I follow this?"* can be answered without doing
+ * the work: a rule in a comment can be, and was, rationalised past four times.
+ * The next action to arrive will be easiest to render in the row — the same
+ * reasoning that produced two homes in the first place — and this fails when it
+ * does, naming the element it found.
+ *
+ * **Read out of the SOURCE, not out of a rendered page.** A DOM assertion only
+ * catches an inline control that the fixture's state happens to render, and
+ * every one of the four was conditional: `Open failing run` appeared only while
+ * a row was `ci-failing`. A structural scan sees the element whether or not any
+ * test data reaches it.
+ */
+describe("a row's actions all live in its menu", () => {
+  const source = readFileSync(
+    new URL('../../src/app/components/AgentList.tsx', import.meta.url), 'utf8');
+
+  /**
+   * The source of one top-level `function Name(` declaration.
+   *
+   * It ends at the first `}` in COLUMN ZERO, which is where every top-level
+   * declaration in this file closes and nothing nested ever does. An earlier
+   * version sliced to *the next `function `* instead and was wrong in the
+   * direction that matters: past the last declaration there is no next one, so
+   * `PrCell` swallowed the rest of the file and the scan reported two toggle
+   * buttons that live hundreds of lines below it. A structural test whose
+   * boundaries are wrong reports strays that are not there — and, on the other
+   * side of the same error, misses ones that are.
+   */
+  function declaration(name: string): string {
+    const start = source.indexOf(`function ${name}(`);
+    expect(start, `no component named ${name}`).toBeGreaterThan(-1);
+    const end = source.indexOf('\n}\n', start);
+    expect(end, `${name} does not close in column zero`).toBeGreaterThan(-1);
+    return source.slice(start, end + 3);
+  }
+
+  /**
+   * Every component reachable from the ROW BODY, following what each mounts —
+   * and deliberately NOT entering `RowActions`, which is the one place actions
+   * are allowed to be.
+   *
+   * Transitive, because the row's own links are not written in `Row`: the
+   * branch is a `BranchName` and the PR a `PrCell`, so a scan of `Row` alone
+   * would read as clean while an inline action sat one component down. That is
+   * exactly where the next one would land.
+   */
+  function rowBodySources(): { name: string; source: string }[] {
+    const seen = new Set<string>(['RowActions']);
+    const out: { name: string; source: string }[] = [];
+    const queue = ['Row'];
+    while (queue.length) {
+      const name = queue.shift() as string;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const body = declaration(name);
+      out.push({ name, source: body });
+      for (const [, child] of body.matchAll(/<([A-Z][A-Za-z0-9]*)/g)) {
+        // `HTMLAnchorElement` and friends are types in handler signatures, not
+        // mounted components — they have no declaration and are skipped by the
+        // same check that skips anything already visited.
+        if (!seen.has(child) && source.includes(`function ${child}(`)) queue.push(child);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * The interactive elements a row body may contain — every one of them
+   * NAVIGATION to a thing the row itself names.
+   *
+   * That is the boundary, and it is narrower than "no links in the row". The
+   * plan keeps navigation inline deliberately: a `cmd`-click on a real plan or
+   * branch link is worth more than a tidier line, and the row is where the
+   * thing is named. What moved is the ERRAND — *Open failing run* addresses a
+   * run, which is something the row reports on rather than something the row
+   * is.
+   *
+   * Keyed on the `data-` hook rather than on the URL or the label, because both
+   * of those change for reasons that have nothing to do with this rule. An
+   * addition here is the deliberate decision the gate exists to force: a new
+   * entry is a claim that the row NAMES the thing, and it has to be argued in
+   * review rather than arrived at by rendering.
+   */
+  const ROW_NAVIGATION = ['data-branch', 'data-pr-link', 'href={`/plan/'];
+
+  it('renders no interactive element in a row body outside the menu', () => {
+    // THE GATE. Every `<a>` and `<button>` reachable from the row body, minus
+    // the row's own navigation — the remainder must be empty.
+    const strays: string[] = [];
+    for (const { name, source: body } of rowBodySources()) {
+      for (const m of body.matchAll(/<(a|button)[\s>]/g)) {
+        // The element's own attributes: up to the end of its opening tag, which
+        // is where its `data-` hook and `href` are.
+        const tagEnd = body.indexOf('>', m.index);
+        const tag = body.slice(m.index, tagEnd === -1 ? m.index + 400 : tagEnd);
+        if (ROW_NAVIGATION.some((hook) => tag.includes(hook))) continue;
+        strays.push(`${name}: ${tag.replace(/\s+/g, ' ').slice(0, 120)}`);
+      }
+    }
+    expect(
+      strays,
+      'An interactive element in a row body belongs in RowActions — the row says '
+        + 'what IS, the menu says what you can DO. If this is navigation to a '
+        + 'thing the row NAMES, add its hook to ROW_NAVIGATION and say why.',
+    ).toEqual([]);
+  });
+
+  it('finds a stray link when one is added back', () => {
+    // THE GATE'S OWN GATE. A scan that matched nothing — a wrong component
+    // name, a regex that never fires — passes the assertion above forever while
+    // gating nothing at all, which is the failure mode a structural test is
+    // most prone to. So the detector is run against a row body with the exact
+    // element this plan removed put back into it.
+    const withStray = declaration('Row').replace(
+      '<BranchName row={row} />',
+      '<BranchName row={row} /><a href={runUrl} data-stuck-link>Open failing run</a>',
+    );
+    expect(withStray).toContain('data-stuck-link');
+    const found = [...withStray.matchAll(/<(a|button)[\s>]/g)].filter((m) => {
+      const tag = withStray.slice(m.index, withStray.indexOf('>', m.index));
+      return !ROW_NAVIGATION.some((hook) => tag.includes(hook));
+    });
+    expect(found.length).toBe(1);
+  });
+
+  it('reaches the components the row mounts, not only Row itself', () => {
+    // The scan is transitive, and this is the property that makes it worth
+    // anything: the row's own links live in `BranchName` and `PrCell`, so a
+    // scan stopping at `Row` would read as clean while an inline action sat one
+    // component down — exactly where the next one would land.
+    const names = rowBodySources().map((c) => c.name);
+    expect(names).toContain('BranchName');
+    expect(names).toContain('PrCell');
+    // And it does NOT enter the menu, which is where actions are allowed.
+    expect(names).not.toContain('RowActions');
+  });
+
+  it('keeps the four actions in the menu, and the cue out of it', () => {
+    // The other half of the rule. The gate above proves nothing LEFT the menu
+    // for the row; this proves the four arrived — and that the one thing that
+    // must NOT move did not.
+    const menu = declaration('RowActions');
+    expect(menu).toContain('<StartWorkButton');
+    expect(menu).toContain('<ApproveButton');
+    expect(menu).toContain('data-stuck-link');
+    // The CUE is state, not an action: it points at something being wrong, and
+    // a signal reachable only by opening a menu is not a signal.
+    expect(menu).not.toContain('<StuckCue');
+    expect(declaration('StuckCell')).toContain('<StuckCue');
+  });
+});
+
+/**
+ * WHETHER THE MENU EXISTS, and whether anything in it can act — two questions,
+ * and the board asked only the second until 2026-08-18.
+ */
+describe('menuState — a refusal is not an absence', () => {
+  const none = {
+    canStart: false, canApprove: false, canResolve: false, hasRun: false,
+    serverWillAct: false, approveWillAct: false,
+  };
+
+  it('renders no menu at all on a row with nothing to offer', () => {
+    // The measured defect: the `⋯` rendered on every row, so two of six WAITING
+    // ON YOU rows carried a control that opened nothing.
+    expect(menuState(none)).toEqual({ present: false, enabled: false });
+  });
+
+  it('keeps the menu present but disabled where the server refuses', () => {
+    // There IS something to do here — you simply cannot do it from this
+    // binding. Rendering nothing would report a healthy row, which is the
+    // worse lie: the reason has to stay reachable.
+    expect(menuState({ ...none, canResolve: true })).toEqual({
+      present: true, enabled: false,
+    });
+    expect(menuState({ ...none, canStart: true })).toEqual({
+      present: true, enabled: false,
+    });
+    expect(menuState({ ...none, canApprove: true })).toEqual({
+      present: true, enabled: false,
+    });
+  });
+
+  it('enables the run link without asking whether the server will act', () => {
+    // NAVIGATION, so it carries no guard: there is no rerun route here, and
+    // opening the host's page is not a write. It reads the same over Tailscale
+    // as it does at the machine — which is why a row with only a run is
+    // enabled on a binding that refuses every dispatch.
+    expect(menuState({ ...none, hasRun: true })).toEqual({
+      present: true, enabled: true,
+    });
+  });
+
+  it('asks about ANY item, never one named item', () => {
+    // The defect this gate had in its first form: `enabled` was `canStart &&
+    // serverWillAct`, so a Draft plan's row — never startable by construction —
+    // had a dead menu on exactly the rows with something to do.
+    expect(menuState({ ...none, canApprove: true, approveWillAct: true }).enabled).toBe(true);
+    expect(menuState({ ...none, canResolve: true, serverWillAct: true }).enabled).toBe(true);
+    // And `Approve` answers to its OWN verdict, not to the dispatch one.
+    expect(menuState({ ...none, canApprove: true, serverWillAct: true }).enabled).toBe(false);
+  });
+
+  it('never enables a menu it does not render', () => {
+    // THE INVARIANT, over every combination rather than the four spot checks
+    // above. `enabled && !present` would put an openable menu behind a button
+    // that is not there — one line of reasoning across four disjuncts, and
+    // exactly the kind that gets re-derived wrongly in a later edit.
+    const bools = [false, true];
+    for (const canStart of bools)
+      for (const canApprove of bools)
+        for (const canResolve of bools)
+          for (const hasRun of bools)
+            for (const serverWillAct of bools)
+              for (const approveWillAct of bools) {
+                const state = menuState({
+                  canStart, canApprove, canResolve, hasRun,
+                  serverWillAct, approveWillAct,
+                });
+                expect(
+                  !state.enabled || state.present,
+                  `enabled without present: ${JSON.stringify({
+                    canStart, canApprove, canResolve, hasRun,
+                    serverWillAct, approveWillAct,
+                  })}`,
+                ).toBe(true);
+              }
   });
 });
