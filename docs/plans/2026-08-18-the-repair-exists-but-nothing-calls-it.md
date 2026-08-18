@@ -10,7 +10,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-18, jwloka, in-session
-- **Started:**
+- **Started:** 2026-08-18, Jan Wloka, `feature/the-scan-sees-a-repairable-conflict`
 - **Delivered:**
 - **Released:**
 
