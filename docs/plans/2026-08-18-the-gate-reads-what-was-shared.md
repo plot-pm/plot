@@ -4,11 +4,12 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-18, jwloka, in-session
+- **Delivered:** 2026-08-18, jwloka, PR #215
 - **Started:** 2026-08-18, Jan Wloka, `bug/the-gate-reads-what-was-shared`
 
 ## Changelog
