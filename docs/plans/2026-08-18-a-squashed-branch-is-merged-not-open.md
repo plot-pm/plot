@@ -32,6 +32,40 @@ A wave that can never complete blocks its successor forever: the fan-out
 `/plot-dispatch` exists to perform cannot proceed past its first wave under the
 repo's own merge convention.
 
+### The second symptom: delivered work advertised as available
+
+Observed on the board 2026-08-18, after `bb-state-vocabulary` was delivered:
+
+```
+NOT STARTED (8)
+  Endgame   bb-state-vocabulary        1 wave, first eligible
+            bug/bb-state-vocabulary    eligible — nobody has taken it
+```
+
+Every fact behind that row is settled: the plan reads `Phase: Delivered` with a
+`Delivered:` record on `origin/main`, PR #210 is `MERGED`, and the remote branch
+is gone. The board still lists the branch under **NOT STARTED** and calls it
+*eligible*.
+
+So the defect is not only that a wave fails to complete — it is that finished
+work is offered as available. "No ref" defaults to *start this*, which is the
+reassuring direction: the system invites work rather than admitting it cannot
+tell.
+
+**It stops at the display, and that is worth stating precisely.**
+`plot-dispatch` refuses the same plan outright:
+
+```
+plot-dispatch: plan '2026-08-18-bb-state-vocabulary' is already delivered —
+its work is done.
+```
+
+The phase gate catches what the branch state gets wrong, so no agent can be
+dispatched onto shipped work. That makes this a display bug rather than a
+correctness one — but only because a *second, independent* check happens to
+cover it. The branch-state answer is wrong on its own terms, and the wave-
+blocking symptom above has no such backstop.
+
 ### Why the scan cannot see it
 
 Two facts combine, and each is individually reasonable.
