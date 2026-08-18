@@ -3,7 +3,7 @@ title: Making parallel work visible
 author: jwloka
 status: active
 created: 2026-08-15
-updated: 2026-08-15
+updated: 2026-08-18
 ---
 
 # Making parallel work visible
@@ -66,6 +66,7 @@ that closes the loop, and it has not been built yet.
   - ⏸️ Step 2 — PR/CI data, completing *waiting on a machine*
   - ⏸️ Step 3 — five board columns, leadership colour, Approved split
   - ⏸️ Step 4 — story swimlanes
+- 🔄 `bb-state-vocabulary` — the board's PR data reaches Bitbucket repos at all; drafted 2026-08-18
 
 ## Open Points
 
@@ -900,6 +901,32 @@ about how the ground moves.
 | 2026-08-15 | One repo now, every data function repo-parameterised | The second repo should be an addition, not a rebuild |
 
 ## Key Findings
+
+### 2026-08-18 — The adapter translates replies, but not requests
+
+**Expected:** `plot-host.sh` isolates both hosts behind one interface, so the
+board's `pr-list --rich --state all --limit 300` works on Bitbucket as on
+GitHub.
+
+**Discovered:** It fails outright — `invalid --state 'ALL'`. The adapter maps
+Bitbucket's vocabulary when *reading* a response (`DECLINED`→`CLOSED`, at every
+call site) but sends the caller's GitHub word unchanged. `bb` has no `all`
+token and calls closed PRs `declined`. A second flag, `--limit`, does not exist
+in `bb` at all and was being forwarded the same way — so fixing only the state
+word would have failed at the same line with a different error.
+
+**Impact:** Every PR-dependent board group is empty on a Bitbucket repo, and has
+been since the Bitbucket backend was added. It survived because Plot develops on
+GitHub: its own backend is `github`, so that branch has no daily user and no CI
+coverage. The fix is small; the missing piece is a stub-`bb` test giving the
+Bitbucket path its first coverage. Planned in
+[`bb-state-vocabulary`](../../plans/2026-08-18-bb-state-vocabulary.md).
+
+**A `bb` defect found alongside, not fixed here:** repeated `--state` flags are
+accepted and silently keep only the last — `--state open --state merged`
+returned 50 PRs, all MERGED, the 3 open ones gone. No error, a plausible list.
+Reported to `agent-skills`, which owns `bb`; the adapter issues one call per
+state, so it does not depend on that fix.
 
 ### 2026-08-15 — Reading is not verifying
 
