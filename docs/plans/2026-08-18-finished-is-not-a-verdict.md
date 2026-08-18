@@ -154,7 +154,7 @@ it worth reporting.
 
 ### One implementation
 
-- `bug/one-worker-state-not-two` — collapse the duplicate. `plot-fleet-scan.sh`'s inline copy (~line 444) and `plot-dispatch.sh`'s `worker_state()` (line 136) become one source. No behaviour changes: the six states, their names, and their outputs stay exactly as they are. Test: both consumers report the same state for the same worktree across all six cases, driven from one fixture.
+- `bug/one-worker-state-not-two` — collapse the duplicate. `plot-fleet-scan.sh`'s inline copy (~line 444) and `plot-dispatch.sh`'s `worker_state()` (line 136) become one source. No behaviour changes: the six states, their names, and their outputs stay exactly as they are. Test: both consumers report the same state for the same worktree across all six cases, driven from one fixture. → #218
 
 ### The seventh state
 
