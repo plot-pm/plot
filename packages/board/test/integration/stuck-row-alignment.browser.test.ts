@@ -21,7 +21,8 @@ import type { AgentRow, Fleet, Stuck } from '../../src/contract/schema.js';
  *
  * *The cue pointed at an action that was not there.* `showsCue` keyed on the
  * state, but `StuckAction` falls back to plain words in three places — so an
- * animated dot sat immediately before *no dispatch available for this plan*.
+ * animated dot sat immediately before *no dispatch available for this plan*
+ * (words since withdrawn — see the last case in this file).
  * Motion marks an unanswered request; where nothing can be asked, no request was
  * made.
  *
@@ -166,20 +167,30 @@ describe('the stuck line begins where the row does', () => {
   });
 
   // THE ASSERTION THAT WOULD HAVE CAUGHT THE SECOND DEFECT, on a real page: the
-  // rows in this fixture carry no card, so `StuckAction` falls back to the
-  // words *no dispatch available for this plan* — and the animated dot used to
-  // sit immediately before that sentence. Motion marks an unanswered request;
-  // there is no request here to leave unanswered.
-  it('shows the words and NO cue where the action fell back to text', async () => {
+  // rows in this fixture carry no card, so there is no conflict to dispatch —
+  // and the animated dot used to sit immediately before a sentence saying so.
+  // Motion marks an unanswered request; there is no request here to leave
+  // unanswered.
+  //
+  // The WORDS went with the actions on 2026-08-18. `StuckAction` used to fall
+  // back to *no dispatch available for this plan*, and that fallback had no
+  // home once the action moved into the menu: an item whose precondition is
+  // missing is simply not there, and a menu with no items renders no button at
+  // all. Omission is the honest form of the same statement, and the row's own
+  // note still says what it is waiting on.
+  it('shows NO cue and NO menu where nothing can be asked', async () => {
     const page = await open();
     try {
       const stuckRow = rowFor(page, 'feature/no-phase');
-      // The action element is present — the row still says what it cannot do…
-      const action = stuckRow.locator('[data-stuck-action]');
-      expect(await action.count()).toBe(1);
-      expect(await action.innerText()).toMatch(/no dispatch available/i);
-      // …and nothing beside it is moving.
+      // Nothing is moving…
       expect(await stuckRow.locator('[data-stuck-cue]').count()).toBe(0);
+      // …and nothing is offered, including the control that would have opened
+      // an empty menu.
+      expect(await stuckRow.locator('[data-row-actions]').count()).toBe(0);
+      // The row still SAYS what is wrong — the state and its evidence are the
+      // half that never moved.
+      expect((await stuckRow.locator('[data-stuck]').innerText()).length)
+        .toBeGreaterThan(0);
     } finally {
       await page.close();
     }

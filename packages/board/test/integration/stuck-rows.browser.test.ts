@@ -13,11 +13,17 @@ import {
  *
  * The unit suite (`test/unit/stuck-display.test.ts`) owns the decision: which
  * word, which evidence, whether an action is offered, whether the cue shows.
- * This owns the half only a page can state — that the action is reachable
- * WITHOUT opening the three-dot menu, that `motion-reduce` keeps the cue while
- * stopping the animation, that the cue is `aria-hidden` while the reason reaches
- * the accessible name, that a stuck row keeps its group, and that a healthy row
- * is untouched.
+ * This owns the half only a page can state — that the CUE is reachable without
+ * opening the three-dot menu while the ACTION lives inside it, that
+ * `motion-reduce` keeps the cue while stopping the animation, that the cue is
+ * `aria-hidden` while the reason reaches the accessible name, that a stuck row
+ * keeps its group, and that a healthy row is untouched.
+ *
+ * The action moved on 2026-08-18 (`one-place-for-what-a-row-can-do`): every act
+ * a row offers is now in its menu, and the cue stayed behind in the row. The
+ * assertions below were rewritten to that rule rather than deleted — the
+ * concern the old ones carried, *a cue nobody finds is not a cue*, is still the
+ * live one and is now carried by the cue itself.
  *
  * `/api/fleet` is stubbed at the network boundary, the way the sibling Agents
  * tab suite does it: every claim here is about what the tab RENDERS from a
@@ -232,21 +238,87 @@ describe('a stuck branch says so in its row', () => {
     }
   });
 
-  // ── The action is on the ROW, not in the menu ─────────────────────────────
+  // ── The CUE is on the row; the ACTION is in the menu ──────────────────────
 
-  it('offers the action WITHOUT opening the three-dot menu', async () => {
-    // Measured, and the reason the rule exists: `RowActions` hides its action
-    // behind a menu that only opens when something could act, so a row with a
-    // waiting action looks identical to a row with none until you click it.
+  it('shows the cue WITHOUT opening the menu, and keeps the action inside it', async () => {
+    // BOTH HALVES, and the pairing is the whole rule
+    // (`one-place-for-what-a-row-can-do`): the row says what IS, the menu says
+    // what you can DO.
+    //
+    // The old assertion here was the opposite — *offers the ACTION without
+    // opening the menu* — on the reasoning that a row with a waiting action
+    // looked identical to a row with none until you clicked it. That concern
+    // was real and is unchanged; what changed is which mark answers it. The cue
+    // is visible on the closed row, so the row still announces itself, and the
+    // errand is one `⋯` away instead of inline.
     const page = await open();
     try {
       const row = rowFor(page, 'feature/red-ci');
       // The menu is CLOSED — nothing has been clicked.
       expect(await row.locator('[data-row-actions][aria-expanded="true"]').count()).toBe(0);
-      // And the action is already there and visible.
-      const action = row.locator('[data-stuck-action]');
-      expect(await action.count()).toBe(1);
-      await expect.poll(() => action.isVisible()).toBe(true);
+      // The CUE is already there and visible: the row is findable at a glance.
+      const cue = row.locator('[data-stuck-cue]');
+      expect(await cue.count()).toBe(1);
+      await expect.poll(() => cue.isVisible()).toBe(true);
+      // And the ACTION is not in the row — it is behind the menu.
+      expect(await row.locator('[data-stuck-link]').count()).toBe(0);
+      await row.locator('[data-row-actions]').click();
+      await expect.poll(() => row.locator('[data-stuck-link]').count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('offers the last run when the newest run is GREEN', async () => {
+    // THE WIDENING, and the plan proposed it deliberately. The link used to
+    // render only while `stuck.state === 'ci-failing'`, so the route to a run
+    // existed exactly as long as the row was red — and the reported case is
+    // precisely a row whose newest run has since passed.
+    //
+    // How far the widening reaches is bounded by the DATA, not by this
+    // condition: `runHistory` is a field of `stuck`, so a branch that is green
+    // in every sense carries no run history at all and offers nothing. That
+    // limit belongs to what the server sends, and is recorded on `runUrl`.
+    const green = fleet();
+    green.rows = [
+      row({
+        branch: 'feature/green', group: 'working',
+        branchUrl: `${GH}feature/green`,
+        stuck: stuck({
+          state: 'ci-failing',
+          runHistory: [
+            { workflow: 'validate', conclusion: 'success', startedAt: '10:19', url: 'https://github.com/tiny/garden/actions/runs/9' },
+          ],
+        }),
+      }),
+    ];
+    const page = await open(green);
+    try {
+      const r = rowFor(page, 'feature/green');
+      await r.locator('[data-row-actions]').click();
+      await expect.poll(() => r.locator('[data-stuck-link]').count()).toBe(1);
+      // And the label does not promise a failure: the condition widened, so the
+      // word `failing` went with it.
+      expect(await r.locator('[data-stuck-link]').innerText()).toMatch(/last run/i);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('renders NO menu button on a row with nothing to do', async () => {
+    // A `⋯` that opens nothing is a control that lies, and it was measured
+    // lying on two of six WAITING ON YOU rows. The row already says what it is;
+    // an absent control claims nothing.
+    const page = await open();
+    try {
+      await expand(page, 'quiet');
+      // `feature/local-only` is unpushed: no run, no dispatchable conflict, not
+      // startable, not approvable. Nothing to offer, so no button.
+      const r = rowFor(page, 'feature/local-only');
+      expect(await r.locator('[data-row-actions]').count()).toBe(0);
+      // The row is still a row, and still says what is wrong.
+      expect(await r.locator('[data-branch]').count()).toBe(1);
+      expect(await r.locator('[data-stuck]').innerText()).toMatch(/unpushed/i);
     } finally {
       await page.close();
     }
@@ -268,8 +340,10 @@ describe('a stuck branch says so in its row', () => {
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
-      // The stuck rows are on screen with their actions offered…
-      await expect.poll(() => page.locator('[data-stuck-action]').count()).toBe(2);
+      // The stuck rows are on screen with their cues showing — the actions are
+      // in their menus, unopened and therefore unrendered, which is if anything
+      // a stronger form of the same claim.
+      await expect.poll(() => page.locator('[data-stuck-cue]').count()).toBe(2);
       // …and nothing was asked of the server.
       expect(posted).toEqual([]);
     } finally {
@@ -283,7 +357,10 @@ describe('a stuck branch says so in its row', () => {
     try {
       await expand(page, 'quiet');
       const row = rowFor(page, 'feature/local-only');
-      expect(await row.locator('[data-stuck-action]').count()).toBe(0);
+      // No action anywhere — and since the actions moved, that means no menu
+      // BUTTON at all rather than a dimmed one that opens nothing.
+      expect(await row.locator('[data-row-actions]').count()).toBe(0);
+      expect(await row.locator('[data-stuck-link]').count()).toBe(0);
       expect(await row.locator('[data-stuck-cue]').count()).toBe(0);
       // But it DOES say what is wrong.
       expect(await row.locator('[data-stuck]').innerText()).toMatch(/unpushed/i);
@@ -297,7 +374,7 @@ describe('a stuck branch says so in its row', () => {
     const page = await open();
     try {
       const row = rowFor(page, 'feature/artifact');
-      expect(await row.locator('[data-stuck-action]').count()).toBe(0);
+      expect(await row.locator('[data-stuck-link]').count()).toBe(0);
       expect(await row.locator('[data-stuck-cue]').count()).toBe(0);
       expect(await row.locator('[data-stuck]').innerText()).toContain(BOARD_ARTIFACT_PATH);
     } finally {
@@ -335,17 +412,29 @@ describe('a stuck branch says so in its row', () => {
     }
   });
 
-  it('hides the cue from the accessibility tree and puts the reason in the name', async () => {
-    // Never motion alone and never colour alone: the action carries a word, the
-    // reason reaches the accessible name, and the animation is decoration.
+  it('hides the cue from the accessibility tree and names the row in the reach of it', async () => {
+    // Never motion alone and never colour alone. The animation is decoration
+    // and says so; what a screen reader gets instead is the row's own words —
+    // the stuck WORD and its evidence in the cell, and a menu whose items name
+    // the branch they act on.
     const page = await open();
     try {
       const row = rowFor(page, 'feature/red-ci');
       expect(await row.locator('[data-stuck-cue]').getAttribute('aria-hidden')).toBe('true');
-      const label = await row.locator('[data-stuck-link]').getAttribute('aria-label');
-      expect(label).toContain('feature/red-ci');
-      // The STATE is in the name, so a screen reader learns why without the cue.
-      expect(label).toMatch(/CI failed/);
+      // The STATE reaches the reader through the CELL, which is where it now
+      // lives — it used to ride on the link's accessible name, and the link's
+      // condition has since widened past the state (a green row offers the same
+      // item), so the name could no longer carry it truthfully.
+      expect(await row.locator('[data-stuck]').innerText()).toMatch(/CI failed/i);
+      // THE BRANCH STAYS IN THE ITEM'S NAME. The menu is already scoped to one
+      // row, so this reads as redundant from inside it — but a menu item is
+      // announced without its opener, and nothing else in the item says which
+      // of a dozen rows this run belongs to. Redundant context costs a few
+      // words; missing context costs the click.
+      await row.locator('[data-row-actions]').click();
+      const link = row.locator('[data-stuck-link]');
+      await expect.poll(() => link.count()).toBe(1);
+      expect(await link.getAttribute('aria-label')).toContain('feature/red-ci');
     } finally {
       await page.close();
     }
@@ -358,6 +447,11 @@ describe('a stuck branch says so in its row', () => {
     const page = await open();
     try {
       const row = rowFor(page, 'feature/red-ci');
+      expect(await row.locator('[data-stuck-cue]').count()).toBe(1);
+      // The action is in the menu now, so answering the request means opening
+      // it first — and the cue must survive that, because opening a menu is not
+      // answering anything.
+      await row.locator('[data-row-actions]').click();
       expect(await row.locator('[data-stuck-cue]').count()).toBe(1);
       // The link opens a new tab; the click is what matters, so the popup is
       // simply allowed to open and closed with the context at the end.
@@ -389,13 +483,23 @@ describe('a stuck branch says so in its row', () => {
 
       const row = rowFor(page, 'feature/collides');
       // The cue SHOWS: something is stuck and waiting, and that is true here.
-      expect(await row.locator('[data-stuck-cue]').count()).toBe(1);
-      // And the action refuses, NAMING the reason on the control itself.
-      const action = row.locator('[data-stuck-action]');
-      const text = await action.innerText();
-      expect(text.length).toBeGreaterThan(0);
-      const refusal = await action.locator('button').getAttribute('title');
+      await expect.poll(() => row.locator('[data-stuck-cue]').count()).toBe(1);
+      // A REFUSAL IS NOT AN ABSENCE, and that distinction is what keeps this
+      // row's menu button on screen while a row with nothing to do renders
+      // none. There IS something to do here — you simply cannot do it from this
+      // binding.
+      const menu = row.locator('[data-row-actions]');
+      expect(await menu.count()).toBe(1);
+      // The refusal is on the BUTTON rather than inside the menu, and it moved
+      // there with the action. It used to sit on an inline `StartWorkButton`'s
+      // title; the menu does not open when nothing inside it can act, so a
+      // reason that only rendered inside would be a reason nobody could reach.
+      expect(await menu.getAttribute('aria-disabled')).toBe('true');
+      const refusal = await menu.getAttribute('title');
       expect(refusal ?? '').toMatch(/localhost|worktree|machine/i);
+      // `aria-disabled`, never the native attribute — so the control keeps its
+      // place in the tab order and the explanation stays reachable by keyboard.
+      expect(await menu.evaluate((el) => (el as HTMLButtonElement).disabled)).toBe(false);
     } finally {
       await page.close();
     }
@@ -437,10 +541,15 @@ describe('a stuck branch says so in its row', () => {
       const healthy = rowFor(page, 'feature/healthy');
       expect(await healthy.locator('[data-stuck]').count()).toBe(0);
       expect(await healthy.locator('[data-stuck-cue]').count()).toBe(0);
-      expect(await healthy.locator('[data-stuck-action]').count()).toBe(0);
-      // The row is still a row: its branch, its note and its menu are intact.
+      expect(await healthy.locator('[data-stuck-link]').count()).toBe(0);
+      // The row is still a row: its branch and its note are intact.
       expect(await healthy.locator('[data-branch]').count()).toBe(1);
-      expect(await healthy.locator('[data-row-actions]').count()).toBe(1);
+      // And it renders NO menu button. This asserted `1` until 2026-08-18, when
+      // the dimmed placeholder was withdrawn: a `⋯` that opens nothing is a
+      // control that lies, and this fixture's healthy row has nothing to do.
+      // The right edge holds still anyway — the cell keeps its fixed track
+      // whether or not a button is inside it.
+      expect(await healthy.locator('[data-row-actions]').count()).toBe(0);
     } finally {
       await page.close();
     }
