@@ -1030,8 +1030,12 @@ describe('the activity mark is a track with a travelling dot', () => {
     // a row with no marks still occupies the track and the six columns beside
     // it do not shift. That is the alignment `agent-rows-line-up` paid for, now
     // held by a track rather than by keeping the marks outside the grid.
+    // NO padding of its own — the row already carries `py-2`, and a second pair
+    // here made every row as tall as a two-line one (both measured at 60px).
+    // The height comes from the row's content; `self-stretch` only takes it.
     expect(ACTIVITY_MARK_PLACE.row).toBe(
-      'relative flex w-full shrink-0 flex-col items-center justify-center gap-1 self-stretch py-2');
+      'relative flex w-full shrink-0 flex-col items-center justify-center gap-1 self-stretch');
+    expect(ACTIVITY_MARK_PLACE.row).not.toMatch(/\bpy-/);
   });
 
   it('gives the heading a box that fits a heading', () => {
