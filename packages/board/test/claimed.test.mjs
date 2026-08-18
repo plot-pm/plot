@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { startServer, fetchBoard } from './helpers.mjs';
+import { startServer, fetchBoard, git } from './helpers.mjs';
 
 // Two branches in one wave: one claimed, one free. The plan file annotates
 // NEITHER — exactly as real plans have it, since `/plot-dispatch` claims by
@@ -35,9 +35,6 @@ const PLAN = `# The board asks git about work in flight
 - \`bug/board-claimed-from-git\` — the card reads claims from the pulse
 - \`bug/dispatch-records-started\` — dispatch books what it started
 `;
-
-const git = (cwd) => (...args) =>
-  execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
 /**
  * A repo whose claims are real: a bare remote, a plan symlinked into active/,

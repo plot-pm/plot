@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { startServer, fetchRaw, SCRIPTS_DIR } from './helpers.mjs';
+import { startServer, fetchRaw, SCRIPTS_DIR, git } from './helpers.mjs';
 
 const BRIDGE = '.plot/state/last-pulse.json';
 
@@ -35,9 +35,6 @@ const PLAN = `# The board survives its own restart
 
 - \`feature/board-bridges-its-restart\` — the pulse outlives the process
 `;
-
-const git = (cwd) => (...args) =>
-  execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
 /**
  * A repo with a real remote and a real claim, so the pulse it produces has

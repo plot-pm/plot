@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { startServer, fetchBoard, fetchRaw } from './helpers.mjs';
+import { startServer, fetchBoard, fetchRaw, git } from './helpers.mjs';
 
 /** A plan on the default branch: approved, started — Development. */
 const APPROVED_PLAN = `# The board acts through plot
@@ -56,9 +56,6 @@ const SAME_BRANCH_PLAN = `# Work carried on its own branch
 
 - \`feature/carries-its-own-plan\` — plan and code together
 `;
-
-const git = (cwd) => (...args) =>
-  execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
 /**
  * A repo shaped like a real one mid-review: an approved plan merged to the
