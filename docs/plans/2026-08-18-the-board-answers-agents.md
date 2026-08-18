@@ -156,7 +156,7 @@ assumed.
 
 ### Honesty
 
-- `feature/fleet-api-names-its-ref` — `/api/fleet` reports `readRef`, `readRefAge`, `localHead`. Smallest of the three, and the one that would have prevented three misdiagnoses in one session.
+- `feature/fleet-api-names-its-ref` — `/api/fleet` reports `readRef`, `readRefAge`, `localHead`. Smallest of the three, and the one that would have prevented three misdiagnoses in one session. → #212
 
 ### Ask
 
