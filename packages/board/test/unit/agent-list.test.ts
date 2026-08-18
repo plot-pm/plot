@@ -36,6 +36,8 @@ import {
   sameWatched,
   hostCannotReportCi,
   HOST_CANNOT_REPORT_HINT,
+  hostAnswer,
+  HOST_ANSWER_HINT,
   type WatchedState,
   type PlanGroup,
 } from '../../src/app/components/AgentList.js';
@@ -1801,7 +1803,78 @@ describe('the empty WAITING ON A MACHINE section names the host\'s limit', () =>
     expect(HOST_CANNOT_REPORT_HINT).not.toMatch(/will finish/);
     expect(HOST_CANNOT_REPORT_HINT).toMatch(/cannot/);
   });
+});
 
+describe('the board says when it has not asked', () => {
+  it('reports a fetch that has landed as answered, at ANY age', () => {
+    // A FIRST-LOAD STATE, NOT A STALENESS DISPLAY. Once the host has answered,
+    // ordinary ageing is the footer's job (`PR data 111s ago`); re-labelling
+    // the section every 60 s would trade one misreading for a flicker. So the
+    // age is tested against null, never against a threshold — including the
+    // measured 111 s, which is a missed refresh and still an answer.
+    expect(hostAnswer({ prAgeSeconds: 0, prError: null })).toBe('answered');
+    expect(hostAnswer({ prAgeSeconds: 4, prError: null })).toBe('answered');
+    expect(hostAnswer({ prAgeSeconds: 111, prError: null })).toBe('answered');
+  });
+
+  it('separates a call not yet made from a call that answered nothing', () => {
+    // The defect itself. `prAgeSeconds === null` is documented in the contract
+    // as *it has never landed — not that it is fresh*, and the board printed
+    // the same `none` on both sides of that line.
+    expect(hostAnswer({ prAgeSeconds: null, prError: null })).toBe('unasked');
+    expect(hostAnswer({ prAgeSeconds: 22, prError: null })).toBe('answered');
+  });
+
+  it('keeps a failed FIRST call as its own state, not as not-checked-yet', () => {
+    // The plan's open question, decided. Both mean *no host fact is on this
+    // board*, but `unasked` resolves itself in seconds while `unreachable`
+    // waits for somebody to read the error —
+    // `2026-08-17-an-outage-is-not-an-answer.md` is the plan that established
+    // an outage must be visible AS an outage.
+    expect(hostAnswer({ prAgeSeconds: null, prError: 'gh: 503' })).toBe('unreachable');
+    expect(HOST_ANSWER_HINT.unreachable).not.toBe(HOST_ANSWER_HINT.unasked);
+  });
+
+  it('keeps DATA that landed once, even while the latest refresh is failing', () => {
+    // `refreshPrs` leaves `prAt` untouched when the call throws, deliberately:
+    // a failure keeps the last good map rather than blanking it. So an error
+    // beside a real age is stale data plus a live fault — the rows are still
+    // host facts and must not be re-labelled as unfetched. The error itself is
+    // already reported by the footer's own banner.
+    expect(hostAnswer({ prAgeSeconds: 30, prError: 'gh: 503' })).toBe('answered');
+  });
+
+  it('never consults the git scan\'s clock', () => {
+    // Two sources, two ages. The git scan is cheap and runs every few seconds;
+    // the host is metered and runs every 60, so the window where rows are
+    // git-fresh and PR-stale is most of every minute. Conflating them is what
+    // made an unfetched board read as a settled one — and the signature is a
+    // fresh `ageSeconds` beside a null `prAgeSeconds`.
+    expect(hostAnswer({ prAgeSeconds: null, prError: null, ageSeconds: 1 } as never))
+      .toBe('unasked');
+  });
+
+  it('states evidence and never a verdict', () => {
+    // The row says what happened to the CALL. It does not estimate, does not
+    // retry-count, and never says *probably fine* — and it must not inherit the
+    // shape of the default hint (*nothing — CI will finish*), which is a claim
+    // about the machines that an unfetched section cannot support.
+    for (const hint of Object.values(HOST_ANSWER_HINT)) {
+      expect(hint).not.toMatch(/will finish|probably|fine|nothing/i);
+    }
+    expect(HOST_ANSWER_HINT.unasked).toMatch(/not checked yet/);
+  });
+
+  it('says nothing about CI, which is the word it replaces', () => {
+    // `none` is an observation: the host answered and reported nothing
+    // pending. Neither replacement may be readable as that answer.
+    for (const hint of Object.values(HOST_ANSWER_HINT)) {
+      expect(hint).not.toBe('none');
+    }
+  });
+});
+
+describe('rowKey', () => {
   it('keys a row by repo AND branch', () => {
     // Two repos can carry the same branch name, and one board can show both.
     expect(rowKey({ repo: 'plot', branch: 'feature/x' })).toBe('plot/feature/x');
