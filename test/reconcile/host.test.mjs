@@ -631,3 +631,61 @@ test('host: pr-state by branch resolves without bb rejecting the call', () => {
   assert.equal(out.number, 4);
   assert.equal(out.state, 'OPEN');
 });
+
+// --- pr-state stops asking once it has an answer ---------------------------
+//
+// Resolving one branch to one PR walked all three states unconditionally, so
+// every lookup cost three network round trips whether or not the first one
+// answered. Measured against a real Bitbucket on 2026-08-18: ~10s per `bb`
+// call, so 25.7s per pr-state — and the board's fleet scan, which calls it
+// once per branch, exceeded its own timeout on a five-branch plan.
+//
+// The states are walked open → merged → declined and the filter takes the
+// FIRST match, so a later state can never overturn an earlier one. Stopping
+// at the first hit is therefore free: same answer, fewer calls.
+
+test('host: pr-state stops at the first state that answers', () => {
+  const bb = makeStrictBbStub({
+    perState: {
+      open: '[{"id":4,"state":"OPEN","source":{"branch":{"name":"feature/a"}},"links":{"html":{"href":"https://example.test/pr/4"}}}]',
+      merged: '[{"id":9,"state":"MERGED","source":{"branch":{"name":"feature/a"}},"links":{"html":{"href":"https://example.test/pr/9"}}}]',
+    },
+  });
+  const out = JSON.parse(execFileSync('bash', [adapter, 'pr-state', 'feature/a'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  }));
+  // The open PR wins, as it did before — this is a cost fix, not a behaviour one.
+  assert.equal(out.number, 4);
+  assert.equal(out.state, 'OPEN');
+  assert.equal(callsOf(bb.callsFile).length, 1, 'must not ask merged/declined once open answered');
+});
+
+// The saving must not cost coverage: a branch whose only PR was declined is
+// still found, it just pays for all three calls.
+test('host: pr-state still reaches a declined PR, at full cost', () => {
+  const bb = makeStrictBbStub({
+    perState: {
+      declined: '[{"id":7,"state":"DECLINED","source":{"branch":{"name":"feature/d"}},"links":{"html":{"href":"https://example.test/pr/7"}}}]',
+    },
+  });
+  const out = JSON.parse(execFileSync('bash', [adapter, 'pr-state', 'feature/d'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  }));
+  assert.equal(out.number, 7);
+  assert.equal(out.state, 'CLOSED');
+  assert.equal(callsOf(bb.callsFile).length, 3);
+});
+
+// A branch with no PR at all is the other full-cost case, and it must still
+// report NONE rather than treating the empty first page as a transport failure.
+test('host: pr-state reports NONE after exhausting every state', () => {
+  const bb = makeStrictBbStub({ json: '[]' });
+  const out = JSON.parse(execFileSync('bash', [adapter, 'pr-state', 'feature/nope'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  }));
+  assert.equal(out.state, 'NONE');
+  assert.equal(callsOf(bb.callsFile).length, 3);
+});

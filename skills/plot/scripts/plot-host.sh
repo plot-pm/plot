@@ -226,15 +226,29 @@ case "$op" in
         # arrived is evidence, an list that never arrived is not. The `jq` NONE
         # below is therefore kept (it reads a real answer) while the failure path
         # goes through `host_miss_or_fail` like the others.
-        # One call per state, concatenated into a single JSON array before the
-        # filter below runs — the filter takes the FIRST match, so the states
-        # are walked newest-relevant first: an open PR for a branch outranks a
-        # merged one, which outranks a declined one.
+        # One call per state, walked newest-relevant first: an open PR for a
+        # branch outranks a merged one, which outranks a declined one.
+        #
+        # STOP AT THE FIRST STATE THAT ANSWERS. Because the ordering already
+        # decides the winner, a later state can never overturn an earlier one —
+        # so asking for it is pure cost. And the cost is not small: measured
+        # against a real Bitbucket on 2026-08-18, one `bb` call takes ~10s, so
+        # walking all three unconditionally made every branch lookup ~26s. The
+        # board's fleet scan calls this once per branch and exceeded its own
+        # timeout on a five-branch plan.
+        #
+        # A declined-only or PR-less branch still pays for all three; those are
+        # the cases where the third call is the one carrying the answer.
         out=""; bb_rc=0
         bb_all_states="$(bb_states_for all)" || exit 1
         for _s in $bb_all_states; do
           if _part="$(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state "$_s" --json 2>/tmp/plot-host-err.$$)"; then
             out="$out$_part"
+            # `jq -e` exits non-zero on null/false, so this asks "did this state
+            # contain the branch?" without a second parse of the whole page.
+            if jq -e --arg b "$ref" 'any(.[]; .source.branch.name==$b)' >/dev/null 2>&1 <<<"$_part"; then
+              break
+            fi
           else
             bb_rc=1; break
           fi
