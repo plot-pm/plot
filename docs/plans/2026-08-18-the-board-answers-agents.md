@@ -123,10 +123,28 @@ assumed.
 
 ### Open Points
 
-- [ ] What authenticates an agent to the write endpoints? Same-origin does not
-      describe a local process. A token in the worktree, a unix socket, and
-      loopback-only are all plausible; the answer decides whether branch 3 is
-      small or large.
+- [x] What authenticates an agent to the write endpoints? **Answered
+      2026-08-18: loopback binding is the boundary, and it already exists.**
+
+      `isSameOrigin` guards *browsers*, not processes — both of its checks are
+      conditional on the header being present:
+
+      ```ts
+      if (typeof site === 'string' && site !== 'same-origin') return false;
+      if (typeof origin === 'string') { …allowlist… }
+      return true;   // absent headers pass
+      ```
+
+      Verified live against the running board: a request with a hostile
+      `Origin` gets **403**; a header-less `curl` gets **400** — it passed the
+      origin guard and failed on the payload. So a local process *already* has
+      write access to `/api/dispatch`, which spawns detached agents.
+
+      A token on `/api/claim` would therefore be theatre while `/api/dispatch`
+      sits open beside it. The work is not to invent a mechanism but to state
+      the one in force and make it a gate: **refuse to start the write
+      endpoints when `HOST` is not loopback**, unless an explicit flag opts in.
+      Branch 3 is small, and it is no longer blocked.
 - [ ] Should `/api/next` accept a capability hint (e.g. "shell only", "no
       network") so a fleet of unlike agents gets appropriate work? Real once
       more than one kind of worker exists; speculative before that.
@@ -146,7 +164,7 @@ assumed.
 
 ### Act
 
-- `feature/api-claim-and-transition` — `POST /api/claim` and `POST /api/transition`, wrapping the existing ref-push claim and the spokes' phase guardrails, each returning the resulting state. Blocked on the authentication question above.
+- `feature/api-claim-and-transition` — `POST /api/claim` and `POST /api/transition`, wrapping the existing ref-push claim and the spokes' phase guardrails, each returning the resulting state. **No longer blocked** — the trust model was answered above: loopback is the boundary and already in force. This branch also carries the gate that makes it real: refuse to serve the write endpoints when `HOST` is not loopback, unless explicitly opted in.
 
 ## Notes
 

@@ -112,10 +112,32 @@ still leaves two sources of truth; it just makes their disagreement visible.
 
 Both are reasonable if measurement kills the derive option. Neither is the fix.
 
-### Open Points
+### The measurement, and what it settles
 
-- [ ] What does parsing-every-plan cost at 100 / 500 / 1000 plans? This decides
-      the whole plan; measure first.
+Taken 2026-08-18 against generated fixtures on the session's machine, best of
+three, timed from inside one process (a first attempt timed from the shell
+produced impossible results — 500 plans "faster" than 100 — because `python3`
+startup at ~40 ms swamped the signal):
+
+| Plans | Parse all | Index-only (25% active) |
+|---|---|---|
+| 46 (this repo, real) | **94 ms** | — |
+| 100 | 45 ms | — |
+| 500 | 205 ms | — |
+| 1000 | **432 ms** | **134 ms** |
+
+Linear, ~0.44 ms per plan. The worst realistic penalty is **~300 ms at 1000
+plans** — a scale no Plot repo has reached — behind a board cache that holds
+for 5 seconds.
+
+**This settles the plan's central question: derive.** The cost argument was the
+only real objection, and it does not survive the numbers. Three hundred
+milliseconds at a hypothetical scale buys the elimination of a failure class
+that produced three incidents in a single session: a plan invisible to every
+unscoped scan, a plan card that vanished from the board, and a `/plot-dispatch`
+that could not find its own plan.
+
+### Open Points
 - [ ] Do the stable slug-named paths matter enough to keep generating symlinks
       after nothing reads them? A URL or a bookmark to `active/<slug>.md` is a
       real thing a human may hold.
@@ -127,9 +149,20 @@ Both are reasonable if measurement kills the derive option. Neither is the fix.
 
 ## Branches
 
-<!-- Deliberately unpopulated: the measurement in Open Points decides whether
-     this is one branch or four. Populating it now would be inventing a shape
-     before the facts that determine it. -->
+<!-- Populated 2026-08-18, after the measurement above. Three waves, ordered so
+     each is independently valuable and none forces the next. -->
+
+### Derive
+
+- `feature/the-scan-derives-its-plan-list` — `plot-fleet-scan.sh` enumerates plans from the plan directory and groups them by their declared phase, rather than by which symlinks exist in `active/`. `active/` keeps working; nothing depends on it being right. Test: a plan with no symlink must appear, and a symlink pointing at a delivered plan must not resurrect it.
+
+### Report
+
+- `feature/reconcile-calls-the-index-advisory` — once nothing reads `active/`, `plot-reconcile-scan.sh` section 5 stops reporting an unlinked plan as *orphaned* — it is not orphaned, it is fully visible — and reports index drift as the convenience-level finding it has become. Test: an unlinked plan produces no `attention` count; a symlink pointing nowhere still does.
+
+### Stop depending
+
+- `feature/the-lifecycle-does-not-need-the-symlink` — `/plot-idea` and `/plot-deliver` no longer depend on symlink maintenance for correctness. Whether they keep creating symlinks for human browsing is the first Open Point; this branch makes the lifecycle correct either way. Test: a plan created without a symlink is dispatchable, deliverable, and visible on the board.
 
 ## Notes
 
