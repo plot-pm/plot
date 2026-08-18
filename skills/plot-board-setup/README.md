@@ -90,6 +90,21 @@ This is a note about the script's margin, not a defect fixed here:
 `plot-board-verify.sh` is wave-1 surface, and widening its timeout is a change
 to a tested script that belongs with its own tests.
 
+## Why the start command branches on `artifact_source`
+
+The plugin and checkout routes resolve to a `board-server.mjs`, which is started
+with `node <path>`. The npm route does not: the probe finds it via
+`command -v plot-board`, so the path is whatever npm installed as the
+executable. `packages/board` declares `bin: {"plot-board":
+"./dist/board-server.mjs"}`, and npm may satisfy that with a symlink to the
+module *or* with a generated wrapper script — `node <wrapper>` fails on the
+latter.
+
+The probe already reports which route it took, so both `SKILL.md`'s start step
+and its alias hand-over key the invocation off `artifact_source` rather than
+assuming one shape. Prefixing `node` onto an executable shim is the kind of
+detail that works on the author's machine and breaks on the first npm install.
+
 ## Why auth has three states
 
 `ok | failed | unknown`, never a boolean. An unrecognised output means *cannot

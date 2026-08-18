@@ -151,7 +151,9 @@ failure this whole command is built to avoid.
 Then hand over the start command:
 
 ```bash
-alias plot-board='node <artifact path from the probe>'
+alias plot-board='node <artifact path from the probe>'   # plugin or checkout
+# artifact_source: npm — the path is already executable, so drop the `node`:
+alias plot-board='<artifact path from the probe>'
 ```
 
 ### 4. Verify — the gate
@@ -241,11 +243,15 @@ all — one command knows where the artifact lives, for the same reason
 Warn when `cwd_is_root` is false: the board compares realpaths, so a board
 started from a subdirectory silently shows nothing.
 
-**S2. Start it, in the background, from the repo root:**
+**S2. Start it, in the background, from the repo root.** How to invoke it
+follows `artifact_source`, which the probe already reported:
 
-```bash
-node <artifact path from the probe> &
-```
+| `artifact_source` | Start with |
+|---|---|
+| `plugin`, `checkout` | `node <artifact> &` — the path is a `board-server.mjs` |
+| `npm` | `<artifact> &` — the path came from `command -v plot-board`, so it is an executable shim and may be a wrapper script rather than the module itself |
+
+Run it from the repo root, not from a subdirectory: the board reads the CWD.
 
 The board binds **port 7777** and prints its URL. `--start` does not choose a
 port: several worktrees run boards side by side, and one shooting down
