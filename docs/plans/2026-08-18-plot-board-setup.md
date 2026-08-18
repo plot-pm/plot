@@ -130,7 +130,7 @@ setup.
 
 ### Skill
 
-- `feature/plot-board-setup-skill` — `SKILL.md` + `README.md` for the new spoke, the `--start` mode, the `plot-config.sh` key documentation, the `/plot-init` extension row, and the four documentation indexes. Tasks 5–6. Depends on both scripts existing, hence the second wave.
+- `feature/plot-board-setup-skill` — `SKILL.md` + `README.md` for the new spoke, the `--start` mode, the `plot-config.sh` key documentation, the `/plot-init` extension row, and the four documentation indexes. Tasks 5–6. Depends on both scripts existing, hence the second wave. PR #237.
 
 ## Notes
 
