@@ -14,7 +14,7 @@
 ## Changelog
 
 - `/api/fleet` reports which ref it read and how old that read is, so a consumer can distinguish a current board from a board that is current about an old world.
-- New `GET /api/next`: one claimable branch with everything needed to start it — the answer `plot-fleet-scan.sh --next` already computes, over HTTP.
+- New `GET /api/attention`: one call answering what needs a human, what needs an agent, what is waiting on an unanswered question, and what is claimable — the verdicts an operator otherwise assembles by hand from four separate reads.
 - New `POST /api/claim` and `POST /api/transition`: agents change state through validated calls that return the resulting state, instead of editing markdown and hoping the derived view agrees.
 
 ## Motivation
@@ -79,16 +79,20 @@ banner fix in
 `docs/plans/2026-08-18-the-pulse-names-the-ref-it-read.md`, which corrects the
 same confusion in the CLI.
 
-**2. `GET /api/next`.** `plot-fleet-scan.sh --next` already names one claimable
-branch and exits 1 when there is nothing. Expose it with the context a starter
-needs: the branch, its plan, its wave, its brief path, and whether a worktree
-already exists. An agent's opening move becomes one call instead of a decision
-tree over five scripts.
+**2. `GET /api/attention`.** One call that says what needs attention and from
+whom — see the amendment below for why this replaced the narrower `/api/next`.
+Four lists: `needsAgent` (abandoned work), `needsHuman` (a CI approval, a
+conflict, a review), `waiting` (a worker holding the door open on an unanswered
+question), and `claimable` (the original `--next` answer, unchanged).
 
-Read-only and idempotent — it *names* a candidate, it does not reserve one.
-Reserving is `/api/claim`, deliberately separate: an agent that asks what is
-available has not yet committed to doing it, and conflating the two would make
-a survey a mutation.
+Every input already exists on `/api/fleet` rows. What is new is the **verdict**
+and the single action that clears it, so a caller stops assembling one by hand
+from `state`, `note`, `localDirty`, `localAhead`, and a PID check.
+
+Read-only and idempotent — it *names* candidates, it does not reserve or start
+any of them. Reserving is `/api/claim` and starting is `/api/dispatch`, both
+deliberately separate: an agent that asks what is available has not yet
+committed to doing it, and conflating the two would make a survey a mutation.
 
 **3. `POST /api/claim` and `POST /api/transition`.** The phase guardrails
 (cannot approve an unreviewed draft, cannot deliver with open impl PRs, cannot
@@ -121,6 +125,68 @@ worktree is not a browser — the trust model is a real design question, not a
 detail. It gates branch 3 and is called out in the Open Points rather than
 assumed.
 
+### Amendment 2026-08-18: `/api/next` becomes `/api/attention`
+
+Added after approval, while wave 1 was merging and wave 2 was still `open` and
+unclaimed. Recorded rather than applied silently: a plan is frozen on approval,
+so a scope change is a fact its worker and any later reader are entitled to see.
+
+**What the session demonstrated.** An operator ran a shell guard
+(`.dev/scripts/fleet-pulse.sh`) beside the board for an afternoon, and it
+gathered **nothing the board did not already have**. Measured: `/api/fleet`
+rows already carry `state`, `group`, `note`, `pr`, `localDirty`, `localAhead`,
+`stuck`, `blockedBy`, `waitingOn`, and the worker's PID and liveness. The
+board's own rows read `worker running (pid 20145)`.
+
+The guard's entire value was three lines of **judgement** over that data: is
+this worker abandoned, waiting on an unanswered question, or working? The board
+had every input and stopped at reporting them — which is this plan's thesis
+restated as a measurement: the read path answers *what is true* and is silent
+on *what should I do*.
+
+**So `/api/next` is too narrow.** It answers "what should I start?", and the
+harder questions this session actually produced were "what needs rescuing?" and
+"what is waiting on me?". One endpoint, four lists:
+
+```
+GET /api/attention
+{
+  "needsAgent": [{branch, verdict: "abandoned", action: "restart"}],
+  "needsHuman": [{pr: 207, verdict: "ci-approval", action: "approve run"}],
+  "waiting":    [{branch, verdict: "question", marker: "TODO(you)"}],
+  "claimable":  [{branch, plan, wave, brief}]
+}
+```
+
+`claimable` is the original `/api/next` scope, unchanged.
+
+**Two verdicts the guard learned the hard way, and both must survive the port:**
+
+1. **A worker that asked a question is not abandoned.** The guard restarted one
+   branch twice while its worker waited on an answer it had asked for; the
+   second restart re-ran work the first had finished. Uncommitted files look
+   identical whether a worker walked away or is holding the door open. A
+   `TODO(you)` marker **in the tree** distinguishes them — and the tree, not the
+   log, is the right place to look: the log records that a question *was asked*,
+   the marker records that it is still *unanswered*, and only the marker clears
+   when someone writes the answer.
+
+2. **An open PR is not abandonment.** Work that reached review has left the
+   worker's hands, so leftover local edits there mean nothing. The
+   classification order is load-bearing: alive → merged → open PR → dirty →
+   ahead → claim-only.
+
+**It reports; it does not act.** `/api/dispatch` already exists for spawning
+work and is same-origin locked precisely because it spawns processes. Keeping
+`/api/attention` read-only preserves the split this repo rests on — read-only
+investigation gates every write — and leaves the seam where a human can
+disagree with the verdict. That seam earned its place: the guard's judgement was
+wrong twice before it learned about questions.
+
+The shell guard stays in `.dev/scripts/` as the prototype it is, and is deleted
+once this endpoint carries the same verdicts. Two things computing verdicts from
+one dataset is how they drift.
+
 ### Open Points
 
 - [x] What authenticates an agent to the write endpoints? **Answered
@@ -145,7 +211,7 @@ assumed.
       the one in force and make it a gate: **refuse to start the write
       endpoints when `HOST` is not loopback**, unless an explicit flag opts in.
       Branch 3 is small, and it is no longer blocked.
-- [ ] Should `/api/next` accept a capability hint (e.g. "shell only", "no
+- [ ] Should `/api/attention`'s `claimable` list accept a capability hint (e.g. "shell only", "no
       network") so a fleet of unlike agents gets appropriate work? Real once
       more than one kind of worker exists; speculative before that.
 - [ ] Does `/api/transition` supersede the spoke commands, or wrap them? Wrapping
@@ -160,7 +226,7 @@ assumed.
 
 ### Ask
 
-- `feature/api-next-names-one-branch` — `GET /api/next` over the existing `--next` computation, with plan, wave, brief path, and worktree state. Read-only; reserves nothing.
+- `feature/api-attention-says-what-needs-you` — **replaces the narrower `/api/next` by `GET /api/attention`, see the amendment below.** The original scope (name one claimable branch) survives as one of four lists that endpoint returns.
 
 ### Act
 
