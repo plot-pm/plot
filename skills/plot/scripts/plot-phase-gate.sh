@@ -15,12 +15,14 @@
 # that touch ONLY the plan directory always pass (refining a draft is how
 # it becomes approvable).
 #
-# THE PHASE IS READ FROM origin/<main>, NEVER THE WORKING TREE. The question
-# this gate means to ask is "has this plan been approved where everyone can see
-# it?", and only the shared ref answers it: an approval committed to a local
-# branch and never pushed used to open this gate. When origin/<main> cannot be
-# resolved the hook ALLOWS the commit and prints a line saying the phase went
-# unverified — see the divergence note at the bottom of the script.
+# THE PHASE IS READ FROM A SHARED REF, NEVER THE WORKING TREE. The question this
+# gate means to ask is "has this plan been approved where everyone can see it?",
+# and only a shared ref answers it: an approval committed to a local branch and
+# never pushed used to open this gate. origin/<main> is tried first, then
+# origin/<branch> — the `Impl: same branch` flow puts the plan ON the work
+# branch, where it is never on main at all. When neither can be read the hook
+# ALLOWS the commit and prints a line saying the phase went unverified — see the
+# divergence note further down.
 #
 # The gate evaluates the commit's EFFECTIVE paths, not just the index:
 # a single command like `git add -A && git commit -m x` or
@@ -143,7 +145,8 @@ if [[ "$BRANCH" =~ ^(${PREFIX_ALT})/ ]]; then
   # local-only approval — committed to a branch and never pushed — open this
   # gate, which turns Manifesto P2 ("plans are approved before implementation")
   # into "someone typed Approved in this filesystem". Reproduced 2026-08-18.
-  # `|| true` on every step, and it is load-bearing: the fail-open trap at the
+  #
+  # `|| true` on every step below, and it is load-bearing: the fail-open trap at the
   # top of this script is `trap 'exit 0' ERR`, so a bare `git symbolic-ref` that
   # fails (no origin/HEAD — exactly the offline case) exits the hook silently
   # BEFORE the "phase unverified" line below can be printed. Failing open is
@@ -153,19 +156,59 @@ if [[ "$BRANCH" =~ ^(${PREFIX_ALT})/ ]]; then
   [ -n "$MAIN" ] || MAIN="main"
   GATE_REF="origin/$MAIN"
 
-  # Anchored plan-file match: <plan dir>/YYYY-MM-DD-<slug>.md, exact slug
-  # (string comparison — no glob/regex on the slug, so no suffix
-  # collisions and no metacharacter surprises). Enumerated from the REF.
-  PLAN_FILE=""
-  if git rev-parse --verify --quiet "$GATE_REF^{commit}" >/dev/null 2>&1; then
+  # `Impl: same branch` puts the plan ON THE WORK BRANCH — it is never on
+  # origin/<main>, by design. For those, "approved where everyone can see it"
+  # means the shared copy of THIS branch: origin/<branch>. Still a shared ref,
+  # so a purely local approval is still refused; it is just the right shared ref
+  # for a flow where plan and code travel together.
+  #
+  # Order matters: origin/<main> first, so the ordinary flow is unaffected and a
+  # plan that lives on main cannot be shadowed by a copy pushed to a branch.
+  plan_on_ref() { # $1=ref → prints the plan path for $SLUG on that ref, if any
+    local ref="$1" f base
+    git rev-parse --verify --quiet "$ref^{commit}" >/dev/null 2>&1 || return 1
     while IFS= read -r f; do
       [ -n "$f" ] || continue
       base="${f##*/}"
       case "$base" in
         [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*)
-          [ "${base#????-??-??-}" = "$SLUG.md" ] && { PLAN_FILE="$f"; break; } ;;
+          [ "${base#????-??-??-}" = "$SLUG.md" ] && { printf '%s\n' "$f"; return 0; } ;;
       esac
-    done < <(git ls-tree -r --name-only "$GATE_REF" -- "$PLAN_DIR/" 2>/dev/null)
+    done < <(git ls-tree -r --name-only "$ref" -- "$PLAN_DIR/" 2>/dev/null)
+    return 1
+  }
+
+  # Anchored plan-file match: <plan dir>/YYYY-MM-DD-<slug>.md, exact slug
+  # (string comparison — no glob/regex on the slug, so no suffix
+  # collisions and no metacharacter surprises). Enumerated from the REF.
+  PLAN_FILE=""
+  if git rev-parse --verify --quiet "$GATE_REF^{commit}" >/dev/null 2>&1; then
+    PLAN_FILE="$(plan_on_ref "$GATE_REF" || true)"
+    if [ -z "$PLAN_FILE" ]; then
+      # Not on main: the same-branch flow. Read the shared copy of this branch.
+      if PLAN_FILE="$(plan_on_ref "origin/$BRANCH" || true)" && [ -n "$PLAN_FILE" ]; then
+        GATE_REF="origin/$BRANCH"
+      else
+        # The plan is on neither shared ref. It may be brand new and unpushed —
+        # the /plot-idea-then-implement flow, before any push. Allow, and say
+        # the phase went unverified: an unshared plan is not evidence of an
+        # approval, but it is not evidence of a Draft either, and this hook
+        # must not block a repo out of its own bootstrap.
+        for f in "$PLAN_DIR"/*.md; do
+          [ -e "$f" ] || continue
+          base="$(basename "$f")"
+          case "$base" in
+            [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*)
+              [ "${base#????-??-??-}" = "$SLUG.md" ] && {
+                echo "plot-phase-gate: plan '$SLUG' is not on $GATE_REF or origin/$BRANCH —" >&2
+                echo "                 phase unverified, allowing the commit. Push the plan to gate on it." >&2
+                exit 0
+              } ;;
+          esac
+        done
+        exit 0   # no plan anywhere: unplanned quick work is legitimate
+      fi
+    fi
   else
     # FAIL OPEN, AND SAY SO. This is a PreToolUse hook: refusing every commit
     # when origin/<main> is unreadable would make the repo unusable offline,

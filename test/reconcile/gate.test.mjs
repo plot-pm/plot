@@ -235,3 +235,78 @@ test('gate: offline — allows the commit AND says the phase went unverified', (
   // Name what could not be read — an operator must not have to guess.
   assert.match(r.stderr ?? '', /cannot read origin\/main/);
 });
+
+// `Impl: same branch` puts the plan ON THE WORK BRANCH — it is never on
+// origin/<main>, by design. The plan for this fix assumed plans live on the
+// shared default branch; this flow is the case it did not anticipate. For it,
+// "approved where everyone can see it" means the shared copy of THIS branch.
+function repoSameBranch({ branch, sharedPhase, localPhase = null, push = true }) {
+  const tmp = mkdtempSync(path.join(tmpdir(), 'plot-gate-sb-'));
+  const dir = path.join(tmp, 'repo');
+  mkdirSync(dir, { recursive: true });
+  const sh = (c) => execSync(c, { cwd: dir, stdio: 'pipe' });
+  const slug = branch.split('/')[1];
+  const planBody = (phase) => `# P\n\n## Status\n\n- **Phase:** ${phase}\n- **Type:** feature\n- **Impl:** here, same branch\n`;
+
+  sh('git init -q -b main && git config user.email t@t && git config user.name t && git config commit.gpgsign false');
+  writeFileSync(path.join(dir, 'README.md'), 'x');
+  sh('git add -A && git commit -qm init');
+  const origin = path.join(tmp, 'origin.git');
+  execSync(`git init --bare -q -b main "${origin}"`, { cwd: tmp, stdio: 'pipe' });
+  sh(`git remote add origin "${origin}" && git push -q origin main`);
+  sh('git remote set-head origin main');
+
+  // The plan rides the work branch, and is never on main.
+  sh(`git checkout -qb ${branch}`);
+  mkdirSync(path.join(dir, 'docs', 'plans'), { recursive: true });
+  const planPath = path.join(dir, 'docs', 'plans', `2026-01-01-${slug}.md`);
+  writeFileSync(planPath, planBody(sharedPhase));
+  sh('git add -A && git commit -qm plan');
+  if (push) sh(`git push -q origin ${branch}`);
+  if (localPhase) {
+    writeFileSync(planPath, planBody(localPhase));
+    sh('git add -A && git commit -qm "local-only phase change"');
+  }
+
+  mkdirSync(path.join(dir, 'src'), { recursive: true });
+  writeFileSync(path.join(dir, 'src', 'a.js'), 'y');
+  sh('git add -A');
+  return dir;
+}
+
+test('gate: same-branch flow — Draft on the shared branch still blocks', () => {
+  // The plan is on origin/feature/x, not origin/main. Reading only origin/main
+  // would find no plan and stop gating this flow entirely.
+  const dir = repoSameBranch({ branch: 'feature/x', sharedPhase: 'Draft' });
+  const r = runGate(dir);
+  assert.equal(r.code, 2, 'a shared Draft plan on the work branch must still block');
+  assert.match(r.stderr, /still Draft/);
+});
+
+test('gate: same-branch flow — Approved on the shared branch unblocks', () => {
+  const dir = repoSameBranch({ branch: 'feature/x', sharedPhase: 'Approved' });
+  assert.equal(runGate(dir).code, 0);
+});
+
+test('gate: same-branch flow — a local-only approval still does not open the gate', () => {
+  // Draft on origin/feature/x, Approved only in a local commit. The same-branch
+  // fallback must not become a loophole: it is still a SHARED ref.
+  const dir = repoSameBranch({
+    branch: 'feature/x', sharedPhase: 'Draft', localPhase: 'Approved',
+  });
+  const r = runGate(dir);
+  assert.equal(r.code, 2, 'the same-branch ref must be the shared one, not the local one');
+  assert.match(r.stderr, /still Draft/);
+});
+
+test('gate: an unshared plan allows the commit and says the phase went unverified', () => {
+  // Bootstrap: /plot-idea wrote a plan and nothing has been pushed yet. The
+  // plan is on no shared ref, so nothing was verified — but an unshared plan is
+  // not evidence of a Draft either, and this hook must not block a repo out of
+  // its own bootstrap. Allow, and say so.
+  const dir = repoSameBranch({ branch: 'feature/x', sharedPhase: 'Draft', push: false });
+  const r = runGate(dir);
+  assert.equal(r.code, 0, 'an unpushed plan must not block the bootstrap');
+  assert.match(r.stderr, /phase unverified/);
+  assert.match(r.stderr, /Push the plan/);
+});

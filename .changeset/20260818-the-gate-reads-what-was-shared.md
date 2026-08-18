@@ -83,8 +83,22 @@ link and this never comes up; against a ref it is dereferenced by hand, or the
 gate parses a one-line path as a plan and reports an unreadable phase instead of
 the real one.
 
-Tests cover both directions for both consumers, and the hook's offline behaviour
-both ways — that it still allows the commit *and* that it emits the unverified
-line. The gate fixtures gained a real bare `origin`: without one they exercised
-the fail-open path rather than the gate, so the suite would have kept passing
-while testing nothing.
+**`Impl: same branch` needed a case the plan did not anticipate.** In that flow
+the plan rides the WORK BRANCH and is never on `origin/<main>` at all, so a
+strict main-only read finds no plan and stops gating the flow entirely — caught
+by the e2e lifecycle suite. For those plans the hook falls back to
+`origin/<branch>`: still a shared ref, so a purely local approval is still
+refused, just the right shared ref for a flow where plan and code travel
+together. `origin/<main>` is tried first, so the ordinary flow is unaffected and
+a plan on main cannot be shadowed by a copy pushed to a branch. A plan on
+neither shared ref (a fresh `/plot-idea`, nothing pushed yet) allows the commit
+and says the phase went unverified — an unshared plan is not evidence of an
+approval, but it is not evidence of a Draft either, and the hook must not block
+a repo out of its own bootstrap.
+
+Tests cover both directions for both consumers, the same-branch flow in all
+three of its states, and the hook's offline behaviour both ways — that it still
+allows the commit *and* that it emits the unverified line. The gate fixtures
+gained a real bare `origin`: without one they exercised the fail-open path
+rather than the gate, so the suite would have kept passing while testing
+nothing.
