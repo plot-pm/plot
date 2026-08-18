@@ -111,7 +111,7 @@ it: PR #216's host lookup for a branch with no ref, which asks about a specific
 branch that the repo-wide list may not contain if it was never opened as a PR.
 That call is bounded by absent branches, not by all branches.
 
-### 2. The cadence knows what a refresh costs
+### 4. The cadence knows what a refresh costs
 
 The board asks the adapter what one refresh costs on the configured host, and
 spaces its polling accordingly. `plot-host.sh backend` already reports which
@@ -120,6 +120,39 @@ host is in use; the cost per refresh is a property the adapter can state.
 **This is second, and depends on the first.** Once a refresh is one join
 instead of N lookups, the arithmetic changes enough that the cadence question
 may answer itself — which is why the waves are ordered rather than parallel.
+
+### 3. The board shows what it has, while the rest arrives
+
+Measured 2026-08-18, splitting the scan by source:
+
+```
+--offline (git only):  12.7 s
+with host lookups:     34.0 s
+```
+
+**Even with the join, the scan stays around 14 s** — under the 30 s timeout,
+but nowhere near the 5 s the pulse aims for. The git half alone is 12.7 s on 84
+branches, and no host fix touches it.
+
+So the fix and the wait are two problems. The join makes the host phase short;
+it does not make the scan instant, and a board that renders nothing for
+fourteen seconds is a board that looks broken.
+
+**Three sources with three speeds, each row saying which it has.** Plan facts
+are immediate — the file is on disk. Git facts arrive in seconds. Host facts
+arrive last. A row can render as soon as its plan facts exist, gain its git
+state when the walk reaches it, and gain its PR badge when the list lands.
+
+The schema is already built for this. `claimed` and `eligible` are **optional**
+precisely so that `claimed: 0` and "no pulse has landed yet" do not render
+identically (`schema.ts`, the comment on `WaveSummary`). Incremental delivery
+is that distinction applied continuously rather than only on first load —
+which is what `2026-08-18-not-yet-asked-is-not-nothing` established for the
+host half and stopped short of generalising.
+
+**A badge that has not arrived is absent, never zero and never a guess.** That
+is the rule the whole day has been about, and streaming makes it load-bearing
+rather than occasional: for most of the scan, most rows are genuinely partial.
 
 ### What must not change
 
@@ -146,6 +179,8 @@ render identically.
 - `bug/the-scan-joins-one-pr-list` — `plot-fleet-scan.sh` resolves branch PR state from one `pr-list` response joined locally, instead of `host_pr_state()` per branch. The no-ref lookup from #216 stays, bounded by absent branches. Tests: a scan over N branches makes a constant number of host calls, asserted by counting invocations of a stubbed host — the measured failure is 39 calls for 14 branches, so a test that does not reproduce that against the unchanged script is not testing this; a failed list still reads as failure and never as "no PR"; the three-way state vocabulary is unchanged per branch.
 
 ### Cadence
+
+- `feature/the-board-renders-what-has-arrived` — the scan emits its results as they resolve rather than as one document at the end, and the board renders each row with the sources it has, marking the rest as not-yet-arrived. Measured: git alone is 12.7 s on 84 branches, so even a perfect host fix leaves a wait worth filling. Tests: a row renders from plan facts before any git fact exists; a badge whose source has not arrived is absent rather than zero or guessed; a completed scan renders identically to today's; a scan that fails midway keeps what arrived and says the rest is unknown, rather than discarding the partial result.
 
 - `bug/the-cadence-knows-what-a-refresh-costs` — the board's PR refresh accounts for the configured host's per-refresh cost rather than assuming one request. Tests: a Bitbucket-configured board makes measurably fewer requests per hour than the naive cadence; a GitHub-configured board is unchanged; the rate-limit backoff already in `fleet.ts` still holds for its full delay.
 
