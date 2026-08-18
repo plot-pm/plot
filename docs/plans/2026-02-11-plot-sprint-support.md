@@ -95,6 +95,14 @@ Closed sprints stay in place (Principle 8) and are identified by their Phase fie
 
 ## Notes
 
+> **Followed by** `docs/plans/2026-08-18-a-sprint-names-what-it-ships.md`.
+> This plan built sprints; that one closes two gaps found the first time one
+> was actually created, on 2026-08-18 — a sprint cannot declare the release it
+> is working toward, and its plan-selection step lists every plan in the repo
+> rather than the ones serving the stated goal. Neither was visible from the
+> design; both were visible within minutes of use.
+
+
 <!-- Session log, decisions, links -->
 ```
 
