@@ -131,7 +131,8 @@ git rev-parse --git-dir >/dev/null 2>&1 || { echo "not a git repository" >&2; ex
 repo_root_early=$(git rev-parse --show-toplevel)
 wt_root_early=$(cd "$repo_root_early/.." && pwd)
 
-# States: "running <pid>" | "finished <pid>" | "failed <pid> (exit N)"
+# States: "running <pid>" | "finished <pid>" | "waiting <pid> (answer it)"
+#       | "stalled <pid> (work unfinished)" | "failed <pid> (exit N)"
 #       | "ended <pid> (status unknown)" | "no worker"
 #
 # THE CLASSIFICATION LIVES IN plot-worker-state.sh, sourced above and shared
@@ -143,15 +144,54 @@ wt_root_early=$(cd "$repo_root_early/.." && pwd)
 # sixth (a non-numeric exit code), which is what a duplicate does while nobody
 # is looking. `no worker` is spelled that way HERE and `none` in the scan —
 # both are the shared `none`, rendered for their own audience.
-worker_state() { # $1=worktree
-  local row state pid code
-  row=$(plot_worker_state "$1")
+# Has this branch's work reached review — an open or merged PR?
+#
+# ASKED HERE TOO, AND THAT IS THE POINT. The PR fact outranks every local signal
+# in the classification, so a consumer that cannot supply it reports `stalled`
+# where the other reports `finished` — the same one-fact-two-verdicts drift
+# wave 1 removed, re-entering through the new parameter. The contract test
+# drives both consumers from one fixture precisely to catch that.
+#
+# AFFORDABLE HERE, unlike in the scan's inner loop. `--status` runs when a
+# person types it and iterates the handful of `plot-wt-*` worktrees on this
+# disk; the scan is polled by the board every 5 s across every branch of every
+# plan, which is why IT caches one reply per branch per run. Same question, two
+# costs, and only one of them needs the machinery.
+#
+# `--offline` IS HONOURED, because it promises no network and a flag that lied
+# would be worse than a slower answer. Offline, or with no backend, the fact is
+# simply not supplied and the local signals answer alone — `stalled` rather
+# than `finished`, which sends a reader to look rather than telling them to stop.
+reached_review() { # $1=branch → 0 when an open or merged PR exists
+  [ -z "$offline" ] || return 1
+  [ -n "$1" ] && [ "$1" != "?" ] || return 1
+  [ "$("$script_dir/plot-host.sh" backend 2>/dev/null)" != "none" ] || return 1
+  local js st
+  # Exit code first: a non-zero is a transport failure and its stdout is not an
+  # answer. GitHub returned 503 all afternoon on 2026-08-17, and a reader that
+  # trusted the payload on failure would have called every branch reviewed.
+  js=$("$script_dir/plot-host.sh" pr-state "$1" </dev/null 2>/dev/null) || return 1
+  st=$(printf '%s' "$js" | sed -n 's/.*"state":"\([A-Z]*\)".*/\1/p')
+  case "$st" in OPEN|MERGED) return 0 ;; *) return 1 ;; esac
+}
+
+worker_state() { # $1=worktree [$2=branch]
+  local row state pid code pr_fact=""
+  reached_review "${2:-}" && pr_fact="pr"
+  row=$(plot_worker_state "$1" "$pr_fact")
   state=$(printf '%s' "$row" | cut -f1)
   pid=$(printf '%s' "$row" | cut -f2)
   code=$(printf '%s' "$row" | cut -f3)
   case "$state" in
     running)  echo "running $pid" ;;
     finished) echo "finished $pid" ;;
+    # THE TWO TASK STATES, rendered as prose here and as bare words in the
+    # scan's JSON — one computation, two renderings, the split this file's
+    # `worker_state` exists to keep. Each names the move rather than the
+    # condition: a reader of `--status` is deciding what to do next, and
+    # "answer it" versus "resume it" is that decision.
+    waiting)  echo "waiting $pid (answer it)" ;;
+    stalled)  echo "stalled $pid (work unfinished)" ;;
     failed)   echo "failed $pid (exit $code)" ;;
     ended)    echo "ended $pid (status unknown)" ;;
     *)        echo "no worker" ;;
@@ -159,14 +199,16 @@ worker_state() { # $1=worktree
 }
 
 if [ "$mode" = "status" ]; then
-  n_live=0 n_done=0 n_failed=0 n_ended=0 n_none=0
+  n_live=0 n_done=0 n_waiting=0 n_stalled=0 n_failed=0 n_ended=0 n_none=0
   for wt in "$wt_root_early"/plot-wt-*; do
     [ -d "$wt" ] || continue
     br=$(git -C "$wt" branch --show-current 2>/dev/null || echo "?")
-    st=$(worker_state "$wt")
+    st=$(worker_state "$wt" "$br")
     case "$st" in
       running*)  n_live=$((n_live + 1)) ;;
       finished*) n_done=$((n_done + 1)) ;;
+      waiting*)  n_waiting=$((n_waiting + 1)) ;;
+      stalled*)  n_stalled=$((n_stalled + 1)) ;;
       failed*)   n_failed=$((n_failed + 1)) ;;
       ended*)    n_ended=$((n_ended + 1)) ;;
       *)         n_none=$((n_none + 1)) ;;
@@ -178,9 +220,9 @@ if [ "$mode" = "status" ]; then
       echo "      last: $(tail -1 "$wt/.plot-worker.log" 2>/dev/null)"
     fi
   done
-  [ $((n_live + n_done + n_failed + n_ended + n_none)) -gt 0 ] \
+  [ $((n_live + n_done + n_waiting + n_stalled + n_failed + n_ended + n_none)) -gt 0 ] \
     || echo "  (no fleet worktrees under $wt_root_early)"
-  echo "summary: running=$n_live finished=$n_done failed=$n_failed ended=$n_ended no_worker=$n_none"
+  echo "summary: running=$n_live finished=$n_done waiting=$n_waiting stalled=$n_stalled failed=$n_failed ended=$n_ended no_worker=$n_none"
   exit 0
 fi
 
@@ -194,7 +236,7 @@ if [ "$mode" = "stop" ]; then
   fi
   wt="$wt_root_early/plot-wt-$(printf '%s' "$stop_branch" | tr '/' '-')"
   [ -d "$wt" ] || { echo "plot-dispatch: no worktree for '$stop_branch' at $wt" >&2; exit 1; }
-  st=$(worker_state "$wt")
+  st=$(worker_state "$wt" "$stop_branch")
   case "$st" in
     running*)
       pid=${st#running }
@@ -204,7 +246,7 @@ if [ "$mode" = "stop" ]; then
       # and deleting either would be the kind of write this design avoids.
       echo "  worktree kept at $wt — the claim stands until you release it"
       ;;
-    finished*|failed*|ended*) echo "$stop_branch is not running ($st)" ;;
+    finished*|waiting*|stalled*|failed*|ended*) echo "$stop_branch is not running ($st)" ;;
     *)      echo "$stop_branch has no worker" ;;
   esac
   exit 0

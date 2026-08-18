@@ -82,6 +82,47 @@ this command as a heartbeat.
 | **claimed** | A branch whose only commits beyond main are empty `plot: claim …` markers |
 | **deferred** | Annotated `<!-- deferred: … -->`; never counts as outstanding |
 
+### Worker states
+
+`--json` carries a `worker` field per branch. Six describe the **process**; two
+describe the **task**, and the split matters because the process cannot answer
+the task's question. Measured across seven worktrees in a four-agent fleet run:
+*every* worker exited 0, including two that stopped mid-task. All three read
+`finished`, whose move is *review it*, and two of them needed an answer instead.
+
+| State | The reader's move |
+|-------|-------------------|
+| `running` | Leave it alone |
+| `finished` | Review it — the work reached a PR, or nothing was left behind |
+| `waiting` | **Answer it** — a marker in the tree asks a question |
+| `stalled` | **Resume it** — work is on the floor and no PR covers it |
+| `failed` | Restart it; `worker_exit` says how it died |
+| `ended` | Read the log; the exit status was not recorded |
+| `none` | A worktree is here but no pid — look in it. Unknown, never "nobody" |
+| `elsewhere` | No worktree here — ask the machine that took it |
+
+`waiting` and `stalled` are as opposite as `failed` and `finished`: one sends a
+**person** to a question, the other sends a **worker** back to work. Never
+report a `waiting` branch as stalled — relaunching it walks into the same wait,
+which is a loop rather than a rescue, and was measured happening twice to one
+branch.
+
+### The blocked marker
+
+A worker that stops to ask a person something writes **`PLOT-BLOCKED:`** into a
+file in its worktree, followed by the question. That token is what makes
+`waiting` detectable; `TODO(you)` and `TODO(human)` are also recognised, because
+they emerged from workers before Plot named anything and still exist in trees.
+
+Two properties are load-bearing:
+
+- **In the tree, not only in the log.** The log records that a question *was
+  asked*; only the tree records that it is still *unanswered*, and only the tree
+  clears when someone writes the answer.
+- **Removed when answered.** A marker left behind after its question is settled
+  reports `waiting` forever, and a row nobody can clear is one people learn to
+  ignore.
+
 ## Steps
 
 ### 1. Run the Scan
@@ -162,6 +203,13 @@ Name the signal, then advise (Principle 11 — guidance is part of the workflow)
   error.
 
 ### 4. Flag Stalls — carefully
+
+A `worker: stalled` branch is a **different** finding from a stale claim, and
+the two must not be merged in the report. `stalled` means a worker ran and
+stopped with work on the floor — that work is worth keeping, and naming what is
+uncommitted is the useful thing to say. A stale claim means nothing was ever
+built. Restarting a stalled branch is `/plot-dispatch`'s to do and this
+command's to *report*; it starts nothing.
 
 A branch claimed long ago with no work on it is *suspicious*, not *broken*: a
 worker may be thinking, or may be dead. This command **never** reaps. Report

@@ -1620,8 +1620,10 @@ describe('rowsFromPulse', () => {
     // reports and nothing carries is a field nobody reads — which is precisely
     // what `worker_state()` was for the whole time it existed.
     const withWorker = (
-      worker: 'running' | 'finished' | 'failed' | 'ended' | 'none' | 'elsewhere',
+      worker: 'running' | 'finished' | 'waiting' | 'stalled'
+        | 'failed' | 'ended' | 'none' | 'elsewhere',
       exit = '', pid = '',
+      dirtyPaths: string[] = [],
     ): FleetPulse => ({
       ...pulse,
       plans: [{
@@ -1631,6 +1633,7 @@ describe('rowsFromPulse', () => {
           branches: [{
             branch: 'feature/d', state: 'claimed', deferred: false, claimed: '',
             worker, worker_exit: exit, worker_pid: pid,
+            worker_dirty_paths: dirtyPaths,
           }],
         }],
       }],
@@ -1646,6 +1649,51 @@ describe('rowsFromPulse', () => {
     it('carries a running worker\'s pid, so the reader can go look at the process', () => {
       const rows = rowsFromPulse(withWorker('running', '', '900'), ages, 'plot', QUIET);
       expect(rows.find((r) => r.branch === 'feature/d')!.note).toMatch(/900/);
+    });
+
+    it('sends a waiting worker to a person, and says what it needs', () => {
+      // `waiting` means a marker in the tree asks a question. The move is
+      // ANSWER IT — not review, not restart — and the note has to say so, or
+      // the row lands in the same *review it* bucket the state was split out of.
+      const rows = rowsFromPulse(withWorker('waiting', '0', '900'), ages, 'plot', QUIET);
+      const row = rows.find((r) => r.branch === 'feature/d')!;
+      expect(row.group).toBe('waiting-on-you');
+      expect(row.note).toMatch(/waiting on an answer/i);
+    });
+
+    it('names what a stalled worker left on the floor', () => {
+      // A COUNT WOULD NOT SUPPORT THE DECISION the row exists for. "3
+      // uncommitted files" reads identically for three scratch notes and three
+      // half-finished modules; the names are what tell a reader whether this
+      // branch is worth resuming.
+      const rows = rowsFromPulse(
+        withWorker('stalled', '0', '900', ['src/retry.ts', 'test/retry.test.ts']),
+        ages, 'plot', QUIET);
+      const row = rows.find((r) => r.branch === 'feature/d')!;
+      expect(row.group).toBe('waiting-on-you');
+      expect(row.note).toMatch(/src\/retry\.ts/);
+      expect(row.note).toMatch(/resume it/);
+    });
+
+    it('counts the remainder rather than dropping it silently', () => {
+      // A cap keeps one branch mid-refactor from pushing every other row off
+      // the screen, but a SILENT truncation reads as "that is all of it" — the
+      // same mis-answer an uncapped list would avoid and a bare count would
+      // make. So the overflow is stated.
+      const many = ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts'];
+      const note = rowsFromPulse(withWorker('stalled', '0', '900', many), ages, 'plot', QUIET)
+        .find((r) => r.branch === 'feature/d')!.note;
+      expect(note).toMatch(/\+2 more/);
+    });
+
+    it('keeps waiting and stalled apart — the moves are opposite', () => {
+      // *Answer it* sends a PERSON to a question; *resume it* sends a WORKER
+      // back to work. One label over both is the `finished`-means-everything
+      // blur these two were split out of, one level down.
+      const say = (w: 'waiting' | 'stalled' | 'finished') =>
+        rowsFromPulse(withWorker(w, '0', '900', ['x.ts']), ages, 'plot', QUIET)
+          .find((r) => r.branch === 'feature/d')!.note;
+      expect(new Set([say('waiting'), say('stalled'), say('finished')]).size).toBe(3);
     });
 
     it('renders the three claim cases as three different sentences', () => {
@@ -1987,6 +2035,7 @@ describe('the row carries the PR condition as fields', () => {
         branches: [{
           branch: 'feature/a', state: 'wip', claimed: '', local_dirty: false,
           local_ahead: 0, worker: 'elsewhere', worker_exit: '', worker_pid: '',
+          worker_dirty_paths: [],
         }],
       }],
     }],
@@ -2156,7 +2205,7 @@ describe('rowsFromPulse carries stuck detection onto the row', () => {
   const branch = (over: Record<string, unknown> = {}) => ({
     branch: 'feature/x', state: 'wip', deferred: false, claimed: '',
     local_dirty: false, local_locked: false, local_worktree: '', local_ahead: 0,
-    worker: 'elsewhere', worker_pid: '', worker_exit: '',
+    worker: 'elsewhere', worker_pid: '', worker_exit: '', worker_dirty_paths: [],
     conflicts: [], conflicts_known: true, changed_paths: [],
     ...over,
   }) as never;

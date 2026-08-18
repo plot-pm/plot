@@ -378,16 +378,26 @@ if [ "$HOST_LOOKUP_OK" = 1 ]; then
     && trap 'rm -rf "$HOST_STATE_CACHE" 2>/dev/null || true' EXIT INT TERM
 fi
 
-# Does the host say this branch's PR is MERGED? Anything else — OPEN, CLOSED,
-# NONE, an unreachable host, a malformed reply — is NOT a yes.
-#
-# The cache stores the STATE WORD, not the yes/no, so a future reader can tell
+# The cache stores the STATE WORD, not a yes/no, so a future reader can tell
 # "asked, answered CLOSED" from "asked, could not reach the host". `-` is the
 # unanswerable marker, and it is cached too: a host that is down stays down for
 # the length of a scan, and re-asking once per branch would multiply an outage
 # by the branch count.
-merged_by_host() { # $1=branch → 0 when the host reports its PR MERGED
-  [ "$HOST_LOOKUP_OK" = 1 ] || return 1
+#
+# The host's PR state word for a branch, cached once per branch per run.
+#
+# SPLIT OUT OF `merged_by_host` so a SECOND question can reuse the SAME cached
+# reply. `worker_of` needs to know whether an OPEN PR exists — the fact that
+# outranks everything in the worker classification — and `merged` does not
+# answer it: a branch under review reads `wip` by ancestry and MERGED by
+# neither. Asking the host again would double the per-branch cost this cache
+# exists to avoid, on a scan the board polls every 5 s.
+#
+# Returns the STATE WORD, or `-` when the question could not be answered —
+# never a yes/no, so each caller applies its own test and a reader can still
+# tell "asked, answered CLOSED" from "asked, could not reach the host".
+host_pr_state() { # $1=branch → OPEN|MERGED|CLOSED|NONE|-
+  [ "$HOST_LOOKUP_OK" = 1 ] || { printf '%s' '-'; return; }
   local br="$1" st js cache=""
   # The branch name contains slashes and a flat file per branch needs them
   # gone, but the mapping must be INJECTIVE. `tr '/' '_'` is not: `feature/a_b`
@@ -410,7 +420,31 @@ merged_by_host() { # $1=branch → 0 when the host reports its PR MERGED
     fi
     [ -n "$cache" ] && printf '%s' "$st" > "$cache" 2>/dev/null
   fi
-  [ "$st" = "MERGED" ]
+  printf '%s' "$st"
+}
+
+# Does the host say this branch's PR is MERGED? Anything else — OPEN, CLOSED,
+# NONE, an unreachable host, a malformed reply — is NOT a yes. Unchanged in
+# behaviour; only the lookup underneath it is now shared.
+merged_by_host() { # $1=branch → 0 when the host reports its PR MERGED
+  [ "$(host_pr_state "$1")" = "MERGED" ]
+}
+
+# Has this branch's work REACHED REVIEW — an open or merged PR?
+#
+# The fact that outranks every local signal in the worker classification: work
+# under review has left the worker's hands, so leftover edits in its worktree
+# are not unfinished work. OPEN and MERGED both count; CLOSED does not, because
+# a closed PR is work that was rejected or withdrawn and whatever sits in the
+# worktree is back on the floor.
+#
+# UNANSWERABLE IS NOT A YES, and the direction matters. `-` — offline, no
+# backend, a host returning 503 all afternoon — must not manufacture the state
+# that tells a reader to stop looking. It falls through to the local signals,
+# so a branch with work on the floor reads `stalled`: go and look. That is the
+# safe direction for an answer nobody could verify.
+reached_review() { # $1=branch → 0 when an open or merged PR exists
+  case "$(host_pr_state "$1")" in OPEN|MERGED) return 0 ;; *) return 1 ;; esac
 }
 
 # ---------------------------------------------------------------------------
@@ -637,7 +671,21 @@ worker_of() { # $1=branch → "state\tpid\texit"
   # Everything below the worktree is the shared classifier's answer, already in
   # the tab-separated shape this function returns. plot-dispatch renders the
   # same facts as prose for `--status`.
-  plot_worker_state "$wt"
+  #
+  # THE PR FACT TRAVELS AS AN ARGUMENT, computed HERE where the host is already
+  # being asked and the answer is already cached. The classifier is called once
+  # per branch inside this loop and must not fork a `gh` of its own — and it
+  # must not break `--offline`, which promises no network. Both are properties
+  # of this caller, not of the classification, so the caller supplies the fact
+  # exactly as it supplies `elsewhere` above.
+  #
+  # `$st` IS NOT THIS FACT. It answers a ref/ancestry question — a branch under
+  # review reads `wip` — and `merged` there can come from a merge subject with
+  # no PR behind it at all. `reached_review` asks the one question that
+  # outranks the local signals: has this work left the worker's hands?
+  local pr_fact=""
+  reached_review "$br" && pr_fact="pr"
+  plot_worker_state "$wt" "$pr_fact"
 }
 
 # ---------------------------------------------------------------------------
@@ -1593,6 +1641,34 @@ for i, w in enumerate(d.get("waves", [])):
         json_branches+=",\"worker\":\"$(printf '%s' "$worker_row" | cut -f1)\""
         json_branches+=",\"worker_pid\":\"$(json_str "$(printf '%s' "$worker_row" | cut -f2)")\""
         json_branches+=",\"worker_exit\":\"$(json_str "$(printf '%s' "$worker_row" | cut -f3)")\""
+        # WHAT IS ON THE FLOOR, beside the verdict that named it.
+        #
+        # A COUNT WOULD HAVE BEEN CHEAPER AND IS NOT ENOUGH. `stalled` exists so
+        # a person can decide whether to resume a branch, and "3 uncommitted
+        # files" does not support that decision — three scratch notes and three
+        # half-finished modules read identically. The names make the row
+        # actionable without a second command, which is the only reason to
+        # report it rather than merely count it.
+        #
+        # A SIBLING FIELD, NOT A FOURTH COLUMN on the worker row. Every answer
+        # from the shared classifier carries exactly three tab-separated fields,
+        # and that is load-bearing: POSIX `cut` prints a line UNCHANGED when it
+        # holds no delimiter, so a row of a different width would land a
+        # filename in the exit-code slot with nothing erroring. One computation
+        # (`plot_worker_dirty`), two renderings — the split this whole file
+        # keeps.
+        #
+        # ONLY ON `stalled`, because only there does it answer anything. Beside
+        # `finished` the same list is the leftovers a merged branch happens to
+        # hold, and printing it would invite exactly the reading `stalled` was
+        # added to prevent.
+        if [ "$(printf '%s' "$worker_row" | cut -f1)" = "stalled" ]; then
+          json_branches+=",\"worker_dirty_paths\":$(json_array "$(plot_worker_dirty "$(local_worktree_of "$br" | cut -f1)")")"
+        else
+          # Empty rather than omitted: one absent-value shape for every
+          # consumer, the rule the local signals above already follow.
+          json_branches+=",\"worker_dirty_paths\":[]"
+        fi
         # WHICH FILES would collide, and whether the question was asked at all.
         # The two travel together on purpose: an empty list means "merges
         # cleanly" ONLY beside `conflicts_known: true`, and reading the list
