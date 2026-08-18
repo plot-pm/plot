@@ -4,6 +4,7 @@
 
 - **Phase:** Approved
 - **Type:** feature
+- **Sprint:** working-shows-the-agent
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-08-19, Jan Wloka, plan-PR #203 merged
