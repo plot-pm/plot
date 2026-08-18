@@ -163,7 +163,7 @@ subject match is the fallback worth measuring.
 
 ## Branches
 
-- `bug/a-squashed-branch-is-merged-not-open` — ask the host for branches with no local ref, map the three-way reply, and leave the unreachable case reading exactly as it does today. Test: a sandbox where a branch is squash-merged and deleted must report `merged` and let its wave complete, and a sandbox with an unreachable host must still report `open`.
+- `bug/a-squashed-branch-is-merged-not-open` — ask the host for branches with no local ref, map the three-way reply, and leave the unreachable case reading exactly as it does today. Test: a sandbox where a branch is squash-merged and deleted must report `merged` and let its wave complete, and a sandbox with an unreachable host must still report `open`. → #216
 
 ## Notes
 
