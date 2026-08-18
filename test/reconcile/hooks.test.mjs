@@ -32,18 +32,33 @@ function pluginRootWithSpace() {
 }
 
 // Minimal blocking fixture: Draft plan + staged impl file on its branch.
+// A repo where the gate MUST block: a Draft plan on the shared ref, an
+// implementation commit staged on a branch that implements it.
+//
+// The bare origin is load-bearing. The gate reads the plan from origin/<main>,
+// so a fixture without a remote makes it fail open — and these tests prove a
+// shell-quoting property THROUGH the block, so a fail-open fixture would let
+// them pass while proving nothing about quoting at all.
 function blockingRepo() {
-  const dir = mkdtempSync(path.join(tmpdir(), 'plot-hooks-repo-'));
+  const tmp = mkdtempSync(path.join(tmpdir(), 'plot-hooks-repo-'));
+  const dir = path.join(tmp, 'repo');
+  mkdirSync(dir, { recursive: true });
   const sh = (c) => execSync(c, { cwd: dir, stdio: 'pipe' });
   sh('git init -q -b main && git config user.email t@t && git config user.name t && git config commit.gpgsign false');
   writeFileSync(path.join(dir, 'README.md'), 'x');
-  sh('git add . && git commit -qm init');
-  sh('git checkout -qb feature/x');
   mkdirSync(path.join(dir, 'docs', 'plans'), { recursive: true });
   writeFileSync(
     path.join(dir, 'docs', 'plans', '2026-01-01-x.md'),
     '# P\n\n## Status\n\n- **Phase:** Draft\n- **Type:** feature\n',
   );
+  sh('git add -A && git commit -qm init');
+
+  const origin = path.join(tmp, 'origin.git');
+  execSync(`git init --bare -q -b main "${origin}"`, { cwd: tmp, stdio: 'pipe' });
+  sh(`git remote add origin "${origin}" && git push -q origin main`);
+  sh('git remote set-head origin main');
+
+  sh('git checkout -qb feature/x');
   mkdirSync(path.join(dir, 'src'), { recursive: true });
   writeFileSync(path.join(dir, 'src', 'a.js'), 'y');
   sh('git add -A');
