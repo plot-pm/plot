@@ -48,6 +48,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 3. Cross-check Notes | Frontier (orchestrator) + Small (subagents) | Orchestrator compares; small subagents can gather commit messages and plan changelogs in parallel |
 | 4-5. Hand-off, RC cleanup | Small | Template list, no-ops |
 | 5b. Record the Release in the Plans | Small | Mechanical per plan; the version comes from `git tag --contains`, not judgment. Gate on the sweep's real footer |
+| 5c. Sprint Override Record | Small | One line into `## Notes`, from facts step 0 already collected |
 | 6. Summary | Small | Formatting |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
@@ -152,8 +153,8 @@ operator, so it never converts a refusal into a pass.
 
 #### The override writes itself into the sprint
 
-**When `--ignore-sprint` is used, append a line to the sprint file's `## Notes`**
-naming the version, the date, and the Must Haves that were open:
+**When `--ignore-sprint` is used, record it in the sprint file's `## Notes`** —
+the version, the date, and the Must Haves that were open:
 
 ```markdown
 ## Notes
@@ -161,6 +162,20 @@ naming the version, the date, and the Must Haves that were open:
 - 2.5.2 cut 2026-08-18 with `--ignore-sprint`; 1 Must Have open:
   [one-place-for-what-a-row-can-do]
 ```
+
+**Write it directly under `## Notes`, not inside `### Scope Changes`.** That
+subsection logs what the sprint decided about its own contents; a release cut
+over its objection is something that happened *to* the sprint. Filing it there
+would bury the record under a scope log nobody reads for release facts.
+
+**Write it after the tag exists, in step 5c — not here.** Until then no version
+has been released, and a note claiming one is the same defect step 5b's
+"only run this once the tag exists" guards against. The gate's job in step 0 is
+to decide and to remember the open items; the writing happens once the thing
+being recorded is true.
+
+If the release is abandoned between step 0 and the tag, nothing was written and
+nothing needs undoing — which is the point of deferring it.
 
 Commit it with the release's other sprint-side changes.
 
@@ -408,6 +423,15 @@ Not marked:
 summary: … unreleased_delivered=0 …
 ```
 
+#### 5c. Record a Sprint Override
+
+If step 0 was cleared with `--ignore-sprint`, **now** write the line it held
+into the sprint file's `## Notes` — the tag exists, so the version is finally a
+fact rather than an intention. Format and placement are in step 0.
+
+Nothing to write if `--ignore-sprint` was not used, or if no sprint declared a
+`Release:`. Idempotent: a note already present for this version is left alone.
+
 ### 6. Summary
 
 **Orient, don't enumerate** (Manifesto Principle 11): open the summary
@@ -420,6 +444,8 @@ Print:
   - `<slug>` — <type>
   - `<slug>` — <type>
 - Cross-check result: complete / gaps found
+- Sprint gate: passed / not applicable / **cleared with `--ignore-sprint`**, and
+  for the last, the Must Haves that were open and the sprint note written
 - Plans marked Released: `<slug>` → `<version>` for each, and every plan **not**
   marked with its reason (docs/infra, or unresolvable)
 - Release-recorded gate: paste the sweep's actual `summary:` footer from step 5b
