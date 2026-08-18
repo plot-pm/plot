@@ -244,6 +244,36 @@ test('host: pr-list --rich reports an EMPTY rollup as none, not green', () => {
   assert.equal(out.checks, 'none');
 });
 
+test('host: a RUNNING check reports pending, not green', () => {
+  // The defect this replaces, and it pointed the reassuring way: GitHub sends
+  // `conclusion: ""` for a check still running — an EMPTY STRING, not null —
+  // and the reader was `(.conclusion // .state)`. jq's `//` substitutes only
+  // null and false, so `$c` stayed `""`, matched none of the three tests, and
+  // fell through to `green`.
+  //
+  // A running CI therefore read as a passed CI, permanently: measured on the
+  // release PR while its `validate` job was in progress. WAITING ON A MACHINE
+  // was empty for the same reason, every time it was looked at.
+  //
+  // The field is `status` besides — `state` never existed on a rollup entry, so
+  // the fallback pointed nowhere even when it fired.
+  const running = '[{"name":"validate","conclusion":"","status":"IN_PROGRESS"}]';
+  const stubs = makeStubs({ ghJson: richGh(running) });
+  const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(out.checks, 'pending');
+});
+
+test('host: an empty conclusion on a CONCLUDED check still reads its status', () => {
+  // The pairing: a fix that simply preferred `.status` would report every
+  // finished check by the word GitHub uses for its lifecycle (`COMPLETED`)
+  // rather than by its outcome, turning failures green. The conclusion wins
+  // wherever it says anything.
+  const failed = '[{"name":"validate","conclusion":"FAILURE","status":"COMPLETED"}]';
+  const stubs = makeStubs({ ghJson: richGh(failed) });
+  const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(out.checks, 'failing');
+});
+
 test('host: pr-list --rich collapses the rollup to one of four states', () => {
   const cases = [
     ['[{"conclusion":"SUCCESS"}]', 'green'],
