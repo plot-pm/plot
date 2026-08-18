@@ -1,5 +1,236 @@
 # @plot-pm/board
 
+## 0.5.0
+
+### Minor Changes
+
+- [#212](https://github.com/plot-pm/plot/pull/212) [`97e6eaa`](https://github.com/plot-pm/plot/commit/97e6eaae0f494af77f96023afcd520ac0c625f64) Thanks [@jwloka](https://github.com/jwloka)! - plot-board: `/api/fleet` names the ref it read
+
+  The read path renders staleness honestly for an eye — "scanned 10s ago" — and
+  said nothing equivalent to a machine. The gap has a measured cost. During a live
+  two-agent dispatch on 2026-08-18 an operator read current-looking data while
+  their local `origin/main` was behind other agents' pushes. Three wrong diagnoses
+  followed, including "the fleet endpoint is broken" and "the scan exceeds the
+  board's timeout" — neither true. The board was right every time; it simply could
+  not say WHICH WORLD it was right about.
+
+  The response now carries three fields:
+
+  - `readRef` — the commit the scan actually read
+  - `readRefAge` — how old that read is, in seconds
+  - `localHead` — the local checkout, which may differ, and when it differs that
+    difference is the whole answer
+
+  **The fallback runs in one direction, and the asymmetry is the design.**
+  `plot-fleet-scan.sh` emits only `head` today; a sibling branch adds `read_ref`
+  and `local_head` while keeping `head` as an alias for one release. Both shapes
+  are tolerated, because the two branches were deliberately made independent — but
+  `head` is `git rev-parse --short HEAD`, the local checkout under a name that
+  implies more. It is a sound fallback for `localHead`, which is the same fact,
+  and an unsound one for `readRef`, which is a different commit whenever the
+  operator is not standing on a freshly fetched main.
+
+  So a scan that emits only `head` yields `readRef: null`. Filling it in would
+  manufacture the precise false statement the field exists to end — a report
+  signed with the name of a commit it never read — silently, on every consumer.
+  Null says "the scan did not tell me", and a consumer can act on that. The
+  string `unknown` is passed through distinctly: the scan looked and could not
+  resolve the ref, which is a different fact from a scan that predates the field.
+  Neither reads as a confident claim.
+
+  `readRefAge` is null rather than 0 before any scan lands, following the absent
+  value convention `prNextInSeconds` and `mergeable` already set in this file: one
+  absent-value shape per field, and an absent value never reads as a confident
+  claim. 0 would assert a read that just happened.
+
+  The fallback path is exercised by a test that plants a pulse of each shape
+  against a scan that cannot succeed, so what comes back is attributable to the
+  fixture rather than to whatever the script happens to emit today.
+
+  <!--
+  bumps:
+    skills:
+  -->
+
+  No skill version bumps: this is a board-side change only. `plot-fleet-scan.sh`
+  is deliberately untouched — it belongs to the sibling branch
+  `bug/pulse-names-the-ref-it-read` and two more queued behind it — and no skill
+  documents the HTTP API, so no skill's behaviour changed.
+
+### Patch Changes
+
+- [#206](https://github.com/plot-pm/plot/pull/206) [`ca45361`](https://github.com/plot-pm/plot/commit/ca45361522f6b41eb034ac4655d11ff18bbf39c3) Thanks [@jwloka](https://github.com/jwloka)! - plot-host: a running check reports pending, not green
+
+  WAITING ON A MACHINE was empty every time it was looked at, and the
+  reason was a mistranslation pointing the reassuring way.
+
+  GitHub sends `conclusion: ""` for a check still running — an EMPTY
+  STRING, not null — and the reader was `(.conclusion // .state)`. jq's
+  `//` substitutes only null and false, so `$c` stayed `""`, matched none
+  of the three tests, and fell through to `green`. **A running CI read as
+  a passed CI**, permanently rather than occasionally.
+
+  Measured on the release PR while its `validate` job was in progress: the
+  adapter said `green`, GitHub's own rollup said `IN_PROGRESS`.
+
+  The field is `status` besides; `state` never existed on a rollup entry,
+  so the fallback pointed nowhere even when it fired. Both are corrected at
+  all three sites that read the rollup, and the conclusion still wins
+  wherever it says anything — a fix that simply preferred `.status` would
+  report every finished check by its lifecycle word (`COMPLETED`) and turn
+  failures green.
+
+- [#211](https://github.com/plot-pm/plot/pull/211) [`f5560c3`](https://github.com/plot-pm/plot/commit/f5560c389efa20ae4752e56ba893edef0161a9f9) Thanks [@jwloka](https://github.com/jwloka)! - board: a successful scan that describes less says so
+
+  Rows vanished from the Agents tab and returned seconds later — including
+  WORKING rows for agents that were demonstrably running — with no error and
+  no staleness marker.
+
+  The cache already refuses to let a FAILED refresh overwrite a good result,
+  and the comment says why: replacing real state with emptiness because one
+  scan failed is what makes a monitoring view untrustworthy. That rule
+  carried an unstated assumption underneath it — _any success is
+  authoritative_ — and it is false. A scan can exit 0, emit schema-valid
+  JSON, and describe fewer plans than the scan before it. Measured in a
+  sandbox 2026-08-18: `origin/main` genuinely carried three plans, the scan
+  reported two, because it enumerates the working tree rather than the ref it
+  names. Nothing treated the smaller answer as suspicious, so it was cached,
+  rendered, and replaced by the next full one.
+
+  `pulseShrink` now compares each incoming pulse against the cached one
+  before it is accepted, and a loss rides beside the pulse as `shrink` — a
+  field distinct from `error`, because the two are opposites in the way that
+  matters: `error` means the scan failed and its result was discarded, this
+  means the scan SUCCEEDED and its result was kept. The tab marks the view
+  instead of swapping it without comment.
+
+  The smaller pulse is deliberately ACCEPTED rather than rejected. Plans
+  really do get delivered, and a monitoring view that cannot shrink keeps a
+  dead row forever — a different kind of lie. _Degrade, do not hide_, the
+  rule the bridge already follows for staleness.
+
+  Two details are load-bearing:
+
+  - **Identities, not counts.** "3 plans became 2" cannot tell an operator
+    whether the plan that vanished is one they just delivered or one another
+    agent pushed a minute ago. Counts also miss a shape the set difference
+    catches: one plan arriving as another leaves nets to zero, so a count
+    comparison passes it in silence while a row really did vanish.
+  - **Branches are compared even when their plan survives.** A plan that keeps
+    its file but loses a wave's branches produces no plan-level difference at
+    all — and that is precisely the reported symptom.
+
+  This is the symptom fix, and it is valuable on its own: the cause — the scan
+  globbing the working tree instead of the ref it claims to read — is a
+  separate branch against `plot-fleet-scan.sh` and is untouched here.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#216](https://github.com/plot-pm/plot/pull/216) [`9988157`](https://github.com/plot-pm/plot/commit/9988157d1b5419b2c5d1672b742576732b2fb413) Thanks [@jwloka](https://github.com/jwloka)! - plot-fleet: a squash-merged branch is merged, not open
+
+  Squash-merge a branch and delete it, and the fleet reported it as `open` — the
+  same word it uses for work nobody has started. Two individually reasonable
+  facts combined into a wrong answer.
+
+  A branch's state comes from its ref, and `--delete-branch` removes it. And
+  `pr-merge` detection walks merge commits, which a squash merge never produces.
+  Measured on the merge of PR [#209](https://github.com/plot-pm/plot/issues/209):
+
+  ```
+  $ git log -1 --format="%h parents=%p %s" a263711
+  a263711 parents=c3b2dda plot: board verification ... ([#209](https://github.com/plot-pm/plot/issues/209))
+  ```
+
+  One parent, and a subject naming `[#209](https://github.com/plot-pm/plot/issues/209)` rather than the branch. The exhaustive
+  merge-commit walk has nothing to match.
+
+  **It was live in two shapes.** `2026-08-18-plot-board-setup` had both wave-1
+  branches merged ([#208](https://github.com/plot-pm/plot/issues/208), [#209](https://github.com/plot-pm/plot/issues/209)) and still read `Scripts — eligible` with `Skill`
+  blocked — and a wave that cannot complete blocks its successor permanently, so
+  the fan-out `/plot-dispatch` exists to perform could not get past wave 1 under
+  this repo's own merge convention. Separately, the board advertised delivered
+  work as available: `bb-state-vocabulary` sat under NOT STARTED, "eligible —
+  nobody has taken it", while its plan read `Phase: Delivered` and PR [#210](https://github.com/plot-pm/plot/issues/210) was
+  `MERGED`. "No ref" defaulted to _start this_ rather than _cannot tell_, which
+  is the reassuring direction and therefore the worst one.
+
+  The data was never missing — only not local. When a branch has **no ref**,
+  there is nothing left to read locally, so the host is asked: one call per
+  absent branch, not per branch, and none at all where refs exist.
+
+  | `pr-state` says           | Branch reads                     |
+  | ------------------------- | -------------------------------- |
+  | `MERGED`                  | `merged` — the wave can complete |
+  | `OPEN` / `CLOSED`         | its existing meaning             |
+  | `NONE`, or the call fails | `open`, exactly as before        |
+
+  **The last row is load-bearing.** `plot-host.sh` already separates a lookup
+  miss (exit 0, state `NONE`) from a transport failure (non-zero) — the
+  distinction it grew on 2026-08-17, when GitHub returned 503 all afternoon and
+  every branch read as having no PR. Only an explicit `MERGED` may move a branch
+  off `open`, because `merged` settles a wave and opens the next one; an
+  unreachable host that manufactured a `merged` would open a wave onto a seam
+  that never landed. A test asserts that failure direction, not merely the happy
+  path.
+
+  The lookup is placed inside the no-ref arm, which is what keeps the reused-name
+  case correct: merge `feature/retry`, delete it, recreate it for a second
+  attempt, and the host still answers `MERGED` about the _first_ attempt. A
+  recreated branch has a ref, so it never reaches the lookup — pinned by its own
+  test.
+
+  **Cost, under a 5-second board poll.** Gated once per run on both a real
+  backend and `--offline`/`--no-fetch`, so the ambient pulse the board relies on
+  still makes no host calls whatsoever. Answers are cached per branch for the
+  length of one scan — on disk rather than in a variable, because `branch_state`
+  runs inside a command substitution and a subshell's assignments are discarded
+  the moment it closes. The cache directory is created per run and removed on a
+  trapped exit, so no answer outlives the scan that fetched it: a stale `merged`
+  read from a previous run is exactly the fabricated verdict the failure
+  direction forbids. A test asserts the call count — one for the absent branch,
+  none for the branch whose ref is still there.
+
+  **One number the plan did not have, and it belongs in the open.** The board
+  refreshes every 5 s without `--offline`, so it takes the host path: 720 scans
+  an hour. The within-run cache bounds a scan to ONE call per absent branch, but
+  across runs the arithmetic is 720 x (absent branches) — ~720 calls/hour for a
+  single squash-merged branch, ~3600 for five. `gh pr view --json` is GraphQL, so
+  these draw on the same 5000/hour budget this board exhausted on 2026-08-16.
+
+  Measured worst case: 20 absent branches against a host that fails every lookup
+  costs 4.1 s per scan versus 1.2 s offline — about 150 ms per absent branch. The
+  board's refresh is off the request path, guarded against overlap, and capped at
+  30 s, so nothing stalls; the cost is quota, not latency.
+
+  That is bounded by the count of absent branches in ACTIVE plans, which is small
+  in practice and shrinks as plans are delivered. It is left as measured rather
+  than pre-optimised — the plan's own fallback, matching the PR number in the
+  squash subject, is the offline answer worth reaching for if this proves too
+  expensive, and it should be chosen against real numbers rather than this
+  estimate.
+
+  The cache key is injective rather than a plain slash-to-underscore mapping:
+  `feature/a_b/c` and `feature/a/b_c` are both legal refs that collapse to one
+  key under the naive form, and the branch asked second would inherit the first's
+  answer. A `merged` arriving that way settles a wave on a branch nobody looked
+  at — the same fabricated verdict, reached through the cache instead of the
+  host. Pinned by a test that fails against the naive mapping.
+
+  <!--
+  bumps:
+    skills:
+      plot-fleet: minor
+  -->
+
+  `plot-fleet` minor: the scan gains a source it did not have, and the skill's
+  `merge_detect` table documented `open` under a squash/rebase repo as saying
+  nothing about whether work merged — now true only when the host cannot be
+  asked. Behaviour and documentation both changed; nothing was removed.
+
 ## 0.4.0
 
 ### Minor Changes
@@ -199,11 +430,11 @@ time`), computed server-side where the wave verdict and the plan phase
   here, because this same change reworded a neighbouring note. The client
   no longer imports any note constant.
 
-  <!--
-  bumps:
-    skills:
-      plot: patch
-  -->
+    <!--
+    bumps:
+      skills:
+        plot: patch
+    -->
 
 - [#182](https://github.com/plot-pm/plot/pull/182) [`07eeceb`](https://github.com/plot-pm/plot/commit/07eecebe6b1d915e1d05fe8d35391c1bbb02f903) Thanks [@jwloka](https://github.com/jwloka)! - A row on the Agents tab now marks itself when something is actually being written to it, rather than when it happens to sit in the WORKING group.
 
