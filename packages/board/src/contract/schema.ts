@@ -449,6 +449,10 @@ export type WaveVerdict = z.infer<typeof WaveVerdictSchema>;
  */
 export const WorkerStateSchema = z.enum([
   'running', 'finished', 'failed', 'ended', 'none', 'elsewhere',
+  // Two TASK states beside the six PROCESS states above, added 2026-08-18.
+  // Both arrive where the process exited 0 and the tree says the task did not
+  // finish with it — see `worker` below for why the exit code cannot tell.
+  'waiting', 'stalled',
 ]);
 export type WorkerState = z.infer<typeof WorkerStateSchema>;
 
@@ -652,17 +656,34 @@ export const FleetBranchSchema = z.object({
    * Three rows sat in WORKING with a pulsing dot on 2026-08-17 while nobody was
    * working on any of them — the claim was real, the worker was never started.
    *
-   * SIX VALUES, and every one of them earns its place by naming a different
+   * EIGHT VALUES, and every one of them earns its place by naming a different
    * next move:
    *
    * | value       | the reader's move                                 |
    * |-------------|---------------------------------------------------|
    * | `running`   | leave it alone                                    |
    * | `finished`  | review it                                         |
+   * | `waiting`   | answer it — a marker in the tree asks a question  |
+   * | `stalled`   | resume it — work is on the floor and has no PR    |
    * | `failed`    | restart it — `worker_exit` says how it died       |
    * | `ended`     | read the log; the exit status was not recorded    |
    * | `none`      | a worktree is here, but no pid — look in it       |
    * | `elsewhere` | no worktree here — ask the machine that took it   |
+   *
+   * `waiting` AND `stalled` SPLIT WHAT `finished` USED TO COVER, and they
+   * arrive only where the process exited 0. Measured across seven worktrees in
+   * a four-agent fleet run: EVERY worker exited 0 — the one that opened its PR,
+   * the one that stopped rather than claim a test run it had not seen, and the
+   * one that stopped to ask which retry semantics were wanted. All three read
+   * `finished`, whose move is *review it*, and two of the three needed an
+   * answer instead. The exit code reports how a process TERMINATED, never
+   * whether the task is DONE; only the tree separates them.
+   *
+   * Their moves are as opposite as `failed` and `finished`: *answer it* sends a
+   * person to a question, *resume it* sends a worker back to work. Reporting
+   * `waiting` as `stalled` is the worse direction — it invites a restart into
+   * the same wait, which is a loop rather than a rescue, and was measured
+   * happening twice to one branch — so a marker outranks work on the floor.
    *
    * `failed` and `finished` stay apart because their actions are OPPOSITE —
    * restart versus review — and one label over both sends the reader to a log to
@@ -710,6 +731,23 @@ export const FleetBranchSchema = z.object({
    * is the one answer that tells a reader to stop looking.
    */
   worker_exit: z.string().default(''),
+  /**
+   * What a `stalled` worker left on the floor — the uncommitted files by name.
+   *
+   * NAMES RATHER THAN A COUNT, and the count was the cheaper option. `stalled`
+   * exists so a person can decide whether to resume a branch, and "3
+   * uncommitted files" does not support that decision: three scratch notes and
+   * three half-finished modules read identically. The names make the row
+   * actionable without a second command, which is the only reason to report
+   * this rather than merely count it.
+   *
+   * EMPTY ON EVERY OTHER STATE, deliberately. Beside `finished` the same list
+   * is whatever leftovers a merged branch happens to hold, and showing it would
+   * invite exactly the reading `stalled` was added to prevent. Editor leftovers
+   * (`.tmp*`, `.swp`, `.orig`, `.rej`, `.bak`) and Plot's own `.plot-worker.*`
+   * records are already excluded upstream — they are not work.
+   */
+  worker_dirty_paths: z.array(z.string()).default([]),
   /**
    * The files that would collide merging this branch into the default branch.
    *

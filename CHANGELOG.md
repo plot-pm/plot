@@ -1,5 +1,412 @@
 # plot
 
+## 2.5.1
+
+### Patch Changes
+
+- [#210](https://github.com/plot-pm/plot/pull/210) [`139f025`](https://github.com/plot-pm/plot/commit/139f025580f97709959e1fe2a902b0cea79055e1) Thanks [@jwloka](https://github.com/jwloka)! - plot-host: translate --state into Bitbucket's vocabulary before sending it
+
+  `plot-host.sh` is the one adapter over both hosts, and it already knew the two
+  vocabularies differ — every response mapper turns Bitbucket's DECLINED into
+  CLOSED. The translation only ever ran in that direction. The request carried the
+  caller's GitHub word unchanged, so `bb` rejected `--state all` and
+  `--state closed` outright and every history-wide query failed:
+
+  ```
+  error: invalid --state 'ALL' (must be open, merged, declined, or superseded)
+  ```
+
+  Observed 2026-08-18 against bitbucket.org with `bb` 1.0.0, where it left every
+  PR-dependent group on the board reporting "PR data unavailable".
+
+  `all` becomes SEPARATE CALLS rather than repeated flags. Measured: `bb` accepts
+  `--state open --state merged` and silently keeps only the last, returning 50
+  PRs — all MERGED, with the 3 open ones gone. No error, a plausible list, and the
+  wrong answer. One call per state avoids depending on a `bb` fix, and the three
+  states partition the set (74 PRs, 74 unique ids, 0 duplicates on the repo
+  measured).
+
+  `superseded` is deliberately not part of `all`: such a PR is replaced by a newer
+  one for the same branch, and a board with one row per branch would show that
+  branch twice. `gh`'s `all` has no equivalent, so nothing is lost — a caller
+  wanting it asks by name.
+
+  The GitHub path is unchanged, and was regression-checked: `--state open` and
+  `--state all` both still return PRs.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#218](https://github.com/plot-pm/plot/pull/218) [`42146e4`](https://github.com/plot-pm/plot/commit/42146e41ae0cb4712bc641fb7cdb79bf85360b51) Thanks [@jwloka](https://github.com/jwloka)! - <!--
+  bumps:
+    skills:
+      plot: patch
+      plot-dispatch: patch
+      plot-fleet: patch
+  -->
+
+  plot: a worker has one state, not one per reader
+
+  `worker_state()` in `plot-dispatch.sh` and an inline copy in
+  `plot-fleet-scan.sh` classified the same worker independently — same
+  `.plot-worker.pid` read, same `kill -0`, same rejection of pid `0`, same
+  exit-code mapping. They were written to agree and were never asked the same
+  question about the same worktree, so nothing held them together.
+
+  They had already drifted. A non-numeric `.plot-worker.exit` read as `ended`
+  in the scan and `failed (exit abc)` in `plot-dispatch` — two verdicts from
+  one fact, where whichever a reader consulted first would win. Found by
+  running both against one fixture, which is a thing no test had done before.
+
+  The classification now lives once, in `plot-worker-state.sh`, sourced by
+  both. It returns facts — state, pid, exit code — and renders nothing: the
+  two output shapes are real interfaces and both survive unchanged.
+  `--status` still prints prose for a person (`failed 1234 (exit 3)`),
+  `--json` still emits tab-separated fields for a machine (`failed\t1234\t3`).
+
+  The drift is resolved toward `ended`, on the principle the scan already
+  stated for the empty case: an unreadable record licenses no verdict, and
+  "failed with code abc" invents one exactly as much as "finished" would. No
+  previously asserted behaviour changes — the scan's suite already pinned
+  `ended`, and `plot-dispatch`'s pinned only `0`, `3`, and an absent file.
+
+  **No behaviour changes otherwise.** The six states keep their names and
+  meanings. `elsewhere` stays the scan's alone: it answers "this machine has
+  no worktree to look in", asked before there is anything to look inside.
+
+  The new contract test drives BOTH consumers from ONE fixture across every
+  state — that agreement is the point — and asserts structurally that the
+  liveness check exists once, so a re-inlined copy fails rather than drifts.
+  It also pins that every answer carries three tab-separated fields: POSIX
+  `cut` prints a line unchanged when it holds no delimiter, so a bare `none`
+  would put the state word in the exit-code slot without erroring anywhere.
+
+- [#208](https://github.com/plot-pm/plot/pull/208) [`6c14571`](https://github.com/plot-pm/plot/commit/6c14571e5ff5e53ec9385f0cba628a332c251508) Thanks [@jwloka](https://github.com/jwloka)! - Add `plot-board-probe.sh`: a strictly read-only probe that emits one JSON
+  object describing whether the Plot board can run in the current repository —
+  node version, repo shape, board artifact location, Plot Config presence, plan
+  count, CI signals, and CLI auth states.
+
+  The probe decides nothing. Which artifact to recommend and what an empty board
+  means are the consuming skill's judgment, not the script's (Manifesto
+  Principle 3).
+
+  Two details are load-bearing:
+
+  - The artifact is resolved by _structure_, not by sorting. `marketplaces/` is
+    the installed copy and `cache/<version>/` is history, so the former is
+    matched explicitly and newest-mtime is only a fallback. Sorting paths picks
+    the lexically-last one, and version strings sort so that `2.10.0` < `2.5.0`.
+  - `auth` is a three-state enum (`ok`/`failed`/`unknown`), never a boolean. An
+    unrecognised output reads as _cannot verify_, never as _authenticated_.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#215](https://github.com/plot-pm/plot/pull/215) [`2175cb5`](https://github.com/plot-pm/plot/commit/2175cb561ec6d4e6cd1518e131b3a32556ebd73e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
+  bumps:
+    skills:
+      plot: patch
+      plot-dispatch: patch
+  -->
+
+  plot: the phase gate reads the plan from the shared ref
+
+  Both phase gates parsed the plan file in the **working tree** — the least
+  trustworthy surface available in a repo with several agents in it. It carries
+  whatever branch was last checked out, plus whatever is uncommitted, and neither
+  is a fact anyone else shares. That got the gate wrong in both directions, each
+  reproduced in a sandbox 2026-08-18.
+
+  **It refused work that was approved.** With the plan `Approved` on
+  `origin/main` and the checkout parked on another branch carrying an older copy:
+
+  ```
+  origin/main phase:  Approved
+  what plot reads:    draft
+  plot-dispatch: plan '...' is still Draft — nothing may be dispatched.
+  ```
+
+  This bit three times in one session. A concurrent agent's `git checkout` moved
+  the shared checkout, and `/plot-dispatch` refused two correctly-approved plans
+  whose approvals were sitting on `origin/main` the whole time.
+
+  **It permitted work that was not.** With the plan `Draft` on `origin/main` and
+  an approval committed to a local branch and never pushed, the fan-out ran.
+
+  The second is the serious one. Manifesto Principle 2 is _plans are approved
+  before implementation_, and the gate is what enforces it. A gate that accepts an
+  approval nobody else can see does not enforce that principle — it enforces
+  "someone typed Approved in this filesystem". Nothing was reviewed, nothing was
+  shared, and agents fan out anyway.
+
+  Both gates now read the plan blob from `origin/<main>` — `git show
+origin/<main>:<path>` — so the question they ask is the one they mean: _has this
+  been approved where everyone can see it?_ Every refusal names the ref and sha it
+  read; `origin/main@1beb3b97:plans/...` is debuggable in seconds, where "still
+  Draft" alone sent an operator looking at a file that already said `Approved`.
+
+  **They diverge on exactly one case, deliberately.** When `origin/<main>` cannot
+  be resolved (no remote, fresh clone, offline):
+
+  - `plot-dispatch.sh` **refuses**, naming the ref it could not read, and
+    `--allow-local` is the explicit escape — named in the refusal so an operator
+    learns it exists at the moment they need it.
+  - `plot-phase-gate.sh` **allows the commit and says so**, emitting
+    `plot-phase-gate: cannot read origin/main — phase unverified, allowing the
+commit.` It is a PreToolUse hook; refusing every commit when offline would
+    make the repo unusable, and the fail-open is a deliberate property.
+
+  The reason for the divergence is blast radius: dispatch refusing costs one
+  fan-out you can retry; the hook refusing costs every commit in the repository.
+  An operator who sees that line knows the gate did not run — the whole difference
+  between failing open and failing silently.
+
+  **Neither ever falls back to the working tree**, which would reintroduce the bug
+  precisely where nothing could catch it. Two implementation details enforce that
+  rather than merely intending it:
+
+  - **The `mktemp` template's `X`s must trail.** BSD `mktemp` (macOS) rejects a
+    suffix after them where GNU accepts it. The first version wrote
+    `plot-gate-XXXXXX.md`, failed on macOS, and — because the failure fell back to
+    the working tree — silently resumed reading the exact surface this fix exists
+    to stop reading. There is now no such fallback: an unreadable blob refuses.
+  - **The hook's `MAIN` resolution needs `|| true` on every step.** Its fail-open
+    guard is `trap 'exit 0' ERR`, so a bare `git symbolic-ref` that fails — the
+    offline case exactly — exited the hook _before_ the "phase unverified" line
+    could print. Failing open is correct; failing open without saying so is the
+    bug being fixed.
+
+  The active index is a directory of symlinks, and git stores a symlink as mode
+  `120000` whose blob content is the target path — so `git show <ref>:active/g.md`
+  yields `../2026-01-01-g.md`, not the plan. On a filesystem `[ -e ]` follows the
+  link and this never comes up; against a ref it is dereferenced by hand, or the
+  gate parses a one-line path as a plan and reports an unreadable phase instead of
+  the real one.
+
+  **`Impl: same branch` needed a case the plan did not anticipate.** In that flow
+  the plan rides the WORK BRANCH and is never on `origin/<main>` at all, so a
+  strict main-only read finds no plan and stops gating the flow entirely — caught
+  by the e2e lifecycle suite. For those plans the hook falls back to
+  `origin/<branch>`: still a shared ref, so a purely local approval is still
+  refused, just the right shared ref for a flow where plan and code travel
+  together. `origin/<main>` is tried first, so the ordinary flow is unaffected and
+  a plan on main cannot be shadowed by a copy pushed to a branch. A plan on
+  neither shared ref (a fresh `/plot-idea`, nothing pushed yet) allows the commit
+  and says the phase went unverified — an unshared plan is not evidence of an
+  approval, but it is not evidence of a Draft either, and the hook must not block
+  a repo out of its own bootstrap.
+
+  Tests cover both directions for both consumers, the same-branch flow in all
+  three of its states, and the hook's offline behaviour both ways — that it still
+  allows the commit _and_ that it emits the unverified line. The gate fixtures
+  gained a real bare `origin`: without one they exercised the fail-open path
+  rather than the gate, so the suite would have kept passing while testing
+  nothing.
+
+- [#213](https://github.com/plot-pm/plot/pull/213) [`cf2f0e2`](https://github.com/plot-pm/plot/commit/cf2f0e2827d6e88759d142822f695fcf4ad4eb6f) Thanks [@jwloka](https://github.com/jwloka)! - <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+  plot-fleet: the pulse names the ref it read
+
+  `plot-fleet-scan.sh` derived every fact from `origin/$MAIN` but built its
+  banner from local `HEAD`. On `main` right after a fetch the two agree, which
+  is why it survived — the common case made it look correct.
+
+  Measured 2026-08-18, standing on a feature branch:
+
+      scan header: plot-fleet pulse — 91a9a60 on origin/main
+      local HEAD:  91a9a60
+      origin/main: ee199aa
+
+  The sentence was false in the only part a reader uses, and the same value
+  travelled in `--json` as `head`, so every consumer — the board's Agents tab
+  included — inherited it.
+
+  The banner now names `origin/$MAIN`, and adds one clause when the checkout
+  differs: `(not your checkout <sha>, N behind)`. The clause points at the
+  report, not the tree — an operator told their checkout is behind still has
+  no reason to doubt the numbers underneath it.
+
+  `--json` gains `read_ref` and `local_head`. `head` remains as an alias for
+  `local_head` for one release; the board reads it today and must not break.
+
+  An unresolvable `origin/$MAIN` (no remote, fresh clone) reports `unknown`
+  rather than falling back to `HEAD` — that fallback would reintroduce this
+  bug in the one case where nothing can catch it, and `unknown` gets
+  investigated in seconds where a real-looking SHA gets believed.
+
+- [#217](https://github.com/plot-pm/plot/pull/217) [`ec7187c`](https://github.com/plot-pm/plot/commit/ec7187ccc8e76d72e867b5800020672b482470d3) Thanks [@jwloka](https://github.com/jwloka)! - <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+  plot-fleet: the scan enumerates the ref it names
+
+  `plot-fleet-scan.sh` derived every fact from `origin/$MAIN` and said so in its
+  banner, but built the plan list from a filesystem glob over the active index.
+  `git fetch` updates refs; a glob cannot see them. Measured in a two-clone
+  sandbox, 2026-08-18:
+
+      origin/main active plans (the REF): 3
+      working tree active plans:          2
+      scan --json reports:                2 plans
+
+  The fetch **succeeded**. `origin/main` genuinely carried a third plan pushed by
+  a second agent minutes earlier, and the scan reported two and exited 0 — so
+  nothing anywhere could tell that answer from a correct one. The board's plan
+  list was only ever as current as the operator's last `git pull`.
+
+  It is worse during the fleet run the board exists to watch: rebases, checkouts
+  and worker commits rewrite the working tree continuously, so the glob can
+  return a different set on each 5 s poll while exiting 0 every time. That is the
+  flicker `bug/a-smaller-pulse-is-not-silently-better` guards against; this is
+  the cause underneath it.
+
+  Plans are now enumerated with `git ls-tree origin/$MAIN` and read with
+  `git show`, so the scan describes **one atomic commit**. Two polls of the same
+  ref return the same plans no matter what is happening on disk.
+
+  **Worktree observation stays local.** `local_dirty`, `local_worktree` and the
+  `.git/index.lock` check describe _this machine_ on purpose — they are the one
+  place the scan knows more than the refs do, and moving them to the ref would
+  delete the signal rather than fix it. The split is: plan enumeration from the
+  ref, worktree observation local.
+
+  **An uncommitted plan is now invisible, deliberately.** The plan's Open Points
+  asked for this to be decided rather than left implicit. Three reasons it is
+  right: the fleet view answers _what may a worker claim_, and workers are
+  detached agents in other worktrees and on other machines — not one of them can
+  claim a plan that exists only in the operator's editor buffer; `/plot-idea`
+  commits and pushes in the same flow, so the window is seconds wide, not a state
+  anyone opens a board to watch; and a board that mixes shared state with one
+  machine's scratch is the bug this file keeps fixing — `local_dirty` exists
+  precisely so local facts travel _labelled_ as local. The rule is: committed is
+  shared, and the fleet view shows what is shared.
+
+  **A failed fetch is reported rather than discarded.** The old line was
+  `git fetch … 2>/dev/null` with its status dropped, so a 503, a held ref lock or
+  an offline laptop produced a scan indistinguishable from a healthy one. The
+  scan still runs — `origin/$MAIN` from an hour ago is a real answer about a real
+  commit, and refusing to report it would trade a slightly stale board for no
+  board at all, exactly when the operator is most likely watching something go
+  wrong. What changes is that the staleness is carried: `fetch_failed` and
+  `fetch_error` in `--json`, a note in the prose. `--offline` is not a failure —
+  the operator asked for local refs and got them.
+
+  When `origin/$MAIN` cannot be resolved at all (a fresh clone, no remote) the
+  scan falls back to the checkout and **says so** via `plan_source`. Falling back
+  is honest; falling back silently would recreate this bug in the one case where
+  nothing can catch it.
+
+  Two faults found while building this, both invisible in the output:
+
+  - The temp dir holding materialized blobs was created inside
+    `$(ref_plan_file …)` — a **subshell** — so the parent's variable stayed empty
+    and the `EXIT` trap cleaned nothing: one leaked directory per plan, per 5 s
+    poll. Its lifetime is now owned outside the function.
+  - An **absolute** symlink target (`ln -s "$(pwd)/…"`, which the board's own
+    fixtures write) names no path inside a repository, so prefixing it with the
+    link's directory resolved to nothing and the plan silently left the pulse.
+    Caught by three board suites going from 104 passing to 93. Only the basename
+    of an absolute target can be trusted, and only inside `$PLAN_DIR`.
+
+- [#209](https://github.com/plot-pm/plot/pull/209) [`a263711`](https://github.com/plot-pm/plot/commit/a263711243fe18308661688f0a4adfad05d5bd6e) Thanks [@jwloka](https://github.com/jwloka)! - Board verification is a trap-guarded script, so the server is reaped on the path that fails.
+
+  `plot-board-verify.sh` starts the board on an OS-assigned port, fetches
+  `/api/board`, prints the payload, and stops the server — on every exit path.
+
+  **The teardown is the whole reason this is a file.** The sequence is four
+  commands; writing it into a SKILL.md as prose was the obvious alternative and
+  the wrong one, for the reason `CLAUDE.md`'s _Gates Over Rules_ gives. "Always
+  stop the server" is a **rule**: an agent can answer _did I complete this?_
+  without having done it. `trap cleanup EXIT INT TERM` is a **gate** — the shell
+  reaps the process whether the script returns, throws, or is interrupted,
+  including the assertion-failure path prose forgets. A verification step that
+  leaks a node process when its assertion fails is worse than no verification,
+  because the leak is invisible until the machine runs out of ports.
+
+  So the failure path is the one the tests prove: an artifact that answers 404 on
+  `/api/board` must make the script exit non-zero **and** leave nothing behind.
+  Measured against the real artifact on 2026-08-18 by exact PID set difference —
+  success path and `SIGINT` path both leave zero processes that did not exist
+  before the run.
+
+  Two smaller decisions, both about not asserting what the script cannot know:
+
+  `PORT=0` asks the OS for a free port rather than naming one. A verification run
+  therefore cannot collide with a board the user already has open — and the bound
+  port is not knowable in advance, which is why the script polls the server's own
+  printed `localhost:<port>` line instead of sleeping a guessed interval. A fixed
+  sleep is either flaky or slow. The poll also checks the process is still alive,
+  so an artifact that dies on startup fails immediately with its own output
+  attached instead of hanging out the full timeout.
+
+  `set -uo pipefail` deliberately omits `-e`: under `-e`, the `[ -n "$pid" ] &&
+kill` guard inside `cleanup` would abort the trap whenever `pid` was empty and
+  skip the tempfile removal — the handler that exists to prevent a leak would
+  become one.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#214](https://github.com/plot-pm/plot/pull/214) [`890163c`](https://github.com/plot-pm/plot/commit/890163cb551d97c1e5bd34279ad2cbc4d0922e3b) Thanks [@jwloka](https://github.com/jwloka)! - Board test suite retries git calls when index.lock is held by the servers scan
+
+  CI failed on a commit that added only markdown, with git reporting Unable to
+  create /.git/index.lock File exists. The test fixtures start a real board
+  server against the repo they then mutate, and both sides contend for the lock.
+
+  The tests git helper now retries a bounded, lock-specific number of times on
+  a transient index.lock hold, but fails immediately on any other git error.
+  This is the same approach plot-fleet-scan.sh already takes in production —
+  a lock reads as "an agent is writing HERE, RIGHT NOW", a state to handle rather
+  than an error to propagate.
+
+  The retry is bounded (10 attempts, 25 ms each = ~250 ms patience) and keyed on
+  the lock message specifically. A blanket retry would paper over real git errors
+  and turn a deterministic failure into a slow flaky one.
+
+  Tested deliberately: a test holds index.lock from another process and asserts
+  the helper survives it. A non-lock error still fails on the first attempt. The
+  race is load-dependent — it failed in CI under four-agent load and passed 11/11
+  in isolation — so neither test relies on the race happening.
+
+  The same race also broke teardown. `after()` hooks await `server.stop()`, but
+  that resolves when the server process exits — not when the git children it
+  spawned mid-scan do. A grandchild is outside the scope of that SIGTERM, so it
+  can still write into the fixture while `rmSync` walks it, and `rmdir` then fails
+  with ENOTEMPTY. CI failed exactly this way on `outer/.git`. Awaiting the server
+  was the earlier attempt at this and did not hold, because it addressed the
+  process that was waited for rather than the ones that were not.
+
+  A matching `rmTree` helper retries only ENOTEMPTY/EBUSY/EPERM, and every
+  suite that starts a server against a git repo now uses it. `read-ref` also
+  carried its own non-retrying copy of the git helper; it now imports the shared
+  one, so there is again a single implementation.
+
+  Its tests inject the failure rather than race for it: a real writer could not be
+  made to lose reliably — measured, a child recreating the file every 1 ms still
+  let a plain `rmSync` succeed — so a test built that way would pass whether or
+  not the retry existed.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
 ## 2.5.0
 
 ### Minor Changes

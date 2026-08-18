@@ -119,12 +119,33 @@ describe('FleetBranchSchema — the worker', () => {
     expect(b.worker).toBe('elsewhere');
     expect(b.worker_pid).toBe('');
     expect(b.worker_exit).toBe('');
+    // Empty rather than absent: one absent-value shape for every consumer, and
+    // nothing on the floor is exactly what a scan that could not look reports.
+    expect(b.worker_dirty_paths).toEqual([]);
   });
 
-  it('keeps all six values, so `failed` and `finished` cannot collapse', () => {
-    for (const w of ['running', 'finished', 'failed', 'ended', 'none', 'elsewhere']) {
+  it('keeps all eight values, so no two of them can collapse', () => {
+    // SIX PROCESS STATES AND TWO TASK STATES, and every pair that could be
+    // folded together names a different next move. `failed` and `finished` are
+    // *restart it* and *review it*; `waiting` and `stalled` are *answer it* and
+    // *resume it*. One label over any pair sends the reader to a log to find
+    // out which — the thing this enum exists to prevent.
+    for (const w of ['running', 'finished', 'waiting', 'stalled',
+                     'failed', 'ended', 'none', 'elsewhere']) {
       expect(FleetBranchSchema.parse({ ...base, worker: w }).worker).toBe(w);
     }
+  });
+
+  it('carries what a `stalled` worker left on the floor, by name', () => {
+    // NAMES, NOT A COUNT. The row exists so a person can decide whether to
+    // resume the branch, and "3 uncommitted files" does not support that
+    // decision: three scratch notes and three half-finished modules read
+    // identically.
+    const b = FleetBranchSchema.parse({
+      ...base, worker: 'stalled',
+      worker_dirty_paths: ['src/feature.ts', 'test/feature.test.ts'],
+    });
+    expect(b.worker_dirty_paths).toEqual(['src/feature.ts', 'test/feature.test.ts']);
   });
 
   it('carries the pid as a STRING — an identifier to show, never arithmetic', () => {
