@@ -296,8 +296,11 @@ describe('board: a repo with no prefixed branches behaves exactly as before', ()
     server = await startServer(tmp);
   });
 
-  after(() => {
-    server?.kill();
+  after(async () => {
+    // AWAIT the server's exit before deleting the tree it is serving from.
+    // `kill()` only sends the signal, and `rmSync` then raced a live process:
+    // three CI failures with `ENOTEMPTY` on this directory's `.git`.
+    await server?.stop();
     if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
   });
 
@@ -355,8 +358,11 @@ describe('board: a plans dir NESTED in an unrelated repo borrows nothing from it
     server = await startServer(nested);
   });
 
-  after(() => {
-    server?.kill();
+  after(async () => {
+    // AWAIT the server's exit before deleting the tree it is serving from.
+    // `kill()` only sends the signal, and `rmSync` then raced a live process:
+    // three CI failures with `ENOTEMPTY` on this directory's `.git`.
+    await server?.stop();
     if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
   });
 
