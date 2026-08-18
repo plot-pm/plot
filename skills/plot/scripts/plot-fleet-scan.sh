@@ -104,6 +104,11 @@
 set -uo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+# The shared worker classifier. Sourced by both this script and
+# plot-dispatch.sh so a worker has ONE state, not one per reader.
+# shellcheck source=plot-worker-state.sh
+. "$script_dir/plot-worker-state.sh"
 cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 
 do_fetch=1
@@ -539,6 +544,13 @@ local_worktree_of() { # $1=branch → "path\tdirty\tlocked" or ""
 # the row assumed and reached no screen. This reports it; it invents no new
 # liveness check.
 #
+# THE CLASSIFICATION ITSELF NOW LIVES IN plot-worker-state.sh, sourced above and
+# shared with plot-dispatch.sh. It used to live here TWICE — this file carried
+# its own copy of the pid read, the `kill -0`, and the exit-code mapping. The
+# copies agreed on five of six states and had already drifted apart on the
+# sixth. What remains here is `elsewhere` plus the tab-separated rendering the
+# JSON consumes.
+#
 # SIX VALUES, because the absence of a worktree is a THIRD kind of answer and
 # not the second one. The pid lives in the worktree (`$wt/.plot-worker.pid`),
 # so a branch claimed and started on ANOTHER machine has no path to look at:
@@ -573,27 +585,17 @@ local_worktree_of() { # $1=branch → "path\tdirty\tlocked" or ""
 # record is the same mistake in the other direction, and `finished` is the one
 # answer that tells a reader to stop looking.
 worker_of() { # $1=branch → "state\tpid\texit"
-  local br="$1" wt pid code
+  local br="$1" wt
   wt=$(printf '%s' "$WORKTREES" | awk -F'\t' -v b="$br" '$1==b {print $2; exit}')
   # No worktree here: this machine cannot answer the question at all. Not the
-  # same as looking and finding nothing.
+  # same as looking and finding nothing. This is the one state the shared
+  # classifier does not produce — it is a question about the worktree LIST,
+  # asked before there is any worktree to look inside.
   [ -n "$wt" ] || { printf 'elsewhere\t\t'; return; }
-  [ -f "$wt/.plot-worker.pid" ] || { printf 'none\t\t'; return; }
-  pid=$(cat "$wt/.plot-worker.pid" 2>/dev/null | tr -d ' \n')
-  [ -n "$pid" ] || { printf 'none\t\t'; return; }
-  case "$pid" in 0|*[!0-9]*) printf 'none\t\t'; return ;; esac
-  if kill -0 "$pid" 2>/dev/null; then printf 'running\t%s\t' "$pid"; return; fi
-  if [ -f "$wt/.plot-worker.exit" ]; then
-    code=$(cat "$wt/.plot-worker.exit" 2>/dev/null | tr -d ' \n')
-    case "$code" in
-      0)           printf 'finished\t%s\t0' "$pid"; return ;;
-      ''|*[!0-9]*) printf 'ended\t%s\t' "$pid"; return ;;
-      *)           printf 'failed\t%s\t%s' "$pid" "$code"; return ;;
-    esac
-  fi
-  # No exit file: a worker started before the code was recorded, or one killed
-  # outright. Unknown is its own answer.
-  printf 'ended\t%s\t' "$pid"
+  # Everything below the worktree is the shared classifier's answer, already in
+  # the tab-separated shape this function returns. plot-dispatch renders the
+  # same facts as prose for `--status`.
+  plot_worker_state "$wt"
 }
 
 # ---------------------------------------------------------------------------
