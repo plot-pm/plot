@@ -1,1 +1,0 @@
-../2026-08-17-approve-needs-no-agent.md

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
@@ -12,8 +12,7 @@
 - **Approved:** 2026-08-18, jwloka, in-session
 - **Started:** 2026-08-18, Jan Wloka, `bug/a-rows-actions-live-in-its-menu`
 - **Delivered:** 2026-08-18, jwloka
-- **Released:**
-
+- **Released:** 2026-08-18, v2.5.2
 ## Changelog
 
 - Every action a board row offers is reachable from that row's `⋯` menu, so a reader looks in one place rather than scanning the row for links.

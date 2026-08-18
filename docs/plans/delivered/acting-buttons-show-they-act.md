@@ -1,1 +1,0 @@
-../2026-08-17-acting-buttons-show-they-act.md

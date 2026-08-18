@@ -1,1 +1,0 @@
-../2026-08-18-a-squashed-branch-is-merged-not-open.md

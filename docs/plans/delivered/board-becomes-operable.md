@@ -1,1 +1,0 @@
-../2026-08-16-board-becomes-operable.md

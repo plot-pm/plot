@@ -4,13 +4,14 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-18, jwloka, in-session
 - **Delivered:** 2026-08-18, jwloka, PR #213
+- **Released:** 2026-08-18, v2.5.1
 - **Started:** 2026-08-18, Jan Wloka, `bug/pulse-names-the-ref-it-read`
 
 ## Changelog

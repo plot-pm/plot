@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Story:** plot-board
 - **Review:** in-session
@@ -11,6 +11,7 @@
 - **Approved:** 2026-08-16, jwloka, in-session
 - **Started:** 2026-08-16, jwloka, `feature/board-ui-polish`
 - **Delivered:** 2026-08-16
+- **Released:** 2026-08-18, v2.5.0
 
 ## Problem
 

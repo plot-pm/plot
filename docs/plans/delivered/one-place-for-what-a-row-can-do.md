@@ -1,1 +1,0 @@
-../2026-08-18-one-place-for-what-a-row-can-do.md

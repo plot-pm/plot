@@ -1,1 +1,0 @@
-../2026-08-18-the-pulse-names-the-ref-it-read.md

@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:**
 - **Story:** plot-board
@@ -13,6 +13,7 @@
 - **Impl:** same branch
 - **Approved:** 2026-08-18, Jan Wloka, in-session
 - **Delivered:** 2026-08-18, jwloka, PR #210
+- **Released:** 2026-08-18, v2.5.1
 
 ## Approval
 

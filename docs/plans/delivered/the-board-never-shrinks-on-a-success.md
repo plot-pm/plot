@@ -1,1 +1,0 @@
-../2026-08-18-the-board-never-shrinks-on-a-success.md

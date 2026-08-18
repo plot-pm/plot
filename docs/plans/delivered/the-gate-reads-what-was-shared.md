@@ -1,1 +1,0 @@
-../2026-08-18-the-gate-reads-what-was-shared.md

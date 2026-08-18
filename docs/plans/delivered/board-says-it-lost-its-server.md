@@ -1,1 +1,0 @@
-../2026-08-17-board-says-it-lost-its-server.md

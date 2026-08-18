@@ -4,11 +4,12 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Story:** plot-planning-model
 - **Approved:** 2026-02-11, eins78, in-session
 - **Delivered:** 2026-08-18, jwloka, verified against the source rather than a PR
+- **Released:** 2026-04-05, v1.0.0-beta.3 — resolved by ancestry rather than by a PR: the skill's creating commit (c4f90dd, 2026-02-11) is first contained in that tag. The reconcile scan cannot resolve this plan at all, because no PR exists to read a version from, so the version is recorded here by hand and the way it was found is recorded with it.
 
 ## Approval
 

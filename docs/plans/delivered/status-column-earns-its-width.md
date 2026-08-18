@@ -1,1 +1,0 @@
-../2026-08-17-status-column-earns-its-width.md
