@@ -105,3 +105,108 @@ test('probe: reports not-a-git-repository as an error object, exit 1', () => {
   assert.equal(status, 1);
   assert.equal(JSON.parse(out).error, 'not a git repository');
 });
+
+/**
+ * A fake plugin tree containing a board artifact, and the env var that points
+ * the probe at it. The real location is under ~/.claude/plugins/, which a test
+ * must never depend on — so the probe accepts PLOT_PLUGIN_ROOT as an override.
+ */
+function fakePlugin({ withArtifact = true, cacheVersions = [] } = {}) {
+  const root = fs.mkdtempSync(path.join(tmp, 'plugins-'));
+  const dir = path.join(root, 'marketplaces', 'plot-marketplace',
+    'skills', 'plot', 'scripts', 'board');
+  if (withArtifact) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'board-server.mjs'), '// live artifact\n');
+  }
+  // Historical cache copies, as a real machine accumulates them. Measured
+  // 2026-08-18: three artifacts coexisted, one of them two weeks stale.
+  for (const v of cacheVersions) {
+    const c = path.join(root, 'cache', 'plot-marketplace', 'plot', v,
+      'skills', 'plot', 'scripts', 'board');
+    fs.mkdirSync(c, { recursive: true });
+    fs.writeFileSync(path.join(c, 'board-server.mjs'), `// cached ${v}\n`);
+  }
+  return root;
+}
+
+test('probe: finds the plugin artifact and names its source', () => {
+  const r = repoWith({}, { config: '- **Plan directory:** docs/plans/\n' });
+  const plugins = fakePlugin();
+  const p = probe(r, { env: { PLOT_PLUGIN_ROOT: plugins } });
+  assert.equal(p.artifact_source, 'plugin');
+  assert.ok(p.artifact.endsWith('board/board-server.mjs'));
+  assert.ok(fs.existsSync(p.artifact));
+});
+
+test('probe: falls back to a checkout artifact when no plugin is present', () => {
+  // A repo that IS a plot checkout: the artifact sits at its canonical path.
+  const r = repoWith({
+    'skills/plot/scripts/board/board-server.mjs': '// checkout artifact\n',
+  }, { config: '- **Plan directory:** docs/plans/\n' });
+  const empty = fakePlugin({ withArtifact: false });
+  const p = probe(r, { env: { PLOT_PLUGIN_ROOT: empty } });
+  assert.equal(p.artifact_source, 'checkout');
+  assert.ok(p.artifact.endsWith('skills/plot/scripts/board/board-server.mjs'));
+});
+
+test('probe: reports none when no artifact exists anywhere', () => {
+  const r = repoWith({}, { config: '- **Plan directory:** docs/plans/\n' });
+  const empty = fakePlugin({ withArtifact: false });
+  const p = probe(r, { env: { PLOT_PLUGIN_ROOT: empty, PLOT_NPM_BIN: '/nonexistent' } });
+  assert.equal(p.artifact_source, 'none');
+  assert.equal(p.artifact, '');
+});
+
+test('probe: prefers the plugin artifact over a checkout one', () => {
+  const r = repoWith({
+    'skills/plot/scripts/board/board-server.mjs': '// checkout artifact\n',
+  }, { config: '- **Plan directory:** docs/plans/\n' });
+  const plugins = fakePlugin();
+  const p = probe(r, { env: { PLOT_PLUGIN_ROOT: plugins } });
+  assert.equal(p.artifact_source, 'plugin');
+});
+
+test('probe: picks the live marketplaces copy over stale cached versions', () => {
+  // The regression this test exists for. MEASURED 2026-08-18: a normal machine
+  // carried three artifacts — the live marketplaces copy plus 2.0.0 and 2.5.0
+  // cache copies. The first implementation used `sort | tail -1`, which picks
+  // the lexically-last PATH; it returned the right file only because
+  // "marketplaces" sorts after "cache", and would have returned a stale build
+  // under any layout where it did not.
+  const r = repoWith({}, { config: '- **Plan directory:** docs/plans/\n' });
+  const plugins = fakePlugin({ cacheVersions: ['2.0.0', '2.5.0'] });
+  const p = probe(r, { env: { PLOT_PLUGIN_ROOT: plugins } });
+  assert.equal(p.artifact_source, 'plugin');
+  assert.match(p.artifact, /marketplaces/);
+  assert.equal(fs.readFileSync(p.artifact, 'utf8').trim(), '// live artifact');
+});
+
+test('probe: version directories are not compared lexically', () => {
+  // `2.10.0` < `2.5.0` as strings. With no marketplaces copy present the
+  // fallback is newest-mtime, so the NEWER 2.10.0 build must win regardless of
+  // how the two version strings sort.
+  const r = repoWith({}, { config: '- **Plan directory:** docs/plans/\n' });
+  const plugins = fakePlugin({ withArtifact: false, cacheVersions: ['2.5.0', '2.10.0'] });
+  const newer = path.join(plugins, 'cache', 'plot-marketplace', 'plot', '2.10.0',
+    'skills', 'plot', 'scripts', 'board', 'board-server.mjs');
+  const older = path.join(plugins, 'cache', 'plot-marketplace', 'plot', '2.5.0',
+    'skills', 'plot', 'scripts', 'board', 'board-server.mjs');
+  // Stamp mtimes explicitly — creation order must not be what the test relies on.
+  fs.utimesSync(older, new Date('2026-08-01'), new Date('2026-08-01'));
+  fs.utimesSync(newer, new Date('2026-08-18'), new Date('2026-08-18'));
+  const p = probe(r, { env: { PLOT_PLUGIN_ROOT: plugins } });
+  assert.equal(fs.readFileSync(p.artifact, 'utf8').trim(), '// cached 2.10.0');
+});
+
+test('probe: a host without a plugin directory falls through to checkout', () => {
+  // Cursor has no ~/.claude/plugins. No host detection — the search finds
+  // nothing and precedence carries on, which is why there is no branch to rot.
+  const r = repoWith({
+    'skills/plot/scripts/board/board-server.mjs': '// checkout artifact\n',
+  }, { config: '- **Plan directory:** docs/plans/\n' });
+  const p = probe(r, {
+    env: { PLOT_PLUGIN_ROOT: path.join(tmp, 'does-not-exist'), PLOT_NPM_BIN: '/nonexistent' },
+  });
+  assert.equal(p.artifact_source, 'checkout');
+});

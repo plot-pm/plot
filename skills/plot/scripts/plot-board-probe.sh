@@ -95,6 +95,64 @@ jenkinsfile=false
 gh_workflows=false
 [ -n "$git_root" ] && [ -d "$git_root/.github/workflows" ] && gh_workflows=true
 
+# --- board artifact -----------------------------------------------------
+# Precedence: plugin, then npm, then this checkout. The plugin wins because it
+# tracks the installed plot version; npm 'latest' has lagged behind it.
+# PLOT_PLUGIN_ROOT / PLOT_NPM_BIN exist so tests need not depend on $HOME.
+#
+# The plugin layout is Claude Code's. Cursor has no such directory, so the
+# search simply finds nothing there and precedence falls through to npm —
+# no host detection needed, and no branch that could rot.
+artifact=""
+artifact_source="none"
+
+# mtime, portably: BSD/macOS `stat -f %m`, GNU/Linux `stat -c %Y`. Plot's CI
+# runs on Linux, where `-f` is a DIFFERENT flag rather than an error, so the
+# BSD form must be tried first and its failure used as the signal.
+mtime() { stat -f '%m' "$1" 2>/dev/null || stat -c '%Y' "$1" 2>/dev/null; }
+
+plugin_root="${PLOT_PLUGIN_ROOT:-$HOME/.claude/plugins}"
+
+# MEASURED 2026-08-18: this glob matched THREE artifacts on a normal machine —
+# the live `marketplaces/` copy and two historical `cache/<version>/` copies,
+# one of them a 2.0.0 build two weeks stale. `sort | tail -1` was the first
+# attempt and it is wrong twice over: it picks the lexically-last PATH (right
+# there only because `marketplaces` > `cache`), and version directories sort
+# lexically, so `2.10.0` < `2.5.0`. It returned the correct file for reasons
+# unrelated to what it claimed to check.
+#
+# So: `marketplaces/` explicitly, because that IS the installed copy and
+# `cache/<version>/` is history. Newest mtime only as a fallback for layouts
+# without it.
+cand=$(find "$plugin_root/marketplaces" -type f -name 'board-server.mjs' -path '*/board/*' 2>/dev/null | head -1)
+if [ -z "$cand" ]; then
+  best=""; best_m=-1
+  while IFS= read -r f; do
+    m=$(mtime "$f"); [ -n "$m" ] || continue
+    if [ "$m" -gt "$best_m" ]; then best_m="$m"; best="$f"; fi
+  done < <(find "$plugin_root" -type f -name 'board-server.mjs' -path '*/board/*' 2>/dev/null)
+  cand="$best"
+fi
+if [ -n "$cand" ] && [ -f "$cand" ]; then
+  artifact="$cand"; artifact_source="plugin"
+fi
+
+if [ -z "$artifact" ]; then
+  npm_bin="${PLOT_NPM_BIN:-}"
+  if [ -z "$npm_bin" ] && command -v plot-board >/dev/null 2>&1; then
+    npm_bin=$(command -v plot-board)
+  fi
+  if [ -n "$npm_bin" ] && [ -x "$npm_bin" ]; then
+    artifact="$npm_bin"; artifact_source="npm"
+  fi
+fi
+
+if [ -z "$artifact" ] && [ -n "$git_root" ] &&
+   [ -f "$git_root/skills/plot/scripts/board/board-server.mjs" ]; then
+  artifact="$git_root/skills/plot/scripts/board/board-server.mjs"
+  artifact_source="checkout"
+fi
+
 cat <<JSON
 {
   "node": "$(j "$node_ver")",
@@ -102,8 +160,8 @@ cat <<JSON
   "bash": true,
   "git_root": "$(j "$git_root")",
   "cwd_is_root": $cwd_is_root,
-  "artifact": "",
-  "artifact_source": "none",
+  "artifact": "$(j "$artifact")",
+  "artifact_source": "$artifact_source",
   "has_plot_config": $has_config,
   "plan_dir": "$(j "$plan_dir")",
   "plan_files": $plan_files,
