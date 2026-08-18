@@ -1,5 +1,205 @@
 # plot
 
+## 2.5.2
+
+### Patch Changes
+
+- [#220](https://github.com/plot-pm/plot/pull/220) [`26dda6b`](https://github.com/plot-pm/plot/commit/26dda6b182bf7113cc6dc6e785f0b455ab1fc10a) Thanks [@jwloka](https://github.com/jwloka)! - The PR refresh stops losing a whole period to its own gate, so a 60 s cadence is actually 60 s.
+
+  Measured on a running board on 2026-08-18:
+
+  ```
+  74 branches across 37 plans · scanned 19s ago · PR data 111s ago
+  ```
+
+  `PR_REFRESH_MS` is 60 000, so 111 s is a **missed refresh, not a stale one** —
+  and the cause was local. A host call was measured at 1.4 s with 4986/5000 core
+  quota remaining, so nothing was slow and nothing was throttled.
+
+  The timer and the gate were two clocks set to the same period that could not
+  both be met. `setInterval` fires at rigid multiples of 60 s, while `prNextAt`
+  was stamped from the fetch's **finish** and so landed at 60 s + the call's
+  duration — a hair past the tick meant to satisfy it. That tick was refused, the
+  next came a full period later, and the board ran a 120 s cadence from a 60 s
+  setting. Any non-zero fetch duration cost a whole period; the defect was
+  bistable rather than gradual, because the refusal repeated forever.
+
+  **`prNextAt` is now measured from the fetch's START.** The plan named two
+  possible shapes and left the choice open. The other — running the timer at a
+  fraction of the gate — was rejected on measurement rather than taste: because
+  its gate still anchors to the finish, `prNextAt` keeps drifting forward by the
+  call's duration every cycle, and a quarter-period timer can only round that
+  drift up to the next quarter tick. Simulated at a 1.4 s call it lands the
+  observed age at 73.6 s, still over the 60 s the Definition of Done requires,
+  and it pays four wakeups per period for the privilege. Anchoring to the start
+  removes the drift at its source instead of sampling around it, and keeps one
+  tick per period.
+
+  `prAt` still stamps at the finish, because it answers a different question:
+  _how old is this data_, and data is not fetched until it has landed. The two
+  stamps were the same number in one place, and that was the bug.
+
+  **The gate still refuses, and a rate-limit backoff still holds for its full
+  delay.** `maybeRefreshPrs` refusing early is load-bearing — it is what turns a
+  rate limit into a wait rather than a tighter loop — so nothing here bypasses it.
+
+  Anchoring to the start does, however, put the gate and the tick on the _same
+  instant_, which is correct and knife-edge: `setInterval` does not promise to
+  fire late, and one millisecond of early drift reopened the entire defect, since
+  a single refusal still costs a full period. A fix that merely makes the bug rare
+  is worse than none, because it stops reproducing in tests while still failing in
+  production. So an ordinary cadence tick is now honoured if it arrives within a
+  small tolerance (`PR_REFRESH_MS / 50`, 1.2 s at the 60 s cadence).
+
+  That tolerance is applied to the ordinary cadence **only**. `prNextAt` had been
+  carrying two different promises in one number: a soft target the timer is trying
+  to hit, and a hard floor the host named. A single tolerance wide enough to
+  absorb timer jitter is also wide enough to fire a second before a 61 s reset —
+  spending quota to be refused again, the precise thing the backoff exists to
+  prevent. The distinction is now carried in the data (`prNextIsBackoff`), and a
+  backoff is compared exactly, with no slack whatsoever.
+
+  The scheduling decision lives in one exported function, `prNextDueAt`, so the
+  anchor is testable as arithmetic rather than only observable through a live 60 s
+  timer. The tests drive it and `prGateOpen` against a fake clock, and the anchor
+  they replaced is kept in the test file as an explicit control: it is asserted to
+  **fail** the bar the shipped one clears, reproducing the measured 111 s. A first
+  attempt modelled both anchors inside the test helper and so passed no matter
+  what the source said — it was rewritten to bind to the real functions, and
+  verified by reverting the anchor and watching six tests fail.
+
+  `PR_REFRESH_MS` itself is unchanged. 60 s is a deliberate figure because the
+  host is metered; the bug was that 60 s was not achieved, not that it was wrong.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#219](https://github.com/plot-pm/plot/pull/219) [`a4ecf36`](https://github.com/plot-pm/plot/commit/a4ecf3632db03b9c40f7062a304eabcd742f481e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
+  bumps:
+    skills:
+      plot: minor
+      plot-dispatch: minor
+      plot-fleet: minor
+  -->
+
+  plot: `finished` is not a verdict
+
+  Every worker exits 0 — the one that opened its PR and reported cleanly, the one
+  that stopped rather than claim a test run it had not seen, and the one that
+  stopped to ask which retry semantics were wanted. Measured across seven
+  worktrees during a four-agent fleet run. All three read `finished`, whose
+  documented move is _review it_, and two of the three needed an answer instead.
+
+  The process reports how it TERMINATED, never whether the task is DONE. So a
+  clean exit is now refined by the tree, which is where the difference lives:
+
+  | Condition                    | State                                  |
+  | ---------------------------- | -------------------------------------- |
+  | process alive                | `running`                              |
+  | an open or merged PR         | `finished` — the work reached review   |
+  | a blocked marker in the tree | `waiting` — a person owes it an answer |
+  | uncommitted or unpushed work | `stalled` — work on the floor, no PR   |
+  | otherwise                    | `finished`                             |
+
+  Added **once**, to `plot-worker-state.sh`, which is the whole reason wave 1
+  merged the duplicate first. `failed`, `ended` and `none` are untouched: each
+  already says something specific about the process, and none of them is the
+  `finished`-means-everything blur this splits.
+
+  `waiting` and `stalled` are as opposite as `failed` and `finished` — _answer it_
+  sends a person to a question, _resume it_ sends a worker back to work. A marker
+  therefore outranks work on the floor: a worker that stops to ask has almost
+  always left its work uncommitted beside the question, and reporting that as
+  stalled invites a restart into the same wait. Measured happening twice to one
+  branch, the second restart re-running what the first had finished.
+
+  **Plot now names the marker: `PLOT-BLOCKED:`.** `TODO(you)` emerged from workers
+  and was documented nowhere, so it could drift into `TODO(human)` — which it
+  already had, in the same session — or into `ASK:` or prose, and a marker the
+  classifier cannot find is a `waiting` reported as `stalled`. Both emergent
+  spellings stay recognised beside the defined one: they exist in trees right now,
+  and dropping them would silently regress every worker already running. The
+  defined marker is what Plot **asks** for; the emergent ones are what it still
+  **accepts**.
+
+  The marker is read from the TREE, never the log. The log records that a question
+  _was asked_; only the tree records that it is still _unanswered_, and only the
+  tree clears when someone writes the answer.
+
+  **`stalled` carries what is on the floor** — the count and the file names, not
+  just a number. The names make the row actionable without a second command,
+  which is the point of reporting it at all.
+
+  **The PR fact travels as an argument**, supplied by each caller. The scan caches
+  one host reply per branch per run behind its `--offline` gate; `plot-dispatch
+--status` asks per branch when a person types it. A lookup inside the classifier
+  would fork a `gh` per branch on a scan the board polls every 5 s, or break
+  `--offline`'s promise of no network. Unanswerable is never a yes — offline, no
+  backend, or a host returning 503 falls through to the local signals and reads
+  `stalled`: _go and look_, rather than _stop looking_.
+
+  **Editor leftovers are not work** (`.tmp*`, `.swp`, `.orig`, `.rej`, `.bak`) —
+  a guard restarted a branch over an orphaned `plot-dispatch.sh.tmp1` while its
+  worker was making progress. Nor is Plot's own bookkeeping: `.plot-worker.pid`,
+  `.plot-worker.exit` and `.plot-worker.log` are untracked files the fleet writes
+  into the worktree, and counting them made every tidily-finished worker read
+  `stalled`. The exclusion stays narrow otherwise — an uncommitted source file is
+  exactly the case this detection exists for.
+
+  Two silent failures were caught while building this, both in the reassuring
+  direction and both invisible behind `2>/dev/null`. `git grep --no-index
+--untracked` is a fatal error (the flags are mutually exclusive), and `git grep
+-qIE <pattern> --untracked` parses `--untracked` as a revision — each exits 128
+  having matched nothing, so every waiting worker would have read `stalled`. And
+  an unpushed-count fallback against `origin/main` reported every clean branch
+  `stalled` in a repo with no remote, because `rev-list --count "..HEAD"` with an
+  empty left side counts the whole history from the root. Only the branch's own
+  `@{upstream}` answers that question; with no upstream it is unanswerable, and an
+  unanswerable question licenses no verdict.
+
+  The board reports both states in `waiting-on-you` with distinct notes — _waiting
+  on an answer from you_ versus _stopped with work unfinished — resume it_.
+
+  **Nothing is restarted.** The scan is read-only (Manifesto Principle 1); a
+  `stalled` row names the branch and what is on the floor, and the decision to
+  relaunch stays in `/plot-dispatch`. The reaper is untouched: it classifies
+  _empty_ claims and answers a different question, and a stalled worker has work
+  worth keeping.
+
+  The prototype `.dev/scripts/fleet-pulse.sh` — corrected three times by watching
+  it act — is deleted. Two things computing verdicts from one dataset is how they
+  drift, which is the defect wave 1 removed.
+
+- [#225](https://github.com/plot-pm/plot/pull/225) [`6baa654`](https://github.com/plot-pm/plot/commit/6baa654def0f03ddc44bd683fd6a754ec8ddb94c) Thanks [@jwloka](https://github.com/jwloka)! - plot-host: `pr-state` stops asking once a state has answered
+
+  Resolving one branch to one PR walked all three Bitbucket states
+  unconditionally. The ordering already decides the winner — open outranks
+  merged outranks declined, and the filter takes the first match — so the
+  later calls could never change the answer. They were pure cost.
+
+  The cost was not small. Measured against a real Bitbucket on 2026-08-18:
+  one `bb pr list` call takes ~10s, so every branch lookup cost 25.7s. The
+  board's fleet scan calls `pr-state` once per branch and exceeded its own
+  timeout on a five-branch plan, rendering `Last scan failed` with no
+  indication that nothing was broken — it was merely slow.
+
+  Same lookup after the fix: **1.8s**. The full `--json` scan over 14
+  branches across 2 plans: **12s**, where it previously did not finish.
+
+  A declined-only branch, or one with no PR at all, still pays for all
+  three calls — those are the cases where the last call carries the answer.
+
+  <!--
+  bumps:
+    skills:
+  -->
+
+  No skill version bumps: `plot-host.sh` is called by skills but documented
+  by none, and no skill's behaviour changed — only how long it waits.
+
 ## 2.5.1
 
 ### Patch Changes
@@ -109,11 +309,11 @@
   -->
 
 - [#215](https://github.com/plot-pm/plot/pull/215) [`2175cb5`](https://github.com/plot-pm/plot/commit/2175cb561ec6d4e6cd1518e131b3a32556ebd73e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-  bumps:
-    skills:
-      plot: patch
-      plot-dispatch: patch
-  -->
+    bumps:
+      skills:
+        plot: patch
+        plot-dispatch: patch
+    -->
 
   plot: the phase gate reads the plan from the shared ref
 
@@ -356,11 +556,11 @@ kill` guard inside `cleanup` would abort the trap whenever `pid` was empty and
   skip the tempfile removal — the handler that exists to prevent a leak would
   become one.
 
-  <!--
-  bumps:
-    skills:
-      plot: patch
-  -->
+    <!--
+    bumps:
+      skills:
+        plot: patch
+    -->
 
 - [#214](https://github.com/plot-pm/plot/pull/214) [`890163c`](https://github.com/plot-pm/plot/commit/890163cb551d97c1e5bd34279ad2cbc4d0922e3b) Thanks [@jwloka](https://github.com/jwloka)! - Board test suite retries git calls when index.lock is held by the servers scan
 
