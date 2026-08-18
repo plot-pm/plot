@@ -105,6 +105,20 @@ Use the structured question tool to present 4 questions per round:
 - Claude Code: `AskUserQuestion` tool
 - Cursor: `ask_question` tool
 
+> **Unattended (`PLOT_UNATTENDED=1`):** stop before the first round, and write
+> nothing to the plan. This skill is an interview — the answers *are* the
+> output, and there is no shape of it that survives having nobody to interview.
+> An unattended run that answered its own questions would produce the most
+> dangerous artefact this repo can make: a plan that looks interrogated,
+> carrying an agent's guesses under a human's name.
+>
+> Do the half that needs no one. Report the gaps the analysis found and the
+> questions the first round would have asked, so a person can answer them in
+> one pass rather than rediscovering them.
+> `PLOT-UNASKED: <n> interrogation questions across <dimensions> — stopped — questions listed; plan unchanged`
+>
+> See [Running unattended](../plot/docs/unattended.md).
+
 **Question format:**
 1. Each question gets 2-4 concrete choices (A/B/C/D)
 2. Complex questions include: "I don't know / leave as open question for the team"

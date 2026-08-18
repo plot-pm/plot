@@ -66,6 +66,8 @@ the mechanics, two entrances — without that, a project declaring an
 drift.
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
+>
+> **No user present?** If `PLOT_UNATTENDED=1` is set, do not call the question tool — each question below declares what to do instead, and every skipped question is named in the output. See [Running unattended](../plot/docs/unattended.md).
 
 ### 1. Parse Input
 
@@ -74,6 +76,11 @@ If `$ARGUMENTS` is empty or missing:
 - If exactly one candidate exists, propose: "Found plan `<slug>`. Approve it?"
 - If multiple exist, list them and ask which one to approve
 - If none exist, explain: "No plans awaiting approval. Create one first with `/plot-idea <slug>: <title>`."
+
+> **Unattended (`PLOT_UNATTENDED=1`):** stop unless `$ARGUMENTS` named the slug.
+> Picking a plan to approve is a choice with no safe default, and "there was
+> only one candidate" is not consent to approve it.
+> `PLOT-UNASKED: Which plan should be approved? — stopped — <n> candidates; none approved`
 
 Extract `slug` from `$ARGUMENTS` (trimmed, lowercase, hyphens only).
 
@@ -105,6 +112,25 @@ expected reviewers (plan Notes or the user). All in → report the tally.
 Missing ballots → report who's outstanding and stop (no partial
 approvals unless the user explicitly rules).
 
+> **Unattended (`PLOT_UNATTENDED=1`):** this is the shape's clearest case, and
+> it splits by where the approval already lives.
+>
+> - **`Review: pr`** — the approval is the PR's non-draft state, a fact
+>   `plot-approve.sh` reads for itself. Proceed; the script's own refusals are
+>   unchanged.
+> - **`Review: ballot`** — the approval is the ballot files, also facts. Tally
+>   them and proceed only on a complete tally. A missing ballot stops in both
+>   modes, exactly as it does now.
+> - **`Review: in-session`** — **refuse.** The reviewer is a human in a session
+>   that, by definition, has nobody in it. There is no artefact to read and
+>   nothing to infer from; the step above already forbids inferring a go from
+>   silence, and an empty room is the emptiest silence there is.
+>   `PLOT-UNASKED: Approve <slug> in-session? — refused — in-session review needs a reviewer; phase unchanged`
+>
+> **The gates do not move.** A draft PR, a closed PR, an incomplete ballot, a
+> non-Draft phase — each refuses identically in both modes. `PLOT_UNATTENDED`
+> says nobody can be asked; it never says a check may be skipped.
+
 ### 2b. Suggest Tracer Bullet (optional)
 
 Before approving, check if a tracer bullet might be valuable. This is a suggestion, never a hard gate.
@@ -118,6 +144,11 @@ Read the plan file and check for a `### Tracer` subsection under `## Branches`:
   - **Strongly suggest** when the plan has 3+ branches AND they show a natural core-plus-extras decomposition
   - If heuristic triggers: "Consider using the `tracer-bullets` skill to validate the architecture first. Add a `### Tracer` subsection to the plan, or proceed without one?"
   - If heuristic does not trigger: proceed silently
+
+> **Unattended (`PLOT_UNATTENDED=1`):** proceed. This step says of itself that
+> it is a suggestion and never a hard gate, so its documented default is to
+> continue — but say the suggestion went unheard rather than dropping it.
+> `PLOT-UNASKED: Add a tracer bullet before approving? — default — proceeded; the suggestion stands unread`
 
 > **Smaller models:** Skip heuristic evaluation. Only check for an existing `### Tracer` subsection. If present and incomplete, warn. Otherwise proceed silently.
 

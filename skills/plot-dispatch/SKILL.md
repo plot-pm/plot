@@ -48,6 +48,8 @@ or `--status` / `--stop <branch>` to inspect or stop running workers.
 | 6. Report | Small | Read the footer counts and `worker=`; relay a failed `Started:` booking verbatim |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor).
+>
+> **No user present?** If `PLOT_UNATTENDED=1` is set, do not call the question tool — each question below declares what to do instead, and every skipped question is named in the output. See [Running unattended](../plot/docs/unattended.md).
 
 ## Steps
 
@@ -78,6 +80,14 @@ Then ask how many to start. Do not assume "all eligible" is what the user
 wants — each worker costs tokens and produces a PR someone must review. Name
 the real constraint: *"4 branches are eligible. Each becomes a PR. How many do
 you want running?"* Use `--max N` to honour the answer.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** stop. Fan-out spends tokens and creates
+> PRs a person must review, and "all eligible" is precisely the assumption this
+> step exists to prevent — an unattended run must not make that call by
+> defaulting to it. Report the dry run in full, including any `in flight:`
+> lines, and start nothing. A caller that genuinely wants a fixed number passes
+> `--max N` explicitly, which *is* the answer and leaves nothing to ask.
+> `PLOT-UNASKED: How many of <n> eligible branches to start? — stopped — dry run shown; no worktree created, no worker started`
 
 #### Read the `in flight:` lines
 
@@ -142,6 +152,14 @@ of asking here:
 |---|---|---|
 | a command | `- **Worker command:** <what they said>` | dispatch starts workers |
 | empty | `- **Worker command:** none` | asked; this repo starts them by hand |
+
+> **Unattended (`PLOT_UNATTENDED=1`):** stop, and write **nothing** to
+> `## Plot Config`. Both answers above are durable configuration, so an
+> unattended default would not merely act unasked — it would record a choice
+> nobody made and stop the question ever being asked again. `none` in
+> particular means *a person considered this and declined*, which is a claim an
+> agent cannot truthfully make. Prepare no worktrees.
+> `PLOT-UNASKED: How does this project run an agent headless? — stopped — Worker command absent; config left untouched`
 
 `none` is a **deliberate absence**, and recording it is what stops the question
 returning. An empty answer is first-class — hand-starting works, and the config
