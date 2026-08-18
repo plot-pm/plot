@@ -274,6 +274,33 @@ aside — so it reaches the section by a different path and never meets the phas
 check. The filter must apply to every row in the section, whatever brought it
 there.
 
+### WAITING ON A MACHINE and the release PR
+
+Observed 2026-08-18 while cutting 2.6.0: the section read `none` while the
+release PR's CI was the one thing in the repo a machine was working on.
+
+**The board was right, and the vocabulary already says why.** Three runs sat at
+`action_required`, and `schema.ts` distinguishes exactly this:
+
+| value | means |
+|---|---|
+| `pending` | genuinely queued or running — a machine is the blocker |
+| `none` | no workflow ran, because a person has not approved it |
+
+So the PR belonged in WAITING ON YOU, which is where the board put it
+(`#233 no checks`). It became a machine's problem only after the runs were
+approved.
+
+**What remains is narrower and is not this plan's.** The release PR reaches
+WAITING ON YOU through the PR path but has no plan, so it can never appear as a
+plan row — the same blindness `an-issue-is-a-signal-the-board-can-see`
+describes for issues. And `schema.ts:1178` records that the section *"was never
+once populated"* for three separate reasons, of which the draft short-circuit
+was one. Whether the other two are fixed is unverified here.
+
+Recorded rather than fixed: this plan is about the phase answering first, and
+the machine section is a different question with its own history.
+
 ## Branches
 
 - `bug/not-started-shows-approved-plans` — the section is filtered on the plan's phase first: `Approved` and nothing else. A `Draft` plan moves to WAITING ON YOU with what it waits on named (approval); `Delivered` and `Released` plans appear in neither. Measured on the live board: 10 plans in NOT STARTED, of which 3 were Approved, 7 Draft, plus one Released since v1.0.0-beta.3. Tests: each of the four phases lands in its documented section, driven from one fixture; the phase is read from the plan and never inferred from the branches; a plan that becomes Approved changes section on the next pulse without a restart; **a Released plan with uncommitted files in a local worktree is not in WORKING** — the measured case, where two shipped plans read as in-progress because dead workers left scratch files behind. — PR #231
