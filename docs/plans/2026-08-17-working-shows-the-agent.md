@@ -242,16 +242,28 @@ links; the panel fetches.
 
 ### 2. A stopped-to-ask agent stays in WORKING
 
-A fifth worker state beside `running`, `finished`, `failed`, `ended`:
-**`asking`** — exited cleanly with an unanswered question.
+This section proposed a fifth state, `asking`, detected from the **log's**
+shape — the last output ending in a question. **That state is withdrawn**, and
+what replaces it shipped on 2026-08-18 in PR #219 while this plan sat in
+review.
 
-Detected from the log's own shape, and the detection must be honest about
-its confidence. The board reports *the agent's last output ends in a
-question* — a fact — never *the agent needs you*, which is an
-interpretation. Principle 3: the scan collects, the human concludes.
+`plot-worker-state.sh` now answers `waiting` for a worker that left a
+`TODO(you)`/`TODO(human)` marker **in the tree**, and the reason it reads the
+tree rather than the log is the argument this section was missing:
 
-The row keeps its place in WORKING with an annotation. It does not move,
-because it has not stopped being an agent.
+> The log records that a question *was asked*; the marker records that it is
+> still *unanswered*, and only the marker clears when someone writes the
+> answer.
+
+Measured on the same day: a restarted worker found its own question already
+answered in the commit above it and carried on without asking again. A
+log-shaped detection would have shown it as still asking.
+
+So two states for one situation, one of them reading the source that cannot
+expire — the wrong one. **What survives from this section is its section rule,
+not its state:** a `waiting` row keeps its place in WORKING with an
+annotation, because it has not stopped being an agent. That rule is still
+unbuilt and is what the branch below now carries.
 
 ### 3. The agent panel
 
@@ -270,19 +282,51 @@ half of it* above. It is shown **only when the transcript is readable and
 its fields are recognised**: a private format may change under the board,
 and a panel that invents a model is worse than one that omits it.
 
+**Omission is the whole failure mode, and it is accepted deliberately.** When
+the format changes, those fields disappear with no explanation — the panel
+simply shows less. That is the cheaper wrong answer: a stale model name read
+from a field that moved would be believed, while an absent one prompts a look
+at the transcript. The alternative, checking a `version` and reporting an
+unrecognised one, buys an error message at the price of a second thing to keep
+current, and the fields it guards are conveniences rather than facts anything
+depends on.
+
 Capabilities remain out of scope. Nothing records them, and unlike model
 and context they are not one file read away.
 
 ### 4. Answering — a continuation, named as one
 
-The one write. Given an answer, start a fresh worker in the same worktree
-whose prompt is the previous transcript plus the answer.
+The one write. Given an answer, start a fresh worker in the same worktree.
+
+**Its prompt is the brief plus the answer plus what already landed — not the
+previous transcript.** A transcript from a worker that ran an hour can be
+six-figure tokens, and handing it over fills the new worker's context before it
+begins. The brief is the specification and has not changed; the answer is the
+new fact; and what the previous run committed is already in git, which the
+worker reads anyway and which cannot go stale the way a copied transcript can.
+
+So the prompt says: here is your brief, here is the answer to your question,
+and you have already committed X. That is smaller, current, and re-derivable —
+the same reason plans reference tickets rather than mirroring them.
 
 Named *Continue with an answer* rather than *Reply*, because the agent
 that asked is gone: what continues is the work, not the conversation. A
 UI that implies otherwise would promise a channel that does not exist.
 
 ## Branches
+
+The waves are ordered so that **every one of them is useful alone**, and the
+registry — the only wave that writes a new fact — is last.
+
+The alternative was to build it first, since an agent identity that outlives a
+branch would give the panel a key better than the worktree path. It is rejected
+on delivery rather than on design: the three read-only waves each answer a
+question an operator has today, and the registry answers one nobody can ask
+until agents can be listed without work. Building the foundation first would
+mean a longer wait before the first row improves, in exchange for less rework
+in a wave whose shape the earlier ones are likely to change.
+
+
 
 ### Log
 
@@ -291,9 +335,12 @@ UI that implies otherwise would promise a channel that does not exist.
 
 ### Asking
 
-- `feature/an-agent-that-asks-stays-working` — `asking` as a fifth worker
-  state, detected from the log's shape and reported as evidence; the row
-  keeps its section and gains an annotation
+- `feature/a-waiting-agent-stays-working` — a worker whose state is `waiting`
+  (PR #219, merged) keeps its place in WORKING with an annotation rather than
+  moving to WAITING ON YOU. The state exists and is populated; what is missing
+  is the board treating it as an agent rather than as a result. Tests: a
+  `waiting` worker is in WORKING, not WAITING ON YOU; its row says what it
+  waits on; a `finished` worker with a PR still goes to WAITING ON YOU
 
 ### Panel
 
@@ -334,15 +381,17 @@ UI that implies otherwise would promise a channel that does not exist.
   it. Assert the log arrives on demand and that a 4 s pulse is unchanged
   in size.
 - **An agent that stopped to ask STAYS in WORKING.** Assert the measured
-  case: exit 0, no PR, unpushed commits, log ending in a question. The
-  pairing that matters: a rule keyed only on the exit code puts it in
-  WAITING ON YOU, which is where this plan starts.
+  case: exit 0, no PR, unpushed commits, and `plot-worker-state.sh` reporting
+  `waiting`. The pairing that matters: a rule keyed only on the exit code puts
+  it in WAITING ON YOU, which is where this plan starts. **The detection is no
+  longer this plan's** — #219 built it, reading the tree rather than the log —
+  so what is asserted here is the section, not the state.
 - **A finished agent still goes to WAITING ON YOU.** Assert exit 0 with a
   pushed branch and an open PR — the state `asking` must not swallow the
   ordinary completion.
-- **`asking` is reported as EVIDENCE, never as a verdict.** Assert the
-  annotation states what was observed (the last output is a question) and
-  does not claim the agent needs anything.
+- **The annotation is EVIDENCE, never a verdict.** Assert it states what was
+  observed — the marker exists and names the question — and does not claim the
+  agent needs anything. Principle 3: the scan collects, the human concludes.
 - **The panel shows only what is recorded.** Assert the model and context
   fields are populated from a real transcript, and that an unreadable or
   unrecognised one leaves them absent rather than guessed — both
@@ -351,6 +400,10 @@ UI that implies otherwise would promise a channel that does not exist.
   records them, and this wave does not change that.
 - **Answering starts a NEW run and says so.** Assert the control is named
   as a continuation and that the previous pid is not reused.
+- **The continuation prompt carries the brief, not the transcript.** Assert it
+  contains the brief and the answer and names what already landed, and that it
+  does not embed the previous run's transcript — a worker that ran an hour
+  produces one large enough to fill the next one's context before it starts.
 - **A row can be in WORKING and have unpushed work at once**, and say
   both — the marks already established are untouched.
 - **A local run puts its row in WAITING ON A MACHINE.** Assert a process
