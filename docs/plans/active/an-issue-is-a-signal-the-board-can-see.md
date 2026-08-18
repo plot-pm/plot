@@ -1,0 +1,1 @@
+../2026-08-18-an-issue-is-a-signal-the-board-can-see.md
