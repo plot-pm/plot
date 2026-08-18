@@ -352,10 +352,10 @@ case "$op" in
               draft:.isDraft,
               checks:(
                 if (.statusCheckRollup|length) == 0 then "none"
-                elif any(.statusCheckRollup[]; (.conclusion // .state) as $c
+                elif any(.statusCheckRollup[]; (if (.conclusion // "") != "" then .conclusion else (.status // .state) end) as $c
                          | $c=="FAILURE" or $c=="ERROR" or $c=="CANCELLED"
                            or $c=="TIMED_OUT" or $c=="ACTION_REQUIRED") then "failing"
-                elif any(.statusCheckRollup[]; (.conclusion // .state) as $c
+                elif any(.statusCheckRollup[]; (if (.conclusion // "") != "" then .conclusion else (.status // .state) end) as $c
                          | $c=="PENDING" or $c=="IN_PROGRESS" or $c=="QUEUED"
                            or $c=="WAITING" or $c==null) then "pending"
                 else "green" end),
@@ -366,7 +366,7 @@ case "$op" in
               review:(.reviewDecision // ""),
               url:.url,
               failing_checks:[
-                .statusCheckRollup[]? | select((.conclusion // .state) as $c
+                .statusCheckRollup[]? | select((if (.conclusion // "") != "" then .conclusion else (.status // .state) end) as $c
                   | $c=="FAILURE" or $c=="ERROR" or $c=="CANCELLED"
                     or $c=="TIMED_OUT" or $c=="ACTION_REQUIRED")
                 | (.name // .context // "")] | map(select(. != ""))
