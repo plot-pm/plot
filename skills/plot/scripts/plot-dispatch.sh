@@ -83,6 +83,11 @@ set -uo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
+# The shared worker classifier. Sourced by both this script and
+# plot-fleet-scan.sh so a worker has ONE state, not one per reader.
+# shellcheck source=plot-worker-state.sh
+. "$script_dir/plot-worker-state.sh"
+
 dry_run=0
 no_start=0
 mode=dispatch
@@ -129,32 +134,28 @@ wt_root_early=$(cd "$repo_root_early/.." && pwd)
 # States: "running <pid>" | "finished <pid>" | "failed <pid> (exit N)"
 #       | "ended <pid> (status unknown)" | "no worker"
 #
-# `kill -0` only separates running from not-running. Whether a stopped worker
-# finished its job or crashed is gone unless the exit code was recorded — and
-# reporting a completed worker as "dead" reads as a crash, which is how a
-# healthy fleet looks broken. The wrapper in start_worker writes the code.
+# THE CLASSIFICATION LIVES IN plot-worker-state.sh, sourced above and shared
+# with plot-fleet-scan.sh. This function is now only the RENDERING half: it
+# turns the shared facts into the prose `--status` has always printed. The scan
+# renders the same facts as tab-separated JSON fields.
+#
+# The two copies of this logic agreed on five of six states and split on the
+# sixth (a non-numeric exit code), which is what a duplicate does while nobody
+# is looking. `no worker` is spelled that way HERE and `none` in the scan —
+# both are the shared `none`, rendered for their own audience.
 worker_state() { # $1=worktree
-  local wt="$1" pid code
-  [ -f "$wt/.plot-worker.pid" ] || { echo "no worker"; return; }
-  pid=$(cat "$wt/.plot-worker.pid" 2>/dev/null | tr -d ' \n')
-  [ -n "$pid" ] || { echo "no worker"; return; }
-  # `kill -0 0` signals the whole process GROUP and succeeds, so pid 0 would
-  # read as running forever. It is never a real worker pid.
-  case "$pid" in 0|*[!0-9]*) echo "no worker"; return ;; esac
-  if kill -0 "$pid" 2>/dev/null; then echo "running $pid"; return; fi
-  if [ -f "$wt/.plot-worker.exit" ]; then
-    code=$(cat "$wt/.plot-worker.exit" 2>/dev/null | tr -d ' \n')
-    case "$code" in
-      0)  echo "finished $pid" ;;
-      "") echo "ended $pid (status unknown)" ;;
-      *)  echo "failed $pid (exit $code)" ;;
-    esac
-    return
-  fi
-  # No exit file: a worker started before this was recorded, or one killed
-  # outright. Unknown is its own answer — guessing "finished" would be the
-  # same mistake in the other direction.
-  echo "ended $pid (status unknown)"
+  local row state pid code
+  row=$(plot_worker_state "$1")
+  state=$(printf '%s' "$row" | cut -f1)
+  pid=$(printf '%s' "$row" | cut -f2)
+  code=$(printf '%s' "$row" | cut -f3)
+  case "$state" in
+    running)  echo "running $pid" ;;
+    finished) echo "finished $pid" ;;
+    failed)   echo "failed $pid (exit $code)" ;;
+    ended)    echo "ended $pid (status unknown)" ;;
+    *)        echo "no worker" ;;
+  esac
 }
 
 if [ "$mode" = "status" ]; then
