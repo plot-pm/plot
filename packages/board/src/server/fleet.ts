@@ -12,6 +12,7 @@ import {
   type Fleet,
   type FleetPulse,
   type Phase,
+  type PulseShrink,
   type StuckRun,
   type WaitingGroup,
   type WaitingOn,
@@ -175,6 +176,13 @@ interface CacheEntry {
   at: number | null;
   error: string | null;
   /**
+   * What the last successful scan lost relative to the one before it, or null.
+   *
+   * Sits beside `error`, never inside it: `error` is a scan that failed and was
+   * discarded, this is a scan that succeeded and was KEPT. See `pulseShrink`.
+   */
+  shrink: PulseShrink | null;
+  /**
    * The branch-URL prefix for this repo's origin, read ONCE per scan rather than
    * per row: `git remote get-url origin` is a process spawn, and a fleet of
    * fifteen branches would otherwise pay fifteen of them every five seconds. ""
@@ -236,6 +244,72 @@ function run(cmd: string, args: string[], cwd: string, timeoutMs = 30_000): Prom
     execFile(cmd, args, { cwd, encoding: 'utf8', timeout: timeoutMs, maxBuffer: 8 << 20 },
       (err, stdout) => (err ? reject(err) : resolve(stdout)));
   });
+}
+
+/** Every branch name in a pulse, across all plans and waves. */
+function branchNames(pulse: FleetPulse): Set<string> {
+  const names = new Set<string>();
+  for (const plan of pulse.plans) {
+    for (const wave of plan.waves) {
+      for (const b of wave.branches) names.add(b.branch);
+    }
+  }
+  return names;
+}
+
+/**
+ * What an incoming pulse LOST relative to the cached one, or null if it lost
+ * nothing.
+ *
+ * The success-path counterpart to the rule `refresh` already applies to
+ * failure. A pulse that describes fewer plans or fewer branches than its
+ * predecessor is not necessarily wrong — plans get delivered, branches get
+ * merged — but it is the one shape that produces the reported flicker, so it
+ * may not pass in silence.
+ *
+ * SET DIFFERENCE, NOT COUNTS, in both directions of the pair. Counts are
+ * cheaper and were the alternative in the plan's Open Points; they are also
+ * blind to the case where one plan arrives as another leaves, which nets to
+ * zero while a row really did vanish. The names are what make the eventual
+ * message worth reading, and computing them costs one pass over a handful of
+ * strings on a 5 s timer.
+ *
+ * GROWTH IS NOT SHRINKAGE and produces null: a pulse that gained a plan and
+ * lost nothing is simply a better answer. Only the losing side of the
+ * difference is looked at.
+ *
+ * Pure, exported, and given both pulses rather than reading the cache, because
+ * this is the whole judgment — everything around it is plumbing, and a judgment
+ * that can only be exercised through an async refresh and a subprocess is a
+ * judgment that does not get tested.
+ */
+export function pulseShrink(
+  previous: FleetPulse | null,
+  incoming: FleetPulse,
+  previousAt: number | null,
+): PulseShrink | null {
+  // Nothing to compare against is not a shrink. The first scan of a process —
+  // and the first after a bridge miss — legitimately arrives with no
+  // predecessor, and calling that a loss would flag every cold start.
+  if (previous === null || previousAt === null) return null;
+
+  const wasPlans = new Set(previous.plans.map((p) => p.file));
+  const nowPlans = new Set(incoming.plans.map((p) => p.file));
+  const lostPlans = [...wasPlans].filter((f) => !nowPlans.has(f));
+
+  const wasBranches = branchNames(previous);
+  const nowBranches = branchNames(incoming);
+  const lostBranches = [...wasBranches].filter((b) => !nowBranches.has(b));
+
+  if (lostPlans.length === 0 && lostBranches.length === 0) return null;
+  // Sorted so the same loss renders identically on every poll: the sets are
+  // built from iteration order, and a message that reshuffles itself while the
+  // condition holds steady reads as new information arriving.
+  return {
+    plans: lostPlans.sort(),
+    branches: lostBranches.sort(),
+    previousAt,
+  };
 }
 
 /**
@@ -637,6 +711,20 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     const out = await run('bash',
       [path.join(opts.scriptsDir, 'plot-fleet-scan.sh'), '--json'], opts.repoRoot);
     const parsed = FleetPulseSchema.parse(JSON.parse(out));
+    // BEFORE the assignment below, which is the only moment both answers exist.
+    //
+    // The success path's half of the cache's one-directional rule. Three lines
+    // down, a FAILED scan is refused the right to overwrite a good result; this
+    // is the case that rule missed, because it assumed the only way to be less
+    // informative was to fail. A scan that exits 0 and describes fewer plans is
+    // accepted — it may be right, and a view that cannot shrink keeps dead rows
+    // forever — but it is MARKED, so the tab degrades rather than hiding.
+    //
+    // Overwritten on every success, including with null: this describes the
+    // latest transition, not a history. A scan that recovers the missing plans
+    // clears the mark, which is the behaviour that makes a populated one worth
+    // looking at.
+    entry.shrink = pulseShrink(entry.pulse, parsed, entry.at);
     entry.pulse = parsed;
     entry.ages = await branchAges(opts);
     entry.branchUrlBase = await readBranchUrlBase(opts);
@@ -694,7 +782,7 @@ function ensureCache(opts: BuildBoardOptions): CacheEntry {
   if (entry) return entry;
 
   entry = {
-    pulse: null, ages: new Map(), at: null, error: null, branchUrlBase: '',
+    pulse: null, ages: new Map(), at: null, error: null, shrink: null, branchUrlBase: '',
     approvedAt: new Map(),
     ideaPlans: new Map(),
     prs: null, prsByNumber: null, runs: new Map(), prAt: null, prError: null,
@@ -1916,6 +2004,7 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
     ageSeconds,
     ready: entry.pulse !== null,
     error: entry.error,
+    shrink: entry.shrink,
     rows,
     summary: entry.pulse?.summary ?? EMPTY_SUMMARY,
     // COUNTED FROM THE ROWS, never tallied beside the decision that made them.

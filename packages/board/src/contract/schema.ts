@@ -1258,6 +1258,68 @@ export const AgentRowSchema = z.object({
 });
 export type AgentRow = z.infer<typeof AgentRowSchema>;
 
+/**
+ * What a successful scan LOST relative to the one before it.
+ *
+ * ## Why a success needs a guard at all
+ *
+ * The cache already refuses to let a FAILED refresh overwrite a good result,
+ * and says why: replacing real state with emptiness because one scan failed is
+ * what makes a monitoring view untrustworthy. That rule has an unstated
+ * assumption underneath it — *any success is authoritative* — and it is false.
+ * A scan can exit 0, emit schema-valid JSON, and describe fewer plans than the
+ * scan before it. Measured 2026-08-18: `origin/main` carried three plans, the
+ * scan reported two, because it enumerates the working tree rather than the ref
+ * it names. Nothing treated the smaller answer as suspicious, so it was cached,
+ * rendered, and replaced by the next full one — rows vanishing and returning
+ * seconds later, with no error and no staleness marker.
+ *
+ * ## Why it is carried rather than acted on
+ *
+ * A smaller pulse is NOT rejected. Plans really do get delivered, and a
+ * monitoring view that cannot shrink is a different kind of lie — it would keep
+ * a dead row forever. So the new pulse is accepted (it may well be correct) and
+ * this rides beside it, letting the tab MARK the view instead of swapping it
+ * without comment. *Degrade, do not hide*, the rule the bridge already follows
+ * for staleness.
+ *
+ * Null is the overwhelmingly common case and the only one that renders nothing:
+ * a view flagged on every poll is a view nobody reads.
+ */
+export const PulseShrinkSchema = z.object({
+  /**
+   * Plan files present in the previous pulse and absent from this one, BY NAME.
+   *
+   * Identities rather than counts, and the extra set difference is the point.
+   * "3 plans became 2" cannot tell an operator whether the plan that vanished is
+   * one they just delivered — expected — or one another agent pushed a minute
+   * ago, which is the defect. The name answers that at a glance.
+   *
+   * It also catches a shape counts cannot see: one plan appearing while another
+   * disappears leaves the total unchanged, so a count comparison passes it in
+   * silence even though a row really did vanish.
+   */
+  plans: z.array(z.string()),
+  /**
+   * Branches that were in the previous pulse and are not in this one, by branch
+   * name — including branches whose PLAN survived. A plan that keeps its file
+   * but loses a wave's branches produces no plan-level difference at all, and
+   * that is precisely the reported symptom: WORKING rows for agents that were
+   * demonstrably running, gone and then back.
+   */
+  branches: z.array(z.string()),
+  /**
+   * Epoch ms of the pulse these were lost FROM — the age of the larger answer,
+   * not of this one.
+   *
+   * The tab needs it to say *how long ago the board knew more*, which is what
+   * makes the mark actionable: seconds old is a scan caught mid-rebase, minutes
+   * old is a plan that genuinely went away.
+   */
+  previousAt: z.number(),
+});
+export type PulseShrink = z.infer<typeof PulseShrinkSchema>;
+
 export const FleetSchema = z.object({
   generatedAt: z.string(),
   /** Seconds since the cached scan completed — the tab shows this. */
@@ -1266,6 +1328,25 @@ export const FleetSchema = z.object({
   ready: z.boolean(),
   /** Last scan error, if any. A failed refresh never clears a good result. */
   error: z.string().nullable(),
+  /**
+   * What the most recent SUCCESSFUL scan lost relative to its predecessor.
+   *
+   * A DIFFERENT condition from `error`, and beside it rather than folded into
+   * it, because the two are opposites in the one way that matters: `error` is a
+   * scan that failed and whose result was therefore discarded, this is a scan
+   * that SUCCEEDED and whose result was accepted. Reporting a shrink as an error
+   * would claim the numbers below are the last good ones when they are in fact
+   * the new ones.
+   *
+   * Cleared by the first scan that does not shrink — it describes the last
+   * transition, never an accumulated history. A mark that outlived the condition
+   * would leave the tab flagged permanently after one blip, which is the same
+   * "flags everything, so flags nothing" failure `stuck` avoids by staying null.
+   *
+   * Defaults to null so a payload from an older server still validates, and null
+   * reads as *nothing was compared* — which for that server is true.
+   */
+  shrink: PulseShrinkSchema.nullable().default(null),
   rows: z.array(AgentRowSchema),
   summary: FleetPulseSchema.shape.summary,
   /**
