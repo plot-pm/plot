@@ -14,6 +14,7 @@
 - **Started:** 2026-08-18, Jan Wloka, `bug/not-started-shows-approved-plans`
 - **Delivered:**
 - **Released:**
+- **Started:** 2026-08-18, Jan Wloka, `bug/a-deferred-row-answers-to-the-phase-too`
 
 ## Changelog
 
