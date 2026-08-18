@@ -82,6 +82,45 @@ PLOT_BLOCKED_MARKER='PLOT-BLOCKED:|TODO\((you|human)\)'
 # within an hour of removing it at large scale.
 PLOT_WORKER_RECORD='\.plot-worker\.'
 
+# What an editor drops beside real work — `.tmp1`, `.swp`, `.orig`, `.rej`,
+# `.bak`. Measured 2026-08-18: an orphaned `plot-dispatch.sh.tmp1` belonging to
+# no commit and no task read as uncommitted work and got a healthy branch
+# restarted.
+#
+# A NAMED CONSTANT FOR THE SAME REASON `PLOT_WORKER_RECORD` IS ONE. This list
+# was inline in `plot_worker_dirty` while it had one caller. It has two as of
+# the change that measures when a branch last CHANGED — which must not let a
+# `.tmp1` reset its clock, the same file for the same reason — and two inline
+# copies of one list is precisely the drift the constant above was extracted to
+# stop, recorded four lines from here.
+PLOT_EDITOR_LEFTOVER='\.(tmp[0-9]*|swp|orig|rej|bak)$'
+
+# Where the worker's log lives in this worktree, when one is there at all.
+#
+# THIS FILE OWNS THE RECORD'S FILENAMES, and that ownership is enforced rather
+# than merely intended: `workerstate.test.mjs` asserts that plot-fleet-scan.sh
+# never names `.plot-worker.` itself, because a read-only scan that touches the
+# worker record has started classifying workers again — the duplication removed
+# on 2026-08-18, after the two copies had already drifted.
+#
+# So the caller that needs the log's mtime asks for the PATH and reads the time
+# itself. The split is the same one this whole file draws: what Plot's records
+# are called is knowledge that lives here; what a timestamp MEANS is the
+# caller's question. `changed_ago_of` in plot-fleet-scan.sh is the one consumer
+# — the log is the only source that keeps moving while a build runs, so a
+# measurement of "when did anything last change" that could not see it would
+# report every worker mid-suite as maximally quiet.
+#
+# ABSENT IS ABSENT: no worktree, or no log in it, prints nothing and returns
+# non-zero. plot-dispatch writes the log only where it started the worker
+# itself, so a hand-started worker legitimately has none.
+plot_worker_log() { # $1=worktree → path to the worker log, or "" (non-zero)
+  local wt="$1"
+  [ -n "$wt" ] || return 1
+  [ -e "$wt/.plot-worker.log" ] || return 1
+  printf '%s' "$wt/.plot-worker.log"
+}
+
 # Is a person being waited on inside this worktree?
 #
 # READ FROM THE TREE, NOT THE LOG. The log records that a question WAS asked;
@@ -156,13 +195,31 @@ plot_worker_blocked() { # $1=worktree → 0 when a person owes this branch an an
 plot_worker_dirty() { # $1=worktree → the dirty files, one per line, leftovers dropped
   local wt="$1"
   [ -n "$wt" ] && [ -d "$wt" ] || return 0
+  plot_worker_dirty_filter "$(git -C "$wt" status --porcelain 2>/dev/null)"
+}
+
+# The same filter, over status output the CALLER already has.
+#
+# SPLIT OUT BECAUSE THE STATUS CALL IS THE EXPENSIVE HALF and one caller had
+# already paid it. `plot-fleet-scan.sh` runs `git -C <wt> status --porcelain`
+# once per worktree when it builds its worktree table; asking `plot_worker_dirty`
+# for the file list then ran a SECOND status on the same worktree. Caught by
+# `fleet.test.mjs` — "a locked worktree must be asked ONCE" counts the calls,
+# because a scan the board polls every 5 s cannot afford to ask git the same
+# question twice, and a timing assertion could not tell the difference.
+#
+# The FILTER is the part worth sharing; the fetching is not. One definition of
+# what counts as work on the floor, two ways of getting the input to it — which
+# is the same one-computation-two-renderings split this file already draws for
+# `plot_worker_state`.
+plot_worker_dirty_filter() { # $1=`git status --porcelain` output → the real work
   # `--porcelain` is the STABLE format; `git status` prose is localised and
   # reflows. Cut at column 4: the first three bytes are the XY status pair and a
   # space, and a filename can contain spaces of its own.
-  git -C "$wt" status --porcelain 2>/dev/null \
+  printf '%s' "$1" \
     | cut -c4- \
     | grep -vE "(^|/)$PLOT_WORKER_RECORD" \
-    | grep -vE '\.(tmp[0-9]*|swp|orig|rej|bak)$' || true
+    | grep -vE "$PLOT_EDITOR_LEFTOVER" || true
 }
 
 # Refine a clean exit into finished / waiting / stalled.

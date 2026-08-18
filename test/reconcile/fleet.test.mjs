@@ -2719,3 +2719,292 @@ esac
     'the list is attempted exactly once, even when it fails');
   f.cleanup();
 });
+
+// --- changed_ago_seconds: when did this branch last CHANGE? ------------------
+//
+// `local_ahead` and `local_dirty` are STATE, not CHANGE. Measured 2026-08-18
+// across four concurrent workers: the branch that had just opened the session's
+// hardest PR read `ahead=0 dirty=False`, bit-identical to a branch claimed a
+// minute earlier and abandoned. Runtime could not separate them either — the
+// LONGEST-RUNNING worker was the most productive, so an operator watching the
+// clock would have restarted exactly the wrong one.
+//
+// These tests hold four properties, and the last two are the ones a plausible
+// regression breaks quietly:
+//
+//   1. a worktree touched now reports ~0, and one untouched for an hour that hour
+//   2. a branch with NO worktree reports null — never a fabricated 0
+//   3. an editor leftover (`.tmp1`) does NOT reset the clock
+//   4. branches with no worktree cost nothing extra (no fork at all)
+//
+// It is a MEASUREMENT AND NOT A VERDICT: no threshold lives here, and none may
+// be added. A worker inside a serial test suite writes nothing for minutes
+// while its child processes work, so "quiet" rendered as "stuck" restarts a
+// healthy worker mid-suite. Read
+// docs/plans/2026-08-18-the-pulse-measures-progress-not-elapsed-time.md before
+// changing any of it.
+
+/** The branch's row from a --json run. */
+function branchRow(f, branch) {
+  const doc = JSON.parse(f.run(['--json']));
+  return doc.plans[0].waves[0].branches.find((x) => x.branch === branch);
+}
+
+test('changed_ago: a worktree touched a second ago reports near zero', () => {
+  const f = makeRepo('plot-fleet-chg-now-', ONE_WAVE('feature/fresh'));
+  f.work('feature/fresh', 'w.txt');
+  f.push('-u', 'origin', 'feature/fresh');
+  git(f.dir, 'checkout', '-q', 'main');
+  const wt = addWorktree(f, 'feature/fresh', 'fresh');
+
+  // THE COMMIT IS BACKDATED so the edit is the ONLY thing that can answer
+  // "now". Measured by mutation while writing this: with a fresh commit the
+  // test passed even when the dirty-file mtimes were ignored entirely — the
+  // commit source alone carried it. Three sources feeding one maximum means a
+  // test that does not isolate its source can pass on another source's
+  // strength, and then hold nothing.
+  const hourAgo = new Date(Date.now() - 3600 * 1000);
+  execFileSync('git', ['commit', '-q', '--amend', '--no-edit'], {
+    cwd: wt,
+    env: { ...process.env,
+      GIT_COMMITTER_DATE: hourAgo.toISOString(),
+      GIT_AUTHOR_DATE: hourAgo.toISOString() },
+  });
+  fs.writeFileSync(path.join(wt, 'w.txt'), 'edited just now\n');
+
+  const b = branchRow(f, 'feature/fresh');
+  assert.equal(typeof b.changed_ago_seconds, 'number',
+    'a worktree this machine can see must yield a number');
+  assert.ok(b.changed_ago_seconds >= 0 && b.changed_ago_seconds < 120,
+    `a file written seconds ago must read as recent, got ${b.changed_ago_seconds}`);
+  f.cleanup();
+});
+
+test('changed_ago: a worktree untouched for an hour reports that hour', () => {
+  // The other end of the range, and the one that matters: a number that only
+  // ever reads "just now" would pass the test above and carry no signal at all.
+  // Both the commit and the dirty file are backdated, since the answer is the
+  // MAXIMUM over every source — leaving either at "now" would mask the other.
+  const f = makeRepo('plot-fleet-chg-old-', ONE_WAVE('feature/quiet'));
+  f.work('feature/quiet', 'q.txt');
+  f.push('-u', 'origin', 'feature/quiet');
+  git(f.dir, 'checkout', '-q', 'main');
+  const wt = addWorktree(f, 'feature/quiet', 'quiet');
+
+  const hourAgo = new Date(Date.now() - 3600 * 1000);
+  // A dirty file, backdated. `utimes` moves mtime without touching content, so
+  // git still reports the file as modified.
+  fs.writeFileSync(path.join(wt, 'q.txt'), 'edited an hour ago\n');
+  fs.utimesSync(path.join(wt, 'q.txt'), hourAgo, hourAgo);
+  // And the commit, so `git log -1 --format=%ct` cannot answer "now" instead.
+  // `GIT_COMMITTER_DATE` is the one that matters — the field reads `%ct`, since
+  // a rebase or amend rewrites the committer date and leaves the author date at
+  // the original writing, and it is the rewrite that is the evidence of work.
+  execFileSync('git', ['commit', '-q', '--amend', '--no-edit'], {
+    cwd: wt,
+    env: { ...process.env,
+      GIT_COMMITTER_DATE: hourAgo.toISOString(),
+      GIT_AUTHOR_DATE: hourAgo.toISOString() },
+  });
+  // Amending re-checks out the file, which freshens its mtime. Backdate again.
+  fs.writeFileSync(path.join(wt, 'q.txt'), 'edited an hour ago\n');
+  fs.utimesSync(path.join(wt, 'q.txt'), hourAgo, hourAgo);
+
+  const b = branchRow(f, 'feature/quiet');
+  assert.ok(b.changed_ago_seconds > 3000,
+    `an hour of silence must read as roughly an hour, got ${b.changed_ago_seconds}`);
+  assert.ok(b.changed_ago_seconds < 7200,
+    `and must not run away from it, got ${b.changed_ago_seconds}`);
+  f.cleanup();
+});
+
+test('changed_ago: a branch with no worktree reports absent, NEVER zero', () => {
+  // The fabrication this field must not make. Every other local signal has an
+  // absent value that is also a real value — `false` and `0` are what an
+  // unobserved branch honestly reports. Seconds have no such value: 0 means
+  // "changed this instant", the most reassuring answer available, and handing
+  // it to every branch on somebody else's machine would point the wrong way.
+  const f = makeRepo('plot-fleet-chg-abs-', ONE_WAVE('feature/elsewhere'));
+  f.work('feature/elsewhere', 'e.txt');
+  f.push('-u', 'origin', 'feature/elsewhere');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const b = branchRow(f, 'feature/elsewhere');
+  assert.equal(b.changed_ago_seconds, null,
+    'absent is absent — null, never a fabricated 0');
+  assert.notEqual(b.changed_ago_seconds, 0,
+    'a 0 here would read as "changed just now" for a branch nobody can see');
+  // And the change stays ADDITIVE: the refs answer is untouched.
+  assert.equal(b.state, 'wip');
+  assert.equal(b.local_worktree, '');
+  f.cleanup();
+});
+
+test('changed_ago: a .tmp1 written now does NOT reset the clock', () => {
+  // Measured 2026-08-18: an orphaned `plot-dispatch.sh.tmp1` — belonging to no
+  // commit and no task — read as uncommitted work and got a healthy branch
+  // restarted. It must not read as evidence of work here either, and the
+  // exclusion is SHARED with `plot_worker_dirty` rather than copied: one file
+  // answering two questions two ways is the defect this scan keeps removing.
+  const f = makeRepo('plot-fleet-chg-tmp-', ONE_WAVE('feature/leftover'));
+  f.work('feature/leftover', 'l.txt');
+  f.push('-u', 'origin', 'feature/leftover');
+  git(f.dir, 'checkout', '-q', 'main');
+  const wt = addWorktree(f, 'feature/leftover', 'leftover');
+
+  // Everything real is old: the commit is backdated and the tree is otherwise
+  // clean, so the ONLY fresh thing in the worktree is the leftover.
+  const hourAgo = new Date(Date.now() - 3600 * 1000);
+  execFileSync('git', ['commit', '-q', '--amend', '--no-edit'], {
+    cwd: wt,
+    env: { ...process.env,
+      GIT_COMMITTER_DATE: hourAgo.toISOString(),
+      GIT_AUTHOR_DATE: hourAgo.toISOString() },
+  });
+  for (const leftover of ['scratch.tmp1', 'x.swp', 'y.orig', 'z.rej', 'w.bak']) {
+    fs.writeFileSync(path.join(wt, leftover), 'editor droppings\n');
+  }
+
+  const b = branchRow(f, 'feature/leftover');
+  assert.ok(b.changed_ago_seconds > 3000,
+    `editor leftovers are not work — the clock must still read ~an hour, got ${b.changed_ago_seconds}`);
+  f.cleanup();
+});
+
+test('changed_ago: a REAL untracked file DOES reset the clock', () => {
+  // The other side of the exclusion, and the reason it must stay narrow. A
+  // rule broad enough to drop `.tmp1` and also drop `new-module.ts` would
+  // delete the signal to remove the noise — and it would pass the test above.
+  const f = makeRepo('plot-fleet-chg-real-', ONE_WAVE('feature/realwork'));
+  f.work('feature/realwork', 'r.txt');
+  f.push('-u', 'origin', 'feature/realwork');
+  git(f.dir, 'checkout', '-q', 'main');
+  const wt = addWorktree(f, 'feature/realwork', 'realwork');
+
+  const hourAgo = new Date(Date.now() - 3600 * 1000);
+  execFileSync('git', ['commit', '-q', '--amend', '--no-edit'], {
+    cwd: wt,
+    env: { ...process.env,
+      GIT_COMMITTER_DATE: hourAgo.toISOString(),
+      GIT_AUTHOR_DATE: hourAgo.toISOString() },
+  });
+  fs.writeFileSync(path.join(wt, 'new-module.ts'), 'export const x = 1;\n');
+
+  const b = branchRow(f, 'feature/realwork');
+  assert.ok(b.changed_ago_seconds < 120,
+    `an untracked source file IS work and must reset the clock, got ${b.changed_ago_seconds}`);
+  f.cleanup();
+});
+
+test('changed_ago: the worker log counts as evidence of work', () => {
+  // The one source that moves while a build runs. A worker deep in a serial
+  // test suite writes no tracked file for minutes while its child processes
+  // work — the log is the only thing still speaking, and without it this field
+  // would report a busy worker as maximally quiet.
+  //
+  // Note the deliberate asymmetry with `plot_worker_dirty`, which EXCLUDES
+  // `.plot-worker.*`: that function asks what work is on the FLOOR, and Plot's
+  // own records are not work. This asks when anything last MOVED. Two
+  // questions, two right answers about one file.
+  const f = makeRepo('plot-fleet-chg-log-', ONE_WAVE('feature/logged'));
+  f.work('feature/logged', 'g.txt');
+  f.push('-u', 'origin', 'feature/logged');
+  git(f.dir, 'checkout', '-q', 'main');
+  const wt = addWorktree(f, 'feature/logged', 'logged');
+
+  const hourAgo = new Date(Date.now() - 3600 * 1000);
+  execFileSync('git', ['commit', '-q', '--amend', '--no-edit'], {
+    cwd: wt,
+    env: { ...process.env,
+      GIT_COMMITTER_DATE: hourAgo.toISOString(),
+      GIT_AUTHOR_DATE: hourAgo.toISOString() },
+  });
+  // A clean tree with an old commit — every source silent but the log.
+  fs.writeFileSync(path.join(wt, '.plot-worker.log'), 'running tests...\n');
+
+  const b = branchRow(f, 'feature/logged');
+  assert.ok(b.changed_ago_seconds !== null && b.changed_ago_seconds < 120,
+    `a live worker log is evidence of work, got ${b.changed_ago_seconds}`);
+  f.cleanup();
+});
+
+test('changed_ago: branches with no local worktree cost nothing extra', () => {
+  // The plan's cost argument depends on this, so it is asserted by COUNT rather
+  // than by timing — a call that is merely cheap today would pass a stopwatch.
+  // A `git log` spent to learn "elsewhere" would be paid on every branch on
+  // every teammate's machine, on every 5 s poll.
+  //
+  // This is also where the DEFERRED open point is pinned down. `git log -1
+  // origin/<branch>` would catch a worker on another machine moving a ref, and
+  // it is declined because the cost lands exactly on the population that must
+  // stay free: a branch with no local worktree is the one whose remote ref
+  // would be its ONLY source. If that is ever wanted, it belongs in a separate
+  // field with its own absent value — not as a second meaning here. This test
+  // fails if someone adds it silently.
+  const f = makeRepo('plot-fleet-chg-cost-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    ['a', 'b', 'c'].map((n) => `- \`feature/${n}\` — work\n`).join(''));
+  for (const n of ['a', 'b', 'c']) {
+    f.work(`feature/${n}`, `${n}.txt`);
+    f.push('-u', 'origin', `feature/${n}`);
+  }
+  git(f.dir, 'checkout', '-q', 'main');
+  // No worktree for any of them: every branch is "elsewhere".
+
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-chg-'));
+  const argvLog = path.join(shim, 'git.argv');
+  const realGit = execFileSync('bash', ['-lc', 'command -v git'],
+    { encoding: 'utf8' }).trim();
+  fs.writeFileSync(path.join(shim, 'git'), `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}
+exec ${JSON.stringify(realGit)} "$@"
+`);
+  fs.chmodSync(path.join(shim, 'git'), 0o755);
+
+  execFileSync('bash', [scan, '--offline', '--json'], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PATH: `${shim}:${process.env.PATH}` },
+  });
+  const calls = fs.readFileSync(argvLog, 'utf8').split('\n');
+  // The timestamp read this field introduces, for a branch it must skip.
+  const ctCalls = calls.filter((l) => l.includes('--format=%ct'));
+  assert.equal(ctCalls.length, 0,
+    `no worktree means no timestamp read; saw ${ctCalls.length}: ${ctCalls.join(' | ')}`);
+  // And the deferred open point, asserted rather than merely written down.
+  //
+  // Scoped to `origin/<branch>`, NOT to any `origin/`: the scan already makes
+  // ONE bundled `git log origin/<main> --merges` per run for the merge walk,
+  // and a filter broad enough to catch that would fail on work this change
+  // never touched. What must stay absent is a per-branch read of a REMOTE ref —
+  // `git log -1 origin/feature/a` — which is the shape the open point proposes.
+  const remoteLogs = calls.filter((l) =>
+    /(^|\s)log\b/.test(l) && /origin\/feature\//.test(l));
+  assert.equal(remoteLogs.length, 0,
+    `the pushed branch is deliberately NOT covered — see the plan's open point; saw: ${remoteLogs.join(' | ')}`);
+
+  fs.rmSync(shim, { recursive: true, force: true });
+  f.cleanup();
+});
+
+test('changed_ago: the answer is a MEASUREMENT, never a verdict', () => {
+  // The guard on the design decision itself. `plot-worker-state.sh` owns worker
+  // verdicts and gained `waiting`/`stalled` in PR #219; this branch adds a
+  // number and no opinion. "Stuck" depends on what the branch is DOING —
+  // fifteen minutes of silence is alarming during an edit and unremarkable
+  // during `test:board`, which takes about that long by itself.
+  //
+  // So the row may carry no threshold-shaped sibling. This fails the moment
+  // someone adds `changed_stale: true` or similar next to the number.
+  const f = makeRepo('plot-fleet-chg-nov-', ONE_WAVE('feature/measured'));
+  f.work('feature/measured', 'm.txt');
+  f.push('-u', 'origin', 'feature/measured');
+  git(f.dir, 'checkout', '-q', 'main');
+  addWorktree(f, 'feature/measured', 'measured');
+
+  const b = branchRow(f, 'feature/measured');
+  const verdictish = Object.keys(b).filter((k) =>
+    /^changed_/.test(k) && k !== 'changed_ago_seconds' && k !== 'changed_paths');
+  assert.deepEqual(verdictish, [],
+    `the scan reports the number and draws no conclusion, found: ${verdictish.join(', ')}`);
+  f.cleanup();
+});

@@ -60,6 +60,18 @@
 #         remote does not have). All four are absent-shaped — false, false, ""
 #         and 0 — wherever this machine holds nothing, so a branch living on
 #         another machine answers exactly as it did before.
+#         --json additionally carries `changed_ago_seconds`: how long since this
+#         branch last CHANGED, from any source — the newest of its last commit,
+#         the newest mtime on the floor (editor leftovers excluded) and the
+#         worker log. The other local signals are STATE and cannot separate a
+#         branch that finished from one that was abandoned; both read
+#         `ahead=0 dirty=false`. This is `null` — never 0 — wherever this
+#         machine has no worktree, and branches with none cost nothing to skip.
+#         IT IS A MEASUREMENT AND NOT A VERDICT: no threshold, no `stalled`.
+#         A worker inside a serial test suite writes nothing for minutes while
+#         its child processes work, and this will correctly report it quiet —
+#         so "quiet" must not be rendered as "stuck". Worker verdicts belong to
+#         `plot-worker-state.sh`; the threshold belongs to the reader.
 #         --json additionally carries, per branch, WHICH FILES would collide
 #         merging it into the default branch: `conflicts` (paths, from
 #         `git merge-tree --write-tree`, which computes entirely in memory),
@@ -603,6 +615,156 @@ reached_review() { # $1=branch → 0 when an open or merged PR exists
   case "$(host_pr_state "$1")" in OPEN|MERGED) return 0 ;; *) return 1 ;; esac
 }
 
+# Modification time of a path, in epoch seconds, following symlinks — or "" when
+# it cannot be read.
+#
+# BSD (`stat -f %m`) and GNU (`stat -c %Y`) spell this differently, and the
+# fallback CANNOT be written as `bsd || gnu`: on GNU coreutils `-f` is a valid
+# flag meaning *file system status*, so it SUCCEEDS with a filesystem report
+# instead of failing over. That reads as a mtime of zero and quietly excludes
+# every delivered plan on Linux, which is exactly what CI caught — the answer
+# was wrong in the safe-looking direction (nothing shown) rather than the loud
+# one. So the OUTPUT is validated rather than the exit code: whichever form
+# yields digits is the one that was understood.
+#
+# THE FORM IS DETECTED ONCE, and that is an efficiency fix rather than a
+# correctness one — the output validation below still has the last word. Two
+# costs made it worth doing here: `for m in "$(bsd)" "$(gnu)"` evaluates BOTH
+# command substitutions before the loop body runs, so the second fork happens
+# even when the first answered; and on Linux the first fork is the one that
+# prints five lines of filesystem report to be thrown away. Measured on this
+# machine: ~60 ms per fork under load. Paid once per delivered plan that was
+# affordable; `changed_ago_seconds` asks per worktree, and the same waste
+# compounds.
+#
+# `-c` IS PROBED FIRST, deliberately, the same order `plot-board-probe.sh`
+# settled on: GNU is the implementation that mis-parses the other's flag, so
+# asking it its own question first means the ambiguous form is never reached on
+# Linux. Verified on both platforms while writing this — macOS rejects `-c`
+# with an empty stdout, alpine's busybox answers `-c` and pollutes stdout for
+# `-f`.
+# DETECTED LAZILY, INSIDE THE FUNCTION, so `file_mtime` stays SELF-CONTAINED.
+# `fleetdelivered.test.mjs` lifts this function out of the script by regex and
+# runs it standalone — deliberately, since sourcing the file would execute the
+# whole scan — so a form probed at top level would leave the extracted copy with
+# an unset variable under `set -u`. That test says so itself: a reshaped
+# function is a signal to look, not to skip. It caught this.
+_STAT_FMT=""
+
+file_mtime() { # $1=path → epoch seconds, or ""
+  local m
+  # Probed on first use and remembered. `-c` FIRST, deliberately, the same order
+  # `plot-board-probe.sh` settled on: GNU is the implementation that mis-parses
+  # the other's flag, so asking it its own question first means the ambiguous
+  # form is never reached on Linux. Verified on both platforms while writing
+  # this — macOS rejects `-c` with an empty stdout, alpine's busybox answers
+  # `-c` and pollutes stdout for `-f`.
+  if [ -z "${_STAT_FMT:-}" ]; then
+    if [ -n "$(stat -c %Y "$1" 2>/dev/null)" ]; then
+      _STAT_FMT="gnu"
+    elif [ -n "$(stat -f %m "$1" 2>/dev/null)" ]; then
+      _STAT_FMT="bsd"
+    else
+      _STAT_FMT="none"
+    fi
+  fi
+  case "$_STAT_FMT" in
+    gnu) m=$(stat -c %Y "$1" 2>/dev/null) ;;
+    bsd) m=$(stat -f %m "$1" 2>/dev/null) ;;
+    # No `stat` at all, or one that speaks neither dialect — or a first path
+    # that could not be read, which would misprobe. Fall back to trying both and
+    # validating the output, which is what this function did before the
+    # detection existed. Slower, still correct, and it re-probes next call.
+    *)
+      _STAT_FMT=""
+      for m in "$(stat -c %Y "$1" 2>/dev/null)" "$(stat -f %m "$1" 2>/dev/null)"; do
+        case "$m" in
+          ''|*[!0-9]*) ;;
+          *) printf '%s' "$m"; return 0 ;;
+        esac
+      done
+      return 1 ;;
+  esac
+  # The OUTPUT is validated, never the exit code — kept from the original for
+  # the reason it was written: a form that "succeeds" while answering a
+  # different question must not reach the arithmetic that consumes this.
+  case "$m" in
+    ''|*[!0-9]*) return 1 ;;
+    *) printf '%s' "$m"; return 0 ;;
+  esac
+}
+
+# The newest mtime among MANY paths, in ONE `stat` call — epoch seconds, or ""
+# when none could be read.
+#
+# ONE FORK FOR THE WHOLE LIST, and the measurement is why this is not a loop
+# over `file_mtime`. `stat` takes many paths and prints one line each on both
+# dialects (verified on macOS and alpine). Measured here: 50 sequential forks
+# cost 3.1 s, one batched call over three paths cost 0.023 s. A worker mid-build
+# has hundreds of untracked files, so per-file forking would have made the pulse
+# slower than the work it measures — the plan budgeted "one directory stat per
+# worktree" and the design it describes implies one per FILE. Batching is what
+# makes those two the same number again.
+#
+# NO `xargs`, NO ARGUMENT-LIMIT DANCE. A path list long enough to exceed
+# `ARG_MAX` (~1 MB) is not a case this needs to serve: the answer is the MAXIMUM
+# mtime, so a truncated list can only under-report, and a worktree with tens of
+# thousands of dirty files has an answer no operator is reading a clock for. The
+# list is capped by the caller instead, which reports that it capped.
+#
+# UNREADABLE PATHS ARE SKIPPED, not zeroed. `stat` prints nothing for a path it
+# cannot read (a file deleted between `git status` and here — a live race in a
+# worktree being written to), and a zero would be the newest-looking answer's
+# opposite: it drags nothing down, but a fabricated 0 elsewhere in this field
+# would read as 1970. Non-digit lines are dropped for the same reason.
+newest_mtime() { # $@=paths → epoch seconds, or ""
+  [ "$#" -gt 0 ] || return 1
+  local out
+  # Share `file_mtime`'s probe rather than repeating it: one call settles
+  # `_STAT_FMT` for the run, and the batched form below can then be chosen
+  # without a second detection. Its answer is discarded — only the side effect
+  # is wanted, and a path that cannot be read leaves the format unset, which the
+  # `*)` arm handles.
+  [ -n "${_STAT_FMT:-}" ] || file_mtime "$1" >/dev/null 2>&1
+  case "${_STAT_FMT:-}" in
+    gnu) out=$(stat -c %Y "$@" 2>/dev/null) ;;
+    bsd) out=$(stat -f %m "$@" 2>/dev/null) ;;
+    *)   return 1 ;;
+  esac
+  # `sort -n | tail -1` would fork twice more for a maximum awk already has in
+  # hand. The digit test is what keeps a filesystem report — should the
+  # detection ever be wrong — out of the arithmetic downstream.
+  printf '%s\n' "$out" | awk '
+    /^[0-9]+$/ { if ($1 > max) max = $1 }
+    END { if (max != "") print max }
+  '
+}
+
+# THE DIRTY LIST IS CAPPED, AND THE CAP NEEDS NO SATURATION FLAG — the one
+# place in this file where that is true, so it is argued rather than assumed.
+#
+# The rule elsewhere here is that caps drop results silently unless they also
+# report saturation, and it holds because those caps report a SET: a truncated
+# conflict list reads exactly like a short one, and the reader cannot tell. This
+# cap feeds a MAXIMUM. Dropping members of a set you take the max over can only
+# move the answer EARLIER — it can never invent recency — so the failure mode is
+# "reported quieter than it is", which is the direction that makes a reader look
+# rather than the one that reassures them wrongly.
+#
+# WHICH 500, STATED PLAINLY: the first 500 in git's own order, which is
+# alphabetical by path — NOT the 500 newest. Sorting by mtime to pick the newest
+# would need every file's mtime first, which is the entire cost the cap exists
+# to bound. So on a worktree past the cap the answer is the newest among an
+# arbitrary subset, and it is reported as the same number as any other run.
+#
+# That is acceptable HERE and would not be in a set-shaped field, for the reason
+# above: it can only under-report. It is written down because a reader who
+# assumes "newest 500" would trust a capped answer more than it deserves.
+#
+# 500 is far above any hand-edited working set and far below `ARG_MAX` (~1 MB of
+# argv). A tree big enough to hit it is a build directory, not a person's work.
+CHANGED_DIRTY_CAP=500
+
 # ---------------------------------------------------------------------------
 # Local worktrees: what the refs cannot see
 # ---------------------------------------------------------------------------
@@ -751,12 +913,54 @@ while IFS=$'\t' read -r wt_branch wt_path; do
     # dirtiness (unknown) nor its path (it may not be there).
     continue
   fi
-  WORKTREES+="$wt_branch	$wt_path	$wt_dirty	$wt_locked"$'\n'
+  # The newest mtime of the real work on the floor, computed HERE because this
+  # is where the status output already exists — see `changed_ago_of`, the one
+  # consumer, for what the number is for.
+  #
+  # ONE `git status` PER WORKTREE, AND THIS IS WHERE THAT IS ENFORCED. Asking
+  # `plot_worker_dirty` for the file list later would run a SECOND status on the
+  # same worktree, and `fleet.test.mjs` counts them ("a locked worktree must be
+  # asked ONCE") precisely because a scan the board polls every 5 s cannot pay
+  # twice for one answer. Measured by that test rather than by a stopwatch: a
+  # timing assertion cannot tell a cheap duplicate call from no duplicate at all.
+  #
+  # A SCALAR IN THE TABLE, never the file list. `WORKTREES` is a tab-separated
+  # string (bash 3.2 on macOS has no associative arrays), and status output
+  # carries newlines and arbitrary filenames — a list field would corrupt every
+  # row after the first path with a tab in it. An integer cannot.
+  wt_changed=""
+  if [ -n "${wt_status:-}" ]; then
+    wt_dirty_paths=$(plot_worker_dirty_filter "$wt_status")
+    if [ -n "$wt_dirty_paths" ]; then
+      wt_mtime_args=()
+      wt_n=0
+      while IFS= read -r wt_f; do
+        [ -n "$wt_f" ] || continue
+        # `git status --porcelain` renders a rename as `old -> new`; the path
+        # that EXISTS is the one after the arrow. Left alone, `stat` is handed a
+        # path with no file behind it and silently under-reports.
+        case "$wt_f" in *' -> '*) wt_f=${wt_f#* -> } ;; esac
+        # Quoted when the path holds a character git chooses to escape. The
+        # quotes are git's rendering, not part of the name.
+        case "$wt_f" in '"'*'"') wt_f=${wt_f#\"}; wt_f=${wt_f%\"} ;; esac
+        wt_mtime_args+=("$wt_path/$wt_f")
+        wt_n=$((wt_n + 1))
+        [ "$wt_n" -ge "$CHANGED_DIRTY_CAP" ] && break
+      done <<< "$wt_dirty_paths"
+      [ "${#wt_mtime_args[@]}" -gt 0 ] && wt_changed=$(newest_mtime "${wt_mtime_args[@]}")
+    fi
+  fi
+  WORKTREES+="$wt_branch	$wt_path	$wt_dirty	$wt_locked	$wt_changed"$'\n'
 done <<< "$(worktree_rows)"
 
 # The local worktree for a branch as `path<TAB>dirty<TAB>locked`, or empty when
 # this machine has none. Absent is ABSENT — never a false, never a path that
 # does not exist here.
+#
+# THREE FIELDS, not the table's five: the newest-dirty-mtime column beside them
+# is `changed_ago_of`'s input and no caller of this function has ever wanted it.
+# Widening the return would land a timestamp in whatever slot the callers'
+# `cut -f` happens to reach next.
 local_worktree_of() { # $1=branch → "path\tdirty\tlocked" or ""
   printf '%s' "$WORKTREES" | awk -F'\t' -v b="$1" '$1==b {print $2 "\t" $3 "\t" $4; exit}'
 }
@@ -1103,26 +1307,156 @@ pr_ready() {
 DELIVERED_WINDOW_HOURS=$(cfg "Claim stale after" "24")
 case "$DELIVERED_WINDOW_HOURS" in (*[!0-9]*|'') DELIVERED_WINDOW_HOURS=24 ;; esac
 
-# Modification time of a path, in epoch seconds, following symlinks — or "" when
-# it cannot be read.
+
+# ---------------------------------------------------------------------------
+# When did this branch last CHANGE? — a measurement, and never a verdict
+# ---------------------------------------------------------------------------
 #
-# BSD (`stat -f %m`) and GNU (`stat -c %Y`) spell this differently, and the
-# fallback CANNOT be written as `bsd || gnu`: on GNU coreutils `-f` is a valid
-# flag meaning *file system status*, so it SUCCEEDS with a filesystem report
-# instead of failing over. That reads as a mtime of zero and quietly excludes
-# every delivered plan on Linux, which is exactly what CI caught — the answer
-# was wrong in the safe-looking direction (nothing shown) rather than the loud
-# one. So the OUTPUT is validated rather than the exit code: whichever form
-# yields digits is the one that was understood.
-file_mtime() { # $1=path → epoch seconds, or ""
-  local m
-  for m in "$(stat -f %m "$1" 2>/dev/null)" "$(stat -c %Y "$1" 2>/dev/null)"; do
-    case "$m" in
+# `local_ahead` and `local_dirty` are STATE, not CHANGE, and that is the whole
+# gap this fills. Measured 2026-08-18 across four concurrent workers: the branch
+# that had just opened the session's hardest PR read `ahead=0 dirty=False`,
+# bit-identical to a branch claimed a minute earlier and abandoned. Commits were
+# pushed, so `ahead` was 0; the tree was tidy, so `dirty` was false. Two opposite
+# situations, one row.
+#
+# Runtime cannot separate them either, and that is the measurement this plan was
+# written from: of four workers, the LONGEST-RUNNING was the most productive
+# (55 min, 4 commits, PR opened) while a 27-minute one had written nothing for
+# six. An operator watching the clock would have restarted exactly the wrong one.
+#
+# THE MAXIMUM OF THREE SOURCES, because work leaves evidence in three places and
+# any one alone is silent for long stretches:
+#
+#   the newest commit          — silent for the whole span BETWEEN commits,
+#                                which is precisely the window where a worker is
+#                                either deep in a test suite or dead
+#   the newest dirty mtime     — silent for a worker that commits tidily and
+#                                leaves nothing on the floor
+#   the worker log's mtime     — the only one that moves while a build runs
+#
+# A maximum, never a sum or an average: each source is evidence that work
+# happened, and the most RECENT evidence is the answer. A source that cannot be
+# read contributes nothing rather than a zero — a fabricated 0 here reads as
+# 1970, which is the oldest possible answer and would report every branch as
+# maximally quiet the moment one input went missing.
+#
+# ==> THIS FUNCTION DRAWS NO CONCLUSION, AND THAT IS DELIBERATE. <==
+#
+# There is no threshold here, no `stalled`, no "probably stuck". "Stuck" depends
+# on what the branch is DOING: fifteen minutes of silence is alarming during an
+# edit and unremarkable during `test:board`, which takes about that long by
+# itself. The threshold belongs to the reader; the measurement belongs here
+# (Principle 3 — scripts collect and report).
+#
+# A FACT MEASURED AFTER THE PLAN WAS WRITTEN, and the reason the paragraph above
+# is a warning rather than a preference: a worker deep in a SERIAL test run
+# writes no file for minutes at a time while its CHILD PROCESSES do the work.
+# This function will report that worker as quiet, and the number will be honest
+# — nothing was written. A consumer that renders "quiet for 8 minutes" as
+# "stuck" will restart a healthy worker mid-suite and redo everything it had
+# done, which is the exact failure the plan measured and costs more than the
+# ambiguity it was replacing. The number says how long since a file moved. It
+# does not say whether anything is wrong.
+#
+# ABSENT IS ABSENT — the rule every local signal in this file follows. A branch
+# with no worktree on this machine reports nothing at all, exactly as `worker`
+# reports `elsewhere` and for the same reason: this machine cannot see it. The
+# JSON carries `null`, never 0. A zero would be a fabricated measurement rather
+# than a missing one, and it would be the WORST fabrication available here — it
+# reads as "changed this instant", the single most reassuring answer, for the
+# population nobody can observe.
+#
+# BRANCHES WITH NO LOCAL WORKTREE COST NOTHING. The worktree lookup is a string
+# match against a table already read once per run, and it returns before any
+# fork. That is load-bearing rather than incidental: the plan's cost argument
+# assumes the fleet's remote branches are skipped entirely, and a `git log`
+# spent to learn "elsewhere" would be paid on every branch on every teammate's
+# machine, on every poll.
+#
+# THE PUSHED BRANCH IS DELIBERATELY NOT COVERED — the plan's open point, decided
+# here. `git log -1 origin/<branch>` would catch a worker on ANOTHER machine
+# moving a ref, and it is declined on two grounds. The cost lands exactly on the
+# population that must stay free: a branch with no local worktree is the one
+# whose remote ref would be the ONLY source, so the call cannot be skipped for
+# precisely the branches the paragraph above skips. And the field would stop
+# meaning one thing — every other `local_*` signal answers *what THIS machine
+# can see*, and a remote ref is what the REFS say, which the scan already
+# reports as `state` and `claimed`. Deferred, not rejected: if the fleet ever
+# spans machines in practice, the right shape is a SEPARATE field with its own
+# absent value, not a second meaning bolted onto this one.
+#
+
+changed_ago_of() { # $1=branch → seconds since the newest evidence of work, or ""
+  local br="$1" row wt now newest="" t paths=()
+  row=$(printf '%s' "$WORKTREES" | awk -F'\t' -v b="$br" '$1==b {print $2 "\t" $5; exit}')
+  # No worktree here: this machine cannot answer, and says so by answering
+  # nothing. Before any fork — see the cost note above.
+  [ -n "$row" ] || return 1
+  wt=$(printf '%s' "$row" | cut -f1)
+  [ -n "$wt" ] && [ -d "$wt" ] || return 1
+
+  # 1. The newest commit. A REF QUESTION answered from this repository, the same
+  #    distinction `local_ahead_of` draws: worktrees share one ref database, so
+  #    `refs/heads/<br>` answers without a `git -C`. `%ct` is the COMMITTER date,
+  #    not `%at` the author date — a rebase or an amend rewrites the committer
+  #    date and leaves the author date at the original writing, and it is the
+  #    rewrite that is the evidence of work here.
+  t=$(git log -1 --format=%ct "refs/heads/$br" </dev/null 2>/dev/null)
+  case "$t" in ''|*[!0-9]*) ;; *) newest=$t ;; esac
+
+  # 2. The newest mtime of the real work on the floor — READ FROM THE TABLE,
+  #    not recomputed. The worktree sweep already ran `git status` once per
+  #    worktree and reduced its output to this one number there, applying
+  #    `plot_worker_dirty_filter` so the exclusions match `worker_dirty_paths`
+  #    exactly: a `.tmp1` that reset this clock while being excluded from that
+  #    list would be one file answering two questions two ways.
+  #
+  #    Asking `plot_worker_dirty` here instead would run a SECOND `git status`
+  #    per worktree, which `fleet.test.mjs` counts and rejects — the board polls
+  #    this scan every 5 s.
+  t=$(printf '%s' "$row" | cut -f2)
+  case "$t" in
+    ''|*[!0-9]*) ;;
+    *) if [ -z "$newest" ] || [ "$t" -gt "$newest" ]; then newest=$t; fi ;;
+  esac
+
+  # 3. The worker's log — the only source that keeps moving while a build runs.
+  #    Present only where plot-dispatch started the worker itself; absent for
+  #    every hand-started one, which is the normal case for as long as `Worker
+  #    command` is unset. Absent contributes nothing.
+  #
+  #    NOT COVERED BY THE TABLE'S NUMBER, deliberately: the sweep's figure comes
+  #    from `plot_worker_dirty_filter`, which EXCLUDES Plot's own records
+  #    because they are not work on the floor. This asks when anything last
+  #    MOVED, and the log is the one file still moving during a build. Two
+  #    questions, two right answers about one file — so it is added here.
+  #
+  #    THE PATH IS ASKED FOR, NEVER SPELLED HERE. What Plot's own records are
+  #    called is `plot-worker-state.sh`'s knowledge, and a read-only scan that
+  #    names `.plot-worker.` has started classifying workers again — the
+  #    duplication removed on 2026-08-18 after the two copies had drifted.
+  #    `workerstate.test.mjs` enforces exactly that, and caught this line.
+  local log
+  if log=$(plot_worker_log "$wt"); then
+    t=$(file_mtime "$log")
+    case "$t" in
       ''|*[!0-9]*) ;;
-      *) printf '%s' "$m"; return 0 ;;
+      *) if [ -z "$newest" ] || [ "$t" -gt "$newest" ]; then newest=$t; fi ;;
     esac
-  done
-  return 1
+  fi
+
+  # Every source silent: a worktree with no commit, nothing on the floor and no
+  # log. Nothing was OBSERVED, so nothing is claimed — the same answer the
+  # absent worktree gives, for the same reason.
+  [ -n "$newest" ] || return 1
+
+  now=$(date +%s)
+  # Clamped at zero rather than allowed negative. A commit timestamp can sit in
+  # the future — a skewed clock, or a rebase carrying a committer date from a
+  # machine ahead of this one — and a negative age is not a thing a reader can
+  # act on. Zero says "changed just now", which is the honest reading of
+  # evidence dated later than the question.
+  if [ "$newest" -gt "$now" ]; then printf '0'; else printf '%s' "$((now - newest))"; fi
 }
 
 # A plan whose delivered symlink was touched inside the window. `find -newermt`
@@ -1789,6 +2123,21 @@ for i, w in enumerate(d.get("waves", [])):
         # no worktree still holds commits nobody can see. 0 wherever this
         # machine has no local ref, which is what every branch elsewhere reports.
         json_branches+=",\"local_ahead\":$(local_ahead_of "$br")"
+        # WHEN THIS BRANCH LAST CHANGED — the one signal above that is a
+        # DERIVATIVE rather than a state. `local_dirty` and `local_ahead` both
+        # read identically for a finished branch and an abandoned one; this
+        # tells them apart. See `changed_ago_of` for what it measures and, more
+        # importantly, for what it deliberately does not conclude.
+        #
+        # `null`, NOT 0, WHERE THIS MACHINE CANNOT SEE. The other local signals
+        # have an absent value that is also a real value — `false` and `0` are
+        # what an unobserved branch honestly reports. Seconds have no such
+        # value: 0 means "changed this instant", the most reassuring answer on
+        # the board, and handing it to every branch on somebody else's machine
+        # would be a fabrication pointing the wrong way. `null` is the only
+        # shape that cannot be mistaken for a measurement.
+        changed_ago=$(changed_ago_of "$br") || changed_ago=""
+        json_branches+=",\"changed_ago_seconds\":${changed_ago:-null}"
         # Whether anything is actually RUNNING on the branch — see `worker_of`.
         # The pid and the exit code travel as values rather than as something to
         # re-derive: a pid of 0 has already been rejected here, and re-deriving
