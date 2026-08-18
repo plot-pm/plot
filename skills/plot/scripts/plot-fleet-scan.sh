@@ -502,6 +502,11 @@ EOF
   # them apart: with the list in hand it is real evidence of no PR, without it
   # the question was never answered. `host_pr_state` reads this to decide
   # between NONE and `-`.
+  #
+  # The marker shares the cache directory with the per-branch files and CANNOT
+  # collide with one: `git check-ref-format` rejects a branch whose name starts
+  # with a dot, and the key encoding maps only `_` and `/`, so no branch key can
+  # begin with one either. The separation is git's rule, not a lucky prefix.
   printf '1' > "$HOST_STATE_CACHE/.list-arrived" 2>/dev/null || true
 }
 prefill_pr_states
