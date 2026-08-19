@@ -342,7 +342,7 @@ in a wave whose shape the earlier ones are likely to change.
   moving to WAITING ON YOU. The state exists and is populated; what is missing
   is the board treating it as an agent rather than as a result. Tests: a
   `waiting` worker is in WORKING, not WAITING ON YOU; its row says what it
-  waits on; a `finished` worker with a PR still goes to WAITING ON YOU
+  waits on; a `finished` worker with a PR still goes to WAITING ON YOU — PR #241
 
 ### Panel
 
