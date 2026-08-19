@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:**
 - **Story:** plot-board
@@ -11,8 +11,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-19, Jan Wloka, plan-PR #196 merged
 - **Started:**
-- **Delivered:**
-
+- **Delivered:** 2026-08-19, jwloka, the track landed 2026-08-17 in `120a9bc` — see Notes
 ## Problem
 
 Reported from a screenshot minutes after the travelling dot landed: *the
@@ -141,6 +140,29 @@ and the tracks do not apply; the marker flows inline as it does today.
 - A changeset is present, with its `bumps:` block.
 
 ## Notes
+
+Delivered without an implementation branch, and the reason is worth recording
+rather than hiding behind a tidy record.
+
+The work landed on 2026-08-17 at 23:47 in `120a9bc` — *"board: the Agents tab
+can act, and the marks get a column"* — **two days before this plan was
+approved**. `ROW_TRACKS` gained its leading marks column there, and
+`ACTIVITY_MARK_PLACE.row` lost its `sm:absolute sm:left-0`. Every Done-when
+criterion was already met by code nobody wrote against this plan.
+
+Two details differ from the design, both in the direction the plan would have
+chosen had it known: the track is `1rem` rather than `1.5rem`, because 1.5rem
+plus a sixth gap crossed the 640px card breakpoint by exactly 8px, and the
+phase column gave up 1rem to pay for it.
+
+What this plan DID contribute was found on delivery: `120a9bc` changed the code
+and left the old rationale standing. The doc comment still described the
+`sm:absolute` placement as "UNCHANGED, to the character" directly above the
+flow-layout string that replaced it. A reader trusting the comment would have
+learned the opposite of what the code does. That is removed as part of this
+delivery — the third instance today of a decision changing while its written
+reason stayed put.
+
 
 The comment this plan overturns was right when it was written and is
 worth keeping in the file as history: a 4 px stroke genuinely did not

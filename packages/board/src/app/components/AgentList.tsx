@@ -1964,23 +1964,26 @@ export function groupPace(
  *
  * | `place` | Where | Why |
  * |---|---|---|
- * | `row` | `sm:absolute` in the row's left padding | outside the six grid tracks, so no column moves |
+ * | `row` | the first grid track, in the flow | the marks have a column of their own; nothing straddles the border |
  * | `heading` | inline, in the heading's flex | the heading has no `relative` box and no grid to stay out of |
  *
- * The row's placement is UNCHANGED, to the character. A heading placement
- * bolted on by overriding classes from outside would have been the smaller
- * diff and the worse answer: `sm:absolute sm:left-0 sm:top-2` positions against
- * the nearest positioned ancestor, and the `<h2>` has none — so the mark would
- * not sit slightly wrong in the heading, it would escape to whatever ancestor
- * happened to be `relative` and land somewhere else on the page entirely. That
- * is a failure a class-name assertion cannot see and a screenshot finds late.
+ * The row placement USED to read `sm:absolute sm:left-0 sm:top-2`, hanging in
+ * the row's left padding to keep six columns from moving for a mark most rows
+ * never carry. That argument was sound while there was one mark and it stayed
+ * measurable — 2 of 56 rows carry one. What broke it is the other side of the
+ * trade: `left-0` is the row's edge and the section's border sits inside it, so
+ * a mark wide enough to be seen was clipped in half, and two marks on one row
+ * overlapped because absolute boxes do not make room for each other. A clipped
+ * mark is not a cheaper mark.
+ *
+ * The heading placement is still NOT the row's string, and for its own reason:
+ * `sm:absolute` positions against the nearest positioned ancestor, and the
+ * `<h2>` has none — so a bolted-on override would not sit the mark slightly
+ * wrong, it would escape to whatever ancestor happened to be `relative` and
+ * land somewhere else on the page entirely. That is a failure a class-name
+ * assertion cannot see and a screenshot finds late.
  */
 export const ACTIVITY_MARK_PLACE = {
-  // The row's placement, UNCHANGED to the character: `sm:absolute` in the row's
-  // left padding, deliberately outside the six grid tracks, aligned to the
-  // FIRST LINE's own box (`sm:top-2` is the row's `py-2`, `h-5` is one line of
-  // `text-sm`) rather than to the row's centre — a row carrying a status line
-  // is twice as tall, and `top-1/2` would put the mark between its two lines.
   // IN THE FIRST TRACK, not hanging in the row's padding. `sm:absolute
   // sm:left-0` put the mark at the row's edge — which is OUTSIDE the section's
   // border, so every mark straddled the panel edge, and two marks on one row
