@@ -8,7 +8,7 @@
 // Principle 1), and these tests are what hold it.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -3006,5 +3006,239 @@ test('changed_ago: the answer is a MEASUREMENT, never a verdict', () => {
     /^changed_/.test(k) && k !== 'changed_ago_seconds' && k !== 'changed_paths');
   assert.deepEqual(verdictish, [],
     `the scan reports the number and draws no conclusion, found: ${verdictish.join(', ')}`);
+  f.cleanup();
+});
+
+// --- a terminal branch is asked once ----------------------------------------
+//
+// THE MEASUREMENT THAT FORCED THIS, taken on this repo 2026-08-19 after the
+// join (#232) landed. 26 of 54 branches are terminal — merged or deferred — and
+// a terminal fact cannot change: a merged branch stays merged. The scan
+// re-derived them at full price on every 5 s pulse, forever.
+//
+// WHAT THE JOIN LEFT BEHIND, measured in a sandbox before writing any of this:
+//
+//   merged, ref KEPT      3 branches -> 1 pr-list      9 -> 1 pr-list
+//   squash-merged, DELETED 3 branches -> 3 pr-state    9 -> 9 pr-state
+//
+// So after #232 the ONLY per-branch host cost left is the no-ref `--ask` arm
+// (PR #216), and that arm is exactly the terminal population: a branch whose
+// ref is gone and whose merge already landed. The cache lands there and
+// NOWHERE ELSE, which is why a live branch cannot be cached even by accident —
+// a live branch has a ref and never reaches the call.
+//
+// THE CACHE IS A DERIVATION, NOT A RECORD, and that distinction is the whole
+// design. Git is consulted on EVERY pass; only the host call is skipped. The
+// entry carries the evidence that made the branch terminal, and git is asked
+// whether that evidence still holds:
+//
+//   * the ref reappeared          -> the branch has work again, re-ask
+//   * the plan was edited         -> its branches' answers are invalidated
+//   * main moved                  -> the merge evidence is re-derived
+//
+// It never touches disk and never outlives the process. The scan receives it in
+// the ENVIRONMENT and reports what it learned on STDERR, so the board — which
+// is the only long-lived process in the system — can hold the map across
+// pulses. A file would be a second source of truth about a repo whose only
+// source of truth is git (Manifesto Principle 1).
+
+/**
+ * Run the scan with a terminal cache in the environment, returning what it
+ * learned alongside the calls it made.
+ *
+ * The cache crosses the process boundary the way the board passes it: an
+ * environment variable in, a stderr note out. Nothing is written to disk here,
+ * because nothing may be — a test that used a temp file would pass while
+ * testing the shape the plan forbids.
+ */
+const MERGED_HOST = `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":9,"state":"MERGED","draft":false,"url":"u"}' ;;
+  pr-list) : ;;
+  *) echo "{}" ;;
+esac
+`;
+
+function scanWithCache(f, cache, host = MERGED_HOST) {
+  const h = hostShim(host);
+  const calls = path.join(h.dir, 'calls.txt');
+  const res = spawnSync('bash', [h.scan], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PLOT_TEST_CALLS: calls, PLOT_TERMINAL_CACHE: cache ?? '' },
+  });
+  const ops = fs.existsSync(calls)
+    ? fs.readFileSync(calls, 'utf8').split('\n').filter(Boolean) : [];
+  // The learned entries ride stderr, one `terminal:` note per branch, so stdout
+  // stays byte-identical to a run without the cache.
+  const learned = (res.stderr || '').split('\n')
+    .filter((l) => l.startsWith('terminal:'))
+    .map((l) => l.slice('terminal:'.length).trim());
+  h.cleanup();
+  return { out: res.stdout, ops, learned, asked: ops.filter((o) => o === 'pr-state').length };
+}
+
+/** A repo whose `n` branches were all squash-merged and their refs deleted. */
+function makeTerminalRepo(prefix, n) {
+  const f = makeRepo(prefix,
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    Array.from({ length: n }, (_, i) => `- \`feature/b${i}\` — the work\n`).join(''));
+  for (let i = 0; i < n; i++) {
+    f.work(`feature/b${i}`, `f${i}.txt`);
+    f.push('-u', 'origin', `feature/b${i}`);
+    squashMerge(f, `feature/b${i}`, 100 + i);
+    f.push('origin', 'main');
+    f.push('origin', '--delete', `feature/b${i}`);
+  }
+  git(f.dir, 'fetch', '-q', '--prune', 'origin');
+  return f;
+}
+
+test('terminal: a merged branch costs one host call across many pulses', () => {
+  // THE CLAIM, as a count rather than a timing — a timing assertion on CI is a
+  // flake, and the count is what the plan actually promises.
+  //
+  // Three pulses over the same terminal branches. The first pays; the second
+  // and third must pay NOTHING, because nothing about a merged branch can have
+  // changed. Against a scan with no cache all three cost the same, which is the
+  // defect.
+  const f = makeTerminalRepo('plot-fleet-term-once-', 4);
+
+  const cold = scanWithCache(f, null);
+  assert.equal(cold.asked, 4, `a cold scan asks about each terminal branch, saw ${cold.asked}`);
+  assert.equal(cold.learned.length, 4,
+    `a cold scan must report what it learned, saw ${cold.learned.length}`);
+
+  // Pulses two and three, each handed what the one before it learned.
+  const warm = scanWithCache(f, cold.learned.join('\n'));
+  assert.equal(warm.asked, 0,
+    `a warm pulse must ask nothing, saw ${warm.asked}: ${warm.ops.join(',')}`);
+  const warm2 = scanWithCache(f, warm.learned.join('\n'));
+  assert.equal(warm2.asked, 0, `the cache must survive a pulse that used it, saw ${warm2.asked}`);
+
+  f.cleanup();
+});
+
+test('terminal: a warm scan returns byte-identical output to a cold one', () => {
+  // THE PROPERTY THAT MAKES THE CACHE INVISIBLE, and the one a plausible
+  // regression breaks quietly. A cache that changes what the board renders is
+  // not an optimisation, it is a second answer — and the operator has no way to
+  // tell which of the two they are looking at.
+  const f = makeTerminalRepo('plot-fleet-term-ident-', 3);
+  const cold = scanWithCache(f, null);
+  const warm = scanWithCache(f, cold.learned.join('\n'));
+  assert.equal(warm.out, cold.out,
+    'a warm scan must render exactly what a cold one does');
+  f.cleanup();
+});
+
+test('terminal: a merged branch whose ref reappears is re-asked on the next pulse', () => {
+  // THE INVALIDATION THAT KEEPS IT A DERIVATION. A branch name is reusable:
+  // merge `bug/flaky`, delete it, then push it again for a second attempt. The
+  // cached answer describes the FIRST attempt, and serving it for the second
+  // reports unlanded work as merged — which settles a wave and opens the next
+  // one on work that has not landed.
+  //
+  // Git alone catches this, which is why git is consulted every pass: the
+  // branch has a ref again, and the evidence the entry was built on said it had
+  // none.
+  const f = makeTerminalRepo('plot-fleet-term-reappear-', 1);
+  const cold = scanWithCache(f, null);
+  assert.equal(cold.asked, 1, 'the cold scan asks once');
+
+  // The branch comes back with NEW work that has not landed. The LOCAL ref
+  // survived the remote delete, so the second attempt reuses it rather than
+  // branching a name that already exists.
+  git(f.dir, 'branch', '-q', '-D', 'feature/b0');
+  f.work('feature/b0', 'second-attempt.txt');
+  f.push('-u', 'origin', 'feature/b0');
+  git(f.dir, 'checkout', '-q', 'main');
+  git(f.dir, 'fetch', '-q', 'origin');
+
+  const again = scanWithCache(f, cold.learned.join('\n'));
+  assert.match(branchLine(again.out, 'feature/b0'), / — in progress$/,
+    'a reappeared ref carries unlanded work and must not read as merged');
+
+  f.cleanup();
+});
+
+test('terminal: an edited plan invalidates its branches cached answers', () => {
+  // A PLAN IS AN INPUT TO THE DERIVATION, not just a list of names. `deferred:`
+  // annotations, wave membership and the plan's own phase all decide what a
+  // branch's answer means, so an answer derived under one revision of the plan
+  // is not evidence about the next.
+  //
+  // The edit here changes nothing about the BRANCH — only the plan file — and
+  // the cached answer must still be discarded. Anything less makes the cache a
+  // record of a plan that no longer exists.
+  const f = makeTerminalRepo('plot-fleet-term-planedit-', 2);
+  const cold = scanWithCache(f, null);
+  assert.equal(cold.asked, 2, 'the cold scan asks about both');
+
+  const plan = path.join(f.dir, 'plans', '2026-01-01-p.md');
+  fs.writeFileSync(plan, fs.readFileSync(plan, 'utf8') + '\n## Notes\n\nA later thought.\n');
+  git(f.dir, 'add', '-A');
+  git(f.dir, 'commit', '-qm', 'plan: a later thought');
+  f.push('origin', 'main');
+
+  const after = scanWithCache(f, cold.learned.join('\n'));
+  assert.equal(after.asked, 2,
+    `an edited plan must invalidate its branches, saw ${after.asked} of 2 re-asked`);
+
+  f.cleanup();
+});
+
+test('terminal: a live branch is never cached', () => {
+  // ASSERTED RATHER THAN ASSUMED, as the plan requires. A live branch's state
+  // is the thing the board exists to watch change, and a cached `open` is a
+  // board that stops reporting the only rows anybody is looking at.
+  //
+  // Two live shapes that both have a ref: one in flight, one claimed. Neither
+  // may appear in what the scan reports as learned.
+  const f = makeRepo('plot-fleet-term-live-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/live` — the work\n- `feature/landed` — the work\n');
+  f.work('feature/live', 'live.txt');
+  f.push('-u', 'origin', 'feature/live');
+  f.work('feature/landed', 'landed.txt');
+  f.push('-u', 'origin', 'feature/landed');
+  squashMerge(f, 'feature/landed', 55);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/landed');
+  git(f.dir, 'checkout', '-q', 'main');
+  git(f.dir, 'fetch', '-q', '--prune', 'origin');
+
+  const cold = scanWithCache(f, null);
+  assert.ok(cold.learned.some((l) => l.includes('feature/landed')),
+    'the terminal branch is what the cache is for');
+  assert.ok(!cold.learned.some((l) => l.includes('feature/live')),
+    `a live branch must never be cached, saw: ${cold.learned.join(' | ')}`);
+
+  f.cleanup();
+});
+
+test('terminal: an unanswerable host is not a terminal answer', () => {
+  // THE 2026-08-17 TRAP, IN THE SHAPE A CACHE GIVES IT. `-` means the question
+  // could not be answered, and caching it would freeze one bad afternoon into
+  // every later pulse — an outage multiplied by the life of the board rather
+  // than by the branch count.
+  //
+  // Only a decided answer is terminal. An unreachable host must leave the
+  // branch exactly as unasked as it was.
+  const f = makeTerminalRepo('plot-fleet-term-down-', 2);
+  const down = scanWithCache(f, null, `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) exit 1 ;;
+  pr-state) exit 1 ;;
+  *) echo "{}" ;;
+esac
+`);
+  assert.equal(down.learned.length, 0,
+    `an unreachable host teaches the cache nothing, saw: ${down.learned.join(' | ')}`);
   f.cleanup();
 });
