@@ -134,6 +134,52 @@ main"*. They are not clutter to be swept: **the annotation is the reason a
 branch is missing**, and deleting it leaves a plan naming three branches where
 git has one. What is missing is not the cleanup, it is the sentence.
 
+### The plan row lost the one action that belongs to it
+
+Found on the board 2026-08-19, hours after `a-plan-row-is-not-a-branch-row`
+landed — and it is a regression that change introduced.
+
+A Draft plan needs approving, and approving is the one action that belongs to
+the **plan** rather than to any branch of it. `ApproveButton` exists, the server
+reports `approve: {available: true}`, and the card reads `phase: Discovery`.
+Every precondition holds. The button renders inside the `⋯` menu — which lives
+on a **branch** row, and a Draft branch has nothing to start, so the menu is
+absent and its four rows read `—`.
+
+The plan row has no menu at all. That was deliberate and the reasoning is in the
+commit: *dispatch is per branch and wave, so a control there would have to guess
+which wave it meant, and an empty track to hold nothing is what this row just
+stopped doing.*
+
+**True of dispatch, false of approve.** The argument was made about the action
+that needs a branch and applied to the cell that also held the one that does
+not. So a plan whose whole state is *waiting for a person to approve it* offers
+that person nothing to click, and the row says *plan not approved yet — still in
+review* as if review were happening somewhere else.
+
+This is the fourth face of the same defect and the sharpest, because the row is
+not merely withholding a consequence — it names an action and then declines to
+host it.
+
+### A round nobody counted
+
+`rounds` exists (`schema.ts:79`), `roundsBadgeText()` renders it
+(`PlanCard.tsx:122`), and the Agents tab does not: zero references in
+`AgentList.tsx`. For this plan the field would be empty anyway — `plot-plan-meta.sh`
+reports no `rounds` because the file carries no `CHALLENGE-THE-PLAN-METADATA`
+block.
+
+It has been interrogated three times today. The title changed, a false claim
+about `AgentRowSchema` was corrected, and two findings were added. None of it
+counted, because the block is written by the structured question tool and this
+interrogation ran as a conversation.
+
+So the badge measures *how often one tool ran*, not *how thoroughly the plan was
+questioned* — and a reader using it to judge interrogation depth reads a number
+that is silent about most of the work. Whether the fix is counting differently,
+naming the badge for what it measures, or leaving it to the Board tab alone is
+a design question, not one this plan settles.
+
 ### The controls are too small to read, and too small to hit
 
 Measured on the running board 2026-08-19, at 1480px wide:
@@ -235,6 +281,8 @@ the interesting one.
 ### Seeing it
 
 - `bug/a-section-break-reads-as-one` — the space between two section groups grows enough that a heading reads as introducing the block below it rather than as trailing the one above. Row spacing is untouched. Tests: the gap above a heading exceeds the gap between two rows in the same group by a stated factor; row height is unchanged; below `CARD_BELOW_PX` nothing regresses.
+
+- `bug/a-plan-row-can-be-approved` — the plan row hosts the one action that belongs to a plan. `ApproveButton` and its server-side `approve` availability already exist; what is missing is a place on the row to put them, removed when the row gained its own proportions. Tests: a Draft plan row offers approval; a plan past Draft does not; the control is absent when the server reports `approve.available: false`, with its reason; branch rows are unchanged.
 
 - `bug/a-deferred-row-says-why` — the deferral reason travels from the plan file to the row. `plot-plan-meta.sh` captures the text after `deferred:` alongside the boolean, the schema carries it, and a deferred row states it instead of leaving `deferred` and `no commits` as two unexplained facts. Tests: a branch annotated with a reason renders it; one annotated bare (`<!-- deferred -->`) still reads as deferred with no reason rather than as an error; the wave arithmetic is unchanged — a deferred branch still does not block its wave; `moved:` keeps its own meaning, which `plot-reconcile-scan.sh` already distinguishes.
 
