@@ -15,6 +15,7 @@
 - **Delivered:**
 - **Released:**
 - **Started:** 2026-08-18, Jan Wloka, `bug/a-deferred-row-answers-to-the-phase-too`
+- **Started:** 2026-08-19, Jan Wloka, `bug/a-blocked-branch-says-it-is-blocked`
 
 ## Changelog
 
