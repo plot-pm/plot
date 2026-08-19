@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:**
 - **Story:** plot-board
@@ -11,8 +11,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-19, Jan Wloka, plan-PR #195 merged
 - **Started:**
-- **Delivered:**
-
+- **Delivered:** 2026-08-19, jwloka, in-session against the running board
 ## Problem
 
 Reported from a screenshot of NOT STARTED, hours after the section
