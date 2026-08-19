@@ -11,6 +11,7 @@
 - **Started:** 2026-08-19, Jan Wloka, `feature/the-worker-log-is-readable`
 - **Delivered:**
 - **Released:**
+- **Started:** 2026-08-19, Jan Wloka, `feature/a-waiting-agent-stays-working`
 
 ## Approval
 
