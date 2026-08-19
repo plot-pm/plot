@@ -383,6 +383,20 @@ export function waitingLabel(days: number): string {
 // which is what the column is for; the slack either side is what was spent.
 export const ROW_TRACKS = 'grid-cols-[1rem_5rem_10rem_1fr_14rem_2.5rem_1.25rem]';
 
+// A PLAN ROW IS NOT A BRANCH ROW, so it does not borrow the branch tracks.
+//
+// Four cells for the four things a plan row actually has: the marks column
+// (shared with every row, so the marks stay in one vertical line down the
+// section), the plan NAME, the wave summary, and the clock. No phase cell —
+// the phase belongs to the plan and is stated in the name cell's own line; no
+// PR cell and no actions cell, because dispatch is per branch and wave.
+//
+// The name starts at the marks column's right edge, which is where a branch
+// row's PHASE begins — one track earlier than a branch NAME. That single
+// track is the whole difference between *a list of plans* and *a nesting*,
+// and it costs nothing: the summary takes the slack.
+export const PLAN_ROW_TRACKS = 'grid-cols-[1rem_1fr_auto_2.5rem]';
+
 /**
  * The PR a row carries, derived from the row rather than imported.
  *
@@ -3231,7 +3245,19 @@ function PlanRow({
       // NO BORDER: the plan row heads a group that draws one line under
       // itself and its branches together. A rule here would fall between
       // a plan and its own first branch.
-      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2 text-sm sm:grid ${ROW_TRACKS} sm:items-baseline sm:gap-x-3`}
+      // ITS OWN PROPORTIONS, not the branch tracks. A plan row's facts do not
+      // correspond to a branch row's: it has no phase of its own to state
+      // twice, no branch, no PR. Forcing three facts into seven tracks left an
+      // empty first column and put the plan NAME at the same x as a branch
+      // name — measured on screen at x=222 for both — so eight sibling plans
+      // read as a nesting rather than as a list.
+      //
+      // `PLAN_ROW_TRACKS` gives it marks / name / summary / clock: the three
+      // things it carries, plus the marks cell every row in the grid owes its
+      // neighbours. The BRANCH rows are untouched and still line up with
+      // branch rows in every other section — the property #175 established,
+      // and the one this must not spend.
+      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2 text-sm sm:grid ${PLAN_ROW_TRACKS} sm:items-baseline sm:gap-x-3`}
     >
       {/* The activity mark, hanging in the row's own `relative` box the way it
           does on a branch row — no track, no shift. It reaches the plan row
@@ -3262,20 +3288,27 @@ function PlanRow({
           Read from the group's rows rather than from a plan field, because a
           row is what carries `phase` — and they agree by construction, all
           being branches of one plan. */}
-      <span
-        role="gridcell"
-        className="min-w-0 shrink-0 truncate text-xs text-slate-500 dark:text-slate-400"
-        title={group.rows[0]?.phase ? `Phase: ${group.rows[0].phase}` : undefined}
-      >
+      {/* The plan, its phase and its name in ONE cell — and it is a HEADING as
+          well as a cell, because the rows below it are its branches. The
+          expander wraps the name rather than sitting beside it: a separate
+          caret would need a track, and the name is the obvious thing to click.
+
+          The phase rides HERE rather than in a track of its own. It was a
+          column while the plan row borrowed the branch tracks and had a spare
+          one; with the row in its own proportions a whole track for one word
+          would push the name back to where it was, which is the defect. It
+          keeps its `data-phase` attribute, so anything asserting on it still
+          finds it. */}
+      <span role="gridcell" className="flex min-w-0 items-baseline gap-2">
         {group.rows[0]?.phase && (
-          <span data-phase={group.rows[0].phase}>{group.rows[0].phase}</span>
+          <span
+            data-phase={group.rows[0].phase}
+            title={`Phase: ${group.rows[0].phase}`}
+            className="shrink-0 text-xs text-slate-500 dark:text-slate-400"
+          >
+            {group.rows[0].phase}
+          </span>
         )}
-      </span>
-      {/* The plan, in the plan track — and it is a HEADING as well as a cell,
-          because the rows below it are its branches. The expander wraps the
-          name rather than sitting beside it: a separate caret would need a
-          track, and the name is the obvious thing to click. */}
-      <span role="gridcell" className="flex min-w-0 items-baseline gap-1">
         {foldable ? (
           // A real button with `aria-expanded`, so the fold is operable and
           // announced by keyboard — the caret alone is a visual fact. The plan
@@ -3318,8 +3351,6 @@ function PlanRow({
           </span>
         )}
       </span>
-      {/* PR: empty, and empty on purpose — see the comment above the component. */}
-      <span role="gridcell" className="flex min-w-0 items-baseline" />
       {/* The plan's clock, in the same amber and with the same title a branch
           row gives its waiting age. Nothing at all where no approval date is
           recorded: absent, not zero. */}
@@ -3330,11 +3361,11 @@ function PlanRow({
       >
         {waiting === null ? '' : waitingLabel(waiting)}
       </span>
-      {/* Actions: empty. Dispatch is per BRANCH and wave — `plot-dispatch`
+      {/* No actions cell. Dispatch is per BRANCH and wave — `plot-dispatch`
           takes a branch — so a control here would have to guess which of the
-          plan's waves it meant. The branch rows in the fold keep their own
-          menus, where the row has already decided. */}
-      <span role="gridcell" className="w-5 shrink-0" />
+          plan's waves it meant, and an empty track to hold nothing is what
+          this row just stopped doing. The branch rows in the fold keep their
+          own menus, where the row has already decided. */}
     </li>
   );
 }
