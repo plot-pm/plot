@@ -68,6 +68,12 @@
 #                  continuation line is not seen — keep it on the branch line.
 #   prs            PR numbers from `→ #NNN` links in the `## Branches`
 #                  section (sorted, unique)
+#   issues         tracker issue numbers this plan answers, from the `## Status`
+#                  `Issue:` line or front matter `issue:` (sorted, unique).
+#                  A DEDICATED field, never a scan of the body for `#NNN`: a
+#                  body scan cannot tell a signal from a citation, which is the
+#                  same reason `prs` reads only `→ #NNN`. Accepts a list
+#                  (`Issue: #226, #228`) because one plan can answer several.
 #   review_raw     the plan's review-channel answer as written (`## Status`
 #                  `Review:` or front matter `review:`); "" if absent
 #   review         normalized: pr|in-session|ballot|UNKNOWN|NONE
@@ -132,7 +138,7 @@ if [ ${#files[@]} -eq 0 ] && [ ${#missing[@]} -eq 0 ]; then
 fi
 
 for f in ${missing[@]+"${missing[@]}"}; do
-  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","approved_raw":"","released_raw":"","delivered_raw":"","started_raw":[]}\n' \
+  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"issues":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","approved_raw":"","released_raw":"","delivered_raw":"","started_raw":[]}\n' \
     "$(printf '%s' "$f" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 done
 
@@ -218,11 +224,13 @@ function reset_state() {
   in_fm = 0; section = ""; in_comment = 0; in_challenge = 0; branches_seen = 0
   delete branches; n_branches = 0
   delete prs; n_prs = 0
+  fm_issue = ""; canon_issue = ""
+  delete issues; n_issues = 0
   delete wave_names; delete wave_of; delete wave_seq; delete wave_count
   delete deferred_of; delete claimed_of; delete ordered_b; n_waves = 0
   delete started; n_started = 0
 }
-function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, review, impl, approved, delivered, i, j, out, sorted_b, sorted_p, nb, np) {
+function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, review, impl, approved, delivered, issue, i, j, out, sorted_b, sorted_p, sorted_i, nb, np, ni) {
   if (fm_status != "" || fm_phase != "") {
     fmt = "frontmatter"
     praw = (fm_status != "") ? fm_status : fm_phase
@@ -245,6 +253,20 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   released = strip_placeholder((fm_released != "") ? fm_released : canon_released)
   delivered = strip_placeholder((fm_delivered != "") ? fm_delivered : canon_delivered)
   if (fm_started != "" && strip_placeholder(fm_started) != "") started[++n_started] = fm_started
+  # `Issue:` names the tracker signals this plan answers, and it is a DEDICATED
+  # field rather than a scan of the body for `#NNN`. A body scan cannot tell a
+  # signal from a citation: plans in this repo mention PR numbers constantly,
+  # and one of them cites `#226`, `#227`, `#228` as history in its Motivation
+  # while naming `PR #232` two sections later. That is the same ambiguity `prs`
+  # already answered by reading only `-> #NNN` — one field, one meaning.
+  #
+  # A LIST, because one plan can answer several signals; the plan that
+  # introduced this field subsumes three.
+  issue = strip_placeholder((fm_issue != "") ? fm_issue : canon_issue)
+  while (match(issue, /#[0-9]+/)) {
+    issues[++n_issues] = substr(issue, RSTART + 1, RLENGTH - 1)
+    issue = substr(issue, RSTART + RLENGTH)
+  }
   # Insertion sort + dedupe (portable: no gawk asort).
   nb = 0
   for (i = 1; i <= n_branches; i++) {
@@ -260,6 +282,13 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
     for (j = np; j >= 1 && sorted_p[j] > prs[i]+0; j--) sorted_p[j+1] = sorted_p[j]
     sorted_p[j+1] = prs[i]+0; np++
   }
+  ni = 0
+  for (i = 1; i <= n_issues; i++) {
+    for (j = 1; j <= ni && sorted_i[j] != issues[i]+0; j++) ;
+    if (j <= ni) continue
+    for (j = ni; j >= 1 && sorted_i[j] > issues[i]+0; j--) sorted_i[j+1] = sorted_i[j]
+    sorted_i[j+1] = issues[i]+0; ni++
+  }
   out = "{\"file\":\"" jesc(cur_file) "\",\"format\":\"" fmt "\""
   out = out ",\"phase_raw\":\"" jesc(praw) "\",\"phase\":\"" norm_phase(praw) "\""
   out = out ",\"phase_alt_raw\":\"" jesc(palt_raw) "\",\"phase_alt\":\"" norm_phase(palt_raw) "\""
@@ -270,6 +299,8 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   for (i = 1; i <= nb; i++) out = out (i > 1 ? "," : "") "\"" jesc(sorted_b[i]) "\""
   out = out "],\"prs\":["
   for (i = 1; i <= np; i++) out = out (i > 1 ? "," : "") sorted_p[i]
+  out = out "],\"issues\":["
+  for (i = 1; i <= ni; i++) out = out (i > 1 ? "," : "") sorted_i[i]
   out = out "]"
   # waves[]: branches grouped by `### ` subheading, in document order. A plan
   # with no subheadings yields one wave with an empty name.
@@ -315,6 +346,7 @@ in_fm {
   else if (lower ~ /^title:/ && fm_title == "") fm_title = val_after_colon($0)
   else if (lower ~ /^sprint:/ && fm_sprint == "") fm_sprint = val_after_colon($0)
   else if (lower ~ /^story:/ && fm_story == "") fm_story = val_after_colon($0)
+  else if (lower ~ /^issue:/ && fm_issue == "") fm_issue = val_after_colon($0)
   else if (lower ~ /^assignee:/ && fm_assignee == "") fm_assignee = val_after_colon($0)
   else if (lower ~ /^review:/ && fm_review == "") fm_review = val_after_colon($0)
   else if (lower ~ /^impl:/ && fm_impl == "") fm_impl = val_after_colon($0)
@@ -368,6 +400,7 @@ section == "status" {
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**type[:*]/ && canon_type == "") canon_type = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**sprint[:*]/ && canon_sprint == "") canon_sprint = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**story[:*]/ && canon_story == "") canon_story = val_after_colon($0)
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**issue[:*]/ && canon_issue == "") canon_issue = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**review[:*]/ && canon_review == "") canon_review = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**impl[:*]/ && canon_impl == "") canon_impl = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**approved[:*]/ && canon_approved == "") canon_approved = val_after_colon($0)
