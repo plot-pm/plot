@@ -13,6 +13,7 @@
 - **Approved:** 2026-08-18, jwloka, in-session
 - **Started:** 2026-08-18, Jan Wloka, `feature/fleet-api-names-its-ref`
 - **Started:** 2026-08-18, Jan Wloka, `feature/api-attention-says-what-needs-you`
+- **Started:** 2026-08-19, Jan Wloka, `feature/api-claim-and-transition`
 
 ## Changelog
 
