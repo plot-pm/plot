@@ -6,6 +6,7 @@ import { buildBoard, renderPlanPage, renderStoryPage, type BuildBoardOptions } f
 import { buildFleet } from './fleet.js';
 import { buildAttention } from './attention.js';
 import { dispatchAvailability, handleDispatch, SLUG_RE } from './dispatch.js';
+import { continueAvailability, handleContinue } from './continue.js';
 import { agentPanel } from './agent-panel.js';
 import { workerLog } from './worker-log.js';
 import { serverInfo } from './server-info.js';
@@ -82,6 +83,27 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     return;
   }
 
+  // POST /api/continue — a NEW worker in an answered branch's worktree.
+  //
+  // Allow-listed here beside /api/dispatch and /api/approve because it is the
+  // same class of route: it spawns a process on this machine. It reuses that
+  // endpoint's same-origin guard and its bounded body reader rather than
+  // growing its own — see continue.ts, where the reasoning those two carry is
+  // stated to apply here unchanged.
+  //
+  // A CONTINUATION, NOT A REPLY. `claude -p` has no stdin after launch, so the
+  // agent that asked the question is gone; this starts a new run in the same
+  // worktree with the brief, the answer and what already landed. The route is
+  // named for what it does rather than for what a reader might wish it did.
+  if (url.pathname === '/api/continue' && req.method === 'POST') {
+    void handleContinue(req, res, { ...opts, host: HOST, port: boundPort }).catch((err) => {
+      console.error('Error continuing:', err);
+      if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+    });
+    return;
+  }
+
   if (url.pathname === '/api/dispatch' && req.method === 'POST') {
     // `boundPort`, not the requested one: under PORT=0 they differ, and this
     // port is the same-origin allowlist for the endpoint that spawns processes.
@@ -117,6 +139,11 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         // into `dispatch` because it is a separate capability, and the client
         // asking one flag about two of them is how they diverged before.
         approve: approveAvailability(HOST),
+        // A THIRD capability flag rather than a reuse of `dispatch`. Today all
+        // three answer the same binding question; the reason they stay separate
+        // is the one `approve` records — one flag for two capabilities is how
+        // they diverge without anyone noticing.
+        continue: continueAvailability(HOST),
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(board));

@@ -385,6 +385,19 @@ export const BoardSchema = z.object({
    */
   approve: DispatchInfoSchema.default({ available: false, reason: '' }),
   /**
+   * Whether "Continue with an answer" will act — the same binding question
+   * `dispatch` and `approve` ask, kept separate for the same reason they are.
+   *
+   * A CONTINUATION, NOT A REPLY, and the field name follows the control rather
+   * than the wish: `claude -p` has no stdin after launch, so the agent that
+   * asked is gone and what starts is a new run in its worktree. A field called
+   * `reply` would name a channel that does not exist.
+   *
+   * Same default as the two above: an older server sends nothing and a newer
+   * client hides the control rather than offering one that 403s.
+   */
+  continue: DispatchInfoSchema.default({ available: false, reason: '' }),
+  /**
    * Newest release checklist, for the Endgame column: what is left before
    * signoff. null when no checklist exists or none could be parsed — the board
    * shows no badge rather than a guessed count.

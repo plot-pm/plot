@@ -751,6 +751,10 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // socket AND on a config key, and this walker reads plans. index.ts
     // overwrites it where both are known.
     approve: { available: false, reason: '' },
+    // And again for continuing an answered agent — the same socket question,
+    // the same hand overwriting it. Unavailable here means *this walker cannot
+    // say*, never *the answer is no*.
+    continue: { available: false, reason: '' },
     checklist: readChecklist(repoRoot, readConfig(opts, 'Release directory', 'docs/releases/')),
     sprints: collectSprints(repoRoot, sprintDir),
     stories: collectStories(repoRoot, storyDir),

@@ -3018,6 +3018,14 @@ export interface AgentListProps {
    * got a dead menu while the same plan's card offered the button.
    */
   approve?: DispatchInfo;
+  /**
+   * Whether this server will act on `Continue with an answer`, and why not.
+   *
+   * Named `continueWith` rather than `continue` because `continue` is a
+   * reserved word: as a prop name it is legal and as a destructured binding it
+   * is not, so the shorter name would have to be renamed at every use anyway.
+   */
+  continueWith?: DispatchInfo;
   /** Bumps once per BOARD refresh; the Start work button counts these. */
   pulse?: number;
   /** A Start work click became outstanding (true) or settled (false). */
@@ -3335,6 +3343,7 @@ function Row({
   card = null,
   dispatch,
   approve,
+  continueWith,
   pulse = 0,
   onStarting,
   marked = false,
@@ -3365,6 +3374,14 @@ function Row({
   dispatch?: DispatchInfo;
   /** Whether this server will act on Approve, and why not — the plan-PR half. */
   approve?: DispatchInfo;
+  /**
+   * Whether this server will act on `Continue with an answer`, and why not.
+   *
+   * Named `continueWith` rather than `continue` because `continue` is a
+   * reserved word: as a prop name it is legal and as a destructured binding it
+   * is not, so the shorter name would have to be renamed at every use anyway.
+   */
+  continueWith?: DispatchInfo;
   /** Bumps once per board refresh; the Start work button counts these. */
   pulse?: number;
   /** A Start work click became outstanding (true) or settled (false). */
@@ -3762,7 +3779,18 @@ function Row({
           keep a 3 s timer alive per WORKING row for as long as the tab is open,
           which is the pulse-carries-every-log shape this wave exists to reject,
           rebuilt on the client. */}
-      {logOpen && <WorkerLogModal branch={row.branch} onClose={() => setLogOpen(false)} />}
+      {logOpen && (
+        <WorkerLogModal
+          branch={row.branch}
+          onClose={() => setLogOpen(false)}
+          // The panel decides whether to OFFER the control (only for a
+          // `waiting` worker, read from the scan); this says whether the
+          // server would ACT on it. Two different questions, and the panel
+          // cannot answer the second — it describes a branch, this describes
+          // the binding.
+          canContinue={continueWith}
+        />
+      )}
     </li>
   );
 }
@@ -4046,6 +4074,7 @@ export function AgentList({
   cardForPlanFile,
   dispatch,
   approve,
+  continueWith,
   pulse = 0,
   onStarting,
 }: AgentListProps) {
@@ -4468,6 +4497,7 @@ export function AgentList({
                                 card={cardForPlanFile?.(r.planFile) ?? null}
                                 dispatch={dispatch}
                                 approve={approve}
+                                continueWith={continueWith}
                                 pulse={pulse}
                                 onStarting={onStarting}
                                 marked={marked.has(rowKey(r))}
@@ -4523,6 +4553,7 @@ export function AgentList({
                           card={cardForPlanFile?.(r.planFile) ?? null}
                           dispatch={dispatch}
                           approve={approve}
+                          continueWith={continueWith}
                           pulse={pulse}
                           onStarting={onStarting}
                           // By the row's own identity, so a row that changed

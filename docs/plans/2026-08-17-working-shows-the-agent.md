@@ -220,9 +220,10 @@ either.
 
 `claude -p` is a one-way process: **no stdin after launch.** So:
 
-- **Answering an agent is starting a new one**, with the transcript and
-  the answer as its prompt. That is *continuation*, not *dialogue*, and
-  the UI must not blur them.
+- **Answering an agent is starting a new one**, with the brief, the answer
+  and what already landed as its prompt — never the previous transcript
+  (see section 4, which this line was corrected against on 2026-08-19).
+  That is *continuation*, not *dialogue*, and the UI must not blur them.
 - **Capabilities cannot be shown**, because nothing records them — unlike
   model and context, which are one file read away.
 - **What Plot knows about its own agents is Plot's to record.** The
@@ -354,7 +355,8 @@ in a wave whose shape the earlier ones are likely to change.
 ### Answer
 
 - `feature/continue-with-an-answer` — a continuation run in the same
-  worktree, prompted with the transcript and the answer — PR #246
+  worktree, prompted with the brief, the answer, and what already landed —
+  never the previous run's transcript — PR #246
 
 ### Machine
 
