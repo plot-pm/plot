@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Story:** plot-board
 - **Sprint:** working-shows-the-agent
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-18, jwloka, in-session
 - **Started:** 2026-08-19, Jan Wloka, `feature/the-pulse-reports-when-work-last-changed`
+- **Delivered:** 2026-08-19, jwloka, PR #238
 
 ## Changelog
 
