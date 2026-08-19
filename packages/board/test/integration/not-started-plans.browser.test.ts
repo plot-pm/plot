@@ -273,20 +273,23 @@ describe('NOT STARTED renders one row per plan', () => {
       const branchRow = section(page).locator('li[data-agent-row]')
         .filter({ has: page.locator('[data-branch="feature/activity-marker-glows"]') });
       await branchRow.waitFor({ timeout: 5_000 });
-      // Cell 4 is the BRANCH track on both: the branch name on a branch row, the
-      // wave summary on a plan row. If the tracks agreed only by accident, these
-      // two would differ.
+      // THE TWO ROWS NO LONGER SHARE TRACKS, and this asserts the difference
+      // rather than the agreement it used to.
       //
-      // FOUR, not three: the marks earned a track of their own at the front, so
-      // every index after it moved by one. Indexed rather than named because
-      // the cells carry no hook — and a stale index here would keep passing
-      // while measuring a different column, which is the quietest way for a
-      // test to stop meaning what its comment says.
-      const planCell = await planRow(page, 'activity-shows-itself')
-        .locator('[role="gridcell"]').nth(3).boundingBox();
-      const branchCell = await branchRow.locator('[role="gridcell"]').nth(3).boundingBox();
-      expect(planCell!.x).toBeCloseTo(branchCell!.x, 0);
-      expect(planCell!.width).toBeCloseTo(branchCell!.width, 0);
+      // Until `a-plan-row-is-not-a-branch-row` a plan row borrowed the branch
+      // tracks, and this test held them to the same x — which is exactly what
+      // made eight sibling plans read as a nesting: the plan NAME and the
+      // branch NAME below it both began at 222px, measured on screen.
+      //
+      // A plan row now has its own proportions. Its name starts one track
+      // EARLIER than a branch name — where a branch row's phase begins — and
+      // that single track is the whole difference between a list and a
+      // nesting. So the assertion is that they differ, and by enough to see.
+      const planName = await planRow(page, 'activity-shows-itself')
+        .locator('[role="gridcell"]').nth(1).boundingBox();
+      const branchName = await branchRow.locator('[role="gridcell"]').nth(3).boundingBox();
+      expect(planName!.x).toBeLessThan(branchName!.x);
+      expect(branchName!.x - planName!.x).toBeGreaterThan(100);
     } finally {
       await page.close();
     }
@@ -370,10 +373,21 @@ describe('NOT STARTED renders one row per plan', () => {
       await branchRow.waitFor({ timeout: 5_000 });
 
       // The branch row's phase cell is empty — the cell still RENDERS, so the
-      // six tracks hold their width and the columns stay aligned.
+      // seven branch tracks hold their width and branch rows stay aligned with
+      // branch rows in every other section.
       expect(await branchRow.locator('[data-phase]').count()).toBe(0);
-      expect(await branchRow.locator('[role="gridcell"]').count())
-        .toBe(await planRow(page, 'activity-shows-itself').locator('[role="gridcell"]').count());
+      // The plan row carries FEWER cells, and that is the point rather than an
+      // accident: it has no phase track, no PR cell and no actions cell, because
+      // it has no phase to state twice, no PR, and no branch to dispatch. A
+      // count that matched would mean it had gone back to borrowing tracks it
+      // has no facts for.
+      const planCells = await planRow(page, 'activity-shows-itself')
+        .locator('[role="gridcell"]').count();
+      const branchCells = await branchRow.locator('[role="gridcell"]').count();
+      expect(planCells).toBeLessThan(branchCells);
+      // The plan row's phase rides in its name cell rather than a track of its
+      // own, so it is still stated exactly once per group.
+      expect(await planRow(page, 'activity-shows-itself').locator('[data-phase]').count()).toBe(1);
       // And the plan row still carries the clock the branches gave up.
       expect(await planRow(page, 'activity-shows-itself').textContent()).toMatch(/d|mo|today/);
     } finally {
