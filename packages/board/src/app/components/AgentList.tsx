@@ -5,6 +5,7 @@ import {
   type Card,
   type DispatchInfo,
   type Fleet,
+  type IssueAnswer,
   type IssueRow,
   type PulseShrink,
   type Repair,
@@ -13,6 +14,7 @@ import {
   type WaitingGroup,
 } from '../../contract/schema.js';
 import { ApproveButton } from './ApproveButton.js';
+import { CreatePlanButton } from './CreatePlanButton.js';
 import { isDraft } from './PlanCard.js';
 import { StartWorkButton } from './StartWorkButton.js';
 import { WorkerLogModal } from './WorkerLogModal.js';
@@ -3043,6 +3045,17 @@ export interface AgentListProps {
    * is not, so the shorter name would have to be renamed at every use anyway.
    */
   continueWith?: DispatchInfo;
+  /**
+   * Whether this server will act on `Create plan`, and why not — the ISSUE
+   * row's one action.
+   *
+   * Absent where the board has not said, and the button then reads as
+   * unavailable rather than offering an act whose outcome is unknown — the same
+   * rule the three above follow. It is only HALF of what that control needs:
+   * `fleet.issueAnswer` says whether the tracker can be asked at all, and the
+   * row consults both.
+   */
+  idea?: DispatchInfo;
   /** Bumps once per BOARD refresh; the Start work button counts these. */
   pulse?: number;
   /** A Start work click became outstanding (true) or settled (false). */
@@ -3945,7 +3958,10 @@ function IssueGlyph() {
  * READ-ONLY. No menu, because every action this board offers a row writes
  * somewhere, and nothing here may write to the tracker.
  */
-function IssueRowView({ issue }: { issue: IssueRow }) {
+function IssueRowView(
+  { issue, idea, issueAnswer }:
+  { issue: IssueRow; idea: DispatchInfo; issueAnswer: IssueAnswer },
+) {
   const number = (
     <span className="tabular-nums">
       <IssueGlyph />
@@ -4015,10 +4031,18 @@ function IssueRowView({ issue }: { issue: IssueRow }) {
       >
         {issue.ageMinutes === null ? '' : ageLabel(issue.ageMinutes)}
       </span>
-      {/* Actions: empty in this wave. The row's one action — turn it into a
-          plan — is the next branch of this plan, and an empty menu is better
-          than one offering something that does not work yet. */}
-      <span role="gridcell" className="w-5 shrink-0" />
+      {/* THE ROW'S ONE ACTION, and the only cell this wave changes.
+          Wave 1 left it empty and said why: an empty menu is better than one
+          offering something that does not work yet. It works now.
+
+          The action is `Create plan`, it produces a DRAFT, and it writes
+          nothing to the tracker — see CreatePlanButton. It refuses itself on a
+          host that cannot be asked (`unsupported`) or a lookup that broke
+          (`failed`), which is why the answer travels here beside the binding
+          flag: neither fact implies the other. */}
+      <span role="gridcell" className="flex shrink-0 justify-end">
+        <CreatePlanButton issue={issue} idea={idea} issueAnswer={issueAnswer} />
+      </span>
     </li>
   );
 }
@@ -4109,6 +4133,7 @@ export function AgentList({
   dispatch,
   approve,
   continueWith,
+  idea,
   pulse = 0,
   onStarting,
 }: AgentListProps) {
@@ -4636,7 +4661,12 @@ export function AgentList({
                   way outranks work nobody has committed to — the same
                   actionable-first ordering `GROUPS` applies one level up. */}
               {issues.map((issue) => (
-                <IssueRowView key={`issue-${issue.number}`} issue={issue} />
+                <IssueRowView
+                  key={`issue-${issue.number}`}
+                  issue={issue}
+                  idea={idea ?? { available: false, reason: 'this board has not said whether it can create plans' }}
+                  issueAnswer={fleet.issueAnswer}
+                />
               ))}
               {/* AN OUTAGE IS NOT AN ANSWER. A failed issue lookup says so, in
                   the section the rows would have appeared in. Silence here is

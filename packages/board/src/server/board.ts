@@ -755,6 +755,11 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // the same hand overwriting it. Unavailable here means *this walker cannot
     // say*, never *the answer is no*.
     continue: { available: false, reason: '' },
+    // And once more for turning an issue into a plan. Same socket question,
+    // same hand overwriting it in index.ts. Unavailable here means *this walker
+    // cannot say*, never *the answer is no* — the distinction the other three
+    // record, and the one that keeps a default from becoming a claim.
+    idea: { available: false, reason: '' },
     checklist: readChecklist(repoRoot, readConfig(opts, 'Release directory', 'docs/releases/')),
     sprints: collectSprints(repoRoot, sprintDir),
     stories: collectStories(repoRoot, storyDir),
