@@ -196,7 +196,17 @@ describe('markerIn — reading the tree, and failing to', () => {
     // Same rule as above, reached the other way: a worktree on a slow or
     // unmounted volume must not hold the 5 s scan open, and the answer to a
     // timeout is the stated unknown.
-    const wt = repoWith({ 'src/a.ts': '// PLOT-BLOCKED: which adapter?\n' });
+    //
+    // THE SEARCH MUST BE SLOW ENOUGH THAT THE BUDGET CANNOT WIN. A two-file
+    // repo with a 1 ms budget passed on macOS and FAILED on CI, where `git
+    // grep` finished inside the millisecond and returned the marker it was
+    // supposed to be killed before finding — the test raced the thing it was
+    // asserting. Enough files that no runner finishes them in 1 ms makes the
+    // kill deterministic rather than likely.
+    const many: Record<string, string> = {};
+    for (let i = 0; i < 2000; i++) many[`src/f${i}.ts`] = `// filler ${i}\n`;
+    many['src/z.ts'] = '// PLOT-BLOCKED: which adapter?\n';
+    const wt = repoWith(many);
     expect(await markerIn(wt, 1)).toBe('');
   });
 });
