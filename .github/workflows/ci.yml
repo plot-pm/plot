@@ -9,6 +9,14 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    # A CEILING, not a target. GitHub's default is 360 minutes, which is not a
+    # limit anyone waits for — a wedged step simply never returns, and the run
+    # sits in `in_progress` looking like work. Measured 2026-08-19: eleven runs
+    # hung on the Playwright download alone, 10 to 57 minutes each, every one
+    # ended by hand. A green run takes about 7 minutes, so 25 leaves ample room
+    # for a slow runner while turning a hang into a FAILURE — and a failure can
+    # be re-run, while a hang has to be noticed first.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -53,10 +61,39 @@ jobs:
       # ── Board integration tests: a real browser (Playwright) renders the just-
       #    built artifact against the tiny-garden fixture, asserting the mobile
       #    no-horizontal-scroll fix and the inline-sprint filter. ───────────────
+      # THE STEP THAT HUNG ELEVEN TIMES IN ONE DAY, and neither half of this is
+      # optional. The cache usually removes the download entirely; the timeout
+      # decides what happens on the days it does not.
+      #
+      # Keyed on the resolved Playwright version rather than on the lockfile
+      # hash: the browser build is chosen by that version and by nothing else,
+      # so a lockfile change elsewhere must not evict a browser that is still
+      # correct. `restore-keys` lets a near-miss serve the OS deps while the
+      # exact browser is fetched.
+      - name: Cache the Playwright browser
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('packages/board/package.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      # THREE MINUTES, against a step that takes ~45 s warm and ~90 s cold.
+      # This is deliberately tight: the failure mode is not a slow CDN, it is a
+      # connection that never completes, and every measured hang sat past 10
+      # minutes with no output. A tight bound turns that into a fast, re-runnable
+      # failure instead of an hour of silence — the difference between a gate and
+      # a thing somebody has to watch.
       - name: Install Playwright browser
+        timeout-minutes: 3
         run: pnpm --filter @plot-pm/board exec playwright install --with-deps chromium
 
+      # The longest legitimate step — a real browser against the built artifact.
+      # Measured green at 4 to 8 minutes; 15 covers a saturated runner without
+      # letting a wedged browser hold the job to the ceiling above.
       - name: Board integration tests (vitest + Playwright)
+        timeout-minutes: 15
         run: pnpm --filter @plot-pm/board exec vitest run
 
       - name: Check for changeset
