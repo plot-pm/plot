@@ -71,8 +71,13 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | Status | Small | File existence checks for delivery state are mechanical; no judgment needed |
 | Close | Mid | False-positive detection (cross-reference `[x]` against `docs/plans/delivered/`) plus existing checkbox parsing |
 | Release state (close step 2b) | Small | `plot-sprint-release.sh` plus `git tag --list`; reports, never refuses |
+| Propose plans from the goal (create step 4) | **Frontier** | Reading a goal against each plan's title, story and changelog is semantic, not lexical: the measured case — goal *"the board tells the truth"*, plan *"none printed before the first fetch"* — shares no word and is the same subject, and word overlap ranks it last. **Fallback below Frontier:** list everything grouped by story and say that is what happened; a fallback that does not announce itself is read as a ranking |
 
-All sprint operations are structural (Small or Mid). No Frontier needed.
+Every other sprint operation is structural (Small or Mid). The proposal step is
+the one exception, and it is the one place in this skill where a smaller model
+cannot degrade into asking the human — handing the operator every open plan is
+the behaviour the step replaces. So it degrades into the previous behaviour and
+labels it, rather than into a question.
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
 >
@@ -102,7 +107,7 @@ The `Phase` field is only updated by named subcommands: `commit`, `start`, `clos
 
 ## Subcommands
 
-### Create: `/plot-sprint <slug>: <goal>`
+### Create: `/plot-sprint <slug>: <goal> [--all]`
 
 Create a new sprint in Planning phase.
 
@@ -114,8 +119,11 @@ Extract `<slug>` (before the colon) and `<goal>` (after the colon). Both are req
 
 - Slug: trimmed, lowercase, hyphens only
 - Goal: the sprint goal as a sentence
+- `--all`: strip it from the input before parsing slug and goal. It asks step 4
+  to list every candidate plan instead of proposing a ranked few, and it is
+  never part of the goal sentence.
 
-If no colon or missing parts: "Usage: `/plot-sprint <slug>: <goal>`"
+If no colon or missing parts: "Usage: `/plot-sprint <slug>: <goal> [--all]`"
 
 **Multiline input:** If `$ARGUMENTS` contains newlines, the first line is parsed for slug + goal as above. Any subsequent lines are treated as **context for the goal** (e.g., motivation, scope hints) and become the body of the `## Sprint Goal` section in the new sprint file — not the one-line `> <sprint goal>` headline.
 
@@ -137,22 +145,87 @@ ls docs/sprints/${WEEK_PREFIX}-<slug>.md 2>/dev/null
 
 If file exists: "Sprint `<slug>` already exists for week ${WEEK_PREFIX}."
 
-#### 4. Discover Active Plans
+#### 4. Propose the Plans That Serve the Goal
 
-List active plans so the user can add them to the sprint:
+Collect the candidates — every unfinished plan, and what each one says it does:
 
 ```bash
-ls docs/plans/active/ 2>/dev/null
+bash skills/plot/scripts/plot-sprint-candidates.sh
 ```
 
-If plans exist, present: "Found N active plans. Add any to this sprint?" List them and let the user select which to include (or none). Selected plans are added as `[slug]` items under the appropriate MoSCoW tier.
+That reports `{plans: [{slug, phase, type, title, story, changelog}], count,
+changelog_available}` and ranks nothing. **Read the goal against each
+candidate's title, story and changelog, and propose the plans that serve it** —
+ranked, most relevant first, each row carrying the sentence that earned it a
+place:
+
+```
+Plans that may serve "the board tells the truth":
+
+  [the-row-says-what-it-knows]     story: plot-board · "a row that cannot say
+                                   why it is stuck reports a guess"
+  [working-shows-the-agent]        story: —          · "the board watches the
+                                   machine it runs on"
+
+  ... 4 other plans not shown. Ask for them with --all.
+
+Which of these belong in this sprint, and in which tier?
+```
+
+**Every row shows the reason it was proposed.** A ranking without one is an
+oracle: the operator cannot tell a good match from a coincidence, and cannot
+correct it. The proposal will be wrong sometimes, and a ranked list whose
+mistakes are invisible is worse than an unranked one — it hides them behind an
+order. The reason is a short quote or paraphrase from the plan's own changelog
+or title, never a restatement of the goal.
+
+**The match is semantic, not lexical.** The case this step exists for, measured
+across the estate before it was built:
+
+| | |
+|---|---|
+| goal | *"the board tells the truth"* |
+| plan | *"none printed before the first fetch"* |
+| shared words | **none** |
+
+Those are obviously the same subject and share not one word, so that plan must
+rank highly. Scoring on word overlap ranks it last, which is the failure this
+step replaces rather than the method it uses.
+
+**Story is a signal, not a filter.** A goal about the board will mostly draw
+from a board story, but a plan from another story can still serve the goal —
+this very plan belongs to `plot-planning-model` and served a board-flavoured
+sprint. Never exclude a candidate because its story differs.
+
+**When `changelog_available` is `false`,** `plot-plan-meta.sh` does not report
+the field: rank on title and story, and say in the output that the third signal
+was unavailable. A proposal that ranked on two signals while implying three
+would be confident about a reading it did not do.
+
+**`--all` lists everything**, unranked and grouped by story, when the operator
+wants the full estate rather than a proposal.
+
+**Propose only; never add.** The operator selects; selected plans are added as
+`[slug]` items under the tier they chose. Which MoSCoW tier a plan belongs to is
+a statement about what the team is committing to — an agent that filled the
+tiers itself would be committing on someone's behalf. **Nothing is written to
+the sprint's tiers without an explicit selection.**
+
+> **Smaller model (below Frontier):** ranking the goal against the candidates is
+> a judgement this step declares Frontier (see Model Guidance). A smaller model
+> **falls back to listing everything grouped by story, and says that is what
+> happened** — for example: *"Not ranked: this ran below the Frontier tier, so
+> these are all <n> unfinished plans grouped by story, in no order of relevance."*
+> The announcement is not optional. A reader who believes a fallback list was
+> ranked will trust an ordering that is alphabetical.
 
 > **Unattended (`PLOT_UNATTENDED=1`):** create the sprint with its tiers empty,
 > and stop before assigning anything. Which tier a plan belongs to is a
 > statement about what the team is committing to — it has no safe default, and
 > it is not derivable from the plan file, which is why this step asks rather
-> than computes. List the candidates so a person can place them in one pass.
-> `PLOT-UNASKED: Which plans, in which MoSCoW tier? — stopped — <n> active plans listed; sprint created empty`
+> than computes. List the candidates — the ranked proposal if the tier allows
+> it, the grouped fallback if not — so a person can place them in one pass.
+> `PLOT-UNASKED: Which plans, in which MoSCoW tier? — stopped — <n> candidate plans listed; sprint created empty`
 
 #### 5. Create Sprint File
 
