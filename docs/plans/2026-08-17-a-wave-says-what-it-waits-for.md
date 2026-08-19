@@ -2,11 +2,11 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
-- **Approved:**
+- **Approved:** 2026-08-19, Jan Wloka, plan-PR #197 merged
 - **Started:**
 - **Delivered:**
 - **Released:**
