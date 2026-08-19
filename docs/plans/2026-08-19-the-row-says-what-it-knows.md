@@ -47,7 +47,10 @@ specification"*, and `plot-dispatch.sh` reports `brief=missing` unconditionally
 because it cannot write one and never will: a brief is interpretation, and
 `/plot-implement` owns it.
 
-**Measured 2026-08-19: nine eligible branches on the board, zero briefs.**
+**Measured 2026-08-19: nine eligible branches on the board, zero briefs** — and
+re-measured the same evening, after four plans had been delivered: 8 of 14. The
+count is not stable and does not need to be; what holds is that a brief is
+missing more often than not.
 
 The measurement exists, but not where the row can reach it. `briefPath` and
 `briefExists` are fields of **`ClaimableSchema`** (`schema.ts:1858`) — the shape
@@ -274,12 +277,18 @@ actions:
 | eligible, brief exists | *ready — nobody has taken it* | dispatch it |
 | eligible, no brief | *needs a brief before it can start* | `/plot-implement` |
 
-The second is the common case today — nine of nine — so it is not an edge to
-tuck away.
+The second is the common case rather than an edge to tuck away. Measured
+2026-08-19 and re-measured after four plans were delivered: **8 of 14 open
+branches on Approved plans have no brief.** The ratio moved with the day's work
+and the shape did not — closing plans consumes briefs, and the branches left
+over are the ones nobody has interpreted yet.
 
-**No new measurement.** Both fields are on the row already; this wave renders
-what the server sends. That is the whole change on the read side, and it is why
-this is a bug rather than a feature.
+**The collection is small, the plumbing is the work.** `briefExists` is not on
+the board row today; it belongs to `ClaimableSchema`, and the fleet build must
+learn to answer it. One `existsSync` per branch per pulse, measured at 0.2 ms
+for 60 branches against a 14 s scan. That is why this is still a bug rather
+than a feature: the fact is knowable from a path convention Plot itself writes,
+and nothing has to be invented to know it.
 
 ### Naming the dependency is a second question, and deliberately separate
 
@@ -308,20 +317,15 @@ the interesting one.
 
 ### Seeing it
 
-- `bug/a-section-break-reads-as-one` — the space between two section groups grows enough that a heading reads as introducing the block below it rather than as trailing the one above. Row spacing is untouched. Tests: the gap above a heading exceeds the gap between two rows in the same group by a stated factor; row height is unchanged; below `CARD_BELOW_PX` nothing regresses.
+- `bug/the-row-shows-what-it-withholds` — the five display findings above, in one branch: a section break reads as a bigger break than a row break; a plan group draws an edge so it stops absorbing what follows it; the plan row hosts the approval that belongs to a plan; a deferred row states the reason recorded in its annotation; and every pointer target reaches 24 x 24 px of hit area with the fold toggle distinguishable at a glance.
 
-- `bug/a-plan-group-has-an-edge` — a plan and its branches sit in one bordered block, and the next thing in the section starts outside it. Completes the fourth Done-when criterion of `a-plan-row-is-not-a-branch-row`, whose row proportions landed without its border. Tests: a plan group renders a visible boundary after its last branch; rows following it in the same section — issue rows among them — sit outside that boundary; the count beside a plan name matches the rows inside its block; branch-to-branch dividers inside a group stay suppressed.
+  **One branch rather than five, and the reason is measured rather than tidy.** All five edit `AgentList.tsx`, and that file conflicted on *every* merge today — four times, each costing an artifact rebase. Five branches would mean four rebases and five CI rounds, against a CI that hung eleven times today on the Playwright step alone (10 to 57 minutes each). The findings are also one kind of change: none adds a data source, none touches the server, and a reviewer reading them together sees the pattern the plan is named for. Plot's convention is a branch per finding, and it is broken here deliberately — the convention exists to keep a branch reviewable, and five small display fixes in one file are more reviewable together than four rebases apart.
 
-- `bug/a-plan-row-can-be-approved` — the plan row hosts the one action that belongs to a plan. `ApproveButton` and its server-side `approve` availability already exist; what is missing is a place on the row to put them, removed when the row gained its own proportions. Tests: a Draft plan row offers approval; a plan past Draft does not; the control is absent when the server reports `approve.available: false`, with its reason; branch rows are unchanged.
-
-- `bug/a-deferred-row-says-why` — the deferral reason travels from the plan file to the row. `plot-plan-meta.sh` captures the text after `deferred:` alongside the boolean, the schema carries it, and a deferred row states it instead of leaving `deferred` and `no commits` as two unexplained facts. Tests: a branch annotated with a reason renders it; one annotated bare (`<!-- deferred -->`) still reads as deferred with no reason rather than as an error; the wave arithmetic is unchanged — a deferred branch still does not block its wave; `moved:` keeps its own meaning, which `plot-reconcile-scan.sh` already distinguishes.
-
-- `bug/a-control-can-be-seen-and-hit` — every pointer target in a row reaches at least 24 × 24 px of hit area, by padding rather than by growing the mark, and the fold toggle grows enough that `▸` and `▾` are distinguishable at a glance. The display glyphs stop matching the size of the controls beside them. Tests: each of `data-wave-toggle`, `data-row-actions`, `data-pr-link` and `data-issue-link` measures ≥24px in both directions; row height is unchanged at the default width; the fold state is distinguishable from a screenshot; below `CARD_BELOW_PX` nothing regresses.
+  Tests, per finding: the gap above a section heading exceeds the gap between two rows in the same group; a plan group renders a boundary after its last branch and rows following it in the section — issue rows among them — sit outside it, with the count beside the plan name matching the rows inside; a Draft plan row offers approval and a plan past Draft does not, absent with its reason when the server reports `approve.available: false`; a branch annotated with a deferral reason renders it while a bare `<!-- deferred -->` still reads as deferred without one; each pointer target measures at least 24 px in both directions and the fold state is distinguishable from a screenshot. Throughout: branch rows stay aligned column-for-column across every section, row height is unchanged at the default width, and below `CARD_BELOW_PX` nothing regresses.
 
 ### Saying it
 
-- `bug/eligible-says-whether-it-can-start` — a NOT STARTED row distinguishes *ready* from *needs a brief*. `fleet.ts` collects `briefExists` per branch (one `existsSync`, measured at 0.2 ms per pulse for 60 branches) and the row renders it. Tests: a branch with a brief reads as ready; one without names the gap and does not invite a dispatch; the phrasing never claims a person is missing when a file is; an unreadable `.plot/briefs` directory reads as unknown rather than as "no brief".
-
+- `bug/eligible-says-whether-it-can-start` — a NOT STARTED row distinguishes *ready* from *needs a brief*. `fleet.ts` collects `briefExists` per branch — one `existsSync`, measured at 0.2 ms per pulse for 60 branches — and the row renders it. Second wave rather than beside the first, because this one crosses the server: it is the only finding here that adds a field to the board row, and keeping it apart means the display work can land while the contract change is reviewed on its own terms. Tests: a branch with a brief reads as ready; one without names the gap and does not invite a dispatch; the phrasing never claims a person is missing when a file is; an unreadable `.plot/briefs` directory reads as unknown rather than as "no brief".
 
 ## Notes
 
