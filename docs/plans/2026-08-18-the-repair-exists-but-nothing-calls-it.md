@@ -4,14 +4,14 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-18, jwloka, in-session
 - **Started:** 2026-08-18, Jan Wloka, `feature/the-scan-sees-a-repairable-conflict`
-- **Delivered:**
+- **Delivered:** 2026-08-19, jwloka, PR #249 — its two sibling branches deferred, verified already on main 2026-08-17
 - **Released:**
 - **Started:** 2026-08-19, Jan Wloka, `feature/the-repair-can-be-turned-off`
 
