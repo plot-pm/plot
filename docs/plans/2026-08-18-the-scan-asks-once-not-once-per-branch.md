@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Story:** plot-board
 - **Sprint:** the-board-tells-the-truth
@@ -12,7 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-18, jwloka, in-session
 - **Started:** 2026-08-18, Jan Wloka, `bug/the-scan-joins-one-pr-list`
-- **Delivered:**
+- **Delivered:** 2026-08-19, jwloka, PRs #232, #242, #245, #247
 - **Released:**
 - **Started:** 2026-08-19, Jan Wloka, `feature/the-board-renders-what-has-arrived`
 - **Started:** 2026-08-19, Jan Wloka, `feature/a-terminal-branch-is-asked-once`
