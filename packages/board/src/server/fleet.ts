@@ -73,6 +73,47 @@ const PR_REFRESH_MS = 60_000;
 const PR_BACKOFF_MAX_MS = 120_000;
 
 /**
+ * What ONE PR refresh costs, in host requests, on each backend.
+ *
+ * The number the cadence above was missing. `PR_REFRESH_MS` reasons about a
+ * refresh as a unit — "60 s between refreshes" — and that reasoning is only
+ * about spending if a refresh is one request. On GitHub it is. On Bitbucket it
+ * is three, and the adapter has known that all along while the board did not:
+ * `plot-host.sh` expands `--state all` into `open`, `merged` and `declined`
+ * because `bb` has no `all` state, so the one call this file makes fans out
+ * into three round trips before it returns.
+ *
+ * Measured against `bitbucket.org/quatico/ekzweb` (issue #226), 60 s cadence:
+ *
+ *     GitHub      1 request  x 60 refreshes =  60 requests / hour
+ *     Bitbucket   3 requests x 60 refreshes = 180 requests / hour
+ *
+ * A board left open a working day made ~1400 Bitbucket requests just watching,
+ * and reached `HTTP 429 — Rate limit for this resource has been exceeded`
+ * account-wide, with every `bb` call from the operator's own shell failing too.
+ *
+ * ONLY `pr-list` is counted, and that is not an omission. The refresh also runs
+ * `issue-list` and `runs`, and on Bitbucket both cost ZERO requests: `bb`
+ * exposes no issue listing (`plot-host.sh` exits 4 before touching the network)
+ * and no run listing (the Bitbucket arm is empty). So on the host this branch
+ * exists for, `pr-list` is the whole bill — counting the calls that cannot be
+ * made would overstate it and slow the board down for requests nobody sends.
+ *
+ * A backend absent from this table costs 1 — the naive assumption, kept as the
+ * default so a host added later behaves exactly as every host did before, and
+ * is slowed only once someone measures what it really costs.
+ */
+const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
+  // One `gh pr list --state all` call, whatever the states asked for.
+  github: 1,
+  // `bb` has no `all` state, so `--state all` is three calls: open, merged,
+  // declined. Do not "fix" this by inventing an `all` — it would fabricate an
+  // answer the host cannot give. This branch makes the cadence aware of the
+  // cost; removing the cost is not available.
+  bitbucket: 3,
+};
+
+/**
  * How many PRs to ask the host for. The CLI's own default is 30, which is
  * plenty for the open PRs the fleet reads and far too few once the board asks
  * for merged ones too — the newest 30 would crowd out exactly the finished work
@@ -290,6 +331,18 @@ interface CacheEntry {
    * nothing, because calling before it is what exhausted the quota.
    */
   prNextIsBackoff: boolean;
+  /**
+   * The configured git host — `github` or `bitbucket` — or null before the
+   * first lookup. Decides what one PR refresh COSTS, and therefore how far
+   * apart the refreshes go; see `prRefreshMsFor`.
+   *
+   * Cached because it is configuration rather than state: it is read from
+   * `PLOT_HOST` or the `Git host` key, so it cannot change under a running
+   * process without a human editing a file the process would be restarted for.
+   * Asking once also keeps the cost model honest — a cadence that spent a call
+   * to decide how many calls to spend would be measuring itself.
+   */
+  backend: string | null;
   /**
    * Whether the pulse in `pulse` is every plan the scan found, or only the ones
    * that had resolved when it was last read.
@@ -705,6 +758,51 @@ export function rateLimitBackoffMs(message: string, now = Date.now()): number | 
 }
 
 /**
+ * How long to leave between PR refreshes on a given backend, in ms.
+ *
+ * The cadence with the cost put back into it. `PR_REFRESH_MS` is a budget
+ * stated in the wrong unit — refreshes — and this converts it to the unit the
+ * host actually meters: requests. One refresh costs
+ * `PR_REQUESTS_PER_REFRESH[backend]` requests, so spacing refreshes that many
+ * periods apart spends the same number of requests per hour on every host.
+ *
+ *     github      60_000 x 1 =  60_000 ms  ->  60 refreshes,  60 requests / hour
+ *     bitbucket   60_000 x 3 = 180_000 ms  ->  20 refreshes,  60 requests / hour
+ *
+ * DERIVED, NOT CONFIGURED, and the plan's open point is answered that way on
+ * purpose: a configured cadence is a second number that must be kept true, and
+ * this one follows from a fact the adapter already states. The multiplier is
+ * read from the CONFIGURED backend — `plot-host.sh backend`, which reads
+ * `PLOT_HOST` or the `Git host` config key and touches no network — never from
+ * counting responses. Inferring it per request would make the cadence depend on
+ * the very calls it is rationing.
+ *
+ * **A GitHub board is unchanged.** The multiplier is 1 there, so this returns
+ * exactly `PR_REFRESH_MS` and every arithmetic downstream of it is the same
+ * number it was. The uncommon case must not slow the common one down.
+ *
+ * The trade is stated rather than hidden: a Bitbucket board's PR badges are up
+ * to three minutes old instead of one. That is the right side to err on for
+ * data whose events are minutes-scale anyway — and the alternative is not a
+ * fresher board but a rate-limited one, which is how this was measured.
+ */
+export function prRefreshMsFor(backend: string): number {
+  return PR_REFRESH_MS * prRequestsPerRefresh(backend);
+}
+
+/**
+ * What one refresh costs on `backend`, in host requests.
+ *
+ * An unknown backend costs 1 — see `PR_REQUESTS_PER_REFRESH`. Never 0, which
+ * would make `prRefreshMsFor` return 0 and turn the gate into a tight loop: the
+ * one arithmetic here that fails dangerously rather than merely wrongly.
+ */
+export function prRequestsPerRefresh(backend: string): number {
+  const cost = PR_REQUESTS_PER_REFRESH[backend];
+  return cost && cost > 0 ? cost : 1;
+}
+
+/**
  * How far before `prNextAt` an ordinary cadence tick may still be honoured, in
  * ms. Two percent of the period — 1.2 s at the 60 s cadence.
  *
@@ -721,6 +819,16 @@ export function rateLimitBackoffMs(message: string, now = Date.now()): number | 
  * sooner, and it is applied ONLY to the ordinary cadence — never to a rate-limit
  * backoff, which is a floor the host named and this must not shave. See
  * `prGateOpen`.
+ *
+ * ABSOLUTE, and deliberately not scaled by the host cost multiplier. It answers
+ * "how far can `setInterval` miss its mark", which is a property of the timer
+ * and not of the period the gate is aiming at — the timer still fires every
+ * `PR_REFRESH_MS` on every host. Scaling it would widen the tolerance on
+ * exactly the host that can least afford an early call: 3.6 s of licence to
+ * fetch on Bitbucket, bought for jitter that is still measured in
+ * milliseconds. Left absolute, a stretched cadence is proportionally STRICTER
+ * than the 60 s one, which is the safe direction for a change whose whole
+ * purpose is to spend less.
  */
 const PR_TICK_SLACK_MS = PR_REFRESH_MS / 50;
 
@@ -763,12 +871,22 @@ export function prGateOpen(
  *   ordinary failures, both of which rejoin the ordinary cadence.
  * @param now the moment the fetch ended — a named backoff is measured from
  *   here, because the host's clock started when it answered, not when we asked.
+ * @param backend the CONFIGURED host, which decides what one refresh costs and
+ *   therefore how far apart refreshes go. Defaults to `github`, whose cost is
+ *   1, so every existing caller and every existing test gets exactly the
+ *   arithmetic it got before.
  */
 export function prNextDueAt(
   startedAt: number, backoff: number | null, now = Date.now(),
+  backend = 'github',
 ): { at: number; hard: boolean } {
+  // BEFORE the cost is applied, and this ordering is the rule the brief names:
+  // a cost-aware cadence may only ever be MORE conservative than a backoff,
+  // never less. The host named this floor; stretching it would be conservative
+  // and harmless, but shortening it would spend quota to be refused — so the
+  // backoff is returned untouched and the multiplier never reaches it.
   if (backoff !== null) return { at: now + backoff, hard: true };
-  return { at: startedAt + PR_REFRESH_MS, hard: false };
+  return { at: startedAt + prRefreshMsFor(backend), hard: false };
 }
 
 /**
@@ -982,6 +1100,36 @@ async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry): Promis
   entry.issueError = null;
 }
 
+/**
+ * The configured git host, asked ONCE per cache entry and cached for the
+ * process's life.
+ *
+ * `plot-host.sh backend` reads `PLOT_HOST` or the `Git host` config key and
+ * touches no network — 22 ms, entirely local, so this is safe on a timer and
+ * safe beside `no-network.test.ts`'s rule. It is asked once anyway because the
+ * answer is configuration: it changes when a human edits `CLAUDE.md`, and a
+ * board that outlives that edit is a board that has been restarted.
+ *
+ * A failure resolves to `github`, the cost-1 default. The consequence of
+ * guessing wrong in that direction is the cadence this file had yesterday, and
+ * the consequence of guessing wrong in the other is a board that refreshes
+ * three times slower than it needs to on the host where freshness is cheap.
+ * The error is not surfaced because there is nothing for a reader to do about
+ * it: unlike a PR fetch, this failing produces no wrong CLAIM on the page.
+ */
+async function resolveBackend(opts: BuildBoardOptions, entry: CacheEntry): Promise<string> {
+  if (entry.backend !== null) return entry.backend;
+  try {
+    const out = await run('bash',
+      [path.join(opts.scriptsDir, 'plot-host.sh'), 'backend'], opts.repoRoot);
+    const be = out.trim();
+    entry.backend = be || 'github';
+  } catch {
+    entry.backend = 'github';
+  }
+  return entry.backend;
+}
+
 async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
   // Captured BEFORE the call, and this is the whole fix. `prNextAt` is the
   // cadence's anchor, and anchoring it to the finish made every period cost the
@@ -993,6 +1141,11 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
   // data is not fetched until it has landed. Two questions, two stamps — the
   // one place they were the same number is the defect.
   const startedAt = Date.now();
+  // Before the fetch, so BOTH exits have it — a failure reschedules too, and a
+  // failure on Bitbucket must be spaced by the same cost as a success. Cached
+  // after the first call, so this is one extra local `bash` on the process's
+  // first refresh and nothing on any later one.
+  const backend = await resolveBackend(opts, entry);
   try {
     const out = await run('bash',
       [path.join(opts.scriptsDir, 'plot-host.sh'), 'pr-list', '--rich',
@@ -1029,7 +1182,7 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
     entry.prsByNumber = byNumber;
     await refreshRuns(opts, entry, map);
     entry.prAt = Date.now();
-    const due = prNextDueAt(startedAt, null);
+    const due = prNextDueAt(startedAt, null, Date.now(), backend);
     entry.prNextAt = due.at;
     entry.prNextIsBackoff = due.hard;
     entry.prError = null;
@@ -1048,7 +1201,7 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
     // it said so, not when we started asking. An ordinary failure rejoins the
     // ordinary cadence, so it anchors to the start like a success does; a
     // failed call should not push the next attempt out by its own duration.
-    const due = prNextDueAt(startedAt, backoff);
+    const due = prNextDueAt(startedAt, backoff, Date.now(), backend);
     entry.prNextAt = due.at;
     entry.prNextIsBackoff = due.hard;
   }
@@ -1328,6 +1481,9 @@ function ensureCache(opts: BuildBoardOptions): CacheEntry {
     prs: null, prsByNumber: null, runs: new Map(), prAt: null, prError: null,
     // 0, so the first fetch happens immediately rather than a minute in.
     prNextAt: 0, prNextIsBackoff: false,
+    // Null, never 'github': "not yet asked" and "asked, and it is GitHub" are
+    // different answers, and `resolveBackend` distinguishes them to ask once.
+    backend: null,
     pulseComplete: true,
     timer: null, prTimer: null, running: false, prRunning: false,
   };
