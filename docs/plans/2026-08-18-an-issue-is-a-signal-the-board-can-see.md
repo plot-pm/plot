@@ -14,6 +14,7 @@
 - **Started:** 2026-08-18, Jan Wloka, `feature/the-board-sees-unplanned-issues`
 - **Delivered:**
 - **Released:**
+- **Started:** 2026-08-19, Jan Wloka, `feature/an-issue-becomes-a-plan`
 
 ## Changelog
 
