@@ -1,0 +1,1 @@
+../2026-08-19-the-row-says-what-it-knows.md

@@ -1,1 +1,0 @@
-../2026-08-19-eligible-does-not-mean-startable.md
