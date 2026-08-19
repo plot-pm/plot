@@ -81,7 +81,31 @@ describe('POST /api/transition: a guardrail the spoke enforces is enforced here'
     });
     initRepo(tmp);
     // THE REAL SCRIPTS DIR — see the note at the top of this file.
-    server = await startServer(tmp, { PLOT_SCRIPTS_DIR: SCRIPTS_DIR });
+    //
+    // NO TEST HERE MAY REACH A GIT HOST.
+    //
+    // Two of the three cases below are refused from the plan file and never get
+    // near one. The third gets PAST the phase gate by design — that is what it
+    // asserts — and would otherwise shell out to `gh` for a PR lookup.
+    // Measured: under a loaded full-suite run that took 10.4 s and the socket
+    // hung up, while it failed fast in isolation. That is what this repo calls
+    // a race rather than a flake, and a timeout would only have decided it
+    // differently on a different machine.
+    //
+    // `PLOT_HOST` is `plot-host.sh`'s own documented test hook — it wins over
+    // remote sniffing, and an unrecognised value makes the adapter die
+    // immediately and LOCALLY. The assertion wants to know the run got past the
+    // phase gate, not what a host said afterwards, so failing at the host
+    // boundary is exactly the right depth to stop at.
+    //
+    // These three cases each take a few seconds, and the cost is `jq` forks and
+    // `plot-plan-meta.sh` rather than anything waiting on a socket — traced
+    // 2026-08-19, ~0.35 s per field read on macOS. Slow and deterministic,
+    // which is the trade this file accepts to assert against the REAL rule.
+    server = await startServer(tmp, {
+      PLOT_SCRIPTS_DIR: SCRIPTS_DIR,
+      PLOT_HOST: 'none-in-tests',
+    });
   });
 
   after(async () => {
@@ -148,11 +172,17 @@ describe('POST /api/transition: a guardrail the spoke enforces is enforced here'
       slug: 'already-approved',
       transition: 'approve',
     });
-    // It got PAST the phase gate and failed further on, at the PR lookup — in
-    // this fixture there is no remote and no PR, which is exactly how far a
-    // legitimate re-run gets here. The reason is that later step's, not a
-    // phase complaint.
-    assert.match(body.reason, /no PR found/i);
+    // It got PAST the phase gate and failed further on, where a legitimate
+    // re-run would continue: this fixture has no remote and no host CLI, so the
+    // PR lookup cannot answer. The assertion is on what did NOT happen — the
+    // phase was not the objection — so it matches anything except a phase
+    // complaint rather than pinning one downstream sentence.
+    assert.doesNotMatch(
+      body.reason,
+      /nothing to approve|not Draft/i,
+      'an Approved plan must not be refused on its phase',
+    );
+    assert.ok(body.reason.length > 0, 'and it still says what stopped it');
     assert.equal(body.phase, 'approved', 'and the phase is reported as it stands');
   });
 });
