@@ -91,7 +91,12 @@ describe('the scan\'s worker state reaches the row as a FIELD', () => {
     // value, not a replacement for the sentence a person reads.
     expect(rows.get('feature/is-running')!.group).toBe('working');
     expect(rows.get('feature/is-running')!.note).toContain('pid 4242');
-    expect(rows.get('feature/is-waiting')!.note).toContain('waiting on an answer');
+    // A waiting worker is an AGENT, so its row sits in WORKING beside the
+    // running one — and its note still names the wait, so the `worker` field
+    // above is an addition rather than the only place the fact survives. The
+    // fixture supplies no marker text, which is the stated-unknown case.
+    expect(rows.get('feature/is-waiting')!.group).toBe('working');
+    expect(rows.get('feature/is-waiting')!.note).toContain('waiting on you');
   });
 });
 

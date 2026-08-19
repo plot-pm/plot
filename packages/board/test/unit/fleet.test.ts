@@ -11,6 +11,7 @@ import {
   AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, toBoardPhase, unknownPhaseNote,
   type AgentRow, type FleetPulse,
 } from '../../src/contract/schema.js';
+import { showsWorkerLog } from '../../src/app/components/AgentList.js';
 import type { PrRecord } from '../../src/server/fleet.js';
 
 // The classifier is where the tab's judgments live: which group a branch lands
@@ -2062,14 +2063,56 @@ describe('rowsFromPulse', () => {
       expect(rows.find((r) => r.branch === 'feature/d')!.note).toMatch(/900/);
     });
 
-    it('sends a waiting worker to a person, and says what it needs', () => {
-      // `waiting` means a marker in the tree asks a question. The move is
-      // ANSWER IT — not review, not restart — and the note has to say so, or
-      // the row lands in the same *review it* bucket the state was split out of.
+    // The questions map, in the shape `rowsFromPulse` takes it: branch → the
+    // marker line the scan's `waiting` verdict was made from.
+    const asking = (question: string) => new Map([['feature/d', question]]);
+
+    it('keeps a waiting worker in WORKING — it is an agent, not a result', () => {
+      // THE SECTION BOUNDARY, and it is the whole of this branch. WAITING ON
+      // YOU lists RESULTS to inspect on the git host; WORKING lists AGENTS. An
+      // agent that stopped to ask still holds its worktree and its context, and
+      // what unblocks it is an answer rather than a review — so an operator
+      // counting agents in WORKING must find it there. It sat in
+      // `waiting-on-you` until this change and undercounted every one.
+      const rows = rowsFromPulse(
+        withWorker('waiting', '0', '900'), ages, 'plot', QUIET,
+        null, '', null, Date.now(), null, null, asking('PLOT-BLOCKED: which adapter?'));
+      expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('working');
+    });
+
+    it('says what a waiting worker waits ON, not merely that it waits', () => {
+      // *worker is waiting on an answer* names a state and withholds the only
+      // part a reader can act on. Carrying the question lets them answer it —
+      // or see that it is not theirs — without opening the worktree first.
+      const rows = rowsFromPulse(
+        withWorker('waiting', '0', '900'), ages, 'plot', QUIET,
+        null, '', null, Date.now(), null, null,
+        asking('PLOT-BLOCKED: which adapter should the fallback use?'));
+      expect(rows.find((r) => r.branch === 'feature/d')!.note)
+        .toMatch(/which adapter should the fallback use\?/);
+    });
+
+    it('degrades an unreadable marker to a STATED unknown, never a guess', () => {
+      // The scan already found a marker — that is what made this `waiting` — so
+      // no question here means THIS read did not find what that one did. The
+      // row must say so and stay in WORKING. A fabricated question would send a
+      // reader to answer the wrong one with nothing to signal the substitution,
+      // which is strictly worse than a blank.
       const rows = rowsFromPulse(withWorker('waiting', '0', '900'), ages, 'plot', QUIET);
       const row = rows.find((r) => r.branch === 'feature/d')!;
+      expect(row.group).toBe('working');
+      expect(row.note).toMatch(/unavailable/i);
+      expect(row.note).toMatch(/worktree/i);
+    });
+
+    it('still sends a finished worker to WAITING ON YOU — that one IS a result', () => {
+      // The counterweight to the change above. `finished` and `waiting` both
+      // mean the process exited; only one of them means the work is done, and
+      // moving `waiting` must not drag `finished` along with it.
+      const rows = rowsFromPulse(withWorker('finished', '0', '900'), ages, 'plot', QUIET);
+      const row = rows.find((r) => r.branch === 'feature/d')!;
       expect(row.group).toBe('waiting-on-you');
-      expect(row.note).toMatch(/waiting on an answer/i);
+      expect(row.note).toMatch(/review it/i);
     });
 
     it('names what a stalled worker left on the floor', () => {
@@ -2105,6 +2148,35 @@ describe('rowsFromPulse', () => {
         rowsFromPulse(withWorker(w, '0', '900', ['x.ts']), ages, 'plot', QUIET)
           .find((r) => r.branch === 'feature/d')!.note;
       expect(new Set([say('waiting'), say('stalled'), say('finished')]).size).toBe(3);
+    });
+
+    it('gives a waiting row the log offer, by landing it in WORKING', () => {
+      // TWO WAVES COMPOSING, asserted so neither can be undone without noticing.
+      // `showsWorkerLog` gates on WORKING membership alone — it knows nothing
+      // about worker states — so moving `waiting` into that section hands it the
+      // log the sibling wave shipped. The reader sees the question on the row
+      // and can open the reasoning behind it without a second tool. In
+      // `waiting-on-you` the row had neither.
+      const rows = rowsFromPulse(
+        withWorker('waiting', '0', '900'), ages, 'plot', QUIET,
+        null, '', null, Date.now(), null, null, asking('PLOT-BLOCKED: which one?'));
+      expect(showsWorkerLog(rows.find((r) => r.branch === 'feature/d')!)).toBe(true);
+    });
+
+    it('ranks waiting above stalled even with work on the floor', () => {
+      // THE ORDERING GUARANTEE, and moving `waiting` up beside `running` must
+      // not cost it. A worker that asked a question has almost always left the
+      // work it was doing uncommitted BESIDE the question, so a row reading
+      // `waiting` with dirty files is the normal case rather than a corner one.
+      // Ranking dirtiness first files it under *resume it* and invites a
+      // restart into the same wait — measured happening twice to one branch,
+      // the second restart re-running work the first had finished.
+      const rows = rowsFromPulse(
+        withWorker('waiting', '0', '900', ['src/half-done.ts']), ages, 'plot', QUIET,
+        null, '', null, Date.now(), null, null, asking('PLOT-BLOCKED: which one?'));
+      const row = rows.find((r) => r.branch === 'feature/d')!;
+      expect(row.group).toBe('working');
+      expect(row.note).not.toMatch(/resume it/);
     });
 
     it('renders the three claim cases as three different sentences', () => {
