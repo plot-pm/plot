@@ -84,24 +84,6 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   // route has to remember is a rule, while a default that refuses is a gate.
   // Two path-and-verb pairs slip past now rather than one; /api/board,
   // /api/fleet and /plan/* stay protected precisely as they are today.
-  // THE WRITE ROUTES, AND THE ONE GATE THAT COVERS ALL OF THEM.
-  //
-  // The loopback boundary is checked HERE, once, ahead of every route that
-  // changes state — not inside each handler. `dispatch.ts` has stated the
-  // boundary since the first write route existed ("whoever reaches localhost is
-  // sitting at the machine that owns the worktrees; that IS the permission"),
-  // and until 2026-08-19 nothing enforced it: `HOST` was read once above and
-  // never checked, so `HOST=0.0.0.0` published every write endpoint to the
-  // network while the plan asserted loopback was "already in force".
-  //
-  // A check per handler is what this repo calls a rule — correct only while
-  // every future write route remembers it, and three of the five already
-  // differed in what they consulted. A check at the point routes are DISPATCHED
-  // is a gate: the sixth write endpoint inherits it by construction. Same
-  // argument as the blanket 405 below, and the same reason.
-  //
-  // `PLOT_BOARD_ALLOW_REMOTE_WRITES=i-understand` opts out, deliberately
-  // awkward so it cannot be set by reflex — see write-gate.ts.
   // THE WRITE ROUTES, AS ONE TABLE, SO THE GATE CANNOT BE FORGOTTEN.
   //
   // Allow-listed AHEAD of the blanket 405 below, rather than by weakening it.
@@ -144,8 +126,6 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     // worktree with the brief, the answer and what already landed. The route is
     // named for what it does rather than for what a reader might wish it did.
     { path: '/api/continue', verb: 'continuing', handle: handleContinue },
-    // `boundPort`, not the requested one: under PORT=0 they differ, and this
-    // port is the same-origin allowlist for the endpoint that spawns processes.
     { path: '/api/dispatch', verb: 'dispatching', handle: handleDispatch },
     // POST /api/idea — an issue becomes a Draft plan.
     //
