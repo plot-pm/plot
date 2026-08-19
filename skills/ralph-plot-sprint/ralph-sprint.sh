@@ -21,6 +21,21 @@ NTFY_TOPIC="${CLAUDE_NTFY_TOPIC:-claude-on-$(hostname -s)}"
 # Suppress interactive notification hook — ralph handles its own ntfy
 export CLAUDE_NTFY_SKIP=1
 
+# Nobody is watching this loop — that is what it is for. Every `claude` below
+# runs with `-p`, where the question tool is not registered at all: an agent
+# that reaches a question site writes what it would have asked into its prose
+# and exits 0, which a caller reading `$?` cannot tell from success. The
+# variable makes the skipped question take the shape a skill author chose and
+# emit a `PLOT-UNASKED:` line, instead of whatever the model improvises.
+# See skills/plot/docs/unattended.md.
+#
+# Exported once rather than set per invocation because there are three call
+# sites (the iteration loop, the wrap-up, and whatever $RALPH_SPRINT_CLAUDE
+# expands to), and a fourth added later would silently miss the prefix.
+# It never converts a gate into a pass — it answers "may I ask?", never
+# "may I proceed?".
+export PLOT_UNATTENDED=1
+
 # --- State ---
 
 SESSION_IDS=()
