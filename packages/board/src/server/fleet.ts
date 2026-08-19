@@ -230,6 +230,28 @@ export function branchUrlBase(origin: string): string {
 }
 
 interface CacheEntry {
+  /**
+   * Terminal branch answers, carried from one pulse to the next.
+   *
+   * Measured on this repo 2026-08-19: 26 of 54 branches are terminal — merged
+   * or deferred — and a terminal fact cannot change. The scan pays one host
+   * round trip per such branch on the no-ref arm, and paid it again every 5 s
+   * forever.
+   *
+   * THE BOARD HOLDS IT BECAUSE THE BOARD IS THE ONLY LONG-LIVED PROCESS. The
+   * scan is spawned fresh per pulse, so it cannot span two; it takes this map
+   * in through the environment and reports the map the NEXT pulse should hold
+   * on stderr. What arrives back is the whole map, not a delta, so there is no
+   * merge rule here to get wrong.
+   *
+   * IN MEMORY AND NOWHERE ELSE. Never written to disk, never to `.plot/` — a
+   * restart re-derives everything. A cache that survived a restart would be a
+   * second source of truth about a repo whose only source of truth is git
+   * (Manifesto Principle 1), and it is the SCAN, not this field, that decides
+   * an entry is still valid: git is re-consulted on every pass and the entry
+   * is discarded the moment it disagrees.
+   */
+  terminal: string;
   pulse: FleetPulse | null;
   ages: Map<string, number | null>;
   at: number | null;
@@ -403,9 +425,24 @@ export function runStreaming(
   cwd: string,
   onLine: (line: string) => void,
   timeoutMs = 30_000,
+  opts: {
+    /** Extra environment for the child, merged over the parent's. */
+    env?: NodeJS.ProcessEnv;
+    /**
+     * Called with each complete STDERR line, if given.
+     *
+     * stderr stays drained either way — see below. This hook exists for the
+     * terminal cache, which the scan reports out of band precisely so stdout
+     * stays byte-identical to a run without it.
+     */
+    onErrLine?: (line: string) => void;
+  } = {},
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd });
+    const child = spawn(cmd, args, {
+      cwd,
+      ...(opts.env ? { env: { ...process.env, ...opts.env } } : {}),
+    });
     let buf = '';
     let settled = false;
     const timer = setTimeout(() => {
@@ -428,10 +465,30 @@ export function runStreaming(
         if (line.trim()) onLine(line);
       }
     });
-    // Drained and discarded. Left unread, a chatty scan fills the pipe buffer
-    // and blocks writing to stdout — the stream stalls for a reason that looks
-    // nothing like its cause.
-    child.stderr?.resume();
+    // DRAINED EITHER WAY. Left unread, a chatty scan fills the pipe buffer and
+    // blocks writing to stdout — the stream stalls for a reason that looks
+    // nothing like its cause. With a handler the draining is done by reading
+    // the lines rather than by discarding them; without one, discarded exactly
+    // as before.
+    if (opts.onErrLine) {
+      let ebuf = '';
+      child.stderr?.setEncoding('utf8');
+      child.stderr?.on('data', (chunk: string) => {
+        ebuf += chunk;
+        let nl: number;
+        while ((nl = ebuf.indexOf('\n')) !== -1) {
+          const line = ebuf.slice(0, nl);
+          ebuf = ebuf.slice(nl + 1);
+          if (line.trim()) opts.onErrLine!(line);
+        }
+        // A scan that writes an unbounded stderr line must not grow this
+        // forever. The notes are one short line per branch; anything past that
+        // is not a note and is dropped rather than buffered.
+        if (ebuf.length > 1 << 16) ebuf = '';
+      });
+    } else {
+      child.stderr?.resume();
+    }
     child.on('error', (err) => {
       clearTimeout(timer);
       if (!settled) { settled = true; reject(err); }
@@ -1348,6 +1405,12 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
       };
       entry.pulseComplete = false;
     };
+    // What this pulse learns about terminal branches. Accumulated separately
+    // and only installed on SUCCESS, below: a scan killed at the 30 s timeout
+    // has reported some entries and re-derived others, and adopting that
+    // partial map would quietly drop the branches it never reached — turning
+    // a slow pulse into a cold cache on the pulse after it.
+    let learned = '';
     await runStreaming('bash',
       [path.join(opts.scriptsDir, 'plot-fleet-scan.sh'), '--stream'], opts.repoRoot,
       (line) => {
@@ -1369,6 +1432,19 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
         }
         // The terminal line: the scan finished and this is the whole document.
         parsed = msg.pulse;
+      },
+      30_000,
+      {
+        // The map this pulse starts from. `''` on the first pulse after a
+        // restart, which is what makes a restart re-derive everything.
+        env: { PLOT_TERMINAL_CACHE: entry.terminal },
+        onErrLine: (line) => {
+          // Only the tagged notes are read; everything else on stderr is the
+          // scan's ordinary prose and stays discarded.
+          if (line.startsWith('terminal:')) {
+            learned += `${line.slice('terminal:'.length).trim()}\n`;
+          }
+        },
       });
     // A scan that exited 0 without its terminal line described nothing it can
     // be held to. Treated as a failure rather than as an empty fleet, for the
@@ -1376,6 +1452,12 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // what makes a monitoring view untrustworthy. Whatever arrived stays, and
     // `pulseComplete` stays false so the tab says the rest is unknown.
     if (parsed === null) throw new Error('fleet scan ended without a terminal pulse line');
+    // ADOPTED ONLY NOW — past every way this scan could have failed. The scan
+    // re-reports the entries it served as well as the ones it learned, so what
+    // arrived is the WHOLE map for the next pulse and replaces rather than
+    // merges. Merging would be the bug the plan names: an entry no scan
+    // re-derived would survive on nothing but its own age.
+    entry.terminal = learned;
     const complete: FleetPulse = parsed;
     // Against `before`, captured at the top of this function — because
     // `entry.pulse` stopped being the previous answer the moment this scan
@@ -1472,6 +1554,9 @@ function ensureCache(opts: BuildBoardOptions): CacheEntry {
 
   entry = {
     pulse: null, ages: new Map(), at: null, error: null, shrink: null, branchUrlBase: '',
+    // Empty at construction, which is the whole of "a restart re-derives
+    // everything": nothing survives this process, so the first pulse is cold.
+    terminal: '',
     approvedAt: new Map(),
     ideaPlans: new Map(),
     questions: new Map(),

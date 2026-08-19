@@ -596,6 +596,111 @@ host_pr_state() { # $1=branch [--ask] → OPEN|MERGED|CLOSED|NONE|-
   fi
 }
 
+# ---------------------------------------------------------------------------
+# A TERMINAL BRANCH IS ASKED ONCE — the cache that spans pulses
+# ---------------------------------------------------------------------------
+#
+# THE MEASUREMENT, taken on this repo 2026-08-19 after the join (#232) landed:
+# 26 of 54 branches are terminal — merged or deferred — and a terminal fact
+# cannot change. A merged branch stays merged. The board pulses every 5 s, so
+# the scan re-derived those 26 answers at full price, forever.
+#
+# WHAT THE JOIN LEFT FOR THIS TO FIX. Measured in a sandbox before writing it:
+#
+#   merged, ref KEPT        3 branches → 1 pr-list    9 → 1 pr-list
+#   squash-merged, DELETED  3 branches → 3 pr-state   9 → 9 pr-state
+#
+# After #232 the ONLY per-branch host cost left is the no-ref `--ask` arm that
+# PR #216 put there — and that arm IS the terminal population: a branch whose
+# ref is gone and whose merge already landed. So the cache lands exactly there
+# and nowhere else. A live branch cannot be cached even by accident, because a
+# live branch has a ref and never reaches the call.
+#
+# THE CACHE IS A DERIVATION, NOT A RECORD. That distinction is the whole design
+# and Manifesto Principle 1 rests on it: nothing is remembered that git cannot
+# re-establish. GIT IS CONSULTED ON EVERY PASS; only the host round trip is
+# skipped. The asymmetry is the point — git is local and cheap, the host is
+# remote and metered — and a cache that also skipped git would be a record of
+# the past rather than a derivation of the present.
+#
+# So an entry carries THE EVIDENCE THAT MADE THE BRANCH TERMINAL, and every
+# pass asks git whether that evidence still holds:
+#
+#   branch <TAB> state <TAB> plan-oid <TAB> main-oid
+#
+#   * THE REF REAPPEARED → not served, and not even reached. A branch name is
+#     reusable: merge `bug/flaky`, delete it, push it again for a second
+#     attempt. Serving the first attempt's `merged` would settle a wave and
+#     open the next one on work that has not landed. Checked live rather than
+#     stored, because a ref's absence is the precondition of the call itself.
+#   * THE PLAN WAS EDITED → its branches' answers are discarded. A plan is an
+#     INPUT to the derivation, not just a list of names: `deferred:`
+#     annotations, wave membership and the plan's phase all decide what an
+#     answer means. Content-addressed by blob hash, so an edit is caught
+#     without trusting a timestamp.
+#   * MAIN MOVED → the merge evidence is re-derived. `merged_by_subject` walks
+#     main's history, so a new tip is a new question.
+#
+# IT NEVER TOUCHES DISK AND NEVER OUTLIVES A PROCESS. The scan is spawned fresh
+# every pulse, so it cannot hold the map itself; it RECEIVES the cache in the
+# environment and REPORTS what it learned on stderr, leaving stdout
+# byte-identical. The board — the only long-lived process in the system — holds
+# the map in memory and dies with it. A file would be a second source of truth
+# about a repo whose only source of truth is git, and a restart must re-derive
+# everything.
+# Defaulted rather than assumed: `set -u` is on, and an unset variable here
+# would abort the scan for every caller that does not know the cache exists —
+# which is every caller but the board.
+PLOT_TERMINAL_CACHE="${PLOT_TERMINAL_CACHE:-}"
+TERMINAL_LEARNED=""
+# The tip the merge evidence is derived against, resolved once per run.
+TERMINAL_MAIN_OID=$(git rev-parse "refs/remotes/origin/$MAIN" 2>/dev/null || echo "-")
+# The plan whose branches are currently being walked, as a blob hash. Set by the
+# plan loop; empty until then, and an entry with no plan identity is never
+# served — an answer we cannot attribute to a plan revision is not evidence.
+TERMINAL_PLAN_OID=""
+
+# Is this branch's cached answer still good? Prints the state word when it is.
+#
+# THE VALIDATION IS THE FEATURE. Every arm here is a question to git, asked on
+# every pass, and any disagreement discards the entry rather than repairing it.
+terminal_cached() { # $1=branch → the cached state word, or nothing
+  [ -n "$PLOT_TERMINAL_CACHE" ] || return 1
+  [ -n "$TERMINAL_PLAN_OID" ] || return 1
+  local br="$1" cbr cst cplan cmain
+  while IFS="	" read -r cbr cst cplan cmain; do
+    [ "$cbr" = "$br" ] || continue
+    # The plan revision the answer was derived under, and the tip it was
+    # derived against. Either having moved makes it a fact about a repo that no
+    # longer exists.
+    [ "$cplan" = "$TERMINAL_PLAN_OID" ] || return 1
+    [ "$cmain" = "$TERMINAL_MAIN_OID" ] || return 1
+    printf '%s' "$cst"
+    return 0
+  done <<EOF
+$PLOT_TERMINAL_CACHE
+EOF
+  return 1
+}
+
+# Record a decided terminal answer for the next pulse to reuse.
+#
+# ONLY A DECIDED ANSWER IS TERMINAL. `-` means the question could not be
+# answered, and caching it would freeze one bad afternoon into every later
+# pulse — the 2026-08-17 outage multiplied by the life of the board rather than
+# by the branch count. `MERGED` and `CLOSED` are settled; `OPEN` and `NONE` are
+# not, because both can still change without anything local moving.
+terminal_learn() { # $1=branch $2=state
+  case "$2" in MERGED|CLOSED) ;; *) return 0 ;; esac
+  [ -n "$TERMINAL_PLAN_OID" ] || return 0
+  TERMINAL_LEARNED+="$1	$2	$TERMINAL_PLAN_OID	$TERMINAL_MAIN_OID"$'\n'
+  # Reported as it is learned rather than at exit: the scan is killed with
+  # SIGKILL on timeout (`fleet.ts`), and a summary written only on a clean exit
+  # would teach the board nothing on exactly the slow pulses that need it most.
+  printf 'terminal: %s\t%s\t%s\t%s\n' \
+    "$1" "$2" "$TERMINAL_PLAN_OID" "$TERMINAL_MAIN_OID" >&2
+}
+
 # Does the host say this branch's PR is MERGED? Anything else — OPEN, CLOSED,
 # NONE, an unreachable host, a malformed reply — is NOT a yes. Unchanged in
 # behaviour; only the lookup underneath it is now shared.
@@ -605,8 +710,32 @@ host_pr_state() { # $1=branch [--ask] → OPEN|MERGED|CLOSED|NONE|-
 # not contain, and its cost is therefore bounded by ABSENT branches rather than
 # by all of them. The join answers everything else. Do not add `--ask` to a
 # caller that runs for every branch — that is the loop this change removed.
+#
+# THE ONE PLACE THE TERMINAL CACHE IS CONSULTED, and it is deliberate that
+# there is only one. This arm is reached only for a branch with NO REF, so a
+# branch that is live — in flight, claimed, or with work on the floor — never
+# arrives here and therefore cannot be cached however the cache is filled. The
+# invariant is structural rather than a check that could be forgotten.
 merged_by_host() { # $1=branch → 0 when the host reports its PR MERGED
-  [ "$(host_pr_state "$1" --ask)" = "MERGED" ]
+  local st
+  # Git has already been consulted to get here (no ref) and `terminal_cached`
+  # asks it again about the plan and the tip. Only the round trip is skipped.
+  if st=$(terminal_cached "$1"); then
+    # A SERVED ENTRY RE-REPORTS ITSELF, so what the scan emits is always the
+    # WHOLE map the next pulse should hold rather than a delta the board would
+    # have to merge. Without this the second pulse serves the entry, reports
+    # nothing, and the third starts cold — the cache would work exactly once
+    # and the saving would vanish on the pulse after it.
+    #
+    # It is re-derived, not merely echoed: reaching here means git was asked
+    # again this pass and still agrees — no ref, same plan, same tip.
+    terminal_learn "$1" "$st"
+    [ "$st" = "MERGED" ]
+    return
+  fi
+  st=$(host_pr_state "$1" --ask)
+  terminal_learn "$1" "$st"
+  [ "$st" = "MERGED" ]
 }
 
 # Has this branch's work REACHED REVIEW — an open or merged PR?
@@ -2022,6 +2151,17 @@ print(json.load(sys.stdin).get("phase", ""))
   else
     plan_files+=("$plan")
   fi
+
+  # THE PLAN'S IDENTITY FOR THE TERMINAL CACHE — its CONTENT, hashed, not its
+  # name or its mtime. An edited plan yields a different oid and its branches'
+  # cached answers stop validating, which is the invalidation the plan requires:
+  # a plan is an input to the derivation, so an answer derived under one
+  # revision is not evidence about the next.
+  #
+  # `hash-object` reads a file without touching the object database. It is one
+  # fork per PLAN — not per branch — so it does not reintroduce the per-branch
+  # cost this whole change removes.
+  TERMINAL_PLAN_OID=$(git hash-object "$plan_read" 2>/dev/null || echo "")
 
   # One awk pass over the parsed JSON would need a JSON parser; instead the
   # wave walk below is driven by plot-plan-meta.sh's own output via a tiny
