@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { AgentPanel } from '../../server/agent-panel.js';
 import type { LogMissReason, WorkerLog } from '../../server/worker-log.js';
 import { AgentPanelFacts } from './AgentPanelFacts.js';
+import { ContinueWithAnAnswer } from './ContinueWithAnAnswer.js';
 
 /**
  * How often an open panel re-fetches, in ms.
@@ -68,6 +69,20 @@ export interface WorkerLogModalProps {
   fetcher?: typeof fetch;
   /** Injected by tests so "last activity" does not race the clock. */
   now?: number;
+  /**
+   * Whether this board can start a continuation, from `/api/board`.
+   *
+   * PASSED IN rather than fetched here, and it is the one fact this panel
+   * cannot derive for itself: every other field comes from `/api/agent-panel`,
+   * which describes a BRANCH, while this describes the SERVER's binding. A
+   * third fetch for one boolean the page already holds would be a request per
+   * open panel for an answer that cannot change while the board is running.
+   *
+   * Defaults to unavailable, which is the safe direction: a control that is
+   * hidden when it would have worked is a smaller failure than one that is
+   * offered and 403s.
+   */
+  canContinue?: { available: boolean; reason: string };
 }
 
 /**
@@ -84,7 +99,13 @@ export interface WorkerLogModalProps {
  * a file off disk and must not grow one for this — the path is for copying into
  * a terminal, where a pager handles a 60 MB log far better than a browser can.
  */
-export function WorkerLogModal({ branch, onClose, fetcher = fetch, now }: WorkerLogModalProps) {
+export function WorkerLogModal({
+  branch,
+  onClose,
+  fetcher = fetch,
+  now,
+  canContinue,
+}: WorkerLogModalProps) {
   const [log, setLog] = useState<WorkerLog | null>(null);
   const [panel, setPanel] = useState<AgentPanel | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -255,6 +276,28 @@ export function WorkerLogModal({ branch, onClose, fetcher = fetch, now }: Worker
             log.text
           )}
         </pre>
+
+        {/* THE ONE ACTING CONTROL ON THIS PANEL, and it is offered only for a
+            worker the SCAN reports as `waiting`.
+            
+            Keyed on the scan's verdict rather than on a check of this panel's
+            own — `plot-worker-state.sh` decides liveness once, and a second
+            opinion computed here is exactly the duplication that had six states
+            drifting in two places. A branch in any other state has nothing
+            waiting on an answer, and the route would refuse it anyway; hiding
+            the control is how that refusal is stated before it is clicked.
+            
+            The panel still ACTS ON NOTHING ELSE. This wave is the only acting
+            wave in a deliberately read-only sprint, and the blast radius is
+            continuation. */}
+        {panel?.ok && panel.worker === 'waiting' && (
+          <ContinueWithAnAnswer
+            branch={branch}
+            available={canContinue?.available ?? false}
+            unavailableReason={canContinue?.reason}
+            fetcher={fetcher}
+          />
+        )}
 
         {/* The path, always — including for the misses that know one. It is the
             answer to "then where should I look", and for `no-log` it is the

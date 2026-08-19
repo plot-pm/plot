@@ -343,6 +343,21 @@ export function App() {
     : board?.approve;
 
   /**
+   * The SAME treatment again for continuing an answered agent.
+   *
+   * Dimmed by the same rule as the two above, and for a reason that bites
+   * harder here: this control spawns a PROCESS in a worktree. A frozen page is
+   * a page whose `waiting` rows may already have been answered by someone else,
+   * and a click on stale state would start a second worker in a tree that holds
+   * a live one. The route refuses that anyway — no marker, no continuation —
+   * but a control that is dark while the page cannot vouch for its data says so
+   * before the click rather than after it.
+   */
+  const continueInfo = dimmed
+    ? { available: false, reason: BLOCKED_REASON }
+    : board?.continue;
+
+  /**
    * Coming back to a hidden tab RE-CHECKS instead of counting.
    *
    * Browsers throttle timers in hidden tabs, so a minimised window would
@@ -734,6 +749,11 @@ export function App() {
               // work` — and a Draft plan's row, whose one available act is
               // approving, got a dead menu.
               approve={approveInfo}
+              // The third act a row can offer, and the only one on this wave.
+              // It reaches the agent panel rather than the row menu: the
+              // control needs a text box for the answer, which a menu item has
+              // nowhere to put.
+              continueWith={continueInfo}
               pulse={pulse}
               onStarting={onStarting}
             />
