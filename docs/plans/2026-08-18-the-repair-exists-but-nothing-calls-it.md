@@ -207,7 +207,7 @@ leave.
 
 - `feature/the-pulse-repairs-the-artifact` <!-- deferred: verified already implemented 2026-08-17 — conflicts_of() at plot-fleet-scan.sh:822, isArtifactOnly() at stuck.ts:115, startRepair() at fleet.ts:806, all covered by conflicts.test.mjs. --> — detection and repair, already on main before this plan was written.
 
-- `feature/the-repair-can-be-turned-off` — `PLOT_BOARD_REPAIR` gates the pulse-side repair, defaulting to on. Today the repair is gated on state alone, so an operator who wants to see artifact conflicts without the board acting on them has no way to say so — and the design calls that switch non-optional. Tests: `PLOT_BOARD_REPAIR=0` detects and reports but never writes; unset behaves exactly as today; the variable never converts a refusal into a repair.
+- `feature/the-repair-can-be-turned-off` — `PLOT_BOARD_REPAIR` gates the pulse-side repair, defaulting to on. Today the repair is gated on state alone, so an operator who wants to see artifact conflicts without the board acting on them has no way to say so — and the design calls that switch non-optional. Tests: `PLOT_BOARD_REPAIR=0` detects and reports but never writes; unset behaves exactly as today; the variable never converts a refusal into a repair. — PR #249
 
 - `feature/a-repaired-row-says-so` <!-- deferred: verified already implemented 2026-08-17 — repairFor() at resolver.ts:175 returns what the row should say about a branch's repair, rendered at fleet.ts:1990. --> — a row whose artifact the board repaired says so, with when.
 
