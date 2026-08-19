@@ -15,6 +15,8 @@
 - **Delivered:**
 - **Released:**
 - **Started:** 2026-08-19, Jan Wloka, `feature/the-board-renders-what-has-arrived`
+- **Started:** 2026-08-19, Jan Wloka, `feature/a-terminal-branch-is-asked-once`
+- **Started:** 2026-08-19, Jan Wloka, `bug/the-cadence-knows-what-a-refresh-costs`
 
 ## Changelog
 
