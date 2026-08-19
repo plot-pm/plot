@@ -1206,7 +1206,11 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // `pulseComplete` stays false so the tab says the rest is unknown.
     if (parsed === null) throw new Error('fleet scan ended without a terminal pulse line');
     const complete: FleetPulse = parsed;
-    // BEFORE the assignment below, which is the only moment both answers exist.
+    // Against `before`, captured at the top of this function — because
+    // `entry.pulse` stopped being the previous answer the moment this scan
+    // published its first plan. That capture is what keeps the sentence below
+    // true now that the assignment is no longer the only moment both answers
+    // exist.
     //
     // The success path's half of the cache's one-directional rule. Three lines
     // down, a FAILED scan is refused the right to overwrite a good result; this
@@ -1219,8 +1223,6 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // latest transition, not a history. A scan that recovers the missing plans
     // clears the mark, which is the behaviour that makes a populated one worth
     // looking at.
-    // Against `before`, NOT against `entry.pulse` — which this scan's own
-    // partial writes have been overwriting for the last eighteen seconds.
     // Comparing a finished scan to the partial view of itself would report the
     // shrink as zero every time, because the two are the same document; the
     // question this field answers is what the LAST COMPLETE answer had that
