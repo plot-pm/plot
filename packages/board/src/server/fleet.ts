@@ -2175,6 +2175,27 @@ export function rowsFromPulse(
           // gave up. Null for every branch nothing was attempted on, which is
           // nearly all of them.
           repair: repairFor(b.branch, now),
+          // WHAT THE SCAN FOUND OUT ABOUT A WORKER, forwarded onto the row.
+          //
+          // Read four lines above already — `classify` takes it — and then
+          // dropped, so the only trace surviving onto the row was the SENTENCE
+          // `classify` composed from it. That is precisely the shape
+          // `localDirty` and `localLocked` were in before this same forwarding
+          // fixed them, and it is the shape this file's own rules forbid
+          // building on: `isStartable` was moved off `note === ELIGIBLE_NOTE`
+          // for the reason that a reworded note breaks such a consumer
+          // silently.
+          //
+          // It matters most for the two states whose moves are OPPOSITE:
+          // `waiting` says answer it, `stalled` says resume it, and a consumer
+          // reduced to matching prose to tell them apart is one rewording away
+          // from restarting a worker into the question it asked.
+          //
+          // FORWARDED, NEVER RE-DERIVED — the same rule as its neighbours, and
+          // sharper here: liveness is decided once, in the shared classifier,
+          // and a structural test asserts it. This carries that verdict
+          // outward; it does not form a second one.
+          worker: b.worker,
         });
       }
     }
@@ -2292,6 +2313,17 @@ export function rowsFromPulse(
       // this row always is, since it reaches the board through the PR map.
       waitingOn: null,
       blockedBy: null,
+      // `elsewhere` — NOWHERE TO LOOK, which is the exact truth for this row
+      // and not a stand-in for one. The worker pid lives in the worktree, and
+      // this row was built from the PR map: the worktree scan never visited
+      // this branch, so no question about a worker was asked here.
+      //
+      // The same reasoning as `localDirty: false` above and a stronger version
+      // of it — `elsewhere` SAYS "no worktree here" rather than leaving it to
+      // be inferred, which is why the state exists as a third value beside
+      // `none`. Reporting `none` would be the invented observation: looking and
+      // finding nothing sends a reader into this checkout, and nothing looked.
+      worker: 'elsewhere',
       // A PLANLESS branch is not in the pulse, so no conflict set was ever
       // computed for it and `conflictsKnown` is false — which is *not looked
       // at*, never *clean*. The one state reachable from PR data alone is
