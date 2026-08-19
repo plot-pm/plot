@@ -381,15 +381,14 @@ export async function handleContinue(
   const refuse = (status: number, reason: ContinueRefusal, branch: string, detail: string) =>
     json(status, { ok: false, branch, reason, detail });
 
-  // The SAME two gates `/api/dispatch` documents, imported rather than
-  // reimplemented. Availability first: a board bound to something other than
-  // localhost cannot spawn, and saying so before reading a body is the same
-  // order dispatch uses.
-  const availability = continueAvailability(opts.host);
-  if (!availability.available) {
-    json(403, { error: availability.reason });
-    return;
-  }
+  // The same-origin gate `/api/dispatch` documents, imported rather than
+  // reimplemented. The loopback gate that used to sit above it is now enforced
+  // in the router for all five write routes at once — see `write-gate.ts`, and
+  // the note in `handleDispatch` for why one surviving copy would have made the
+  // named opt-in mean two different things on two different routes.
+  //
+  // `continueAvailability` still answers the board's third capability flag,
+  // which is the question the CONTROL asks before it is clicked.
   if (!isSameOrigin(req, opts.port)) {
     json(403, { error: 'cross-origin request refused' });
     return;

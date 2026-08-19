@@ -1956,3 +1956,119 @@ export const AttentionSchema = z.object({
   claimable: z.array(ClaimableSchema).default([]),
 });
 export type Attention = z.infer<typeof AttentionSchema>;
+
+/**
+ * `POST /api/claim` — the result of reserving one branch.
+ *
+ * IT RETURNS THE RESULTING STATE, NOT AN ACKNOWLEDGEMENT. That is the whole
+ * reason the endpoint exists rather than being a second button. An agent's loop
+ * today is *edit markdown, push, and hope the derived view agrees*, and every
+ * step of it can fail quietly — the failure that produced a plan which was
+ * valid and invisible at the same time. A `200 OK` with no state leaves the
+ * caller doing exactly what this replaces: asking a second endpoint whether the
+ * first one landed, and guessing when the answer is stale.
+ *
+ * `claimed` is the fact; `branch` is what the claim mechanism CHOSE. The
+ * endpoint takes a plan slug and not a branch name because `plot-dispatch.sh`
+ * picks the branch itself, by asking the fleet scan which one is eligible —
+ * eligibility is wave arithmetic and lives in one place. A caller that wants a
+ * specific branch is asking for a rule this system deliberately does not have.
+ */
+export const ClaimResultSchema = z.object({
+  /** The plan the claim was requested against. */
+  slug: z.string(),
+  /**
+   * Whether a branch is now reserved for this caller.
+   *
+   * FALSE IS NOT AN ERROR, and the distinction is the endpoint's most useful
+   * one. Losing a claim race is the normal outcome of a fleet doing its job:
+   * two dispatchers ask at once, the refs diverge, and the loser's push is
+   * rejected as non-fast-forward. That rejection IS the concurrency control, so
+   * a caller that gets `claimed: false` should ask again for different work,
+   * not retry this branch or report a fault.
+   */
+  claimed: z.boolean(),
+  /**
+   * The branch that was claimed, or null when nothing was.
+   *
+   * Null in two different situations that share a shape: nothing was eligible,
+   * and something was eligible but another session won it. `reason` is what
+   * tells them apart, and a caller that acts on the null alone will retry a
+   * plan that has no work left in it.
+   */
+  branch: z.string().nullable().default(null),
+  /** Where the worktree for that branch is, or null when nothing was claimed. */
+  worktree: z.string().nullable().default(null),
+  /**
+   * The claim mechanism's own words — never this server's paraphrase of them.
+   *
+   * `plot-dispatch.sh` says `dispatched <branch> → <path>`, or
+   * `skipped <branch> (claimed by another session)`, or nothing at all when the
+   * eligible set is empty. Forwarding that verbatim is what keeps the endpoint
+   * a wrapper: a summary written here would be a second account of an outcome
+   * that already has one, free to disagree with it exactly when something
+   * unusual happened.
+   */
+  reason: z.string(),
+  /** The script's machine-countable footer, forwarded whole for auditing. */
+  summary: z.string().default(''),
+});
+export type ClaimResult = z.infer<typeof ClaimResultSchema>;
+
+/**
+ * The phase transitions this API can apply.
+ *
+ * ONE ENTRY, AND THE SHORTNESS OF THIS LIST IS A FINDING RATHER THAN A GAP.
+ * Plot has four phases and three transitions between them, but only
+ * `Draft → Approved` has a mechanical implementation: `plot-approve.sh`, which
+ * performs seven writes with no judgement in any of them. `Delivered` and
+ * `Released` are written by /plot-deliver and /plot-release as PROSE — an agent
+ * editing markdown — and there is no script to wrap.
+ *
+ * So supporting them here would mean writing the phase rules a second time,
+ * beside the ones that already exist in the spokes, which is the single thing
+ * this branch was told not to do. The endpoint refuses them by name instead,
+ * and says which command owns them. A refusal that names the owner is a smaller
+ * failure than a duplicate guardrail that drifts.
+ */
+export const TransitionSchema = z.enum(['approve']);
+export type Transition = z.infer<typeof TransitionSchema>;
+
+/**
+ * `POST /api/transition` — the result of applying one phase transition.
+ *
+ * THE GUARDRAILS ARE NOT NEGOTIABLE THROUGH THIS ROUTE. A transition the spoke
+ * would refuse is refused here, with the spoke's own reason, because the spoke
+ * is what evaluates it: this endpoint runs `plot-approve.sh` and reports what
+ * it said. There is no phase check in this server at all, and that absence is
+ * the design — an API that could approve an unreviewed draft would have become
+ * a bypass of the lifecycle rather than an interface to it.
+ */
+export const TransitionResultSchema = z.object({
+  slug: z.string(),
+  /** Which transition was requested. */
+  transition: TransitionSchema,
+  /** Whether the plan is now in the target phase. */
+  applied: z.boolean(),
+  /**
+   * The plan's phase AFTER the attempt, re-read from the file — never assumed
+   * from the exit code.
+   *
+   * READ BACK, NOT INFERRED. The endpoint's entire promise is that the caller
+   * never has to re-derive whether its write landed, and inferring `Approved`
+   * from `exit 0` would be the same act of hoping this replaces. Null when the
+   * plan cannot be parsed at all, which is itself worth reporting rather than
+   * flattening into a phase that sounds plausible.
+   */
+  phase: z.string().nullable().default(null),
+  /**
+   * Why, in the words of whatever decided it.
+   *
+   * On a refusal this is the spoke's own sentence — *"Plan is still a draft PR
+   * (#N). Mark it ready for review first."* — forwarded rather than replaced.
+   * Replacing it with a status name sends the reader to a terminal, and then
+   * the command could have been typed there in the first place.
+   */
+  reason: z.string(),
+});
+export type TransitionResult = z.infer<typeof TransitionResultSchema>;

@@ -151,12 +151,21 @@ export async function handleDispatch(
     res.end(JSON.stringify(body));
   };
 
-  const availability = dispatchAvailability(opts.host);
-  if (!availability.available) {
-    json(403, { error: availability.reason });
-    return;
-  }
-
+  // The loopback boundary is NOT checked here any more — it is enforced in the
+  // router, ahead of every write route, by `write-gate.ts`.
+  //
+  // This handler checked it itself until 2026-08-19, and the check was correct
+  // and insufficient in the same way: correct for this route, and silent about
+  // the four beside it. Worse, once the gate grew a named opt-in, a surviving
+  // copy here would have honoured a DIFFERENT policy — the opt-in would open
+  // /api/claim and be refused at /api/dispatch, so one variable would mean two
+  // things depending on which route read it. That is the exact failure
+  // `approve.ts` records for capability flags: one answer to two questions is
+  // how they diverge without anyone noticing.
+  //
+  // `dispatchAvailability` itself stays, and is still the source the gate reads
+  // — and still answers `/api/board`'s capability flags, which is a different
+  // question (will this BUTTON act) asked at a different time.
   if (!isSameOrigin(req, opts.port)) {
     json(403, { error: 'cross-origin request refused' });
     return;

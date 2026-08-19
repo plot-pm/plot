@@ -211,12 +211,12 @@ export async function handleApprove(
   };
 
   const command = approveCommand(opts);
-  const availability = approveAvailability(opts.host);
-  if (!availability.available) {
-    json(403, { error: availability.reason });
-    return;
-  }
 
+  // The loopback boundary is enforced in the router by `write-gate.ts`, not
+  // here — see the note in `handleDispatch`. `approveAvailability` still
+  // answers the board's capability flag, which is the question the BUTTON asks
+  // before it is clicked; this is the question the SERVER answers before it
+  // acts, and it now has one implementation covering all five write routes.
   if (!isSameOrigin(req, opts.port)) {
     json(403, { error: 'cross-origin request refused' });
     return;

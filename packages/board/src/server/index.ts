@@ -7,6 +7,9 @@ import { buildFleet } from './fleet.js';
 import { buildAttention } from './attention.js';
 import { dispatchAvailability, handleDispatch, SLUG_RE } from './dispatch.js';
 import { continueAvailability, handleContinue } from './continue.js';
+import { handleClaim } from './claim.js';
+import { handleTransition } from './transition.js';
+import { refuseIfGated } from './write-gate.js';
 import { agentPanel } from './agent-panel.js';
 import { workerLog } from './worker-log.js';
 import { serverInfo } from './server-info.js';
@@ -74,6 +77,71 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   // route has to remember is a rule, while a default that refuses is a gate.
   // Two path-and-verb pairs slip past now rather than one; /api/board,
   // /api/fleet and /plan/* stay protected precisely as they are today.
+  // THE WRITE ROUTES, AND THE ONE GATE THAT COVERS ALL OF THEM.
+  //
+  // The loopback boundary is checked HERE, once, ahead of every route that
+  // changes state — not inside each handler. `dispatch.ts` has stated the
+  // boundary since the first write route existed ("whoever reaches localhost is
+  // sitting at the machine that owns the worktrees; that IS the permission"),
+  // and until 2026-08-19 nothing enforced it: `HOST` was read once above and
+  // never checked, so `HOST=0.0.0.0` published every write endpoint to the
+  // network while the plan asserted loopback was "already in force".
+  //
+  // A check per handler is what this repo calls a rule — correct only while
+  // every future write route remembers it, and three of the five already
+  // differed in what they consulted. A check at the point routes are DISPATCHED
+  // is a gate: the sixth write endpoint inherits it by construction. Same
+  // argument as the blanket 405 below, and the same reason.
+  //
+  // `PLOT_BOARD_ALLOW_REMOTE_WRITES=i-understand` opts out, deliberately
+  // awkward so it cannot be set by reflex — see write-gate.ts.
+  const WRITE_PATHS = [
+    '/api/approve',
+    '/api/continue',
+    '/api/dispatch',
+    '/api/claim',
+    '/api/transition',
+  ];
+  if (WRITE_PATHS.includes(url.pathname) && req.method === 'POST') {
+    if (refuseIfGated(res, HOST)) return;
+  }
+
+  // POST /api/claim — reserve one branch of a plan, and return what resulted.
+  //
+  // Wraps `plot-dispatch.sh --no-start`, which already claims by pushing a ref
+  // whose tip is an empty commit: two claims diverge, the loser's push is
+  // rejected as non-fast-forward, and git is the lock. The endpoint must not
+  // replace that with server-side state, which would put a second source of
+  // truth beside the repository.
+  //
+  // CLAIMING IS NOT DISPATCHING. `--no-start` reserves the branch and starts no
+  // worker, which is what a caller that means to do the work itself wants;
+  // a caller that wants a detached agent posts to /api/dispatch. The same split
+  // /api/attention documents from the other side.
+  if (url.pathname === '/api/claim' && req.method === 'POST') {
+    void handleClaim(req, res, { ...opts, host: HOST, port: boundPort }).catch((err) => {
+      console.error('Error claiming:', err);
+      if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+    });
+    return;
+  }
+
+  // POST /api/transition — apply a phase transition through the spokes' rules.
+  //
+  // Contains no phase logic: it runs the spoke's script and reports what the
+  // script said, so a transition the spoke refuses is refused here with the
+  // spoke's own reason. An API that could approve an unreviewed draft would be
+  // a bypass of the lifecycle rather than an interface to it.
+  if (url.pathname === '/api/transition' && req.method === 'POST') {
+    void handleTransition(req, res, { ...opts, host: HOST, port: boundPort }).catch((err) => {
+      console.error('Error transitioning:', err);
+      if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+    });
+    return;
+  }
+
   if (url.pathname === '/api/approve' && req.method === 'POST') {
     void handleApprove(req, res, { ...opts, host: HOST, port: boundPort }).catch((err) => {
       console.error('Error approving:', err);
