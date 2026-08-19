@@ -16,6 +16,7 @@ import {
   approveStatus,
   handleApprove,
 } from './approve.js';
+import { handleIdea, ideaAvailability, ideaStatus } from './idea.js';
 // Inlined at build time by esbuild's text loader — the artifact is a single
 // self-contained file, served from memory (no filesystem static serving, so no
 // path-traversal surface).
@@ -104,6 +105,27 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     return;
   }
 
+  // POST /api/idea — an issue becomes a Draft plan.
+  //
+  // Allow-listed here beside the other three because it is the same class of
+  // route: it spawns a process on this machine. It reuses their same-origin
+  // guard and their bounded body reader rather than growing its own — see
+  // idea.ts, where the reasoning those two carry is stated to apply here
+  // unchanged.
+  //
+  // A DRAFT, NEVER MORE. The row this answers exists to ask *is this worth
+  // planning*, and an endpoint that produced an approved plan would decide
+  // that question instead of posing it. Nothing here reaches the tracker in
+  // the other direction: no comment, no label, no close.
+  if (url.pathname === '/api/idea' && req.method === 'POST') {
+    void handleIdea(req, res, { ...opts, host: HOST, port: boundPort }).catch((err) => {
+      console.error('Error creating idea:', err);
+      if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+    });
+    return;
+  }
+
   if (url.pathname === '/api/dispatch' && req.method === 'POST') {
     // `boundPort`, not the requested one: under PORT=0 they differ, and this
     // port is the same-origin allowlist for the endpoint that spawns processes.
@@ -144,6 +166,12 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         // is the one `approve` records — one flag for two capabilities is how
         // they diverge without anyone noticing.
         continue: continueAvailability(HOST),
+        // A FOURTH flag, for the reason the third one records: today all four
+        // answer the same binding question, and collapsing them is how they
+        // diverge without anyone noticing. Read together with `fleet`'s
+        // `issueAnswer` by the row — the binding says whether this BOARD can
+        // act, and the answer says whether the TRACKER can be asked at all.
+        idea: ideaAvailability(HOST),
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(board));
@@ -299,6 +327,26 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       SLUG_RE.test(slug)
         ? JSON.stringify(approveStatus(opts, slug))
         : JSON.stringify({ error: 'slug must be a plan slug' }),
+    );
+    return;
+  }
+
+  // What happened to a creation somebody asked for — the same read-it-back
+  // shape `/api/approve/<slug>` has, and for the same reason: a refused
+  // creation moves no row, so there is nothing on the board to watch and the
+  // command's own words are the only answer.
+  //
+  // An issue NUMBER, validated as one. It is a filename component here, and a
+  // value that is not a number must reach no log but the one it names.
+  if (url.pathname.startsWith('/api/idea/')) {
+    const raw = url.pathname.slice('/api/idea/'.length);
+    const number = Number(raw);
+    const ok = /^[0-9]{1,9}$/.test(raw) && Number.isInteger(number) && number > 0;
+    res.writeHead(ok ? 200 : 400, { 'Content-Type': 'application/json' });
+    res.end(
+      ok
+        ? JSON.stringify(ideaStatus(opts, number))
+        : JSON.stringify({ error: 'number must be an issue number' }),
     );
     return;
   }

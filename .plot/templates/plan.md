@@ -13,6 +13,7 @@
 - **Phase:** Draft
 - **Type:** feature | bug | docs | infra
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
+- **Issue:** <!-- optional, tracker issue(s) this plan answers (`#228`, or `#226, #228`) — the board removes an issue from its inbox once a plan names it here -->
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** <!-- pr | in-session | ballot — how is this plan reviewed & approved? -->
 - **Impl:** <!-- own branches | same branch | other repo | none — where does implementation happen? -->
