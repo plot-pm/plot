@@ -14,6 +14,7 @@
 - **Started:** 2026-08-18, Jan Wloka, `bug/the-scan-joins-one-pr-list`
 - **Delivered:**
 - **Released:**
+- **Started:** 2026-08-19, Jan Wloka, `feature/the-board-renders-what-has-arrived`
 
 ## Changelog
 
