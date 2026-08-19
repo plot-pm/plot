@@ -14,6 +14,7 @@
 - **Started:** 2026-08-18, Jan Wloka, `feature/skills-know-when-nobody-is-there`
 - **Delivered:**
 - **Released:**
+- **Started:** 2026-08-19, Jan Wloka, `feature/the-worker-command-says-nobody-is-watching`
 
 ## Changelog
 
