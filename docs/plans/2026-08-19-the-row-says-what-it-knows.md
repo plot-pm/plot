@@ -98,6 +98,42 @@ consequence it withholds.** Whether the fix is the summary naming the fold
 or folded plans not claiming a *first* at all, is a design question this plan
 records rather than settles.
 
+### A deferred row says `deferred` and `no commits`, and never says why
+
+Reported from the board 2026-08-19: two rows under
+`the-repair-exists-but-nothing-calls-it` read `deferred` beside `no commits`,
+and the operator asked what to do with that. The honest answer is *nothing* —
+and the row does not say so.
+
+`deferred` means the branch will not be built, and the reason is recorded where
+a person can read it:
+
+```
+<!-- deferred: verified already implemented 2026-08-17 —
+     startRepair() at fleet.ts:806, covered by conflicts.test.mjs -->
+```
+
+**That sentence never leaves the plan file.** `plot-plan-meta.sh:445` tests
+whether the annotation is *present* and emits `"true"`; the text after the colon
+is not captured. `BranchSchema` matches with `deferred: z.boolean()`
+(`schema.ts:42`). So the row gets a flag and the explanation stays behind.
+
+The consequence is that `deferred` and `no commits` sit side by side as two
+unrelated facts, when the first is the reason for the second. A reader with no
+access to the plan file sees a branch nobody started and no statement that
+nobody should.
+
+**This is the same shape as the other two, one layer deeper.** The brief case is
+a fact the server has and the row omits; the fold case is a fact the row states
+about something invisible; this is a fact **the plan file has and the pipeline
+discards** — the row could not say it even if it wanted to.
+
+Three deferred rows exist today, across two plans, and one of them has been on a
+`Released` plan since April: *"never created — the work landed directly on
+main"*. They are not clutter to be swept: **the annotation is the reason a
+branch is missing**, and deleting it leaves a plan naming three branches where
+git has one. What is missing is not the cleanup, it is the sentence.
+
 ### The controls are too small to read, and too small to hit
 
 Measured on the running board 2026-08-19, at 1480px wide:
@@ -199,6 +235,8 @@ the interesting one.
 ### Seeing it
 
 - `bug/a-section-break-reads-as-one` — the space between two section groups grows enough that a heading reads as introducing the block below it rather than as trailing the one above. Row spacing is untouched. Tests: the gap above a heading exceeds the gap between two rows in the same group by a stated factor; row height is unchanged; below `CARD_BELOW_PX` nothing regresses.
+
+- `bug/a-deferred-row-says-why` — the deferral reason travels from the plan file to the row. `plot-plan-meta.sh` captures the text after `deferred:` alongside the boolean, the schema carries it, and a deferred row states it instead of leaving `deferred` and `no commits` as two unexplained facts. Tests: a branch annotated with a reason renders it; one annotated bare (`<!-- deferred -->`) still reads as deferred with no reason rather than as an error; the wave arithmetic is unchanged — a deferred branch still does not block its wave; `moved:` keeps its own meaning, which `plot-reconcile-scan.sh` already distinguishes.
 
 - `bug/a-control-can-be-seen-and-hit` — every pointer target in a row reaches at least 24 × 24 px of hit area, by padding rather than by growing the mark, and the fold toggle grows enough that `▸` and `▾` are distinguishable at a glance. The display glyphs stop matching the size of the controls beside them. Tests: each of `data-wave-toggle`, `data-row-actions`, `data-pr-link` and `data-issue-link` measures ≥24px in both directions; row height is unchanged at the default width; the fold state is distinguishable from a screenshot; below `CARD_BELOW_PX` nothing regresses.
 

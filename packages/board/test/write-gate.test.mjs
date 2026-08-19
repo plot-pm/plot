@@ -12,7 +12,9 @@
 // Every other assertion here can pass while the side effect still happened.
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
+  ARTIFACT,
   startServer,
   makeRepo,
   makeStubScripts,
@@ -36,6 +38,13 @@ const WRITE_ROUTES = [
   { path: '/api/approve', body: { slug: 'ship-the-widget' } },
   { path: '/api/continue', body: { branch: 'feature/x', answer: 'go' } },
   { path: '/api/dispatch', body: { slug: 'ship-the-widget' } },
+  // Landed on the default branch while this gate was being written, and is the
+  // reason the router dispatches from a TABLE rather than from a list of paths
+  // beside a chain of `if`s: as a list, this route merged cleanly, typechecked,
+  // and was the one ungated write endpoint. A test that enumerates the routes
+  // by hand has the same weakness, so the assertion below that this list
+  // matches the server's own table is not a formality.
+  { path: '/api/idea', body: { number: 1 } },
   { path: '/api/claim', body: { slug: 'ship-the-widget' } },
   { path: '/api/transition', body: { slug: 'ship-the-widget', transition: 'approve' } },
 ];
@@ -95,6 +104,23 @@ describe('the write gate: bound off loopback, the write endpoints refuse', () =>
   it('ran NOTHING — the refusal precedes the spawn, which is what makes it a gate', async () => {
     await settle();
     assert.deepEqual(stub.runs(), [], 'a refused request must not have spawned the dispatcher');
+  });
+
+  it('covers EVERY write route the server has — this list cannot silently drift', async () => {
+    // THE ASSERTION THAT KEEPS THE OTHERS HONEST. Each case above proves one
+    // named route refuses; none of them notices a SEVENTH route added later.
+    // The artifact carries the router's own table, so the routes are read back
+    // out of it and compared with what this file exercises. A new write
+    // endpoint fails here until it is covered, which is the only version of
+    // "the gate covers all of them" that survives someone else's merge.
+    const artifact = fs.readFileSync(ARTIFACT, 'utf8');
+    const declared = [...artifact.matchAll(/path:\s*"(\/api\/[a-z-]+)",\s*verb:/g)].map((m) => m[1]);
+    assert.ok(declared.length > 0, 'the router table should be readable in the artifact');
+    assert.deepEqual(
+      [...declared].sort(),
+      WRITE_ROUTES.map((r) => r.path).sort(),
+      'every route in the server\'s write table must be exercised by this file',
+    );
   });
 
   it('still serves the READ endpoints — the gate covers writes, not the board', async () => {

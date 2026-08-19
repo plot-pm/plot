@@ -19,6 +19,7 @@ import {
   approveStatus,
   handleApprove,
 } from './approve.js';
+import { handleIdea, ideaAvailability, ideaStatus } from './idea.js';
 // Inlined at build time by esbuild's text loader — the artifact is a single
 // self-contained file, served from memory (no filesystem static serving, so no
 // path-traversal surface).
@@ -95,93 +96,104 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   //
   // `PLOT_BOARD_ALLOW_REMOTE_WRITES=i-understand` opts out, deliberately
   // awkward so it cannot be set by reflex — see write-gate.ts.
-  const WRITE_PATHS = [
-    '/api/approve',
-    '/api/continue',
-    '/api/dispatch',
-    '/api/claim',
-    '/api/transition',
-  ];
-  if (WRITE_PATHS.includes(url.pathname) && req.method === 'POST') {
-    if (refuseIfGated(res, HOST)) return;
-  }
-
-  // POST /api/claim — reserve one branch of a plan, and return what resulted.
+  // THE WRITE ROUTES, AS ONE TABLE, SO THE GATE CANNOT BE FORGOTTEN.
   //
-  // Wraps `plot-dispatch.sh --no-start`, which already claims by pushing a ref
-  // whose tip is an empty commit: two claims diverge, the loser's push is
-  // rejected as non-fast-forward, and git is the lock. The endpoint must not
-  // replace that with server-side state, which would put a second source of
-  // truth beside the repository.
+  // Allow-listed AHEAD of the blanket 405 below, rather than by weakening it.
+  // Per-route method checks would be the more conventional shape, and are
+  // rejected for the reason this repo rejects prose MUSTs: a check every future
+  // route has to remember is a rule, while a default that refuses is a gate.
+  // /api/board, /api/fleet and /plan/* stay protected precisely as they are.
   //
-  // CLAIMING IS NOT DISPATCHING. `--no-start` reserves the branch and starts no
-  // worker, which is what a caller that means to do the work itself wants;
-  // a caller that wants a detached agent posts to /api/dispatch. The same split
-  // /api/attention documents from the other side.
-  if (url.pathname === '/api/claim' && req.method === 'POST') {
-    void handleClaim(req, res, { ...opts, host: HOST, port: boundPort }).catch((err) => {
-      console.error('Error claiming:', err);
-      if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
-    });
-    return;
-  }
-
-  // POST /api/transition — apply a phase transition through the spokes' rules.
+  // THE LOOPBACK BOUNDARY IS ENFORCED HERE, ONCE, FOR ALL OF THEM. `dispatch.ts`
+  // has stated it since the first write route existed — "whoever reaches
+  // localhost is sitting at the machine that owns the worktrees; that IS the
+  // permission" — and until 2026-08-19 nothing enforced it: `HOST` was read once
+  // above and never checked, so `HOST=0.0.0.0` published every write endpoint,
+  // including the one that spawns detached agents, to every interface the
+  // machine had.
   //
-  // Contains no phase logic: it runs the spoke's script and reports what the
-  // script said, so a transition the spoke refuses is refused here with the
-  // spoke's own reason. An API that could approve an unreviewed draft would be
-  // a bypass of the lifecycle rather than an interface to it.
-  if (url.pathname === '/api/transition' && req.method === 'POST') {
-    void handleTransition(req, res, { ...opts, host: HOST, port: boundPort }).catch((err) => {
-      console.error('Error transitioning:', err);
-      if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
-    });
-    return;
-  }
-
-  if (url.pathname === '/api/approve' && req.method === 'POST') {
-    void handleApprove(req, res, { ...opts, host: HOST, port: boundPort }).catch((err) => {
-      console.error('Error approving:', err);
-      if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
-    });
-    return;
-  }
-
-  // POST /api/continue — a NEW worker in an answered branch's worktree.
+  // A TABLE RATHER THAN A LIST OF PATHS BESIDE A CHAIN OF `if`s, and the
+  // difference is the whole point. This began as exactly that list, and within
+  // hours `/api/idea` landed on the default branch as a sixth write route — it
+  // merged cleanly, typechecked, and would have been the one ungated endpoint,
+  // because a list beside the routes is itself a rule somebody has to remember.
+  // Deriving BOTH the dispatch and the gate from one entry means a route that
+  // exists is gated, and a route absent from the table is not reachable at all.
+  // The shape is the claim, exactly as MARKDOWN_ROUTES above.
   //
-  // Allow-listed here beside /api/dispatch and /api/approve because it is the
-  // same class of route: it spawns a process on this machine. It reuses that
-  // endpoint's same-origin guard and its bounded body reader rather than
-  // growing its own — see continue.ts, where the reasoning those two carry is
-  // stated to apply here unchanged.
-  //
-  // A CONTINUATION, NOT A REPLY. `claude -p` has no stdin after launch, so the
-  // agent that asked the question is gone; this starts a new run in the same
-  // worktree with the brief, the answer and what already landed. The route is
-  // named for what it does rather than for what a reader might wish it did.
-  if (url.pathname === '/api/continue' && req.method === 'POST') {
-    void handleContinue(req, res, { ...opts, host: HOST, port: boundPort }).catch((err) => {
-      console.error('Error continuing:', err);
-      if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
-    });
-    return;
-  }
-
-  if (url.pathname === '/api/dispatch' && req.method === 'POST') {
+  // `PLOT_BOARD_ALLOW_REMOTE_WRITES=i-understand` opts out, deliberately awkward
+  // so it cannot be set by reflex — see write-gate.ts.
+  const WRITE_ROUTES = [
+    { path: '/api/approve', verb: 'approving', handle: handleApprove },
+    // POST /api/continue — a NEW worker in an answered branch's worktree.
+    //
+    // Allow-listed here beside /api/dispatch and /api/approve because it is the
+    // same class of route: it spawns a process on this machine. It reuses that
+    // endpoint's same-origin guard and its bounded body reader rather than
+    // growing its own — see continue.ts, where the reasoning those two carry is
+    // stated to apply here unchanged.
+    //
+    // A CONTINUATION, NOT A REPLY. `claude -p` has no stdin after launch, so the
+    // agent that asked the question is gone; this starts a new run in the same
+    // worktree with the brief, the answer and what already landed. The route is
+    // named for what it does rather than for what a reader might wish it did.
+    { path: '/api/continue', verb: 'continuing', handle: handleContinue },
     // `boundPort`, not the requested one: under PORT=0 they differ, and this
     // port is the same-origin allowlist for the endpoint that spawns processes.
-    void handleDispatch(req, res, { ...opts, host: HOST, port: boundPort }).catch((err) => {
-      console.error('Error dispatching:', err);
+    { path: '/api/dispatch', verb: 'dispatching', handle: handleDispatch },
+    // POST /api/idea — an issue becomes a Draft plan.
+    //
+    // Allow-listed here beside the other three because it is the same class of
+    // route: it spawns a process on this machine. It reuses their same-origin
+    // guard and their bounded body reader rather than growing its own — see
+    // idea.ts, where the reasoning those two carry is stated to apply here
+    // unchanged.
+    //
+    // A DRAFT, NEVER MORE. The row this answers exists to ask *is this worth
+    // planning*, and an endpoint that produced an approved plan would decide
+    // that question instead of posing it. Nothing here reaches the tracker in
+    // the other direction: no comment, no label, no close.
+    { path: '/api/idea', verb: 'creating an idea', handle: handleIdea },
+    // POST /api/claim — reserve one branch of a plan, and return what resulted.
+    //
+    // Wraps `plot-dispatch.sh --no-start`, which already claims by pushing a ref
+    // whose tip is an empty commit: two claims diverge, the loser's push is
+    // rejected as non-fast-forward, and git is the lock. The endpoint must not
+    // replace that with server-side state, which would put a second source of
+    // truth beside the repository.
+    //
+    // CLAIMING IS NOT DISPATCHING. `--no-start` reserves the branch and starts no
+    // worker, which is what a caller that means to do the work itself wants;
+    // a caller that wants a detached agent posts to /api/dispatch. The same split
+    // /api/attention documents from the other side.
+    { path: '/api/claim', verb: 'claiming', handle: handleClaim },
+    // POST /api/transition — apply a phase transition through the spokes' rules.
+    //
+    // Contains no phase logic: it runs the spoke's script and reports what the
+    // script said, so a transition the spoke refuses is refused here with the
+    // spoke's own reason. An API that could approve an unreviewed draft would be
+    // a bypass of the lifecycle rather than an interface to it.
+    { path: '/api/transition', verb: 'transitioning', handle: handleTransition },
+  ] as const;
+
+  const writeRoute = WRITE_ROUTES.find((r) => r.path === url.pathname);
+  if (writeRoute && req.method === 'POST') {
+    if (refuseIfGated(res, HOST)) return;
+    // `boundPort`, not the requested one: under PORT=0 they differ, and this
+    // port is the same-origin allowlist for every route that changes state.
+    void writeRoute.handle(req, res, { ...opts, host: HOST, port: boundPort }).catch((err) => {
+      console.error(`Error ${writeRoute.verb}:`, err);
       if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
     });
     return;
   }
+
+
+
+
+
+
 
   if (req.method !== 'GET') {
     res.writeHead(405);
@@ -212,6 +224,12 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         // is the one `approve` records — one flag for two capabilities is how
         // they diverge without anyone noticing.
         continue: continueAvailability(HOST),
+        // A FOURTH flag, for the reason the third one records: today all four
+        // answer the same binding question, and collapsing them is how they
+        // diverge without anyone noticing. Read together with `fleet`'s
+        // `issueAnswer` by the row — the binding says whether this BOARD can
+        // act, and the answer says whether the TRACKER can be asked at all.
+        idea: ideaAvailability(HOST),
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(board));
@@ -367,6 +385,26 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       SLUG_RE.test(slug)
         ? JSON.stringify(approveStatus(opts, slug))
         : JSON.stringify({ error: 'slug must be a plan slug' }),
+    );
+    return;
+  }
+
+  // What happened to a creation somebody asked for — the same read-it-back
+  // shape `/api/approve/<slug>` has, and for the same reason: a refused
+  // creation moves no row, so there is nothing on the board to watch and the
+  // command's own words are the only answer.
+  //
+  // An issue NUMBER, validated as one. It is a filename component here, and a
+  // value that is not a number must reach no log but the one it names.
+  if (url.pathname.startsWith('/api/idea/')) {
+    const raw = url.pathname.slice('/api/idea/'.length);
+    const number = Number(raw);
+    const ok = /^[0-9]{1,9}$/.test(raw) && Number.isInteger(number) && number > 0;
+    res.writeHead(ok ? 200 : 400, { 'Content-Type': 'application/json' });
+    res.end(
+      ok
+        ? JSON.stringify(ideaStatus(opts, number))
+        : JSON.stringify({ error: 'number must be an issue number' }),
     );
     return;
   }

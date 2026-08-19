@@ -202,6 +202,18 @@ DEFAULT_BRANCH=$(../plot/scripts/plot-host.sh default-branch)
 
 Resolve the plan template via the `Plan template` config key (repo-root-relative path; falls back to the shipped template). Write `docs/plans/${CREATE_DATE}-<slug>.md` from it, substituting `<title>` and `<slug>`, and fill the `Review:` and `Impl:` Status fields with the step-4 answers.
 
+**If this plan answers a tracker issue, record it as `- **Issue:** #<n>` in the
+`## Status` block** (several, comma-separated, where one plan answers more than
+one). The field is what makes the board drop that issue from its inbox — it
+lists open issues *no plan references*, and reads this field to know. A plan
+that answers an issue without naming it here leaves the issue sitting on the
+board beside the plan that answered it.
+
+It is a **dedicated field, not a mention**: plans cite `#NNN` constantly for PRs
+and for history, so a body scan could not tell a signal from a citation. Only
+this field counts. Leave it out when the plan answers no issue — the field is
+optional, and an empty one is not a claim.
+
 Ask the user what **Type** to use, presenting this reference:
 
 | Type | Use when | Examples |

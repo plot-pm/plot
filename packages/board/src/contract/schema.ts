@@ -398,6 +398,23 @@ export const BoardSchema = z.object({
    */
   continue: DispatchInfoSchema.default({ available: false, reason: '' }),
   /**
+   * Whether "Create plan" will act — the fourth capability, kept apart from the
+   * other three for the reason `approve` records at length.
+   *
+   * **It answers only half the question the control needs**, and that split is
+   * deliberate. This field says whether THIS BOARD can act: it is bound to
+   * localhost, and creating a plan spawns an agent that writes to the repo.
+   * Whether the TRACKER can be asked at all is `Fleet.issueAnswer`, and a host
+   * with no issue listing (`unsupported`) or a lookup that broke (`failed`)
+   * must offer no action however this flag reads. Neither field implies the
+   * other, and a control that consulted one alone would offer a button that
+   * cannot work — see `IssueRowView`.
+   *
+   * Same default as the three above: an older server sends nothing, and a newer
+   * client hides the control rather than offering one that 403s.
+   */
+  idea: DispatchInfoSchema.default({ available: false, reason: '' }),
+  /**
    * Newest release checklist, for the Endgame column: what is left before
    * signoff. null when no checklist exists or none could be parsed — the board
    * shows no badge rather than a guessed count.

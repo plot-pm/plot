@@ -64,6 +64,25 @@
 #                                 failed lookup exits non-zero with an empty
 #                                 stdout, never a silent empty list — an outage
 #                                 is not an answer.
+#   issue-view <number>           ONE open issue as a single JSON object:
+#                                 {"number":N,"title":"…","body":"…","url":"…"}
+#                                 STILL READ-ONLY — the second issue op, and it
+#                                 reads. The board's *Create plan* action needs
+#                                 the issue's BODY as the problem statement, and
+#                                 issue-list deliberately omits it: the list is
+#                                 asked on a timer for every open issue, and a
+#                                 body per issue per refresh is a cost the row
+#                                 does not need to decide *is this worth a plan?*
+#                                 So the body is fetched once, per click, for the
+#                                 one issue somebody chose — a call whose cadence
+#                                 is a human's.
+#                                 Same three outcomes as issue-list, same codes:
+#                                 EXIT 4 on bitbucket (bb has no issue read),
+#                                 EXIT 3 on a lookup that failed. An issue that
+#                                 does not exist is a FAILURE here, not an empty
+#                                 body: the caller named a number it read off
+#                                 this same adapter, so its absence is a fact
+#                                 worth surfacing rather than a blank to plan on.
 #   pr-body <number> --body B     replace the PR description
 #
 # Backend resolution: $PLOT_HOST (github|bitbucket) wins — useful for tests —
@@ -567,6 +586,41 @@ case "$op" in
     fi
     ;;
 
+  issue-view)
+    # ONE issue, with its body — the problem statement the board hands to
+    # /plot-idea. Read-only, exactly as issue-list is: nothing here writes a
+    # comment, a label or a state, because a plan referencing an issue is
+    # Plot's record and not the tracker's.
+    #
+    # The three outcomes stay apart for the reason issue-list states, and the
+    # exit codes are deliberately THE SAME ONES — a consumer that already maps
+    # 4 to `unsupported` and anything else to `failed` must not need a second
+    # table to read this op.
+    num="${1:?issue-view needs an issue number}"; shift
+    if [ "$be" = "github" ]; then
+      if out="$(gh issue view "$num" --json number,title,body,url 2>/tmp/plot-host-err.$$)"; then
+        rm -f "/tmp/plot-host-err.$$"
+        jq -c '{number:.number,title:(.title // ""),body:(.body // ""),url:(.url // "")}' <<<"$out"
+      else
+        err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+        # NO miss/fail split here, and that is deliberate. `host_miss_or_fail`
+        # exists where an absent subject is a NORMAL answer — a branch with no
+        # PR. An issue number reaching this op was read off `issue-list`
+        # moments earlier, so "it does not exist" is not a normal answer: it
+        # means the tracker moved under the board. Both shapes exit non-zero
+        # with the CLI's own words, so the caller says *could not be read*
+        # rather than planning against an empty body.
+        echo "plot-host: $err" >&2
+        exit 3
+      fi
+    else
+      # The same standing fact issue-list reports, with the same code: bb
+      # exposes no issue commands at all, so this host cannot be asked.
+      echo "plot-host: bitbucket has no issue read (bb exposes none)" >&2
+      exit 4
+    fi
+    ;;
+
   pr-body)
     num="${1:?pr-body needs a PR number}"; shift
     body=""
@@ -585,6 +639,6 @@ case "$op" in
     ;;
 
   *)
-    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|pr-body)"
+    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|pr-body)"
     ;;
 esac

@@ -358,6 +358,20 @@ export function App() {
     : board?.continue;
 
   /**
+   * The SAME treatment for turning an issue into a plan.
+   *
+   * Dimmed by the same rule as the three above. It bites in its own way here:
+   * this control spawns an agent that writes a plan FILE, and a frozen page's
+   * issue rows may already have been planned by someone else — the reference
+   * that removes a row lands in git, and a page that cannot re-read git cannot
+   * know it has. The route refuses a second plan for one issue anyway, but a
+   * dark control says so before the click rather than after it.
+   */
+  const ideaInfo = dimmed
+    ? { available: false, reason: BLOCKED_REASON }
+    : board?.idea;
+
+  /**
    * Coming back to a hidden tab RE-CHECKS instead of counting.
    *
    * Browsers throttle timers in hidden tabs, so a minimised window would
@@ -754,6 +768,12 @@ export function App() {
               // control needs a text box for the answer, which a menu item has
               // nowhere to put.
               continueWith={continueInfo}
+              // The fourth act, and the only one belonging to a row that is not
+              // a branch. It reaches the ISSUE rows in WAITING ON YOU, which
+              // read it together with `fleet.issueAnswer` — this flag says the
+              // board can act, that one says the tracker can be asked, and an
+              // action needs both.
+              idea={ideaInfo}
               pulse={pulse}
               onStarting={onStarting}
             />

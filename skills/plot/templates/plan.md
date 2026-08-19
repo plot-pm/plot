@@ -8,6 +8,7 @@
 - **Type:** feature | bug | docs | infra
 - **Story:** <!-- optional, story slug (docs/stories/<slug>/) — the durable intent this plan serves -->
 - **Sprint:** <!-- optional, filled when plan is added to a sprint — a time-boxed selection of planned work -->
+- **Issue:** <!-- optional, tracker issue(s) this plan answers (`#228`, or `#226, #228`) — the board removes an issue from its inbox once a plan names it here -->
 - **Review:** <!-- pr | in-session | ballot — how is this plan reviewed & approved? -->
 - **Impl:** <!-- own branches | same branch | other repo | none — where does implementation happen? -->
 <!-- Transition records — written by the workflow commands, not by hand:
