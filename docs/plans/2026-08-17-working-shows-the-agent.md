@@ -348,7 +348,7 @@ in a wave whose shape the earlier ones are likely to change.
 ### Panel
 
 - `feature/the-agent-panel` — pid, uptime, command, branch and the live
-  log in one view, opened from the row
+  log in one view, opened from the row — PR #244
 
 ### Answer
 
