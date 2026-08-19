@@ -13,6 +13,7 @@
 - **Started:** 2026-08-18, Jan Wloka, `feature/the-scan-sees-a-repairable-conflict`
 - **Delivered:**
 - **Released:**
+- **Started:** 2026-08-19, Jan Wloka, `feature/the-repair-can-be-turned-off`
 
 ## Changelog
 
