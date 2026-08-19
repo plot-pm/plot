@@ -111,12 +111,44 @@ function response() {
 }
 
 const dirs: string[] = [];
-afterEach(() => {
-  // `maxRetries` because a detached worker may still be writing into the tree
-  // as it is removed — an ENOTEMPTY here is the cleanup racing the process, not
-  // the assertion failing, and it must not be reported as the latter.
+
+/**
+ * Wait for the worker this test started to FINISH, then remove its worktree.
+ *
+ * **The cleanup must not race the process either**, and `maxRetries` cannot win
+ * that race: retrying `rmdir` against a worker that is still creating files is
+ * a loop against a writer, not a wait for one. Measured on CI (Linux) where
+ * four of these failed `ENOTEMPTY` while every assertion had already passed —
+ * the brief's *a test must not race what it asserts* applies to teardown as
+ * much as to the assertion.
+ *
+ * `.plot-worker.exit` is the deterministic signal: the handler wraps the worker
+ * command so that its return code is written there when it exits, and the
+ * handler DELETES any previous one before spawning. So the file appearing means
+ * this run's worker has finished — a real event rather than a guessed duration.
+ *
+ * The deadline is a backstop for the cases that never spawn (every refusal
+ * test), not a budget for the ones that do: those return immediately because
+ * `dirs` holds a worktree whose worker was never started, and waiting out the
+ * full deadline for them would be the fixed-budget mistake in another costume.
+ * Hence the `spawned` flag — only a test that started a worker waits for one.
+ */
+const spawned = new Set<string>();
+
+async function settle(dir: string): Promise<void> {
+  if (!spawned.has(dir)) return;
+  const exit = path.join(dir, '.plot-worker.exit');
+  const deadline = Date.now() + 15_000;
+  while (!fs.existsSync(exit) && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
+afterEach(async () => {
   while (dirs.length) {
-    fs.rmSync(dirs.pop()!, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    const dir = dirs.pop()!;
+    await settle(dir);
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
 
@@ -144,6 +176,14 @@ const opts = {
 async function post(body: unknown, d: ContinueDeps) {
   const { res, out } = response();
   await handleContinue(request(body), res, opts, d);
+  // A 202 is the one answer that means a process was started, so it is also
+  // the one that obliges teardown to wait for it. Recorded here rather than
+  // per-test: a test that forgets would fail on CI and pass locally, which is
+  // the failure mode this whole mechanism exists to remove.
+  if (out.status === 202) {
+    const p = (out.body as { prompt?: string }).prompt;
+    if (p) spawned.add(path.dirname(p));
+  }
   return out;
 }
 
@@ -174,10 +214,22 @@ describe('answering starts a NEW run', () => {
   it('clears the previous run’s exit record', async () => {
     // Left in place, the scan would read a FRESH worker's state from its
     // predecessor's exit code — a running agent reported finished.
+    //
+    // THE WORKER HERE SLEEPS, and that is the assertion's precondition rather
+    // than padding. `true` exits within microseconds and writes its OWN exit
+    // record, so on a fast runner the file is back before this line reads it
+    // and the test fails having proved nothing — measured on CI, which is
+    // Linux, while it passed on macOS. A worker that is still running keeps the
+    // window open, so what is observed is the handler's delete and not a race
+    // with the worker's write.
     const wt = worktree();
     dirs.push(wt);
-    await post({ branch: BRANCH, answer: 'go' }, deps(wt));
-    assert.equal(fs.existsSync(path.join(wt, '.plot-worker.exit')), false);
+    await post({ branch: BRANCH, answer: 'go' }, deps(wt, 'sleep 2'));
+    assert.equal(
+      fs.existsSync(path.join(wt, '.plot-worker.exit')),
+      false,
+      'the predecessor’s exit record must be gone while the new worker runs',
+    );
   });
 
   it('appends to the previous log rather than truncating it', async () => {
