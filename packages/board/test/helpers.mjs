@@ -10,6 +10,31 @@ import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+/**
+ * WHY `--test-concurrency=4` IN THE `test` SCRIPT.
+ *
+ * `node --test` runs FILES in parallel, defaulting to roughly one per core — 16
+ * on the machine this was measured on. Several suites here start real HTTP
+ * servers that run real `git` and real helper scripts, and two of them wait on
+ * work with a deadline: `bridge.test.mjs` polls 80 × 250 ms for a fleet scan to
+ * land on disk, and the scan is seconds of forks.
+ *
+ * Those deadlines are budgets against a machine, not against a file count, so
+ * they silently get tighter every time a suite is added. Measured 2026-08-19:
+ * adding three server-backed files took the run from green to eight failures
+ * across `approve` and `bridge` — none of them logically broken, all of them
+ * starved. The same files pass alone, which is what makes this look like
+ * flakiness and is exactly why it is not: the loser of the race depends on
+ * scheduling.
+ *
+ * Bounding concurrency fixes it structurally rather than per test. The
+ * alternative — raising each deadline as the suite grows — makes a real
+ * regression slower to surface every time, and asks every future author to
+ * notice a budget they did not write.
+ *
+ * Raise this number only with a measurement, never to make a run finish sooner.
+ */
+
 export const REPO_ROOT = path.resolve(here, '../../..');
 export const SCRIPTS_DIR = path.join(REPO_ROOT, 'skills/plot/scripts');
 export const ARTIFACT = path.join(SCRIPTS_DIR, 'board/board-server.mjs');

@@ -17,7 +17,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { startServer, makeRepo, makeStubScripts, request, rmTree, SCRIPTS_DIR } from './helpers.mjs';
 
 /**
@@ -68,10 +68,38 @@ async function transition(port, body) {
   return { status: res.status, body: JSON.parse(res.body) };
 }
 
-describe('POST /api/transition: a guardrail the spoke enforces is enforced here', () => {
-  let tmp, server;
+/**
+ * Run the real `plot-approve.sh` against a fixture and return what it said.
+ *
+ * DIRECT, WITHOUT A SERVER, and the split is what keeps this file affordable.
+ * Two separable things are under test here: whether the SPOKE refuses, and
+ * whether the ENDPOINT forwards that refusal faithfully. The first is a
+ * property of the script and is provable by running it — with the endpoint out
+ * of the way, which makes it a stronger claim, not a weaker one. The second
+ * needs a server and needs it exactly once.
+ *
+ * Booting a server per guardrail cost three seconds each in shell forks and
+ * pushed the whole `node --test` run — which runs files concurrently — past the
+ * point where unrelated suites started losing. Measured 2026-08-19: eight
+ * failures across `approve` and `bridge` with these three present, one without.
+ * None of them was logically broken; they were starved.
+ */
+function runApprove(repo, slug) {
+  const res = spawnSync('bash', [path.join(SCRIPTS_DIR, 'plot-approve.sh'), slug], {
+    cwd: repo,
+    encoding: 'utf8',
+    // `PLOT_HOST` is plot-host.sh's own documented test hook, and an
+    // unrecognised value makes the adapter die immediately and LOCALLY. No test
+    // in this file may reach a git host.
+    env: { ...process.env, PLOT_HOST: 'none-in-tests' },
+  });
+  return { code: res.status, said: `${res.stdout ?? ''}${res.stderr ?? ''}` };
+}
 
-  before(async () => {
+describe('the spoke refuses, and this is what it says', () => {
+  let tmp;
+
+  before(() => {
     tmp = makeRepo({
       plans: [
         { name: '2026-08-16-needs-a-human.md', content: DRAFT_IN_SESSION },
@@ -80,81 +108,36 @@ describe('POST /api/transition: a guardrail the spoke enforces is enforced here'
       ],
     });
     initRepo(tmp);
-    // THE REAL SCRIPTS DIR — see the note at the top of this file.
-    //
-    // NO TEST HERE MAY REACH A GIT HOST.
-    //
-    // Two of the three cases below are refused from the plan file and never get
-    // near one. The third gets PAST the phase gate by design — that is what it
-    // asserts — and would otherwise shell out to `gh` for a PR lookup.
-    // Measured: under a loaded full-suite run that took 10.4 s and the socket
-    // hung up, while it failed fast in isolation. That is what this repo calls
-    // a race rather than a flake, and a timeout would only have decided it
-    // differently on a different machine.
-    //
-    // `PLOT_HOST` is `plot-host.sh`'s own documented test hook — it wins over
-    // remote sniffing, and an unrecognised value makes the adapter die
-    // immediately and LOCALLY. The assertion wants to know the run got past the
-    // phase gate, not what a host said afterwards, so failing at the host
-    // boundary is exactly the right depth to stop at.
-    //
-    // These three cases each take a few seconds, and the cost is `jq` forks and
-    // `plot-plan-meta.sh` rather than anything waiting on a socket — traced
-    // 2026-08-19, ~0.35 s per field read on macOS. Slow and deterministic,
-    // which is the trade this file accepts to assert against the REAL rule.
-    server = await startServer(tmp, {
-      PLOT_SCRIPTS_DIR: SCRIPTS_DIR,
-      PLOT_HOST: 'none-in-tests',
-    });
   });
 
-  after(async () => {
-    await server?.stop();
+  after(() => {
     if (tmp) rmTree(tmp);
   });
 
   // ── Direction 1: TOO EARLY. A plan that has not been through its review
-  //    channel must not become Approved because an API asked nicely.
-  it('refuses to approve a Draft whose review channel needs a human, in the spoke\'s words', async () => {
-    const { status, body } = await transition(server.port, {
-      slug: 'needs-a-human',
-      transition: 'approve',
-    });
-    assert.equal(status, 200, 'a guardrail refusal is a normal answer, not a client error');
-    assert.equal(body.applied, false, 'the transition must NOT have been applied');
-    // The plan is still Draft, read back from the file rather than assumed.
-    assert.equal(body.phase, 'draft');
-    // The SPOKE'S OWN SENTENCE, forwarded rather than replaced. Replacing it
-    // with a status name would send the reader to a terminal — and then the
-    // command could have been typed there in the first place.
-    assert.match(body.reason, /in-session/);
-    assert.match(body.reason, /human in the room/);
-  });
-
-  it('leaves the plan file untouched when it refuses', async () => {
-    // The load-bearing assertion: a refusal that already wrote is not a
-    // refusal. Every other assertion here can pass while the phase moved.
-    const onDisk = fs.readFileSync(
-      path.join(tmp, 'docs/plans/2026-08-16-needs-a-human.md'),
-      'utf8',
+  //    channel must not become Approved because something asked nicely.
+  it('refuses a Draft whose review channel needs a human', () => {
+    const { code, said } = runApprove(tmp, 'needs-a-human');
+    assert.notEqual(code, 0, 'a refusal must be a non-zero exit');
+    assert.match(said, /in-session/);
+    assert.match(said, /human in the room/);
+    // The load-bearing assertion: a refusal that already wrote is not one.
+    assert.equal(
+      fs.readFileSync(path.join(tmp, 'docs/plans/2026-08-16-needs-a-human.md'), 'utf8'),
+      DRAFT_IN_SESSION,
+      'a refused transition must write nothing',
     );
-    assert.equal(onDisk, DRAFT_IN_SESSION, 'a refused transition must write nothing');
   });
 
-  // ── Direction 2: TOO LATE. A plan past the target phase must not be
-  //    re-approved, and the endpoint must say where it actually stands.
-  it('refuses to approve a plan that is already Delivered, and says where it stands', async () => {
-    const { status, body } = await transition(server.port, {
-      slug: 'long-done',
-      transition: 'approve',
-    });
-    assert.equal(status, 200);
-    assert.equal(body.applied, false);
-    assert.equal(body.phase, 'delivered', 'the caller is told the real phase, not a guess');
-    assert.match(body.reason, /already delivered/i);
+  // ── Direction 2: TOO LATE. A plan past the target phase has nothing to
+  //    approve, and saying so is the refusal.
+  it('refuses a plan that is already Delivered', () => {
+    const { code, said } = runApprove(tmp, 'long-done');
+    assert.notEqual(code, 0);
+    assert.match(said, /already delivered/i);
   });
 
-  it('does NOT refuse a plan already Approved — that is the idempotent repair, not an error', async () => {
+  it('does NOT refuse a plan already Approved — that is the idempotent repair', () => {
     // THE SUBTLETY A REIMPLEMENTATION WOULD HAVE LOST.
     //
     // `Approved` looks like it should be refused, and `plot-approve.sh`
@@ -166,24 +149,62 @@ describe('POST /api/transition: a guardrail the spoke enforces is enforced here'
     //
     // An API that wrote the phase rules for itself would have "helpfully" made
     // this a refusal, because it reads like one, and would have broken that
-    // repair path silently. Wrapping inherits the subtlety for free. This test
-    // exists to keep it inherited.
-    const { body } = await transition(server.port, {
-      slug: 'already-approved',
-      transition: 'approve',
-    });
-    // It got PAST the phase gate and failed further on, where a legitimate
-    // re-run would continue: this fixture has no remote and no host CLI, so the
-    // PR lookup cannot answer. The assertion is on what did NOT happen — the
-    // phase was not the objection — so it matches anything except a phase
-    // complaint rather than pinning one downstream sentence.
+    // repair path silently. Wrapping inherits the subtlety for free; this keeps
+    // it inherited.
+    const { said } = runApprove(tmp, 'already-approved');
     assert.doesNotMatch(
-      body.reason,
+      said,
       /nothing to approve|not Draft/i,
       'an Approved plan must not be refused on its phase',
     );
-    assert.ok(body.reason.length > 0, 'and it still says what stopped it');
-    assert.equal(body.phase, 'approved', 'and the phase is reported as it stands');
+  });
+});
+
+describe('POST /api/transition: the spoke\'s refusal reaches the caller intact', () => {
+  let tmp, server;
+
+  before(async () => {
+    tmp = makeRepo({ plans: [{ name: '2026-08-16-needs-a-human.md', content: DRAFT_IN_SESSION }] });
+    initRepo(tmp);
+    // ONE server for the whole file's endpoint half — see `runApprove` above
+    // for why the guardrails themselves are asserted without one. THE REAL
+    // SCRIPTS DIR: a stub exiting non-zero would prove the wiring and nothing
+    // about the property that matters, which is that the API cannot approve a
+    // plan the spoke would refuse.
+    server = await startServer(tmp, {
+      PLOT_SCRIPTS_DIR: SCRIPTS_DIR,
+      PLOT_HOST: 'none-in-tests',
+    });
+  });
+
+  after(async () => {
+    await server?.stop();
+    if (tmp) rmTree(tmp);
+  });
+
+  it('answers 200 with applied:false, the real phase, and the spoke\'s own words', async () => {
+    const { status, body } = await transition(server.port, {
+      slug: 'needs-a-human',
+      transition: 'approve',
+    });
+    assert.equal(status, 200, 'a guardrail refusal is a normal answer, not a client error');
+    assert.equal(body.applied, false, 'the transition must NOT have been applied');
+    // Read back from the file rather than inferred from the exit code — the
+    // endpoint's promise is that a caller never re-derives whether it landed.
+    assert.equal(body.phase, 'draft');
+    // Forwarded rather than replaced. Replacing it with a status name would
+    // send the reader to a terminal — and then the command could have been
+    // typed there in the first place. Both lines travel: the cause and the
+    // instruction are each half of the reason.
+    assert.match(body.reason, /in-session/);
+    assert.match(body.reason, /human in the room/);
+  });
+
+  it('wrote nothing to the plan file', async () => {
+    assert.equal(
+      fs.readFileSync(path.join(tmp, 'docs/plans/2026-08-16-needs-a-human.md'), 'utf8'),
+      DRAFT_IN_SESSION,
+    );
   });
 });
 

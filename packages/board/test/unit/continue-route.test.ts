@@ -21,6 +21,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { Readable } from 'node:stream';
+import { writeGate } from '../../src/server/write-gate.js';
 import {
   CONTINUATION_ENV,
   CONTINUATION_NAME,
@@ -367,14 +368,25 @@ describe('what cannot be continued is refused, never spawned', () => {
 });
 
 describe('the spawning guards are the ones /api/dispatch already has', () => {
-  it('refuses a board not bound to localhost, before reading a body', async () => {
-    const { res, out } = response();
-    await handleContinue(request({ branch: BRANCH, answer: 'go' }), res, {
-      ...opts,
-      host: '0.0.0.0',
-    });
-    assert.equal(out.status, 403);
-    assert.ok(/0\.0\.0\.0/.test((out.body as { error: string }).error));
+  it('refuses a board not bound to localhost — now in the router, for all five write routes', () => {
+    // THE GUARANTEE IS UNCHANGED; ITS HOME MOVED.
+    //
+    // This handler used to make the loopback check itself, and this asserted it
+    // by calling `handleContinue` with a non-loopback host. Since 2026-08-19 the
+    // check lives in the router, ahead of every write route at once, because a
+    // check each handler has to remember is a rule while a check where routes
+    // are dispatched is a gate — and because with a named opt-in in play, three
+    // surviving copies would have made one variable mean different things on
+    // different routes.
+    //
+    // So the DECISION is asserted here, where it is now made, and the WIRING is
+    // asserted end-to-end over all five routes in `test/write-gate.test.mjs` —
+    // including that a refused request spawned nothing, which is the assertion
+    // that actually matters and which calling a handler directly cannot make.
+    const verdict = writeGate('0.0.0.0', {});
+    assert.equal(verdict.allowed, false);
+    assert.ok(/0\.0\.0\.0/.test(verdict.reason), 'the refusal names the binding');
+    assert.ok(writeGate('localhost', {}).allowed, 'and loopback still serves');
   });
 
   it('refuses a cross-origin request', async () => {
