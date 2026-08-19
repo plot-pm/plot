@@ -40,8 +40,17 @@ function stubScan(pulse) {
     if (name === 'plot-fleet-scan.sh') continue;
     fs.symlinkSync(path.join(SCRIPTS_DIR, name), path.join(dir, name));
   }
+  // Emitted in the `--stream` shape the server asks for: one `plan` line per
+  // plan, then the terminal `pulse` line carrying the whole document. The
+  // terminal line is what says the scan FINISHED — a stub that printed only the
+  // document would look to the server exactly like a scan killed midway, which
+  // is the distinction the streaming scan exists to draw.
   const json = path.join(dir, 'pulse.json');
-  fs.writeFileSync(json, JSON.stringify(pulse));
+  const lines = [
+    ...pulse.plans.map((plan) => JSON.stringify({ kind: 'plan', plan })),
+    JSON.stringify({ kind: 'pulse', pulse }),
+  ];
+  fs.writeFileSync(json, `${lines.join('\n')}\n`);
   fs.writeFileSync(
     path.join(dir, 'plot-fleet-scan.sh'),
     `#!/usr/bin/env bash\ncat ${JSON.stringify(json)}\n`,

@@ -24,6 +24,15 @@
 #               exit 1 when there is none. Used by /plot-implement to pick work
 #               without re-deriving eligibility. "Nothing to start" is a normal
 #               state — the exit code, not stderr, is what says so.
+#   --stream    --json, emitted as it resolves rather than as one document at
+#               the end. One `{"kind":"plan","plan":{...}}` line per plan the
+#               moment that plan is fully derived, then one
+#               `{"kind":"pulse","pulse":{...}}` line carrying the SAME
+#               document --json prints. A consumer that has seen plan lines and
+#               no pulse line holds a PARTIAL answer — the scan takes 18 s on
+#               84 branches and a board that renders nothing for that long
+#               looks broken. The terminal line is what says the scan finished;
+#               a closed pipe does not, because a killed scan closes it too.
 #   <slug>      limit the report to one plan (default: all active plans)
 # Output: per-plan wave report on stdout, terminated by a machine-countable
 #         summary line:
@@ -135,6 +144,7 @@ list_all=0
 loose=0
 log_pulse=0
 as_json=0
+stream=0
 slug=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -144,6 +154,7 @@ while [ $# -gt 0 ]; do
     --next) next_only=1 ;;
     --list-eligible) next_only=1; list_all=1 ;;
     --json) as_json=1 ;;
+    --stream) as_json=1; stream=1 ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) slug="$1" ;;
   esac
@@ -2209,15 +2220,33 @@ for i, w in enumerate(d.get("waves", [])):
     [ "$verdict" = "blocked" ] && n_blocked=$((n_blocked + 1))
   done
   if [ "$as_json" = 1 ]; then
+    # ONE composition, two destinations — the property that makes --stream and
+    # --json say the same thing rather than agreeing by inspection. A second
+    # `printf` shaped like this one would be a second implementation of the
+    # plan object, and the first field added to one and not the other is a
+    # streamed board that quietly renders less than a batch one.
+    #
     # `plan_base` was resolved once where the plan was admitted — in ref mode
     # from the ref, in worktree mode by readlink. Recomputing it here would
     # reintroduce a working-tree read on the JSON path only.
-    json_plans+="${json_plans:+,}{\"file\":\"$(json_str "$plan_base")\""
+    json_plan="{\"file\":\"$(json_str "$plan_base")\""
     # The plan's own phase, reported verbatim. The board composes it with each
     # branch's git state into a row phase; nothing here decides which column
     # anything reads.
-    json_plans+=",\"phase\":\"$(json_str "$plan_phase")\""
-    json_plans+=",\"waves\":[$json_waves]}"
+    json_plan+=",\"phase\":\"$(json_str "$plan_phase")\""
+    json_plan+=",\"waves\":[$json_waves]}"
+    json_plans+="${json_plans:+,}$json_plan"
+    # THE STREAM'S POINT: this plan is fully derived, so a consumer can render
+    # it now rather than when the eighty-fourth branch resolves. Emitted as one
+    # line so a reader can split on newlines without parsing incrementally, and
+    # tagged so the terminal `pulse` line cannot be mistaken for another plan.
+    #
+    # Flushed by `printf` on a line of its own: a consumer reading this stream
+    # is reading it BECAUSE the whole document takes 18 s, so buffering the
+    # lines until exit would give back exactly what the mode exists to remove.
+    if [ "$stream" = 1 ]; then
+      printf '{"kind":"plan","plan":%s}\n' "$json_plan"
+    fi
   fi
   [ "$quiet" = 1 ] || echo
 done
@@ -2263,6 +2292,13 @@ fi
 # it asked for, not on how it asked. --next wins over it (handled above): that
 # is a different question with a one-line answer.
 if [ "$as_json" = 1 ]; then
+  # --stream wraps the SAME document in one tagged line rather than emitting a
+  # second, smaller one. The terminal object is what proves the scan finished:
+  # a consumer that has seen `plan` lines and no `pulse` line has a PARTIAL
+  # answer and must say so — which is the whole distinction this mode adds, and
+  # the reason the end is marked rather than inferred from the pipe closing.
+  # A killed scan closes the pipe too.
+  [ "$stream" = 1 ] && printf '{"kind":"pulse","pulse":'
   # `read_ref` is the ref this document was derived from; `local_head` is the
   # checkout it was derived ON. A consumer needs both to tell "the board is
   # current" from "the board is current about an old world".
@@ -2285,8 +2321,10 @@ if [ "$as_json" = 1 ]; then
     "$(json_str "$FETCH_ERROR")" "$(json_str "$PLAN_SOURCE")" "$json_plans"
   printf '"summary":{"plans":%d,"waves":%d,"branches":%d,"claimed":%d,' \
     "$n_plans" "$n_waves" "$n_branches" "$n_claimed"
-  printf '"eligible":%d,"blocked":%d,"deferred":%d,"merge_detect":"%s"}}\n' \
+  printf '"eligible":%d,"blocked":%d,"deferred":%d,"merge_detect":"%s"}}' \
     "$n_eligible" "$n_blocked" "$n_deferred" "$MERGE_DETECT"
+  [ "$stream" = 1 ] && printf '}'
+  printf '\n'
   exit 0
 fi
 

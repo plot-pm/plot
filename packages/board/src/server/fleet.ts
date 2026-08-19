@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -7,7 +7,7 @@ import {
   DRAFT_PLAN_NOTE,
   ELIGIBLE_NOTE,
   FINISHED_PLAN_NOTE,
-  FleetPulseSchema,
+  FleetScanLineSchema,
   toBoardPhase,
   unknownPhaseNote,
   type AgentRow,
@@ -272,6 +272,25 @@ interface CacheEntry {
    * nothing, because calling before it is what exhausted the quota.
    */
   prNextIsBackoff: boolean;
+  /**
+   * Whether the pulse in `pulse` is every plan the scan found, or only the ones
+   * that had resolved when it was last read.
+   *
+   * The streaming scan's half of the rule the rest of this file already obeys:
+   * `claimed: 0` and "no pulse yet" must not render identically, and neither
+   * must "no plans left" and "the rest have not arrived". A scan takes 18 s on
+   * 84 branches, so for most of that window the answer is genuinely partial —
+   * which is a fact about the answer, not a defect in it.
+   *
+   * True the moment the scan's terminal line lands, and only then. A closed
+   * pipe does not set it: a killed scan closes the pipe too, and treating that
+   * as completion is how a partial answer starts reading as a whole one.
+   *
+   * Starts true so a cold cache and a bridged pulse behave exactly as before —
+   * `pulse: null` already says "nothing has arrived", and a second field
+   * saying it differently is the sort of duplicate this file removes.
+   */
+  pulseComplete: boolean;
   timer: NodeJS.Timeout | null;
   prTimer: NodeJS.Timeout | null;
   running: boolean;
@@ -289,6 +308,123 @@ function run(cmd: string, args: string[], cwd: string, timeoutMs = 30_000): Prom
     execFile(cmd, args, { cwd, encoding: 'utf8', timeout: timeoutMs, maxBuffer: 8 << 20 },
       (err, stdout) => (err ? reject(err) : resolve(stdout)));
   });
+}
+
+/**
+ * Run a command and hand each complete stdout LINE to `onLine` as it arrives.
+ *
+ * The whole point of this file's streaming scan, and the reason it is not
+ * `run()` with a split: `execFile` resolves when the process EXITS, so a
+ * consumer reading its result waits the full 18 s no matter how early the first
+ * plan resolved. Here the caller sees line one when line one is written.
+ *
+ * Rejects exactly as `run` does — a non-zero exit, a timeout, a spawn failure.
+ * Lines already delivered are NOT retracted: `onLine` has been called and the
+ * caller has kept what arrived, which is the behaviour a partial scan needs.
+ * A rejection therefore means "no more is coming", never "discard the rest".
+ *
+ * stdout only. The scan writes its notes to stderr and its document to stdout,
+ * and mixing them would put prose through `JSON.parse`.
+ */
+export function runStreaming(
+  cmd: string,
+  args: string[],
+  cwd: string,
+  onLine: (line: string) => void,
+  timeoutMs = 30_000,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { cwd });
+    let buf = '';
+    let settled = false;
+    const timer = setTimeout(() => {
+      // SIGKILL rather than SIGTERM: the scan is a bash script that spawns git,
+      // and a TERM it traps or a child that ignores it would leave this promise
+      // pending past the timeout it exists to enforce.
+      child.kill('SIGKILL');
+      if (!settled) { settled = true; reject(new Error(`timed out after ${timeoutMs}ms`)); }
+    }, timeoutMs);
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => {
+      buf += chunk;
+      // A chunk boundary falls wherever the OS put it, so the LAST fragment is
+      // kept for the next chunk rather than parsed. Splitting on '\n' and
+      // handing every piece onward would deliver half a JSON object as a line.
+      let nl: number;
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        if (line.trim()) onLine(line);
+      }
+    });
+    // Drained and discarded. Left unread, a chatty scan fills the pipe buffer
+    // and blocks writing to stdout — the stream stalls for a reason that looks
+    // nothing like its cause.
+    child.stderr?.resume();
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      if (!settled) { settled = true; reject(err); }
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      // The trailing fragment, if the scan wrote no final newline.
+      if (buf.trim()) onLine(buf);
+      if (settled) return;
+      settled = true;
+      if (code === 0) resolve();
+      else reject(new Error(`${cmd} exited ${code}`));
+    });
+  });
+}
+
+/**
+ * One plan merged into a pulse being assembled, replacing any earlier entry for
+ * the same file.
+ *
+ * Keyed by `file` because that is the key every consumer already joins on —
+ * `summariseFromPulse` and `worktreesFromPulse` both find a plan by basename.
+ * Replacement rather than append keeps a re-scan of the same plan idempotent,
+ * so a scan that emits a plan twice cannot double a card's wave count.
+ */
+export function mergePlan(plans: FleetPulse['plans'], plan: FleetPulse['plans'][number]): FleetPulse['plans'] {
+  const at = plans.findIndex((p) => p.file === plan.file);
+  if (at === -1) return [...plans, plan];
+  const next = plans.slice();
+  next[at] = plan;
+  return next;
+}
+
+/**
+ * The summary a PARTIAL pulse can honestly state — counted from the plans that
+ * have arrived, never carried over from the last complete scan.
+ *
+ * Recounted rather than reused for the reason the whole branch exists: a
+ * summary describing 24 plans beside a `plans` array holding 3 is a measurement
+ * of one thing presented as a measurement of another. The numbers here are
+ * small and true; the previous scan's numbers were large and about a different
+ * document.
+ *
+ * `blocked` and `deferred` are counted the same way the scan counts them, which
+ * is the one duplication this function accepts — see the note on `summarizeStuck`
+ * for why counting FROM the rows beats tallying beside them: a partial pulse has
+ * no other source, and deriving it here means it cannot disagree with the plans
+ * it is derived from.
+ */
+export function partialSummary(plans: FleetPulse['plans']): FleetPulse['summary'] {
+  let waves = 0, branches = 0, claimed = 0, eligible = 0, blocked = 0, deferred = 0;
+  for (const plan of plans) {
+    for (const wave of plan.waves) {
+      waves += 1;
+      if (wave.verdict === 'blocked') blocked += 1;
+      for (const b of wave.branches) {
+        branches += 1;
+        if (b.state === 'deferred') deferred += 1;
+        else if (b.state === 'claimed') claimed += 1;
+        else if (b.state === 'open' && wave.verdict === 'eligible') eligible += 1;
+      }
+    }
+  }
+  return { plans: plans.length, waves, branches, claimed, eligible, blocked, deferred };
 }
 
 /** Every branch name in a pulse, across all plans and waves. */
@@ -978,13 +1114,98 @@ function maybeRepair(
 async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
   if (entry.running) return;
   entry.running = true;
+  // The last COMPLETE answer, held across a scan that will overwrite
+  // `entry.pulse` many times before it finishes. `pulseShrink` asks what the
+  // previous document had and this one lacks, and a partial view of the scan
+  // in progress cannot answer that.
+  const before = entry.pulseComplete ? entry.pulse : null;
   try {
     // Default mode, WITH the fetch: the refresh is off the request path, so a
     // second of work is free — and the fetch is what lets the board see
-    // branches a remote worker pushed. `--json` is the only flag added.
-    const out = await run('bash',
-      [path.join(opts.scriptsDir, 'plot-fleet-scan.sh'), '--json'], opts.repoRoot);
-    const parsed = FleetPulseSchema.parse(JSON.parse(out));
+    // branches a remote worker pushed. `--stream` is the only flag added.
+    //
+    // STREAMED rather than awaited whole. The scan is 18.3 s on 84 branches
+    // against a 5 s refresh, and git alone is 12.7 s of that — so the wait is
+    // structural and no host fix removes it. What removes it is not waiting for
+    // the whole document: a plan is rendered when that plan resolves.
+    //
+    // `parsed` is filled by the terminal line and is null until then. Every
+    // partial write below goes through `entry`, never through this — the
+    // difference between "the scan finished and said this" and "this much has
+    // arrived so far" is the one this whole function is organised around.
+    let parsed: FleetPulse | null = null;
+    // What has arrived THIS scan, accumulated apart from `entry.pulse`.
+    //
+    // Starts empty rather than from the last pulse, because a plan that has
+    // vanished from the scan must be able to disappear — seeding from the
+    // previous answer would make deletion impossible and turn the cache into a
+    // record. It is COMPOSED with the previous pulse on each write (see
+    // `renderable`), which is what lets rows stay on screen meanwhile.
+    let arrived: FleetPulse['plans'] = [];
+    // The previous scan's plans, held for exactly as long as this scan is
+    // partial. A plan the new scan has not reached yet keeps rendering from
+    // this; one the new scan HAS reached is overwritten by what it said.
+    const previous = entry.pulse?.plans ?? [];
+    /**
+     * Publish what has arrived, composed over what was already on screen.
+     *
+     * The composition is the reason a streaming board does not flicker: at line
+     * one the tab would otherwise drop 23 of 24 plans and grow them back, which
+     * reads as the board losing the fleet rather than refreshing it. Plans this
+     * scan has spoken about win; plans it has not reached yet stay as they were.
+     *
+     * `pulseComplete` is false throughout, so every consumer can tell this from
+     * a finished answer. `summary` is RECOUNTED from these plans rather than
+     * carried over — a summary describing 24 plans beside 3 plan rows is a
+     * measurement of one document presented as a measurement of another, which
+     * is the exact shape of dishonesty this branch exists to remove.
+     */
+    const publishPartial = (): void => {
+      const spoken = new Set(arrived.map((p) => p.file));
+      const plans = [...previous.filter((p) => !spoken.has(p.file)), ...arrived];
+      // The head fields come from the last complete pulse until the terminal
+      // line replaces them. They describe WHICH WORLD the answer is about, and
+      // the streamed plan lines carry no such field — inventing one here would
+      // assert a ref this scan never reported.
+      entry.pulse = {
+        main: entry.pulse?.main ?? '',
+        head: entry.pulse?.head ?? '',
+        read_ref: entry.pulse?.read_ref,
+        local_head: entry.pulse?.local_head,
+        plans,
+        summary: partialSummary(plans),
+      };
+      entry.pulseComplete = false;
+    };
+    await runStreaming('bash',
+      [path.join(opts.scriptsDir, 'plot-fleet-scan.sh'), '--stream'], opts.repoRoot,
+      (line) => {
+        // A line that does not parse is DROPPED, not fatal. The scan writes its
+        // document to stdout and its notes to stderr, but a helper that ever
+        // prints to the wrong stream would otherwise abort a scan whose plans
+        // were all correct. What the board loses is one line; what it would
+        // lose by throwing is the whole partial answer.
+        let msg;
+        try {
+          msg = FleetScanLineSchema.parse(JSON.parse(line));
+        } catch {
+          return;
+        }
+        if (msg.kind === 'plan') {
+          arrived = mergePlan(arrived, msg.plan);
+          publishPartial();
+          return;
+        }
+        // The terminal line: the scan finished and this is the whole document.
+        parsed = msg.pulse;
+      });
+    // A scan that exited 0 without its terminal line described nothing it can
+    // be held to. Treated as a failure rather than as an empty fleet, for the
+    // reason the catch below states: replacing real state with emptiness is
+    // what makes a monitoring view untrustworthy. Whatever arrived stays, and
+    // `pulseComplete` stays false so the tab says the rest is unknown.
+    if (parsed === null) throw new Error('fleet scan ended without a terminal pulse line');
+    const complete: FleetPulse = parsed;
     // BEFORE the assignment below, which is the only moment both answers exist.
     //
     // The success path's half of the cache's one-directional rule. Three lines
@@ -998,11 +1219,22 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // latest transition, not a history. A scan that recovers the missing plans
     // clears the mark, which is the behaviour that makes a populated one worth
     // looking at.
-    entry.shrink = pulseShrink(entry.pulse, parsed, entry.at);
-    entry.pulse = parsed;
+    // Against `before`, NOT against `entry.pulse` — which this scan's own
+    // partial writes have been overwriting for the last eighteen seconds.
+    // Comparing a finished scan to the partial view of itself would report the
+    // shrink as zero every time, because the two are the same document; the
+    // question this field answers is what the LAST COMPLETE answer had that
+    // this one does not.
+    entry.shrink = pulseShrink(before, complete, entry.at);
+    entry.pulse = complete;
+    // The scan finished and said this, so the composition above is retired: no
+    // plan is being carried over from a previous answer any more. Set beside
+    // the pulse it describes, never later — a gap between the two is a window
+    // where a complete document reads as partial.
+    entry.pulseComplete = true;
     entry.ages = await branchAges(opts);
     entry.branchUrlBase = await readBranchUrlBase(opts);
-    entry.approvedAt = await approvalDates(opts, parsed);
+    entry.approvedAt = await approvalDates(opts, complete);
     // From the REFS, not from `entry.prs`. The PR map is filled on its own
     // 60 s timer, so at the first git refresh it is still null — the list came
     // back empty and nothing recomputed it, because this timer does not watch
@@ -1017,7 +1249,7 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // the only thing standing between a `--watch` restart and an empty board.
     writeBridge(opts.repoRoot, {
       at: entry.at,
-      pulse: parsed,
+      pulse: complete,
       ages: entry.ages,
       branchUrlBase: entry.branchUrlBase,
       approvedAt: entry.approvedAt,
@@ -1039,7 +1271,7 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     //
     // `startRepair` decides. This loop only offers it every branch and it
     // refuses all but one state — see `mayResolve`.
-    maybeRepair(opts, parsed, entry.prs);
+    maybeRepair(opts, complete, entry.prs);
   } catch (err) {
     // A failed refresh NEVER overwrites a good result. Replacing real state
     // with emptiness because one scan failed is what makes a monitoring view
@@ -1065,6 +1297,7 @@ function ensureCache(opts: BuildBoardOptions): CacheEntry {
     prs: null, prsByNumber: null, runs: new Map(), prAt: null, prError: null,
     // 0, so the first fetch happens immediately rather than a minute in.
     prNextAt: 0, prNextIsBackoff: false,
+    pulseComplete: true,
     timer: null, prTimer: null, running: false, prRunning: false,
   };
   caches.set(key, entry);
@@ -2567,6 +2800,11 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
     // thing. Neither can mislead, because both are the same fact.
     localHead: entry.pulse?.local_head ?? entry.pulse?.head ?? null,
     ready: entry.pulse !== null,
+    // Whether the pulse this answer is built from is every plan the scan found.
+    // A cold cache reports `ready: false` and `complete: true` — nothing has
+    // arrived, and nothing is outstanding either, which is the honest pair: the
+    // partial state is *rows exist and more are coming*, and no rows exist yet.
+    complete: entry.pulseComplete,
     error: entry.error,
     shrink: entry.shrink,
     rows,

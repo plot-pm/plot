@@ -4610,7 +4610,19 @@ export function AgentList({
             claims. Reading the summary here said "8 branches across 3 plans"
             under twelve visible rows. */}
         {fleet.rows.length} branches across{' '}
-        {new Set(fleet.rows.map((r) => r.plan).filter(Boolean)).size} plans · scanned{' '}
+        {new Set(fleet.rows.map((r) => r.plan).filter(Boolean)).size} plans
+        {/* THE COUNT IS OF WHAT ARRIVED, and while the scan is still running
+            that is not the same as the count of what there is. The scan takes
+            18 s on 84 branches against a 5 s cadence, so this window is most of
+            the time — and "8 branches across 3 plans" stated flatly during it
+            is a measurement of the scan's progress wearing the shape of a
+            measurement of the fleet.
+
+            The rows themselves are NOT qualified: each one is fully derived
+            from its plan and its refs, and is exactly as true now as it will be
+            when the scan ends. Only the TOTAL is provisional, so only the total
+            says so. */}
+        {!fleet.complete && ' so far'} · scanned{' '}
         {/* `tick` stops while stale, so this age freezes rather than ageing
             against a scan that is not happening — the defect itself, since an
             age that keeps climbing is the most confident-looking part of a dead
