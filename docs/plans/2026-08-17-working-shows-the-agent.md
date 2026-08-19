@@ -13,6 +13,7 @@
 - **Released:**
 - **Started:** 2026-08-19, Jan Wloka, `feature/a-waiting-agent-stays-working`
 - **Started:** 2026-08-19, Jan Wloka, `feature/the-agent-panel`
+- **Started:** 2026-08-19, Jan Wloka, `feature/continue-with-an-answer`
 
 ## Approval
 
