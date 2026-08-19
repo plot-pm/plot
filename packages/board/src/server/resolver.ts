@@ -222,6 +222,15 @@ function readOutcome(log: string): { outcome: Repair['outcome']; reason: string 
 }
 
 export interface ResolveOptions extends BuildBoardOptions {
+  /**
+   * Whether the pulse may repair at all. Absent means YES.
+   *
+   * Optional, and the default is the whole point: the repair is on today, that
+   * behaviour is the tested one, and a switch that changes what happens merely
+   * by existing is a behaviour change wearing a flag. Every caller that never
+   * heard of this field keeps repairing exactly as before.
+   */
+  repairEnabled?: boolean;
   /** Test seam: what actually starts the script. Defaults to a detached spawn. */
   spawnRepair?: (args: {
     branch: string;
@@ -230,6 +239,33 @@ export interface ResolveOptions extends BuildBoardOptions {
     log: string;
     onExit: (code: number | null) => void;
   }) => void;
+}
+
+/**
+ * Read `PLOT_BOARD_REPAIR` — does this board process repair, or only report?
+ *
+ * A runtime property of ONE board process, so an environment variable rather
+ * than a `## Plot Config` key: `plot-config.sh` describes the repo, and two
+ * boards on one checkout may legitimately disagree about this. It is read once
+ * at startup, beside `PLOT_REPO_ROOT` and `PLOT_SCRIPTS_DIR`, and threaded
+ * down — never consulted from inside the pulse, where a mid-flight change
+ * would leave a repair started under one answer settling under the other.
+ *
+ * **Only `0` turns it off.** Unset is on, and so is anything else — the
+ * default is the behaviour that shipped and is under test, and this variable's
+ * job is to let an operator take it away deliberately, not to make every board
+ * whose environment holds a typo stop writing. An operator who means to
+ * disable the repair and misspells the value gets a board that still repairs;
+ * one who never set it gets today, which is the answer that must not change.
+ *
+ * Exported because the parse is the claim. A test that could only reach it
+ * through a spawned server would assert the default by not observing a repair,
+ * which is exactly what a broken parse also looks like.
+ */
+export function repairEnabledFromEnv(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return env.PLOT_BOARD_REPAIR !== '0';
 }
 
 /**
@@ -250,6 +286,19 @@ export function startRepair(
   opts: ResolveOptions,
   now = Date.now(),
 ): boolean {
+  // THE OPERATOR'S FENCE, and it stands FIRST — ahead of every fence below it,
+  // because those record state as they refuse. `inFlight` marks a branch as
+  // being repaired and `notObserved` remembers an input not to retry; both are
+  // written on the way past. A switch consulted after either would leave the
+  // registries describing a repair this process promised never to start.
+  //
+  // It subtracts and never adds. Turning the repair OFF is the only thing this
+  // can do — the fences below still decide everything about a repair that is
+  // allowed to proceed, so `PLOT_BOARD_REPAIR=1` on a conflict touching source
+  // is refused by `mayResolve` exactly as an unset one is. The refusal is what
+  // licenses the write at all; a variable that could overturn it would be
+  // taking the permission with it.
+  if (opts.repairEnabled === false) return false;
   if (!mayResolve(stuck)) return false;
   // THE SECOND FENCE, and the one the 5 s pulse makes load-bearing: the branch
   // stays `artifact-conflict` for the whole minutes-long repair, so every pulse

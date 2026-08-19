@@ -3,6 +3,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { buildBoard, renderPlanPage, renderStoryPage, type BuildBoardOptions } from './board.js';
+import { repairEnabledFromEnv } from './resolver.js';
 import { buildFleet } from './fleet.js';
 import { buildAttention } from './attention.js';
 import { dispatchAvailability, handleDispatch, SLUG_RE } from './dispatch.js';
@@ -50,6 +51,11 @@ let boundPort = REQUESTED_PORT;
 const opts: BuildBoardOptions = {
   repoRoot: process.env.PLOT_REPO_ROOT ?? process.cwd(),
   scriptsDir: process.env.PLOT_SCRIPTS_DIR ?? path.resolve(here, '..'),
+  // Read ONCE, here, with the rest of this process's environment. Turning the
+  // repair off takes a restart, which is the honest cost of a board that can
+  // be trusted to have meant it: a repair started under one answer must not
+  // settle under the other.
+  repairEnabled: repairEnabledFromEnv(),
 };
 
 /**
