@@ -6,6 +6,7 @@ import { buildBoard, renderPlanPage, renderStoryPage, type BuildBoardOptions } f
 import { buildFleet } from './fleet.js';
 import { buildAttention } from './attention.js';
 import { dispatchAvailability, handleDispatch, SLUG_RE } from './dispatch.js';
+import { workerLog } from './worker-log.js';
 import { serverInfo } from './server-info.js';
 import { exitWithParent } from './lifetime.js';
 import {
@@ -161,6 +162,56 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       res.end(JSON.stringify(buildAttention(opts)));
     } catch (err) {
       console.error('Error building attention:', err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+    }
+    return;
+  }
+
+  // A running worker's own console output, on demand.
+  //
+  // **Served here and pushed nowhere.** The pulse carries not one byte of this,
+  // and that is the point of the wave rather than an optimisation: a 4 s poll
+  // shipping every agent's console output to every open tab is a different
+  // product, and one nobody asked for. The row offers the log; this answers when
+  // a person asks.
+  //
+  // THE BRANCH IS THE PARAMETER, AND THE PATH IS NEVER ONE. A request naming a
+  // file would be a read primitive aimed at the whole filesystem, dressed as a
+  // board feature. `workerLog` resolves the branch against the worktrees the
+  // PULSE reported and reads a constant filename inside the answer — so a branch
+  // this machine does not hold is a 404 rather than a read attempt, and no
+  // request text ever becomes a path segment.
+  //
+  // A QUERY parameter rather than a path segment, unlike `/api/approve/<slug>`
+  // one route down. Branch names contain slashes — `feature/x` is the normal
+  // case — so a path segment would either need encoding every caller must
+  // remember or a greedy suffix match that cannot say where the branch ends.
+  // `?branch=` carries the name whole and `URLSearchParams` has already decoded
+  // it. The slug route stays as it is: a slug has no slashes to lose.
+  if (url.pathname === '/api/worker-log') {
+    const branch = url.searchParams.get('branch');
+    if (!branch) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'branch is required' }));
+      return;
+    }
+    try {
+      const log = workerLog(opts, branch);
+      // 404 for `no-worktree`, 200 for everything else the read can say.
+      //
+      // The split is between *this machine cannot answer for that branch* and
+      // *here is the answer*, NOT between good and bad news. A worktree with no
+      // log is a successful observation — the branch is here and no worker has
+      // written — and a 404 would tell the client to stop asking about a row it
+      // should keep offering. `reason` carries the three-way distinction in the
+      // body, where a client can render each differently; the status code only
+      // says whether this server had anything to look at.
+      const status = !log.ok && log.reason === 'no-worktree' ? 404 : 200;
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(log));
+    } catch (err) {
+      console.error('Error reading worker log:', err);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
     }

@@ -2245,7 +2245,7 @@ describe("a row's actions all live in its menu", () => {
 describe('menuState — a refusal is not an absence', () => {
   const none = {
     canStart: false, canApprove: false, canResolve: false, hasRun: false,
-    serverWillAct: false, approveWillAct: false,
+    hasLog: false, serverWillAct: false, approveWillAct: false,
   };
 
   it('renders no menu at all on a row with nothing to offer', () => {
@@ -2299,19 +2299,33 @@ describe('menuState — a refusal is not an absence', () => {
       for (const canApprove of bools)
         for (const canResolve of bools)
           for (const hasRun of bools)
-            for (const serverWillAct of bools)
-              for (const approveWillAct of bools) {
-                const state = menuState({
-                  canStart, canApprove, canResolve, hasRun,
-                  serverWillAct, approveWillAct,
-                });
-                expect(
-                  !state.enabled || state.present,
-                  `enabled without present: ${JSON.stringify({
-                    canStart, canApprove, canResolve, hasRun,
+            // EVERY disjunct, including the newest. An exhaustive sweep that
+            // pins one input to a constant stops being exhaustive silently —
+            // it keeps passing while covering half of what it claims to.
+            for (const hasLog of bools)
+              for (const serverWillAct of bools)
+                for (const approveWillAct of bools) {
+                  const state = menuState({
+                    canStart, canApprove, canResolve, hasRun, hasLog,
                     serverWillAct, approveWillAct,
-                  })}`,
-                ).toBe(true);
-              }
+                  });
+                  expect(
+                    !state.enabled || state.present,
+                    `enabled without present: ${JSON.stringify({
+                      canStart, canApprove, canResolve, hasRun, hasLog,
+                      serverWillAct, approveWillAct,
+                    })}`,
+                  ).toBe(true);
+                }
+  });
+
+  // A READ, so it carries no guard — the same argument the run link makes one
+  // test up, and the reason both join `enabled` without a `WillAct` term. A row
+  // whose only offer is its log is still worth opening on a binding that
+  // refuses every dispatch: looking at a log is not acting.
+  it('enables the worker log without asking whether the server will act', () => {
+    expect(menuState({ ...none, hasLog: true })).toEqual({
+      present: true, enabled: true,
+    });
   });
 });

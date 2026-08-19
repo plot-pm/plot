@@ -14,6 +14,7 @@ import {
 import { ApproveButton } from './ApproveButton.js';
 import { isDraft } from './PlanCard.js';
 import { StartWorkButton } from './StartWorkButton.js';
+import { WorkerLogModal } from './WorkerLogModal.js';
 
 /**
  * Groups in fixed order, each labelled by what it asks OF YOU rather than by
@@ -2292,6 +2293,46 @@ function StuckCue() {
  * Exported for test — a generic string passes any assertion that only checks a
  * title exists.
  */
+/**
+ * Whether a row offers its worker's log.
+ *
+ * **WORKING membership, and nothing else.** WORKING lists AGENTS — that is the
+ * section's definition, restated by the plan this wave comes from — and an
+ * agent is the thing that writes a log. Every other section lists results or
+ * processes, which have none.
+ *
+ * Deliberately NOT keyed on whether a log exists, because the row cannot know:
+ * it carries no worktree path and no worker state, and this wave adds neither.
+ * The alternative — infer from `isLive` or from `localDirty` — would hide the
+ * log on exactly the rows a reader most wants it: a claimed branch whose agent
+ * is quiet is the one you open a log to understand, and an activity predicate
+ * would call it inactive and offer nothing.
+ *
+ * So the button asks a question the row CAN answer (*is this an agent*) and the
+ * server answers the one it cannot (*is there a log, and is it empty*). The
+ * cost is a control that sometimes opens onto "no log here"; the alternative is
+ * a control that is missing whenever the guess is wrong, which is the strictly
+ * worse failure — a reader cannot tell an absent button from an absent log.
+ *
+ * IN THE MENU, not on the row. Opening a log is an ERRAND — *the row says what
+ * IS, the menu says what you can DO* — and the structural gate below
+ * (`a row's actions all live in its menu`) enforces that boundary rather than
+ * asking each author to remember it. The gate caught this control on the row
+ * and was right to: `ROW_NAVIGATION` admits links to things the row NAMES, and
+ * a row names its branch, its plan and its PR — not its worker's console.
+ *
+ * The neighbouring precedent is `Open last run`, which is the same shape: a
+ * read, about a process the row reports on rather than one the row is, reached
+ * from the menu.
+ *
+ * Exported for test: the pairing that matters is that a `working` row offers it
+ * and a `waiting-on-you` row does not, which an assertion on markup alone would
+ * not pin down.
+ */
+export function showsWorkerLog(row: AgentRow): boolean {
+  return row.group === 'working';
+}
+
 export function noActionReason(row: AgentRow): string {
   return row.note ? `No action available — ${row.note}` : 'No action available on this row';
 }
@@ -2327,17 +2368,27 @@ export function menuState(items: {
   canApprove: boolean;
   canResolve: boolean;
   hasRun: boolean;
+  /**
+   * This row is an agent, so it has a log to offer — see {@link showsWorkerLog}.
+   *
+   * Joins `enabled` without a `WillAct` term, for the reason the run link does:
+   * it is a READ, and reads are not refused. The two dispatching items ask
+   * whether the server will act because they ask the server to act; opening a
+   * log asks it only to look.
+   */
+  hasLog: boolean;
   serverWillAct: boolean;
   approveWillAct: boolean;
 }): { present: boolean; enabled: boolean } {
-  const { canStart, canApprove, canResolve, hasRun, serverWillAct, approveWillAct } = items;
+  const { canStart, canApprove, canResolve, hasRun, hasLog, serverWillAct, approveWillAct } = items;
   return {
-    present: canStart || canApprove || canResolve || hasRun,
+    present: canStart || canApprove || canResolve || hasRun || hasLog,
     enabled:
       (canStart && serverWillAct) ||
       (canApprove && approveWillAct) ||
       (canResolve && serverWillAct) ||
-      hasRun,
+      hasRun ||
+      hasLog,
   };
 }
 
@@ -2548,6 +2599,7 @@ function RowActions({
   pulse,
   onStarting,
   onTaken,
+  onOpenLog,
 }: {
   row: AgentRow;
   card: Card | null;
@@ -2566,6 +2618,11 @@ function RowActions({
    * no cue, where there is nothing to answer.
    */
   onTaken?: () => void;
+  /**
+   * Open this row's worker log. The PANEL is mounted by the Row, not here —
+   * see the item below for why a menu that unmounts on click cannot own it.
+   */
+  onOpenLog?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   // The menu's own box, so a click inside it can be told from a click outside.
@@ -2660,8 +2717,17 @@ function RowActions({
   // whether the server will act because they ask the server to act.
   // Whether the menu EXISTS, and whether anything in it can act — two questions,
   // and the old code asked only the second. See {@link menuState}.
+  // A READ, offered on membership and answered by the server. The row carries
+  // no worktree and no worker state — deliberately, since this wave adds no
+  // field to the contract — so nothing here can know whether a log exists. It
+  // does not guess: the item asks *is this an agent*, and the panel reports
+  // which of no-worktree / no-log / empty / here-it-is turned out to be true.
+  // An item conditioned on the log existing would be missing in exactly the
+  // cases the endpoint was built to tell apart, and a reader cannot tell an
+  // absent item from an absent log.
+  const hasLog = showsWorkerLog(row);
   const { present: hasItems, enabled } = menuState({
-    canStart, canApprove, canResolve, hasRun: Boolean(runUrl),
+    canStart, canApprove, canResolve, hasRun: Boolean(runUrl), hasLog,
     serverWillAct, approveWillAct,
   });
   const reason =
@@ -2846,6 +2912,31 @@ function RowActions({
               >
                 Open last run
               </a>
+            </div>
+          )}
+          {/* THE WORKER'S LOG — a read, in the menu for the reason `Open last
+              run` above it is: an errand about a process the row reports on,
+              rather than a name the row carries.
+
+              **It only SETS state the ROW owns**, and that is load-bearing
+              rather than incidental. The close-on-outside-click effect above
+              runs on CAPTURE, so this menu unmounts before React's bubbled
+              `onClick` would fire from inside it — the exact defect that comment
+              records the run link hitting. A `setState` on the parent survives
+              that: the Row still exists, and it is the Row that mounts the
+              panel. A panel mounted HERE would be unmounted by the same click
+              that opened it. */}
+          {hasLog && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <button
+                type="button"
+                data-worker-log-open
+                onClick={onOpenLog}
+                aria-label={`Read the worker log for ${row.branch}`}
+                className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+              >
+                Read worker log
+              </button>
             </div>
           )}
         </div>
@@ -3304,6 +3395,15 @@ function Row({
   // `RowActions` — two siblings, so the flag they share has to sit above both.
   // It lived inside the cell while the cell held both halves.
   const [actionTaken, setActionTaken] = useState(false);
+  // ROW-LOCAL, unlike the plan and story overlays App owns.
+  //
+  // Those two are lifted because they are mutually exclusive — App enforces
+  // *exactly one overlay at a time* by clearing each when the other opens — and
+  // because a plan opens from several places. A worker log opens from one place,
+  // belongs to one branch, and coordinates with nothing; lifting it would thread
+  // a callback through Row → AgentList → App to buy no property this does not
+  // already have.
+  const [logOpen, setLogOpen] = useState(false);
   // The cue follows what this ROW can actually ask, not what its state usually
   // offers — the menu omits an item whose precondition is missing, and an
   // animated dot pointing at a menu with nothing in it marks a request nobody
@@ -3628,6 +3728,7 @@ function Row({
         pulse={pulse}
         onStarting={onStarting}
         onTaken={() => setActionTaken(true)}
+        onOpenLog={() => setLogOpen(true)}
       />
       {/* Why this branch cannot MOVE — a different question from where it is
           waiting, and the one nothing on this row could answer. It renders
@@ -3640,6 +3741,13 @@ function Row({
           nothing at all: `stuck` is null for most branches, which is what makes
           a populated one worth looking at. */}
       <StuckCell row={row} cue={cue} />
+      {/* Mounted only while open — which is what makes the log on-demand in
+          fact and not merely in intent. The panel owns its own polling, so an
+          unmounted one fetches nothing at all; a panel rendered hidden would
+          keep a 3 s timer alive per WORKING row for as long as the tab is open,
+          which is the pulse-carries-every-log shape this wave exists to reject,
+          rebuilt on the client. */}
+      {logOpen && <WorkerLogModal branch={row.branch} onClose={() => setLogOpen(false)} />}
     </li>
   );
 }

@@ -952,17 +952,40 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     //
     // The menu is no longer "still there, dimmed" — it is not there. Same
     // conclusion for the reader, one fewer control that lies.
+    //
+    // **THE CLAIM IS ABOUT STARTING, NOT ABOUT THE MENU**, and the two came
+    // apart once a row could offer a READ. `feature/beans-a` is a WORKING row —
+    // an agent — so since `the-worker-log-is-readable` it carries a menu holding
+    // its worker's log, while still offering nothing that would dispatch it. So
+    // the absence of `Start work` is asserted on EVERY row below, and the
+    // absence of the menu only on those with nothing at all to offer.
+    //
+    // Written this way rather than by dropping `beans-a` from the list: the row
+    // that most needs the no-double-dispatch guarantee is precisely the one
+    // somebody is already working, and removing it would retire the assertion
+    // on its most important case.
     const page = await openAgentsWithBoard();
     try {
       await expect.poll(() => menu(page, 'feature/untaken').count()).toBe(1);
       // Two of these rows sit in groups that start folded.
       await expandAll(page);
-      for (const branch of ['feature/beans-a', 'feature/reviewed', 'feature/landed',
-        'feature/ghost', 'feature/shelved']) {
-        expect(await menu(page, branch).count(), `${branch} rendered a menu`).toBe(0);
-        expect(await rowFor(page, branch).getByRole('button', { name: 'Start work' }).count())
-          .toBe(0);
+      const claimed = ['feature/beans-a', 'feature/reviewed', 'feature/landed',
+        'feature/ghost', 'feature/shelved'];
+      for (const branch of claimed) {
+        // THE LOAD-BEARING ONE: nothing here offers to dispatch a branch that
+        // is already somebody's.
+        expect(await rowFor(page, branch).getByRole('button', { name: 'Start work' }).count(),
+          `${branch} offered Start work`).toBe(0);
       }
+      // No menu at all on the rows that are not agents and have no run to open.
+      for (const branch of claimed.filter((b) => b !== 'feature/beans-a')) {
+        expect(await menu(page, branch).count(), `${branch} rendered a menu`).toBe(0);
+      }
+      // And the WORKING row's menu holds the log — a read — and nothing that acts.
+      await menu(page, 'feature/beans-a').click();
+      const working = rowFor(page, 'feature/beans-a');
+      expect(await working.locator('[data-worker-log-open]').count()).toBe(1);
+      expect(await working.getByRole('button', { name: 'Start work' }).count()).toBe(0);
     } finally {
       await page.close();
     }
