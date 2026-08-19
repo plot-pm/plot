@@ -27,6 +27,7 @@ import { stuckState, summarizeStuck } from './stuck.js';
 import { repairFor, startRepair } from './resolver.js';
 import type { BuildBoardOptions } from './board.js';
 import { readBridge, writeBridge } from './pulse-bridge.js';
+import { workerQuestions } from './worker-question.js';
 
 /**
  * How long a branch may sit without a commit before it reads as quiet rather
@@ -214,6 +215,23 @@ interface CacheEntry {
   approvedAt: Map<string, number>;
   /** Plan filename per idea branch — see `ideaPlanFiles`. */
   ideaPlans: Map<string, string>;
+  /**
+   * What each `waiting` worker asked, by branch — see `workerQuestions`.
+   *
+   * ON THE SCAN'S CLOCK, like the ages and the approval dates beside it, and for
+   * the same reason: it is a question about THIS machine's filesystem, and the
+   * render path must not be the thing that asks it.
+   *
+   * DELIBERATELY NOT IN THE BRIDGE. Every other field there is a fact that stays
+   * true while the process is gone — a commit's age, a plan's approval date — so
+   * restoring it labelled with its real age is honest. A question is the
+   * opposite: it exists precisely until somebody answers it, and the answering
+   * is what a `node --watch` restart is often FOR. A bridged question would name
+   * something already resolved, with a fresh-looking row around it. Absent
+   * instead, which renders as *reason unavailable* until the first scan lands —
+   * an unknown the reader can act on rather than a stale claim they cannot.
+   */
+  questions: Map<string, string>;
   /**
    * PR data is cached BESIDE the pulse, with its own timestamp and error — the
    * two sources fail independently. The host can be down while git is fine, and
@@ -1243,6 +1261,16 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // that one. Two clocks, one dependency: the same shape that pinned the
     // countdown at zero earlier today.
     entry.ideaPlans = await ideaPlanFiles(opts);
+    // WHAT THE WAITING WORKERS ASKED, read here and nowhere else.
+    //
+    // After `entry.pulse` is assigned, because the pulse is what says WHICH
+    // branches are waiting and where their worktrees are — this reads no
+    // directory the scan did not just report.
+    //
+    // Costs nothing on a fleet with no questions in it: `workerQuestions`
+    // returns immediately when the pulse names no `waiting` branch with a local
+    // worktree, so the ordinary refresh spawns nothing at all.
+    entry.questions = await workerQuestions(parsed);
     entry.at = Date.now();
     entry.error = null;
     // The one place the bridge is written, and it is INSIDE the success path on
@@ -1293,6 +1321,7 @@ function ensureCache(opts: BuildBoardOptions): CacheEntry {
     pulse: null, ages: new Map(), at: null, error: null, shrink: null, branchUrlBase: '',
     approvedAt: new Map(),
     ideaPlans: new Map(),
+    questions: new Map(),
     // `unsupported` before the first lookup, never `answered`: a board that
     // has not asked must not render an empty inbox as a clear one.
     issues: [], issueAnswer: 'unsupported', issueError: null,
@@ -1627,6 +1656,12 @@ export function classify(
    * in `waiting-on-you`, because both need a person and their needs are
    * opposite — restart versus review.
    *
+   * `waiting` IS NOT ONE OF THOSE, and its exception is the section boundary
+   * rather than a special case. WAITING ON YOU lists results to inspect on the
+   * git host; WORKING lists agents. An agent that stopped to ask still holds its
+   * worktree and its context, and what unblocks it is an answer — so it stays in
+   * `working`, annotated with the question. See the arm.
+   *
    * ONE-DIRECTIONAL, like every other local signal here. `none` and `elsewhere`
    * change no group at all: absent is not false, and reading a missing pid as
    * "nobody is working" would report every hand-started worker dead — five in a
@@ -1682,6 +1717,28 @@ export function classify(
    * thing protecting these callers.
    */
   workerDirtyPaths: readonly string[] = [],
+  /**
+   * What a `waiting` worker asked — the marker line from its tree, or "" when
+   * this machine could not read one. See `workerQuestions`.
+   *
+   * SAYS WHAT IT WAITS ON, not merely that it waits. *worker is waiting on an
+   * answer* names a state and withholds the only part a reader can act on;
+   * a row that carries the question lets them answer it, or decide it is not
+   * theirs, without opening the worktree first.
+   *
+   * "" IS A STATED UNKNOWN AND RENDERS AS ONE. The scan already decided the
+   * worker is `waiting` — it found a marker — so an empty string here means
+   * this read did not find what that one did, never that nothing was asked. The
+   * note says *reason unavailable* and the row stays in WORKING. A fabricated
+   * question would be the worse failure by far: a reader who answers the wrong
+   * question has done work that clears nothing, and unlike a blank they have no
+   * signal that they were misled.
+   *
+   * LAST, BECAUSE IT IS THE NEWEST — the rule `workerDirtyPaths` records above,
+   * and for the reason recorded there: inserting a parameter mid-list shifts
+   * every spread-tuple caller in the suite silently past the compiler.
+   */
+  workerQuestion = '',
 ): { group: WaitingGroup; note: string } {
   // A deferred branch is never `working` — the group is about the claim the row
   // makes, not about the age of its last commit, so a fresh commit does not
@@ -1973,7 +2030,13 @@ export function classify(
     if (verdict !== 'eligible') return { group: 'not-started', note: BLOCKED_NOTE };
     return { group: 'not-started', note: ELIGIBLE_NOTE };
   }
-  // A WORKER THAT STOPPED is a person's errand, whatever the commit clock says.
+  // A WORKER'S OWN STATE outranks the commit clock, whatever that clock says.
+  //
+  // The arm used to be titled *a worker that stopped is a person's errand*, and
+  // it now holds two that are not. `running` moved in when a live agent was
+  // being pulled out of WORKING by its own first commit; `waiting` moved in
+  // when a stopped-to-ask agent was being filed as a result. Both are agents
+  // holding a branch, and they answer FIRST, above the three that need a person.
   //
   // Placed after the PR arm and before the git arms on purpose. A PR is a
   // stronger statement about what a branch waits for — the review is happening
@@ -2022,6 +2085,62 @@ export function classify(
     if (worker === 'running') {
       return { group: 'working', note: `worker running (pid ${workerPid})` };
     }
+    // A WAITING WORKER IS STILL A WORKER, AND WORKING IS WHERE IT BELONGS.
+    //
+    // It sat in `waiting-on-you` until now, below `finished`, and the effect was
+    // that an agent left the section answering *who is working?* at the moment
+    // it stopped to ask something. An operator counting agents in WORKING
+    // undercounted every one that had a question outstanding — and the row
+    // arrived in WAITING ON YOU carrying none of what that section is built to
+    // show: no PR to open, no checks to read, nothing to inspect on the host.
+    //
+    // THE TWO SECTIONS ANSWER DIFFERENT QUESTIONS, and that is the whole rule.
+    // WAITING ON YOU is for RESULTS — branches, PRs, CI, failures, things a
+    // person inspects and decides about on the git host. WORKING is for AGENTS.
+    // An agent that has stopped to ask is still mid-run: its worktree is live,
+    // its context is intact, and what unblocks it is an ANSWER rather than a
+    // review. Filing it under the other verb is what made one incident's row
+    // read *worker finished — review it* over two local commits and a question.
+    //
+    // PLACED WITH `running` RATHER THAN WITH THE STOPPED STATES, and the comment
+    // above `running` is the precedent: a worker's own state outranks reasoning
+    // from commit age, and these two are the pair that say an agent still holds
+    // the branch. The three below say a person is needed.
+    //
+    // STILL ABOVE `stalled`, which is the ordering guarantee this arm has
+    // carried since the state shipped, and moving the arm must not cost it. A
+    // marker is the worker saying *your turn*, and a worker that asked a
+    // question has almost always left the work it was doing uncommitted beside
+    // the question — so ranking dirtiness first files every such branch under
+    // *resume it* and invites a restart into the same wait. Measured happening
+    // twice to one branch, the second restart re-running work the first had
+    // finished. `stalled` is now further down than it was, which strengthens
+    // that guarantee rather than weakening it.
+    //
+    // THE PR ARM 120 LINES ABOVE STILL OUTRANKS THIS, deliberately and
+    // unchanged: a PR with conflicts or failing checks is a person's errand even
+    // while an agent waits. `running` is exempted from that arm where the PR
+    // asks nobody anything; `waiting` is NOT given the same exemption, because
+    // the exemption exists for an agent that opened a PR and kept working, and
+    // an agent that has stopped is not that.
+    if (worker === 'waiting') {
+      // NAME THE QUESTION. The row exists so a reader can answer it, and *what
+      // is it waiting on* is the question the old sentence provoked and did not
+      // answer — the reader had to open the worktree to learn whether it was
+      // theirs to answer at all.
+      //
+      // AN UNREADABLE MARKER IS A STATED UNKNOWN, NEVER A GUESS. The scan found
+      // a marker (that is what made this `waiting`); an empty string here means
+      // this read did not. Saying so sends the reader to the tree, which is
+      // where the answer is. Inventing a plausible question would send them to
+      // answer the wrong one, with nothing to signal the substitution.
+      return {
+        group: 'working',
+        note: workerQuestion
+          ? `worker waiting on you: ${workerQuestion}`
+          : 'worker waiting on you — reason unavailable, look in its worktree',
+      };
+    }
     if (worker === 'failed') {
       return {
         group: 'waiting-on-you',
@@ -2033,17 +2152,13 @@ export function classify(
     if (worker === 'finished') {
       return { group: 'waiting-on-you', note: 'worker finished — review it' };
     }
-    // ABOVE `stalled`, and the order carries the same weight it does in the
-    // scan: a marker is the worker saying *your turn*, and a worker that asked
-    // a question has almost always left the work it was doing uncommitted
-    // beside the question. Ranking dirtiness first would file every such branch
-    // under *resume it* and invite a restart into the same wait — measured
-    // happening twice to one branch, the second restart re-running work the
-    // first had finished.
-    if (worker === 'waiting') {
-      return { group: 'waiting-on-you', note: 'worker is waiting on an answer from you' };
-    }
-    // A person's errand too, but a different one: nothing is being asked, work
+    // `waiting` is handled ABOVE, beside `running` — it is an agent still
+    // holding the branch rather than a result for a person, and it keeps its
+    // place in WORKING. It stays ranked above this arm, which is the ordering
+    // guarantee the scan draws too; see there for the restart-into-the-wait
+    // measurement that earned it.
+    //
+    // A person's errand, and a different one from a question: nothing is being asked, work
     // is simply on the floor with no PR over it. The board REPORTS it and
     // restarts nothing — relaunching is `/plot-dispatch`'s to do, and this row
     // exists so a person can decide to.
@@ -2425,6 +2540,18 @@ export function rowsFromPulse(
    * that did not look, and the row then shows the other two evidence lines.
    */
   runs?: Map<string, StuckRun[]> | null,
+  /**
+   * What each `waiting` worker asked, by branch — see `workerQuestions`. Read
+   * on the SCAN's clock, not this one: the map arrives already built, because
+   * this function is the render path and a subprocess per row per poll is not a
+   * cost it can carry.
+   *
+   * Last in the parameter list because it is the newest, so every existing
+   * caller is unchanged. A caller with nothing to say passes nothing, and every
+   * waiting row then reads *reason unavailable* — which is exactly true of a
+   * caller that did not look.
+   */
+  questions?: Map<string, string> | null,
 ): AgentRow[] {
   const rows: AgentRow[] = [];
   for (const plan of pulse.plans) {
@@ -2463,7 +2590,11 @@ export function rowsFromPulse(
           b.local_locked,
           // What a `stalled` worker left uncommitted, so the note can name it.
           // Empty for every other state, and empty adds nothing.
-          b.worker_dirty_paths);
+          b.worker_dirty_paths,
+          // What a `waiting` worker asked, so the row says what it waits ON.
+          // Absent for every other state; absent HERE, on a waiting row, is the
+          // stated unknown — never a question invented to fill the sentence.
+          questions?.get(b.branch) ?? '');
         // Derived once, read twice below — and derived from `group` rather than
         // re-deciding it, so a row `classify` placed outside `not-started`
         // cannot pick up a waiting-state by a rule that drifted apart from it.
@@ -2776,7 +2907,8 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
   const ageSeconds = entry.at === null ? 0 : Math.round((now - entry.at) / 1000);
   const rows = entry.pulse
     ? rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, entry.prs,
-      entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans, entry.runs)
+      entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans, entry.runs,
+      entry.questions)
     : [];
   return {
     generatedAt: new Date().toISOString(),

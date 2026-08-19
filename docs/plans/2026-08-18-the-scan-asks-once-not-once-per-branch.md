@@ -14,6 +14,7 @@
 - **Started:** 2026-08-18, Jan Wloka, `bug/the-scan-joins-one-pr-list`
 - **Delivered:**
 - **Released:**
+- **Started:** 2026-08-19, Jan Wloka, `feature/the-board-renders-what-has-arrived`
 
 ## Changelog
 
@@ -222,7 +223,7 @@ render identically.
 
 ### Cadence
 
-- `feature/the-board-renders-what-has-arrived` — the scan emits its results as they resolve rather than as one document at the end, and the board renders each row with the sources it has, marking the rest as not-yet-arrived. Measured: git alone is 12.7 s on 84 branches, so even a perfect host fix leaves a wait worth filling. Tests: a row renders from plan facts before any git fact exists; a badge whose source has not arrived is absent rather than zero or guessed; a completed scan renders identically to today's; a scan that fails midway keeps what arrived and says the rest is unknown, rather than discarding the partial result.
+- `feature/the-board-renders-what-has-arrived` — the scan emits its results as they resolve rather than as one document at the end, and the board renders each row with the sources it has, marking the rest as not-yet-arrived. Measured: git alone is 12.7 s on 84 branches, so even a perfect host fix leaves a wait worth filling. Tests: a row renders from plan facts before any git fact exists; a badge whose source has not arrived is absent rather than zero or guessed; a completed scan renders identically to today's; a scan that fails midway keeps what arrived and says the rest is unknown, rather than discarding the partial result. PR #242.
 
 - `feature/a-terminal-branch-is-asked-once` — branches in a terminal state (`merged`, `deferred`, and branches of `Released` plans) are asked about once and cached, while live ones are re-derived every pulse. The cache is validated against git on every pass and discarded the moment git contradicts it — a reappearing ref, an edited plan, a new commit — so it stays a derivation rather than a record. Measured: 56 of 84 branches here are terminal, so 67% of the host work asks about facts that cannot change. Tests: a merged branch costs one host call across many pulses; a merged branch whose ref reappears is re-asked on the next pulse; an edited plan invalidates its branches' cached answers; a live branch is never cached; the cache never outlives the process, so a restart re-derives everything.
 

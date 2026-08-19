@@ -957,8 +957,21 @@ export type FleetScanLine = z.infer<typeof FleetScanLineSchema>;
 /**
  * Groups are ordered by what they ask OF YOU, not by plan: review it, nothing,
  * nothing, go check whether it died, decide whether to start it. Sorted this
- * way the list is workable top to bottom, and when only `working` is populated
- * you can walk away.
+ * way the list is workable top to bottom.
+ *
+ * "ONLY `working` IS POPULATED, SO WALK AWAY" USED TO BE THE RULE HERE, AND IT
+ * NO LONGER HOLDS. A `waiting` agent belongs in `working` — it is an agent, not
+ * a result, and the section answers *who is working?* — but what unblocks it is
+ * an answer from a person. So a populated `working` section may still hold one
+ * row that wants you, and its note is what says so.
+ *
+ * That is a smaller loss than it reads as, and it is the honest trade. The
+ * alternative kept the walk-away rule by filing waiting agents under
+ * `waiting-on-you`, where they arrived carrying nothing that section is built
+ * to show — no PR, no checks, nothing to inspect on the host — and where every
+ * operator counting agents in `working` undercounted the ones that had stopped
+ * to ask. A rule that is checkable at a glance is worth less than a section
+ * whose membership is true.
  */
 export const WaitingGroupSchema = z.enum([
   'waiting-on-you',

@@ -312,7 +312,7 @@ the machine section is a different question with its own history.
 
   **The link points at the blocker, and what that is depends on how far it got.** A wave is blocked by specific branches, and each of those has a most useful address: an open PR links to the PR, a branch with commits and no PR links to the branch, and a branch nobody has started has no address at all — it is a name in a plan, and the honest rendering is its name as text. The same rule the PR cell already follows (`AgentList.tsx:3708-3722`): a host that reported no address renders text, never an invented link.
 
-  Tests: a blocked branch never renders as claimable and names its blocker; a blocker with an open PR links to that PR; one with commits but no PR links to the branch; one never started renders as text with no anchor; `blockedBy` absent renders as blocked without a name rather than as eligible; an eligible branch is unchanged.
+  Tests: a blocked branch never renders as claimable and names its blocker; a blocker with an open PR links to that PR; one with commits but no PR links to the branch; one never started renders as text with no anchor; `blockedBy` absent renders as blocked without a name rather than as eligible; an eligible branch is unchanged. — PR #243
 
 ## Notes
 
