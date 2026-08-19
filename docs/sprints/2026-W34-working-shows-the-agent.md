@@ -18,15 +18,20 @@ WORKING lists branches. An operator running five agents needs it to list
 filed under WAITING ON YOU as *worker finished — review it*, which is the one
 reading that invites a restart into the same unanswered question.
 
-The scope is deliberately **read-only — see the agents, do not act on them.**
-Answering an agent from the board, listing an agent that holds no branch, and
-the `.plot/agents/` registry are all real and all out. The plan itself argues
-the registry belongs last, because the three read-only waves each answer a
-question an operator has today while the registry answers one nobody can ask
-until agents can be listed without work.
+The scope was drawn **read-only — see the agents, do not act on them** — and
+it held until the three read-only waves had all merged. On 2026-08-19 one
+crossing was made deliberately: **answering a waiting agent from the board**
+came in, because a board that shows a question and cannot take its answer sends
+the reader to a terminal for the one action the whole sprint made visible.
+
+Listing an agent that holds no branch and the `.plot/agents/` registry stay
+out. The plan itself argues the registry belongs last, because the read-only
+waves each answer a question an operator has today while the registry answers
+one nobody can ask until agents can be listed without work.
 
 Success is one glance: three rows, each naming a running agent, its freshness,
-and — where it applies — the question it is waiting on.
+and — where it applies — the question it is waiting on, with the answer
+enterable where the question is shown.
 
 ### Must Have
 
@@ -40,6 +45,7 @@ and — where it applies — the question it is waiting on.
 - [ ] [the-board-answers-agents] Wave *Ask* — `/api/attention` carries the same verdicts to consumers that cannot run the scan (dispatched 2026-08-19)
 - [ ] [an-issue-is-a-signal-the-board-can-see] Wave 1 — the board sees unplanned issues (dispatched 2026-08-19)
 - [ ] [plot-board-setup] Wave *Skill* — the adoption spoke (dispatched 2026-08-19)
+- [ ] [working-shows-the-agent] Wave *Answer* — a continuation run in the same worktree, prompted with the brief and the answer (pulled from Deferred 2026-08-19)
 
 ### Could Have
 
@@ -50,7 +56,14 @@ and — where it applies — the question it is waiting on.
 
 <!-- Items moved here during the sprint when they will not make the timebox -->
 
-- [ ] [working-shows-the-agent] Waves *Answer*, *Machine*, *Registry* — acting on an agent, WAITING ON A MACHINE, and agent identity that outlives a branch. Out by the goal, not by capacity: this sprint is read-only on purpose
+- [ ] [working-shows-the-agent] Waves *Machine*, *Registry* — WAITING ON A MACHINE from local processes, and agent identity that outlives a branch. Out by the goal, not by capacity.
+
+> *Answer* was here too until 2026-08-19, when the three read-only waves had all
+> merged and it was pulled into Should Have by an explicit decision. The sprint
+> is therefore no longer purely read-only, and that is worth naming rather than
+> quietly amending: the boundary held for as long as it was useful, and was
+> crossed once, deliberately, for the wave that closes the loop the other three
+> opened. *Machine* and *Registry* stay out.
 
 ## Retrospective
 
