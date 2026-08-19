@@ -234,7 +234,7 @@ one dataset is how they drift.
 
 ### Act
 
-- `feature/api-claim-and-transition` — `POST /api/claim` and `POST /api/transition`, wrapping the existing ref-push claim and the spokes' phase guardrails, each returning the resulting state. **No longer blocked** — the trust model was answered above: loopback is the boundary and already in force. This branch also carries the gate that makes it real: refuse to serve the write endpoints when `HOST` is not loopback, unless explicitly opted in.
+- `feature/api-claim-and-transition` — `POST /api/claim` and `POST /api/transition`, wrapping the existing ref-push claim and the spokes' phase guardrails, each returning the resulting state. **No longer blocked** — the trust model was answered above: loopback is the boundary and already in force. This branch also carries the gate that makes it real: refuse to serve the write endpoints when `HOST` is not loopback, unless explicitly opted in. → #251
 
 ## Notes
 
