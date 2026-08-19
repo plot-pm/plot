@@ -68,6 +68,21 @@
 #                  continuation line is not seen — keep it on the branch line.
 #   prs            PR numbers from `→ #NNN` links in the `## Branches`
 #                  section (sorted, unique)
+#   changelog      the plan's `## Changelog` entries, one string per bullet, in
+#                  document order; [] when the plan has no changelog or an
+#                  unfilled one. This is the one field that says WHAT A PLAN
+#                  CHANGES, which title and story do not.
+#                  ENTRIES, not lines: a bullet wrapped across several lines is
+#                  one entry with the continuation lines joined by a single
+#                  space (9 of the 34 changelogs in the origin repo wrap, so
+#                  line-per-line would have shredded a quarter of them). An
+#                  INDENTED bullet folds into the entry above it the same way:
+#                  a sub-point is not a release note of its own.
+#                  Non-bullet prose in the section is NOT an entry — 8 plans
+#                  close their changelog with a "Board impact:" paragraph, which
+#                  is a note to a reviewer rather than a release note. Comment
+#                  interiors stay non-content, as everywhere else in this parser,
+#                  so the template's guidance block contributes nothing.
 #   issues         tracker issue numbers this plan answers, from the `## Status`
 #                  `Issue:` line or front matter `issue:` (sorted, unique).
 #                  A DEDICATED field, never a scan of the body for `#NNN`: a
@@ -138,7 +153,7 @@ if [ ${#files[@]} -eq 0 ] && [ ${#missing[@]} -eq 0 ]; then
 fi
 
 for f in ${missing[@]+"${missing[@]}"}; do
-  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"issues":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","approved_raw":"","released_raw":"","delivered_raw":"","started_raw":[]}\n' \
+  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"issues":[],"changelog":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","approved_raw":"","released_raw":"","delivered_raw":"","started_raw":[]}\n' \
     "$(printf '%s' "$f" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 done
 
@@ -229,6 +244,8 @@ function reset_state() {
   delete wave_names; delete wave_of; delete wave_seq; delete wave_count
   delete deferred_of; delete claimed_of; delete ordered_b; n_waves = 0
   delete started; n_started = 0
+  fm_changelog = ""
+  delete changelog; n_changelog = 0; changelog_seen = 0; cl_open = 0
 }
 function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, review, impl, approved, delivered, issue, i, j, out, sorted_b, sorted_p, sorted_i, nb, np, ni) {
   if (fm_status != "" || fm_phase != "") {
@@ -302,6 +319,15 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   out = out "],\"issues\":["
   for (i = 1; i <= ni; i++) out = out (i > 1 ? "," : "") sorted_i[i]
   out = out "]"
+  # Document order, never sorted: a changelog is a narrative sequence, and the
+  # first entry is the headline. Front matter wins, as it does for every other
+  # field, and contributes exactly one entry.
+  if (fm_changelog != "" && strip_placeholder(fm_changelog) != "") {
+    delete changelog; n_changelog = 1; changelog[1] = strip_placeholder(fm_changelog)
+  }
+  out = out ",\"changelog\":["
+  for (i = 1; i <= n_changelog; i++) out = out (i > 1 ? "," : "") "\"" jesc(changelog[i]) "\""
+  out = out "]"
   # waves[]: branches grouped by `### ` subheading, in document order. A plan
   # with no subheadings yields one wave with an empty name.
   out = out ",\"waves\":["
@@ -354,6 +380,10 @@ in_fm {
   else if (lower ~ /^released:/ && fm_released == "") fm_released = val_after_colon($0)
   else if (lower ~ /^delivered:/ && fm_delivered == "") fm_delivered = val_after_colon($0)
   else if (lower ~ /^started:/ && fm_started == "") fm_started = val_after_colon($0)
+  # A scalar `changelog:` in front matter is one entry. A YAML list is NOT read
+  # here: front matter in this repo is a flat key/value surface, and guessing a
+  # list grammar the format never promised would invent a contract.
+  else if (lower ~ /^changelog:/ && fm_changelog == "") fm_changelog = val_after_colon($0)
   next
 }
 # Interior of multi-line HTML comments is non-content (template guidance
@@ -391,6 +421,10 @@ in_comment {
   # section in prose, and those later headings are illustration, not contract.
   else if ($0 ~ /^## Branches/) { section = branches_seen ? "" : "branches"; branches_seen = 1 }
   else if ($0 ~ /^## Approval/) section = "approval"
+  # First `## Changelog` wins, for the same reason `## Branches` does: a plan
+  # about the plan format quotes the section in prose, and the later heading is
+  # illustration rather than contract.
+  else if ($0 ~ /^## Changelog/) { section = changelog_seen ? "" : "changelog"; changelog_seen = 1 }
   else section = ""
   next
 }
@@ -415,6 +449,47 @@ section == "status" {
 section == "approval" {
   lower = tolower($0)
   if (lower ~ /^[ \t]*[-*]?[ \t]*\**assignee[:*]/ && canon_assignee == "") canon_assignee = val_after_colon($0)
+  next
+}
+# `## Changelog` — the release-note entries. One entry per bullet, wrapped
+# continuation lines folded into the entry they belong to.
+#
+# A bullet opens an entry. An indented non-bullet line continues the open one.
+# A blank line or a line at column zero closes it: the flush-left prose that 8
+# plans use for a "Board impact:" note is a remark to a reviewer, not a release
+# note, so it ends the entry rather than joining it.
+section == "changelog" {
+  # A line that is nothing but an HTML comment is not content, at any
+  # indentation. Multi-line comments are already swallowed upstream; an INDENTED
+  # single-liner would otherwise land in the continuation branch below and paste
+  # its own markup into the entry above it.
+  if ($0 ~ /^[ \t]*<!--.*-->[ \t]*$/) next
+  # An INDENTED bullet is a sub-point of the entry above, not a release note of
+  # its own, so it continues rather than opens. No changelog in the repo nests
+  # today; the rule is here because the alternative silently promotes a
+  # sub-point to a headline the moment one does.
+  if (cl_open && $0 ~ /^[ \t]+[-*][ \t]/) {
+    _n = $0
+    sub(/^[ \t]*[-*][ \t]+/, "", _n)
+    changelog[n_changelog] = changelog[n_changelog] " " trim(_n)
+    next
+  }
+  if ($0 ~ /^[ \t]*[-*][ \t]/) {
+    _e = $0
+    sub(/^[ \t]*[-*][ \t]+/, "", _e)
+    _e = strip_placeholder(trim(_e))
+    if (_e != "") { changelog[++n_changelog] = _e; cl_open = 1 }
+    else cl_open = 0   # an unfilled bullet opens nothing to continue
+    next
+  }
+  if (cl_open && $0 ~ /^[ \t]+[^ \t]/) {
+    changelog[n_changelog] = changelog[n_changelog] " " trim($0)
+    next
+  }
+  # Blank line, or prose at column zero: whatever entry was open is finished.
+  # The flag matters — without it a continuation-shaped line after a break would
+  # glue itself onto an entry it never belonged to.
+  cl_open = 0
   next
 }
 section == "branches" {
