@@ -2947,10 +2947,10 @@ function RowActions({
                 type="button"
                 data-worker-log-open
                 onClick={onOpenLog}
-                aria-label={`Read the worker log for ${row.branch}`}
+                aria-label={`Show the agent working on ${row.branch}`}
                 className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
               >
-                Read worker log
+                Show the agent
               </button>
             </div>
           )}

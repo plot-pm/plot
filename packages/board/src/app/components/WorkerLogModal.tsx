@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import type { AgentPanel } from '../../server/agent-panel.js';
 import type { LogMissReason, WorkerLog } from '../../server/worker-log.js';
+import { AgentPanelFacts } from './AgentPanelFacts.js';
 
 /**
  * How often an open panel re-fetches, in ms.
@@ -64,6 +66,8 @@ export interface WorkerLogModalProps {
   onClose: () => void;
   /** Injected by tests; the browser's `fetch` in the app. */
   fetcher?: typeof fetch;
+  /** Injected by tests so "last activity" does not race the clock. */
+  now?: number;
 }
 
 /**
@@ -80,8 +84,9 @@ export interface WorkerLogModalProps {
  * a file off disk and must not grow one for this — the path is for copying into
  * a terminal, where a pager handles a 60 MB log far better than a browser can.
  */
-export function WorkerLogModal({ branch, onClose, fetcher = fetch }: WorkerLogModalProps) {
+export function WorkerLogModal({ branch, onClose, fetcher = fetch, now }: WorkerLogModalProps) {
   const [log, setLog] = useState<WorkerLog | null>(null);
+  const [panel, setPanel] = useState<AgentPanel | null>(null);
   const [error, setError] = useState<string | null>(null);
   const bodyRef = useRef<HTMLPreElement | null>(null);
   // Whether the reader is parked at the bottom. A log that jumps to the end
@@ -119,6 +124,46 @@ export function WorkerLogModal({ branch, onClose, fetcher = fetch }: WorkerLogMo
     };
   }, [branch, fetcher]);
 
+  /**
+   * The facts about the run, polled on the same cadence as the log.
+   *
+   * **A SEPARATE request from the log, deliberately.** The two answer different
+   * questions from different sources — one reads a file in the worktree, the
+   * other reads the pulse, the process table and the transcript — and a failure
+   * in either must not blank the other. A worker whose log is unreadable still
+   * has a pid and an uptime worth showing, and a transcript that has moved on
+   * must not cost the reader their log.
+   *
+   * Polled rather than fetched once because uptime, context and last activity
+   * all move while the panel is open; a snapshot taken at open would be quietly
+   * wrong by the time anyone read it. The same close-stops-the-traffic rule
+   * applies — see LOG_POLL_MS.
+   *
+   * A failed panel fetch sets NOTHING. It does not touch `error`, which belongs
+   * to the log below: the panel's own answer to *I could not read this* is to
+   * show less, and a network blip is one more unreadable source.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      fetcher(`/api/agent-panel?branch=${encodeURIComponent(branch)}`)
+        .then(async (res) => {
+          const body = (await res.json()) as AgentPanel | { error: string };
+          if (cancelled || 'error' in body) return;
+          setPanel(body);
+        })
+        .catch(() => {
+          // Silence is the contract. See above.
+        });
+    };
+    load();
+    const timer = setInterval(load, LOG_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [branch, fetcher]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -146,13 +191,14 @@ export function WorkerLogModal({ branch, onClose, fetcher = fetch }: WorkerLogMo
     >
       <div
         role="dialog"
-        aria-label={`Worker log: ${branch}`}
+        aria-label={`Agent: ${branch}`}
         data-worker-log
+        data-agent-panel
         className="flex h-[80vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-xl dark:bg-slate-900"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex shrink-0 items-baseline gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-          <span className="text-sm font-medium text-slate-900 dark:text-slate-100">Worker log</span>
+          <span className="text-sm font-medium text-slate-900 dark:text-slate-100">Agent</span>
           <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-500 dark:text-slate-400">
             {branch}
           </span>
@@ -164,6 +210,11 @@ export function WorkerLogModal({ branch, onClose, fetcher = fetch }: WorkerLogMo
             Close
           </button>
         </header>
+
+        {/* WHAT IS KNOWN ABOUT THE RUN, above the log it produced. Each field
+            omits independently when its source could not be read — see
+            AgentPanelFacts, where that rule is structural rather than repeated. */}
+        <AgentPanelFacts panel={panel} now={now} />
 
         {/* THE TRUNCATION SAYS SO. A tail presented as a whole log is the same
             defect this board keeps removing — it reads as "the worker printed

@@ -6,6 +6,7 @@ import { buildBoard, renderPlanPage, renderStoryPage, type BuildBoardOptions } f
 import { buildFleet } from './fleet.js';
 import { buildAttention } from './attention.js';
 import { dispatchAvailability, handleDispatch, SLUG_RE } from './dispatch.js';
+import { agentPanel } from './agent-panel.js';
 import { workerLog } from './worker-log.js';
 import { serverInfo } from './server-info.js';
 import { exitWithParent } from './lifetime.js';
@@ -212,6 +213,41 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       res.end(JSON.stringify(log));
     } catch (err) {
       console.error('Error reading worker log:', err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+    }
+    return;
+  }
+
+  // GET /api/agent-panel?branch=… — what one WORKING row can say about its agent.
+  //
+  // A SECOND on-demand route rather than new fields on the row, and the choice
+  // is the wave's central one. The panel wants pid, uptime, worktree, command
+  // and the transcript's model and context — per-agent facts that would
+  // otherwise ride the 4 s pulse to every open tab whether or not anyone had a
+  // panel open. `/api/worker-log` established the pattern for exactly this
+  // reason and this follows it: the row asks, the server assembles.
+  //
+  // The branch is resolved against the worktrees the PULSE reported — the same
+  // lookup-not-validator boundary `/api/worker-log` documents — so no request
+  // text ever becomes a path segment, and a branch this machine does not hold
+  // is an answer rather than a read attempt.
+  if (url.pathname === '/api/agent-panel') {
+    const branch = url.searchParams.get('branch');
+    if (!branch) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'branch is required' }));
+      return;
+    }
+    try {
+      const panel = agentPanel(opts, branch);
+      // 404 only for a branch this server cannot answer for, matching
+      // /api/worker-log: the status says whether there was anything to look at,
+      // and `reason` carries the distinction the client renders.
+      res.writeHead(panel.ok ? 200 : 404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(panel));
+    } catch (err) {
+      console.error('Error building agent panel:', err);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
     }
