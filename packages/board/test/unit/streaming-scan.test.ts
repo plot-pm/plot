@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  buildFleet, mergePlan, partialSummary, runStreaming, stopFleetRefresh,
+  buildFleet, mergePlan, partialSummary, pulseShrink, runStreaming, stopFleetRefresh,
 } from '../../src/server/fleet.js';
 import { summariseFromPulse } from '../../src/server/board.js';
 import { FleetSchema, PlanMetaSchema, type FleetPulse } from '../../src/contract/schema.js';
@@ -363,5 +363,48 @@ describe('runStreaming delivers whole lines', () => {
     await expect(runStreaming('bash', [script], dir, (l) => lines.push(l))).rejects.toThrow();
     // A rejection means "no more is coming", never "discard what came".
     expect(lines).toEqual(['{"a":1}']);
+  });
+});
+
+describe('the shrink baseline is the last COMPLETE answer', () => {
+  // The property the streaming rewrite could plausibly have broken, and the
+  // one that is cheap to get wrong invisibly.
+  //
+  // `entry.pulse` is now overwritten many times DURING a scan, so comparing a
+  // finished scan against it compares the document to a partial view of
+  // itself — which has no plan the finished one lacks, so every shrink reports
+  // as zero and the tab silently stops flagging losses. `refresh()` therefore
+  // holds the last complete answer aside and compares against that.
+  //
+  // Asserted on `pulseShrink` directly rather than through a second scan: the
+  // function is pure, and the bug is entirely in WHICH document is handed to
+  // it.
+  const two = [
+    plan('a.md', [wave('One', 'eligible', [['feature/a', 'open']])]),
+    plan('b.md', [wave('One', 'eligible', [['feature/b', 'open']])]),
+  ];
+  const one = [two[0]];
+  const pulseOf = (plans: ReturnType<typeof plan>[]): FleetPulse => ({
+    ...HEAD, plans, summary: partialSummary(plans),
+  });
+
+  it('reports the loss when the complete predecessor is the baseline', () => {
+    const shrink = pulseShrink(pulseOf(two), pulseOf(one), 1_000);
+    expect(shrink).not.toBeNull();
+    expect(shrink?.plans).toEqual(['b.md']);
+    expect(shrink?.branches).toEqual(['feature/b']);
+  });
+
+  it('reports NOTHING when handed the scan\'s own partial view — the bug', () => {
+    // What comparing against `entry.pulse` mid-scan would do: the partial view
+    // holds only what has arrived, so the finished document never looks
+    // smaller and a real loss goes unflagged.
+    expect(pulseShrink(pulseOf(one), pulseOf(one), 1_000)).toBeNull();
+  });
+
+  it('is null on a cold start rather than flagging every first scan', () => {
+    // Unchanged, and asserted because the streaming path introduced a second
+    // way to have no predecessor: a cache whose only pulse so far is partial.
+    expect(pulseShrink(null, pulseOf(two), 1_000)).toBeNull();
   });
 });
