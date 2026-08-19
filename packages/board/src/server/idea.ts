@@ -497,12 +497,14 @@ export async function handleIdea(
   const refuse = (status: number, reason: IdeaRefusal, number: number, detail: string) =>
     json(status, { ok: false, number, reason, detail });
 
-  // The same two gates, in the same order, imported rather than reimplemented.
-  const availability = ideaAvailability(opts.host);
-  if (!availability.available) {
-    json(403, { error: availability.reason });
-    return;
-  }
+  // The same-origin gate, imported rather than reimplemented. The loopback gate
+  // that used to sit above it is enforced in the router for every write route at
+  // once — see `write-gate.ts`, and the note in `handleDispatch` for why one
+  // surviving copy would have made the named opt-in mean different things on
+  // different routes.
+  //
+  // `ideaAvailability` still answers this control's capability flag, which is
+  // the question the BUTTON asks before it is clicked.
   if (!isSameOrigin(req, opts.port)) {
     json(403, { error: 'cross-origin request refused' });
     return;

@@ -15,6 +15,7 @@
 // lost on CI, and a teardown racing a detached child.
 import { afterEach, describe, it } from 'vitest';
 import assert from 'node:assert/strict';
+import { writeGate } from '../../src/server/write-gate.js';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -297,13 +298,29 @@ describe('an action that cannot work is not offered', () => {
     assert.match(String(got.body.detail), /unknown/);
   });
 
-  it('is unavailable off localhost, where the repo is not', async () => {
-    const dir = repo();
-    const got = await post({ repoRoot: dir, host: '0.0.0.0' });
-    assert.equal(got.status, 403);
-    assert.match(String(got.body.error), /not localhost/);
+  it('is unavailable off localhost, where the repo is not', () => {
+    // THE CAPABILITY FLAG IS UNCHANGED; THE REFUSAL MOVED.
+    //
+    // `ideaAvailability` still answers *will this control act*, which is what
+    // the button asks before it is clicked, and that is asserted here as it
+    // always was. What is no longer asserted through `handleIdea` is the 403:
+    // since 2026-08-19 the loopback boundary is enforced in the router, ahead
+    // of every write route at once, because a check each handler has to
+    // remember is a rule while a check where routes are dispatched is a gate.
+    //
+    // This route is the reason that distinction is not academic. It landed on
+    // the default branch while the gate was being written and, under the
+    // list-of-paths shape the gate started with, would have merged cleanly and
+    // been the one ungated write endpoint.
+    //
+    // The refusal itself is asserted end-to-end over every write route in
+    // `test/write-gate.test.mjs`, including that a refused request spawned
+    // nothing — which is the assertion that matters and which calling a
+    // handler directly cannot make.
     assert.equal(ideaAvailability('0.0.0.0').available, false);
+    assert.match(ideaAvailability('0.0.0.0').reason, /not localhost/);
     assert.equal(ideaAvailability('localhost').available, true);
+    assert.equal(writeGate('0.0.0.0', {}).allowed, false, 'and the gate refuses it');
   });
 });
 
