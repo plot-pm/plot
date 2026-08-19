@@ -354,7 +354,7 @@ in a wave whose shape the earlier ones are likely to change.
 ### Answer
 
 - `feature/continue-with-an-answer` — a continuation run in the same
-  worktree, prompted with the transcript and the answer
+  worktree, prompted with the transcript and the answer — PR #246
 
 ### Machine
 
