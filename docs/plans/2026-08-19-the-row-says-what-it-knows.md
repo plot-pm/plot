@@ -180,6 +180,34 @@ that is silent about most of the work. Whether the fix is counting differently,
 naming the badge for what it measures, or leaving it to the Board tab alone is
 a design question, not one this plan settles.
 
+### A plan group has no edge, so it absorbs what follows it
+
+Reported from the board 2026-08-19: two issue rows (#227, #228) render beneath
+the heading `the-row-says-what-it-knows (5)` and belong to no plan at all.
+
+They are not misfiled. Measured against `/api/fleet`: WAITING ON YOU returns
+seven rows, five carrying `plan: the-row-says-what-it-knows` and two carrying
+none — and the issue rows are not in `rows` at all. They arrive in the separate
+`issues` field that #236 added, and render after the plan's branches. Nothing
+claims they belong to the plan; the layout simply offers no place where the
+plan's group ends.
+
+**And that is a gap I left this afternoon.** `a-plan-row-is-not-a-branch-row`
+asked for two things, and I built one:
+
+> *So a plan and its branches sit in one bordered group, and the next plan
+> starts a new one.* — the plan's Design, and its fourth Done-when criterion
+
+The row proportions landed; the border did not. `AgentList.tsx:3512` shows the
+half that did: a row inside a plan group gets `''` where a standalone row gets
+`border-b`. So the group **suppresses** the dividers between its own rows and
+draws no edge of its own — the one arrangement that makes a group look like it
+continues past its last member.
+
+The consequence is not cosmetic. A plan heading with five branches under it and
+two unrelated rows after it reads as a plan with seven, and the count beside the
+name says `(5)` — the reader has to arbitrate between the number and the layout.
+
 ### The controls are too small to read, and too small to hit
 
 Measured on the running board 2026-08-19, at 1480px wide:
@@ -281,6 +309,8 @@ the interesting one.
 ### Seeing it
 
 - `bug/a-section-break-reads-as-one` — the space between two section groups grows enough that a heading reads as introducing the block below it rather than as trailing the one above. Row spacing is untouched. Tests: the gap above a heading exceeds the gap between two rows in the same group by a stated factor; row height is unchanged; below `CARD_BELOW_PX` nothing regresses.
+
+- `bug/a-plan-group-has-an-edge` — a plan and its branches sit in one bordered block, and the next thing in the section starts outside it. Completes the fourth Done-when criterion of `a-plan-row-is-not-a-branch-row`, whose row proportions landed without its border. Tests: a plan group renders a visible boundary after its last branch; rows following it in the same section — issue rows among them — sit outside that boundary; the count beside a plan name matches the rows inside its block; branch-to-branch dividers inside a group stay suppressed.
 
 - `bug/a-plan-row-can-be-approved` — the plan row hosts the one action that belongs to a plan. `ApproveButton` and its server-side `approve` availability already exist; what is missing is a place on the row to put them, removed when the row gained its own proportions. Tests: a Draft plan row offers approval; a plan past Draft does not; the control is absent when the server reports `approve.available: false`, with its reason; branch rows are unchanged.
 
