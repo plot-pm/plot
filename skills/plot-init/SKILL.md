@@ -146,6 +146,7 @@ justify**, and say what triggered the offer:
 | `has_settings: false` and Plot is used as a plugin | The `.claude/settings.json` block enabling the plugin | Merge into an existing file, never overwrite |
 | Repo has `docs/stories/` | Note that `story-tracking` pairs with it | It is a companion, not a spoke — it works standalone |
 | Repo has `docs/sessionlogs/` (or a session-wrap tool is in use) | A `## Session Wrap Up` section in the hub | Session-scoped tools write the log; Plot only supplies the plot-shaped facts |
+| Repo has a plan directory with plans in it | `/plot-board-setup` — a local Kanban view of those plans | The board is first-class and gated in the Definition of Done, but nothing else in adoption mentions it |
 
 **The `## Session Wrap Up` section**, when offered, tells whatever writes
 session logs which Plot facts belong in one:
