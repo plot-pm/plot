@@ -932,6 +932,29 @@ export const FleetPulseSchema = z.object({
 export type FleetPulse = z.infer<typeof FleetPulseSchema>;
 
 /**
+ * One line of `plot-fleet-scan.sh --stream`.
+ *
+ * The scan takes 18 s on 84 branches and a board that renders nothing for that
+ * long looks broken, so the same derivation is emitted as it resolves: one
+ * `plan` line per plan the moment that plan is fully derived, then one `pulse`
+ * line carrying the identical document `--json` prints whole.
+ *
+ * The terminal `pulse` line is what says the scan FINISHED. A consumer that has
+ * seen plan lines and no pulse line holds a partial answer and must say so —
+ * and it cannot infer completion from the pipe closing, because a killed scan
+ * closes it too.
+ *
+ * A discriminated union rather than two optional fields: `kind` is what a
+ * reader switches on, and an object carrying neither (or both) should fail to
+ * parse rather than be interpreted.
+ */
+export const FleetScanLineSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('plan'), plan: FleetPlanSchema }),
+  z.object({ kind: z.literal('pulse'), pulse: FleetPulseSchema }),
+]);
+export type FleetScanLine = z.infer<typeof FleetScanLineSchema>;
+
+/**
  * Groups are ordered by what they ask OF YOU, not by plan: review it, nothing,
  * nothing, go check whether it died, decide whether to start it. Sorted this
  * way the list is workable top to bottom.
@@ -1579,6 +1602,27 @@ export const FleetSchema = z.object({
   localHead: z.string().nullable().default(null),
   /** False until the first scan lands: "not ready yet", never an empty fleet. */
   ready: z.boolean(),
+  /**
+   * Whether `rows` and `summary` describe EVERY plan the scan found, or only
+   * the ones that had resolved when this answer was built.
+   *
+   * A third state `ready` cannot express, and beside it for the same reason
+   * `shrink` sits beside `error`: `ready` asks *has anything arrived*, this
+   * asks *has everything*. A scan is 18.3 s on 84 branches against a 5 s
+   * cadence, so between the two there is a long window where rows exist and
+   * more are coming — and rendering that window as a finished answer is a count
+   * of what has been measured presented as a count of what there is.
+   *
+   * What a consumer must do with `false`: render the rows it has, and render
+   * every AGGREGATE — the summary counts, the stuck tally — as not-yet-arrived
+   * rather than as the number given. The rows are true; the totals are true
+   * about a document that is still being written.
+   *
+   * Defaults to true so a payload from a server predating the streaming scan
+   * still validates, and reads as what that server actually meant: it only ever
+   * published whole documents.
+   */
+  complete: z.boolean().default(true),
   /** Last scan error, if any. A failed refresh never clears a good result. */
   error: z.string().nullable(),
   /**
