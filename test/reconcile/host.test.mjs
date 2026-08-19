@@ -689,3 +689,90 @@ test('host: pr-state reports NONE after exhausting every state', () => {
   assert.equal(out.state, 'NONE');
   assert.equal(callsOf(bb.callsFile).length, 3);
 });
+
+// --- issue-view: one issue, with its body, and never a write ---------------
+//
+// The op the board's *Create plan* action reads. `issue-list` runs on a timer
+// for every open issue and deliberately omits bodies; this asks for the one
+// issue somebody just pointed at, so its cadence is a human's.
+//
+// The exit codes are deliberately the SAME ONES `issue-list` uses — 4 for a
+// host that cannot be asked, non-zero for a lookup that failed — because a
+// consumer already maps those and must not need a second table.
+
+test('host: issue-view returns one issue object, body included', () => {
+  const gh = makeStubs({
+    ghJson: '{"number":228,"title":"The scan asks once per branch","body":"Measured: 18.3s.","url":"https://example.test/issues/228"}',
+  });
+  const out = JSON.parse(execFileSync('bash', [adapter, 'issue-view', '228'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${gh.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  }));
+  assert.equal(out.number, 228);
+  assert.equal(out.title, 'The scan asks once per branch');
+  // THE BODY IS THE POINT — it is the problem statement /plot-idea receives.
+  assert.equal(out.body, 'Measured: 18.3s.');
+  assert.equal(out.url, 'https://example.test/issues/228');
+
+  const argv = readFileSync(gh.ghArgv, 'utf8').trim().split('\n');
+  assert.deepEqual(argv.slice(0, 3), ['issue', 'view', '228']);
+  // READ-ONLY, asserted rather than assumed: no subcommand here may write to
+  // the tracker. Plot reads the tracker and never writes to it, and a plan
+  // referencing an issue is Plot's record rather than the tracker's.
+  for (const write of ['comment', 'edit', 'close', 'reopen', 'label', 'lock']) {
+    assert.ok(!argv.includes(write), `issue-view must not ${write}`);
+  }
+});
+
+test('host: issue-view fills absent fields rather than emitting null', () => {
+  // An issue with no body is a real case — a title-only issue — and it must
+  // arrive as "" so a consumer renders nothing rather than the word "null".
+  const gh = makeStubs({ ghJson: '{"number":9,"title":"Terse","body":null,"url":null}' });
+  const out = JSON.parse(execFileSync('bash', [adapter, 'issue-view', '9'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${gh.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  }));
+  assert.equal(out.body, '');
+  assert.equal(out.url, '');
+});
+
+test('host: issue-view exits 4 on bitbucket — cannot be asked, not "no issue"', () => {
+  const bb = makeStubs({ bbJson: '{}' });
+  const res = spawnSync('bash', [adapter, 'issue-view', '5'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  // The SAME code issue-list uses for the same standing fact, so a consumer
+  // needs one mapping rather than two.
+  assert.equal(res.status, 4);
+  assert.equal(res.stdout.trim(), '', 'nothing parseable, so nothing can be mistaken for an issue');
+  assert.match(res.stderr, /bitbucket has no issue read/);
+});
+
+test('host: issue-view exits non-zero with empty stdout when the lookup fails', () => {
+  // AN OUTAGE IS NOT AN ANSWER. A failed read must not arrive as an issue with
+  // an empty body — that would have the board plan against nothing.
+  const gh = makeStubs({ ghFail: 'HTTP 503: Service Unavailable' });
+  const res = spawnSync('bash', [adapter, 'issue-view', '228'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${gh.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.notEqual(res.status, 0);
+  assert.notEqual(res.status, 4, '503 is an outage, not a host that cannot be asked');
+  assert.equal(res.stdout.trim(), '');
+  assert.match(res.stderr, /503/);
+});
+
+test('host: issue-view treats a missing issue as a failure, not an empty body', () => {
+  // Deliberately NOT the miss/fail split `pr-state` makes. An issue number
+  // reaching this op was read off `issue-list` moments earlier, so "it does not
+  // exist" means the tracker moved — a fact worth surfacing rather than a blank
+  // to plan on.
+  const gh = makeStubs({ ghFail: 'could not find issue #999' });
+  const res = spawnSync('bash', [adapter, 'issue-view', '999'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${gh.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.notEqual(res.status, 0);
+  assert.equal(res.stdout.trim(), '');
+});

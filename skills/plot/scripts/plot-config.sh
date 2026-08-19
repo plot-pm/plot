@@ -40,6 +40,17 @@
 #   Approve command     how the board runs `/plot-approve <slug>`; the prompt is
 #                       appended as one argument. Absent = the board's Approve
 #                       button renders disabled, naming this key as the fix.
+#   Idea command        how the board runs `/plot-idea` on a tracker issue; the
+#                       prompt is appended as one argument, and it names a FILE
+#                       the board wrote (an issue body is free text from anyone
+#                       who can file an issue, so no part of it is ever a shell
+#                       word). REQUIRED for the issue row's `Create plan`
+#                       action, unlike `Approve command`: approving has a
+#                       script to fall back to, and creating a plan does not —
+#                       every step of /plot-idea is judgement, and no script
+#                       here can invoke a skill. Absent (or `none`) = the button
+#                       refuses and names this key as the fix, rather than
+#                       accepting the click and doing nothing.
 # Plot 2 posture keys (repo-declared ceremony bounds; all optional):
 #   Plan PRs            required | never | optional   (never = hard gate)
 #   Implementation home this repo | <repo/path list> | none
