@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  mayResolve, repairFor, repairLogPath, resetRepairs, startRepair, REPAIR_ECHO_MS,
+  mayResolve, repairEnabledFromEnv, repairFor, repairLogPath, resetRepairs, startRepair,
+  REPAIR_ECHO_MS,
 } from '../../src/server/resolver.js';
 import { stuckState } from '../../src/server/stuck.js';
 import { BOARD_ARTIFACT_PATH, type Stuck } from '../../src/contract/schema.js';
@@ -338,5 +339,155 @@ describe('a not-observed refusal does not repeat on unchanged input', () => {
     startRepair('feature/a', stuck({}), opts);
     exit!(1);
     expect(startRepair('feature/a', stuck({}), opts)).toBe(true);
+  });
+});
+
+// THE OFF SWITCH — an operator can take the write away without taking the
+// board, or the report, with it.
+//
+// The repair is the one automatic write in the whole system, and until now it
+// was gated on state alone: an operator who wanted to SEE artifact conflicts
+// without the board acting on them had to stop the board. These assertions are
+// aimed at the two ways a switch goes wrong — one that fails to disable, and
+// one that disables more than it was asked to.
+describe('PLOT_BOARD_REPAIR — the repair is refusable, and only ever downward', () => {
+  let repoRoot: string;
+  let started: string[];
+  let opts: Parameters<typeof startRepair>[2];
+
+  beforeEach(() => {
+    resetRepairs();
+    started = [];
+    repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-resolver-'));
+    opts = {
+      repoRoot,
+      scriptsDir: '/scripts',
+      spawnRepair: ({ branch }) => { started.push(branch); },
+    };
+  });
+
+  // HALF ONE OF THE CONTRACT: nothing is written.
+  it('starts nothing when the repair is switched off', () => {
+    expect(startRepair('feature/a', stuck({}), { ...opts, repairEnabled: false })).toBe(false);
+    // The load-bearing half. `false` is also what every refusal returns, so the
+    // return value alone cannot tell a disabled repair from a refused one —
+    // only the absence of the spawn can.
+    expect(started).toEqual([]);
+  });
+
+  // HALF TWO, AND THE ONE A NARROWER IMPLEMENTATION LOSES: turning the repair
+  // off must not turn off the SEEING. An operator who silences the write and
+  // thereby loses the report has swapped one blindness for another — so the
+  // detector still classifies the conflict, and the row still names it.
+  it('still detects and reports the conflict it will not repair', () => {
+    const seen = stuckState({
+      state: 'wip',
+      conflicts: [BOARD_ARTIFACT_PATH],
+      conflictsKnown: true,
+      localAhead: 0,
+    });
+    expect(seen?.state).toBe('artifact-conflict');
+    expect(seen?.conflicts).toEqual([BOARD_ARTIFACT_PATH]);
+
+    startRepair('feature/a', seen, { ...opts, repairEnabled: false });
+    expect(started).toEqual([]);
+    // Detection is untouched by the switch: the same input still reads as
+    // repairable, which is what the row renders from.
+    expect(mayResolve(seen)).toBe(true);
+  });
+
+  // A DISABLED REPAIR LEAVES NO TRACE OF ONE. The fences below the switch write
+  // as they refuse — `inFlight` marks a branch as being repaired — so a switch
+  // placed after them would leave the branch reported as under repair forever,
+  // by a process that never started one.
+  it('reports no repair at all on a branch it declined to touch', () => {
+    startRepair('feature/a', stuck({}), { ...opts, repairEnabled: false });
+    expect(repairFor('feature/a')).toBe(null);
+  });
+
+  // AND THE SWITCH IS NOT STICKY. A disabled board must not poison the branch
+  // for a board that comes back with the repair on.
+  it('repairs normally once the switch is on again', () => {
+    expect(startRepair('feature/a', stuck({}), { ...opts, repairEnabled: false })).toBe(false);
+    expect(startRepair('feature/a', stuck({}), opts)).toBe(true);
+    expect(started).toEqual(['feature/a']);
+  });
+
+  // THE PER-BRANCH LOCK STILL HOLDS. The switch is one more fence in a stack
+  // whose second entry is what keeps two repairs off one worktree; adding a
+  // gate above it must not have moved or bypassed it.
+  it('still refuses a second repair while the first is in flight', () => {
+    expect(startRepair('feature/a', stuck({}), { ...opts, repairEnabled: true })).toBe(true);
+    expect(startRepair('feature/a', stuck({}), { ...opts, repairEnabled: true })).toBe(false);
+    expect(started).toEqual(['feature/a']);
+  });
+
+  // THE VARIABLE NEVER CONVERTS A REFUSAL INTO A REPAIR.
+  //
+  // `isArtifactOnly` refuses any conflict set that is not exactly the artifact,
+  // and that refusal is what licenses the write at all — the repair is a script
+  // rather than an agent precisely because judgement's absence IS the
+  // permission. An implementation reading the switch as *should this branch be
+  // repaired* rather than as *may this process repair* passes every assertion
+  // above and fails this one.
+  it('refuses a conflict touching source even when explicitly switched ON', () => {
+    const mixed = stuckState({
+      state: 'wip',
+      conflicts: [BOARD_ARTIFACT_PATH, OTHER],
+      conflictsKnown: true,
+      localAhead: 0,
+    });
+    expect(mixed?.state).toBe('conflict');
+    expect(startRepair('feature/a', mixed, { ...opts, repairEnabled: true })).toBe(false);
+
+    // And a plain source conflict, with the artifact nowhere in it.
+    expect(startRepair('feature/b', stuck({ state: 'conflict', conflicts: [OTHER] }),
+      { ...opts, repairEnabled: true })).toBe(false);
+
+    expect(started).toEqual([]);
+  });
+});
+
+// UNSET BEHAVES EXACTLY AS TODAY — asserted, rather than reasoned.
+//
+// This is the assertion the default is most likely to lose silently. A parse
+// that read unset as OFF would leave every test above passing (they state the
+// flag) while every real board quietly stopped repairing, which looks from the
+// outside exactly like a repair that never triggered.
+describe('repairEnabledFromEnv — unset is on, and only "0" is off', () => {
+  it('is on when the variable is unset', () => {
+    expect(repairEnabledFromEnv({})).toBe(true);
+  });
+
+  it('is off for exactly "0"', () => {
+    expect(repairEnabledFromEnv({ PLOT_BOARD_REPAIR: '0' })).toBe(false);
+  });
+
+  it('is on for "1"', () => {
+    expect(repairEnabledFromEnv({ PLOT_BOARD_REPAIR: '1' })).toBe(true);
+  });
+
+  // AN UNRECOGNISED VALUE IS NOT AN OFF SWITCH. The default is the behaviour
+  // that shipped and is under test; a board whose environment holds a typo
+  // keeps doing what an unconfigured board does, rather than silently becoming
+  // a board that reports and never writes.
+  it('is on for anything else, including values that look like a no', () => {
+    for (const value of ['', 'false', 'no', 'off', '00', ' 0', 'true']) {
+      expect(repairEnabledFromEnv({ PLOT_BOARD_REPAIR: value }),
+        `PLOT_BOARD_REPAIR=${JSON.stringify(value)} must not disable the repair`).toBe(true);
+    }
+  });
+
+  // THE DEFAULT REACHES startRepair, not just the parser. An options object
+  // that never mentions the switch — which is every caller written before it
+  // existed — still repairs.
+  it('an options object with no repairEnabled still repairs', () => {
+    resetRepairs();
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-resolver-'));
+    const started: string[] = [];
+    const bare = { repoRoot, scriptsDir: '/scripts', spawnRepair: ({ branch }: { branch: string }) => { started.push(branch); } };
+    expect('repairEnabled' in bare).toBe(false);
+    expect(startRepair('feature/a', stuck({}), bare)).toBe(true);
+    expect(started).toEqual(['feature/a']);
   });
 });

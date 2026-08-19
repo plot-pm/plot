@@ -29,6 +29,16 @@ import { prsByNumber, pulseFor } from './fleet.js';
 export interface BuildBoardOptions {
   repoRoot: string;
   scriptsDir: string;
+  /**
+   * Whether this board process may repair an artifact conflict, or only report
+   * one. Absent means yes — see {@link repairEnabledFromEnv}.
+   *
+   * It sits on the options every layer already carries, rather than on the
+   * pulse's own, because it describes the PROCESS the way `repoRoot` does.
+   * That is also what lets it reach `startRepair` down a call chain none of
+   * whose signatures had to change to admit it.
+   */
+  repairEnabled?: boolean;
 }
 
 /**
