@@ -229,7 +229,7 @@ render identically.
 
 - `feature/a-terminal-branch-is-asked-once` — branches in a terminal state (`merged`, `deferred`, and branches of `Released` plans) are asked about once and cached, while live ones are re-derived every pulse. The cache is validated against git on every pass and discarded the moment git contradicts it — a reappearing ref, an edited plan, a new commit — so it stays a derivation rather than a record. Measured: 56 of 84 branches here are terminal, so 67% of the host work asks about facts that cannot change. Tests: a merged branch costs one host call across many pulses; a merged branch whose ref reappears is re-asked on the next pulse; an edited plan invalidates its branches' cached answers; a live branch is never cached; the cache never outlives the process, so a restart re-derives everything.
 
-- `bug/the-cadence-knows-what-a-refresh-costs` — the board's PR refresh accounts for the configured host's per-refresh cost rather than assuming one request. Tests: a Bitbucket-configured board makes measurably fewer requests per hour than the naive cadence; a GitHub-configured board is unchanged; the rate-limit backoff already in `fleet.ts` still holds for its full delay.
+- `bug/the-cadence-knows-what-a-refresh-costs` — the board's PR refresh accounts for the configured host's per-refresh cost rather than assuming one request. Tests: a Bitbucket-configured board makes measurably fewer requests per hour than the naive cadence; a GitHub-configured board is unchanged; the rate-limit backoff already in `fleet.ts` still holds for its full delay. PR #245.
 
 ## Notes
 
