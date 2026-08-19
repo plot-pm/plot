@@ -68,14 +68,27 @@ are the first endpoints that change repository state rather than starting a
 local process.
 
 The check now lives in the **router**, once, ahead of every write route, and
-that placement is the change rather than an implementation detail. Three
-handlers each carried their own copy, which is what this repo calls a rule:
-correct today, correct tomorrow only if every future write route remembers. A
-check where routes are *dispatched* is a gate — the sixth write endpoint
-inherits it by construction, the same argument the blanket 405 makes one branch
-further down.
+that placement is the change rather than an implementation detail. Four handlers
+each carried their own copy, which is what this repo calls a rule: correct
+today, correct tomorrow only if every future write route remembers. A check
+where routes are *dispatched* is a gate — the next write endpoint inherits it by
+construction, the same argument the blanket 405 makes one branch further down.
 
-The three copies are removed rather than left beside it, and the reason is
+**And the router dispatches from a table, not from a list of paths beside a
+chain of `if`s.** That distinction stopped being academic within hours of being
+written: `/api/idea` landed on the default branch as a sixth write route — it
+writes a plan file and creates a branch — and under the list shape this gate
+started with, it merged cleanly, typechecked, and would have been the one
+ungated write endpoint. A list beside the routes is itself a rule somebody has
+to remember. Deriving **both** the dispatch and the gate from one entry means a
+route that exists is gated, and a route absent from the table is not reachable
+at all. The shape is the claim, exactly as `MARKDOWN_ROUTES` already is.
+
+The test enumerating the routes has the same weakness, so it reads the router's
+own table back out of the built artifact and asserts the two agree — a new write
+endpoint fails the suite until it is covered.
+
+The four copies are removed rather than left beside it, and the reason is
 sharper than tidiness. Once the gate grew a named opt-in, a surviving copy would
 have honoured a **different policy**: the opt-in would open `/api/claim` and be
 refused at `/api/dispatch`, so one variable would mean two things depending on
