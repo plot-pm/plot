@@ -40,6 +40,22 @@ export const PlanMetaSchema = z.object({
     branches: z.array(z.object({
       branch: z.string(),
       deferred: z.boolean().default(false),
+      /**
+       * WHY the branch was deferred — the sentence after the colon in
+       * `<!-- deferred: ... -->`, as the plan wrote it.
+       *
+       * The flag said a branch would not be built and the reason stayed in the
+       * plan file, so a row could show `deferred` beside `no commits` and never
+       * say the first was the cause of the second.
+       *
+       * `''` means TWO different things and the flag separates them: not
+       * deferred at all, or deferred with nothing recorded (the bare
+       * `<!-- deferred -->`). Read `deferred` first.
+       *
+       * Defaulted, so output from a `plot-plan-meta.sh` predating the field
+       * still validates.
+       */
+      deferred_reason: z.string().default(''),
       claimed: z.string().default(''),
     })).default([]),
   })).default([]),
@@ -520,6 +536,66 @@ export function toBoardPhase(helperPhase: string, _started = false): Phase | nul
 export const BranchStateSchema = z.enum(['open', 'wip', 'merged', 'claimed', 'deferred']);
 export type BranchState = z.infer<typeof BranchStateSchema>;
 
+/**
+ * WHAT KIND OF THING A ROW IS — the seven, and the second slot of the tuple.
+ *
+ * Every row on this board is one of these, and each answers the same six
+ * questions: icon, kind, name, artifact links, status, age. The list is the
+ * SHAPE rather than an inventory of what exists today — four of the seven have
+ * no row yet (see the table below), and they are named here anyway, because a
+ * shape that admits only today's kinds has to be reopened for each new one.
+ * That is precisely how this board arrived at three row components and two
+ * competing grids.
+ *
+ * | kind | has a row today | data on the row |
+ * |---|---|---|
+ * | `ticket` | yes (`IssueRowView`) | yes |
+ * | `plan` | yes (`PlanRow`) | yes |
+ * | `branch` | yes (`Row`) | yes |
+ * | `pr` | a CELL inside a branch row, not a row | yes — 67 of 80 live rows |
+ * | `release` | an unmarked branch row | yes, undistinguished |
+ * | `build` | none | derivable from the row's checks |
+ * | `agent` | none | NO — the registry is not merged |
+ *
+ * A kind with no data renders NO ROW; it does not render an empty one.
+ *
+ * ## Why this is a field and not a derivation
+ *
+ * The alternative — deciding a row's kind in the renderer from `pr`, `issue` or
+ * `planFile` — is DECLINED, and the reason is the defect this contract exists
+ * to fix. A derivation is a guess with a rule attached, and the rule breaks
+ * first where two kinds share fields: **a release is a PR** whose branch is
+ * named `changeset-release/main`, so any renderer-side rule must either
+ * hardcode that name or misclassify the one row nobody should merge by reflex.
+ *
+ * The board has already paid for this once. The phase column read a wave name,
+ * a plan phase, nothing, or a plan phase on a ticket — four meanings in one
+ * column — and it was a derivation, from the plan's wave count. `kind` is set
+ * where the row is CREATED, because the server is the only place that knows why
+ * the row exists.
+ *
+ * ## `kind` is what the row is ABOUT, not which object it came from
+ *
+ * Measured 2026-08-20: of 80 live rows, **67 carry both a branch and a PR** and
+ * only 13 a branch alone. So the both-case is the normal case, and `branch` and
+ * `pr` are not two kinds of row — they are two ROLES one row can be in. The
+ * rule that picks between them:
+ *
+ *   - a **merge conflict** makes it `branch`, because no PR resolves a conflict
+ *     and the reader has to go to the branch;
+ *   - anything else with an open PR makes it `pr`, because the fix updates the
+ *     PR.
+ *
+ * This costs the design a simplification, and the loss is worth stating: `kind`
+ * is not a property of a thing, it is a JUDGEMENT about a row. The server makes
+ * it once, where it holds both facts — which is exactly why it must not be
+ * remade in the renderer, where only some of them arrive.
+ */
+export const RowKindSchema = z.enum([
+  'ticket', 'plan', 'pr', 'build', 'agent', 'branch', 'release',
+]);
+export type RowKind = z.infer<typeof RowKindSchema>;
+
 export const WaveVerdictSchema = z.enum(['complete', 'eligible', 'blocked']);
 export type WaveVerdict = z.infer<typeof WaveVerdictSchema>;
 
@@ -713,6 +789,15 @@ export const FleetBranchSchema = z.object({
   branch: z.string(),
   state: BranchStateSchema,
   deferred: z.boolean(),
+  /**
+   * WHY the branch was deferred, as the plan recorded it — "" where nothing
+   * was, and "" on every branch that is not deferred. `deferred` says which.
+   *
+   * Defaulted, so a pulse from a scan predating the field still validates: an
+   * older scan cannot report a reason, and absent is the same answer it gave
+   * before the field existed.
+   */
+  deferred_reason: z.string().default(''),
   /** Claim note from the plan, or "" — never null (house style). */
   claimed: z.string(),
   /**
@@ -1365,6 +1450,22 @@ export type MachineProcess = z.infer<typeof MachineProcessSchema>;
 export const AgentRowSchema = z.object({
   /** Constant today. Present so the second repo is an addition, not a rebuild. */
   repo: z.string(),
+  /**
+   * WHAT THIS ROW IS — see {@link RowKindSchema} for the seven and for why this
+   * is a field rather than something the renderer works out.
+   *
+   * Set by the server at every site that creates a row, and read by the tuple
+   * row as slot 2. It ends two defects in one move: the phase column that read
+   * four different sorts of word depending on the plan's wave count, and the
+   * hover-only tooltip that was the only place a row said what kind of thing it
+   * was. A label the reader can see, stated once.
+   *
+   * Defaults to `branch` so a pulse from an older server still validates — and
+   * `branch` rather than a nullable, because every row this board has ever
+   * emitted from a pulse IS a branch row: the default is the truth about the
+   * payloads that predate the field, not a placeholder standing in for one.
+   */
+  kind: RowKindSchema.default('branch'),
   branch: z.string(),
   /** Display name: the plan file without its date prefix or `.md`. */
   plan: z.string(),
@@ -1378,6 +1479,22 @@ export const AgentRowSchema = z.object({
   planFile: z.string().default(''),
   wave: z.string(),
   state: BranchStateSchema,
+  /**
+   * WHY this branch was deferred, where the plan recorded a reason.
+   *
+   * `state: 'deferred'` says the branch will not be built; this says what
+   * decided that. The two arrived separately: the plan file has carried the
+   * sentence since April (`never created — the work landed directly on main`)
+   * while `plot-plan-meta.sh` tested only for the annotation's PRESENCE, so the
+   * board could put `deferred` beside `no commits` and never say the first was
+   * the reason for the second. A reader with no access to the plan file saw a
+   * branch nobody had started and no statement that nobody should.
+   *
+   * "" on every row that is not deferred, and "" on a deferred row whose plan
+   * recorded no reason — read `state` to tell those apart. Defaulted so an
+   * older pulse still validates.
+   */
+  deferredReason: z.string().default(''),
   /**
    * Which board phase this ROW is in — derived from the PAIR (the plan's phase
    * and this branch's git state), never from the plan file alone.
@@ -1831,6 +1948,17 @@ export type PulseShrink = z.infer<typeof PulseShrinkSchema>;
  * the moment the tracker moves, and Plot never writes them back.
  */
 export const IssueRowSchema = z.object({
+  /**
+   * `ticket`, always — and stated rather than assumed, for the same reason
+   * `AgentRow.kind` is a field: the tuple row reads slot 2 from the data, and a
+   * renderer that knew "this array holds tickets" would be deriving the kind
+   * from its call site. One constant here costs nothing and keeps every one of
+   * the seven kinds arriving the same way.
+   *
+   * A literal rather than the full enum: an issue cannot honestly be any other
+   * kind, and a wider type here would invite a caller to say so.
+   */
+  kind: z.literal('ticket').default('ticket'),
   number: z.number(),
   title: z.string(),
   /**

@@ -2599,7 +2599,13 @@ for i, w in enumerate(d.get("waves", [])):
         # as outstanding would keep a finished wave blocked forever.
         if ref.startswith("idea/") or "." in ref.rsplit("/", 1)[-1]:
             continue
+        # THE REASON FOR THE DEFERRAL rides with its flag, and it rides BEFORE
+        # the claim note for the reason the field-order note below states: tab
+        # is an IFS whitespace character, so a run of tabs collapses to one
+        # separator and only the LAST field may be optional. "-" stands in for
+        # empty everywhere, so no run can form.
         row = [str(i), ref, str(b["deferred"]).lower(),
+               (b.get("deferred_reason") or "-"),
                name or "-", b["claimed"] or "-"]
         print("\t".join(x.replace("\t", " ") for x in row))
 ' 2>/dev/null) || wave_lines=""
@@ -2613,11 +2619,16 @@ for i, w in enumerate(d.get("waves", [])):
   # every later field left by one. Everything that must survive `read` is
   # therefore placed BEFORE the optional claim note, which stays last.
   # Emitted fields are never empty ("-" stands in), so no tab run can collapse.
+  #
+  # `why` — the deferral reason — is free prose in a MIDDLE column, which is
+  # only safe because of that same rule: it is "-" when absent, never "". The
+  # tabs inside it are replaced with spaces by the shim above, for the same
+  # reason. It cannot go last; `claim` already is.
   states=""
-  while IFS=$'\t' read -r idx br deferred wname claim; do
+  while IFS=$'\t' read -r idx br deferred why wname claim; do
     [ -n "$br" ] || continue
     if [ "$deferred" = "true" ]; then st="deferred"; else st=$(branch_state "$br"); fi
-    states+="$idx	$br	$st	$deferred	$wname	$claim"$'\n'
+    states+="$idx	$br	$st	$deferred	$why	$wname	$claim"$'\n'
   done <<< "$wave_lines"
 
   # Pass 2: wave verdicts. A wave is complete when none of its non-deferred
@@ -2625,10 +2636,10 @@ for i, w in enumerate(d.get("waves", [])):
   wave_ids=$(printf '%s' "$states" | cut -f1 | sort -un)
   prior_ok=1
   for wid in $wave_ids; do
-    wname=$(printf '%s' "$states" | awk -F'\t' -v w="$wid" '$1==w {print $5; exit}')
+    wname=$(printf '%s' "$states" | awk -F'\t' -v w="$wid" '$1==w {print $6; exit}')
     [ "$wname" = "-" ] && wname=""
     outstanding=0
-    while IFS=$'\t' read -r idx br st deferred nm claim; do
+    while IFS=$'\t' read -r idx br st deferred why nm claim; do
       [ "$idx" = "$wid" ] || continue
       [ "$st" = "deferred" ] && continue
       # strict (default): only a merged branch is settled.
@@ -2651,12 +2662,17 @@ for i, w in enumerate(d.get("waves", [])):
 
     [ "$quiet" = 1 ] || echo "  ${wname:-(unnamed)} — $verdict"
     json_branches=""
-    while IFS=$'\t' read -r idx br st deferred nm claim; do
+    while IFS=$'\t' read -r idx br st deferred why nm claim; do
       [ "$idx" = "$wid" ] || continue
       [ "$claim" = "-" ] && claim=""
+      [ "$why" = "-" ] && why=""
       n_branches=$((n_branches + 1))
       case "$st" in
-        deferred) n_deferred=$((n_deferred + 1)); note="deferred" ;;
+        # The REASON, where the plan recorded one. A bare `deferred` beside a
+        # branch with no commits reads as two unrelated facts when the first is
+        # the reason for the second, and the sentence that says so was already
+        # written in the plan file.
+        deferred) n_deferred=$((n_deferred + 1)); note="deferred${why:+ — $why}" ;;
         claimed)  n_claimed=$((n_claimed + 1));   note="claimed${claim:+ ($claim)}" ;;
         merged)   note="merged" ;;
         wip)      note="in progress" ;;
@@ -2672,6 +2688,10 @@ for i, w in enumerate(d.get("waves", [])):
         # must not parse a string that exists for humans to read.
         json_branches+="${json_branches:+,}{\"branch\":\"$(json_str "$br")\""
         json_branches+=",\"state\":\"$st\",\"deferred\":$deferred"
+        # WHY it was deferred, straight from the plan's annotation. "" where the
+        # branch is not deferred, and "" where it is deferred with nothing
+        # recorded — the flag says which of those two a reader is looking at.
+        json_branches+=",\"deferred_reason\":\"$(json_str "$why")\""
         json_branches+=",\"claimed\":\"$(json_str "$claim")\""
         # What this machine knows and the refs do not. Absent everywhere else:
         # `local_dirty:false` and `local_worktree:""` are what a branch checked

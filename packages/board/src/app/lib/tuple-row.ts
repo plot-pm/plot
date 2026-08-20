@@ -1,0 +1,518 @@
+// A ROW IS A TUPLE — the six slots every kind of row answers, and the
+// projection of each kind into them.
+//
+// Why this is its own module, and not another function in `AgentList.tsx`: the
+// projection is a pure decision about what a row SAYS, and the plan that
+// introduced it names the file it would otherwise live in as the reason its
+// last three attempts drifted — 5,664 lines, eleven commits on 2026-08-20
+// alone, and a conflict on nearly every merge that day. Keeping the decision
+// here means the wave that finally deletes `Row`, `PlanRow` and `IssueRowView`
+// moves rendering only; the slot rules are already landed, tested and stable.
+//
+// It carries no React, so the unit suite tests it as data.
+import type { AgentRow, IssueRow, RowKind } from '../../contract/schema.js';
+
+/**
+ * One linked name in a row — slot 4, of which there may be several.
+ *
+ * `href` is "" where no honest address exists, and the consumer then renders
+ * `label` as PLAIN TEXT rather than as a dead control. That is this board's
+ * standing rule, stated at `AgentRow.pr.url` and again at `IssueRow.url`: a
+ * fabricated URL is indistinguishable from a real one until it 404s.
+ *
+ * `what` names what the link POINTS AT — `plan`, `branch`, `pr`, `ticket`. It
+ * is what makes a row of three links readable rather than three interchangeable
+ * words: the requirement the plan states as *the artifact links are
+ * associated*. A reader must know what they are about to open before they click.
+ */
+export interface TupleLink {
+  what: 'plan' | 'branch' | 'pr' | 'ticket';
+  label: string;
+  href: string;
+  /**
+   * Whether the address is INTERNAL to the board — a plan file the board serves
+   * at `/plan/<file>`, as against a page on the git host.
+   *
+   * Carried because the two want different anchors: an internal link opens a
+   * modal on a plain click and navigates on a modified one, and an external one
+   * always opens a new tab. Deriving it from the shape of `href` would be a
+   * second parser for something the projection already knows.
+   */
+  internal?: boolean;
+}
+
+/**
+ * WHAT THE AGE MEANS — one clock, and the one exception that has to say so.
+ *
+ * Everything but an agent is aged from its LAST CHANGE, unlabelled, because
+ * that is the rule. The schema had already reached half of this and written
+ * down the reason: the comment on `AgentRow.waitingDays` argues that
+ * *"overloading one field with two meanings is precisely the ambiguity that
+ * makes `22d` (no commits for three weeks) unreadable beside `22d` (never
+ * begun) — so the row labels it rather than merging it"*.
+ *
+ * The row did not label it. That is what `label` is for, and it is populated
+ * exactly where the single rule does not apply:
+ *
+ *   - a NOT-STARTED row is aged from its plan's approval, which is not a change
+ *     to the branch — nothing has changed, that is the point of the row;
+ *   - an AGENT does not change, it ACTS, so there is no "last change" to read.
+ *     It carries session age and idle, both labelled, because neither is a
+ *     change either.
+ *
+ * So the label marks the exception rather than decorating the rule — the
+ * inverse of the phase column, which was unlabelled *because* its meaning
+ * varied.
+ */
+export interface TupleAge {
+  /** The duration as the board says it — `45m`, `3h`, `2d`, `today`. */
+  text: string;
+  /** What clock it is, where that is not the rule. "" where it is. */
+  label: string;
+}
+
+/**
+ * The six slots, as data. One of these is what a tuple row renders.
+ *
+ * `[icon, kind, name, links*, status, age]` — and slot 4 is ZERO OR MORE, not
+ * one. That is the one place the slot count bends, and it bends on purpose: a
+ * branch carries no artifact link and a PR carries two (its plan and its
+ * branch), so a fixed second slot would force a PR to drop one and the reader
+ * would lose whichever lost. The plan states the requirement that outranks the
+ * shape here — *every named thing in a row is a link, and there can be more
+ * than two.*
+ */
+export interface TupleRow {
+  kind: RowKind;
+  /** Slot 1 — the glyph for the kind. A symbol, never the only statement. */
+  icon: string;
+  /** Slot 2 — the kind, as a word a reader can see without hovering. */
+  kindLabel: string;
+  /**
+   * Slot 3 — the item's own name, and slot 3 is what the row is DECIDING about.
+   *
+   * A PR's name is its number and its vehicle is the branch; a branch's name IS
+   * the branch and its artifact slot is empty. That settles *subject versus
+   * vehicle* by construction rather than as a table of cases per kind.
+   */
+  name: TupleLink;
+  /** Slot 4 — the related things, each linked and each saying what it is. */
+  links: TupleLink[];
+  /** Slot 5 — where this stands. One slot, whatever the kind. */
+  status: string;
+  /** Slot 6 — how long, and which clock where that is not the rule. */
+  age: TupleAge;
+}
+
+/** The word slot 2 shows for each kind. */
+export const KIND_LABEL: Record<RowKind, string> = {
+  ticket: 'Story',
+  plan: 'Plan',
+  pr: 'PR',
+  build: 'Build',
+  agent: 'Agent',
+  branch: 'Branch',
+  release: 'Release',
+};
+
+/**
+ * The glyph slot 1 shows for each kind — a SECOND channel, never the only one.
+ *
+ * The icon exists so a reader recognises the kind at a glance; slot 2 states it
+ * in a word so recognition never DEPENDS on decoding a symbol. Both, because
+ * the defect this replaces was a kind stated in a tooltip — one channel, and a
+ * hover-only one at that.
+ */
+export const KIND_ICON: Record<RowKind, string> = {
+  ticket: '🎫',
+  plan: '📋',
+  pr: '⇅',
+  build: '⚙',
+  agent: '⬡',
+  branch: '⑂',
+  release: '🏷',
+};
+
+/** Minutes as the board says them: `45m`, `3h`, `2d`. */
+export function tupleAgeText(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  const h = Math.floor(minutes / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}
+
+/** Days in the unit that reads: `today`, then days, then months. */
+export function tupleWaitText(days: number): string {
+  if (days < 1) return 'today';
+  if (days < 60) return `${days}d`;
+  return `${Math.floor(days / 30)}mo`;
+}
+
+/**
+ * The status word for a row's PR condition — slot 5's vocabulary for a PR.
+ *
+ * `unknown` yields "" rather than the word *unknown*: the host could not report
+ * it, and a row that prints its own ignorance as a status has said nothing in
+ * a slot a reader scans. Absent renders as absent.
+ */
+export function prStatus(pr: NonNullable<AgentRow['pr']>): string {
+  if (pr.draft) return 'draft';
+  switch (pr.state) {
+    case 'green': return 'green';
+    case 'pending': return 'CI running';
+    case 'failing': return 'checks failing';
+    case 'none': return 'no checks';
+    case 'conflicts': return 'conflicts';
+    default: return '';
+  }
+}
+
+/**
+ * The plan link a row carries, or null where it names no plan.
+ *
+ * INTERNAL, and the address is the board's own `/plan/<file>` route. `planFile`
+ * "" means the plan cannot be resolved to a file — a planless branch, or an
+ * idea branch whose plan lives on the branch itself — and the name then travels
+ * as text with an empty `href`, by the rule at the top of this file.
+ */
+function planLink(row: AgentRow): TupleLink | null {
+  if (!row.plan) return null;
+  return {
+    what: 'plan',
+    label: row.plan,
+    href: row.planFile ? `/plan/${encodeURIComponent(row.planFile)}` : '',
+    internal: true,
+  };
+}
+
+/** The branch link a row carries. `branchUrl` is "" for a merged ref. */
+function branchLink(row: AgentRow): TupleLink {
+  return { what: 'branch', label: row.branch, href: row.branchUrl };
+}
+
+/**
+ * Project a server row into its six slots.
+ *
+ * READS `row.kind`, never re-decides it. The kind is the server's judgement —
+ * see `RowKindSchema` for why — and this function's job is to lay out the slots
+ * that judgement implies, not to form a second opinion about it. A row arriving
+ * with a kind this function does not expect still renders: the `default` arm
+ * treats it as a branch, which is what an unrecognised row most nearly is, and
+ * it is the same fallback the schema's own default states.
+ *
+ * The three arms differ in ONE decision — which fact is the item and which are
+ * artifacts — and that is the whole content of *subject versus vehicle*:
+ *
+ *   - a `pr` names the PR and links its plan and its branch (three links);
+ *   - a `release` names its version if the row knows one, else its PR, and
+ *     links the branch;
+ *   - a `branch` names the branch and links its plan.
+ */
+export function tupleFromRow(row: AgentRow): TupleRow {
+  const age: TupleAge =
+    // A NOT-STARTED row is aged from its plan's approval, and it says so. The
+    // rule is *since last change*, and nothing has changed here — that is what
+    // the row reports. So this is an exception and wears its label, exactly as
+    // the agent's two clocks do.
+    row.ageMinutes === null && row.waitingDays !== null
+      ? { text: tupleWaitText(row.waitingDays), label: 'waiting' }
+      : { text: row.ageMinutes === null ? '' : tupleAgeText(row.ageMinutes), label: '' };
+  const plan = planLink(row);
+  const status = row.pr ? prStatus(row.pr) : stateStatus(row);
+  const base = { kind: row.kind, icon: KIND_ICON[row.kind] ?? KIND_ICON.branch,
+    kindLabel: KIND_LABEL[row.kind] ?? KIND_LABEL.branch, status, age };
+
+  if (row.kind === 'pr' && row.pr) {
+    // THREE LINKS, and this is the row the varying slot count exists for. The
+    // PR is the item; its plan and its branch are both artifacts, both worth
+    // opening, and both already on the row — measured on the live pulse, a PR
+    // row carries `plan`, `planFile`, `branch`, `branchUrl` and `pr`. Nothing
+    // new is fetched; what was missing is that only some of them rendered, and
+    // only one of those was a link.
+    return {
+      ...base,
+      name: { what: 'pr', label: `${row.pr.number}`, href: row.pr.url },
+      links: [...(plan ? [plan] : []), branchLink(row)],
+    };
+  }
+
+  if (row.kind === 'release') {
+    // A release NAMES ITS VERSION where the row knows one, and its PR number
+    // otherwise. The version is the thing a reader is deciding about — *is
+    // 2.7.0 ready* — and the PR is how it gets there; where no version has
+    // been read, the number is the honest name rather than an invented tag.
+    const version = releaseVersion(row);
+    return {
+      ...base,
+      name: version && row.pr
+        ? { what: 'pr', label: version, href: row.pr.url }
+        : row.pr
+          ? { what: 'pr', label: `${row.pr.number}`, href: row.pr.url }
+          : { what: 'branch', label: row.branch, href: row.branchUrl },
+      links: row.pr ? [branchLink(row)] : [],
+    };
+  }
+
+  // A BRANCH names itself, and its artifact slot holds the plan that governs it
+  // — or NOTHING, where no plan does. Nothing renders as nothing: an empty slot
+  // is not a dead control, the rule this board already applies to a PR cell
+  // with no PR.
+  return {
+    ...base,
+    name: branchLink(row),
+    links: plan ? [plan] : [],
+  };
+}
+
+/**
+ * The version a release row is about, or "" — read from the branch, never
+ * invented.
+ *
+ * Changesets names its branch `changeset-release/<base>`, which carries the
+ * BASE and not the version, so most release rows honestly know no version and
+ * this returns "". A row whose plan slug looks like a version (`2.7.0`) is the
+ * one case where the number is on the row already.
+ *
+ * "" rather than a guess, and the guess is the thing being declined: deriving
+ * `2.7.0` from a changeset file would mean reading and summing pending bumps,
+ * which is *what would this ship* — the question the plan explicitly refuses to
+ * answer on a board, because it makes the board the place release decisions are
+ * prepared.
+ */
+export function releaseVersion(row: AgentRow): string {
+  return /^\d+\.\d+\.\d+/.test(row.plan) ? row.plan : '';
+}
+
+/**
+ * Slot 5 for a row with no PR — its git state, as a word.
+ *
+ * The row's `note` is deliberately NOT used. It is a sentence composed by the
+ * server for a reader, and this slot holds one value a reader scans down a
+ * column; the standing rule stated at `ELIGIBLE_NOTE` is that nothing new may
+ * be built on matching prose, and picking a status out of a note is exactly
+ * that. `state` is the field that answers this.
+ */
+export function stateStatus(row: AgentRow): string {
+  switch (row.state) {
+    case 'merged': return 'merged';
+    case 'claimed': return 'claimed';
+    case 'deferred': return 'deferred';
+    case 'wip': return 'in progress';
+    case 'open': return 'open';
+    default: return '';
+  }
+}
+
+/**
+ * Project a tracker issue into the six slots.
+ *
+ * The NAME IS TEXT and stays text where the tracker gave no address — and the
+ * name is the TITLE rather than the number, because the title is what a reader
+ * decides about. The number rides in the link slot, pointing at the tracker,
+ * which is where a reader goes to read it: item and artifact, the same split
+ * every other kind makes.
+ *
+ * **The age is carried.** A ticket open for three weeks is exactly what WAITING
+ * ON YOU orders by, so dropping it would make the section's own sort key
+ * invisible on one of its four kinds.
+ */
+export function tupleFromIssue(issue: IssueRow): TupleRow {
+  return {
+    kind: 'ticket',
+    icon: KIND_ICON.ticket,
+    kindLabel: KIND_LABEL.ticket,
+    name: { what: 'ticket', label: `${issue.number}: ${issue.title}`, href: issue.url },
+    links: [],
+    // `open`, and it is the only status an UNPLANNED issue has: the tracker
+    // reports open issues and this list is filtered to the ones no plan
+    // references. A closed one is not here to have a status.
+    status: 'open',
+    age: {
+      text: issue.ageMinutes === null ? '' : tupleAgeText(issue.ageMinutes),
+      label: '',
+    },
+  };
+}
+
+/**
+ * What a tuple row needs about a PLAN — the client's own grouping, not a server
+ * row.
+ *
+ * A plan row is assembled from the branches beneath it (`groupByPlan`), so
+ * there is no `AgentRow` for it and nothing to read `kind` off. The kind is
+ * stated at THIS construction site instead, which is the same rule: the kind is
+ * declared where the row is created, never sniffed from another row's fields.
+ */
+export interface PlanRowFacts {
+  plan: string;
+  planFile: string;
+  /** The plan's phase, which is slot 5 — this is the object it belongs to. */
+  phase: string;
+  /** Days since approval, or null. A plan's clock is its approval. */
+  waitingDays: number | null;
+  /** The branch this plan's work sits on, where the row names one. */
+  branch?: string;
+  branchUrl?: string;
+}
+
+/**
+ * Project a plan into the six slots.
+ *
+ * **The phase belongs HERE**, and this is the object it describes. 71 branch
+ * rows printed their plan's phase — 36 `Development`, 26 `Endgame`, 9 `Design`
+ * — a fact about the plan on a row about something else. Slot 5 on the PLAN row
+ * is where that fact is true.
+ *
+ * The age is `waitingDays`, labelled. A plan's branches have no tip, so the
+ * commit clock has nothing to say and the approval clock is the only one
+ * running — which is not a change to the plan, so it wears its label like every
+ * other exception.
+ */
+export function tupleFromPlan(facts: PlanRowFacts): TupleRow {
+  return {
+    kind: 'plan',
+    icon: KIND_ICON.plan,
+    kindLabel: KIND_LABEL.plan,
+    name: {
+      what: 'plan',
+      label: facts.plan,
+      href: facts.planFile ? `/plan/${encodeURIComponent(facts.planFile)}` : '',
+      internal: true,
+    },
+    links: facts.branch
+      ? [{ what: 'branch', label: facts.branch, href: facts.branchUrl ?? '' }]
+      : [],
+    status: facts.phase,
+    age: {
+      text: facts.waitingDays === null ? '' : tupleWaitText(facts.waitingDays),
+      label: facts.waitingDays === null ? '' : 'waiting',
+    },
+  };
+}
+
+/**
+ * What a tuple row needs about a BUILD — a CI run the board reports on.
+ *
+ * No row is emitted for a build today, and the kind is designed anyway: the
+ * slot list is a shape, and a shape admitting only what exists has to be
+ * reopened per kind — which is how three components and two grids happened.
+ * The facts are already on a row (`pr.state`, and the failing checks `stuck`
+ * carries), so this is a projection waiting for a caller rather than a source
+ * waiting to be fetched.
+ */
+export interface BuildRowFacts {
+  /** What the run is called — `CI:1860`, or the check's name. */
+  name: string;
+  /** Where the run can be read, or "". */
+  url: string;
+  /** The PR the run is for, and the link back to it. */
+  prNumber: number | null;
+  prUrl: string;
+  /** Where it stands — `running`, `failing`, `green`. */
+  status: string;
+  /** Minutes since the run last changed. */
+  ageMinutes: number | null;
+}
+
+/** Project a CI run into the six slots. */
+export function tupleFromBuild(facts: BuildRowFacts): TupleRow {
+  return {
+    kind: 'build',
+    icon: KIND_ICON.build,
+    kindLabel: KIND_LABEL.build,
+    name: { what: 'pr', label: facts.name, href: facts.url },
+    // The build points BACK along the chain at the PR it ran for, where a
+    // ticket points forward at the plan it became. Direction is a property of
+    // the pair rather than a rule the reader has to hold, because both slots
+    // are linked and each says what it is.
+    links: facts.prNumber === null
+      ? []
+      : [{ what: 'pr', label: `PR ${facts.prNumber}`, href: facts.prUrl }],
+    status: facts.status,
+    age: {
+      text: facts.ageMinutes === null ? '' : tupleAgeText(facts.ageMinutes),
+      label: '',
+    },
+  };
+}
+
+/**
+ * What a tuple row needs about an AGENT.
+ *
+ * **The name is the SESSION ID**, shortened for display — never an invented
+ * handle. The plan that proposed this kind wrote `@Dev-Agent` in its example,
+ * and that name was dropped as a placeholder that was never a fact: agents
+ * already have a real identity, the session id the runtime writes as its
+ * transcript filename, which is what the agent manifest keys on *because it
+ * survives the branch*. See `transcriptFile`, which already resolves a session
+ * by that id.
+ *
+ * No agent row is emitted today — the registry is not merged — and this is the
+ * kind whose absent data the plan names as a risk rather than discovers later.
+ */
+export interface AgentRowFacts {
+  /** The session id, as the runtime writes it. */
+  sessionId: string;
+  /** The branch the agent holds, and its address. */
+  branch: string;
+  branchUrl: string;
+  /** What it is doing — `thinking`, `waiting`, `stalled`. */
+  status: string;
+  /** Seconds since the run began, or null. */
+  sessionSeconds: number | null;
+  /** Seconds since the transcript last moved, or null. */
+  idleSeconds: number | null;
+}
+
+/**
+ * How much of a session id a row shows.
+ *
+ * Eight characters, the same prefix length git uses for an abbreviated hash and
+ * for the same reason: enough to tell two apart at a glance, short enough to
+ * sit in a slot. The FULL id stays available to the caller — this shortens for
+ * display and discards nothing.
+ */
+export const SESSION_ID_CHARS = 8;
+
+/** The displayed form of a session id — shortened, never renamed. */
+export function shortSessionId(id: string): string {
+  return id.slice(0, SESSION_ID_CHARS);
+}
+
+/**
+ * Project an agent into the six slots.
+ *
+ * **The age slot carries TWO labelled clocks, and the agent is the only kind
+ * that does.** An agent does not change, it acts — so the single rule (*since
+ * last change*) has nothing to read. What a reader wants instead is *how long
+ * has this run been going* and *how long has it been silent*, and the second is
+ * the one that says whether it is stuck. Both are labelled, because neither is
+ * a change to the agent:
+ *
+ *     ⬡ agent  f30b27a3   feature/x   thinking   27m · idle 4m
+ */
+export function tupleFromAgent(facts: AgentRowFacts): TupleRow {
+  const session = facts.sessionSeconds === null
+    ? '' : tupleAgeText(Math.floor(facts.sessionSeconds / 60));
+  const idle = facts.idleSeconds === null
+    ? '' : tupleAgeText(Math.floor(facts.idleSeconds / 60));
+  return {
+    kind: 'agent',
+    icon: KIND_ICON.agent,
+    kindLabel: KIND_LABEL.agent,
+    // The session id, and nothing else. It is not a link: the transcript is a
+    // local file, and the board's own agent panel is what opens it — reached
+    // from the row's menu, where actions live.
+    name: { what: 'ticket', label: shortSessionId(facts.sessionId), href: '' },
+    links: [{ what: 'branch', label: facts.branch, href: facts.branchUrl }],
+    status: facts.status,
+    age: {
+      text: [session, idle && `idle ${idle}`].filter(Boolean).join(' · '),
+      // BOTH clocks are labelled, and the label says which is which. `session`
+      // is the run's age and `idle` is its silence; the text carries the second
+      // word inline because the two numbers sit side by side and a single
+      // trailing label could only name one of them.
+      label: session ? 'session' : '',
+    },
+  };
+}
