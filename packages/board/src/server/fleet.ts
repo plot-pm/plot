@@ -322,6 +322,27 @@ interface CacheEntry {
    */
   prsByNumber: Map<number, PrRecord> | null;
   /**
+   * EVERY PR keyed by head branch — merged and closed ones included, which is
+   * the one thing `prs` deliberately withholds.
+   *
+   * A third index off the same fetch, for the same reason the second exists:
+   * two questions, one call. `prs` answers *what is this branch waiting for*,
+   * and it must stay OPEN-only — a merged PR reaching `classify` would answer
+   * for a branch whose git state has already answered, reopening a question the
+   * merge closed. That filter is correct and stays.
+   *
+   * But it also decides the row's LINK, and there the filter is wrong: a merged
+   * PR is precisely the one a reader still wants to open. Measured 2026-08-20 on
+   * this repo — #252, #253 and #254 are `MERGED` with real heads and real URLs,
+   * their refs deleted, and every one of them reached the row as `pr: null`.
+   * The PR outlives the branch, so the link must too.
+   *
+   * So the two uses are split rather than the filter loosened: `classify` keeps
+   * the open-only map, and the link is looked up here. Keyed by head like `prs`
+   * — a row has a branch name and nothing else to ask with.
+   */
+  prsByHead: Map<string, PrRecord> | null;
+  /**
    * Recent CI runs per branch, for the FAILING branches only — see
    * `refreshRuns`. Filled on the PR timer beside the PR map, because it is the
    * same metered clock and the same source; a branch absent from it simply has
@@ -1212,6 +1233,7 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
       opts.repoRoot);
     const map = new Map<string, PrRecord>();
     const byNumber = new Map<number, PrRecord>();
+    const byHead = new Map<string, PrRecord>();
     for (const line of out.split('\n')) {
       if (!line.trim()) continue;
       const pr = JSON.parse(line) as PrRecord;
@@ -1236,9 +1258,24 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
       // merged PR is exactly what a delivered plan's card wants.
       if (pr.head && pr.state === 'OPEN') map.set(pr.head, pr);
       byNumber.set(pr.number, pr);
+      // EVERY state, for the link alone — see `prsByHead`. The open-only filter
+      // above is right about `classify` and wrong about the address, so the row
+      // reads its number from here instead of losing it to a merge.
+      //
+      // AN OPEN PR OUTRANKS A CLOSED ONE, and the highest number breaks a tie
+      // among equals. A head can carry several PRs over its life — a closed
+      // attempt and its reopened successor — and the row wants the live one.
+      // Without the rank the answer would depend on the host's listing order,
+      // which no adapter promises: `gh` sorts by number descending today, `bb`
+      // says nothing at all.
+      if (pr.head) {
+        const held = byHead.get(pr.head);
+        if (!held || prOutranks(pr, held)) byHead.set(pr.head, pr);
+      }
     }
     entry.prs = map;
     entry.prsByNumber = byNumber;
+    entry.prsByHead = byHead;
     await refreshRuns(opts, entry, map);
     entry.prAt = Date.now();
     const due = prNextDueAt(startedAt, null, Date.now(), backend);
@@ -1565,7 +1602,7 @@ function ensureCache(opts: BuildBoardOptions): CacheEntry {
     // `unsupported` before the first lookup, never `answered`: a board that
     // has not asked must not render an empty inbox as a clear one.
     issues: [], issueAnswer: 'unsupported', issueError: null,
-    prs: null, prsByNumber: null, runs: new Map(), prAt: null, prError: null,
+    prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prAt: null, prError: null,
     // 0, so the first fetch happens immediately rather than a minute in.
     prNextAt: 0, prNextIsBackoff: false,
     // Null, never 'github': "not yet asked" and "asked, and it is GitHub" are
@@ -2809,6 +2846,30 @@ export function prState(pr: PrRecord): 'green' | 'pending' | 'failing' | 'none' 
   }
 }
 
+/**
+ * Which of two PRs on ONE head branch the row should point at.
+ *
+ * Only ever asked where a head carries more than one — a closed attempt and the
+ * PR that replaced it — which is uncommon but not rare, and answered by the
+ * host's listing order until this function existed. That order is not a promise:
+ * `gh` happens to sort by number descending and `bb` documents nothing, so the
+ * row's link would have been decided by whichever adapter answered.
+ *
+ * OPEN FIRST, because it is the one a reader can still act on: a closed PR
+ * outranking its live successor would send them to a dead page while the real
+ * review sat one number away. Between two PRs in the same standing the higher
+ * number wins — the later attempt is the current one.
+ *
+ * MERGED IS NOT RANKED ABOVE CLOSED, deliberately. Both are finished, both are
+ * worth linking, and neither is more current than the other; the number decides
+ * and it decides consistently, which is all this needs to do.
+ */
+export function prOutranks(candidate: PrRecord, held: PrRecord): boolean {
+  const open = (pr: PrRecord) => pr.state === 'OPEN';
+  if (open(candidate) !== open(held)) return open(candidate);
+  return candidate.number > held.number;
+}
+
 /** The PR fields a row carries: the link, and the two independent conditions. */
 export function agentPr(pr: PrRecord): {
   number: number; url: string; draft: boolean;
@@ -2918,6 +2979,22 @@ export function rowsFromPulse(
    * caller that did not look.
    */
   questions?: Map<string, string> | null,
+  /**
+   * Every PR keyed by head — merged and closed included — for the LINK only.
+   * See `CacheEntry.prsByHead`.
+   *
+   * A SECOND MAP RATHER THAN A WIDER `prs`, and the split is the whole design.
+   * `prs` decides the group and the note, and it must stay open-only: a merged
+   * PR handed to `classify` answers for a branch whose git state already has.
+   * This one decides the address, where the same filter drops exactly the PRs a
+   * reader most wants — a merged one, on a branch whose ref is gone.
+   *
+   * Last in the parameter list because it is the newest, so every existing
+   * caller is unchanged. A caller passing nothing gets today's behaviour: the
+   * open map answers both questions, and a merged branch shows no number — which
+   * is what a caller that did not look should get, rather than a guess.
+   */
+  prsByHeadMap?: Map<string, PrRecord> | null,
 ): AgentRow[] {
   const rows: AgentRow[] = [];
   for (const plan of pulse.plans) {
@@ -2963,6 +3040,13 @@ export function rowsFromPulse(
       for (const b of wave.branches) {
         const age = ages.get(b.branch) ?? null;
         const pr = prs?.get(b.branch) ?? null;
+        // TWO LOOKUPS, ONE FETCH — the split `prsByHeadMap` documents. `pr` is
+        // the OPEN PR and answers *what is this branch waiting for*; `linked` is
+        // whichever PR this head carries, in any state, and answers *where do I
+        // go to read it*. They are the same record on an open branch and differ
+        // only after a merge, which is precisely the case that was losing its
+        // link.
+        const linked = prsByHeadMap?.get(b.branch) ?? pr;
         const { group, note, verdict } = classify(
           b.state, wave.verdict, age, quietMinutes, pr, b.local_dirty, b.local_ahead,
           // The plan's own phase, which the pulse has carried since #140 and
@@ -3020,7 +3104,17 @@ export function rowsFromPulse(
           // `url` is the adapter's string or "", never anything this file
           // composed; `state` and `draft` are the same facts the note spells
           // out, stated as values so the cell can format them.
-          pr: pr ? agentPr(pr) : null,
+          //
+          // FROM THE LINK MAP, falling back to the open one. `pr` above is
+          // open-only because `classify` must not be told about a merge the git
+          // state has already reported — but that filter also silenced the
+          // number, and a merged PR is the one a reader still wants to open.
+          // Measured on #252/#253/#254: merged, refs deleted, and every row
+          // carried `pr: null` while the PR page was alive.
+          //
+          // The fallback is what keeps every existing caller working: pass no
+          // link map and the open PR still answers, exactly as before.
+          pr: linked ? agentPr(linked) : null,
           // A MERGED branch gets no link, even where the base is known: the
           // remote page is gone, and this file's standing rule is that a missing
           // address renders as plain text rather than as an invented one. The
@@ -3327,7 +3421,7 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
   const rows = entry.pulse
     ? rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, entry.prs,
       entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans, entry.runs,
-      entry.questions)
+      entry.questions, entry.prsByHead)
     : [];
   return {
     generatedAt: new Date().toISOString(),

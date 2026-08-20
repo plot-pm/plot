@@ -1221,9 +1221,29 @@ export const AgentRowSchema = z.object({
   ageMinutes: z.number().nullable(),
   note: z.string(),
   /**
-   * The open PR for this branch, if the host reported one. `url` may be "" even
-   * when `number` is set — an older host CLI reports no address — and the row
-   * then shows the number without a link rather than inventing one.
+   * The PR for this branch, if the host reported one — IN ANY STATE. `url` may
+   * be "" even when `number` is set — an older host CLI reports no address — and
+   * the row then shows the number without a link rather than inventing one.
+   *
+   * **MERGED AND CLOSED PRs ARE CARRIED HERE, and that is deliberate.** This
+   * read *the open PR* until 2026-08-20, and the narrowing was not a decision
+   * about the contract so much as a leak from the server's cache: `prs` is
+   * OPEN-only so that a merged PR never reaches `classify` and reopens a
+   * question the merge closed, and the same map was also deciding the row's
+   * link. Measured on this repo — #252, #253 and #254 were `MERGED` with real
+   * URLs and deleted refs, and all three reached the row as `null` while the
+   * plan name beside them was a link and the branch name was inert text.
+   *
+   * **A PR OUTLIVES ITS BRANCH.** That is the whole reason the field cannot be
+   * open-only: the row a reader most wants to follow is the finished one whose
+   * ref is gone, because the PR page is the only remaining record of it. See
+   * `prOutranks` in `fleet.ts` for which PR a head with several of them yields.
+   *
+   * `state` is therefore `unknown` on a merged row — GitHub stops computing
+   * mergeability once a branch lands — and consumers must not read that as an
+   * outage. `hostCannotReportCi` excludes merged rows for exactly this reason:
+   * a finished PR has no live condition to report, which is not the same claim
+   * as a host that cannot report one.
    *
    * `state` and `draft` exist so the PR's condition travels as DATA rather than
    * as a sentence. Before them the row carried only `{ number, url }`, and every

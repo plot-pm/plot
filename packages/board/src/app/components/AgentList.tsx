@@ -98,10 +98,23 @@ export const HOST_CANNOT_REPORT_HINT = 'this host cannot report CI';
  * a host limit from an absence of evidence would be the very mistake this hint
  * exists to correct.
  *
+ * **A MERGED ROW IS NOT EVIDENCE EITHER**, by that same rule and for the same
+ * reason. A merged PR reports `mergeable: "unknown"` on GitHub — the question
+ * stops being computed once the branch lands — so it reaches this function as
+ * `state: 'unknown'` on a host that answers CI perfectly well. It is not an
+ * outage and not a host limit; it is a finished PR having no live condition to
+ * report, which is the *nothing to report* case one line up.
+ *
+ * Excluded from 2026-08-20, when the row began carrying its merged PR's link.
+ * Before that a merged branch had no `pr` at all and fell out of this tally by
+ * accident; keeping it in would have turned a plan of merged branches plus one
+ * PR mid-outage into a false claim about the host — with the hint's own words
+ * ("nobody could look") printed under a section that was simply quiet.
+ *
  * Exported for test.
  */
 export function hostCannotReportCi(rows: readonly AgentRow[]): boolean {
-  const withPr = rows.filter((r) => r.pr);
+  const withPr = rows.filter((r) => r.pr && r.state !== 'merged');
   return withPr.length > 0 && withPr.every((r) => r.pr!.state === 'unknown');
 }
 
