@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   groupByPlan,
+  waveCountByPlan,
+  waveLabel,
   countdown,
   waitingLabel,
   showPlanHeading,
@@ -2463,5 +2465,75 @@ describe('menuState — a refusal is not an absence', () => {
     expect(menuState({ ...none, hasLog: true })).toEqual({
       present: true, enabled: true,
     });
+  });
+});
+
+// A branch row names its wave, but only where the answer to *which slice of this
+// plan?* is not "all of it" — a plan with more than one wave. The count is what
+// decides that, and these pin it and the label it drives. The DOM half (the name
+// reaching the phase cell, in every section, without moving the grid) is in
+// test/integration/agents-tab.browser.test.ts.
+describe('waveCountByPlan — how many waves a plan divides its work into', () => {
+  it('counts distinct wave names per plan across the whole fleet', () => {
+    const counts = waveCountByPlan([
+      row({ plan: 'p', branch: 'a', wave: 'Truth' }),
+      row({ plan: 'p', branch: 'b', wave: 'Fold' }),
+      row({ plan: 'p', branch: 'c', wave: 'Fold' }),
+      row({ plan: 'q', branch: 'd', wave: 'Line' }),
+    ]);
+    // `p` has two distinct waves though it has three branches — a wave with two
+    // branches is still one wave.
+    expect(counts.get('p')).toBe(2);
+    expect(counts.get('q')).toBe(1);
+  });
+
+  it('counts a plan whose branches all sit in one unnamed wave as ONE', () => {
+    // The server gives every branch of a plan with no `### ` sub-headings the
+    // one string `(unnamed)`, so three such branches are three rows of one
+    // wave. An unnamed wave is not the absence of a grouping — it is one group
+    // holding everything.
+    const counts = waveCountByPlan([
+      row({ plan: 'p', branch: 'a', wave: '(unnamed)' }),
+      row({ plan: 'p', branch: 'b', wave: '(unnamed)' }),
+      row({ plan: 'p', branch: 'c', wave: '(unnamed)' }),
+    ]);
+    expect(counts.get('p')).toBe(1);
+  });
+
+  it('skips a planless row carrying no wave', () => {
+    // A row built from the PR map belongs to no plan and carries `wave: ''`.
+    // Counting it would invent a wave named "" that no plan file states.
+    const counts = waveCountByPlan([
+      row({ plan: '', branch: 'loose', wave: '' }),
+      row({ plan: 'p', branch: 'a', wave: 'Truth' }),
+    ]);
+    expect(counts.has('')).toBe(false);
+    expect(counts.get('p')).toBe(1);
+  });
+});
+
+describe('waveLabel — the wave name a branch row shows, or none', () => {
+  it('names the wave where the plan has more than one', () => {
+    expect(waveLabel(row({ wave: 'Fold' }), 3)).toBe('Fold');
+  });
+
+  it('shows nothing for a single-wave plan, named OR unnamed', () => {
+    // The case a presence check gets wrong: a named single-wave plan HAS a name
+    // and still must show none, because a caption over a partition of one is
+    // noise. Both halves, since the named one is the one that would leak.
+    expect(waveLabel(row({ wave: 'Layout' }), 1)).toBeNull();
+    expect(waveLabel(row({ wave: '(unnamed)' }), 1)).toBeNull();
+  });
+
+  it('shows nothing for a planless row or an uncounted plan', () => {
+    expect(waveLabel(row({ wave: '' }), undefined)).toBeNull();
+    expect(waveLabel(row({ wave: 'Fold' }), undefined)).toBeNull();
+  });
+
+  it('keeps `(unnamed)` honest where a multi-wave count somehow carries it', () => {
+    // The count gates, not an invariant baked into the label: hand it a count
+    // above one and it returns whatever string the row holds, `(unnamed)`
+    // included, rather than second-guessing the scan.
+    expect(waveLabel(row({ wave: '(unnamed)' }), 2)).toBe('(unnamed)');
   });
 });

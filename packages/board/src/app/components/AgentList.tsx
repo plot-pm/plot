@@ -706,6 +706,65 @@ export function groupByPlan(rows: AgentRow[]): PlanGroup[] {
 }
 
 /**
+ * How many distinct waves each plan divides its work into, keyed by plan name.
+ *
+ * PLAN-WIDE, read from the WHOLE fleet rather than from one section's rows: a
+ * plan's two branches can sit in different waiting-groups (one working, one not
+ * started), and whether the plan has more than one wave is a fact about the
+ * plan, not about the slice of it a section happens to hold. Computed once from
+ * `fleet.rows` and handed to every `Row`, so a branch answers *which wave am I*
+ * the same way in every section it can appear in.
+ *
+ * By the wave STRING the row already carries (`wave.name || '(unnamed)'` on the
+ * server): a plan with no `### ` sub-headings gives every branch the one string
+ * `(unnamed)`, so its rows count as ONE wave — which is what it is. And measured
+ * across the estate, no plan divides its work without naming the parts, so a
+ * count above one is always a count of named waves. Keying on the count rather
+ * than on a name's presence is deliberate: a plan whose single wave carries a
+ * name is still one wave, and a caption over a partition of one is noise.
+ *
+ * Planless rows carry `wave: ''` (built from the PR map, belonging to no plan)
+ * and are skipped: an empty wave name is the absence of a wave, not a wave named
+ * "", and counting it would invent a division nothing in a plan file states.
+ *
+ * Exported for test — this count is the whole rule that decides whether a wave
+ * label is shown, and it is a pure function of the fleet.
+ */
+export function waveCountByPlan(rows: AgentRow[]): Map<string, number> {
+  const waves = new Map<string, Set<string>>();
+  for (const row of rows) {
+    if (row.wave === '') continue;
+    const seen = waves.get(row.plan) ?? new Set<string>();
+    seen.add(row.wave);
+    waves.set(row.plan, seen);
+  }
+  return new Map([...waves].map(([plan, set]) => [plan, set.size]));
+}
+
+/**
+ * The wave name to print on a branch row, or null to print none.
+ *
+ * The name only carries information where the plan has MORE THAN ONE wave — the
+ * answer to *which slice of this plan?* is "all of it" for a single-wave plan,
+ * named or not, and a label saying so is a caption for a partition of one. So
+ * the label appears exactly where `waveCount > 1`, and nowhere else.
+ *
+ * `(unnamed)` is a legitimate answer here: a multi-wave plan cannot have an
+ * unnamed wave (the `### ` heading is what divides the work, so a division
+ * always has names), but this stays honest about the string it is handed rather
+ * than encoding that invariant — the count is what gates, and the name is
+ * whatever the row carries.
+ *
+ * Null for a planless row (`wave: ''`) and for any plan the map did not count,
+ * which renders as an empty cell — the same nothing the phase cell shows for a
+ * branch inside a plan group, so the grid is unmoved either way.
+ */
+export function waveLabel(row: AgentRow, waveCount: number | undefined): string | null {
+  if (row.wave === '' || (waveCount ?? 0) <= 1) return null;
+  return row.wave;
+}
+
+/**
  * Seconds until the next refresh, given how many have passed and how many the
  * interval is — or null when the age is unknown.
  *
@@ -3535,9 +3594,23 @@ function Row({
   active = false,
   inPlanGroup = false,
   section,
+  waveName = null,
 }: {
   row: AgentRow;
   onOpenPlan?: AgentListProps['onOpenPlan'];
+  /**
+   * The wave this branch belongs to, or null to name none.
+   *
+   * Non-null ONLY where the plan has more than one wave — see `waveLabel`, which
+   * decides it from a plan-wide count the component computes once. The row does
+   * not work this out itself: a branch cannot see how many waves its plan has,
+   * only its own, so the fact is handed down like `planInHeading` beside it.
+   *
+   * Rendered in the phase cell, which for a branch inside a plan group is empty
+   * (the plan states the phase once above). The wave name is the fact that
+   * belongs at branch level where the phase does not.
+   */
+  waveName?: string | null;
   /**
    * True when a sub-heading above these rows already names the plan. The row
    * then omits it rather than printing the same name on every line — the
@@ -3765,23 +3838,40 @@ function Row({
       <span
         role="gridcell"
         className="min-w-0 shrink-0 truncate text-xs text-slate-500 dark:text-slate-400"
-        title={row.phase ? `Phase: ${row.phase}` : undefined}
+        title={waveName ? `Wave: ${waveName}` : row.phase ? `Phase: ${row.phase}` : undefined}
       >
-        {/* NOT inside a plan group. The phase is a property of the PLAN, and
-            the branch merely inherits it — so in a group the plan row states it
-            once and the branches beneath do not repeat it down a column. Same
-            bargain `planInHeading` already makes one cell along, and the cell
-            still renders so the tracks hold their width. */}
-        {/* A DEFERRED branch keeps its phase, exactly as it keeps its own age.
-            It is not a plan line waiting to be started — it was started and
-            handed back, so *nobody is working on this* (the phase) and *someone
-            gave it up* (the badge) are two facts and each alone is wrong. The
-            same exception the age cell makes one column along: a property of
-            the plan is repetition, a property of the branch is information. */}
-        {(!inPlanGroup || row.state === 'deferred') && row.phase && (
+        {/* THE WAVE NAME TAKES THIS CELL where the plan has more than one wave —
+            and only there (`waveName` is null otherwise, see `waveLabel`). The
+            phase this column would show is the PLAN's word, repeated down every
+            branch; which wave a branch belongs to is the fact that varies row to
+            row, so it is what the column is for. A single-wave plan keeps the
+            phase behaviour below unchanged: there is no wave to name, and one
+            caption over a partition of one is the noise this avoids. */}
+        {waveName ? (
           <>
-            <span className="sr-only sm:hidden">Phase: </span>
-            <span data-phase={row.phase}>{row.phase}</span>
+            <span className="sr-only sm:hidden">Wave: </span>
+            <span data-wave={waveName}>{waveName}</span>
+          </>
+        ) : (
+          <>
+            {/* NOT inside a plan group. The phase is a property of the PLAN, and
+                the branch merely inherits it — so in a group the plan row states
+                it once and the branches beneath do not repeat it down a column.
+                Same bargain `planInHeading` already makes one cell along, and the
+                cell still renders so the tracks hold their width. */}
+            {/* A DEFERRED branch keeps its phase, exactly as it keeps its own age.
+                It is not a plan line waiting to be started — it was started and
+                handed back, so *nobody is working on this* (the phase) and
+                *someone gave it up* (the badge) are two facts and each alone is
+                wrong. The same exception the age cell makes one column along: a
+                property of the plan is repetition, a property of the branch is
+                information. */}
+            {(!inPlanGroup || row.state === 'deferred') && row.phase && (
+              <>
+                <span className="sr-only sm:hidden">Phase: </span>
+                <span data-phase={row.phase}>{row.phase}</span>
+              </>
+            )}
           </>
         )}
       </span>
@@ -4530,6 +4620,12 @@ export function AgentList({
       ? null
       : Math.max(0, fleet.prNextInSeconds - tick);
 
+  // How many waves each plan divides its work into, over the WHOLE fleet. A
+  // branch names its wave only where its plan has more than one, and a plan's
+  // branches can be scattered across sections — so the count is plan-wide,
+  // computed once here and read per row through `waveLabel`.
+  const waveCounts = waveCountByPlan(fleet.rows);
+
   return (
     <div className="space-y-4">
       {/* The dead-server banner, ABOVE the scan-failure one and separate from
@@ -4840,6 +4936,11 @@ export function AgentList({
                                 // changes what the row says; every other value
                                 // leaves it reading exactly as before.
                                 section={key}
+                                // Names its wave where the plan has more than
+                                // one — this cell is otherwise empty in a plan
+                                // group (the plan states the phase above), so
+                                // the wave is the fact that belongs at the row.
+                                waveName={waveLabel(r, waveCounts.get(r.plan))}
                               />
                             ))}
                           </ul>
@@ -4905,6 +5006,11 @@ export function AgentList({
                           // this row as a PROCESS and says so, and no other
                           // section's rendering changes.
                           section={key}
+                          // Names its wave where the plan has more than one. Here
+                          // the row is outside a plan group, so this cell would
+                          // otherwise repeat the plan's phase on every branch —
+                          // the wave is the fact that varies row to row.
+                          waveName={waveLabel(r, waveCounts.get(r.plan))}
                         />
                       ))}
                     </ul>
