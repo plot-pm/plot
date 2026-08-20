@@ -1424,6 +1424,15 @@ export type Repair = z.infer<typeof RepairSchema>;
  * `localAhead` each carry — so a board on another host reports none of them.
  * Naming the origin is what keeps an empty list from reading as *nothing is
  * running anywhere*.
+ *
+ * `local` HAS NO PRODUCER SINCE 2026-08-20 and is kept anyway. The one writer
+ * was `machineProcesses`, pushing an entry for every running worker, and that
+ * put agents in WAITING ON A MACHINE — an agent IS the machine, so it is never
+ * the thing you wait on. The variant stays because this is a WIRE contract: the
+ * board's page is a built artifact a reader may have open across a restart, so
+ * an older server can still hand this client a payload carrying one, and a
+ * narrowed enum would fail to parse it — trading a stale entry for a blank
+ * page. Nothing renders from it: membership is `group` alone (`inMachineSection`).
  */
 export const MachineProcessOriginSchema = z.enum(['host', 'local']);
 export type MachineProcessOrigin = z.infer<typeof MachineProcessOriginSchema>;
