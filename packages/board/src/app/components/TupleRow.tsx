@@ -8,11 +8,19 @@
 // grid with three fillers keeps that possibility while adding a contract.
 //
 // This renders a {@link TupleRow} — six slots, projected from whatever the kind
-// is by `src/app/lib/tuple-row.ts`. It DELETES NOTHING: `Row`, `PlanRow` and
-// `IssueRowView` keep working, and the wave that replaces them with this one
-// goes last on purpose, because `AgentList.tsx` took eleven commits on
-// 2026-08-20 alone and conflicted on nearly every merge that day. Landing the
-// shape first means that wave moves rendering only.
+// is by `src/app/lib/tuple-row.ts`. `Row`, `PlanRow` and `IssueRowView` are
+// GONE: the wave that landed this component deleted nothing on purpose, and the
+// wave that deleted them moved rendering only, because the shape and the
+// projection were already landed and tested.
+//
+// What the collapse added here is the pass-through set below — `id`, `rowAttr`,
+// `highlighted`, `bordered`. Every one of them is a fact about WHERE A ROW SITS
+// rather than what it says, which is why none of them reached the tuple: a
+// scroll anchor, an arrival ring and a rule between groups are the section's
+// business, and the six slots are the row's. They are props rather than
+// hardcoded because the three call sites disagree about all four, and a
+// component that guessed would be the fourth fill site this wave exists to
+// remove.
 import type { MouseEvent, ReactNode } from 'react';
 import type { TupleLink, TupleRow as TupleRowData } from '../lib/tuple-row.js';
 
@@ -45,6 +53,42 @@ export const TUPLE_TRACKS =
   'grid-cols-[1.5rem_4.5rem_12rem_1fr_8rem_4.5rem_1.25rem]';
 
 /**
+ * The VALUE-carrying attribute a link keeps, beyond `data-tuple-link`.
+ *
+ * `data-tuple-link` says what SORT of thing a link points at, which is what the
+ * tuple's own assertions read. These say WHICH one, and that is a different
+ * question — `[data-branch="feature/x"]` is how a test finds one row among a
+ * hundred, and it is the hook the fleet's suites were built on long before the
+ * tuple existed.
+ *
+ * Both, because the collapse must not make the fleet's suites unwritable. The
+ * alternative — rewriting 48 `data-branch` assertions onto
+ * `[data-tuple-link="branch"]` with a text match — trades an exact attribute
+ * lookup for a substring comparison, on names that share twenty-four characters
+ * of prefix in this very fleet (`feature/opus5-hardening-*`). That is a worse
+ * hook, bought with a large diff.
+ *
+ * ONLY where the value is an identity. A `plan` link's label is the plan's
+ * slug and the row already carries `data-plan-row` where a plan is the subject;
+ * a `pr` link's identity is its number, which `data-pr-link` marked on the
+ * anchor rather than on the row.
+ */
+function valueAttr(link: TupleLink): Record<string, string> {
+  if (link.what === 'branch') return { 'data-branch': link.label };
+  // ONLY `branch`, and the omission of `ticket` is deliberate rather than an
+  // oversight. `what: 'ticket'` is worn by TWO different things — an issue's
+  // number-and-title, and an AGENT's session id — so a hook keyed on it would
+  // stamp `data-issue-link` on an agent row. The kind is what tells them apart
+  // and this function is not given it; the adapter is, so a ticket's hooks are
+  // passed as `nameAttr` from the one call site that knows the row is a ticket.
+  //
+  // `branch` has no such ambiguity: every `what: 'branch'` link on every kind
+  // is a branch, which is exactly why it can be answered here once for all
+  // seven rather than at each of three call sites.
+  return {};
+}
+
+/**
  * One linked name — or the same name as plain TEXT where there is no address.
  *
  * **A missing address renders as text, never as a dead control.** This board's
@@ -58,17 +102,36 @@ export const TUPLE_TRACKS =
  * about to open before they click.* The visible form of that association is the
  * prefix: a PR row's two artifact links read `plan …` and `branch …` rather than
  * as two interchangeable words.
+ *
+ * **`data-branch` rides along on a branch link, and it is not decoration.** It
+ * is how twelve test files find *the row for this branch* among a hundred, and
+ * the collapse had to decide whether that hook was a fact about `BranchName`
+ * (which is gone) or about the branch name wherever it renders. It is the
+ * second: the attribute names the VALUE, not the component that happened to
+ * print it, so it moves to `valueAttr` below and every one of those assertions
+ * keeps an owner.
  */
 export function TupleLinkView({
   link,
   showWhat = false,
   onOpenPlan,
+  extraAttr,
 }: {
   link: TupleLink;
   /** Whether to print what the link points at beside it. */
   showWhat?: boolean;
   /** Opens an internal plan link as a modal, where the board has the card. */
   onOpenPlan?: (planFile: string) => boolean;
+  /**
+   * Attributes the CALL SITE stamps, where `valueAttr` cannot answer.
+   *
+   * A ticket's `data-issue-link` is the case this exists for: `what: 'ticket'`
+   * is worn by both an issue and an agent's session id, so the hook cannot be
+   * keyed on the link's own fields — only the adapter knows which kind of row
+   * it is building. Passed as a pair, one for each answer: the attribute for a
+   * link and the attribute for the same name with no address.
+   */
+  extraAttr?: { link?: Record<string, string>; text?: Record<string, string> };
 }) {
   const label = (
     <>
@@ -89,6 +152,8 @@ export function TupleLinkView({
     return (
       <span
         data-tuple-text={link.what}
+        {...valueAttr(link)}
+        {...extraAttr?.text}
         title={`${link.what}: ${link.label}`}
         className="flex min-w-0 items-baseline gap-1 text-slate-600 dark:text-slate-300"
       >
@@ -110,6 +175,8 @@ export function TupleLinkView({
     <a
       href={link.href}
       data-tuple-link={link.what}
+      {...valueAttr(link)}
+      {...extraAttr?.link}
       onClick={handle}
       // An EXTERNAL link opens a new tab; an internal one navigates in place,
       // because the board is what serves it and the modal is what usually
@@ -149,6 +216,14 @@ export function TupleRowView({
   marks = null,
   menu = null,
   extra = null,
+  aside = null,
+  statusExtra = null,
+  statusAttr,
+  nameAttr,
+  id,
+  rowAttr,
+  highlighted = false,
+  bordered = true,
 }: {
   tuple: TupleRowData;
   onOpenPlan?: (planFile: string) => boolean;
@@ -158,12 +233,77 @@ export function TupleRowView({
   menu?: ReactNode;
   /** A second line beneath the slots — a stuck status, an evidence line. */
   extra?: ReactNode;
+  /**
+   * What a kind adds INSIDE slot 4, after its artifact links.
+   *
+   * A branch row's WAVE badge and its `deferred` badge, both of which qualify
+   * the branch name rather than pointing anywhere — a wave is a heading inside
+   * a plan file and has no page of its own. They sit in the links slot because
+   * that is what they are adjacent to and what they are about, which is the
+   * association rule applied to a mark instead of to a link.
+   *
+   * NOT in the projection, because neither is a link and `tuple-row.ts` renders
+   * nothing: it decides what a row SAYS, and a badge is how one call site says
+   * it.
+   */
+  aside?: ReactNode;
+  /** What a kind adds beside its status word — a draft badge, a note. */
+  statusExtra?: ReactNode;
+  /** Attributes for slot 3's name — see `TupleLinkView.extraAttr`. */
+  nameAttr?: { link?: Record<string, string>; text?: Record<string, string> };
+  /**
+   * The attribute the status WORD carries — `data-pr-state="conflicts"`.
+   *
+   * The word itself comes from the tuple; this says which vocabulary it was
+   * drawn from, and it exists because a test asserting `conflicts` against a
+   * row with three other words on it needs to name the one it means. Absent on
+   * kinds whose status is not a PR's.
+   */
+  statusAttr?: Record<string, string>;
+  /**
+   * The element id a scroll target aims at — `agent-row-<branch>`, which is
+   * what `App` calls `getElementById` with when the agent panel reveals a
+   * branch. Absent on kinds nothing scrolls to.
+   */
+  id?: string;
+  /**
+   * The row-identity attribute this call site stamps — `data-agent-row`,
+   * `data-plan-row="<plan>"`, `data-issue-row="<n>"`.
+   *
+   * IDENTITY, NOT LAYOUT, and the distinction is what survived the collapse.
+   * `ROW_TRACKS` was a layout fact and it is gone; these are how a test finds
+   * *the row for this branch* among a hundred, and 12 test files ask that
+   * question. Passed as an object rather than derived from `tuple.kind`,
+   * because a plan row's attribute carries the plan's NAME and a ticket's the
+   * issue NUMBER — values the tuple deliberately holds as a link label and not
+   * as a key.
+   */
+  rowAttr?: Record<string, string>;
+  /** This row is the one just revealed from an agent panel — wear the ring. */
+  highlighted?: boolean;
+  /**
+   * Whether this row draws its own rule.
+   *
+   * FALSE INSIDE A PLAN GROUP, where the rule belongs to the group: a plan and
+   * its branches are one block, and a row drawing its own would put a line
+   * between a plan and its first branch. The property `Row` carried as
+   * `inPlanGroup`, kept because the defect it prevents is still reachable.
+   */
+  bordered?: boolean;
 }) {
   return (
     <li
       role="row"
+      id={id}
       data-tuple-kind={tuple.kind}
-      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-slate-100 px-3 py-2 text-sm dark:border-slate-800 sm:grid ${TUPLE_TRACKS} sm:items-baseline sm:gap-x-3`}
+      data-highlighted={highlighted ? 'true' : undefined}
+      {...rowAttr}
+      // The ring is `-inset` so it hugs the row without a track of its own, and
+      // it is the same blue the board's highlighted card wears — one arrival
+      // colour across both tabs.
+      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2 text-sm sm:grid ${TUPLE_TRACKS} sm:items-baseline sm:gap-x-3 ${
+        bordered ? 'border-t border-slate-100 dark:border-slate-800' : ''
+      } ${highlighted ? 'rounded-sm ring-2 ring-inset ring-blue-500' : ''}`}
     >
       {/* SLOT 1 — the icon, in the marks track it shares with the activity
           marks. One track for *what is happening to this row* and *what kind of
@@ -179,20 +319,45 @@ export function TupleRowView({
           decode: the defect this replaces was a kind stated only on hover, and
           before that a column whose word meant four different things depending
           on the plan's wave count. `data-tuple-kind-label` is what a test reads
-          to assert the kind is present without hovering. */}
+          to assert the kind is present without hovering.
+
+          `data-kind` IS THE SAME CLAIM, and it is here because the fleet's
+          suites were already asserting it — sixteen times, reading the WORD as
+          this element's text. It was `Row`'s hook and `IssueRowView`'s, and the
+          collapse had to decide whether it named the deleted components or the
+          slot. The slot: `[data-kind]` means *where a row says what it is*, and
+          that is exactly what slot 2 is, so the assertions keep an owner rather
+          than being rewritten onto a synonym.
+
+          The `sr-only` prefix survives BELOW `sm` and only there, exactly as it
+          did before: a card has no columns for the header to name, so `Branch`
+          would arrive with nothing saying what it is. Above `sm` the
+          `columnheader` says `Kind` once for the whole grid.
+
+          IT SITS OUTSIDE `[data-tuple-kind-label]`, and that is not tidiness.
+          The hook's whole claim is *this is the kind, and a reader can SEE it*,
+          which the suite asserts with `innerText` — a layout-computed reading
+          that returns "" for a hidden box, so a kind moved into a tooltip
+          fails. A screen-reader prefix inside the hook would be read by that
+          same assertion, and it would pass or fail depending on whether a
+          stylesheet had loaded rather than on whether the kind was visible.
+          The two are different statements to two different readers; only one
+          of them is what the hook names. */}
       <span
         role="gridcell"
-        data-tuple-kind-label={tuple.kind}
         className="min-w-0 shrink-0 truncate text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400"
       >
-        {tuple.kindLabel}
+        <span className="sr-only sm:hidden">Kind: </span>
+        <span data-tuple-kind-label={tuple.kind} data-kind={tuple.kind}>
+          {tuple.kindLabel}
+        </span>
       </span>
       {/* SLOT 3 — THE ITEM'S OWN NAME: what the reader is deciding about. A PR
           leads with the PR, a branch with the branch, a ticket with its title.
           `showWhat` is off here — the kind slot immediately left has already
           said what this is, and repeating it would be the same word twice. */}
       <span role="gridcell" className="flex min-w-0 items-baseline font-medium">
-        <TupleLinkView link={tuple.name} onOpenPlan={onOpenPlan} />
+        <TupleLinkView link={tuple.name} onOpenPlan={onOpenPlan} extraAttr={nameAttr} />
       </span>
       {/* SLOT 4 — THE ARTIFACT LINKS, zero or more. Each says what it points at,
           which is what keeps a PR row's two from reading as interchangeable
@@ -211,16 +376,27 @@ export function TupleRowView({
             onOpenPlan={onOpenPlan}
           />
         ))}
+        {aside}
       </span>
       {/* SLOT 5 — WHERE THIS STANDS. One slot whatever the kind: `conflicts`,
           `draft`, `thinking`, `no-checks` are all the same question. The prose
-          notes that varied per kind become one value in one place. */}
+          notes that varied per kind become one value in one place.
+
+          `statusExtra` is what a kind adds BESIDE the word, never instead of it
+          — the draft badge a PR carries, the sentence a branch's note holds
+          that no status word can say (*uncommitted work*, *blocked by an
+          earlier wave*). It sits here rather than in the projection because a
+          badge is a rendering and `tuple-row.ts` carries no React: that
+          separation is what lets the unit suite test the slot rules as data. */}
       <span
         role="gridcell"
         data-tuple-status
-        className="min-w-0 truncate text-xs text-slate-500 dark:text-slate-400"
+        className="flex min-w-0 items-baseline gap-2 truncate text-xs text-slate-500 dark:text-slate-400"
       >
-        {tuple.status}
+        {tuple.status && (
+          <span {...statusAttr} className="min-w-0 truncate">{tuple.status}</span>
+        )}
+        {statusExtra}
       </span>
       {/* SLOT 6 — THE AGE, from the row's LAST CHANGE. Unlabelled, because that
           is the rule; the label appears exactly where the rule does not apply —
@@ -243,10 +419,17 @@ export function TupleRowView({
       </span>
       {/* THE MENU — per kind, and passed in. The tuple says what a row IS; the
           menu says what can be DONE to it, and a kind with nothing to offer is
-          handed nothing rather than a `⋯` that opens an empty list. */}
-      <span role="gridcell" className="flex shrink-0 items-center justify-end">
-        {menu}
-      </span>
+          handed nothing rather than a `⋯` that opens an empty list.
+
+          THE MENU BRINGS ITS OWN `gridcell`, which is why there is no wrapper
+          here. Each of the three — `RowActions`, `PlanActions`,
+          `IssueRowActions` — already declares one, and each floats its popup
+          out of the grid from its own `relative` box; wrapping them again would
+          nest a cell inside a cell, which the grid role does not admit and
+          which no reader of the accessibility tree could place. A kind with no
+          menu contributes no cell at all, and the track it would have taken
+          holds its width because it is fixed. */}
+      {menu}
       {extra}
     </li>
   );

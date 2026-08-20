@@ -9,7 +9,6 @@ import {
   type IssueRow,
   type PulseShrink,
   type Repair,
-  type RowKind,
   type Stuck,
   type StuckState,
   type WaitingGroup,
@@ -28,11 +27,24 @@ import { ChangedFilesModal } from './ChangedFilesModal.js';
 // reason `ageLabel` was split out of `age` so an issue row and a branch row
 // cannot render one duration two ways.
 import { agoLabel } from './AgentPanelFacts.js';
-// The word slot 2 prints for each kind, from the module that OWNS the tuple's
-// slot rules. Imported rather than restated: the tuple row and these three
-// components must agree about what a `pr` row is CALLED, and two tables of
-// seven words is how the two grids drifted apart in the first place.
-import { KIND_LABEL } from '../lib/tuple-row.js';
+// THE TUPLE — one component and one grid for all seven kinds, and the
+// projection that fills its six slots.
+//
+// `Row`, `PlanRow` and `IssueRowView` used to live in this file, on TWO grid
+// definitions between the three of them — and the third, a TICKET, rendered
+// through the tracks of a BRANCH: no wave, no worker, no branch, wearing the
+// columns of something it is not. Three fill sites is how the two grids drifted
+// apart, and a shared grid with three fillers would have kept that possible
+// while adding a contract.
+//
+// What remains here are three ADAPTERS, and the distinction is the whole shape
+// of the collapse. An adapter answers *what does this call site have to hand,
+// and which marks and menu belong to it* — questions about the SECTION. The six
+// slots are answered once, in `tuple-row.ts`, for every kind. So a new kind
+// costs a projection and no rendering at all, which is what the deleted three
+// could never do.
+import { tupleFromIssue, tupleFromPlan, tupleFromRow } from '../lib/tuple-row.js';
+import { TupleRowView } from './TupleRow.js';
 
 /**
  * Groups in fixed order, each labelled by what it asks OF YOU rather than by
@@ -513,11 +525,6 @@ export function ageLabel(minutes: number): string {
   return `${Math.floor(h / 24)}d`;
 }
 
-function age(row: AgentRow): string {
-  if (row.ageMinutes === null) return '—';
-  return ageLabel(row.ageMinutes);
-}
-
 /**
  * The waiting age in the unit that reads: days for the first weeks, months once
  * days stop being countable.
@@ -535,112 +542,6 @@ export function waitingLabel(days: number): string {
   const months = Math.floor(days / 30);
   return `${months}mo`;
 }
-
-/**
- * The row's column tracks, as one Tailwind class shared by the header and by
- * every row.
- *
- * ```
- * 1rem   5rem   10rem   1fr     14rem  2.5rem   1.25rem
- * marks  kind   plan    branch  pr     age      menu
- * ```
- *
- * The branch takes `1fr` because it is the longest and most variable value on
- * the line and the one worth reading in full; the others are bounded by their
- * own content — `Release` is the longest kind, `⑂1234 conflicts` the longest PR
- * cell. Every other track is FIXED, which is the whole point: an empty cell
- * leaves a gap rather than shifting its neighbours, so a row whose plan name
- * sits in the group heading aligns with one whose does not.
- *
- * TRACK 2 HOLDS THE KIND, and it held a plan phase (or a wave name, or nothing)
- * until `the-wave-and-the-phase-find-their-owners` moved both facts to the
- * objects they describe. The WIDTH did not change with the occupant: `5rem` was
- * what the breakpoint had left after the marks took a track, and `Release` at
- * seven characters fits where `Development` at eleven truncated — so the cell is
- * now comfortably inside a budget it used to strain. The arithmetic below is
- * unchanged and still governs.
- *
- * ONE constant, read by the header row and by `Row`. Two copies of a track list
- * is how a header stops lining up with the rows beneath it — and this grid has
- * no `<table>` to keep them honest, because the rows carry interactive controls
- * and a collapsible group structure that table markup would fight.
- *
- * Exported for test: the tracks are the claim, and a test that reads the class
- * off one row cannot tell a shared constant from a lucky duplicate.
- *
- * **The PR track is `14rem`, and it took 80 px back from the branch rather than
- * from the window.** `1fr` does not mean *take what you need*; it means take
- * everything left over — so on a wide window every spare pixel collected
- * between the branch name and the PR cell, as a gap that belongs to the branch
- * column and draws nothing. The branch names were already legible in that
- * gap's own screenshot; the PR cell at `9rem` was not, holding a glyph, a
- * number and a word.
- *
- * Two wider-looking shapes were rejected, both for the same reason:
- * `minmax(9rem, auto)` on the PR cell sizes it to content, so its edge wanders
- * between rows; `max-content` on the branch sizes it to the longest name IN
- * THAT SECTION, so two groups disagree about where the branch starts. Either
- * gives back at one column what fixed tracks establish at all of them. The
- * honest cost of a fixed `14rem` is that a narrow-but-not-mobile window elides
- * the branch sooner — middle elision keeps both ends and `title` keeps the
- * whole name.
- */
-// A TRACK OF THEIR OWN for the marks, first and 1.5rem wide.
-//
-// They used to hang in the row's left PADDING via `sm:absolute sm:left-0`,
-// on the argument that six columns should not move to make room for a mark
-// most rows never carry. That held while there was one mark. There are now
-// five — live dot, change wash, activity track, unpushed bar, stuck cue —
-// and a row can wear several at once: measured on screen, two of them
-// overlapped and both hung half outside the section's own border, because
-// `left-0` is the row's edge and the section's border sits inside it.
-//
-// 1rem for the marks, and 5rem for the cell beside it — neither number is a
-// preference, both are what the breakpoint had left.
-//
-// A seventh track costs twice: its own width AND a sixth gap. The fixed tracks
-// plus gaps must stay under `CARD_BELOW_PX` (640px), and 1.5rem of marks with
-// track 2 at 6rem came to 652px. So track 2 gave up 1rem — it holds one word
-// (`Development`, the longest PHASE, truncated either way) where the marks
-// column holds a 12px mark that had nowhere legal to sit at all. The cell now
-// holds a KIND instead, and the longest of the seven is `Release` — so the 1rem
-// that was given up under protest is no longer being missed. The fixed tracks may total at most 540px before the grid needs more
-// than the 640px `CARD_BELOW_PX` it turns into a card at; 1.5rem crossed that
-// by exactly 8px. The test that caught it predicted this day in its own
-// comment. 16px still holds the widest mark (a 12px track) inside the panel,
-// which is what the column is for; the slack either side is what was spent.
-export const ROW_TRACKS = 'grid-cols-[1rem_5rem_10rem_1fr_14rem_2.5rem_1.25rem]';
-
-// A PLAN ROW IS NOT A BRANCH ROW, so it does not borrow the branch tracks.
-//
-// FIVE cells for the five things a plan row actually has: the marks column
-// (shared with every row, so the marks stay in one vertical line down the
-// section), the plan NAME, the wave summary, the clock, and an ACTIONS cell
-// the width of a branch row's. No phase TRACK — the phase belongs to the plan
-// and is stated in the name cell's own line, which since
-// `the-wave-and-the-phase-find-their-owners` is the ONLY place on this board
-// that states it; no PR cell, a plan has none.
-//
-// THE ACTIONS TRACK WAS ABSENT, AND IT COST THE ONE ACTION A PLAN HAS.
-//
-// The argument for leaving it out was written about DISPATCH and is still
-// right about it: *dispatch is per branch and wave, so a control here would
-// have to guess which wave it meant.* Approving is not that. Approving is the
-// one act that belongs to the PLAN — `plot-approve.sh` takes a plan and no
-// branch — and the argument for the action that needs a branch was applied to
-// the cell that also held the one that does not. Measured on the board
-// 2026-08-19: a Draft plan whose whole state was *waiting for a person to
-// approve it* offered that person nothing to click, while the server reported
-// `approve: {available: true}` and the card carried the button all along.
-//
-// `1.25rem` is the branch row's own actions width, so the two menus line up
-// down the section — the alignment every other track here already keeps.
-//
-// The name starts at the marks column's right edge, which is where a branch
-// row's PHASE begins — one track earlier than a branch NAME. That single
-// track is the whole difference between *a list of plans* and *a nesting*,
-// and it costs nothing: the summary takes the slack.
-export const PLAN_ROW_TRACKS = 'grid-cols-[1rem_1fr_auto_2.5rem_1.25rem]';
 
 /**
  * The PR a row carries, derived from the row rather than imported.
@@ -914,36 +815,6 @@ export function groupByPlan(rows: AgentRow[]): PlanGroup[] {
 export function waveLabel(row: AgentRow): string | null {
   if (row.wave === '' || row.wave === UNNAMED_WAVE) return null;
   return row.wave;
-}
-
-/**
- * A row's kind, with the schema's own default applied — never re-decided.
- *
- * ## Why a fallback is needed at all on a field the contract defaults
- *
- * `RowKindSchema` declares `.default('branch')`, and that default is applied by
- * **Zod, on parse** — which the client does not do. `App.tsx` casts the fetched
- * body (`(await res.json()) as Fleet`) rather than parsing it, so a payload with
- * no `kind` arrives with `kind: undefined` and TypeScript is none the wiser: the
- * type says the field is there because the SCHEMA says so after parsing.
- *
- * That is not a hypothetical. An older server on the other end of a poll — the
- * case the board already handles for `prNextInSeconds` — emits rows predating
- * the field, and `data-kind={undefined}` omits the attribute entirely while
- * `KIND_LABEL[undefined]` renders nothing. The cell would be silently blank on
- * every row, which is the failure mode this cell exists to end.
- *
- * ## It restates the schema's default, and does not invent a rule
- *
- * `'branch'` because that is the value `RowKindSchema` names, for the reason it
- * names: an unrecognised row most nearly IS a branch. This is emphatically not
- * the renderer-side derivation the contract declines — it does not look at
- * `row.pr`, `row.issue` or `row.planFile`, and it cannot reclassify a row the
- * server did label. It fills in one absent field with the one value the contract
- * says an absent field means.
- */
-function rowKindOf(row: AgentRow): RowKind {
-  return row.kind && row.kind in KIND_LABEL ? row.kind : 'branch';
 }
 
 /**
@@ -4037,66 +3908,6 @@ function PlanLink({
 }
 
 /**
- * The branch name, folded in the MIDDLE when the cell cannot hold it.
- *
- * Two spans rather than one: the head clips (`truncate`, so the browser adds
- * its own ellipsis at exactly the width it has) and the tail does not
- * (`shrink-0`), which is middle-elision performed by the layout rather than by
- * arithmetic. See `splitBranch` for why the tail is the half that must survive.
- *
- * The FULL name is always in `title` and in the row's accessible text, so
- * nothing is lost — only folded. `min-w-0` on the wrapper is what allows the
- * head to shrink at all: a flex item defaults to `min-width: auto` and would
- * otherwise refuse to go below its content, pushing the PR and age cells the
- * grid exists to hold still.
- *
- * Below `sm` there is no folding to do — the branch has a line of its own
- * (`whitespace-normal break-all`), because the card form drops nothing and
- * elides nothing.
- */
-function BranchName({ row }: { row: AgentRow }) {
-  const { head, tail } = splitBranch(row.branch);
-  const inner = (
-    // `aria-hidden` on the two halves, with the whole name supplied by the
-    // wrapper's `aria-label`. Measured: the halves are flex ITEMS, and the
-    // accessible-name algorithm joins adjacent boxes with a space — the row
-    // announced `feat ure/reviewed`, a branch name no host would recognise and
-    // one no reader could search for. The fold is a fact about the column's
-    // width, so it belongs to the visual channel alone.
-    <span aria-hidden className="flex min-w-0 max-sm:flex-wrap max-sm:break-all">
-      <span className="truncate">{head}</span>
-      {tail && <span className="shrink-0">{tail}</span>}
-    </span>
-  );
-  const className = 'flex min-w-0 font-mono text-[13px]';
-  return row.branchUrl ? (
-    <a
-      href={row.branchUrl}
-      target="_blank"
-      rel="noreferrer"
-      data-branch={row.branch}
-      aria-label={row.branch}
-      className={`${className} text-blue-600 hover:underline dark:text-blue-400`}
-      title={`Branch ${row.branch} on the git host`}
-    >
-      {inner}
-    </a>
-  ) : (
-    // The same treatment for a branch with no address — a merged branch, or an
-    // origin the server does not recognise. `role="text"` is not a thing worth
-    // inventing here; the label rides on the element that carries the name.
-    <span
-      data-branch={row.branch}
-      aria-label={row.branch}
-      className={`${className} text-slate-800 dark:text-slate-200`}
-      title={row.branch}
-    >
-      {inner}
-    </span>
-  );
-}
-
-/**
  * The column names, on the same tracks as the rows beneath them.
  *
  * This is what lets track 2's `sr-only` prefix go. The list used to be a
@@ -4120,19 +3931,36 @@ function BranchName({ row }: { row: AgentRow }) {
  *
  * Hidden below `sm`, where the row stops being a row: a card has no columns for
  * a header to name, and the kind cell takes its own label back there.
+ *
+ * SEVEN NAMES FOR SEVEN TRACKS, matching `TUPLE_TRACKS`. The marks track is
+ * named too — it was not, while it held only decoration, and it now carries
+ * slot 1's kind ICON as well, which is a fact about the row rather than an
+ * ornament on it.
  */
 function HeaderRow() {
   return (
     <li role="row" className="sr-only max-sm:hidden">
-      {/* KIND, not `Phase`. The column held a plan phase, a wave name, nothing,
-          or a plan phase on a ticket; it now holds what the row IS, which is the
-          one thing every kind of row can answer in the same sort of word. The
-          header is where that word is named for a reader who cannot see the
-          alignment — and it is why the cell needs no per-row label above `sm`. */}
+      {/* THE SIX SLOTS, and the header is where each is NAMED for a reader who
+          cannot see the alignment.
+
+          It used to read `Kind / Plan / Branch / Pull request / Age / Actions`
+          — six names for the seven tracks of a BRANCH, which is what a plan row
+          and a ticket row were also laid on. Two of those names could not be
+          true of every row beneath them: a plan has no branch and a ticket has
+          no pull request, and the header said both anyway because the grid it
+          described was one kind's.
+
+          The tuple's names are true of all seven, which is the property being
+          a shape buys. `Related` rather than `Plan` or `Branch`: slot 4 holds
+          whatever a kind's artifacts are — a PR's plan and branch, a build's
+          PR, a branch's plan — and each link states its own `what` beside
+          itself, so the column heads what they have in common rather than
+          naming one kind's case for all of them. */}
+      <span role="columnheader">Marks</span>
       <span role="columnheader">Kind</span>
-      <span role="columnheader">Plan</span>
-      <span role="columnheader">Branch</span>
-      <span role="columnheader">Pull request</span>
+      <span role="columnheader">Name</span>
+      <span role="columnheader">Related</span>
+      <span role="columnheader">Status</span>
       <span role="columnheader">Age</span>
       <span role="columnheader">Actions</span>
     </li>
@@ -4140,43 +3968,34 @@ function HeaderRow() {
 }
 
 /**
- * ONE row for a whole plan, on the SAME six tracks as a branch row.
+ * A PLAN, as a tuple — the same component and the SAME GRID a branch row uses.
  *
- * The subject changes and the geometry does not. `ROW_TRACKS` is the shared
- * constant every row in the fleet is laid on, and a section that laid its rows
- * on their own would break alignment exactly at the boundary a reader scans
- * across — the cost `agent-rows-line-up` paid to remove. So the cells are filled
- * differently and land at the same x:
+ * ## The reversal this records
  *
- * ```
- * marks   plan            branch          pr/note   age            menu
- * (blank) the plan's name the wave summary (blank)   waitingDays    (blank)
- * ```
+ * `PLAN_ROW_TRACKS` existed on an argument that was right about its own case
+ * and wrong about the shape: *"a plan row is not a branch row, so it does not
+ * borrow the branch tracks"*. Correct while there were two kinds — and the
+ * reason there were two grids for what the contract now says are seven. The
+ * second grid did not fix the mismatch it was built for; it moved it. A TICKET
+ * still rendered through the tracks of a BRANCH, having no wave, no worker and
+ * no branch, because a third mismatch would have needed a third grid.
  *
- * The first column was labelled `phase` while a branch row's track 2 held one.
- * A plan row never had a phase TRACK — its phase rides in the name cell — so
- * this was a stale caption rather than a claim about the row, and it is corrected
- * rather than removed because the column count is what the alignment rests on.
+ * What the two grids were really arguing about was slot CONTENT, and the tuple
+ * settles it there: a plan's slot 3 is its name, its slot 4 is the branch it
+ * names one of, its slot 5 is its PHASE — the object that fact belongs to — and
+ * its slot 6 is the approval clock. No borrowing, because there is nothing to
+ * borrow from: one grid, filled per kind by a projection.
  *
- * **The plan takes the plan track**, where a branch row prints its plan name, so
- * the two read down one column. The wave summary takes the BRANCH track, which
- * is where a reader looks for *which slice of it* — and the summary is this
- * row's answer to that question, in the plan's own terms rather than a branch's.
- *
- * **The age is `waitingDays`, never `ageMinutes`.** The branches beneath this
- * row have no tip, so the commit clock has nothing to say; the plan clock is the
- * only one running. It is rendered in the same amber with the same title as the
- * branch row's waiting age — one clock, one look, wherever it appears.
+ * The nesting that `PLAN_ROW_TRACKS` was drawn to prevent — eight sibling plans
+ * reading as a hierarchy because a plan NAME and a branch NAME both began at
+ * 222px — is prevented by slot 2 instead, and more directly. The two rows now
+ * differ by the WORD in the kind slot (`Plan` against `Branch`) rather than by
+ * an indent a reader has to measure, which is the same repair slot 2 made for
+ * the four-meanings column: state the fact rather than encode it in geometry.
  *
  * **The indicator sits here** rather than on the branches, because this is what
  * is waiting. That is the section's ordinary rule applied to a different
- * subject, not a new rule: in WAITING ON YOU the marker sits with the branch
- * because the branch is what waits.
- *
- * The PR track is deliberately EMPTY. Every unbegun row measured on the live
- * board carried `pr=—`; a plan has no pull request of its own, and inventing one
- * from a branch beneath it would state something no field says. An empty track
- * holds its width, so nothing beside it shifts.
+ * subject, not a new rule.
  */
 function PlanRow({
   group,
@@ -4205,100 +4024,77 @@ function PlanRow({
   const waiting = planWaitingDays(group);
   const summary = waveSummaryFor(group);
   const foldable = expanded !== null;
+  // THE PHASE IS THE PLAN'S, and slot 5 is where a fact about the plan is true.
+  // Read from the group's rows rather than from a plan field, because a row is
+  // what carries `phase` — and they agree by construction, all being branches
+  // of one plan.
+  const phase = group.rows[0]?.phase ?? '';
   return (
-    <li
-      role="row"
-      data-plan-row={group.plan}
-      // NO BORDER: the plan row heads a group that draws one line under
-      // itself and its branches together. A rule here would fall between
-      // a plan and its own first branch.
-      // ITS OWN PROPORTIONS, not the branch tracks. A plan row's facts do not
-      // correspond to a branch row's: it has no phase of its own to state
-      // twice, no branch, no PR. Forcing three facts into seven tracks left an
-      // empty first column and put the plan NAME at the same x as a branch
-      // name — measured on screen at x=222 for both — so eight sibling plans
-      // read as a nesting rather than as a list.
-      //
-      // `PLAN_ROW_TRACKS` gives it marks / name / summary / clock: the three
-      // things it carries, plus the marks cell every row in the grid owes its
-      // neighbours. The BRANCH rows are untouched and still line up with
-      // branch rows in every other section — the property #175 established,
-      // and the one this must not spend.
-      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2 text-sm sm:grid ${PLAN_ROW_TRACKS} sm:items-baseline sm:gap-x-3`}
-    >
-      {/* The activity mark, hanging in the row's own `relative` box the way it
-          does on a branch row — no track, no shift. It reaches the plan row
-          because a plan whose branch is being written to is a plan something is
-          happening on, and the branch carrying it may be folded out of sight.
-
-          Always the FAST pace, because `active` is the only thing that reaches
-          this row: NOT STARTED is where plan rows are drawn, and its branches
-          are by definition not in WORKING, so the slow pace has no case to
-          state here. A plan row shows a mark exactly when one of its branches
-          is being written to. */}
-      {/* The same unconditional marks cell the branch rows carry — a plan row
-          without one would land its remaining cells a column left of theirs,
-          which is exactly the alignment the tracks exist to hold. */}
-      <span role="gridcell" className={ACTIVITY_MARK_PLACE.row}>
-        {active && <ActivityMark pace="fast" inTrack />}
-      </span>
-      {/* THE PLAN'S PHASE, stated here and nowhere else in the group.
-          
-          This cell was empty on the argument that a plan row's phase "is
-          Approved for everything in this section" — a column showing one word
-          on every row. That stopped being true when the section learned to hold
-          Draft plans: `Discovery` and `Design` now sit side by side here, and
-          they are the difference between *needs your approval* and *ready to
-          start*. The phase is a property of the PLAN, so the plan row is where
-          it belongs; the branches beneath inherit it and no longer repeat it.
-          
-          Read from the group's rows rather than from a plan field, because a
-          row is what carries `phase` — and they agree by construction, all
-          being branches of one plan. */}
-      {/* The plan, its phase and its name in ONE cell — and it is a HEADING as
-          well as a cell, because the rows below it are its branches. The
-          expander wraps the name rather than sitting beside it: a separate
-          caret would need a track, and the name is the obvious thing to click.
-
-          The phase rides HERE rather than in a track of its own. It was a
-          column while the plan row borrowed the branch tracks and had a spare
-          one; with the row in its own proportions a whole track for one word
-          would push the name back to where it was, which is the defect. It
-          keeps its `data-phase` attribute, so anything asserting on it still
-          finds it. */}
-      <span role="gridcell" className="flex min-w-0 items-baseline gap-2">
-        {group.rows[0]?.phase && (
+    <TupleRowView
+      tuple={tupleFromPlan({
+        plan: group.plan,
+        planFile: group.planFile,
+        phase,
+        waitingDays: waiting,
+      })}
+      onOpenPlan={onOpenPlan}
+      rowAttr={{ 'data-plan-row': group.plan }}
+      // NO BORDER: the plan row heads a group that draws one line under itself
+      // and its branches together. A rule here would fall between a plan and
+      // its own first branch.
+      bordered={false}
+      marks={
+        // Always the FAST pace, because `active` is the only thing that reaches
+        // this row: NOT STARTED is where plan rows are drawn, and its branches
+        // are by definition not in WORKING, so the slow pace has no case to
+        // state here. A plan row shows a mark exactly when one of its branches
+        // is being written to — including one folded out of sight, which is the
+        // case the mark most needs to reach.
+        active ? <ActivityMark pace="fast" inTrack /> : null
+      }
+      // THE PHASE KEEPS ITS `data-phase` HOOK, on the slot that now holds it.
+      // It was in the plan row's name cell and before that in a branch row's
+      // phase TRACK; the attribute names the fact, not the cell that happened
+      // to print it, so every assertion that reads it keeps an owner.
+      statusAttr={phase ? { 'data-phase': phase, title: `Phase: ${phase}` } : undefined}
+      aside={
+        // THE WAVE SUMMARY — *3 waves, first eligible*. It answers *which slice
+        // of this plan* in the plan's own terms, which are the only terms this
+        // row has: the branches it would otherwise name do not exist yet. In
+        // slot 4 beside the branch link for the same reason a branch row's wave
+        // badge is there — it qualifies the item rather than pointing anywhere.
+        summary ? (
           <span
-            data-phase={group.rows[0].phase}
-            title={`Phase: ${group.rows[0].phase}`}
-            className="shrink-0 text-xs text-slate-500 dark:text-slate-400"
+            data-wave-summary
+            className="truncate text-slate-500 dark:text-slate-400"
+            title="Waves of this plan that nothing has started — counted in this section"
           >
-            {group.rows[0].phase}
+            {summary}
           </span>
-        )}
-        {foldable ? (
+        ) : null
+      }
+      statusExtra={
+        foldable ? (
           // A real button with `aria-expanded`, so the fold is operable and
           // announced by keyboard — the caret alone is a visual fact. The plan
-          // LINK cannot carry the toggle: a link that folds a section instead of
-          // opening the plan is a link that lies about where it goes.
-          // 24 x 24 OF HIT AREA, AND A GLYPH BIG ENOUGH TO TELL APART.
+          // LINK cannot carry the toggle: a link that folds a section instead
+          // of opening the plan is a link that lies about where it goes.
           //
-          // Measured on the running board 2026-08-19 at 1480px: this control
-          // was **5 x 10 px** at `font-size: 10px` — a fifth of what WCAG 2.2
-          // asks for a pointer target, and it is the control that answers *is
-          // there more here?* Five plans showed *"3 waves, first eligible"*
-          // above no rows at all, and the only sign they were folded was five
-          // pixels of caret.
+          // 24 x 24 OF HIT AREA, AND A GLYPH BIG ENOUGH TO TELL APART. Measured
+          // on the running board 2026-08-19 at 1480px: this control was
+          // **5 x 10 px** at `font-size: 10px` — a fifth of what WCAG 2.2 asks
+          // for a pointer target, and it is the control that answers *is there
+          // more here?* `h-6 w-6` with the mark centred grows the target by
+          // padding while the caret grows only from 10px to 12px, so the row
+          // density survives.
           //
-          // BIGGER HIT AREA, NOT MERELY A BIGGER GLYPH. `h-6 w-6` with the mark
-          // centred inside it: the target grows by padding while the caret grows
-          // only from 10px to 12px, so the row density survives — rows measure
-          // 35–36px and a 24px target fits inside one without changing it.
-          // `-my-1` keeps it from pushing the line box taller than the row.
-          //
-          // 10px was the outlier rather than the convention: 12px is used 82
-          // times on this board, 13px 24 times, 14px 33 times. `text-xs` is
-          // 12px, so the caret now sits at the most common size here.
+          // IN SLOT 5 RATHER THAN BESIDE THE NAME, and the move is the
+          // collapse's one visible change to this row. It sat in the name cell
+          // because that cell was `1fr` and had the slack; slot 3 is a fixed
+          // 12rem shared with every other kind, and a 24px control inside it
+          // would take a fifth of the plan name's width on every row. Slot 5 is
+          // where the plan's own state is stated, and *folded or not* is a
+          // state of this row.
           <button
             type="button"
             data-wave-toggle={group.plan}
@@ -4307,12 +4103,12 @@ function PlanRow({
             onClick={onToggle}
             className="-my-1 inline-flex h-6 w-6 shrink-0 items-center justify-center self-center rounded text-xs leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-100"
           >
-            {/* ONE glyph, ROTATED — not two glyphs of similar mass.
-                `▸` and `▾` differ by which way a small triangle points, and
-                the plan asked for a fold state that survives a screenshot. A
-                90-degree rotation of one shape is the same difference stated in
-                geometry rather than in typeface, and it animates, so the state
-                change is visible in motion as well as in the still. */}
+            {/* ONE glyph, ROTATED — not two glyphs of similar mass. `▸` and `▾`
+                differ by which way a small triangle points, and the plan asked
+                for a fold state that survives a screenshot. A 90-degree
+                rotation of one shape is the same difference stated in geometry
+                rather than in typeface, and it animates, so the state change is
+                visible in motion as well as in the still. */}
             <span
               aria-hidden
               className={`inline-block text-[13px] transition-transform ${expanded ? 'rotate-90' : ''}`}
@@ -4320,63 +4116,19 @@ function PlanRow({
               ▸
             </span>
           </button>
-        ) : (
-          // The same width where there is no fold, so the plan names of a
-          // foldable and an unfoldable row still begin at one x. It tracks the
-          // BUTTON width, so widening the target above widens this too.
-          <span aria-hidden className="inline-block h-6 w-6 shrink-0" />
-        )}
-        <span className="min-w-0 truncate text-xs font-medium">
-          <PlanLink plan={group.plan} planFile={group.planFile} onOpenPlan={onOpenPlan} />
-        </span>
-      </span>
-      {/* The wave summary, in the BRANCH track — *3 waves, first eligible*. It
-          answers the question that track asks (*which slice of it*) in the
-          plan's terms, which is the only terms this row has: the branches it
-          would otherwise name do not exist yet. */}
-      <span
-        role="gridcell"
-        className="flex w-full min-w-0 items-baseline sm:w-auto"
-      >
-        {summary && (
-          <span
-            data-wave-summary
-            className="truncate text-xs text-slate-500 dark:text-slate-400"
-            title="Waves of this plan that nothing has started — counted in this section"
-          >
-            {summary}
-          </span>
-        )}
-      </span>
-      {/* The plan's clock, in the same amber and with the same title a branch
-          row gives its waiting age. Nothing at all where no approval date is
-          recorded: absent, not zero. */}
-      <span
-        role="gridcell"
-        className="shrink-0 text-right text-xs tabular-nums text-amber-700 dark:text-amber-500"
-        title={waiting === null ? undefined : 'Approved this long ago, and nobody has started it'}
-      >
-        {waiting === null ? '' : waitingLabel(waiting)}
-      </span>
-      {/* THE ACTIONS CELL — and it holds exactly one act, for exactly one
-          reason: approving belongs to the PLAN.
-
-          Dispatch does not, and that half of the old argument stands: a
-          `plot-dispatch` control here would have to guess which of the plan's
-          waves it meant, so the branch rows in the fold keep their own menus,
-          where the row has already decided. What was lost was the other half.
-          `plot-approve.sh` takes a plan, the server reports `approve` per plan,
-          and the row that names the plan is the only honest place for it — the
-          branch menus were carrying it, and a Draft plan's branches have
-          nothing to start, so the menu they would have carried it in was
-          absent and all four of their cells read `—`.
-
-          The CELL is unconditional and the button inside it is not, the same
-          split the branch row's actions cell makes: the track holds its width
-          whether or not there is anything to click, so a Draft plan and an
-          Approved one land their clocks at the same x. */}
-      <PlanActions plan={group.plan} card={card} approve={approve} onApproving={onApproving} />
-    </li>
+        ) : null
+      }
+      // THE MENU HOLDS EXACTLY ONE ACT, for exactly one reason: approving
+      // belongs to the PLAN. `plot-approve.sh` takes a plan and no branch, the
+      // server reports `approve` per plan, and the row that names the plan is
+      // the only honest place for it.
+      //
+      // Dispatch does NOT belong here, and that half of the old argument
+      // stands: a `plot-dispatch` control would have to guess which of the
+      // plan's waves it meant, so the branch rows in the fold keep their own
+      // menus, where the row has already decided.
+      menu={<PlanActions plan={group.plan} card={card} approve={approve} onApproving={onApproving} />}
+    />
   );
 }
 
@@ -4483,10 +4235,35 @@ function PlanActions({
   );
 }
 
+/**
+ * A BRANCH, A PR OR A RELEASE, as a tuple — and this is an ADAPTER, not a row.
+ *
+ * The row itself is `TupleRowView`, and it is the same component a plan and a
+ * ticket render through. What lives here is what only this call site knows: the
+ * activity marks the fleet answers for the whole list at once, the `⋯` menu the
+ * kind offers, the second line a stuck branch takes, and the two badges that
+ * qualify a branch name without pointing anywhere.
+ *
+ * ## What it replaces, and what that cost
+ *
+ * 555 lines of grid, laid on `ROW_TRACKS` — seven fixed tracks a PLAN row
+ * borrowed four of and a TICKET row borrowed all seven of, having no wave, no
+ * worker and no branch to put in them. Two grids for three components, and the
+ * six slots now come from `tupleFromRow`, which the unit suite tests as data.
+ *
+ * The one thing that changed for a reader, and it is a consequence rather than
+ * an aim: on a row whose kind is `branch` the PR NUMBER is no longer a link.
+ * `tupleFromRow` gives a branch row one artifact link, its plan — the rule
+ * `the-row-leads-with-its-subject` settled and the unit suite pins. A branch
+ * row is a branch row precisely when the PR cannot resolve it (a merge
+ * conflict), so the reader's destination is the branch, which slot 3 names and
+ * links. The PR's CONDITION still reaches slot 5, which is what the plan asks
+ * for — *a merge conflict is still readable on the branch it belongs to* — and
+ * the number rides beside it as text.
+ */
 function Row({
   row,
   onOpenPlan,
-  planInHeading = false,
   card = null,
   dispatch,
   approve,
@@ -4514,25 +4291,16 @@ function Row({
   /**
    * The wave this branch belongs to, or null to name none.
    *
-   * Rendered BESIDE THE BRANCH NAME, which is the object it names a slice of.
-   * It used to be rendered in the phase cell two tracks away, as one of that
-   * column's four meanings.
+   * Rendered BESIDE THE BRANCH NAME, which is the object it names a slice of —
+   * it used to sit in the phase cell two tracks away, as one of that column's
+   * four meanings. In the tuple that adjacency is slot 4, the artifact slot,
+   * which is where things ABOUT the item go.
    *
-   * Still a PROP rather than derived in the row, and the reason changed: it was
-   * handed down because the gate needed a plan-wide wave count the row could
-   * not see. `waveLabel` now reads the branch alone, so the row COULD compute
-   * it — but the call sites are where the section decides what a row shows, and
-   * one function called from two places is what keeps the two sections'
-   * branch rows saying the same thing.
+   * Still a PROP rather than derived here: the call sites are where the section
+   * decides what a row shows, and one function called from two places is what
+   * keeps the two sections' branch rows saying the same thing.
    */
   waveName?: string | null;
-  /**
-   * True when a sub-heading above these rows already names the plan. The row
-   * then omits it rather than printing the same name on every line — the
-   * heading exists to save that repetition, so repeating it anyway would leave
-   * the group wordier than it was before grouping.
-   */
-  planInHeading?: boolean;
   /**
    * True when this row sits inside a plan group that draws its own separator.
    *
@@ -4546,21 +4314,15 @@ function Row({
   card?: Card | null;
   /** Whether this server will act on Start work, and why not. */
   dispatch?: DispatchInfo;
-  /** Whether this server will act on Approve, and why not — the plan-PR half. */
+  /** Whether this server will act on Approve, and why not. */
   approve?: DispatchInfo;
   /** Whether this server will act on Commission design, and why not. */
   commission?: DispatchInfo;
-  /**
-   * Whether this server will act on `Continue with an answer`, and why not.
-   *
-   * Named `continueWith` rather than `continue` because `continue` is a
-   * reserved word: as a prop name it is legal and as a destructured binding it
-   * is not, so the shorter name would have to be renamed at every use anyway.
-   */
+  /** Whether this server will act on Continue with an answer. */
   continueWith?: DispatchInfo;
-  /** Bumps once per board refresh; the Start work button counts these. */
+  /** The pulse counter, so a started row can watch for its own change. */
   pulse?: number;
-  /** A Start work click became outstanding (true) or settled (false). */
+  /** A click is outstanding (true) or has settled (false). */
   onStarting?: (active: boolean) => void;
   /** This row's PR status changed within the last `CHANGE_MARK_MS`. */
   marked?: boolean;
@@ -4589,25 +4351,8 @@ function Row({
    */
   section?: WaitingGroup;
 }) {
-  // Same convention as the card's Open control: a real anchor, so
-  // cmd/ctrl/shift/middle-click open natively, and only a plain primary click is
-  // intercepted. `onOpenPlan` returns false when the board holds no matching
-  // card — the navigation then proceeds, which is the honest fallback.
-  const handlePlan = (e: MouseEvent<HTMLAnchorElement>) => {
-    if (!onOpenPlan) return;
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
-    if (!onOpenPlan(row.planFile)) return;
-    e.preventDefault();
-  };
-
-  // What the note still has to say once the PR cell carries the PR's own
-  // condition — see `noteWithoutPr`. Computed once: it is read three times
-  // below (the guard, the title and the text), and three calls is how they
-  // drift.
-  //
-  // IN THE MACHINE SECTION THE SENTENCE IS THE PROCESS'S — see `machineNote`.
-  // `noteWithoutPr` still trims what the PR cell already shows, so a host entry
-  // does not print the PR number twice in one line.
+  // What the note still has to say once slot 5 carries the PR's own condition —
+  // see `noteWithoutPr`. IN THE MACHINE SECTION THE SENTENCE IS THE PROCESS'S.
   const note = noteWithoutPr(
     section === 'waiting-on-machine' ? machineNote(row) : row.note,
     row.pr,
@@ -4618,564 +4363,284 @@ function Row({
   // marks report on the next pulse. Local to the row and not persisted: a
   // reload starts the cue again, which is the honest answer to *is this still
   // waiting on me* when the board has only just started looking.
-  //
-  // **On the ROW rather than in the stuck cell, and the move is why.** The cue
-  // renders in `StuckCell` and the click that answers it now happens in
-  // `RowActions` — two siblings, so the flag they share has to sit above both.
-  // It lived inside the cell while the cell held both halves.
   const [actionTaken, setActionTaken] = useState(false);
-  // ROW-LOCAL, unlike the plan and story overlays App owns.
-  //
-  // Those two are lifted because they are mutually exclusive — App enforces
-  // *exactly one overlay at a time* by clearing each when the other opens — and
-  // because a plan opens from several places. A worker log opens from one place,
-  // belongs to one branch, and coordinates with nothing; lifting it would thread
-  // a callback through Row → AgentList → App to buy no property this does not
-  // already have.
+  // ROW-LOCAL, unlike the plan and story overlays App owns. Those two are
+  // lifted because they are mutually exclusive and open from several places; a
+  // worker log opens from one place, belongs to one branch, and coordinates
+  // with nothing.
   const [logOpen, setLogOpen] = useState(false);
-  // The dispatcher-log panel, ROW-LOCAL for the same reasons as `logOpen`: it
-  // opens from one place (the row's menu), belongs to one plan, and coordinates
-  // with nothing. Separate from `logOpen` because the two show DIFFERENT logs —
-  // the agent's console and the dispatcher's own record — and a reader may want
-  // either without the other.
+  // The dispatcher-log panel, ROW-LOCAL for the same reasons. Separate from
+  // `logOpen` because the two show DIFFERENT logs — the agent's console and the
+  // dispatcher's own record — and a reader may want either without the other.
   const [statusOpen, setStatusOpen] = useState(false);
   // The changed-file panel, ROW-LOCAL for the same reasons as the two above it.
-  // Unlike them it holds no fetch at either end: the paths are already on the
-  // row, so this flag is the whole of the mechanism — open, print, close.
   const [filesOpen, setFilesOpen] = useState(false);
   // The cue follows what this ROW can actually ask, not what its state usually
-  // offers — the menu omits an item whose precondition is missing, and an
-  // animated dot pointing at a menu with nothing in it marks a request nobody
-  // can make.
+  // offers — an animated dot pointing at a menu with nothing in it marks a
+  // request nobody can make.
   const cue = row.stuck
     ? showsCue(actionReachable(row.stuck, card, dispatch), actionTaken)
     : false;
 
   return (
-    // Below `sm` a card, at `sm` and above a grid — and the two are one element
-    // rather than two renders. A JS breakpoint would need a resize listener on
-    // a view that already repaints every four seconds, and it would render the
-    // wrong shape for one frame on every load; the media query is evaluated
-    // before first paint and costs nothing.
-    //
-    // The card form wraps: branch on its own line (`w-full`), then plan, phase,
-    // PR and age beneath it as one wrapped line. Nothing is dropped and nothing
-    // is elided — the same facts stack instead of ranging.
-    <li
-      role="row"
-      data-agent-row
-      // The scroll target the agent panel's BRANCH fact aims at. `getElementById`
-      // needs an id, and a branch name is unique within a fleet — the same shape
-      // `#plan-<slug>` uses for the board's card highlight.
+    <TupleRowView
+      tuple={tupleFromRow(row)}
+      onOpenPlan={onOpenPlan}
+      // The scroll target the agent panel's BRANCH fact aims at.
+      // `getElementById` needs an id, and a branch name is unique within a
+      // fleet — the same shape `#plan-<slug>` uses for the board's card
+      // highlight.
       id={`agent-row-${row.branch}`}
-      data-highlighted={highlighted ? 'true' : undefined}
+      rowAttr={{ 'data-agent-row': '' }}
+      highlighted={highlighted}
       // Inside a plan group the RULE belongs to the group, which draws one line
-      // under the plan and its branches together. A row drawing its own there
-      // would put a line between a plan and its first branch — the defect this
-      // replaces. Everywhere else the row is the unit, and keeps its own.
-      //
-      // The ring is `-inset` so it hugs the row without a track of its own, and
-      // it is the same blue the board's highlighted card wears — one arrival
-      // colour across both tabs.
-      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2 text-sm sm:grid ${ROW_TRACKS} sm:items-baseline sm:gap-x-3 ${
-        inPlanGroup ? '' : 'border-b border-slate-200/60 last:border-0 dark:border-slate-800'
-      } ${highlighted ? 'rounded-sm ring-2 ring-inset ring-blue-500' : ''}`}
-    >
-      {/* The live indicator, on `working` rows only. `self-center` because the
-          row aligns on the text baseline and a dot carries no text to align —
-          on the baseline it would sit low against the words beside it.
+      // under the plan and its branches together.
+      bordered={!inPlanGroup}
+      marks={
+        <>
+          {/* The change mark, wherever this row now sits — including a section
+              it has just arrived in, which is the common case rather than the
+              exotic one, since `pr.state` helps decide the group. It overlays
+              the row from the same `relative` box the live dot hangs in, so it
+              takes no track and shifts no column. */}
+          {marked && <ChangeMark />}
+          {/* TWO ENTRY PATHS, and they are not the same claim. `active` is the
+              fleet's answer for the whole list at once — `isActive` in this
+              pulse, or a lock seen in a recent one still echoing — and it
+              travels FAST. `isLive` adds the rows the fleet places in WORKING
+              while observing no local signal: claimed, and nobody knows. Those
+              travel SLOW. */}
+          {(active || isLive(row)) && (
+            <ActivityMark pace={active ? 'fast' : activityPace(row)} inTrack />
+          )}
+          {/* FINISHED WORK NOBODY ELSE CAN SEE — a separate question, asked
+              separately. Not an `else`: a row can be written to AND hold
+              unpushed commits at the same moment, and either shape would lose
+              whichever it tested second. */}
+          {isUnpushed(row) && <UnpushedMark ahead={row.localAhead} inTrack />}
+          {isLive(row) && <LiveDot />}
+        </>
+      }
+      aside={
+        <>
+          {/* THE WAVE, BESIDE THE THING IT NAMES A SLICE OF.
 
-          Absolutely positioned in the grid rather than taking a track: it is
-          decoration, and a seventh track for it would push the six real columns
-          in from the edge on every row in the fleet to make room for a mark
-          most rows do not carry. In the card form it flows inline, where the
-          wrap makes position mean nothing anyway. */}
-      {/* The change mark, wherever this row now sits — including a section it
-          has just arrived in, which is the common case rather than the exotic
-          one, since `pr.state` helps decide the group. It overlays the row from
-          the same `relative` box the live dot hangs in, so it takes no track
-          and shifts no column. */}
-      {marked && <ChangeMark />}
-      {/* The activity mark, beside the live dot and never instead of it. The
-          dot answers *is this row in WORKING* — an address, true for hours;
-          this answers *at what pace is something happening here*. A row can
-          carry both, and then it carries two marks.
+              A MARK, not a link — which is exactly why it is `aside` rather
+              than one of slot 4's links. A wave is a heading inside a plan file
+              and has no page of its own; the plan link one place along is what
+              opens the document the wave is a section of. `TupleLink` requires
+              an `href` or renders text with none, and a third case for *never
+              had one* would be a link type that is not a link.
 
-          TWO ENTRY PATHS, and they are not the same claim. `active` is the
-          fleet's answer for the whole list at once — `isActive` in this pulse,
-          or a lock seen in a recent one still echoing — and it travels FAST.
-          `isLive` adds the rows the fleet places in WORKING while observing no
-          local signal: claimed, and nobody knows. Those travel SLOW.
+              Every branch that names a wave shows it, and the gate is a
+              property of the ROW alone — see `waveLabel`. */}
+          {waveName && (
+            <span
+              data-wave={waveName}
+              className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+              // The word `wave` is in the TITLE and not in the badge, because
+              // the badge is read beside a branch name where the relation is
+              // already visible. This is not a tooltip standing in for a label
+              // — the wave NAME is rendered in text; the title only says what
+              // kind of name it is.
+              title={`Wave ${waveName} — the slice of the plan this branch belongs to`}
+            >
+              {waveName}
+            </span>
+          )}
+          {/* `deferred` — BESIDE the state, never instead of it, the same shape
+              as the `no story` badge on a plan card: mark the thing, do not
+              bend the state to encode it.
 
-          `isActive` itself is untouched. Widening happens HERE, at the render,
-          where the second path is visibly a second statement rather than a
-          quietly loosened predicate — and where the pace keeps the two apart. */}
-      {/* THE MARKS, in a track of their own — and the CELL is unconditional
-          while everything in it is conditional.
-          
-          That split is the whole reason this works as a column. A row without
-          marks must still occupy the track, or its remaining six cells shift
-          one column left and the board loses the alignment `agent-rows-line-up`
-          paid for. So the container always renders; what is inside it does not.
-          
-          Stacked rather than overlaid: a row can carry several marks at once —
-          measured on screen, the activity track and the unpushed bar collided
-          when both hung absolutely at `left-0`. */}
-      <span role="gridcell" className={ACTIVITY_MARK_PLACE.row}>
-        {(active || isLive(row)) && (
-          <ActivityMark pace={active ? 'fast' : activityPace(row)} inTrack />
-        )}
-        {/* FINISHED WORK NOBODY ELSE CAN SEE — a separate question from the one
-            above, asked separately. Not an `else`, and not folded into the
-            condition: a row can be written to AND hold unpushed commits at the
-            same moment, and either shape would lose whichever it tested second.
-            Two facts, two marks, rendered independently. */}
-        {isUnpushed(row) && <UnpushedMark ahead={row.localAhead} inTrack />}
-        {isLive(row) && <LiveDot />}
-      </span>
-      {/* SLOT 2 — THE KIND, and it is the same sort of word on every row.
-          
-          This cell read a WAVE NAME, a PLAN PHASE, nothing, or a plan phase on
-          a ticket — four meanings in one unlabelled column, and which one
-          arrived depended on how many waves the row's plan had. A reader cannot
-          see a plan's wave count, so the cell could not be read at all without
-          knowing something the board never showed.
+              What it distinguishes is *handed back* from *never started*:
+              `deferred` means the branch isn't needed and was given up
+              deliberately — `plot-deliver` skips such branches, so a plan
+              delivers without them. */}
+          {row.state === 'deferred' && (
+            <span
+              data-deferred
+              className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+              // THE REASON, where the plan recorded one — as the badge's own
+              // title, so the sentence sits on the word it explains. Measured
+              // on the board 2026-08-19: two rows read `deferred` beside `no
+              // commits` and the operator asked what to do with them. The
+              // honest answer is *nothing*, and the row did not say so.
+              title={
+                row.deferredReason
+                  ? `Handed back — ${row.deferredReason}`
+                  : 'Handed back — the branch was given up deliberately, and the plan can deliver without it'
+              }
+            >
+              deferred
+            </span>
+          )}
+        </>
+      }
+      // WHICH VOCABULARY SLOT 5's WORD CAME FROM. `prStatus` and `stateStatus`
+      // both fill that slot and they are different questions — *what is the PR
+      // waiting for* against *what is the branch's git state* — so a test
+      // asserting `conflicts` names which one it means.
+      statusAttr={row.pr ? { 'data-pr-state': row.pr.state } : undefined}
+      statusExtra={
+        <>
+          {/* THE PR'S NUMBER, beside the condition slot 5 states.
 
-          Both of its old occupants have moved to the objects they describe:
-
-            - the PLAN PHASE to the plan heading, which `PlanRow` already
-              states once per group — 71 branch rows printed their plan's word
-              (36 `Development`, 26 `Endgame`, 9 `Design`), a fact about the
-              plan on a row about something else;
-            - the WAVE beside the BRANCH NAME, one cell along, where the thing
-              it qualifies is.
-
-          What is left is the fact this cell was always failing to state: WHAT
-          KIND OF THING THE ROW IS. `row.kind` is the server's judgement, made
-          where it holds both the branch and the PR — see `RowKindSchema` for
-          why it must not be re-decided here — and `KIND_LABEL` is the word for
-          it. A `Branch` row and a `PR` row now read the same kind of word in
-          the same place, whatever their plan is shaped like.
-
-          READ, NEVER DERIVED. Sniffing the kind from `row.pr` here is the
-          derivation the contract declines, and it breaks first on a RELEASE:
-          a release IS a PR whose branch is named `changeset-release/main`, so a
-          renderer-side rule would misclassify the one row nobody should merge by
-          reflex.
-
-          SPELLED OUT, and no tooltip is needed to say which fact it holds —
-          because there is only one fact it can hold now. The old cell's `title`
-          (`Wave: x` or `Phase: y`) existed to disambiguate four meanings, and
-          it was the only place the answer appeared: the tooltip-as-label defect
-          `the-kind-is-labelled-not-hovered` names. A single meaning needs no
-          disambiguation, so the attribute is gone rather than reworded.
-
-          The `sr-only` prefix survives BELOW `sm` and only there, exactly as
-          the phase's did before it: a card has no columns for the header to
-          name, so
-          `Branch` would arrive with nothing saying what it is. Above `sm` the
-          `columnheader` says `Kind` once for the whole grid. */}
-      <span
-        role="gridcell"
-        className="min-w-0 shrink-0 truncate text-xs text-slate-500 dark:text-slate-400"
-      >
-        <span className="sr-only sm:hidden">Kind: </span>
-        <span data-kind={rowKindOf(row)}>{KIND_LABEL[rowKindOf(row)]}</span>
-      </span>
-      {/* Plan BEFORE branch: what this belongs to, then which slice of it — the
-          order in which the tab is read. It also lets rows of one plan form a
-          visible column, reinforcing the grouping rather than repeating it;
-          with the branch first, branch names of differing length left the plan
-          column frayed across six rows of the same plan.
-
-          Opens the plan viewer in the board's own modal — the Agents tab is a
-          live view that polls every 4 s, and navigating away in place would cost
-          the reader the thing they came to watch. The href stays real so a
-          modified click still opens the page, and so a plan with no board card
-          simply navigates.
-
-          The CELL is always rendered, even when the heading carries the name —
-          an empty track holds its width, so a headed group's rows align on
-          branch with an unheaded group's rows. That alignment is exactly what
-          `showPlanHeading` broke when it made the plan cell conditional. */}
-      <span role="gridcell" className="min-w-0 truncate">
-        {planInHeading ? null : row.planFile ? (
-          <a
-            href={`/plan/${encodeURIComponent(row.planFile)}`}
-            onClick={handlePlan}
-            target={onOpenPlan ? undefined : '_blank'}
-            rel="noreferrer"
-            className="text-xs text-blue-600 hover:underline dark:text-blue-400"
-            title={row.plan}
-          >
-            {row.plan}
-          </a>
-        ) : (
-          <span className="text-xs text-slate-500 dark:text-slate-400" title={row.plan}>
-            {row.plan}
-          </span>
-        )}
-      </span>
-      {/* Every link goes where its text says. The branch name opens the BRANCH —
-          it used to open the PR, which is surprising in both directions. An
-          empty `branchUrl` is a merged branch (its remote page is gone) or an
-          origin the server does not recognise; both render as plain text rather
-          than as an invented address.
-
-          The branch takes `1fr` and is the ONLY cell that flexes, because it is
-          the longest and most variable value here and the one worth reading in
-          full.
-
-          On its own line below `sm` (`w-full sm:w-auto`): it is the row's
-          primary key, so the card leads with it and wraps everything else
-          beneath.
-
-          `deferred` rides INSIDE this cell rather than taking a track of its
-          own — it qualifies the branch's state, and a seventh column carrying
-          nothing on all but a handful of rows is the chrome track 2 replaced
-          the repo to avoid. THE WAVE rides here for the same reason
-          and a stronger one: it qualifies THIS BRANCH, and a fact about the
-          branch belongs beside the branch. */}
-      <span
-        role="gridcell"
-        className="flex w-full min-w-0 items-baseline gap-2 sm:w-auto"
-      >
-        <BranchName row={row} />
-        {/* THE WAVE, BESIDE THE THING IT NAMES A SLICE OF.
-            
-            It sat in the phase cell, two tracks away, where it was one of that
-            column's four meanings and appeared only when the plan had more than
-            one wave — so *which slice of this plan is this branch* was answered
-            in a cell that might instead be answering *what phase is the plan
-            in*, and the reader could not tell which without knowing a count the
-            board never printed.
-
-            Here the association is positional and needs no rule: the wave is
-            adjacent to the branch it divides, the way `deferred` beside it
-            qualifies the branch's state. That is the requirement
-            `a-row-is-a-tuple` states as *the artifact links are associated* —
-            a reader knows what a word is about because of what it sits next to.
-
-            Every branch that names a wave shows it, and the gate is now a
-            property of the ROW alone — see `waveLabel`, which reads the branch
-            and no longer takes a plan-wide count.
-
-            A MARK, not a link. A wave is a heading inside a plan file and has
-            no page of its own; the plan name one cell along is the link that
-            opens the document the wave is a section of. */}
-        {waveName && (
-          <span
-            data-wave={waveName}
-            className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-            // The word `wave` is in the TITLE and not in the badge, because the
-            // badge is read beside a branch name where the relation is already
-            // visible, and a screen reader gets the same sentence from here.
-            // This is not a tooltip standing in for a label — the wave NAME is
-            // rendered in text; the title only says what kind of name it is.
-            title={`Wave ${waveName} — the slice of the plan this branch belongs to`}
-          >
-            {waveName}
-          </span>
-        )}
-        {/* Carried BESIDE the state, never instead of it — the same shape as the
-            `no story` badge on a plan card: mark the thing, do not bend the
-            state to encode it.
-
-            THE BADGE IS NOW THE WHOLE ANSWER, and it used to be half of one.
-            The argument was that the phase had already fallen back a step (a
-            deferred branch under an approved plan read `Design`) and that a bare
-            `Design` row was indistinguishable from one nobody ever started — so
-            the row printed the phase AND the badge, and the deferred branch was
-            the one exception to *no plan phase inside a plan group*.
-            
-            The phase was the weaker of the two signals and it is gone with the
-            rest. What the pair was really distinguishing is *handed back* from
-            *never started*, and only the badge ever said that: `deferred` means
-            the branch isn't needed and was given up deliberately — `plot-deliver`
-            skips such branches, so a plan delivers without them — and the title
-            below carries the plan's own recorded reason where there is one.
-            
-            So this reads BESIDE the state and never instead of it, the same
-            shape as the `no story` badge on a plan card: mark the thing, do not
-            bend the state to encode it. */}
-        {row.state === 'deferred' && (
-          <span
-            data-deferred
-            className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-            // THE REASON, where the plan recorded one — as the badge's own
-            // title, so the sentence sits on the word it explains.
-            //
-            // Measured on the board 2026-08-19: two rows read `deferred` beside
-            // `no commits` and the operator asked what to do with them. The
-            // honest answer is *nothing*, and the row did not say so — the
-            // sentence that would have (`verified already implemented
-            // 2026-08-17 — startRepair() at fleet.ts:806`) had been in the plan
-            // file since the day the branch was shelved, and the pipeline threw
-            // it away. So `deferred` and `no commits` sat side by side as two
-            // unrelated facts when the first is the reason for the second.
-            //
-            // The generic sentence stays where no reason was recorded. It says
-            // what `deferred` means, which is still worth saying; it just
-            // cannot say why THIS branch was.
-            title={
-              row.deferredReason
-                ? `Handed back — ${row.deferredReason}`
-                : 'Handed back — the branch was given up deliberately, and the plan can deliver without it'
-            }
-          >
-            deferred
-          </span>
-        )}
-      </span>
-      {/* The PR, rendered from the row's fields — and the note beside it,
-          relieved of the one duty the fields now carry.
-
-          ONE track for both, because they answer one question between them:
-          *what is this waiting for*. The PR cell says what a PR state can say;
-          the note says what it cannot — *uncommitted work*, *blocked by an
-          earlier wave*, *claimed elsewhere*. This is the cell the old layout
-          pushed right with `ml-auto`, which is what collected the row's whole
-          slack between the branch and here and left no two rows agreeing on
-          where anything sat.
-
-          The note truncates where the PR cell has left it no room, with the
-          full text in `title` — the same bargain the branch makes, and the
-          reason the track is fixed at all. The PR is the half kept whole: it is
-          bounded (`⑂1234 conflicts` is the longest it gets) while the note is
-          not.
-
-          A row with no PR shows only the note, and a row with no note only the
-          PR; both hold the same width either way, which is the gap-not-shift
-          rule applied inside the cell as well as between cells. */}
-      <span role="gridcell" className="flex min-w-0 items-baseline gap-2">
-        <PrCell pr={row.pr} />
-        {note && (
-          <span
-            data-row-note
-            // The waiting-state travels as an attribute as well as a colour:
-            // a test asserting the colour alone would pass against a rule
-            // keyed on the note's WORDING, which is the shape this change
-            // exists to remove.
-            data-waiting-on={row.waitingOn ?? undefined}
-            className={`min-w-0 truncate text-xs max-sm:whitespace-normal ${waitingTone(row.waitingOn)}`}
-            title={note}
-          >
-            {note}
-          </span>
-        )}
-      </span>
-      {/* ONE age column, answering "how old is this" once.
-          
-          A row with no branch has no tip to date, so the column read "—" while
-          a second badge mid-row carried the answer: two places for one
-          question, one of them empty. The waiting age takes the column when
-          there is no commit age, and the distinction that matters — a plan
-          approved 6mo ago is not a branch untouched for 6mo — is carried by
-          colour and title rather than by a second position.
-          
-          Still nothing where no approval date is recorded: absent, not zero. */}
-      {/* IN A PLAN GROUP the waiting clock belongs to the PLAN ROW, which
-          states it once. Every branch of a plan shares one `waitingDays` — it
-          dates the plan's own `Approved:` record — so repeating it down the
-          column says the same number three times and reads like three
-          measurements.
-
-          Only the INHERITED clock is suppressed. A deferred branch in the same
-          group carries a real `ageMinutes` of its own, and that survives: an
-          earlier version of this section erased a shelved branch's age and PR,
-          and `fleet.ts` still carries the warning — *a branch started and then
-          shelved read as never begun*. A property of the plan is repetition; a
-          property of the branch is information. */}
-      {inPlanGroup && row.ageMinutes === null ? (
-        <span role="gridcell" className="shrink-0 text-right text-xs tabular-nums" />
-      ) : row.ageMinutes === null && row.waitingDays !== null ? (
-        <span
-          role="gridcell"
-          className="shrink-0 text-right text-xs tabular-nums text-amber-700 dark:text-amber-500"
-          title="Approved this long ago, and nobody has started it"
-        >
-          {waitingLabel(row.waitingDays)}
-        </span>
-      ) : (
-        <span
-          role="gridcell"
-          className="shrink-0 text-right text-xs tabular-nums text-slate-400 dark:text-slate-500"
-        >
-          {age(row)}
-        </span>
-      )}
-      {/* The row's actions, behind one menu at the right edge — and the menu
-          renders on EVERY row, dimmed where there is nothing to do.
-
-          `Start work` used to sit here bare, after the age, which put the
-          action behind the quietest number on the line. It is also about to
-          stop being alone (`board-becomes-operable` adds `Approve`), and a row
-          that already carries kind, plan, branch, note, PR and age has no
-          width left to spend on a second control.
-
-          On the ROW, not on the group: a `not-started` group can hold branches
-          from several plans, and dispatch is per plan and wave — a group-level
-          control would have to guess which. Per row, the row has already
-          decided.
-
-          The card is looked up by `planFile` from the board payload, because
-          `StartWorkButton` takes a `Card` and a fleet row is not one. A row
-          whose plan has no card gets a DISABLED menu rather than a broken
-          button — the same honest fallback the plan link makes, now with a
-          reason attached. */}
-      <RowActions
-        row={row}
-        card={card}
-        dispatch={dispatch}
-        approve={approve}
-        commission={commission}
-        pulse={pulse}
-        onStarting={onStarting}
-        onTaken={() => setActionTaken(true)}
-        onOpenLog={() => setLogOpen(true)}
-        onOpenStatus={() => setStatusOpen(true)}
-        onOpenChangedFiles={() => setFilesOpen(true)}
-      />
-      {/* Why this branch cannot MOVE — a different question from where it is
-          waiting, and the one nothing on this row could answer. It renders
-          BENEATH the six columns rather than inside one: the evidence is three
-          lines on a `ci-failing` row, and a track sized for that would push
-          every real column in from the edge across the whole fleet.
-
-          A stuck branch KEEPS ITS GROUP and gains this beside it — nothing here
-          moves a row or opens a section. And on the common row it renders
-          nothing at all: `stuck` is null for most branches, which is what makes
-          a populated one worth looking at. */}
-      <StuckCell row={row} cue={cue} />
-      {/* Mounted only while open — which is what makes the log on-demand in
-          fact and not merely in intent. The panel owns its own polling, so an
-          unmounted one fetches nothing at all; a panel rendered hidden would
-          keep a 3 s timer alive per WORKING row for as long as the tab is open,
-          which is the pulse-carries-every-log shape this wave exists to reject,
-          rebuilt on the client. */}
-      {/* THE DEFERRAL'S REASON, on the row's OWN SECOND LINE.
-
-          Two homes were tried and both were wrong, and the reason is the same
-          one twice: this is a SENTENCE and every cell in this row is bounded.
-          Beside the branch name it crushed
-          `bug/the-no-ref-arm-reads-the-join` down to `b… ads-the-join` — the
-          row's primary key, spent on prose. In the PR/note cell, a fixed `14rem`
-          track with `no commits` already in it, `truncate` gave the sentence
-          zero width and it rendered as nothing at all.
-
-          So it takes a line, the same way the stuck cell does: full width from
-          column 3 (past the marks, where the row's own content starts) to the
-          end. This is the row shape the board already uses for evidence that
-          does not fit a column — `conflict / the host reports this branch does
-          not merge` reads exactly this way — and the deferral is the same kind
-          of statement: what a bounded cell cannot say.
-
-          Rendered rather than hidden in a `title`, because a title is
-          unreachable by touch and by keyboard, and this sentence is the whole
-          answer to the question an operator asked when two rows read `deferred`
-          beside `no commits`: what do I do with this? Nothing — and here is
-          why. Nothing at all where the plan recorded no reason: absent, not a
-          phrase invented to fill the line.
-
-          PLACED AFTER THE ACTIONS CELL, which is not cosmetic ordering. A cell
-          spanning `3 / -1` opens a second grid row, and everything declared
-          after it lands there — with the reason declared earlier, the `⋯` menu
-          dropped below the sentence and hung off the row it belongs to.
-          Measured on screen. So the reason is the LAST child: line one keeps
-          all seven of its cells and the sentence takes the line beneath. */}
-      {row.state === 'deferred' && row.deferredReason && (
-        <span
-          role="gridcell"
-          data-deferred-reason
-          className="flex w-full items-baseline gap-x-2 text-xs text-slate-500 sm:col-start-3 sm:col-end-[-1] dark:text-slate-400"
-          title={row.deferredReason}
-        >
-          <span className="shrink-0 font-medium text-slate-600 dark:text-slate-300">deferred</span>
-          <span className="min-w-0 max-sm:whitespace-normal">{row.deferredReason}</span>
-        </span>
-      )}
-      {/* WHAT STANDS BETWEEN THIS ROW AND A WORKER — the brief, named where it
-          is absent.
-
-          THE SAME LINE-BENEATH SHAPE AS THE DEFERRAL ABOVE, and for the same
-          measured reason: this is a SENTENCE, and every cell on line one is
-          bounded. The note track is a fixed `14rem` already carrying *eligible
-          — nobody has taken it*, so a path appended there would `truncate` to
-          nothing — exactly what happened to the deferral reason when it was
-          tried in that cell. Declared AFTER the deferral for the reason that
-          comment records: a cell spanning `3 / -1` opens the second grid row,
-          so both sentences stack beneath a line one that keeps all its cells.
-
-          Rendered, not hidden in a `title`: a title is unreachable by touch and
-          by keyboard, and this sentence is the answer to *why can I not start
-          this*. The two lines never appear together — a deferred branch is not
-          startable, so `needsBrief` is false on every row the deferral renders
-          on.
-
-          THIS ROW'S NOTE STILL SAYS *eligible*, and that is correct rather than
-          a leftover. The wave arithmetic IS satisfied: the branch is genuinely
-          next, which is what the operator's original question established. What
-          was wrong was the row stopping there — so the fact is added beside the
-          verdict rather than replacing it, the same rule `stuck` follows in
-          keeping a row's group while naming what holds it. */}
-      {needsBrief(row) && (
-        <span
-          role="gridcell"
-          data-brief-gap
-          className="flex w-full items-baseline gap-x-2 text-xs text-amber-700 sm:col-start-3 sm:col-end-[-1] dark:text-amber-400"
-          title={briefGapNote(row.branch)}
-        >
-          {/* AMBER, the `waitingOn: 'you'` colour — because that is what this
-              is. A missing brief is a person's errand and nothing in git will
-              clear it, which is precisely the state `waitingTone` paints amber.
-              The note beside it stays the ordinary `click` colour: the wave
-              really is open, and only this line is the thing needing someone. */}
-          <span className="shrink-0 font-medium">needs a brief</span>
-          <span className="min-w-0 max-sm:whitespace-normal">{briefGapNote(row.branch)}</span>
-        </span>
-      )}
-      {logOpen && (
-        <WorkerLogModal
-          branch={row.branch}
-          onClose={() => setLogOpen(false)}
-          // The panel decides whether to OFFER the control (only for a
-          // `waiting` worker, read from the scan); this says whether the
-          // server would ACT on it. Two different questions, and the panel
-          // cannot answer the second — it describes a branch, this describes
-          // the binding.
-          canContinue={continueWith}
-          // BRANCH and PLAN in the panel become destinations. `onOpenPlan`
-          // returns whether it opened a card; the panel discards that — its
-          // PLAN button is a convenience, and the row's own plan link is the
-          // durable route where the board holds no card. Wrapped so the void
-          // shape the panel wants does not force the boolean up the chain.
-          onOpenPlan={onOpenPlan ? (planFile) => void onOpenPlan(planFile) : undefined}
-          onRevealBranch={onRevealBranch}
+              A LINK where the kind is `pr` and TEXT where it is not, and that
+              is not this component's choice: on a `pr` row slot 3 already names
+              and links the PR, so a second anchor to the same place would be
+              the interchangeable-words defect the association rule exists to
+              prevent. On a `branch` row — a merge conflict, which is the only
+              way a row with a PR is one — the destination is the branch, and
+              the number is context rather than a route. */}
+          {row.pr && row.kind !== 'pr' && row.kind !== 'release' && (
+            <span data-pr-number className="shrink-0 tabular-nums">
+              <PrGlyph />
+              {row.pr.number}
+            </span>
+          )}
+          {/* `draft` and the state are TWO badges, not one. They answer
+              different questions — *is this offered for review* and *what is it
+              waiting for* — and they are independent: a draft has CI like
+              anything else. Folding draft into the state would rebuild the
+              short-circuit that kept WAITING ON A MACHINE empty for three
+              releases. */}
+          {row.pr?.draft && (
+            <span
+              data-pr-draft
+              className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+              title="Draft — not yet offered for review"
+            >
+              draft
+            </span>
+          )}
+          {/* WHAT A STATUS WORD CANNOT SAY — *uncommitted work*, *blocked by an
+              earlier wave*, *claimed elsewhere*. The note is not being replaced
+              by slot 5, only relieved of the one duty the PR's own fields now
+              carry; see `noteWithoutPr`. */}
+          {note && (
+            <span
+              data-row-note
+              // The waiting-state travels as an attribute as well as a colour:
+              // a test asserting the colour alone would pass against a rule
+              // keyed on the note's WORDING, which is the shape this removes.
+              data-waiting-on={row.waitingOn ?? undefined}
+              className={`min-w-0 truncate max-sm:whitespace-normal ${waitingTone(row.waitingOn)}`}
+              title={note}
+            >
+              {note}
+            </span>
+          )}
+        </>
+      }
+      menu={
+        <RowActions
+          row={row}
+          card={card}
+          dispatch={dispatch}
+          approve={approve}
+          commission={commission}
+          pulse={pulse}
+          onStarting={onStarting}
+          onTaken={() => setActionTaken(true)}
+          onOpenLog={() => setLogOpen(true)}
+          onOpenStatus={() => setStatusOpen(true)}
+          onOpenChangedFiles={() => setFilesOpen(true)}
         />
-      )}
-      {/* The dispatcher-log panel, mounted here for the same reason the worker
-          log is: the menu that opens it unmounts on the click, so the state and
-          the mount both have to live on the Row that survives it. Keyed by the
-          plan's slug — `statusOpen` is only reachable when `card.hasDispatchLog`
-          is set, so the card and its slug are present here. */}
-      {statusOpen && card && (
-        <DispatchLogModal slug={card.slug} onClose={() => setStatusOpen(false)} />
-      )}
-      {/* WHAT THE BRANCH CHANGES, mounted here for the reason the two log
-          panels are: the menu that opens it unmounts on the click. Guarded on
-          `row.stuck` rather than on the flag alone so the paths are a
-          `readonly string[]` at the call site — `filesOpen` is only reachable
-          through an item that `offersChangedFiles` already gated on a
-          `ci-failing` row with a non-empty list, so the guard is a type
-          narrowing and not a second opinion about whether to show it. */}
-      {filesOpen && row.stuck && (
-        <ChangedFilesModal
-          branch={row.branch}
-          paths={row.stuck.changedPaths}
-          onClose={() => setFilesOpen(false)}
-        />
-      )}
-    </li>
+      }
+      extra={
+        <>
+          {/* Why this branch cannot MOVE — a different question from where it
+              is waiting, and the one nothing in the six slots could answer. It
+              renders BENEATH them rather than inside one: the evidence is three
+              lines on a `ci-failing` row, and a track sized for that would push
+              every real column in from the edge across the whole fleet. */}
+          <StuckCell row={row} cue={cue} />
+          {/* THE DEFERRAL'S REASON, on the row's OWN SECOND LINE.
+
+              Two homes were tried and both were wrong, and the reason is the
+              same one twice: this is a SENTENCE and every slot on line one is
+              bounded. Beside the branch name it crushed
+              `bug/the-no-ref-arm-reads-the-join` down to `b… ads-the-join` —
+              the row's primary key, spent on prose. In the status slot,
+              `truncate` gave the sentence zero width and it rendered as nothing
+              at all.
+
+              Rendered rather than hidden in a `title`, because a title is
+              unreachable by touch and by keyboard, and this sentence is the
+              whole answer to the question an operator asked when two rows read
+              `deferred` beside `no commits`: what do I do with this? Nothing —
+              and here is why. */}
+          {row.state === 'deferred' && row.deferredReason && (
+            <span
+              role="gridcell"
+              data-deferred-reason
+              className="flex w-full items-baseline gap-x-2 text-xs text-slate-500 sm:col-start-3 sm:col-end-[-1] dark:text-slate-400"
+              title={row.deferredReason}
+            >
+              <span className="shrink-0 font-medium text-slate-600 dark:text-slate-300">deferred</span>
+              <span className="min-w-0 max-sm:whitespace-normal">{row.deferredReason}</span>
+            </span>
+          )}
+          {/* WHAT STANDS BETWEEN THIS ROW AND A WORKER — the brief, named where
+              it is absent. THE SAME LINE-BENEATH SHAPE AS THE DEFERRAL, and for
+              the same measured reason: this is a SENTENCE, and every slot on
+              line one is bounded.
+
+              THIS ROW'S NOTE STILL SAYS *eligible*, and that is correct rather
+              than a leftover. The wave arithmetic IS satisfied: the branch is
+              genuinely next. What was wrong was the row stopping there — so the
+              fact is added beside the verdict rather than replacing it. */}
+          {needsBrief(row) && (
+            <span
+              role="gridcell"
+              data-brief-gap
+              className="flex w-full items-baseline gap-x-2 text-xs text-amber-700 sm:col-start-3 sm:col-end-[-1] dark:text-amber-400"
+              title={briefGapNote(row.branch)}
+            >
+              {/* AMBER, the `waitingOn: 'you'` colour — because that is what
+                  this is. A missing brief is a person's errand and nothing in
+                  git will clear it. */}
+              <span className="shrink-0 font-medium">needs a brief</span>
+              <span className="min-w-0 max-sm:whitespace-normal">{briefGapNote(row.branch)}</span>
+            </span>
+          )}
+          {/* Mounted only while open — which is what makes the log on-demand in
+              fact and not merely in intent. The panel owns its own polling, so
+              an unmounted one fetches nothing at all. */}
+          {logOpen && (
+            <WorkerLogModal
+              branch={row.branch}
+              onClose={() => setLogOpen(false)}
+              // The panel decides whether to OFFER the control (only for a
+              // `waiting` worker, read from the scan); this says whether the
+              // server would ACT on it.
+              canContinue={continueWith}
+              // BRANCH and PLAN in the panel become destinations. `onOpenPlan`
+              // returns whether it opened a card; the panel discards that.
+              onOpenPlan={onOpenPlan ? (planFile) => void onOpenPlan(planFile) : undefined}
+              onRevealBranch={onRevealBranch}
+            />
+          )}
+          {/* The dispatcher-log panel, mounted here for the same reason the
+              worker log is: the menu that opens it unmounts on the click, so
+              the state and the mount both have to live on the Row that survives
+              it. */}
+          {statusOpen && card && (
+            <DispatchLogModal slug={card.slug} onClose={() => setStatusOpen(false)} />
+          )}
+          {/* WHAT THE BRANCH CHANGES, mounted here for the reason the two log
+              panels are. Guarded on `row.stuck` rather than on the flag alone
+              so the paths are a `readonly string[]` at the call site. */}
+          {filesOpen && row.stuck && (
+            <ChangedFilesModal
+              branch={row.branch}
+              paths={row.stuck.changedPaths}
+              onClose={() => setFilesOpen(false)}
+            />
+          )}
+        </>
+      }
+    />
   );
 }
 
@@ -5245,25 +4710,6 @@ export function inferredPlanName(title: string): string {
   // a subject and a verb. Truncated with no ellipsis: the name is a proposal,
   // and a trailing "…" would suggest a longer name exists somewhere.
   return words.slice(0, 6).join('-');
-}
-
-function IssueGlyph() {
-  return (
-    <svg
-      role="img"
-      aria-label="Issue"
-      viewBox="0 0 16 16"
-      className="inline-block h-3 w-3 shrink-0 align-[-0.1em]"
-      fill="currentColor"
-    >
-      {/* A dot inside a ring — the shape an issue wears on GitHub and GitLab
-          alike, and deliberately NOT the pull request's two verticals. The
-          glyph is the whole visual difference between this row and a PR row, so
-          it has to be legible at 12px and unmistakable beside one. */}
-      <path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" />
-      <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0Zm0 1.25a6.75 6.75 0 1 0 0 13.5 6.75 6.75 0 0 0 0-13.5Z" />
-    </svg>
-  );
 }
 
 /**
@@ -5420,193 +4866,66 @@ function IssueRowActions(
  * See {@link IssueRowActions}; the row itself carries only what it NAMES, which
  * here is the tracker number and nothing else.
  */
+/**
+ * A TRACKER ISSUE, as a tuple — and the row that proves the collapse was about
+ * a shape rather than about two kinds disagreeing.
+ *
+ * This component was **two lines**: a wrapper that laid a ticket on
+ * `ROW_TRACKS`, the tracks of a BRANCH. A ticket has no wave, no worker and no
+ * branch; it wore those columns because there was no third grid to give it, and
+ * nobody noticed because two of the seven were empty and the rest were filled
+ * with something else's vocabulary — the kind cell read `Discovery`, a PLAN
+ * PHASE on a row that is not a plan and has never entered the lifecycle the
+ * word comes from.
+ *
+ * `tupleFromIssue` answers all six slots from the issue's own facts. Slot 3 is
+ * the TITLE — what a reader decides about — and the number rides in slot 4
+ * pointing at the tracker, which is where a reader goes to read it: item and
+ * artifact, the same split every other kind makes.
+ *
+ * What the old cell was claiming that IS worth keeping — *this is a proposal,
+ * not a plan* — survives in what the row does and does not render: the branch
+ * slot is empty because an issue has no branch, and slot 2 says `Story` rather
+ * than borrowing a word from another object's vocabulary.
+ */
 function IssueRowView(
   { issue, idea, issueAnswer }:
   { issue: IssueRow; idea: DispatchInfo; issueAnswer: IssueAnswer },
 ) {
-  const number = (
-    <span className="tabular-nums">
-      <IssueGlyph />
-      {issue.number}
-    </span>
-  );
   return (
-    <li
-      role="row"
-      data-issue-row={issue.number}
-      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-slate-100 px-3 py-2 text-sm dark:border-slate-800 sm:grid ${ROW_TRACKS} sm:items-baseline sm:gap-x-3`}
-    >
-      {/* The marks cell every row carries. Empty — nothing is writing to an
-          issue — but present, because a row missing it lands every following
-          cell a column left of its neighbours. */}
-      <span role="gridcell" className={ACTIVITY_MARK_PLACE.row} />
-      {/* `Story` — THE KIND, and a ticket is the row this cell was most wrong
-          about.
-          
-          It read `Discovery`, defended as *"the phase column's word for not yet
-          decided … not a fifth phase; the first one, worn by something that is
-          not a plan yet"*. That argument is coherent and it is still a PLAN
-          PHASE on a row that is not a plan and has no phase — the fourth of the
-          column's four meanings, and the one where the mismatch is total: an
-          issue has never entered the lifecycle the word comes from, so nothing
-          about it could ever be `Development` or `Endgame`.
-          
-          Worse, the sentence that said so was a TOOLTIP — *"Not a plan yet, this
-          row asks whether it should become one"* — hover-only text doing the
-          job of a label, which is exactly the defect
-          `the-kind-is-labelled-not-hovered` names. The word `Story` says in the
-          cell what the tooltip was explaining about it.
-          
-          The claim the old cell was making that IS worth keeping — this is a
-          proposal, not a plan — survives in what the row does and does not
-          render: the inferred name is text and not a link, and the branch track
-          is empty. Both are asserted, and neither depends on a word borrowed
-          from another object's vocabulary. */}
-      <span
-        role="gridcell"
-        className="min-w-0 shrink-0 truncate text-xs text-slate-500 dark:text-slate-400"
-      >
-        <span className="sr-only sm:hidden">Kind: </span>
-        <span data-kind="ticket">{KIND_LABEL.ticket}</span>
-      </span>
-      {/* The inferred name, in the plan track. TEXT, not an anchor — see above.
-          `data-issue-name` is what the test asserts is not an `<a>`. */}
-      <span role="gridcell" className="flex min-w-0 items-baseline gap-1">
-        {/* The same width the plan track's expander occupies elsewhere, so
-            these names begin at the same x as their neighbours'. */}
-        <span aria-hidden className="shrink-0 text-[10px] leading-none">{' '}</span>
+    <TupleRowView
+      tuple={tupleFromIssue(issue)}
+      rowAttr={{ 'data-issue-row': `${issue.number}` }}
+      // THE TRACKER'S TWO HOOKS, and which one fires says whether the tracker
+      // gave an address. They were on the anchor and the span inside this
+      // component and they move with the NAME rather than with the component —
+      // the same rule `data-branch` follows. Stamped here rather than in
+      // `valueAttr` because `what: 'ticket'` is also worn by an agent's session
+      // id, and only this call site knows the row is an issue.
+      nameAttr={{
+        link: { 'data-issue-link': '' },
+        text: { 'data-issue-number': '' },
+      }}
+      statusExtra={
+        // THE INFERRED PLAN NAME — what this issue would be called if someone
+        // made a plan of it. TEXT and never an anchor, because there is nothing
+        // to open: the plan does not exist, and that is the whole point of the
+        // row. `data-issue-name` is what a test asserts is not an `<a>`.
         <span
           data-issue-name
-          className="min-w-0 truncate text-xs font-medium text-slate-700 dark:text-slate-300"
+          className="min-w-0 truncate font-medium text-slate-700 dark:text-slate-300"
           title={issue.title}
         >
           {inferredPlanName(issue.title)}
         </span>
-      </span>
-      {/* The branch track, EMPTY on purpose — see the comment above. */}
-      <span role="gridcell" className="flex w-full min-w-0 items-baseline sm:w-auto" />
-      <span
-        role="gridcell"
-        className="flex min-w-0 items-baseline gap-1 text-xs text-slate-500 dark:text-slate-400"
-      >
-        {issue.url ? (
-          <a
-            href={issue.url}
-            target="_blank"
-            rel="noreferrer"
-            // Same 24 px of vertical hit area as `data-pr-link`, by the same
-            // padding the row absorbs — see the note there.
-            data-issue-link
-            className="-my-1 inline-block shrink-0 py-1 text-blue-600 hover:underline dark:text-blue-400"
-          >
-            {number}
-          </a>
-        ) : (
-          <span data-issue-number className="shrink-0">{number}</span>
-        )}
-      </span>
-      {/* How long it has been sitting there — the one clock an issue has. */}
-      <span
-        role="gridcell"
-        className="shrink-0 text-right text-xs tabular-nums text-slate-500 dark:text-slate-400"
-        title={issue.ageMinutes === null ? undefined : 'Open this long, and unplanned'}
-      >
-        {issue.ageMinutes === null ? '' : ageLabel(issue.ageMinutes)}
-      </span>
-      {/* THE ROW'S ACTIONS, now behind the same `⋯` menu every other row wears.
-          Create plan used to sit bare in this cell — the one row whose actions
-          were not in the menu. `every-action-is-in-the-menu` moved it out for
-          two reasons: the board's rule that a row's actions all live in its
-          menu, and the geometry — `Create plan` is wider than the `1.25rem`
-          track and overlapped the age column beside it. `the-menu-fits-the-kind`
-          then gave the ticket its full set: Create plan (works), Create story
-          (offered, refused with its reason), Open on host. `IssueRowActions`
-          renders the glyph that fits and floats the menu over the grid, so a
-          ticket row is never menuless. */}
-      <IssueRowActions issue={issue} idea={idea} issueAnswer={issueAnswer} />
-    </li>
-  );
-}
-
-/**
- * The PR cell, rendered from the row's FIELDS.
- *
- * What it replaces: a string search for `PR #<n>` inside the note, applied so
- * the substring could be linked. That was a parser for a format nobody
- * declared — it silently rendered an unlinked note whenever the server's
- * wording drifted, and it could not produce a badge without taking the sentence
- * back apart. The number, the draft flag and the state now arrive as data, so
- * the cell composes them directly.
- *
- * **`draft` and `state` are two badges, not one.** They answer different
- * questions — *is this offered for review* and *what is it waiting for* — and
- * they are independent: a draft has CI like anything else. Folding draft into
- * the state would rebuild the short-circuit that kept WAITING ON A MACHINE
- * empty for three releases.
- *
- * Empty where the row has no PR, and that emptiness is now a GAP rather than a
- * shift: the track holds its width, so the age and menu beside it stay put.
- */
-function PrCell({ pr }: { pr: AgentRow['pr'] }) {
-  if (!pr) return null;
-  const word = prStateWord(pr.state);
-  const number = (
-    <span className="tabular-nums">
-      <PrGlyph />
-      {pr.number}
-    </span>
-  );
-  return (
-    <span className="flex min-w-0 items-baseline gap-1 text-xs text-slate-500 dark:text-slate-400">
-      {/* An empty `url` is a host that reported no address — the number then
-          renders as plain text rather than as an invented link, the same rule
-          the branch cell follows for a merged branch. */}
-      {pr.url ? (
-        <a
-          href={pr.url}
-          target="_blank"
-          rel="noreferrer"
-          // 24 px TALL, by padding that the row absorbs. Measured
-          // 2026-08-19 this link was 35 x 16 px: wide enough, short by eight
-          // pixels. `inline-block py-1 -my-1` grows the box a pointer can hit
-          // without moving the text or the row — the growth is negative margin
-          // on both sides, so the line box is the height it was.
-          data-pr-link
-          className="-my-1 inline-block shrink-0 py-1 text-blue-600 hover:underline dark:text-blue-400"
-        >
-          {number}
-        </a>
-      ) : (
-        <span data-pr-number className="shrink-0">{number}</span>
-      )}
-      {pr.draft && (
-        <span
-          data-pr-draft
-          className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-          title="Draft — not yet offered for review"
-        >
-          draft
-        </span>
-      )}
-      {word && (
-        // The state as a WORD, never as colour alone. Colour reinforces it for
-        // the two values a reader acts on; `unknown` renders nothing at all,
-        // because a word saying only *this board could not find out* is noise
-        // on every row of a host that carries no rollup.
-        <span
-          data-pr-state={pr.state}
-          className={
-            pr.state === 'conflicts' || pr.state === 'failing'
-              ? 'truncate text-rose-700 dark:text-rose-400'
-              : pr.state === 'green'
-                ? 'truncate text-emerald-700 dark:text-emerald-500'
-                : 'truncate'
-          }
-        >
-          {word}
-        </span>
-      )}
-    </span>
+      }
+      // THE ROW'S ACTIONS, behind the same `⋯` menu every other row wears.
+      // `Create plan` used to sit bare in this cell — the one row whose actions
+      // were not in the menu — and `the-menu-fits-the-kind` gave the ticket its
+      // full set: Create plan (works), Create story (offered, refused with its
+      // reason), Open on host.
+      menu={<IssueRowActions issue={issue} idea={idea} issueAnswer={issueAnswer} />}
+    />
   );
 }
 
@@ -5875,12 +5194,14 @@ export function AgentList({
         // group once any group earned one, so a plan with a single row got a
         // heading that labelled the one line beneath it.
         //
-        // The half that is easy to lose: a group WITHOUT a heading has nowhere
-        // else to name its plan, so its row must print the name itself. That is
-        // why `planInHeading` is computed from this group's own answer below
-        // rather than from a section-wide flag — in a mixed section (one plan
-        // with several rows beside a plan with one) a single flag is wrong for
-        // one of them either way.
+        // THE HALF THIS USED TO CARRY IS NOW STRUCTURAL. A group without a
+        // heading had nowhere else to name its plan, so its row had to print
+        // the name itself — and a headed group's rows had to suppress it, which
+        // is the `planInHeading` flag the collapse removed. In the tuple the
+        // plan is one of slot 4's LINKS, beside the branch it governs, so every
+        // row names its plan whether or not a heading above it does. The
+        // heading and the link are no longer two spellings of one fact: the
+        // heading groups, the link opens.
         // An empty group is never foldable — it hides nothing, and its header
         // carries the HINT rather than `(0)`, which is the one thing in there
         // worth reading when there is nothing to list.
@@ -6141,10 +5462,6 @@ export function AgentList({
                                 row={r}
                                 onOpenPlan={onOpenPlan}
                                 inPlanGroup
-                                // The plan row above names it, so the branch
-                                // rows do not repeat it — the same bargain a
-                                // sub-heading makes with the rows beneath it.
-                                planInHeading
                                 card={cardForPlanFile?.(r.planFile) ?? null}
                                 dispatch={dispatch}
                                 approve={approve}
@@ -6250,7 +5567,6 @@ export function AgentList({
                           key={rowKey(r)}
                           row={r}
                           onOpenPlan={onOpenPlan}
-                          planInHeading={headed}
                           // Looked up per row rather than per group: a row's
                           // plan is what dispatch takes, and only the rows that
                           // are startable ever use it.
