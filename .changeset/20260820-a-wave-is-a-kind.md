@@ -111,6 +111,12 @@ whole purpose is a single scannable word. `PrGlyph` went with it:
 `TupleLinkView` draws the mark from `KIND_ICON_PATH.pr`, so the shape has
 one definition rather than two.
 
+The `data-pr-link` hook did NOT move with it, and an earlier draft of these
+notes claimed it did. `TupleLinkView` stamps the hook from the link's own
+`what`, so the PR is now `data-tuple-link="pr"` and `data-pr-link` has no
+owner — one browser test asserted on it and was updated. The property it
+defends is unchanged: a shelved branch's PR and age stay reachable.
+
 A build's name **should** link to the pipeline run and cannot yet: no run or
 checks URL is on the wire. It renders as text rather than a guessed
 `<repo>/pull/<n>/checks`, by the rule `CardPrSchema` states for the same

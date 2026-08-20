@@ -240,7 +240,21 @@ describe('NOT STARTED renders one row per plan', () => {
       const branchRow = section(page).locator('li[data-agent-row]')
         .filter({ has: page.locator('[data-branch="feature/set-down"]') });
       await expect.poll(() => branchRow.count()).toBe(1);
-      await expect.poll(() => branchRow.locator('[data-pr-link]').textContent())
+      // `data-tuple-link="pr"`, and it read `data-pr-link` until 2026-08-20.
+      //
+      // The PR left SLOT 5 that day: it had rendered there as a badge beside the
+      // status, which is an artifact in the status cell — `no checks 240` and `CI
+      // running 283` were the cost. It is an artifact link in slot 4 now, where
+      // `TupleLinkView` stamps the hook from the link's own `what`, so
+      // `data-pr-link` has no owner any more.
+      //
+      // The PROPERTY is unchanged and is what this test defends: a shelved
+      // branch's PR and age must stay reachable — `fleet.ts` warns that
+      // flattening it means *"a branch started and then shelved read as never
+      // begun, with its age and its PR erased."* Measured after the move, the row
+      // reads `BRANCH feature/set-down deferred shelved-work 57 last commit 6h
+      // ago green 6h`: both facts present, one selector stale.
+      await expect.poll(() => branchRow.locator('[data-tuple-link="pr"]').textContent())
         .toContain('57');
       await expect.poll(() => branchRow.getByText('6h', { exact: true }).count()).toBe(1);
     } finally {
@@ -248,10 +262,21 @@ describe('NOT STARTED renders one row per plan', () => {
     }
   });
 
-  it('leaves every OTHER section rendering branch rows', async () => {
+  it('keeps every branch REACHABLE in every section, grouped or not', async () => {
     const page = await open();
     try {
-      // The change is confined to the one section whose rows are not branches.
+      // WHAT THIS TEST DEFENDS, and it is not what it used to assert.
+      //
+      // It read *"leaves every OTHER section rendering branch rows"* and checked
+      // for ZERO plan rows outside NOT STARTED, on the premise stated in its own
+      // comment: *"the change is confined to the one section whose rows are not
+      // branches."* That premise is what changed. Three sections now group by
+      // plan and wave — WAITING ON YOU, QUIET and DONE — because in each the
+      // thing being decided is a wave, not a branch.
+      //
+      // The property worth keeping is the one underneath: a branch must still be
+      // FINDABLE wherever it lives. Grouping may move a row and must never lose
+      // it, which is the loss `fleet.ts` warns of about a shelved branch.
       for (const [label, branch] of [
         ['Waiting on you', 'feature/needs-review'],
         ['Quiet', 'feature/gone-still'],
@@ -262,10 +287,7 @@ describe('NOT STARTED renders one row per plan', () => {
         if (await grid.count() === 0) await toggle.click();
         await expect.poll(() =>
           page.locator(`ul[role="grid"][aria-label^="${label}"] [data-branch="${branch}"]`).count(),
-          { timeout: 5_000 }).toBe(1);
-        // And NO plan rows there: the branch is rightly the subject.
-        await expect.poll(() =>
-          page.locator(`ul[role="grid"][aria-label^="${label}"] li[data-plan-row]`).count()).toBe(0);
+          { timeout: 5_000 }).toBeGreaterThan(0);
       }
     } finally {
       await page.close();
@@ -375,7 +397,15 @@ describe('NOT STARTED renders one row per plan', () => {
 
       // The FIELD reaches the DOM, so a rule keyed on the note's wording cannot
       // masquerade as this passing.
-      expect(await eligible.getAttribute('data-waiting-on')).toBe('click');
+      //
+      // `you`, and it read `click` until 2026-08-20. `waitingTone` gives `click`
+      // the ORDINARY colour on the argument that a section whose every row waits
+      // on a click would *"shout twice and mean once"* — sound for branch rows,
+      // and false here: the wave rows sit side by side with three verdicts, and
+      // exactly one of them can be started. `you` is the amber *this needs a
+      // decision* tone, which is what an eligible wave is. Reported from a
+      // screenshot, where the startable wave was the quiet-looking one.
+      expect(await eligible.getAttribute('data-waiting-on')).toBe('you');
       expect(await blocked.getAttribute('data-waiting-on')).toBe('time');
 
       const colourOf = (loc: typeof eligible) =>
