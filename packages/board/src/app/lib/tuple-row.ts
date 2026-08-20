@@ -219,10 +219,32 @@ export function tupleFromRow(row: AgentRow): TupleRow {
       : { text: row.ageMinutes === null ? '' : tupleAgeText(row.ageMinutes), label: '' };
   const plan = planLink(row);
   const status = row.pr ? prStatus(row.pr) : stateStatus(row);
-  const base = { kind: row.kind, icon: KIND_ICON[row.kind] ?? KIND_ICON.branch,
-    kindLabel: KIND_LABEL[row.kind] ?? KIND_LABEL.branch, status, age };
+  // THE KIND FALLS BACK TOO, and it used to be the only one of the three that
+  // did not. `icon` and `kindLabel` each guarded against a kind this projection
+  // does not know while `kind` itself passed the raw value through — so a row
+  // arriving WITHOUT the field rendered a branch's glyph and a branch's word
+  // beside `data-tuple-kind` and `data-kind` attributes that were absent
+  // entirely, which is a row that looks right and cannot be found.
+  //
+  // `RowKindSchema.default('branch')` fills it for every row that comes through
+  // the parser, and that is most of them. It is not all of them: a suite that
+  // fulfils `/api/fleet` from a literal serves rows the schema never saw, and
+  // twelve of this estate's browser tests do exactly that. The fallback belongs
+  // where the other two already are — one place that answers *what is this row
+  // when the field is missing*, rather than two that answer it and one that
+  // does not.
+  //
+  // `'branch'` because that is the value the contract names, for the reason it
+  // names: an unrecognised row most nearly IS a branch. This is emphatically
+  // not the renderer-side derivation the contract declines — it does not look
+  // at `row.pr`, `row.issue` or `row.planFile`, and it cannot reclassify a row
+  // the server DID label. It fills one absent field with the one value the
+  // contract says an absent field means.
+  const kind: RowKind = row.kind && row.kind in KIND_LABEL ? row.kind : 'branch';
+  const base = { kind, icon: KIND_ICON[kind] ?? KIND_ICON.branch,
+    kindLabel: KIND_LABEL[kind] ?? KIND_LABEL.branch, status, age };
 
-  if (row.kind === 'pr' && row.pr) {
+  if (kind === 'pr' && row.pr) {
     // THREE LINKS, and this is the row the varying slot count exists for. The
     // PR is the item; its plan and its branch are both artifacts, both worth
     // opening, and both already on the row — measured on the live pulse, a PR
@@ -236,7 +258,7 @@ export function tupleFromRow(row: AgentRow): TupleRow {
     };
   }
 
-  if (row.kind === 'release') {
+  if (kind === 'release') {
     // A release NAMES ITS VERSION where the row knows one, and its PR number
     // otherwise. The version is the thing a reader is deciding about — *is
     // 2.7.0 ready* — and the PR is how it gets there; where no version has

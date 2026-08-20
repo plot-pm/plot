@@ -89,11 +89,16 @@ function fleet(): Fleet {
     }),
   ];
   return {
-    rows, generatedAt: new Date(0).toISOString(), scanSeconds: 1, repo: 'garden',
-    prError: null, prNextInSeconds: 30, issueError: null, issueAnswer: 'answered',
+    generatedAt: new Date().toISOString(),
+    ageSeconds: 1, ready: true, error: null, rows,
     // The UNPLANNED TICKET — a row with no branch, no wave and no worker, which
     // is exactly what it used to wear seven branch tracks to say.
     issues: [issue(228, 'Fleet scan asks the host once per branch')],
+    issueAnswer: 'answered',
+    issueError: null,
+    summary: { plans: 2, waves: 2, branches: rows.length, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
+    stuck: { stuck: 0, artifact: 0, conflict: 1, unpushed: 0, ci: 0 },
+    prAgeSeconds: 1, prNextInSeconds: 59, scanNextInSeconds: 4, prError: null,
   } as unknown as Fleet;
 }
 
@@ -168,7 +173,12 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // now holds the KIND, in a word, which is the fact that cell was always
       // failing to state.
       expect(await ticket.locator('[data-phase]').count()).toBe(0);
-      expect(await ticket.locator('[data-kind]').innerText()).toBe('Story');
+      // CASE-INSENSITIVE, because slot 2 wears Tailwind's `uppercase` on the
+      // board and the authored word is `Story`. Asserting the styled form would
+      // make this a claim about a CSS utility rather than about the kind being
+      // stated — the same reason the harness suite lowercases, arrived at from
+      // the other direction: there no stylesheet loads, so it reads `Story`.
+      expect((await ticket.locator('[data-kind]').innerText()).toLowerCase()).toBe('story');
     } finally {
       await page.close();
     }
@@ -263,8 +273,9 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // phase, nothing, or a plan phase on a ticket depending on a wave count
       // the reader cannot see.
       expect(new Set(words).size).toBeLessThanOrEqual(4);
+      const KINDS = ['plan', 'branch', 'pr', 'story', 'release', 'build', 'agent'];
       for (const w of new Set(words)) {
-        expect(['Plan', 'Branch', 'PR', 'Story', 'Release', 'Build', 'Agent']).toContain(w);
+        expect(KINDS, `kind word: ${w}`).toContain(w.toLowerCase());
       }
     } finally {
       await page.close();

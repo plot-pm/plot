@@ -44,7 +44,7 @@ import { agoLabel } from './AgentPanelFacts.js';
 // costs a projection and no rendering at all, which is what the deleted three
 // could never do.
 import { tupleFromIssue, tupleFromPlan, tupleFromRow } from '../lib/tuple-row.js';
-import { TupleRowView } from './TupleRow.js';
+import { MARKS_CELL, TupleRowView } from './TupleRow.js';
 
 /**
  * Groups in fixed order, each labelled by what it asks OF YOU rather than by
@@ -2426,7 +2426,11 @@ export const ACTIVITY_MARK_PLACE = {
   // `self-stretch` still takes the row's full height so the marks centre
   // against whatever the row grew to; the height comes from the row's content,
   // never from this cell.
-  row: 'relative flex w-full shrink-0 flex-col items-center justify-center gap-1 self-stretch',
+  // THE TUPLE'S OWN CELL, borrowed rather than restated — see `MARKS_CELL`.
+  // The row is what renders this track, so the row is what owns the string; a
+  // second copy here is how a heading's marks and a row's marks come to sit
+  // differently, which is the drift this whole wave exists to remove.
+  row: MARKS_CELL,
   // In a HEADING the mark simply FLOWS. The `<h2>` is a flex row and the mark
   // takes its place after the tally like any other child — there is no grid
   // here to stay out of, and no `relative` box to hang in.

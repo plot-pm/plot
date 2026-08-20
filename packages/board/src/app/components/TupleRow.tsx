@@ -60,6 +60,34 @@ export const TUPLE_TRACKS =
   'grid-cols-[1.5rem_4.5rem_12rem_1fr_8rem_4.5rem_1.25rem]';
 
 /**
+ * SLOT 1's CELL — the marks track, and it is declared HERE because the tuple is
+ * what renders it.
+ *
+ * `AgentList.tsx` re-exports it as `ACTIVITY_MARK_PLACE.row`, which is the name
+ * the fleet's suites already assert on and the name `ActivityMark` reads for
+ * its `heading` sibling. One string, two names, and the direction of the
+ * dependency is the point: the ROW owns where its marks sit, and the section
+ * borrows that answer for the heading it draws above them.
+ *
+ * Every clause is load-bearing and was paid for:
+ *
+ *   - **In the flow, not `absolute`.** `sm:absolute sm:left-0` put the mark at
+ *     the row's edge — OUTSIDE the section's border, so every mark straddled
+ *     the panel edge, and two marks on one row overlapped because absolute
+ *     boxes do not make room for each other.
+ *   - **`flex-col` with a gap**, so a row carrying several marks stacks them.
+ *   - **No padding of its own.** The row already carries `py-2`; a second pair
+ *     here made every row as tall as a two-line one — measured, a plain row and
+ *     a row with a status line both came out at 60px, which would have made
+ *     every alignment assertion hold on the defect too.
+ *   - **`self-stretch`** takes the row's full height, so the marks centre
+ *     against whatever the row grew to. The height comes from the row's
+ *     content, never from this cell.
+ */
+export const MARKS_CELL =
+  'relative flex w-full shrink-0 flex-col items-start justify-center gap-1 self-stretch';
+
+/**
  * The VALUE-carrying attribute a link keeps, beyond `data-tuple-link`.
  *
  * `data-tuple-link` says what SORT of thing a link points at, which is what the
@@ -316,8 +344,32 @@ export function TupleRowView({
           marks. One track for *what is happening to this row* and *what kind of
           row it is*: both are the row's identity rather than its content, and a
           seventh fixed track costs its own width AND a gap. */}
-      <span role="gridcell" className="flex w-full shrink-0 items-center justify-center gap-1 self-stretch">
-        <span aria-hidden data-tuple-icon={tuple.kind} className="text-xs leading-none">
+      <span role="gridcell" className={MARKS_CELL}>
+        {/* THE ICON IS THE ROW'S LEAST URGENT MARK. It says what KIND of row
+            this is — which slot 2 also says, in a word a reader can see —
+            while the marks beside it say what is happening to the row RIGHT
+            NOW. So where the two compete for this track, the icon gives way:
+            it leaves the flow and the marks keep the alignment. */}
+        <span
+          aria-hidden
+          data-tuple-icon={tuple.kind}
+          // ON THE FIRST LINE, and OUT OF THE STACK — `absolute` within this
+          // cell rather than a flex item in it. Both facts are measured.
+          //
+          // In the flow, the icon and the marks share one vertical stack, so
+          // the icon's 12px box shifted every mark beside it: a row's activity
+          // mark came out 6px off the branch name it marks, against a 4px
+          // tolerance the suite has held since `agent-rows-line-up`. The marks
+          // are what must line up — they are read across rows, down a column —
+          // and the icon is constant, so the icon is what gives way.
+          //
+          // `top-2` matches the row's own `py-2`, which puts the icon on the
+          // FIRST LINE rather than at the row's centre. On a two-line row (one
+          // carrying a stuck status) the centre is the gap between the lines —
+          // the same defect `ActivityMark` records fixing for itself, and the
+          // icon would have re-introduced it one element over.
+          className="absolute left-0 top-2 text-xs leading-none"
+        >
           {tuple.icon}
         </span>
         {marks}

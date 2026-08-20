@@ -165,6 +165,30 @@ describe('the server decides the kind, and the renderer reads it', () => {
     expect(tuple.name.label).toBe('feature/x');
   });
 
+  it('reads a row with NO kind at all as a branch', () => {
+    // `RowKindSchema.default('branch')` fills the field for every row that
+    // comes through the parser, and that is most of them. It is not all of
+    // them: a browser suite that fulfils `/api/fleet` from a literal serves
+    // rows the schema never saw, and twelve of this estate's suites do exactly
+    // that. So the projection carries the same fallback the contract states.
+    //
+    // MEASURED AS A REGRESSION rather than imagined. `icon` and `kindLabel`
+    // each guarded against an unknown kind while `kind` itself passed the raw
+    // value through, so a fieldless row rendered a branch's glyph and a
+    // branch's word beside `data-tuple-kind` and `data-kind` attributes that
+    // were ABSENT — a row that looks right and cannot be found. Two browser
+    // tests timed out on it, which reads like a hang rather than a defect.
+    const fieldless = { ...row(), kind: undefined } as unknown as AgentRow;
+    const t = tupleFromRow(fieldless);
+    expect(t.kind).toBe('branch');
+    expect(t.kindLabel).toBe('Branch');
+    expect(t.icon).toBe(KIND_ICON.branch);
+    // And the NAME is the branch's, which is the arm the fallback has to reach:
+    // a fallback that fixed only the label would leave a fieldless row taking
+    // whichever arm `undefined` happened to miss.
+    expect(t.name.what).toBe('branch');
+  });
+
   it('has no kind derivation in the client at all', () => {
     // A STRUCTURAL assertion, because the rule is about where code lives rather
     // than what one input produces. The projection may READ `row.kind`; it may

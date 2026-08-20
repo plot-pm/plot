@@ -302,8 +302,12 @@ describe('NOT STARTED renders one row per plan', () => {
       // AND THE NESTING IS STILL GONE, which is the property (2) was protecting
       // and the one that must survive the realignment. It survives in the KIND
       // rather than in the offset: the two rows say what they are.
-      expect(await planRowEl.locator('[data-kind]').innerText()).toBe('Plan');
-      expect(await branchRow.locator('[data-kind]').innerText()).toBe('Branch');
+      // LOWERCASED, because slot 2 wears Tailwind's `uppercase` on the board
+      // while the authored words are `Plan` and `Branch`. Asserting the styled
+      // form would make this a claim about a CSS utility rather than about the
+      // two rows saying what they are.
+      expect((await planRowEl.locator('[data-kind]').innerText()).toLowerCase()).toBe('plan');
+      expect((await branchRow.locator('[data-kind]').innerText()).toLowerCase()).toBe('branch');
     } finally {
       await page.close();
     }
