@@ -9,13 +9,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Story:** plot-board
 - **Sprint:**
 - **Review:** in-session
 - **Impl:** own branches
 - **Assignee:** jwloka
+- **Approved:** 2026-08-20 by jwloka (in-session) — the board reported `WORKING: none` while four agents worked; finding 1+2 already fixed in #258
 
 ## Problem
 
