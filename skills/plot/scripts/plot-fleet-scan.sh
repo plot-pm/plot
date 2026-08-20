@@ -1022,6 +1022,55 @@ worktree_locked() { # $1=worktree path → 0 when a lock is held there
   [ -e "$gd/index.lock" ]
 }
 
+# ---------------------------------------------------------------------------
+# EVERY REMOTE REF, IN ONE CALL — the spawn count IS the cost
+# ---------------------------------------------------------------------------
+#
+# THE MEASUREMENT, 2026-08-20, with a wrapper counting every `git` invocation:
+# 459 spawns for one scan of 54 branches, at 56 ms of process launch each —
+# roughly 24 s before git does any work. No single operation was slow: `fetch`
+# 0 s, `pr-list` 1 s, all 54 ancestry walks 1 s together. The distribution had
+# no hotspot (68 rev-list, 68 ls-tree, 67 show, 59 show-ref) because the cost is
+# the SPAWNING: 8 per branch, 54 branches.
+#
+# `git show-ref --verify` was asked once per branch from two places, always the
+# same question — does `origin/<branch>` exist. `for-each-ref` answers it for
+# every branch at once, so 59 spawns become one.
+#
+# Spawn cost is itself a property of the ESTATE rather than of this script:
+# every git process reads the ref database and worktree list at startup.
+# Measured on this repo, 44 worktrees gave 56 ms per spawn and a 105 s scan;
+# after removing 33 finished ones, 31 ms and 63 s. Both multipliers are real,
+# which is why housekeeping alone did not reach the 30 s budget.
+#
+# WHY IT MATTERS BEYOND THIS REPO: on Bitbucket one host call was measured at
+# ~10 s against GitHub's 461 ms, so a scan that cannot finish here cannot finish
+# there at all. The board serves no rows without a completed pulse — a fresh
+# process has no previous one to fall back on — so an over-budget scan is an
+# EMPTY Agents tab, not a stale one.
+#
+# The tab-delimited-string-plus-`case` shape matches `WORKTREES` below and is
+# kept for the same reason: no associative arrays, so it must work in POSIX sh.
+REMOTE_REFS=$(git for-each-ref --format='%(refname:strip=3)' \
+  "refs/remotes/origin" </dev/null 2>/dev/null)
+
+# Whether `origin/$1` exists, answered from the batch rather than by spawning.
+#
+# EXIT STATUS ONLY, matching what `show-ref -q --verify` returned, so every
+# caller's `if !` reads identically. An empty `REMOTE_REFS` — a repo with no
+# remote, or a `for-each-ref` that failed — makes this false for every branch,
+# exactly as a failing `show-ref` did.
+remote_ref_exists() { # $1=branch → 0 when origin/$1 is present
+  case "
+$REMOTE_REFS
+" in
+    *"
+$1
+"*) return 0 ;;
+  esac
+  return 1
+}
+
 WORKTREES=""
 while IFS=$'\t' read -r wt_branch wt_path; do
   [ -n "$wt_branch" ] || continue
@@ -1355,8 +1404,7 @@ conflicts_known_of() { # $1=branch $2=state → true|false
     wip|claimed) ;;
     *) printf 'false'; return ;;
   esac
-  git show-ref -q --verify "refs/remotes/origin/$1" </dev/null 2>/dev/null \
-    || { printf 'false'; return; }
+  remote_ref_exists "$1" || { printf 'false'; return; }
   # CHANGES of its own, not merely commits of its own. A claim IS a commit —
   # the empty `plot: claim <branch>` push, which is what makes claiming
   # exclusive — so a commit count is non-zero for every claimed branch and would
@@ -2100,7 +2148,7 @@ branch_state() {
   # the ancestry path below instead. Moving the lookup to the top reads like a
   # cheap early answer and would silently report in-flight work as `merged`,
   # opening the next wave on it. A test in fleet.test.mjs pins this ordering.
-  if ! git show-ref -q --verify "refs/remotes/origin/$br" </dev/null 2>/dev/null; then
+  if ! remote_ref_exists "$br"; then
     # No ref carries two meanings and this used to answer `open` for both: a
     # branch never started, and a branch merged with its ref deleted at merge.
     # The wave arithmetic reads `open` as OUTSTANDING, so a finished wave never
