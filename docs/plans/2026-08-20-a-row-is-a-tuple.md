@@ -46,13 +46,16 @@ that every row is**, so each kind grew its own rendering and its own exceptions.
 
 ### Six slots, one shape
 
-    [item-icon, item-kind, item-name, artifact-name-link?, item-status, item-age]
+    [item-icon, item-kind, item-name, artifact-name-link*, item-status, item-age]
+
+where `artifact-name-link*` is **zero or more** linked names, not one — a branch
+carries none, a PR carries its plan and its branch.
 
 | Kind | icon | kind | name | artifact link | status | age |
 |---|---|---|---|---|---|---|
 | Ticket | ticket | `Story` | `228: Fleet scan asks the host once per branch` | `fleet-scan-asks-the-host` | `open` | — |
 | Plan | plan | `Plan` | `fleet-scan-asks-the-host` | `idea/my-branch` | `draft` | `1d` |
-| PR | pr | `PR` | `57` | `feature/opus5-longhorizon-hardening` | `conflicts` | `25d` |
+| PR | pr | `PR` | `57` | `fleet-scan-asks-the-host`, `feature/opus5-longhorizon-hardening` | `conflicts` | `25d` |
 | Build | build | `Build` | `CI:1860` | `PR 283` | `CI is running for PR #283` | `10m` |
 | Agent | agent | `Agent` | `@Dev-Agent` | `feature/opus5-longhorizon-hardening` | `thinking` | `13m` |
 | Branch | branch | `Branch` | `feature/opus5-longhorizon-hardening` | — | `conflicts` | `25d` |
@@ -68,9 +71,22 @@ the branch and the artifact slot is empty. The row leads with what the reader is
 deciding about, and the vehicle follows in a slot that may be blank — the rule
 this estate reached from the other direction.
 
-**BOTH slots are links: the item itself, and its artifact.** Two destinations
-per row, and they are different places — `57` opens the pull request, while
-`feature/opus5-longhorizon-hardening` beside it opens the branch on the host.
+**Every named thing in a row is a link, and there can be more than two.** A PR
+row names three: the **PR** `57`, its **plan**, and its **branch** — three
+destinations, three different places. `57` opens the pull request,
+`feature/opus5-longhorizon-hardening` opens the branch on the host, and the plan
+name opens the plan.
+
+So `artifact-name-link` is **not one slot but the general case**: a row carries
+as many linked names as it has related things, and the six-slot tuple is the
+*minimum* rather than the shape. The alternative — a fixed second slot that a PR
+overflows — would force a choice between the plan and the branch, and the reader
+would lose whichever lost.
+
+All three facts are already on the row: measured on the live pulse, a PR row
+carries `plan`, `planFile`, `branch`, `branchUrl` and `pr`. Nothing new is
+fetched; what is missing is that only some of them are rendered, and only one of
+those is a link.
 
 This is what makes the artifact slot's varying target harmless. The examples
 point at three sorts of thing — a Plan and a PR name a **branch**, a Build names
@@ -125,7 +141,7 @@ two grids for what will be seven kinds.
 ## Branches
 
 ### Shaped
-- `feature/a-row-is-a-tuple` — the contract carries the six slots and one grid renders them for every kind, with **both the item and its artifact linked**. Tests: each of the seven kinds renders all six slots; the item name and the artifact name are separate links to separate destinations; a blank artifact slot renders as nothing rather than as a dead control; a row whose item has no URL renders its name as text; the kind is present without hovering; no host call is added.
+- `feature/a-row-is-a-tuple` — the contract carries the six slots and one grid renders them for every kind, with **every named thing linked** — a PR row links its PR, its plan and its branch. Tests: each of the seven kinds renders all six slots; the item name and the artifact name are separate links to separate destinations; a PR row renders three separate links; a branch row renders one and no empty artifact control; a row whose item has no URL renders its name as text; the kind is present without hovering; no host call is added.
 
 ### Moved
 - `bug/the-row-drops-what-the-tuple-replaced` — the fields the tuple supersedes stop being rendered per kind, and `ROW_TRACKS`/`PLAN_ROW_TRACKS` collapse to one. Tests: a plan row and a branch row use the same grid; no row prints a phase belonging to another object; the sections keep their membership.
