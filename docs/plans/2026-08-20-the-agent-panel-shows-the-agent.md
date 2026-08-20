@@ -21,6 +21,7 @@
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-overlay-keeps-its-place`
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-panel-facts-are-destinations`
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-log-is-live-and-its-path-is-copyable`
+- **Started:** 2026-08-20, Jan Wloka, `bug/the-command-can-be-read-in-full`
 
 ## Problem
 
