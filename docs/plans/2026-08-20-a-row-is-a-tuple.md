@@ -178,22 +178,47 @@ display, and `@Dev-Agent` is dropped as a placeholder that was never a fact.
 `no-checks` are all "where does this stand". The prose notes that vary per kind
 become one value in one place.
 
-**Age is age.** Today a row can show `ageMinutes`, `waitingDays`, or nothing.
+### Age is one clock, and it is *since last change*
 
-But *age of what* differs by kind — a PR is aged from opening, an agent from its
-last turn, a ticket from creation, a build from its start. Left as one slot
-deliberately, and the reason is the requirement at the top of this section: the
-reader is judging **how long this has been like this**, and every kind answers
-that from its own clock. A slot that named its clock (`open 25d`, `idle 13m`)
-would be more precise and would put a second kind of word back into a slot the
-tuple just made uniform.
+Settled 2026-08-20: **every kind is aged from its last change** — one rule, one
+clock, no label needed. The exception is the agent, and it is the only one.
 
-The line it must not cross is the four-meanings failure: that column was
-ambiguous because a reader **could not tell which meaning applied** without
-knowing the plan's wave count. Here the kind is in slot 2, one column to the
-left — so the clock is stated by the row, not guessed. Recorded as an open point
-below rather than settled, because it is a claim about what a reader infers and
-this plan has been wrong about that once already.
+The schema had already reached half of this and written down the reason. The
+comment on `waitingDays` (`schema.ts:1466`) argues:
+
+> *"Overloading one field with two meanings is precisely the ambiguity that makes
+> `22d` (no commits for three weeks) unreadable beside `22d` (never begun) — so
+> **the row labels it rather than merging it**."*
+
+And `ageMinutes` is documented as *"minutes since the branch tip"* — which
+already **is** since-last-change. So this rule is not new; it is the
+generalisation of what one field already means, applied to all seven kinds
+instead of one.
+
+What changes is that the row must now *show* which clock it used. Today it
+carries two fields and renders whichever applies, leaving the reader to infer
+from the number's magnitude which question was answered — the very inference the
+`waitingDays` comment says the row should label. It says *the row labels it*; the
+row does not.
+
+| Kind | aged from |
+|---|---|
+| ticket, plan, pr, build, branch, release | **last change** — unlabelled, because it is the rule |
+| **agent** | **session age** and **idle**, both labelled, because neither is a change to the agent |
+
+**Why the agent is the exception rather than an inconsistency.** An agent does not
+change; it *acts*. There is no "last change to this agent" to measure, so the
+single rule has nothing to read. What a reader wants instead is two different
+things — *how long has this run been going* and *how long has it been silent* —
+and the second is the one that says whether it is stuck. Both are already
+derivable from what the registry records: `startedAt` from the manifest,
+`lastActivity` from the transcript.
+
+    ⬡ agent  f30b27a3   feature/x   thinking   27m · idle 4m
+
+So the label appears exactly where the rule does not apply, and nowhere else.
+That is the opposite of the four-meanings column, which was unlabelled *because*
+its meaning varied.
 
 ### Three components, two grids — and a ticket already wears a branch's
 
@@ -307,13 +332,12 @@ no pulse renders a row that has lost a fact and not yet gained its replacement.
 
 ## Open Points
 
-- [ ] **Does the age slot need to name its clock?** A PR is aged from opening, an
-      agent from its last turn, a ticket from creation. One slot keeps the
-      uniformity the tuple just bought; naming the clock (`open 25d`, `idle 13m`)
-      is more precise and puts a second kind of word back. Slot 2 states the kind
-      one column left, so the clock is arguably stated already — but that is a
-      claim about what a reader infers, and this plan has been wrong about that
-      once. Decide from a rendered row, not from the design.
+- [x] **Does the age slot need to name its clock?** Yes, but only where the rule
+      does not hold. Settled 2026-08-20: **everything is aged from its last
+      change**, unlabelled, because that is the rule — and the agent alone shows
+      **session age and idle**, both labelled, because an agent does not change,
+      it acts. See *Age is one clock* above. The label marks the exception rather
+      than decorating the rule, which is the inverse of the four-meanings column.
 - [x] **`kind` is what the row is ABOUT, not what object it came from.**
       Settled 2026-08-20 by measurement: of 80 live rows, **67 carry both a
       branch and a PR** and only 13 are a branch alone. So the both-case is the

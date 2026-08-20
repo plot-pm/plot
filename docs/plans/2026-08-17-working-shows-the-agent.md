@@ -489,9 +489,37 @@ per-repo configurable (Principle 5), so a role is one field:
 | an agent is an anonymous process | the manifest carries `role` beside `session` |
 
 The manifest is where `role` belongs — it is launch-time knowledge exactly like
-branch and command. **Recorded, not built here**: this wave establishes the
-identity a role would hang from, and adding a field before anything reads it
-would be a capability claimed rather than delivered.
+branch and command.
+
+**`role` is where this starts, and it is knowingly not sufficient.** Settled
+2026-08-20. Measured against the 106 definitions: only **5 declare a model** and
+**12 declare tools** — the other 94 are stance alone, a name, a description and a
+`vibe`. So a role name picks a *personality* and settles neither of the two things
+a wave actually needs:
+
+| what a wave needs | does `role` give it |
+|---|---|
+| **which stance** — how the agent approaches the work | yes, this is what a role is |
+| **which model** — cost against capability | **no**, 5 of 106 say |
+| **which tools** — what it may touch | **no**, 12 of 106 say |
+
+A UI expert on Haiku and a UI expert on Opus are the same `role` and are not the
+same agent. A test expert allowed to write under `packages/` is a different agent
+from one that may only read. Both distinctions matter to a dispatch and neither is
+in a role name.
+
+Starting with `role` anyway, for a reason that is not laziness: **the manifest can
+carry a field the dispatcher does not yet use, but it cannot carry one nobody has
+named.** A role is the coarsest useful cut and the one the 106 definitions already
+express, so it is what a plan line can declare today. Model and tools follow when
+something reads them — and when they do, they belong beside `role` in the same
+manifest rather than in a second mechanism.
+
+What must NOT happen in the meantime is the failure mode this repo has a rule
+against: a `role` field that is written, rendered, and changes nothing. If the
+dispatcher does not forward it to the runtime, the manifest records a fact about
+an intention rather than about a launch, and that is the one thing the manifest is
+built to never do.
 
 ## Done when
 
