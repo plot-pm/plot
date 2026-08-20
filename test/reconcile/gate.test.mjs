@@ -101,6 +101,26 @@ test('gate: allows impl commit on Approved plan', () => {
   assert.equal(runGate(dir).code, 0);
 });
 
+// Design is a transitional phase: the plan is written but the approach is still
+// open (a spike, a tracer bullet). Implementation must not start yet, so the
+// gate blocks a Design plan exactly as it blocks a Draft one — and the message
+// NAMES the phase, because "still Draft" on a Design plan would send the reader
+// looking for the wrong word in the file.
+test('gate: blocks impl commit on Design plan, naming the phase', () => {
+  const dir = repoWith({ branch: 'feature/x', planPhase: 'Design', stage: ['src/a.js'] });
+  const r = runGate(dir);
+  assert.equal(r.code, 2, 'a Design plan must block implementation commits');
+  assert.match(r.stderr, /Design/, 'the refusal must name the phase it read');
+  assert.doesNotMatch(r.stderr, /still Draft/,
+    'a Design plan is not Draft — the message must not say so');
+});
+
+test('gate: allows plan-only commit on Design plan', () => {
+  // Refining the spike's spec is how a Design plan becomes approvable.
+  const dir = repoWith({ branch: 'feature/x', planPhase: 'Design', stage: [] });
+  assert.equal(runGate(dir).code, 0);
+});
+
 test('gate: allows unplanned branch (no plan file)', () => {
   const dir = repoWith({ branch: 'feature/quickfix', planPhase: null, stage: ['src/a.js'] });
   assert.equal(runGate(dir).code, 0);
@@ -281,6 +301,15 @@ test('gate: same-branch flow — Draft on the shared branch still blocks', () =>
   const r = runGate(dir);
   assert.equal(r.code, 2, 'a shared Draft plan on the work branch must still block');
   assert.match(r.stderr, /still Draft/);
+});
+
+test('gate: same-branch flow — Design on the shared branch still blocks', () => {
+  // The same-branch flow must honour Design the same way it honours Draft: the
+  // approach is still open, so implementation waits.
+  const dir = repoSameBranch({ branch: 'feature/x', sharedPhase: 'Design' });
+  const r = runGate(dir);
+  assert.equal(r.code, 2, 'a shared Design plan on the work branch must still block');
+  assert.match(r.stderr, /Design/);
 });
 
 test('gate: same-branch flow — Approved on the shared branch unblocks', () => {

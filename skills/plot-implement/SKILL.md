@@ -50,8 +50,11 @@ ready — propose it per smart defaults).
 Parse all plans (`../plot/scripts/plot-plan-meta.sh docs/plans/*.md`) and
 find `<slug>`. Requirements:
 
-- **Phase must be `approved`.** Draft → stop: "Plan isn't approved yet —
-  review it and run `/plot-approve <slug>` first." Delivered/Released →
+- **Phase must be `approved`.** Draft or Design → stop: "Plan isn't
+  approved yet — review it and run `/plot-approve <slug>` first."
+  (Design is the transitional phase before Approved — a spike or tracer
+  bullet still answering whether the approach works; implementation only
+  ever references an *approved* plan, so it waits.) Delivered/Released →
   nothing to start.
 - If no slug given and exactly one approved plan has no `Started:`
   records, propose it. Several → list them (Ready first) and ask.
