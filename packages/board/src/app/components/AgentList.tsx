@@ -4012,7 +4012,51 @@ function PlanRow({
         // state here. A plan row shows a mark exactly when one of its branches
         // is being written to — including one folded out of sight, which is the
         // case the mark most needs to reach.
-        active ? <ActivityMark pace="fast" inTrack /> : null
+        // THE FOLD AND THE ACTIVITY MARK SHARE THIS TRACK, and they can:
+        // the fold belongs to the plan row only, the mark appears on it only
+        // while a branch is being written to, and both are facts about THIS row
+        // rather than about its content. The kind icon left this track on
+        // 2026-08-20 precisely so it could hold what belongs to the row.
+        <>
+          {foldable ? (
+            // THE FOLD LIVES IN THE MARKS TRACK, at the row's leading edge and
+          // BEFORE the kind's icon. It sat in slot 5 until 2026-08-20 on the
+          // argument that slot 3 was "a fixed 12rem … and a 24px control inside
+          // it would take a fifth of the plan name's width" — true then, and the
+          // premise is gone: the marks track was freed when the kind icon moved
+          // out of it, so the control now has a track of its own at the one place
+          // a reader looks for a disclosure.
+          //
+          // 24 x 24 OF HIT AREA IS KEPT VERBATIM. Measured on the running board
+          // 2026-08-19 this control was 5 x 10 px at `font-size: 10px`, a fifth
+          // of what WCAG 2.2 asks of a pointer target. `h-6 w-6` with the mark
+          // centred is that fix and it is not being re-litigated; what changes is
+          // the GLYPH, from 13px to 16px, matching the section fold — the same
+          // distinction as the section heading: the target was right, seeing it
+          // was not.
+          <button
+            type="button"
+            data-wave-toggle={group.plan}
+            aria-expanded={expanded}
+            aria-label={`${expanded ? 'Hide' : 'Show'} the branches of ${group.plan}`}
+            onClick={onToggle}
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center self-center rounded leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+          >
+            {/* ONE glyph, ROTATED — not two glyphs of similar mass. `▸` and `▾`
+                differ by which way a small triangle points; a 90-degree rotation
+                is the same difference stated in geometry rather than typeface,
+                and it animates, so the state change is visible in motion as well
+                as in the still. */}
+            <span
+              aria-hidden
+              className={`inline-block text-2xl leading-none transition-transform ${expanded ? 'rotate-90' : ''}`}
+            >
+              ▸
+            </span>
+          </button>
+          ) : null}
+          {active ? <ActivityMark pace="fast" inTrack /> : null}
+        </>
       }
       // THE PHASE KEEPS ITS `data-phase` HOOK, on the slot that now holds it.
       // It was in the plan row's name cell and before that in a branch row's
@@ -4035,51 +4079,7 @@ function PlanRow({
           </span>
         ) : null
       }
-      statusExtra={
-        foldable ? (
-          // A real button with `aria-expanded`, so the fold is operable and
-          // announced by keyboard — the caret alone is a visual fact. The plan
-          // LINK cannot carry the toggle: a link that folds a section instead
-          // of opening the plan is a link that lies about where it goes.
-          //
-          // 24 x 24 OF HIT AREA, AND A GLYPH BIG ENOUGH TO TELL APART. Measured
-          // on the running board 2026-08-19 at 1480px: this control was
-          // **5 x 10 px** at `font-size: 10px` — a fifth of what WCAG 2.2 asks
-          // for a pointer target, and it is the control that answers *is there
-          // more here?* `h-6 w-6` with the mark centred grows the target by
-          // padding while the caret grows only from 10px to 12px, so the row
-          // density survives.
-          //
-          // IN SLOT 5 RATHER THAN BESIDE THE NAME, and the move is the
-          // collapse's one visible change to this row. It sat in the name cell
-          // because that cell was `1fr` and had the slack; slot 3 is a fixed
-          // 12rem shared with every other kind, and a 24px control inside it
-          // would take a fifth of the plan name's width on every row. Slot 5 is
-          // where the plan's own state is stated, and *folded or not* is a
-          // state of this row.
-          <button
-            type="button"
-            data-wave-toggle={group.plan}
-            aria-expanded={expanded}
-            aria-label={`${expanded ? 'Hide' : 'Show'} the branches of ${group.plan}`}
-            onClick={onToggle}
-            className="-my-1 inline-flex h-6 w-6 shrink-0 items-center justify-center self-center rounded text-xs leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-          >
-            {/* ONE glyph, ROTATED — not two glyphs of similar mass. `▸` and `▾`
-                differ by which way a small triangle points, and the plan asked
-                for a fold state that survives a screenshot. A 90-degree
-                rotation of one shape is the same difference stated in geometry
-                rather than in typeface, and it animates, so the state change is
-                visible in motion as well as in the still. */}
-            <span
-              aria-hidden
-              className={`inline-block text-[13px] transition-transform ${expanded ? 'rotate-90' : ''}`}
-            >
-              ▸
-            </span>
-          </button>
-        ) : null
-      }
+
       // THE MENU HOLDS EXACTLY ONE ACT, for exactly one reason: approving
       // belongs to the PLAN. `plot-approve.sh` takes a plan and no branch, the
       // server reports `approve` per plan, and the row that names the plan is
@@ -5341,7 +5341,7 @@ export function AgentList({
           // groups — the rows themselves stay at `py-2`, which is the density
           // an operator watching a fleet wants.
           <section key={key}>
-            <h2 className="mb-1 flex items-baseline gap-2 px-3 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+            <h2 className="mb-2 flex items-baseline gap-2 px-3 text-base font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-300">
               {collapsible ? (
                 // A real button, so the header is reachable and operable by
                 // keyboard. `aria-expanded` is what tells a screen reader the
@@ -5364,7 +5364,7 @@ export function AgentList({
                       there for why a rotation beats a second glyph. */}
                   <span
                     aria-hidden
-                    className={`inline-block w-3 text-center text-[13px] leading-none transition-transform ${isFolded ? '' : 'rotate-90'}`}
+                    className={`inline-block w-4 text-center text-base leading-none transition-transform ${isFolded ? '' : 'rotate-90'}`}
                   >
                     ▸
                   </span>
@@ -5501,7 +5501,28 @@ export function AgentList({
                             fold*, and hiding the row behind a control the reader
                             was not given would lose it entirely. */}
                         {(expanded === null || expanded) && (
-                          <ul role="presentation">
+                          // INDENTED, because grouping is a visual fact and a
+                          // heading above a row is not one. Measured 2026-08-20:
+                          // `TupleRow` carried **zero** `pl-*` or `ml-*`, so rows
+                          // of one plan were distinguished only by the heading
+                          // over them — siblings looked like neighbours, and a
+                          // reader scanning past the heading lost the set.
+                          //
+                          // `pl-6` matches the fold caret's own 24px box, so the
+                          // indent lines the children up with the space the
+                          // disclosure occupies on the parent — the shape a file
+                          // tree uses, and the one a reader already reads.
+                          //
+                          // The left border draws the set as one run rather than
+                          // three rows that happen to be shifted. Without it the
+                          // indent alone is ambiguous at the boundary: the last
+                          // child and the next plan's row differ only by 24px of
+                          // whitespace.
+                          <ul
+                            role="presentation"
+                            data-wave-list={group.plan}
+                            className="ml-6 border-l border-slate-200 dark:border-slate-800"
+                          >
                             {group.rows.map((r) => (
                               <Row
                                 key={rowKey(r)}

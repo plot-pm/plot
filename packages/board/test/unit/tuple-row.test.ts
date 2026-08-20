@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  KIND_ICON,
+  KIND_ICON_PATH,
   prStatus,
   KIND_LABEL,
   SESSION_ID_CHARS,
@@ -58,7 +58,7 @@ describe('the contract carries all seven kinds', () => {
     // only in a tooltip.
     for (const kind of RowKindSchema.options) {
       expect(KIND_LABEL[kind], kind).toBeTruthy();
-      expect(KIND_ICON[kind], kind).toBeTruthy();
+      expect(KIND_ICON_PATH[kind], kind).toBeTruthy();
     }
   });
 
@@ -183,7 +183,9 @@ describe('the server decides the kind, and the renderer reads it', () => {
     const t = tupleFromRow(fieldless);
     expect(t.kind).toBe('branch');
     expect(t.kindLabel).toBe('Branch');
-    expect(t.icon).toBe(KIND_ICON.branch);
+    // The icon is no longer a field on the tuple: it is drawn from `kind` by the
+    // renderer, because emoji ignored CSS colour and the set is now SVG paths.
+    expect(KIND_ICON_PATH[t.kind]).toBeTruthy();
     // And the NAME is the branch's, which is the arm the fallback has to reach:
     // a fallback that fixed only the label would leave a fieldless row taking
     // whichever arm `undefined` happened to miss.
@@ -342,7 +344,7 @@ describe('a release is its own kind, and it carries only a mark', () => {
     // projection produces slots and no items at all; the browser suite asserts
     // the rendered menu offers none.
     expect(Object.keys(tupleFromRow(release))).toEqual(
-      ['kind', 'icon', 'kindLabel', 'status', 'age', 'name', 'links']);
+      ['kind', 'kindLabel', 'status', 'age', 'name', 'links']);
   });
 });
 
@@ -498,7 +500,7 @@ describe('every kind fills all six slots', () => {
     it(`fills the six slots for a ${kind}`, () => {
       const t = projections[kind]();
       expect(t.kind).toBe(kind);
-      expect(t.icon).toBeTruthy();          // slot 1
+      expect(KIND_ICON_PATH[t.kind]).toBeTruthy();   // slot 1 — drawn from kind
       expect(t.kindLabel).toBeTruthy();     // slot 2
       expect(t.name.label).toBeTruthy();    // slot 3
       expect(Array.isArray(t.links)).toBe(true); // slot 4 — zero or more

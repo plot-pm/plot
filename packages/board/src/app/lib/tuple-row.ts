@@ -90,8 +90,6 @@ export interface TupleAge {
  */
 export interface TupleRow {
   kind: RowKind;
-  /** Slot 1 — the glyph for the kind. A symbol, never the only statement. */
-  icon: string;
   /** Slot 2 — the kind, as a word a reader can see without hovering. */
   kindLabel: string;
   /**
@@ -129,14 +127,35 @@ export const KIND_LABEL: Record<RowKind, string> = {
  * the defect this replaces was a kind stated in a tooltip — one channel, and a
  * hover-only one at that.
  */
-export const KIND_ICON: Record<RowKind, string> = {
-  ticket: '🎫',
-  plan: '📋',
-  pr: '⇅',
-  build: '⚙',
-  agent: '⬡',
-  branch: '⑂',
-  release: '🏷',
+/**
+ * ONE CHARACTER SET, and the reason is measured. The first version mixed emoji
+ * (`🎫 📋 🏷`) with symbol characters (`⇅ ⚙ ⬡ ⑂`), and emoji **render in system
+ * colour and ignore CSS** — so three of seven appeared yellow-orange while four
+ * were grey, and the emoji brought their own metrics so the leading track changed
+ * width by kind. Reported from a screenshot, then reproduced on the mock.
+ *
+ * These are SVG path data rather than glyphs, so the icon takes its colour from
+ * `currentColor` and its size from the markup. Shapes follow Octicons (MIT) —
+ * a git host's vocabulary for a git host's objects, which a reader already knows:
+ * the fork for a branch, the arrow pair for a pull request, the circle for an
+ * issue. Paths are inline because the artifact must stay self-contained; nothing
+ * is fetched.
+ */
+export const KIND_ICON_PATH: Record<RowKind, string> = {
+  // issue-opened: a ring with a dot — an open question
+  ticket: 'M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z',
+  // checklist: a plan is a list of intentions
+  plan: 'M2.5 1.75v11.5c0 .138.112.25.25.25h3.17a.75.75 0 0 1 0 1.5H2.75A1.75 1.75 0 0 1 1 13.25V1.75C1 .784 1.784 0 2.75 0h8.5C12.216 0 13 .784 13 1.75v7.736a.75.75 0 0 1-1.5 0V1.75a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25Zm3.75 1.5h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5Zm0 3h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5Z',
+  // git-pull-request: two branches, one merging back
+  pr: 'M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z',
+  // play/workflow: a build is something running
+  build: 'M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm4.879-2.773 4.264 2.559a.25.25 0 0 1 0 .428l-4.264 2.559A.25.25 0 0 1 6 10.559V5.442a.25.25 0 0 1 .379-.215Z',
+  // person: an agent is a who
+  agent: 'M10.561 8.073a6.005 6.005 0 0 1 3.432 5.142.75.75 0 1 1-1.498.07 4.5 4.5 0 0 0-8.99 0 .75.75 0 0 1-1.498-.07 6.004 6.004 0 0 1 3.431-5.142 3.999 3.999 0 1 1 5.123 0ZM10.5 5a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z',
+  // git-branch: the fork
+  branch: 'M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z',
+  // tag: a release is a named point
+  release: 'M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.75 1.75 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.25.25 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z',
 };
 
 
@@ -323,7 +342,7 @@ export function tupleFromRow(row: AgentRow): TupleRow {
   // the server DID label. It fills one absent field with the one value the
   // contract says an absent field means.
   const kind: RowKind = row.kind && row.kind in KIND_LABEL ? row.kind : 'branch';
-  const base = { kind, icon: KIND_ICON[kind] ?? KIND_ICON.branch,
+  const base = { kind, 
     kindLabel: KIND_LABEL[kind] ?? KIND_LABEL.branch, status, age };
 
   if (kind === 'pr' && row.pr) {
@@ -423,7 +442,6 @@ export function stateStatus(row: AgentRow): string {
 export function tupleFromIssue(issue: IssueRow): TupleRow {
   return {
     kind: 'ticket',
-    icon: KIND_ICON.ticket,
     kindLabel: KIND_LABEL.ticket,
     name: { what: 'ticket', label: `${issue.number}: ${issue.title}`, href: issue.url },
     links: [],
@@ -475,7 +493,6 @@ export interface PlanRowFacts {
 export function tupleFromPlan(facts: PlanRowFacts): TupleRow {
   return {
     kind: 'plan',
-    icon: KIND_ICON.plan,
     kindLabel: KIND_LABEL.plan,
     name: {
       what: 'plan',
@@ -522,7 +539,6 @@ export interface BuildRowFacts {
 export function tupleFromBuild(facts: BuildRowFacts): TupleRow {
   return {
     kind: 'build',
-    icon: KIND_ICON.build,
     kindLabel: KIND_LABEL.build,
     name: { what: 'pr', label: facts.name, href: facts.url },
     // The build points BACK along the chain at the PR it ran for, where a
@@ -602,7 +618,6 @@ export function tupleFromAgent(facts: AgentRowFacts): TupleRow {
     ? '' : tupleAgeText(Math.floor(facts.idleSeconds / 60));
   return {
     kind: 'agent',
-    icon: KIND_ICON.agent,
     kindLabel: KIND_LABEL.agent,
     // The session id, and nothing else. It is not a link: the transcript is a
     // local file, and the board's own agent panel is what opens it — reached
