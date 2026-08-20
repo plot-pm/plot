@@ -2486,6 +2486,7 @@ describe('menuState — a refusal is not an absence', () => {
   const none = {
     canStart: false, canApprove: false, canResolve: false, hasRun: false,
     hasLog: false, hasStatus: false, hasOpen: false, canCommission: false,
+    hasChangedFiles: false,
     serverWillAct: false, approveWillAct: false, commissionWillAct: false,
   };
 
@@ -2543,8 +2544,8 @@ describe('menuState — a refusal is not an absence', () => {
     // not, so it does not need the cartesian product to stay honest.
     const keys = [
       'canStart', 'canApprove', 'canResolve', 'hasRun', 'hasLog', 'hasStatus',
-      'hasOpen', 'canCommission', 'serverWillAct', 'approveWillAct',
-      'commissionWillAct',
+      'hasOpen', 'canCommission', 'hasChangedFiles', 'serverWillAct',
+      'approveWillAct', 'commissionWillAct',
     ] as const;
     const cases: (typeof none)[] = [{ ...none }];
     for (const key of keys)
@@ -2580,6 +2581,15 @@ describe('menuState — a refusal is not an absence', () => {
   // button used to hand back as a transient path.
   it('enables the Status entry without asking whether the server will act', () => {
     expect(menuState({ ...none, hasStatus: true })).toEqual({
+      present: true, enabled: true,
+    });
+  });
+
+  it('gives a changed-file list a menu, and it needs no server', () => {
+    // The purest READ in the menu: the paths came in on the pulse that drew the
+    // row, so there is no route to refuse and no binding to consult. It enables
+    // on its own, exactly like the two log items and the run link.
+    expect(menuState({ ...none, hasChangedFiles: true })).toEqual({
       present: true, enabled: true,
     });
   });

@@ -71,8 +71,9 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
       branchUrl: `${GH}feature/artifact`,
       stuck: stuck({ state: 'artifact-conflict', conflicts: [BOARD_ARTIFACT_PATH] }),
     }),
-    // A failing check: EVIDENCE, never a verdict. Three lines, and the run
-    // history is the one that decided the 2026-08-17 case — the same branch was
+    // A failing check: EVIDENCE, never a verdict. TWO lines in the row since
+    // 2026-08-20 — the changed-file list moved into the menu — and the run
+    // history is the one that decided the 2026-08-17 case: the same branch was
     // green two minutes earlier.
     row({
       branch: 'feature/red-ci', group: 'waiting-on-machine', note: 'PR #203 checks failing',
@@ -80,10 +81,15 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
       stuck: stuck({
         state: 'ci-failing',
         failingChecks: ['Install Playwright browser'],
-        changedPaths: ['docs/plans/a.md'],
+        changedPaths: ['docs/plans/a.md', 'packages/board/src/server/fleet.ts'],
+        // ISO 8601, as a HOST ACTUALLY REPORTS IT. These read `'10:19'` until
+        // 2026-08-20, which no host ever sends — and an unparseable stub is why
+        // a browser test watching this row could not have caught the raw
+        // `2026-08-20T03:55:23Z` that reached the screen on `#266`. A fixture
+        // that cannot hold the defect cannot fail for it.
         runHistory: [
-          { workflow: 'validate', conclusion: 'failure', startedAt: '10:19', url: 'https://github.com/tiny/garden/actions/runs/2' },
-          { workflow: 'validate', conclusion: 'success', startedAt: '10:17', url: 'https://github.com/tiny/garden/actions/runs/1' },
+          { workflow: 'validate', conclusion: 'failure', startedAt: '2026-08-17T10:19:00Z', url: 'https://github.com/tiny/garden/actions/runs/2' },
+          { workflow: 'validate', conclusion: 'success', startedAt: '2026-08-17T10:17:00Z', url: 'https://github.com/tiny/garden/actions/runs/1' },
         ],
       }),
     }),
@@ -210,18 +216,84 @@ describe('a stuck branch says so in its row', () => {
     }
   });
 
-  it('shows a failing check its step, its changed paths and its run history', async () => {
-    // Three lines, and the third is the one that ended the 2026-08-17
-    // investigation: the same branch was green two minutes earlier.
+  it('shows a failing check its step and its run history — TWO lines', async () => {
+    // Two, and the second is the one that ended the 2026-08-17 investigation:
+    // the same branch was green two minutes earlier. The third line — the
+    // changed-file list — moved into the menu on 2026-08-20; see the block
+    // below for where it went and the assertions that it is no longer here.
     const page = await open();
     try {
       const cell = rowFor(page, 'feature/red-ci').locator('[data-stuck]');
       const text = await cell.innerText();
       expect(text).toContain('Install Playwright browser');
-      expect(text).toContain('docs/plans/a.md');
       expect(text).toContain('success');
       expect(text).toContain('failure');
-      expect(await cell.locator('[data-stuck-evidence]').count()).toBe(3);
+      expect(await cell.locator('[data-stuck-evidence]').count()).toBe(2);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('renders the run time as an age, never as the ISO string the host sent', async () => {
+    // The measured defect: `#266` carried a raw `2026-08-20T03:55:23Z` in the
+    // row, as prose, making the reader do date arithmetic to answer the only
+    // question they had — *is this fresh*.
+    //
+    // Asserted on the PAGE and not only on `stuckEvidence`, because the row is
+    // where the string was seen. The fixture's timestamps are years in the
+    // past, so the age is some large number of days and its exact value is not
+    // the point; that no ISO 8601 survives anywhere in the cell is.
+    const page = await open();
+    try {
+      const text = await rowFor(page, 'feature/red-ci').locator('[data-stuck]').innerText();
+      expect(text).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
+      expect(text).not.toContain('Invalid Date');
+      expect(text).toMatch(/ago/);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('keeps the changed-file list OUT of the row and behind the menu', async () => {
+    // BOTH HALVES, and the pairing is the point: the list did not disappear, it
+    // stopped being printed. An implementation that merely deleted it would
+    // pass the first assertion and lose a fact the contract says travels with
+    // the state.
+    const page = await open();
+    try {
+      const row = rowFor(page, 'feature/red-ci');
+      // NOT in the row — six wrapped paths of prose was the reported defect.
+      const text = await row.locator('[data-stuck]').innerText();
+      expect(text).not.toContain('packages/board/src/server/fleet.ts');
+      // The item COUNTS rather than lists, so the menu does not become the dump
+      // one click away. Two paths in the fixture.
+      await row.locator('[data-row-actions]').click();
+      const item = row.locator('[data-changed-files-open]');
+      expect(await item.count()).toBe(1);
+      expect(await item.innerText()).toContain('2 files');
+      // And the paths are THERE, in the panel it opens — reachable, which is
+      // how EVIDENCE TRAVELS WITH THE STATE is honoured once the row stops
+      // printing all of it.
+      await item.click();
+      const panel = page.locator('[data-changed-files]');
+      await expect.poll(() => panel.count()).toBe(1);
+      const body = await panel.locator('[data-changed-files-body]').innerText();
+      expect(body).toContain('docs/plans/a.md');
+      expect(body).toContain('packages/board/src/server/fleet.ts');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('offers no changed-file item on a row whose failure is not a check', async () => {
+    // `changedPaths` is `ci-failing` evidence. A conflict row's file set is its
+    // `conflicts`, which the row already prints — an item here would open a
+    // panel onto the empty list `noCiEvidence` gives it.
+    const page = await open();
+    try {
+      const row = rowFor(page, 'feature/collides');
+      await row.locator('[data-row-actions]').click();
+      expect(await row.locator('[data-changed-files-open]').count()).toBe(0);
     } finally {
       await page.close();
     }

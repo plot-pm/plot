@@ -21,6 +21,12 @@ import { isDraft } from './PlanCard.js';
 import { StartWorkButton } from './StartWorkButton.js';
 import { WorkerLogModal } from './WorkerLogModal.js';
 import { DispatchLogModal } from './DispatchLogModal.js';
+import { ChangedFilesModal } from './ChangedFilesModal.js';
+// THE BOARD'S ONE AGE DIALECT, borrowed rather than reimplemented. A second
+// formatter would drift from this one the first time either changed — the same
+// reason `ageLabel` was split out of `age` so an issue row and a branch row
+// cannot render one duration two ways.
+import { agoLabel } from './AgentPanelFacts.js';
 
 /**
  * Groups in fixed order, each labelled by what it asks OF YOU rather than by
@@ -1348,23 +1354,47 @@ export function stuckWord(state: StuckState): string {
  * every "is the state visible" assertion and pays off none of the cost this
  * detection exists to remove.
  *
- * **`ci-failing` gets THREE LINES and no fourth**, in the shape the plan writes
- * them: what failed, what the branch touches, and how the branch has fared
- * lately. Nothing here compares them and nothing concludes from them — a
- * heuristic mapping failing steps to changed paths was explicitly rejected as a
- * table nobody maintains, which goes silently wrong the first time a workflow is
- * restructured. The reader combines the three; this only sets them down.
+ * **`ci-failing` gets TWO LINES, and it got three until 2026-08-20.** The third
+ * was the branch's changed-path list, and it is not deleted — it moved into the
+ * menu ({@link offersChangedFiles}). What is left is what the reader ACTS on:
+ * which step failed, and how the branch has fared lately. Nothing here compares
+ * them and nothing concludes from them — a heuristic mapping failing steps to
+ * changed paths was explicitly rejected as a table nobody maintains, which goes
+ * silently wrong the first time a workflow is restructured. The reader combines
+ * them; this only sets them down.
+ *
+ * **Why the third line left, when the comment above used to defend it.** It was
+ * right that the fact belongs on a failing row and wrong about *how much of the
+ * row* it may take. Measured on `#266`: six paths, wrapped, as prose — so every
+ * reader scrolled past a paragraph so that the one reader who wanted it did not
+ * have to click. The three facts are not equal in cost. A step name is four
+ * words and often ends the investigation; a path list is unbounded and is
+ * consulted rarely. EVIDENCE TRAVELS WITH THE STATE is honoured by the evidence
+ * being *reachable from the row*, not by all of it being *printed in* the row —
+ * and the menu is one click, on the same pulse, with no fetch.
+ *
+ * **The run time is an AGE, never the instant.** The host reports ISO 8601 and
+ * the contract keeps it verbatim, which is right for a contract and wrong for a
+ * row: `2026-08-20T03:55:23Z` makes a reader do date arithmetic to answer *is
+ * this fresh*, which is the only question they asked. `agoLabel` is the board's
+ * one age dialect and this uses it rather than growing a second — the same
+ * reason `ageLabel` was split out of `age`. `now` is a parameter, not a clock
+ * read, so a test can assert the wording without racing it.
  *
  * **An empty evidence field says so rather than vanishing.** `failingChecks: []`
  * means *no names available* — an older adapter, or a host carrying no rollup —
  * never *nothing failed*, and `runHistory: []` means Bitbucket has no run
  * listing, never *this branch has never failed before*. Silence there would be
- * the row asserting a fact it was never given.
+ * the row asserting a fact it was never given. The changed-path line carries no
+ * such placeholder, and that is not an inconsistency: its absence from the row
+ * is now the DESIGN rather than a missing fact, so *changed paths unavailable*
+ * would be prose of the same width making a weaker — and, where the menu holds
+ * them, false — statement.
  *
  * Exported for test: the pairing that matters is a row that names its state
  * WITHOUT its evidence, which every state-only implementation renders correctly.
  */
-export function stuckEvidence(stuck: Stuck): string[] {
+export function stuckEvidence(stuck: Stuck, now: number = Date.now()): string[] {
   switch (stuck.state) {
     case 'artifact-conflict':
     case 'conflict':
@@ -1381,12 +1411,20 @@ export function stuckEvidence(stuck: Stuck): string[] {
         stuck.failingChecks.length > 0
           ? `step: ${stuck.failingChecks.join(', ')}`
           : 'failing step unavailable',
-        stuck.changedPaths.length > 0
-          ? `this branch changes ${stuck.changedPaths.join(', ')}`
-          : 'changed paths unavailable',
+        // The changed-path line USED TO BE HERE and is now in the menu. See the
+        // doc comment: the fact stayed, its home changed, and no placeholder
+        // took its place in the row.
         stuck.runHistory.length > 0
           ? `recent runs: ${stuck.runHistory
-              .map((r) => `${r.conclusion || 'unknown'}${r.startedAt ? ` at ${r.startedAt}` : ''}`)
+              .map((r) => {
+                // The age, or nothing — never the instant, and never
+                // `Invalid Date`. `agoLabel` returns null on a timestamp it
+                // cannot parse, and an unreadable time omits exactly like every
+                // other unrecognised field while the CONCLUSION, which the host
+                // did give, still reports.
+                const ago = r.startedAt ? agoLabel(r.startedAt, now) : null;
+                return `${r.conclusion || 'unknown'}${ago ? ` ${ago}` : ''}`;
+              })
               .join(', ')}`
           : 'run history unavailable',
       ];
@@ -1398,6 +1436,59 @@ export function stuckEvidence(stuck: Stuck): string[] {
         `${stuck.localAhead} commit${stuck.localAhead === 1 ? '' : 's'} only this machine can see`,
       ];
   }
+}
+
+/**
+ * Does this row's failure have a changed-file list to SHOW — the third evidence
+ * line, in its new home.
+ *
+ * **The list did not disappear, it stopped being printed.** {@link stuckEvidence}
+ * carried it in the row until 2026-08-20, where `#266` measured it as six paths
+ * wrapped across the width as prose: a paragraph every reader scrolled past so
+ * that the occasional reader who wanted it did not have to click. Behind the
+ * menu it costs one click and no column.
+ *
+ * **`ci-failing` ONLY, and the state test is not redundant.** `changedPaths` is
+ * populated on that state alone — the other three get `[]` from `noCiEvidence`
+ * by construction — so a predicate reading the array alone is correct today and
+ * wrong the first time a conflict row gains one. The list is evidence *about a
+ * failing check*; on a conflict row the file set that matters is `conflicts`,
+ * which the row already prints.
+ *
+ * **`[]` yields NO item.** An empty list means *no paths available* — an older
+ * adapter, or a host carrying none — never *this branch changes nothing*. An
+ * item opening onto an empty list is the empty menu this board keeps removing,
+ * and unlike the row's evidence lines a menu item cannot say *unavailable*
+ * usefully: a reader would spend the click to learn there was nothing to learn.
+ *
+ * **No fetch, ever.** The paths are already on the row, on the pulse that drew
+ * it. The plan is explicit that a per-click fetch would put a second cost on a
+ * data path whose scan went from 279 s to 20 s for one reader's convenience.
+ *
+ * Exported for test: the negatives — an empty list, and a non-CI state carrying
+ * paths — are what a predicate keyed on the array alone gets wrong, and both
+ * pass every positive assertion.
+ */
+export function offersChangedFiles(stuck: Stuck | null | undefined): boolean {
+  return stuck?.state === 'ci-failing' && stuck.changedPaths.length > 0;
+}
+
+/**
+ * What the changed-files menu item SAYS — a count, never the list.
+ *
+ * The item is one line in a menu, so it says how MANY and the panel it opens
+ * says which. A label that listed the paths would put the dump back one click
+ * away rather than removing it, which is the whole of what this branch does.
+ *
+ * The count is also the fact a reader uses to decide whether to click at all:
+ * *1 file* and *34 files* are different situations, and the second is worth
+ * knowing before opening it.
+ *
+ * Exported for test — the singular is where a template string goes wrong, and
+ * "1 files" is invisible in a screenshot of a row that has six.
+ */
+export function changedFilesLabel(count: number): string {
+  return `Changed ${count} file${count === 1 ? '' : 's'}`;
 }
 
 /**
@@ -2889,6 +2980,16 @@ export function menuState(items: {
    */
   hasStatus: boolean;
   /**
+   * This row's failing check has a changed-file list to show — see
+   * {@link offersChangedFiles}.
+   *
+   * Joins `enabled` without a `WillAct` term, and it is the purest READ in this
+   * menu: the paths are already on the row, so opening them asks the server
+   * nothing at all — not even to look, which is what separates it from the two
+   * log items. A refusal is impossible here because there is nobody to refuse.
+   */
+  hasChangedFiles: boolean;
+  /**
    * This row has an address to OPEN — its PR page or its branch on the host.
    *
    * **The item that makes the menu fit EVERY kind.** The measured defect was
@@ -2913,12 +3014,12 @@ export function menuState(items: {
 }): { present: boolean; enabled: boolean } {
   const {
     canStart, canApprove, canResolve, hasRun, hasLog, hasStatus, hasOpen, canCommission,
-    serverWillAct, approveWillAct, commissionWillAct,
+    hasChangedFiles, serverWillAct, approveWillAct, commissionWillAct,
   } = items;
   return {
     present:
       canStart || canApprove || canResolve || hasRun || hasLog || hasStatus || hasOpen ||
-      canCommission,
+      canCommission || hasChangedFiles,
     enabled:
       (canStart && serverWillAct) ||
       (canApprove && approveWillAct) ||
@@ -2927,7 +3028,8 @@ export function menuState(items: {
       hasRun ||
       hasLog ||
       hasStatus ||
-      hasOpen,
+      hasOpen ||
+      hasChangedFiles,
   };
 }
 
@@ -3141,6 +3243,7 @@ function RowActions({
   onTaken,
   onOpenLog,
   onOpenStatus,
+  onOpenChangedFiles,
 }: {
   row: AgentRow;
   card: Card | null;
@@ -3180,6 +3283,14 @@ function RowActions({
    * this menu unmounts on the very click that opens the panel.
    */
   onOpenStatus?: () => void;
+  /**
+   * Show what the branch changes — mounted by the Row, for the reason
+   * `onOpenLog` and `onOpenStatus` are: the close-on-outside-click effect runs
+   * on CAPTURE, so this menu unmounts before a bubbled `onClick` from inside it
+   * would fire, and a panel mounted HERE would be torn down by the very click
+   * that opened it.
+   */
+  onOpenChangedFiles?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   // The menu's own box, so a click inside it can be told from a click outside.
@@ -3312,9 +3423,16 @@ function RowActions({
   // live. A row whose plan has no card cannot offer it, which is right: without
   // a card there is no slug to name and the fetch would have nothing to ask for.
   const hasStatus = Boolean(card?.hasDispatchLog);
+  // WHAT THE BRANCH CHANGES, read straight off the row. It needs no card, no
+  // dispatch verdict and no fetch — the paths came in on the pulse that drew
+  // this row, which is why the item is offered on the row's own evidence rather
+  // than on anything the server has to be asked. `offersChangedFiles` is where
+  // the two conditions live (the state, and a non-empty list); this only reads
+  // the answer.
+  const hasChangedFiles = offersChangedFiles(row.stuck);
   const { present: hasItems, enabled } = menuState({
     canStart, canApprove, canResolve, hasRun: Boolean(runUrl), hasLog, hasStatus,
-    hasOpen: Boolean(openUrl), canCommission,
+    hasOpen: Boolean(openUrl), canCommission, hasChangedFiles,
     serverWillAct, approveWillAct, commissionWillAct,
   });
   const reason =
@@ -3587,6 +3705,39 @@ function RowActions({
                 className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
               >
                 Status
+              </button>
+            </div>
+          )}
+          {/* WHAT THE BRANCH CHANGES — the third evidence line of a failing
+              check, moved off the row on 2026-08-20. It was six wrapped paths
+              of prose in the row, which every reader scrolled past so the
+              occasional one who wanted them did not have to click.
+
+              The label COUNTS rather than lists (`changedFilesLabel`), because
+              an item that named the paths would put the dump back one click
+              away instead of removing it — and the count is itself the fact a
+              reader uses to decide whether to open it.
+
+              **The only item here that asks the server nothing at all.** The
+              two log items are reads the server answers; this one's content
+              arrived on the pulse that drew the row, so there is no route
+              behind it and none is wanted — the plan is explicit that the menu
+              shows only what the pulse already carries.
+
+              It only SETS state the ROW owns, for the reason the two items
+              above it do: the close-on-outside-click effect runs on capture, so
+              a panel mounted here would be unmounted by the click that opened
+              it. */}
+          {hasChangedFiles && row.stuck && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <button
+                type="button"
+                data-changed-files-open
+                onClick={onOpenChangedFiles}
+                aria-label={`Show the files changed on ${row.branch}`}
+                className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+              >
+                {changedFilesLabel(row.stuck.changedPaths.length)}
               </button>
             </div>
           )}
@@ -4176,6 +4327,10 @@ function Row({
   // the agent's console and the dispatcher's own record — and a reader may want
   // either without the other.
   const [statusOpen, setStatusOpen] = useState(false);
+  // The changed-file panel, ROW-LOCAL for the same reasons as the two above it.
+  // Unlike them it holds no fetch at either end: the paths are already on the
+  // row, so this flag is the whole of the mechanism — open, print, close.
+  const [filesOpen, setFilesOpen] = useState(false);
   // The cue follows what this ROW can actually ask, not what its state usually
   // offers — the menu omits an item whose precondition is missing, and an
   // animated dot pointing at a menu with nothing in it marks a request nobody
@@ -4529,6 +4684,7 @@ function Row({
         onTaken={() => setActionTaken(true)}
         onOpenLog={() => setLogOpen(true)}
         onOpenStatus={() => setStatusOpen(true)}
+        onOpenChangedFiles={() => setFilesOpen(true)}
       />
       {/* Why this branch cannot MOVE — a different question from where it is
           waiting, and the one nothing on this row could answer. It renders
@@ -4573,6 +4729,20 @@ function Row({
           is set, so the card and its slug are present here. */}
       {statusOpen && card && (
         <DispatchLogModal slug={card.slug} onClose={() => setStatusOpen(false)} />
+      )}
+      {/* WHAT THE BRANCH CHANGES, mounted here for the reason the two log
+          panels are: the menu that opens it unmounts on the click. Guarded on
+          `row.stuck` rather than on the flag alone so the paths are a
+          `readonly string[]` at the call site — `filesOpen` is only reachable
+          through an item that `offersChangedFiles` already gated on a
+          `ci-failing` row with a non-empty list, so the guard is a type
+          narrowing and not a second opinion about whether to show it. */}
+      {filesOpen && row.stuck && (
+        <ChangedFilesModal
+          branch={row.branch}
+          paths={row.stuck.changedPaths}
+          onClose={() => setFilesOpen(false)}
+        />
       )}
     </li>
   );

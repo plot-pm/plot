@@ -974,9 +974,16 @@ export const FleetBranchSchema = z.object({
   /**
    * The files this branch changes relative to the default branch, capped.
    *
-   * EVIDENCE, never a verdict — one of the three lines a CI failure is reported
+   * EVIDENCE, never a verdict — one of the three facts a CI failure is reported
    * with (*this branch changes only .md*), so a reader can weigh a failing step
    * against what the branch actually touched.
+   *
+   * REPORTED, but no longer PRINTED IN THE ROW. Since 2026-08-20 the row states
+   * the step and the run history and puts this list behind the `⋯` menu: it is
+   * the one of the three that is unbounded and consulted rarely, and six wrapped
+   * paths of prose made every reader scroll past it. The field is unchanged and
+   * so is the rule — the evidence travels with the state, and the menu is one
+   * click on the same pulse, with no fetch.
    *
    * Nothing maps steps to paths, deliberately. That mapping is a table nobody
    * maintains and it goes silently wrong the first time a workflow is
@@ -1205,8 +1212,8 @@ export const StuckSchema = z.object({
   /**
    * WHICH checks failed, by name — `ci-failing` only, [] elsewhere.
    *
-   * The first of the three lines a failing check is reported with, and the one
-   * that was already in the payload and thrown away. *CI failed* sends a reader
+   * The FIRST LINE the row prints for a failing check, and the one that was
+   * already in the payload and thrown away. *CI failed* sends a reader
    * to the Actions tab; *CI failed — step: Install Playwright browser* often
    * ends the investigation there.
    *
@@ -1217,13 +1224,14 @@ export const StuckSchema = z.object({
   /**
    * The branch's OWN recent CI runs, newest first — `ci-failing` only.
    *
-   * The third line of the evidence, and the one that decided the 2026-08-17
-   * case: the `403` was transient, and what proved it was that the same branch
+   * The SECOND LINE the row prints (the third of the three facts, and the last
+   * of the two the row still shows — see `changedPaths`), and the one that
+   * decided the 2026-08-17 case: the `403` was transient, and what proved it was that the same branch
    * had been green two minutes earlier. A real failure presents identically in
    * every other respect, which is exactly why this is reported and not
    * concluded from.
    *
-   * NOTHING COMPARES THESE RUNS. The row states them; a human reads three lines
+   * NOTHING COMPARES THESE RUNS. The row states them; a human reads the evidence
    * and concludes in seconds what took ten minutes of log-reading. Deciding
    * instead would mean a heuristic mapping failing steps to changed paths — a
    * table nobody maintains, which goes silently wrong the first time a workflow

@@ -380,7 +380,63 @@ in a wave whose shape the earlier ones are likely to change.
   manifest points at. Together they make an agent something the board can
   list with no branch at all, which is what `waiting` requires. Defensive
   by construction: an unreadable or unrecognised transcript omits its
-  fields rather than guessing them — PR #282
+  fields rather than guessing them.
+
+  > **NOT DELIVERED. PR #282 merged and carried only its claim commit.**
+  > Verified 2026-08-20: `packages/board/src/server/registry.ts` exists in no
+  > commit in this repository — not on main, not in the reflog, not as a dangling
+  > object. `plot-dispatch.sh` writes no manifest and `FleetSchema` has no
+  > `agents` field. `.plot/agents/` does not exist and `/api/board` carries no
+  > `agents` key.
+  >
+  > The PR body describes the work in full and cites test counts
+  > (`registry.test.ts (9)`, `dispatch.test.mjs 62/62`, `1392/1392`) for code that
+  > was never committed. The worker pushed its claim, wrote the PR text, and
+  > committed nothing else. The merge was approved on "green and conflict-free" —
+  > green because the diff was empty.
+  >
+  > **The wave is re-opened below.** Nothing is recoverable; it is rebuilt from
+  > this description, which is intact and was interrogated.
+
+### What an agent IS — settled 2026-08-20
+
+The operator's framing, and it raises the wave's stakes: **an agent survives a
+wave and takes over another once done.** So an agent is not a property of a
+branch — it is a process with a **model** and a **name**, the way Claude Code
+itself presents one.
+
+Everything the board knows about agents today is keyed on the **worktree**:
+`.plot-worker.pid` lives inside it, and the transcript directory is derived from
+its path. An agent that finishes branch A and picks up branch B changes worktree
+and loses every identity the board holds. That is precisely why the manifest is
+keyed on the session id and not on the branch.
+
+**The identity already exists on disk and nothing reads it.** Measured
+2026-08-20, for one worktree:
+
+| | |
+|---|---|
+| session | `f30b27a3-1bdc-4392-afcb-5d46ad90513d` |
+| transcript | **868 lines, 1,111 KB** |
+| `.plot-worker.log` | **3,332 bytes** — and 0 bytes on another live worker |
+| what the panel shows | `pid=22516`, for a process that exited hours earlier |
+
+The transcript is 300× the log, the session id is both its filename and a
+first-class `sessionId` field inside it, and subagents appear alongside as
+`agent-<short>.jsonl` — so the identity is hierarchical too. Sessions accumulate
+per worktree (measured 1 to 8), so "the agent" is the newest non-`agent-`
+transcript, which is exactly the guess the manifest exists to eliminate.
+
+**The three facts an agent row owes**, by this reading:
+
+| | from | survives the branch |
+|---|---|---|
+| **name** — the session id, shortened for display | the manifest, minted at launch | yes |
+| **model** | the transcript | yes |
+| **pid** | `ps` | **no** — it is a fact about the process, not the agent |
+
+The pid keeps its place as a live-process fact and stops being asked to identify
+a run it has outlived.
 
 ## Done when
 

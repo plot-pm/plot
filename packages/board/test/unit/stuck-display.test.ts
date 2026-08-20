@@ -5,6 +5,8 @@ import {
   offersAction,
   showsCue,
   actionReachable,
+  changedFilesLabel,
+  offersChangedFiles,
 } from '../../src/app/components/AgentList.js';
 import {
   StuckStateSchema, BOARD_ARTIFACT_PATH,
@@ -36,6 +38,16 @@ const stuck = (over: Partial<Stuck> = {}): Stuck => ({
 
 /** Every state the contract declares, so a fifth one cannot slip past. */
 const ALL_STATES = StuckStateSchema.options as readonly StuckState[];
+
+/**
+ * The reference instant every age in this file is measured against.
+ *
+ * INJECTED rather than read from the clock, which is the whole reason
+ * `stuckEvidence` takes a `now` at all: an age asserted against the real clock
+ * either races it or has to be matched with a loose pattern, and a loose
+ * pattern is what let a raw ISO string sit in the row unnoticed.
+ */
+const NOW = Date.parse('2026-08-20T05:55:23Z');
 
 describe('stuckWord — four states, four words', () => {
   it('names all four distinctly', () => {
@@ -85,26 +97,142 @@ describe('stuckEvidence — the evidence travels WITH the state', () => {
     expect(lines.join(' ')).toMatch(/does not merge/);
   });
 
-  it('gives a CI failure THREE lines: step, changed paths, run history', () => {
-    // The plan writes them as three, and each is a different fact. Nothing
-    // here compares them — a heuristic mapping failing steps to changed paths
-    // was rejected as a table nobody maintains.
+  it('gives a CI failure TWO lines: the step, and the run history', () => {
+    // TWO, not three. The changed-file list left the row for the menu — see
+    // the block below. What stays is what a reader ACTS on: which step failed,
+    // and how the branch has fared lately. Nothing here compares them — a
+    // heuristic mapping failing steps to changed paths was rejected as a table
+    // nobody maintains.
     const lines = stuckEvidence(stuck({
       state: 'ci-failing',
       failingChecks: ['Install Playwright browser'],
       changedPaths: ['docs/plans/a.md'],
       runHistory: [
-        { workflow: 'validate', conclusion: 'failure', startedAt: '10:19', url: 'u2' },
-        { workflow: 'validate', conclusion: 'success', startedAt: '10:17', url: 'u1' },
+        { workflow: 'validate', conclusion: 'failure', startedAt: '2026-08-20T03:55:23Z', url: 'u2' },
+        { workflow: 'validate', conclusion: 'success', startedAt: '2026-08-20T03:53:23Z', url: 'u1' },
       ],
-    }));
-    expect(lines).toHaveLength(3);
+    }), NOW);
+    expect(lines).toHaveLength(2);
     expect(lines[0]).toContain('Install Playwright browser');
-    expect(lines[1]).toContain('docs/plans/a.md');
     // Both runs, so the reader can see the same branch was green two minutes
     // earlier — the line that decided the 2026-08-17 case.
-    expect(lines[2]).toContain('success');
-    expect(lines[2]).toContain('failure');
+    expect(lines[1]).toContain('success');
+    expect(lines[1]).toContain('failure');
+  });
+
+  it('NAMES THE STEP on the row — the fact that often ends the investigation', () => {
+    // *CI failed* sends a reader to the Actions tab; *CI failed — step: Install
+    // Playwright browser* often ends it there. This is the one line the spec
+    // keeps on the row by name, so it is asserted on its own rather than only
+    // as `lines[0]` of a shape assertion that a reordering would still pass.
+    const lines = stuckEvidence(stuck({
+      state: 'ci-failing', failingChecks: ['validate'],
+    }), NOW);
+    expect(lines.some((l) => /step: validate/.test(l))).toBe(true);
+  });
+
+  describe('the run time is an AGE, never an ISO string', () => {
+    // The measured defect: `#266` carried a raw `2026-08-20T03:55:23Z` in the
+    // row, as prose. A reader deciding whether a failure is fresh has to do
+    // date arithmetic to use it — and the row already prints every other
+    // duration as an age, so this one read as a foreign element.
+    it('renders the run time as an age', () => {
+      const lines = stuckEvidence(stuck({
+        state: 'ci-failing',
+        runHistory: [
+          { workflow: 'validate', conclusion: 'failure', startedAt: '2026-08-20T03:55:23Z', url: 'u' },
+        ],
+      }), NOW);
+      // Two hours before NOW, so the age is the carrier and the instant is not.
+      expect(lines.join(' ')).toContain('2h ago');
+    });
+
+    it('prints no ISO 8601 anywhere in the evidence', () => {
+      // The GATE, and the reason it is separate from the assertion above: an
+      // implementation that appends an age BESIDE the raw timestamp passes
+      // "contains 2h ago" while still dumping the string the defect is about.
+      const lines = stuckEvidence(stuck({
+        state: 'ci-failing',
+        failingChecks: ['validate'],
+        changedPaths: ['packages/board/src/app/components/AgentList.tsx'],
+        runHistory: [
+          { workflow: 'validate', conclusion: 'failure', startedAt: '2026-08-20T03:55:23Z', url: 'u2' },
+          { workflow: 'validate', conclusion: 'success', startedAt: '2026-08-20T01:55:23Z', url: 'u1' },
+        ],
+      }), NOW);
+      expect(lines.join(' ')).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
+    });
+
+    it('omits the time rather than printing Invalid Date where it cannot be read', () => {
+      // An unparseable timestamp is one more unrecognised field. The run still
+      // reports its conclusion — that fact WAS given — and only the time it
+      // could not read goes missing.
+      const lines = stuckEvidence(stuck({
+        state: 'ci-failing',
+        runHistory: [{ workflow: 'validate', conclusion: 'failure', startedAt: 'not a date', url: 'u' }],
+      }), NOW);
+      expect(lines.join(' ')).toContain('failure');
+      expect(lines.join(' ')).not.toContain('Invalid Date');
+      expect(lines.join(' ')).not.toContain('NaN');
+    });
+  });
+
+  describe('the changed-file list is BEHIND THE MENU, not in the row', () => {
+    // The measured defect: `#266` carried a wrapped list of six changed files
+    // in the row, as prose — every reader scrolling past it so the one reader
+    // who wanted it did not have to click. The spec moves it to the menu, where
+    // it costs a click instead of a column.
+    it('keeps the changed paths out of the row evidence', () => {
+      const lines = stuckEvidence(stuck({
+        state: 'ci-failing',
+        failingChecks: ['validate'],
+        changedPaths: ['packages/board/src/server/fleet.ts', 'docs/plans/a.md'],
+      }), NOW);
+      expect(lines.join(' ')).not.toContain('packages/board/src/server/fleet.ts');
+      expect(lines.join(' ')).not.toContain('docs/plans/a.md');
+    });
+
+    it('does not report the paths as UNAVAILABLE either', () => {
+      // The line went to the menu; it did not become a placeholder. A row
+      // saying *changed paths unavailable* would be the same width of prose
+      // making a weaker statement — and it would be false, since the paths are
+      // right there in the menu.
+      const lines = stuckEvidence(stuck({ state: 'ci-failing' }), NOW);
+      expect(lines.join(' ')).not.toContain('changed paths');
+    });
+
+    it('offers the menu item where there are paths to show', () => {
+      expect(offersChangedFiles(stuck({
+        state: 'ci-failing', changedPaths: ['a.ts'],
+      }))).toBe(true);
+    });
+
+    it('offers NO item where the host gave no paths', () => {
+      // `changedPaths: []` is *no list available* — an older adapter, or a host
+      // carrying none. An item opening onto nothing is the empty menu this
+      // board keeps removing, so the absence is the honest answer.
+      expect(offersChangedFiles(stuck({ state: 'ci-failing', changedPaths: [] }))).toBe(false);
+    });
+
+    it('offers no item on a state that has no changed-path evidence', () => {
+      // `changedPaths` is populated on `ci-failing` alone. The other three
+      // carry `[]` by construction (`noCiEvidence`), and an item keyed on the
+      // array alone would be right today and wrong the first time a conflict
+      // row gained one.
+      for (const state of ALL_STATES.filter((s) => s !== 'ci-failing')) {
+        expect(offersChangedFiles(stuck({ state, changedPaths: ['a.ts'] })),
+          `${state} offered a changed-file list`).toBe(false);
+      }
+    });
+
+    it('COUNTS the files in its label rather than listing them', () => {
+      // The menu item is one line, so it says how many there are and the panel
+      // says which — the same split the row and the menu already use. A label
+      // that listed them would put the dump back one click away.
+      expect(changedFilesLabel(2)).toContain('2');
+      expect(changedFilesLabel(1)).toMatch(/1 file(?!s)/);
+      expect(changedFilesLabel(6)).toMatch(/6 files/);
+    });
   });
 
   it('reports an empty CI evidence field as unavailable, never as nothing failed', () => {
@@ -112,8 +240,12 @@ describe('stuckEvidence — the evidence travels WITH the state', () => {
     // with no rollup) and `runHistory: []` is *Bitbucket has no run listing* —
     // never *this branch has never failed before*. Silence would be the row
     // asserting a fact it was never given.
-    const lines = stuckEvidence(stuck({ state: 'ci-failing' }));
-    expect(lines).toHaveLength(3);
+    //
+    // TWO of these now, not three: the changed-path line left for the menu, and
+    // it took its own *unavailable* with it — see the block below for why that
+    // absence is not the same omission this test guards against.
+    const lines = stuckEvidence(stuck({ state: 'ci-failing' }), NOW);
+    expect(lines).toHaveLength(2);
     expect(lines.every((l) => /unavailable/.test(l))).toBe(true);
   });
 
