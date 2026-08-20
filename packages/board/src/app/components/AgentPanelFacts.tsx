@@ -2,14 +2,21 @@ import { useState } from 'react';
 import type { AgentPanel } from '../../server/agent-panel.js';
 
 /**
- * A worker command → its single-line collapsed preview.
+ * A worker command → the flowing text the collapsed preview wraps.
  *
  * The command the dispatcher launches is ~1,400 characters — the whole brief
  * the agent was handed, prose and all, with the newlines that prose carries.
- * The collapsed form is what the panel shows before anyone expands it, and it
- * must read as ONE line: newlines and runs of whitespace become single spaces
- * so no wrap can reintroduce a break, and the ends are trimmed so the preview
- * does not open on a gap.
+ * Those newlines are an artefact of how the brief was WRITTEN, not structure
+ * worth spending the preview on: left in, they would blow the three-line budget
+ * on two words and a line break before reaching the brief path. So runs of
+ * whitespace become single spaces and the ends are trimmed, and the browser
+ * wraps the result at word boundaries into the lines the preview shows.
+ *
+ * **This is no longer "one line".** It was, while the field truncated; the
+ * measured defect was that one clipped line stopped INSIDE `.plot/briefs/`, so
+ * the reader could not see which brief was named. Three wrapped lines reach
+ * past it. What this function does is unchanged — what the CSS then does with
+ * it is where the size lives.
  *
  * **Lossless BY DESIGN.** This collapses whitespace and nothing else — the
  * brief path, the flags, every token survives — because the expanded view and
@@ -208,23 +215,43 @@ export function CopyFact({
 }
 
 /**
- * The COMMAND field: a preview that opens to the whole thing, and a Copy.
+ * The COMMAND field: a sized preview that opens to the whole thing, and a Copy.
  *
  * The plain {@link Fact} truncates to one clipped line, which is right for a pid
  * or a model name and wrong for the one value on this panel that is ~1,400
  * characters — the entire brief the agent was handed, the single most useful
- * fact when an agent misbehaves. Measured, the truncation stopped inside
- * `.plot/briefs/`, so the reader could not even see which brief was named.
+ * fact when an agent misbehaves.
  *
- * So this field, and only this field, gets a dedicated control:
+ * **THE FIELD HAS A SIZE, and that is what this component is for.** It had none
+ * in either direction, which measured as two opposite failures of one mistake:
  *
- * - **Collapsed** it shows {@link commandFirstLine} — one line, clipped — which
- *   is the panel's default and answers "what command, roughly".
- * - **Expanded** it shows the ORIGINAL string, wrapped, so the whole brief
- *   including its path is readable in place.
- * - **Copy** yields the ORIGINAL string, always — the exact bytes the worker was
- *   launched with, never the collapsed preview. That is the wave's contract: the
- *   reader who copies gets the command, not the render of it.
+ * | | was | is |
+ * |---|---|---|
+ * | collapsed | 1 line, clipped inside `.plot/briefs/` | **3 lines**, wrapped |
+ * | expanded | all 15 lines, unbounded | **bounded**, and scrolls |
+ *
+ * *Three* lines rather than one because three reaches past `Read
+ * .plot/briefs/…` to the first full instruction, which is where a reader stops
+ * needing more; rather than five because the log below is the other half of
+ * this panel, and a fact that takes half the frame is not a fact any more.
+ *
+ * *Bounded* when expanded for the same reason from the other side. The modal is
+ * a fixed-height column: this block is `shrink-0` and the log pane below it is
+ * `flex-1`, so every line this field grows is a line taken from the log. Fifteen
+ * of them squeezed the log to a strip — the panel's other half pushed out by
+ * the half that expanded. `max-h` with its own scroller returns that space, so
+ * the log keeps its pane in both states.
+ *
+ * **`break-words`, not `break-all`.** `break-all` exists for strings with no
+ * spaces, and it split this command mid-syllable — `im`/`mediately`, `5`/`03`.
+ * The command has spaces throughout; its one genuinely unbreakable token — the
+ * shell-interpolated brief path — is short enough to wrap whole.
+ *
+ * **Copy yields the ORIGINAL string, always**, in both states — the exact bytes
+ * the worker was launched with, never a render of them. A bounded render is
+ * exactly the case where that must hold, and it holds structurally: `copy`
+ * closes over `command`, and the bound is applied to the BOX, so the full
+ * string is in the DOM either way and can be selected by hand as well.
  *
  * The omission rule from {@link Fact} is kept: an empty command (`""`, the shape
  * a fleet with no `Worker command` configured takes) renders nothing at all,
@@ -275,18 +302,22 @@ export function CommandFact({ command }: { command: string | null | undefined })
         </button>
       </div>
       {/* The value carries a stable hook so a test can read exactly what is
-          shown. Collapsed it is the one-line preview and clips; expanded it is
-          the ORIGINAL string, wrapped, so nothing is hidden. */}
-      <span
+          shown. Collapsed it is the whitespace-collapsed preview clamped to
+          three lines; expanded it is the ORIGINAL string, wrapped, inside a
+          bounded box that scrolls. Either way the string in the DOM is
+          complete — the bound is the BOX, never the text — which is what keeps
+          Copy honest and lets a reader select the whole command by hand. */}
+      <div
         data-command-value
+        data-command-expanded={expanded ? 'true' : 'false'}
         className={
           expanded
-            ? 'min-w-0 whitespace-pre-wrap break-all font-mono text-xs text-slate-700 dark:text-slate-300'
-            : 'min-w-0 truncate font-mono text-xs text-slate-700 dark:text-slate-300'
+            ? 'min-w-0 max-h-40 overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-slate-700 dark:text-slate-300'
+            : 'line-clamp-3 min-w-0 break-words font-mono text-xs leading-relaxed text-slate-700 dark:text-slate-300'
         }
       >
         {expanded ? command : commandFirstLine(command)}
-      </span>
+      </div>
     </div>
   );
 }
