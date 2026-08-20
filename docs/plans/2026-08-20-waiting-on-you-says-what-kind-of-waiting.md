@@ -349,7 +349,7 @@ this plan is what the tuple's slot list does not cover.
 - `feature/the-menu-fits-the-kind` — each kind offers its own actions in the `...` menu, and every row has one. Tests: a ticket offers Create plan and Create story; a plan offers Approve and Commission design, and Commission design creates a plan in phase `Design`; a PR with failing checks offers Show failure; an action that cannot act refuses with its reason on the control; every row in the section has a menu. (PR #280)
 
 ### Shaped
-- `bug/a-failure-is-shown-not-dumped` — a failing check shows step and time on the row, with the changed-file list behind the menu. Tests: the row names the step; the timestamp renders as an age, not an ISO string; the file list is not in the row; a row with no failure shows neither.
+- `bug/a-failure-is-shown-not-dumped` — a failing check shows step and time on the row, with the changed-file list behind the menu. Tests: the row names the step; the timestamp renders as an age, not an ISO string; the file list is not in the row; a row with no failure shows neither. (PR #287)
 - `bug/plans-of-equal-age-order-by-name` — this section gets the tiebreak #267 landed for NOT STARTED. Tests: two rows of equal age hold their order across pulses; the age ordering is unchanged where ages differ.
 
 ## What was moved, and why
