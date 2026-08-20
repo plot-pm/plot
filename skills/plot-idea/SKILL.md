@@ -49,9 +49,9 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 |-------|-----------|-------|
 | 1. Parse Input | Small | String parsing |
 | 2. Read Ceremony Bounds | Small | plot-config.sh reads, hard gates are mechanical |
-| 3. Pre-flight Checks | Small (hard gate), Mid (soft warning) | Slug collision is mechanical; title similarity needs mid-tier |
+| 3. Pre-flight Checks | Small (hard gate), Mid (soft warning) | Slug collision is mechanical, and reads the plan directory rather than the index so a missing symlink cannot bypass the gate; title similarity needs mid-tier |
 | 4. Answer the Ceremony Questions | Mid | Weight assessment + recommendation; smaller models ask instead of recommending |
-| 5-8. Create the Plan through Board Status | Small | Git/host commands, template resolution, file ops |
+| 5-8. Create the Plan through Board Status | Small | Git/host commands, template resolution, file ops; the plan file is staged before the best-effort index link |
 | 9. Summary | Small | Template formatting |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
@@ -131,7 +131,15 @@ available) and — once per repo, not per plan — suggest declaring them:
 - If the PR flow is possible (`Plan PRs` ≠ never), verify host CLI auth: `../plot/scripts/plot-host.sh backend` and the matching CLI's auth status
 - Check that branch `idea/<slug>` does not already exist (if it does, ask whether to check it out or pick a new name)
 - **Duplicate detection:**
-  - `ls docs/plans/active/ 2>/dev/null` + `../plot/scripts/plot-host.sh pr-list | jq -r .head | grep '^idea/'` to find existing plans and idea branches
+  - `ls docs/plans/*.md 2>/dev/null` — the **plan directory**, not the index —
+    plus `../plot/scripts/plot-host.sh pr-list | jq -r .head | grep '^idea/'`
+    to find existing plans and idea branches
+    - The index is the wrong question for a gate: `ls docs/plans/active/`
+      misses any plan written directly rather than through this skill, so the
+      hard gate below would pass for precisely the slugs most likely to
+      collide. A gate a missing symlink can bypass is a rule (see *Gates Over
+      Rules* in `CLAUDE.md`). The plan directory holds every plan by
+      construction, so a collision cannot hide from it.
   - **Hard gate:** if a plan with the identical slug already exists (file or branch), stop and ask the user to pick a different name
     - **Unattended (`PLOT_UNATTENDED=1`):** refuses identically — it is a gate, and inventing `<slug>-2` would defeat it.
       `PLOT-UNASKED: Pick a different slug, since <slug> already exists? — refused — gate; nothing created`
@@ -256,14 +264,33 @@ Always ask — don't infer from the title.
   commits directly to the current branch (knowledge repos: the default
   branch). No branch is created.
 
-### 6. Create Active Symlink and Commit
+### 6. Commit the Plan (and link it, best effort)
+
+The **plan file is the plan**. Its `Phase:` field is what makes it visible to
+every reader, so the commit must not depend on the index write succeeding:
 
 ```bash
-mkdir -p docs/plans/active docs/plans/delivered
-ln -s ../${CREATE_DATE}-<slug>.md docs/plans/active/<slug>.md
-git add docs/plans/${CREATE_DATE}-<slug>.md docs/plans/active/<slug>.md
+git add docs/plans/${CREATE_DATE}-<slug>.md
+
+# Convenience index for human browsing — best effort, and deliberately unable
+# to fail plan creation.
+mkdir -p docs/plans/active docs/plans/delivered 2>/dev/null || true
+ln -sfn ../${CREATE_DATE}-<slug>.md docs/plans/active/<slug>.md 2>/dev/null || true
+git add docs/plans/active 2>/dev/null || true
+
 git commit -m "plot: <title>"
 ```
+
+> **Why this is best-effort now.** Nothing reads `active/` to decide anything
+> as of `feature/the-scan-derives-its-plan-list` (#254): readers enumerate the
+> plan directory and group by the phase each plan declares. So a plan whose
+> symlink is missing is fully visible, and a plan creation that failed *because*
+> a symlink could not be written would be a real loss caused by a browsing aid.
+> The plan file is staged first for the same reason — if anything below breaks,
+> the commit still carries the plan.
+>
+> `ln -sfn`, not `ln -s`: re-running `/plot-idea` after an interrupted run
+> repairs the link instead of failing on it.
 
 Push per the flow: `git push -u origin idea/<slug>` (PR flow),
 `git push -u origin <work-branch>` (same-branch flow), or push the
