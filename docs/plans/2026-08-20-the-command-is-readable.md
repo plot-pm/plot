@@ -143,7 +143,7 @@ wave already keys an agent on its session id *because* the id survives the branc
 — which is the operator's requirement, not a second design.
 
 ### Sized
-- `bug/the-command-has-a-size` — three wrapped lines collapsed, scrollable when expanded, words broken at word boundaries. Tests: collapsed renders three lines and includes the brief's path; expanded is bounded and scrolls rather than growing; the log pane keeps its height in both states; `break-all` is gone and a long space-separated command wraps at spaces; **Copy still yields the original string in both states**; an empty command renders nothing.
+- `bug/the-command-has-a-size` (PR #294) — three wrapped lines collapsed, scrollable when expanded, words broken at word boundaries. Tests: collapsed renders three lines and includes the brief's path; expanded is bounded and scrolls rather than growing; the log pane keeps its height in both states; `break-all` is gone and a long space-separated command wraps at spaces; **Copy still yields the original string in both states**; an empty command renders nothing.
 
 ## What moved, and why
 
