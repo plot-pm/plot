@@ -1472,7 +1472,28 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
         // The terminal line: the scan finished and this is the whole document.
         parsed = msg.pulse;
       },
-      30_000,
+      // THE BUDGET IS SET FROM MEASUREMENT, and the measurement moved.
+      //
+      // 30 s was right when the scan was ~10 s. After #262 batched the
+      // per-plan reads it is 34-52 s on this repo — 84 s before that change —
+      // and the spread is the machine rather than the code: measured
+      // 2026-08-20 with 12 worktrees and a load average of 8.35, a BARE `git`
+      // spawn cost 63 ms against 31 ms on a quiet machine, and the same
+      // `rev-list` timed 14 ms, 85 ms and 111 ms on three consecutive runs.
+      // 203 spawns at 63 ms is ~13 s of process launch before any work.
+      //
+      // So a fixed budget below the loaded cost fails INTERMITTENTLY, which is
+      // the worst shape: 60 correct rows arrived and the pulse was killed
+      // before its terminal line, so `pulseComplete` stayed false, the banner
+      // never cleared, and the footer read `60 branches across 20 plans SO
+      // FAR` — accurate, and indistinguishable from a broken board.
+      //
+      // 90 s is HEADROOM over a 34-52 s cost, not cover for a 279 s one. It was
+      // refused twice while the scan was 279 s, because a budget raised to fit
+      // a 9x overrun hides the next regression instead of reporting it. The
+      // remaining per-branch `rev-list` block (64 calls) is the next thing to
+      // batch, and when it lands this can come back down.
+      90_000,
       {
         // The map this pulse starts from. `''` on the first pulse after a
         // restart, which is what makes a restart re-derive everything.
