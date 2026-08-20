@@ -67,7 +67,11 @@ describe('the parallel project takes neither contended resource', () => {
 
   it('binds no port — no file in test/unit spawns a board server', () => {
     const offenders = sources
-      .filter((s) => /startServer|spawnBoard|listen\(/.test(s.code))
+      // `\.listen\(` and not `listen\(`: the bare form is a substring of
+      // `addEventListener(`, and a gate that reddens a correct DOM test invites
+      // the next author to weaken it. This targets the server-binding call
+      // (`server.listen(...)`), which is the thing that takes a port.
+      .filter((s) => /startServer|spawnBoard|\.listen\(/.test(s.code))
       .map((s) => s.file);
     expect(
       offenders,
