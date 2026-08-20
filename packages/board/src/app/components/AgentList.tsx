@@ -43,7 +43,11 @@ import { agoLabel } from './AgentPanelFacts.js';
 // slots are answered once, in `tuple-row.ts`, for every kind. So a new kind
 // costs a projection and no rendering at all, which is what the deleted three
 // could never do.
-import { tupleFromIssue, tupleFromPlan, tupleFromRow } from '../lib/tuple-row.js';
+import { splitBranch, tupleFromIssue, tupleFromPlan, tupleFromRow } from '../lib/tuple-row.js';
+// RE-EXPORTED, not redefined. `splitBranch` moved to the module that owns the
+// slot rules when the collapse deleted `BranchName`; the unit suite imports it
+// from here, and a second definition is exactly the drift this wave removed.
+export { splitBranch };
 import { MARKS_CELL, TupleRowView } from './TupleRow.js';
 
 /**
@@ -581,60 +585,6 @@ type AgentPr = NonNullable<AgentRow['pr']>;
  */
 export const CARD_BELOW_PX = 640;
 
-/**
- * How many characters of a branch name are kept at the TAIL when the cell is
- * too narrow to hold all of it.
- *
- * Twelve, measured against the names this fleet actually carries:
- * `agent-rows-line-up` and `acting-buttons-pin-the-double-click` share the
- * prefix `feature/` and diverge immediately, but the six branches of
- * `feature/opus5-hardening-*` share twenty-four characters and differ only
- * after them — `challenge-budget`, `longhorizon`, and so on. Twelve is enough
- * to separate every pair of those six and short enough that it never eats the
- * head on a cell wide enough to matter.
- */
-const BRANCH_TAIL_CHARS = 12;
-
-/**
- * Split a branch name into the part that may be clipped and the part that must
- * not be.
- *
- * The elision is in the MIDDLE, and that is the whole decision rather than a
- * detail of it. Branch names here share long prefixes and differ at the tail —
- * `feature/opus5-hardening-…` covers six branches — so end-truncation renders
- * all six identically, which reads as SIX DUPLICATE ROWS rather than as
- * truncation. That is worse than no truncation at all, because the reader
- * cannot tell that anything was hidden.
- *
- * Returned as two strings rather than one elided string, because the cell's
- * width is `1fr` — it changes with the window, and a character budget computed
- * in JavaScript would need a `ResizeObserver` on a view that already repaints
- * every four seconds, and would be wrong for one frame on every load. The cell
- * renders the head with `truncate` (which clips at whatever width the browser
- * gives it, adding its own ellipsis) and the tail with `shrink-0`, so the
- * BROWSER decides where the fold falls and the last twelve characters are
- * always among the survivors.
- *
- * A name short enough to fit whole yields an empty tail, so a short branch
- * never gains an ellipsis it did not need — with nothing pinned to the right,
- * `truncate` leaves a fitting string untouched.
- *
- * Exported for test: end-truncation passes any assertion that only checks "the
- * string got shorter", so what is pinned is that two names sharing a long
- * prefix stay DISTINGUISHABLE.
- */
-export function splitBranch(
-  branch: string,
-  tailChars: number = BRANCH_TAIL_CHARS,
-): { head: string; tail: string } {
-  // Nothing to protect: the whole name is shorter than the tail budget, so it
-  // is all head and `truncate` has nothing to do.
-  if (branch.length <= tailChars) return { head: branch, tail: '' };
-  return {
-    head: branch.slice(0, branch.length - tailChars),
-    tail: branch.slice(branch.length - tailChars),
-  };
-}
 
 /**
  * The PR's condition as a WORD, for the cell to print beside the number.
@@ -4046,6 +3996,11 @@ function PlanRow({
       })}
       onOpenPlan={onOpenPlan}
       rowAttr={{ 'data-plan-row': group.plan }}
+      // THE PLAN'S CLOCK IS ITS APPROVAL, and the sentence says so. `waiting`
+      // alone leaves *waiting for what?* unanswered; this is the answer, and it
+      // is the same sentence a not-started branch row gives the clock it
+      // inherits from this plan — one clock, one look, wherever it appears.
+      ageTitle={waiting === null ? undefined : 'Approved this long ago, and nobody has started it'}
       // NO BORDER: the plan row heads a group that draws one line under itself
       // and its branches together. A rule here would fall between a plan and
       // its own first branch.
@@ -4392,9 +4347,27 @@ function Row({
     ? showsCue(actionReachable(row.stuck, card, dispatch), actionTaken)
     : false;
 
+  // IN A PLAN GROUP THE WAITING CLOCK BELONGS TO THE PLAN ROW, which states it
+  // once. Every branch of a plan shares one `waitingDays` — it dates the plan's
+  // own `Approved:` record — so repeating it down the column says the same
+  // number three times and reads like three measurements.
+  //
+  // ONLY THE INHERITED CLOCK is suppressed, and the distinction is load-bearing.
+  // A deferred branch in the same group carries a real `ageMinutes` of its own
+  // and that survives: an earlier version of this section erased a shelved
+  // branch's age and PR, and `fleet.ts` still carries the warning — *a branch
+  // started and then shelved read as never begun*. A property of the PLAN is
+  // repetition; a property of the BRANCH is information.
+  //
+  // Applied to the tuple rather than inside `tupleFromRow`, because it is not a
+  // fact about the row: the same row outside a plan group SHOULD print this
+  // number, and the projection cannot see which section is asking. That is the
+  // adapter's question, which is what an adapter is for.
+  const inheritedClock = inPlanGroup && row.ageMinutes === null;
+
   return (
     <TupleRowView
-      tuple={tupleFromRow(row)}
+      tuple={inheritedClock ? { ...tupleFromRow(row), age: { text: '', label: '' } } : tupleFromRow(row)}
       onOpenPlan={onOpenPlan}
       // The scroll target the agent panel's BRANCH fact aims at.
       // `getElementById` needs an id, and a branch name is unique within a
@@ -4406,6 +4379,16 @@ function Row({
       // Inside a plan group the RULE belongs to the group, which draws one line
       // under the plan and its branches together.
       bordered={!inPlanGroup}
+      // THE SAME SENTENCE THE PLAN ROW GIVES ITS CLOCK, on the rows that
+      // inherit it. A row with no tip is aged from its plan's approval —
+      // `tupleFromRow` labels that `waiting` because it is not a change to the
+      // branch — and the label names the exception while this says what
+      // happened. One clock, one look, wherever it appears.
+      ageTitle={
+        row.ageMinutes === null && row.waitingDays !== null
+          ? 'Approved this long ago, and nobody has started it'
+          : undefined
+      }
       marks={
         <>
           {/* The change mark, wherever this row now sits — including a section
@@ -4432,15 +4415,53 @@ function Row({
         </>
       }
       aside={
+        // WHAT A STATUS WORD CANNOT SAY — *uncommitted work*, *blocked by an
+        // earlier wave*, *claimed elsewhere*, *awaiting review*.
+        //
+        // IN SLOT 4, WHICH IS THE TRACK THAT FLEXES, and the placement is
+        // arithmetic rather than preference. The note is a SENTENCE and slot 5
+        // is 8rem — bounded, because it holds one status word a reader scans
+        // down a column. The old layout gave the PR and the note one 14rem
+        // track between them precisely BECAUSE the note is unbounded; measured
+        // on screen, `⑂116 no checks` with a note beside it overflowed 8rem and
+        // clipped both.
+        //
+        // Slot 4 is `1fr`: the zero-or-more slot, already the one sized by what
+        // it happens to hold. A sentence belongs in the track that varies,
+        // beside the links it qualifies, and not in the one whose whole purpose
+        // is to be the same width on every row.
+        //
+        // The note is not replaced by slot 5 — only relieved of the one duty
+        // the PR's own fields now carry; see `noteWithoutPr`.
+        note ? (
+          <span
+            data-row-note
+            // The waiting-state travels as an attribute as well as a colour: a
+            // test asserting the colour alone would pass against a rule keyed
+            // on the note's WORDING, which is the shape this removes.
+            data-waiting-on={row.waitingOn ?? undefined}
+            className={`min-w-0 truncate max-sm:whitespace-normal ${waitingTone(row.waitingOn)}`}
+            title={note}
+          >
+            {note}
+          </span>
+        ) : null
+      }
+      beside={
         <>
           {/* THE WAVE, BESIDE THE THING IT NAMES A SLICE OF.
 
-              A MARK, not a link — which is exactly why it is `aside` rather
-              than one of slot 4's links. A wave is a heading inside a plan file
-              and has no page of its own; the plan link one place along is what
-              opens the document the wave is a section of. `TupleLink` requires
-              an `href` or renders text with none, and a third case for *never
-              had one* would be a link type that is not a link.
+              IN SLOT 3, beside the NAME — which is `a-branch-row-names-its-wave`
+              (#275)'s decision and this wave does not revisit it. The wave
+              qualifies THIS BRANCH, and the association is positional: it is
+              adjacent to the branch it divides, the way `deferred` beside it
+              qualifies the branch's state. One cell over, in slot 4, it would
+              be a word separated from the thing it is about.
+
+              A MARK, not a link, which is why it is not one of slot 4's links
+              in any case. A wave is a heading inside a plan file and has no
+              page of its own; the plan link one slot along opens the document
+              the wave is a section of.
 
               Every branch that names a wave shows it, and the gate is a
               property of the ROW alone — see `waveLabel`. */}
@@ -4493,20 +4514,49 @@ function Row({
       statusAttr={row.pr ? { 'data-pr-state': row.pr.state } : undefined}
       statusExtra={
         <>
-          {/* THE PR'S NUMBER, beside the condition slot 5 states.
+          {/* THE PR'S NUMBER, beside the condition slot 5 states — and it is a
+              LINK wherever the host gave an address.
 
-              A LINK where the kind is `pr` and TEXT where it is not, and that
-              is not this component's choice: on a `pr` row slot 3 already names
-              and links the PR, so a second anchor to the same place would be
+              Only on a row whose kind is NOT `pr`: there, slot 3 already names
+              and links the PR, and a second anchor to the same page would be
               the interchangeable-words defect the association rule exists to
-              prevent. On a `branch` row — a merge conflict, which is the only
-              way a row with a PR is one — the destination is the branch, and
-              the number is context rather than a route. */}
-          {row.pr && row.kind !== 'pr' && row.kind !== 'release' && (
-            <span data-pr-number className="shrink-0 tabular-nums">
-              <PrGlyph />
-              {row.pr.number}
-            </span>
+              prevent. Everywhere else — a conflicting branch, a deferred one —
+              the row leads with the branch because that is where the reader
+              must go, and the PR is a second destination worth reaching rather
+              than a fact to read.
+              
+              An earlier draft of this collapse rendered it as TEXT on those
+              rows, reasoning that the branch was the only destination. A test
+              measured what that costs: `feature/set-down` is a branch someone
+              started, shelved, and left a green PR #57 on — and `fleet.ts`
+              already carries the warning about erasing exactly that, *a branch
+              started and then shelved read as never begun, with its age and its
+              PR erased*. Leading with the branch is about which fact is the
+              SUBJECT; it was never an argument for making the other one inert.
+
+              An empty `url` still renders as plain text, by the rule this board
+              applies everywhere: a fabricated address is indistinguishable from
+              a real one until it 404s. */}
+          {row.pr && row.kind !== 'pr' && (
+            row.pr.url ? (
+              <a
+                href={row.pr.url}
+                target="_blank"
+                rel="noreferrer"
+                data-pr-link
+                // 24 px TALL, by the padding the row absorbs — the same bargain
+                // `TupleLinkView` makes, for the same WCAG 2.2 minimum.
+                className="-my-1 inline-block shrink-0 py-1 tabular-nums text-blue-600 hover:underline dark:text-blue-400"
+              >
+                <PrGlyph />
+                {row.pr.number}
+              </a>
+            ) : (
+              <span data-pr-number className="shrink-0 tabular-nums">
+                <PrGlyph />
+                {row.pr.number}
+              </span>
+            )
           )}
           {/* `draft` and the state are TWO badges, not one. They answer
               different questions — *is this offered for review* and *what is it
@@ -4521,23 +4571,6 @@ function Row({
               title="Draft — not yet offered for review"
             >
               draft
-            </span>
-          )}
-          {/* WHAT A STATUS WORD CANNOT SAY — *uncommitted work*, *blocked by an
-              earlier wave*, *claimed elsewhere*. The note is not being replaced
-              by slot 5, only relieved of the one duty the PR's own fields now
-              carry; see `noteWithoutPr`. */}
-          {note && (
-            <span
-              data-row-note
-              // The waiting-state travels as an attribute as well as a colour:
-              // a test asserting the colour alone would pass against a rule
-              // keyed on the note's WORDING, which is the shape this removes.
-              data-waiting-on={row.waitingOn ?? undefined}
-              className={`min-w-0 truncate max-sm:whitespace-normal ${waitingTone(row.waitingOn)}`}
-              title={note}
-            >
-              {note}
             </span>
           )}
         </>

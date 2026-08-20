@@ -5,11 +5,17 @@
 // projection is a pure decision about what a row SAYS, and the plan that
 // introduced it names the file it would otherwise live in as the reason its
 // last three attempts drifted — 5,664 lines, eleven commits on 2026-08-20
-// alone, and a conflict on nearly every merge that day. Keeping the decision
-// here means the wave that finally deletes `Row`, `PlanRow` and `IssueRowView`
-// moves rendering only; the slot rules are already landed, tested and stable.
+// alone, and a conflict on nearly every merge that day.
 //
-// It carries no React, so the unit suite tests it as data.
+// THAT BET PAID. `Row`, `PlanRow` and `IssueRowView` are gone, and the wave
+// that deleted them moved rendering ONLY: not one slot rule changed, because
+// they were already landed, tested and stable here. What `AgentList.tsx` keeps
+// are three ADAPTERS, each answering what only its call site knows — the marks,
+// the menu, the second line a stuck branch takes.
+//
+// It carries no React, so the unit suite tests it as data — which is the other
+// half of why the collapse was cheap: the hard decisions were testable without
+// a browser, and the browser only had to confirm a layout.
 import type { AgentRow, IssueRow, RowKind } from '../../contract/schema.js';
 
 /**
@@ -133,6 +139,65 @@ export const KIND_ICON: Record<RowKind, string> = {
   release: '🏷',
 };
 
+
+/**
+ * How many characters of a branch name are kept at the TAIL when the slot is
+ * too narrow to hold all of it.
+ *
+ * Twelve, measured against the names this fleet actually carries:
+ * `agent-rows-line-up` and `acting-buttons-pin-the-double-click` share the
+ * prefix `feature/` and diverge immediately, but the six branches of
+ * `feature/opus5-hardening-*` share twenty-four characters and differ only
+ * after them — `challenge-budget`, `longhorizon`, and so on. Twelve is enough
+ * to separate every pair of those six and short enough that it never eats the
+ * head on a slot wide enough to matter.
+ */
+export const BRANCH_TAIL_CHARS = 12;
+
+/**
+ * Split a branch name into the part that may be clipped and the part that must
+ * not be.
+ *
+ * The elision is in the MIDDLE, and that is the whole decision rather than a
+ * detail of it. Branch names here share long prefixes and differ at the tail —
+ * `feature/opus5-hardening-…` covers six branches — so end-truncation renders
+ * all six identically, which reads as SIX DUPLICATE ROWS rather than as
+ * truncation. That is worse than no truncation at all, because the reader
+ * cannot tell that anything was hidden.
+ *
+ * Returned as two strings rather than one elided string, because the slot's
+ * width changes with the window, and a character budget computed in JavaScript
+ * would need a `ResizeObserver` on a view that already repaints every four
+ * seconds and would be wrong for one frame on every load. The consumer renders
+ * the head with `truncate` (which clips at whatever width the browser gives it,
+ * adding its own ellipsis) and the tail with `shrink-0`, so the BROWSER decides
+ * where the fold falls and the last twelve characters always survive.
+ *
+ * A name short enough to fit whole yields an empty tail, so a short branch never
+ * gains an ellipsis it did not need.
+ *
+ * IT LIVES HERE, WITH THE SLOT RULES, since `one-component-renders-every-row`.
+ * It was `BranchName`'s in `AgentList.tsx`, and the collapse deleted that
+ * component — at which point this function had no caller for the length of one
+ * commit, and the middle-elision it exists to provide was silently gone: a long
+ * branch clipped at the END, which is the six-duplicate-rows defect its own
+ * docstring names. A browser test caught it. The function is not the property;
+ * *two names sharing a long prefix stay distinguishable* is, and that property
+ * belongs to whatever renders a branch name.
+ */
+export function splitBranch(
+  branch: string,
+  tailChars: number = BRANCH_TAIL_CHARS,
+): { head: string; tail: string } {
+  // Nothing to protect: the whole name is shorter than the tail budget, so it
+  // is all head and `truncate` has nothing to do.
+  if (branch.length <= tailChars) return { head: branch, tail: '' };
+  return {
+    head: branch.slice(0, branch.length - tailChars),
+    tail: branch.slice(branch.length - tailChars),
+  };
+}
+
 /** Minutes as the board says them: `45m`, `3h`, `2d`. */
 export function tupleAgeText(minutes: number): string {
   if (minutes < 60) return `${minutes}m`;
@@ -156,7 +221,24 @@ export function tupleWaitText(days: number): string {
  * a slot a reader scans. Absent renders as absent.
  */
 export function prStatus(pr: NonNullable<AgentRow['pr']>): string {
-  if (pr.draft) return 'draft';
+  // `draft` IS NOT A STATE, and the collapse is what forced that distinction.
+  //
+  // This returned `'draft'` before consulting the state, on an argument that was
+  // sound while slot 5 was the ONLY place a PR's condition appeared: *is this
+  // offered for review* outranks *what is it waiting for* in one slot, because
+  // a draft is not yours to look at yet whatever its CI says.
+  //
+  // The row now has two places. `PrCell` used to render draft and state as two
+  // badges — deliberately, and `agents-tab` pins it: *folding draft into the
+  // state would rebuild the short-circuit that kept WAITING ON A MACHINE empty
+  // for three releases*, since the classifier used to return on every draft
+  // before the checks were read. The collapse kept that badge, beside slot 5.
+  //
+  // So the precedence has nothing left to arbitrate: the draft flag has its own
+  // element and slot 5 carries the CHECK STATE, which is the fact no other
+  // element on the row states. Two facts, two places — which is what the
+  // independence argument asked for all along, and what one slot could not give
+  // it.
   switch (pr.state) {
     case 'green': return 'green';
     case 'pending': return 'CI running';

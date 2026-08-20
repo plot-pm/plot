@@ -1,11 +1,13 @@
 // ONE ROW COMPONENT FOR ALL SEVEN KINDS.
 //
 // The board reached seven kinds of row through three components and two
-// competing grid definitions, and the third component — a TICKET — was already
-// rendering through the tracks of a BRANCH: no wave, no worker, no branch, but
-// wearing the columns of something it is not, because there was no third grid
-// to give it. Three fill sites is how the two grids drifted apart, and a shared
-// grid with three fillers keeps that possibility while adding a contract.
+// competing grid definitions, and the third component — a TICKET — rendered
+// through the tracks of a BRANCH: no wave, no worker, no branch, but wearing
+// the columns of something it is not, because there was no third grid to give
+// it. Three fill sites is how the two grids drifted apart, and a shared grid
+// with three fillers would have kept that possible while adding a contract —
+// which is why the collapse replaced the three rather than merging their
+// grids.
 //
 // This renders a {@link TupleRow} — six slots, projected from whatever the kind
 // is by `src/app/lib/tuple-row.ts`. `Row`, `PlanRow` and `IssueRowView` are
@@ -23,6 +25,7 @@
 // remove.
 import type { MouseEvent, ReactNode } from 'react';
 import type { TupleLink, TupleRow as TupleRowData } from '../lib/tuple-row.js';
+import { splitBranch } from '../lib/tuple-row.js';
 
 /**
  * The tuple's tracks — six slots, and the FOURTH is the flexible one.
@@ -146,6 +149,39 @@ function valueAttr(link: TupleLink): Record<string, string> {
  * print it, so it moves to `valueAttr` below and every one of those assertions
  * keeps an owner.
  */
+
+/**
+ * A BRANCH NAME, folded in the MIDDLE when the slot cannot hold it.
+ *
+ * Two spans rather than one: the head clips (`truncate`, so the browser adds its
+ * own ellipsis at exactly the width it has) and the tail does not (`shrink-0`),
+ * which is middle-elision performed by the LAYOUT rather than by arithmetic.
+ * See `splitBranch` for why the tail is the half that must survive — six
+ * branches here share twenty-four characters of prefix, so end-truncation
+ * renders them identically and reads as six duplicate rows.
+ *
+ * `aria-hidden` on the two halves, with the whole name supplied by the anchor's
+ * own `title` and by `data-branch`. Measured: the halves are flex ITEMS, and the
+ * accessible-name algorithm joins adjacent boxes with a space — the row
+ * announced `feat ure/reviewed`, a branch name no host would recognise and one
+ * no reader could search for. The fold is a fact about the slot's width, so it
+ * belongs to the visual channel alone.
+ *
+ * ONLY a branch. A plan slug, a PR number and an issue title do not share long
+ * prefixes with their neighbours, so they clip at the end like ordinary text —
+ * which is what `truncate` alone does, and why this is a branch of the label
+ * rather than the shape of every label.
+ */
+function BranchLabel({ name }: { name: string }) {
+  const { head, tail } = splitBranch(name);
+  return (
+    <span aria-hidden className="flex min-w-0 font-mono text-[13px] max-sm:flex-wrap max-sm:break-all">
+      <span className="truncate">{head}</span>
+      {tail && <span className="shrink-0">{tail}</span>}
+    </span>
+  );
+}
+
 export function TupleLinkView({
   link,
   showWhat = false,
@@ -178,7 +214,9 @@ export function TupleLinkView({
           {link.what}
         </span>
       )}
-      <span className="min-w-0 truncate">{link.label}</span>
+      {link.what === 'branch' ? <BranchLabel name={link.label} /> : (
+        <span className="min-w-0 truncate">{link.label}</span>
+      )}
     </>
   );
   // NO ADDRESS, so no anchor. `data-tuple-text` is what a test asserts is not
@@ -219,7 +257,21 @@ export function TupleLinkView({
       target={link.internal ? undefined : '_blank'}
       rel="noreferrer"
       title={`${link.what}: ${link.label}`}
-      className="flex min-w-0 items-baseline gap-1 text-blue-600 hover:underline dark:text-blue-400"
+      // 24 px TALL, by padding the row absorbs — and this is the one place it
+      // now has to be said, which is the accessibility half of the collapse.
+      //
+      // WCAG 2.2 asks 24 px in both directions for a pointer target. The three
+      // deleted components each grew their own anchor to reach it: `PrCell` and
+      // `IssueRowView` both carried `-my-1 inline-block py-1`, measured at 35x16
+      // on 2026-08-19 and fixed there. Three anchors, three fixes, and the next
+      // link added would have needed a fourth.
+      //
+      // ONE anchor renders every linked name on every kind now, so the target
+      // is answered once. `py-1 -my-1` grows the hit box by 8 px while the
+      // negative margin gives the space back to the layout — the text does not
+      // move and the line box is the height it was, which is what keeps a row
+      // at 35-36 px and the marks beside it in line.
+      className="-my-1 flex min-w-0 items-baseline gap-1 py-1 text-blue-600 hover:underline dark:text-blue-400"
     >
       {label}
     </a>
@@ -252,6 +304,8 @@ export function TupleRowView({
   menu = null,
   extra = null,
   aside = null,
+  beside = null,
+  ageTitle,
   statusExtra = null,
   statusAttr,
   nameAttr,
@@ -282,6 +336,36 @@ export function TupleRowView({
    * it.
    */
   aside?: ReactNode;
+  /**
+   * What a kind adds INSIDE slot 3, beside the item's own name.
+   *
+   * A branch row's WAVE badge and its `deferred` badge, and the placement is
+   * `a-branch-row-names-its-wave`'s (#275) decision, kept: *a fact about the
+   * branch belongs beside the branch.* The wave qualifies THIS BRANCH, and the
+   * association is positional and needs no rule — the way `deferred` beside it
+   * qualifies the branch's state.
+   *
+   * NOT slot 4. An earlier draft of the collapse put both there on the reasoning
+   * that slot 4 holds *things about the item*; a test measured the cost, and it
+   * is one cell of distance between a word and the thing it is about. Slot 4
+   * holds LINKS to other objects — a plan, a PR — and a wave is neither: it is
+   * a heading inside a plan file with no page of its own.
+   */
+  beside?: ReactNode;
+  /**
+   * What slot 6's clock MEANS, in a sentence, where the label is not enough.
+   *
+   * `waiting` is the label; *"Approved this long ago, and nobody has started
+   * it"* is the sentence, and the two are not the same thing. The label marks
+   * the exception — this row is not aged from its last change — while the
+   * sentence says what happened, which is the only form a reader can act on:
+   * `22d` beside `waiting` still leaves *waiting for what?* unanswered.
+   *
+   * Per call site, because the answer differs: a PLAN's clock is its approval,
+   * and a not-started BRANCH inherits that same clock from the plan above it.
+   * Defaulted to the label-and-value form where a kind has nothing more to say.
+   */
+  ageTitle?: string;
   /** What a kind adds beside its status word — a draft badge, a note. */
   statusExtra?: ReactNode;
   /** Attributes for slot 3's name — see `TupleLinkView.extraAttr`. */
@@ -415,8 +499,9 @@ export function TupleRowView({
           leads with the PR, a branch with the branch, a ticket with its title.
           `showWhat` is off here — the kind slot immediately left has already
           said what this is, and repeating it would be the same word twice. */}
-      <span role="gridcell" className="flex min-w-0 items-baseline font-medium">
+      <span role="gridcell" className="flex min-w-0 items-baseline gap-2 font-medium">
         <TupleLinkView link={tuple.name} onOpenPlan={onOpenPlan} extraAttr={nameAttr} />
+        {beside}
       </span>
       {/* SLOT 4 — THE ARTIFACT LINKS, zero or more. Each says what it points at,
           which is what keeps a PR row's two from reading as interchangeable
@@ -466,7 +551,7 @@ export function TupleRowView({
         role="gridcell"
         data-tuple-age
         data-tuple-age-label={tuple.age.label || undefined}
-        title={tuple.age.label ? `${tuple.age.label}: ${tuple.age.text}` : undefined}
+        title={ageTitle ?? (tuple.age.label ? `${tuple.age.label}: ${tuple.age.text}` : undefined)}
         className="shrink-0 text-right text-xs tabular-nums text-slate-500 dark:text-slate-400"
       >
         {tuple.age.label && (
