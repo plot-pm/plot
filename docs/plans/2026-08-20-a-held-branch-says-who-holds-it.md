@@ -49,6 +49,21 @@ from different evidence, and each is wrong in a different direction:
 So the board can simultaneously assert that nobody is working and that finished,
 green work is available to start. It did.
 
+### The branch row cannot be clicked, because it carries no link
+
+Measured from `/api/board` on the same pulse: a **plan** row carries
+`slug, title, type, phase, path, prs, phaseDate, story, waveSummary`. A
+**branch** row carries `branch, path` — and nothing else. Zero of the seven
+branch rows in the payload hold a `pr` field or any URL field.
+
+So the plan name is a link and the branch name beside it is inert text. This is
+not a styling omission the UI could correct: the data is absent from the
+contract, and the board's own `WAITING ON YOU` section proves the fix is cheap,
+because the PR-bearing rows there render `#240` and `#57` as links already. The
+same PR number is reachable per branch — `plot-plan-meta.sh` reports `prs` per
+plan and the fleet scan resolves each branch's PR to decide `merged` — it simply
+is not carried onto the row that displays the branch.
+
 ### The same gap, in dispatch
 
 `plot-dispatch.sh --dry-run` reported `claimed=0` across a fleet with four live
@@ -121,6 +136,7 @@ a warning it may read as advisory.
 
 ### Said
 - `bug/the-board-says-who-holds-a-branch` — `WORKING` shows a held branch whether or not its tree is dirty, and `NOT STARTED` says *held in a local worktree* instead of *nobody has taken it*. Tests: an agent that commits stays in WORKING; a held branch is never offered as eligible; the row names the worktree.
+- `bug/a-branch-row-carries-its-link` — the branch row carries the PR number and URL the scan already resolved, so the branch name links the way the plan name does. Tests: a branch with a merged PR carries its number; a branch with no PR carries none and renders as text rather than a dead link; the row's link survives a branch whose ref is deleted, since the PR outlives it.
 - `bug/dispatch-refuses-a-held-branch` — `plot-dispatch.sh` refuses a branch whose worktree exists with an unmerged tip, naming the path, and says so in `--dry-run`. Tests: a held branch is refused and counted `skipped`; the refusal names the worktree; `--allow-local` does not override it; a leftover worktree on a merged branch is still dispatchable.
 
 ## Notes
