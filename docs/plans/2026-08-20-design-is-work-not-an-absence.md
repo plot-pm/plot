@@ -83,48 +83,103 @@ asking whether five columns match four phases.
 
 ## Design
 
-### Three ways out, and the choice is the operator's
+### Design becomes a phase, between Draft and Approved
 
-**A. Rename the column to what it holds.** `Design` becomes `Ready` (or
-`Queued`): approved, specified, nobody started. One string, no model change, and
-the board stops claiming an activity it cannot show. Design work then appears
-under `Development` alongside implementation, which is honest — it *is* someone
-working — but loses the distinction between proving an approach and building it.
+Decided 2026-08-20. The three options first considered — rename the column,
+give design a phase, drop the column — were all framed as *where does the
+existing `Design` word belong?* The operator reframed the question and it is the
+better one: **the lifecycle is missing a step.**
 
-**B. Give design its own phase in the model.** A fifth phase between Approved
-and Delivered, entered deliberately (`/plot-spike`?) and left when the question
-is answered. Plot gains a real place for tracer bullets, and the board's fifth
-column earns its name. The cost is a phase that every spoke command must
-validate, and the phase guardrails are four rules today.
+```
+Draft  →  [Design]  →  Approved  →  Delivered  →  Released
+              ↑ optional
+```
 
-**C. Drop the column.** Four phases, four columns. `approved` is one column
-whether or not anyone has started; the `started` distinction moves to the row,
-where the fleet already reports it as a worker state. Smallest model, and the
-board loses a distinction some operators use to see queue depth at a glance.
+A plan enters Design when it is written but a question stands that approval
+cannot answer: whether the approach works. A spike, a tracer bullet, a spec
+completed against reality. It leaves when the question is answered — toward
+Approved if the answer holds, back to Draft if it does not.
 
-### What is not in question
+**This is where the existing `Design` column was pointing all along.** Today the
+board computes it as `approved && !started`, which means *nobody has begun*, and
+the measured contents prove the mismatch: all three plans in the column were
+fully specified and approved, waiting only for an agent. With a real phase the
+column reads what its name says, and the queue of approved-but-unstarted work
+goes back to Development, where somebody working on it belongs.
 
-**The branch-level phase stays.** A three-branch plan with one branch built and
-two untouched is in Development *as a plan* while those two are not; collapsing
-that would put `Development` beside *eligible — nobody has taken it*. That
-derivation is correct and is not what this plan disputes.
+### Why a phase and not a field beside Draft
+
+A marker (`Design: needed` next to `Phase: Draft`) was the cheaper option and is
+rejected. It changes no gate and breaks no reader — 22 files read the phase and
+none would notice — but it makes the lifecycle lie: a plan under active
+investigation would still report Draft, and *Draft* is the one phase whose
+meaning is "nobody has committed to this yet". Someone running a spike has
+committed to finding out.
+
+The precedent settles the shape rather than the cost. `plot-plan-meta.sh:184`
+already normalises **six** phases — `draft|approved|delivered|released|rejected|superseded`
+— so a fifth beyond the CLAUDE.md four is not novel. What *is* novel is that
+`rejected` and `superseded` are terminal, and `schema.ts:430` says so
+explicitly: they never appear on the board. **Design is the first transitional
+phase added since the model was written**, and that is the risk this plan
+carries: every gate that today asks *"is this Draft?"* is really asking *"is
+this decided?"*, and the two stop being the same question.
+
+### The gates, named rather than estimated
+
+| Site | Today | Must become |
+|---|---|---|
+| `plot-approve.sh:166` | dies unless phase is `draft` | accepts `draft` **or** `design` |
+| `plot-phase-gate.sh` | blocks impl commits while Draft | blocks in Design too — the approach is still open |
+| `plot-implement/SKILL.md` | requires Approved | unchanged, and that is the point |
+| `toBoardPhase` (`schema.ts:439`) | `approved && !started → Design` | `design → Design`; approved-unstarted goes to Development |
+| `plot-plan-meta.sh:184` | six phases | seven |
+
+`/plot-implement` staying unchanged is the load-bearing part: implementation
+still requires Approved, so Design cannot become a way to start work early.
+
+### What entering and leaving looks like
+
+Entering is a human act, like approval — nothing derives it. Leaving has two
+directions, and both must be expressible: **toward Approved** when the spike
+answered its question, and **back to Draft** when it answered it with *no*. A
+phase you can only leave forward is a trap, and `/plot-reject` already exists
+for the reverse move out of Delivered.
+
+The `Design:` record follows the shape of `Approved:` and `Delivered:` — date,
+who, and what was done — because a phase whose entry leaves no trace cannot be
+audited later.
 
 ### Open Points
 
-- [ ] Which of A, B or C — the operator's call, and the reason this plan stops
-      at Draft rather than proposing a branch.
-- [ ] If B: does an existing plan enter the new phase retroactively, or only
-      plans created after it? A phase nothing can be in is the defect this plan
-      is about.
-- [ ] Does `plot-fleet-scan.sh` need the same vocabulary? It reports wave
-      eligibility, not phases, so possibly not — but `/plot-implement` prints
-      phase names to humans.
+- [ ] Does an existing plan enter Design retroactively? Three plans sit in the
+      mislabelled column today, and none of them belongs in the new phase — they
+      are approved and unstarted, which is exactly what the fix reclassifies as
+      Development. So the answer is probably *no plan is migrated*, but that is
+      worth stating rather than assuming.
+- [ ] Does `/plot-idea` offer Design at creation, or is it only ever entered
+      later? Offering it at creation invites a plan to be born in a phase it has
+      not earned; entering it later means someone read the draft and found the
+      gap, which is the honest trigger.
+- [ ] Is there a command, or is it an edit? `/plot-approve` exists because
+      approval has mechanics (merge the PR, flip the phase, clear holds).
+      Entering Design may have none — in which case it is a field edit and a
+      commit, and inventing a spoke for it would add ceremony the change does
+      not need.
 
 ## Branches
 
-<!-- Deliberately empty. The three options above are mutually exclusive and
-     the choice is a modelling decision, not an implementation detail. A branch
-     written before that choice would be a guess wearing a spec. -->
+### The phase exists
+
+- `feature/design-is-a-phase` — `plot-plan-meta.sh` normalises `design` as a seventh phase and reports its `Design:` record beside `Approved:`/`Delivered:`. Contract-level and additive: `test/reconcile/parser.test.mjs` must pass unedited, exactly as the `changelog` field did. Tests: a plan in phase Design parses; its `Design:` record is reported; a plan without one is unaffected; the existing six phases are byte-identical.
+
+### The gates know it
+
+- `feature/the-gates-know-design` — `plot-approve.sh` accepts a plan in Design as well as Draft, and `plot-phase-gate.sh` blocks implementation commits in Design as it does in Draft. `/plot-implement` still requires Approved, unchanged. Tests: approving from Design records `Approved:` and flips the phase; an implementation commit under Design is blocked with a message naming the phase; `/plot-implement` refuses a Design plan; the Draft paths are unchanged.
+
+### The board reads it
+
+- `feature/the-design-column-means-design` — `toBoardPhase` maps `design → Design`, and `approved` maps to Development whether or not a branch has started. Tests: a plan in Design appears in the Design column; an approved plan with no started branch appears in Development, not Design; the measured case — three approved-unstarted plans — moves out of Design; Discovery, Endgame and Released are unchanged.
 
 ## Notes
 
