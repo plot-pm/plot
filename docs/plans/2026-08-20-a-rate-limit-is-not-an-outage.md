@@ -235,7 +235,7 @@ stderr; that string is the signal, and anything else stays an outage.
 - `feature/the-wait-comes-from-the-host` — where the message carries no reset, one free `rate_limit` read supplies the real one, with the constant as the last resort. Tests: a message naming seconds still wins; a bare message uses the fetched reset; an unreadable rate_limit falls back to the ceiling; the read happens once per backoff, never per call. → #272
 
 ### Says
-- `bug/the-note-names-the-rate-limit` — the note distinguishes a spent budget from an unreachable host and names when service returns. Tests: a rate-limited pulse says so and names the reset; an unreachable host keeps today's wording; the note never claims checks failed when they were not asked.
+- `bug/the-note-names-the-rate-limit` — the note distinguishes a spent budget from an unreachable host and names when service returns. Tests: a rate-limited pulse says so and names the reset; an unreachable host keeps today's wording; the note never claims checks failed when they were not asked. → #283
 - `bug/a-degraded-view-says-so-at-the-top` — **one board-status panel at the top carries every status the board has to report**, and the view-status line stays at the foot. Corrected from the first reading, which proposed a banner per condition; see the design below. Tests: two conditions render one panel, not two; the panel names how many statuses it holds; paging moves through them without changing the order; a new status flashes at the top and then sorts into place; the panel is absent entirely when there is nothing to report; the footer keeps `74 branches across 23 plans · scanned 4s ago · next in 1s · PR data 16s ago · next in 37s` and gains nothing.
 
 ## Notes
