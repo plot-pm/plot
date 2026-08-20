@@ -90,6 +90,13 @@ row **says**, never who is in the section.
 
 ### The subject leads, the vehicle follows
 
+> **Moved to `a-row-is-a-tuple` on 2026-08-20.** This section's finding is what
+> justifies the tuple's slot 3, and is kept here as the measurement that produced
+> it. The *rule* — the row leads with what the reader is deciding about — survives
+> unchanged; what moved is that it no longer needs a table of cases, because slot
+> 3 holds the item name and a PR row's item is the PR.
+
+
 Not a new field — the kinds are already distinguished. What changes is which of
 a row's existing facts occupies the dominant track:
 
@@ -229,6 +236,13 @@ to every section that groups.
 
 ### One column, four meanings
 
+> **Moved to `a-row-is-a-tuple` on 2026-08-20**, where the column becomes slot 2
+> — the kind. The measurement below is what the slot exists for, and the
+> relocation of the wave and the phase is now its own wave there, because the
+> old column must not be deleted before the two real facts it carried have
+> somewhere to go.
+
+
 Observed 2026-08-20, in a single screenshot of one section:
 
 | Cell reads | It is | Row |
@@ -320,22 +334,62 @@ scrolling past it.
 
 ## Branches
 
-The order is **menu, then subject, then label, then failure detail**. The menu
-goes first because it is the most visible gap and the least dependent: two rows
-of three have no `...` at all, so today the reader has no route to any action
-whatever the row leads with. The structural change follows, and the label and
-failure shaping settle on top of it.
+**This plan was narrowed on 2026-08-20**, after `a-row-is-a-tuple` reached the
+same file from the other direction. It asked *which* of a row's facts should
+lead, and answered per kind; the tuple asks what slots a row has at all, and
+answers once. Three branches were the same work stated as a special case and
+moved there — the reasoning is recorded under *What was moved, and why*, below.
+
+The order is **menu, then failure detail**. The menu already landed; the rest of
+this plan is what the tuple's slot list does not cover.
 
 ### Offered first
 - `feature/the-menu-fits-the-kind` — each kind offers its own actions in the `...` menu, and every row has one. Tests: a ticket offers Create plan and Create story; a plan offers Approve and Commission design, and Commission design creates a plan in phase `Design`; a PR with failing checks offers Show failure; an action that cannot act refuses with its reason on the control; every row in the section has a menu. (PR #280)
 
-### Leads
-- `feature/the-row-leads-with-its-subject` — the dominant track holds what the reader must act on: the PR where the work is PR work, the branch where it is branch work. Replaces `pr.state` with `pr.states`, a set, so a PR can report a conflict and a failing build together; grouping picks the winner explicitly rather than inheriting it from a singular field. Tests: an open PR awaiting review leads with the PR; a PR with a failing check leads with the PR, since the fix updates the PR; a **merge conflict leads with the branch even when a PR is open**, since no PR resolves it; **a PR with both leads with the branch and names the build failure on a second line**; a branch with no PR leads with the branch; **a conflicting PR still lands in `waiting-on-you` after the set change** — the grouping at `fleet.ts:2198` is pinned by a test, not by the field's old shape; a release row is marked as its own kind rather than as an ordinary PR; **plans of equal age order by name**, the fix #267 landed for NOT STARTED; `PlanRow` and `IssueRowView` are untouched; no host call is added.
-- `bug/one-column-one-kind-of-fact` — the phase column holds one kind of fact rather than a wave name, a plan phase, or nothing depending on the plan's wave count. **A branch row stops carrying its plan's phase**, which is a fact about the plan and not about the branch. Tests: a branch row does not print a plan phase; a multi-wave plan's branches and a single-wave plan's branches read the same kind of word; a PR row and a CI row are not given a phase they do not have; a ticket is not labelled with a plan phase; the distinction is visible without hovering.
-- `bug/the-kind-is-labelled-not-hovered` — the sentence in the tooltip becomes a visible label in the leading column. Tests: the label renders without hover; it names the same kind the tooltip did; a row whose kind cannot be determined says so rather than guessing.
-
 ### Shaped
 - `bug/a-failure-is-shown-not-dumped` — a failing check shows step and time on the row, with the changed-file list behind the menu. Tests: the row names the step; the timestamp renders as an age, not an ISO string; the file list is not in the row; a row with no failure shows neither.
+- `bug/plans-of-equal-age-order-by-name` — this section gets the tiebreak #267 landed for NOT STARTED. Tests: two rows of equal age hold their order across pulses; the age ordering is unchanged where ages differ.
+
+## What was moved, and why
+
+| Moved to `a-row-is-a-tuple` | Because |
+|---|---|
+| `feature/the-row-leads-with-its-subject` | "Which fact leads" is the tuple's **slot 3** — the item name. A PR row leads with the PR because the PR *is* the item and the branch is an artifact link. The rule falls out of the slot list rather than being a table of cases per kind. |
+| `bug/one-column-one-kind-of-fact` | The four-meaning column becomes **slot 2** — the kind — which is always the same sort of word. |
+| `bug/the-kind-is-labelled-not-hovered` | Slot 2 is a visible label by construction, so there is no tooltip left to promote. |
+
+**The measurements move with them and are not re-derived.** The 71 rows printing
+their plan's phase, the `ROW_TRACKS` track widths, the three verified pulse rows,
+the `fleet.ts:2198` grouping dependency — all of it is evidence the tuple's slots
+need, and all of it was gathered here.
+
+**`pr.state` → `pr.states` travels with `the-row-leads-with-its-subject`**, kept
+whole rather than split into a contract-only branch. The set exists so a row can
+report a conflict *and* a failing build; split off, it would land as a contract
+change with no consumer to justify it, and the grouping at `fleet.ts:2198` would
+be re-pointed twice instead of once. The 20 consumers across three files are the
+cost of the change, not an argument for staging it.
+
+**Two things did NOT move**, because the tuple's slots do not reach them:
+
+- **Failure detail** is about *how much* of a fact a row shows, not which facts
+  it has. Slot 5 says `ci-failing`; that a reader wants the step and not six
+  wrapped file paths is a separate decision.
+- **The equal-age tiebreak** is ordering, which the tuple says nothing about.
+  It is also the finding that matters most on its own: the flicker was found,
+  diagnosed, fixed and merged in NOT STARTED — and the identical line sat four
+  hundred lines away in the same file, unexamined, because nobody had watched
+  *this* section reshuffle. **A fix is not finished when the reported instance
+  stops.**
+
+**The `release` kind moved with slot 2, and its answer was settled in the move:**
+a kind of its own, carrying **only a mark, never an action**. The mark stops a
+reflex merge. A menu entry offering to release would put an outward-facing act on
+a board, and this repo cuts a release only on an explicit request — so its menu
+holds *Open on host* and nothing else. Even *show what this would ship* is
+declined: it reads harmless, but it makes the board the place where release
+decisions are prepared, which is the first step toward being the place they are
+taken.
 
 ## Notes
 

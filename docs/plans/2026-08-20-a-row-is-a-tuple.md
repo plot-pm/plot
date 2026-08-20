@@ -136,6 +136,31 @@ argues that *"a plan row is not a branch row, so it does not borrow the branch
 tracks"* — correct while there were only two kinds, and the reason there are now
 two grids for what will be seven kinds.
 
+**It also replaces three branches of another plan.** `waiting-on-you-says-what-
+kind-of-waiting` was approved on 2026-08-20 and reached the same file from the
+other direction: it asked *which* of a row's facts should lead, and answered per
+kind. The tuple asks what slots a row has at all, and answers once. Three of that
+plan's branches are the same work stated as a special case, and they move here:
+
+| Moved from `waiting-on-you` | Because |
+|---|---|
+| `feature/the-row-leads-with-its-subject` | "which fact leads" is **slot 3** — the item name. A PR row leads with the PR because the PR is the item; the branch is an artifact link. The rule falls out of the slot list instead of being a table of cases. |
+| `bug/one-column-one-kind-of-fact` | The four-meaning column becomes **slot 2** — the kind. Always the same sort of word. |
+| `bug/the-kind-is-labelled-not-hovered` | Slot 2 is a visible label by construction; there is no tooltip left to promote. |
+
+The measurements those branches carry are kept, because they are what justify
+the slots. Chief among them: **71 rows print their plan's phase**, a fact about
+the plan and not about the row it sits on — 36 `Development`, 26 `Endgame`, 9
+`Design`. Slot 2 ends that by holding the kind; the wave moves beside the branch
+name where `a-branch-row-names-its-wave` (#275) put it, and the phase moves to
+the plan heading where `PlanRow` already states it once.
+
+The reverse reading — keep the wave in the column and move only the phase — is
+recorded and declined. It leaves a branch row labelled `Says`, which is a fact
+about the *wave*, and the reader still has to know the plan's wave count to tell
+whether the word is a wave or something else. Slot 2 removes the question rather
+than narrowing it.
+
 ### What must not change
 
 - **Membership.** Which section a row appears in is a separate decision and this
@@ -149,20 +174,39 @@ two grids for what will be seven kinds.
 
 - [ ] **Ticket age is blank in the example.** Is that deliberate — a ticket's age
       being the tracker's business — or an omission? Every other kind carries one.
-- [ ] **Is `Release` a kind or a PR with a mark?** Recorded as a kind here,
-      matching the operator's list, and it is the one row nobody should merge by
-      reflex.
+- [x] **Is `Release` a kind or a PR with a mark?** A kind, and it carries
+      **only a mark — never an action.** Settled 2026-08-20. The mark exists to
+      stop a reflex merge; a menu entry offering to release would put an
+      outward-facing act on a board, and this repo cuts a release only on an
+      explicit request. Its menu holds *Open on host* and nothing else. Even
+      *show what this would ship* is declined: it reads harmless, but it makes
+      the board the place where release decisions are prepared, and that is the
+      first step toward being the place they are taken.
 - [ ] Do agents get a stable `@Dev-Agent` identity, or is the name derived from
       the branch it holds? The example implies the former; nothing today records
       an agent's name.
 
 ## Branches
 
+> The three absorbed branch names below are written **without backticks on
+> purpose**: `plot-plan-meta.sh` collects every backticked name in this section
+> as a branch of this plan, so quoting them here would declare six branches
+> instead of three — and `plot-dispatch` would fan out three branches that
+> belong to another plan. Measured when it did exactly that.
+
+The order is **shape, then relocate, then remove**. The slots come first because
+every other branch here needs them to exist. The two facts slot 2 displaces —
+the wave and the plan phase — are relocated before the old column is deleted, so
+no pulse renders a row that has lost a fact and not yet gained its replacement.
+
 ### Shaped
-- `feature/a-row-is-a-tuple` — the contract carries the six slots and one grid renders them for every kind, with **every named thing linked** — a PR row links its PR, its plan and its branch. Tests: each of the seven kinds renders all six slots; the item name and the artifact name are separate links to separate destinations; a PR row renders three separate links; a branch row renders one and no empty artifact control; a row whose item has no URL renders its name as text; the kind is present without hovering; no host call is added.
+- `feature/a-row-is-a-tuple` — the contract carries the six slots and one grid renders them for every kind, with **every named thing linked** — a PR row links its PR, its plan and its branch. Tests: each of the seven kinds renders all six slots; the item name and the artifact name are separate links to separate destinations; a PR row renders three separate links; a branch row renders one and no empty artifact control; a row whose item has no URL renders its name as text; the kind is present without hovering; **a release row is marked as its own kind and its menu offers no release action**; no host call is added.
+
+### Relocated
+- `feature/the-wave-and-the-phase-find-their-owners` — the two facts slot 2 displaces move to the objects they describe: the wave beside the branch name, extending `a-branch-row-names-its-wave` (#275); the plan phase into the plan heading, where `PlanRow` already states it. Absorbs bug/one-column-one-kind-of-fact and bug/the-kind-is-labelled-not-hovered from `waiting-on-you-says-what-kind-of-waiting`. Tests: a branch row prints no plan phase; a multi-wave plan's branches and a single-wave plan's branches read the same kind of word in slot 2; a PR row and a build row are not given a phase they do not have; a ticket is not labelled with a plan phase; the kind is readable without hovering, and no tooltip is the only place a kind is stated; the wave is still reachable for every branch that has one.
 
 ### Moved
-- `bug/the-row-drops-what-the-tuple-replaced` — the fields the tuple supersedes stop being rendered per kind, and `ROW_TRACKS`/`PLAN_ROW_TRACKS` collapse to one. Tests: a plan row and a branch row use the same grid; no row prints a phase belonging to another object; the sections keep their membership.
+- `bug/the-row-drops-what-the-tuple-replaced` — the fields the tuple supersedes stop being rendered per kind, and `ROW_TRACKS`/`PLAN_ROW_TRACKS` collapse to one. Absorbs feature/the-row-leads-with-its-subject: with slot 3 holding the item name, "which fact leads" is answered by construction, and what remains is deleting the per-kind leading logic. Tests: a plan row and a branch row use the same grid; no row prints a phase belonging to another object; **a PR row's dominant slot holds the PR and its branch is an artifact link**; **a merge conflict is still readable on the branch it belongs to**; the sections keep their membership.
 
 ## Notes
 
