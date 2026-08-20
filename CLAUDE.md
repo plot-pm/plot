@@ -26,6 +26,27 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
      times. Under this mode nothing would have stopped it. The brief is
      therefore the only guard a worker has — keep its scope guards explicit. -->
 
+- **Idea command:** PLOT_UNATTENDED=1 claude -p --permission-mode bypassPermissions
+
+<!-- `Idea command` runs `/plot-idea` on a tracker issue for the board's
+     `Create plan` action. The board appends ONE argument naming a file it wrote
+     — `Read <path> and follow it.` — and exports `PLOT_IDEA_PROMPT` with that
+     path plus `PLOT_ISSUE` with the number. Nothing from the issue is ever a
+     shell word: an issue body is free text from anyone who can file an issue,
+     and a single `"; rm -rf ~` in a value interpolated into a `sh -c` fragment
+     would execute. The file is the safety property, not a convenience.
+
+     Deliberately SHORT where `Worker command` is long. A worker is handed a
+     brief and told not to widen its scope, so its guards must be spelled out;
+     `/plot-idea` IS the instructions, and every step of it is judgement. A
+     prompt here that restated the skill would be a second, drifting copy of it.
+
+     `PLOT_UNATTENDED=1` is a declaration, not a switch: there is nobody at the
+     board to answer `AskUserQuestion`, and under `claude -p` that tool is not
+     even registered — so a skill that improvises exits 0 having written
+     nothing. Set, each skipped question takes the shape its author chose and
+     names itself in the log. -->
+
 <!-- Optional: **Approve command:** how to run an agent headless for ONE prompt;
      the board appends `/plot-approve <slug>` and gets the full skill — the
      ceremony questions, the tracer heuristic, the in-session walkthrough.
