@@ -38,12 +38,19 @@ import type { TupleLink, TupleRow as TupleRowData } from '../lib/tuple-row.js';
  * absorb the slack. Every other slot is bounded by what it holds — a kind is
  * one word, a status is one word, an age is four characters.
  *
- * The fixed tracks total 496 px and the six gaps and padding add 84 px, so the
- * grid needs 580 px before the links track gets a pixel — under the 640 px
- * `sm` breakpoint the rest of the board turns into cards at, with room to
- * spare. That arithmetic is the constraint `ROW_TRACKS` records having crossed
- * by 8 px once; this stays 60 px clear of it, and any widening of a fixed track
- * has to be checked against it again.
+ * The fixed tracks total 508 px and the six gaps and 24 px of padding add 96,
+ * so the grid needs **604 px** before the links track gets a pixel — under the
+ * 640 px `sm` breakpoint the rest of the board turns into cards at, with 36 px
+ * to spare. That arithmetic is the constraint `ROW_TRACKS` records having
+ * crossed by 8 px once, and any widening of a fixed track has to be checked
+ * against it again.
+ *
+ * > These numbers read 496 / 580 / 60 until 2026-08-20, when the collapse gave
+ * > the constant a test that computes them. The error was one uncounted GAP:
+ * > `84` is five gaps plus padding, correct for six tracks, and this has seven.
+ * > It shipped no defect — 604 is still under 640 — but the margin a later
+ * > widening would have been checked against was overstated by 24 px, which is
+ * > the same failure `ROW_TRACKS` records making and warns is *reassuring*.
  *
  * The MARKS track is 1.5rem and comes first, matching the existing rows, so the
  * activity marks of a tuple row and of a `Row` beside it stay in one vertical
