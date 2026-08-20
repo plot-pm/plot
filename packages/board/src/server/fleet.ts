@@ -428,25 +428,36 @@ function run(cmd: string, args: string[], cwd: string, timeoutMs = 30_000): Prom
 }
 
 /**
- * The three facts about the REPO STATE that make a scan slow, all measured — the
- * report a timeout owes and a bare `timed out after 90000ms` withholds.
+ * The two facts about the REPO STATE that a timeout can honestly report, both
+ * measured — what a bare `timed out after 90000ms` withholds, and nothing more.
  *
- * `worktrees` and `branches` are counts, not estimates: the scan spawns git once
- * per branch per question, and every spawn reads the ref database and the
- * worktree list at startup, so both multiply the launch overhead. `perSpawnMs`
- * is the launch overhead itself, timed against this repo's actual estate rather
- * than assumed — the same probe `the-scan-spawns-git-once-per-question` used to
- * show 44 worktrees cost 56 ms per spawn and 11 cost 31 ms.
+ * `worktrees` and `branches` are counts, not estimates: cheap to take, and real
+ * counts of real things. They say the estate is large. They do NOT say the
+ * estate is why the scan was slow, because that was measured and is false — see
+ * below.
  *
  * There is no `spawnCount`. The board cannot count the spawns of a scan it just
- * SIGKILLed, so it reports the branch count it CAN measure and lets the reader
- * see the multiplier, rather than printing a fabricated `spawns ≈ 8 × branches`
- * dressed as a measurement.
+ * SIGKILLed, so it names the branch count it CAN measure rather than printing a
+ * fabricated `spawns ≈ 8 × branches` dressed as a measurement.
+ *
+ * There is no `perSpawnMs` either, and its removal is the same rule applied one
+ * value over — the rule this file stated and then broke four lines later. It
+ * timed `git rev-parse --git-dir`, which prints a path: it reads neither the ref
+ * database nor the worktree list, so it was never timing the estate's effect on
+ * launch cost. It timed how loaded this machine was. Acting on the report proved
+ * it: 26 of 37 worktrees pruned, the count fell 70 %, the wall-clock did not
+ * move (97 s), and the figure promised to fall rose 33 % (80 → 106 ms). The same
+ * run clocked `git --version` — which opens no repository at all — at 2,037 ms.
+ *
+ * It is deleted rather than repaired because no honest version is reachable from
+ * here: attributing spawn cost to an estate needs a SECOND estate to compare
+ * against, and the board has only the one it runs in. The measured share of the
+ * scan spent inside git was 25 s of 131 s, so where the other 81 % went is a new
+ * measurement, not a correction — recorded as this plan's follow-up.
  */
 export interface EstateMeasurement {
   worktrees: number;
   branches: number;
-  perSpawnMs: number;
 }
 
 /**
@@ -475,34 +486,34 @@ export function withEstate(message: string, m: EstateMeasurement | null): string
 }
 
 /**
- * The measured estate as one sentence. Pure: the numbers it prints are exactly
- * the numbers it was handed, so a test can assert "measured in, sentence out"
- * without a repository. It multiplies nothing and rounds only `perSpawnMs`,
- * which arrives as a float from the probe.
+ * The measured estate as one clause: the two counts, and no mechanism.
+ *
+ * Pure, and now trivially so — the numbers it prints are exactly the numbers it
+ * was handed, it multiplies nothing, and it rounds nothing. It also EXPLAINS
+ * nothing, which is the point. It used to close with "pruning stale worktrees
+ * cuts both the count and the per-spawn cost", a cause and a remedy neither
+ * count supports; a reader who trusted it pruned 26 worktrees and got a slower
+ * scan reporting a higher number. A wrong explanation costs more than no
+ * explanation, because it is actionable.
+ *
+ * So the reader learns the estate is large and the scan did not finish. That is
+ * true, it is all this function measured, and it is what a timeout report owes.
  */
 export function estateReport(m: EstateMeasurement): string {
   const wt = `${m.worktrees} worktree${m.worktrees === 1 ? '' : 's'}`;
   const br = `${m.branches} branch${m.branches === 1 ? '' : 'es'}`;
-  const per = `${Math.round(m.perSpawnMs)} ms per git spawn`;
-  return `${wt}, ${br}, ${per} — the scan spawns git per branch, and every spawn `
-    + `reads this estate at startup; pruning stale worktrees cuts both the count `
-    + `and the per-spawn cost`;
+  return `${wt}, ${br}`;
 }
 
-/** How many bare `git` spawns to time when probing per-spawn launch cost. */
-const SPAWN_PROBE_COUNT = 5;
-
 /**
- * Measure the estate that a slow scan blames, or null if the measurement itself
- * fails.
+ * Count the estate a slow scan runs in, or null if the counting itself fails.
  *
- * Only ever called ON the timeout path, so its own cost — a worktree list, a
- * ref count, five bare `git` spawns — is paid once per failed scan, not per
- * pulse. `git rev-parse --git-dir` is the cheapest real spawn there is: it does
- * no ref or object work, so what it times is the launch overhead itself, which
- * is the quantity the estate is about.
+ * Only ever called ON the timeout path, so its cost — one worktree list, one ref
+ * enumeration — is paid once per failed scan, not per pulse. It used to also fire
+ * five bare `git` spawns to time launch overhead; those are gone with the number
+ * they fed, so the timeout path costs five spawns fewer as well as saying less.
  *
- * Returns null rather than a partial object if any part throws: a sentence
+ * Returns null rather than a partial object if either read throws: a sentence
  * missing a number would be worse than the bare timeout it replaces, and the
  * `an-outage-is-not-an-answer` rule says a value that could not be observed is
  * reported as absent, not as zero.
@@ -516,15 +527,7 @@ async function measureEstate(opts: BuildBoardOptions): Promise<EstateMeasurement
       ['for-each-ref', '--format=%(refname)', 'refs/remotes/origin'], opts.repoRoot);
     const branches = brOut.split('\n').filter((l) => l.trim() !== '').length;
 
-    let total = 0;
-    for (let i = 0; i < SPAWN_PROBE_COUNT; i++) {
-      const started = process.hrtime.bigint();
-      await run('git', ['rev-parse', '--git-dir'], opts.repoRoot);
-      total += Number(process.hrtime.bigint() - started) / 1e6;
-    }
-    const perSpawnMs = total / SPAWN_PROBE_COUNT;
-
-    return { worktrees, branches, perSpawnMs };
+    return { worktrees, branches };
   } catch {
     return null;
   }
@@ -1807,11 +1810,19 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // with emptiness because one scan failed is what makes a monitoring view
     // untrustworthy — the tab keeps the last pulse, its age, and this error.
     const message = err instanceof Error ? err.message : String(err);
-    // A TIMEOUT SAYS WHAT MADE IT SLOW. `withEstate` appends the measured estate
-    // only when this is a budget overrun and the estate could be measured — a
-    // scan that failed any other way, or a repo that could not be probed, keeps
-    // the bare message. The measurement is paid here, on the failure path,
-    // because it is the only path that needs it and the scan is already dead.
+    // A TIMEOUT SAYS WHAT IT COUNTED, NOT WHAT MADE IT SLOW. `withEstate`
+    // appends the two measured counts only when this is a budget overrun and
+    // they could be read — a scan that failed any other way, or a repo that
+    // could not be probed, keeps the bare message. The counts are paid here, on
+    // the failure path, because it is the only path that needs them and the scan
+    // is already dead.
+    //
+    // They describe the estate; they do not diagnose the scan. This comment
+    // claimed the stronger thing until the claim was tested against reality —
+    // 81 % of a 131 s scan was measured OUTSIDE git, so the estate cannot be the
+    // explanation, whatever its size. Naming the plan the scan died in would be
+    // a real diagnosis and `--stream` makes it reachable; that is the follow-up,
+    // not this.
     entry.error = isTimeout(message)
       ? withEstate(message, await measureEstate(opts))
       : message;
