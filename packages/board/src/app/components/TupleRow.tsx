@@ -292,10 +292,36 @@ export function TupleLinkView({
  *      points at, so three links on a PR row do not read as three
  *      interchangeable words.
  *
- * `marks` and `menu` are passed in rather than built here. The tuple says what
- * a row IS; the menu says what can be DONE to it, and that stays per kind where
- * `the-menu-fits-the-kind` put it — which is also how a RELEASE row offers no
- * release action: it is handed no such item, and this component invents none.
+ * ## The props, and why there are so many of them
+ *
+ * Fifteen is a lot for one component, and the count is the price of ONE
+ * component serving three call sites rather than a shared grid with three
+ * fillers. They fall into three groups, and every one of them is in the third
+ * or the second because it could not be in the first:
+ *
+ *   1. **The tuple** — `tuple`, and it answers all six slots. This is the whole
+ *      of what a row SAYS, and it is data: `tuple-row.ts` carries no React, so
+ *      the unit suite tests the slot rules without a browser. That property is
+ *      why the collapse was cheap, and it is what the other two groups exist to
+ *      protect.
+ *   2. **What a kind adds INSIDE a slot** — `marks`, `beside`, `aside`,
+ *      `statusExtra`, `statusAttr`, `nameAttr`, `ageTitle`, `menu`, `extra`.
+ *      Each names the slot it lands in, and each is a React node or an
+ *      attribute rather than a value, which is exactly why it cannot live in
+ *      group 1. A wave badge, a `⋯` menu and a stuck row's second line are
+ *      renderings; putting them in the projection would put React in the module
+ *      that deliberately has none.
+ *   3. **Where the row SITS** — `id`, `rowAttr`, `highlighted`, `bordered`. A
+ *      scroll anchor, a test hook, an arrival ring and a rule between groups.
+ *      All four are the section's business rather than the row's, and the three
+ *      call sites disagree about all four — a component that guessed would be
+ *      the fourth fill site this wave exists to remove.
+ *
+ * `marks` and `menu` in particular are passed in rather than built here. The
+ * tuple says what a row IS; the menu says what can be DONE to it, and that
+ * stays per kind where `the-menu-fits-the-kind` put it — which is also how a
+ * RELEASE row offers no release action: it is handed no such item, and this
+ * component invents none.
  */
 export function TupleRowView({
   tuple,

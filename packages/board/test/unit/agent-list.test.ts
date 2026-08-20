@@ -1054,8 +1054,14 @@ describe('the activity mark is a track with a travelling dot', () => {
     // NO padding of its own — the row already carries `py-2`, and a second pair
     // here made every row as tall as a two-line one (both measured at 60px).
     // The height comes from the row's content; `self-stretch` only takes it.
+    // `items-start` SINCE THE TRACK WIDENED, and the change is measured. The
+    // marks track went from 1rem to 1.5rem with the tuple, and a CENTRED 12px
+    // mark in a 24px cell lands at 35px — to the RIGHT of the live dot at 33px,
+    // which sits at `sm:left-1` of this same cell. Two marks in the wrong order
+    // read as one smeared pair, which is what the track was cut to prevent.
+    // The marks LEAD the row, so they start where the cell starts.
     expect(ACTIVITY_MARK_PLACE.row).toBe(
-      'relative flex w-full shrink-0 flex-col items-center justify-center gap-1 self-stretch');
+      'relative flex w-full shrink-0 flex-col items-start justify-center gap-1 self-stretch');
     expect(ACTIVITY_MARK_PLACE.row).not.toMatch(/\bpy-/);
   });
 
@@ -1169,13 +1175,20 @@ describe('the activity mark is a track with a travelling dot', () => {
     // box begins 18.6px below the row's top edge, not the 8px or 10px a reader
     // would derive from the padding alone.
     // The cell answers this now: `self-stretch` takes the row's own height and
-    // `items-center` centres the marks across it. No number is stated at all —
-    // which is the strongest form of the same rule, since the line height it
+    // `justify-center` centres the marks across it. No number is stated at all
+    // — which is the strongest form of the same rule, since the line height it
     // used to name (`h-5`) was itself a value that could go stale.
+    //
+    // `justify-center`, not `items-center`, and the pairing is worth stating
+    // because the two were conflated here. In a `flex-col` the MAIN axis is
+    // vertical, so `justify-*` is what centres the stack and `items-*` decides
+    // where it sits horizontally — which is a different question, answered
+    // `items-start` above for a measured reason. An assertion on
+    // `items-center` was reading the cross axis while claiming the main one.
     const mark = ACTIVITY_MARK_PLACE.row;
     expect(mark).toContain('self-stretch');
-    expect(mark).toContain('items-center');
-    expect(mark).toContain('flex');
+    expect(mark).toContain('justify-center');
+    expect(mark).toContain('flex-col');
     // And no hand-computed offset, which is the failure mode this guards.
     expect(mark).not.toMatch(/\btop-\d/);
   });
