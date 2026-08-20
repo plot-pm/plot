@@ -1,10 +1,10 @@
 # WAITING ON YOU says what kind of waiting
 
-> One screenshot, three rows, three different nouns: a **branch** with merge
-> conflicts, a **PR** with no checks, and a **PR** with a failing build — sitting
-> in one list with one row shape, above a note saying the **tickets** that belong
-> here could not be read at all. The section answers *something needs you*, and
-> stops before the question the reader actually has: **needs me to do what?**
+> One screenshot, three rows, and the widest column of each holds a **branch
+> name** — `feature/opus5-longhorizon-hardening`, `changeset-release/main`,
+> `a-held-branch-says-who-…`. Two of the three are there because a **PR** wants
+> a decision. The branch is the vehicle; the PR is the subject. The row leads
+> with the vehicle.
 
 ## Status
 
@@ -18,8 +18,7 @@
 
 ## Problem
 
-`WAITING ON YOU` holds four kinds of thing. Each wants different actions, and
-the row renders all four identically — a monospace name, a badge, an age.
+`WAITING ON YOU` holds four kinds of thing, each wanting different actions:
 
 | Kind | What it is | What the reader does |
 |---|---|---|
@@ -27,30 +26,53 @@ the row renders all four identically — a monospace name, a badge, an age.
 | **Plan** | drafted, awaiting a decision | read it, then **approve** — or first commission a **spec**, a **spike**, or a **tracer bullet** |
 | **PR** | open, wants a decision | **review and merge** — or fix a failing build |
 | **Branch** | pushed, not mergeable | **fix** the conflict or the build, or **open** it |
+| **Release** | `changeset-release/main` | read what it would ship, then release deliberately |
 
-Observed 2026-08-20, all three visible rows:
+### Three of the four already have their own shape — and that is not the defect
 
-    feature/opus5-longhorizon-hardening   #57 conflicts     25d
-      conflict  the host reports this branch does not merge
-    changeset-release/main                #240 no checks     4m
-    a-held-branch-says-who-...            #266 checks failing  2m
-      CI failed  step: validate
+Measured before writing this, because the first draft of this plan claimed all
+four shared one row shape and proposed a new `kind` field to separate them. They
+do not:
 
-Three rows, three different required actions, one shape.
+| Kind | Rendered by |
+|---|---|
+| Ticket | `IssueRow` + `IssueRowView` — its own type and component |
+| Plan | `PlanRow` + `PLAN_ROW_TRACKS` — its own component and grid |
+| PR / Branch | `Row` + `ROW_TRACKS`, with `PrCell` as a **cell** |
 
-### The consequences are visible in the same screenshot
+So there is no missing distinction to add. `PlanRow`'s own comment already
+states the principle this plan extends: **"A PLAN ROW IS NOT A BRANCH ROW, so it
+does not borrow the branch tracks."**
 
-- **The `...` menu is on one row of three.** Only `#266` shows it. Whatever the
-  other two offer, the reader cannot find out from the row.
-- **A tooltip is doing a label's job.** *"Branch feature/a-worktree-holds-its-branch
-  on the git host"* is hover-only text explaining what kind of thing the row is —
-  which is the one fact the row should state without being asked.
+### The defect is which fact leads the row
+
+`ROW_TRACKS` is `1rem 5rem 10rem 1fr 14rem 2.5rem 1.25rem`. The `1fr` — the
+widest, therefore dominant, track — holds the **branch name**. The PR is a
+`14rem` cell to its right.
+
+Verified against the live pulse for the three rows in the screenshot:
+
+    feature/opus5-longhorizon-hardening   state=wip   pr=#57
+    changeset-release/main                state=wip   pr=#240
+    bug/the-order-holds-still             state=wip   pr=#267
+
+All three are `state=wip` with an open PR. **There is no separate "PR row" and
+"branch row"** — there is one row that leads with the branch whether or not the
+branch is the point.
+
+And for a PR it is not the point. The reader is deciding about `#240`; the
+branch it happens to live on is how the change travels, not what they are
+judging. Same for a plan: the plan is the subject, its branches are vehicles —
+which is exactly why `PlanRow` stopped borrowing the branch tracks.
+
+### What the screenshot shows on top of that
+
+- **The `...` menu is on one row of three.** Only `#266` has one.
+- **A tooltip does a label's job.** *"Branch feature/a-worktree-holds-its-branch
+  on the git host"* is hover-only text stating the row's kind — the one fact a
+  row should state without being asked.
 - **Detail is dumped, not shaped.** `#266` carries a wrapped list of six changed
-  files and a raw timestamp (`2026-08-20T03:55:23Z`). It is the only row with
-  detail, and the detail is a paragraph rather than a structure.
-- **A ticket cannot appear at all right now**, and the note saying so is a
-  footer below the rows it qualifies — recorded separately in
-  `a-rate-limit-is-not-an-outage`.
+  files and a raw `2026-08-20T03:55:23Z`, as prose.
 
 ### What the section gets right, and must keep
 
@@ -61,17 +83,95 @@ row **says**, never who is in the section.
 
 ## Design
 
-### The row states its kind, and the kind decides its shape
+### The subject leads, the vehicle follows
 
-A `kind` on the row — `ticket | plan | pr | branch` — derived from what the row
-already carries rather than added as a fifth state: a row with an issue number
-and no branch is a ticket, a row with a PR number is a PR, a row that is a plan
-card is a plan, a bare ref is a branch. The board already distinguishes these to
-render them; nothing new is measured.
+Not a new field — the kinds are already distinguished. What changes is which of
+a row's existing facts occupies the dominant track:
 
-**The kind is stated, not implied by a tooltip.** A short leading label, in the
-column where `Development` and `Design` already sit, so the eye finds the noun
-before the name.
+| Situation | Leads with | Because |
+|---|---|---|
+| PR awaiting review or merge | `#240` and its title | the decision is about the PR |
+| PR with a failing build | `#266` and the failing step | the build ran **for the PR**; fixing it is PR work |
+| **Merge conflict** | the **branch** | a conflict is a property of the branch against its base — no PR can resolve it |
+| **Branch with no PR** | the **branch** | there is nothing else it could be |
+| Plan | the plan name (already true) | its branches are vehicles |
+| Ticket | the issue (already true) | — |
+
+The rule is the one `PlanRow` already applies — **the row leads with what the
+reader is deciding about** — and the discriminator is *where the problem lives*,
+not whether a PR exists.
+
+**A merge conflict is branch work even with an open PR.** `#57` shows
+`conflicts` on `feature/opus5-longhorizon-hardening`: nothing about the PR
+resolves it. The reader checks out the branch, rebases, pushes. So the branch
+leads.
+
+**A failing build is PR work even though the build ran on a branch.** The check
+belongs to the PR, the fix is a commit that updates the PR, and the reader acts
+through it. So the PR leads.
+
+The two look alike on the board today — both are red badges next to a branch
+name — and they call for different work in different places.
+
+**Where both are true, the conflict wins and the branch leads.** A conflict
+blocks the merge outright, so a red build on an unmergeable PR is moot until the
+rebase happens — fixing the build first can even be wasted work if the rebase
+changes what fails. The build failure still appears, as a second line:
+
+    feature/opus5…hardening   ⑂57 conflicts        25d
+      conflict  does not merge — resolve on the branch
+      also: CI failed (step: validate)
+
+**The contract cannot express that today.** `pr.state` is a single enum, so a PR
+reads `conflicts` OR `ci-failing` and never both — verified against the live
+pulse. The row loses the fact before it reaches the UI.
+
+**It becomes a set: `pr.states: ['conflicts', 'ci-failing']`.** A PR really can
+be both, and a single value forces the pulse to drop one — the shape of defect
+this estate keeps finding, where one observable has two causes and the code keeps
+the wrong one.
+
+The cost is real and is the reason this is stated rather than assumed.
+`pr.state` **helps decide the group** — `fleet.ts:2198` routes a conflicting PR
+into `waiting-on-you` from it, and four separate comments record the dependency.
+A set does not remove that decision, it **forces it into the open**: grouping
+must pick a winner explicitly rather than inherit one from a field that could
+only hold one thing.
+
+That explicit winner is the conflict, for the reason above — and now the same
+rule serves both the section and the row, instead of the section depending on a
+value that happened to be singular.
+
+Every consumer switching on a single value has to be revisited. That is the work
+`the-row-leads-with-its-subject` carries, and the tests below pin the grouping
+against the change rather than trusting it.
+
+**Age is the only urgency signal, and it is enough.** `bug/the-order-holds-still`
+read `conflicts` minutes after it was opened, because main moved underneath it;
+`#57` has read the same for 25 days. Both lead with the branch and the clock
+column already separates them. No freshness rule, no threshold: a threshold
+would have to be guessed, and the reader can see `2m` next to `25d` without
+being told which matters.
+
+**A release is its own kind, not an ordinary PR.** `changeset-release/main` is a
+PR by mechanism and a release by meaning, and it is the one row nobody should
+merge by reflex — every changeset merged since it opened changes what it would
+ship, so the version in its title stops being the version it cuts. Leading with
+`#240` would make it look *more* like an ordinary PR, so it gets a fifth kind
+and a mark of its own.
+
+That is a UI restatement of a rule this repo already holds: a release is
+outward-facing and only ever cut on an explicit request.
+
+**One list, not sub-groups.** Four short lists per kind read faster in isolation
+and cost the thing the section is for: a **global age order**. Sub-headings would
+put a 25-day conflict below a ticket opened this morning, because each heading
+restarts the clock. The per-row label carries the kind; the single ordering
+carries the urgency.
+
+**The tooltip's sentence becomes the label.** *"Branch … on the git host"* exists
+because someone already knew the kind was unclear, and answered it with hover
+text — invisible until you suspect there is something to hover.
 
 ### The actions follow the kind, and live in the menu
 
@@ -81,14 +181,33 @@ that a row's affordances belong in `...`. This says what belongs there per kind:
 | Kind | Menu |
 |---|---|
 | Ticket | **Create plan**, **Create story**, Open on host |
-| Plan | **Open**, **Approve**, **Commission design** (spec / spike / tracer bullet) |
+| Plan | **Open**, **Approve**, **Commission design** — creates a plan in phase `Design` with an empty spec section |
 | PR | **Open**, **Review**, and where checks fail: **Show failure** |
 | Branch | **Open**, and per cause: **Resolve conflict** / **Show failure** |
+
+**Commission design ships minimally rather than as a refusal.** The `Design`
+phase landed in #259 and nothing fills it; a menu entry that only explains why it
+cannot act would leave the phase unreachable for longer. So the entry creates a
+plan in phase `Design` with an empty spec section — enough for the phase to be
+entered from the board, with the spec/spike/tracer distinction left to the plan
+itself.
 
 Two rules from tonight's findings carry over. An action that cannot act must
 refuse **with its reason on the control** rather than accept and disappoint —
 the row action menu's existing rule. And every action lives in the menu, so a
 reader learns one grammar rather than one per kind.
+
+### The order holds still here too
+
+`AgentList.tsx:602` sorts this section by `Math.max(...ageMinutes)` alone — the
+identical shape #267 just fixed for NOT STARTED, where a coarse key ties, sort's
+ES2019 stability preserves the arrival order, and the arrival order is rebuilt
+from a fresh scan every pulse.
+
+The remedy is written and merged: a plan-name tiebreak. Not applying it here
+would be knowingly shipping a proven flicker into a second section — and this
+section is the one a reader is *acting* on, where a row that moves under the
+cursor is worse than one that merely reads oddly.
 
 ### Failure detail is structured, not prose
 
@@ -102,30 +221,37 @@ scrolling past it.
 
 - **Membership.** Nothing enters or leaves the section; see the schema comment.
 - **The refusal rule.** A control that cannot act says why, on itself.
-- **No new host calls.** The kind is derived from data already on the row. This
-  plan must not reintroduce per-row lookups — the scan's cost went from 279 s to
-  20 s across #262 and #264.
+- **No new host calls, and no fetch on click either.** The kind is derived from
+  data already on the row, and the menu shows only what the pulse already
+  carries: the scan reports `ci-failing` with its checks list, and `changed_paths`
+  and the failing check names are already on the row. Where a detail is not in
+  the pulse, the menu **links out to the host** rather than fetching it. The
+  scan's cost went from 279 s to 20 s across #262 and #264, and a per-click
+  fetch would put a second cost on the same data path for one reader's
+  convenience.
 
 ### Open Points
 
-- [ ] Does **Commission design** create a plan in the new `Design` phase
-      (#259), or open `/plot-idea` with a design-shaped template? The phase
-      exists; the flow that fills it does not.
-- [ ] Should the four kinds be **sub-grouped** under headings, or stay one list
-      with per-row labels? Sub-grouping reads better at four rows and worse at
-      forty, and the section is usually small — but it was 11 rows earlier
-      tonight.
-- [ ] Is `changeset-release/main` a **PR** or its own kind? It is a PR by
-      mechanism and a release by meaning, and it is the one row a reader must
-      never merge by reflex.
+- [ ] Does the `release` kind need its own **actions**, or only its own mark? The
+      mark stops a reflex merge; whether the menu should offer *show what this
+      would ship* is a release-workflow question rather than a UI one.
 
 ## Branches
 
-### Named
-- `feature/a-row-says-what-kind-it-is` — the row carries `kind` (`ticket | plan | pr | branch`), derived from what it already holds, and states it as a label rather than a tooltip. Tests: each kind is derived from a row that carries only its own evidence; the label renders in the leading column; no host call is added; a row whose kind cannot be determined says so rather than guessing.
+The order is **menu, then subject, then label, then failure detail**. The menu
+goes first because it is the most visible gap and the least dependent: two rows
+of three have no `...` at all, so today the reader has no route to any action
+whatever the row leads with. The structural change follows, and the label and
+failure shaping settle on top of it.
 
-### Offered
-- `feature/the-menu-fits-the-kind` — each kind offers its own actions in the `...` menu, and every row has one. Tests: a ticket offers Create plan and Create story; a plan offers Approve and Commission design; a PR with failing checks offers Show failure; an action that cannot act refuses with its reason on the control; every row in the section has a menu.
+### Offered first
+- `feature/the-menu-fits-the-kind` — each kind offers its own actions in the `...` menu, and every row has one. Tests: a ticket offers Create plan and Create story; a plan offers Approve and Commission design, and Commission design creates a plan in phase `Design`; a PR with failing checks offers Show failure; an action that cannot act refuses with its reason on the control; every row in the section has a menu.
+
+### Leads
+- `feature/the-row-leads-with-its-subject` — the dominant track holds what the reader must act on: the PR where the work is PR work, the branch where it is branch work. Replaces `pr.state` with `pr.states`, a set, so a PR can report a conflict and a failing build together; grouping picks the winner explicitly rather than inheriting it from a singular field. Tests: an open PR awaiting review leads with the PR; a PR with a failing check leads with the PR, since the fix updates the PR; a **merge conflict leads with the branch even when a PR is open**, since no PR resolves it; **a PR with both leads with the branch and names the build failure on a second line**; a branch with no PR leads with the branch; **a conflicting PR still lands in `waiting-on-you` after the set change** — the grouping at `fleet.ts:2198` is pinned by a test, not by the field's old shape; a release row is marked as its own kind rather than as an ordinary PR; **plans of equal age order by name**, the fix #267 landed for NOT STARTED; `PlanRow` and `IssueRowView` are untouched; no host call is added.
+- `bug/the-kind-is-labelled-not-hovered` — the sentence in the tooltip becomes a visible label in the leading column. Tests: the label renders without hover; it names the same kind the tooltip did; a row whose kind cannot be determined says so rather than guessing.
+
+### Shaped
 - `bug/a-failure-is-shown-not-dumped` — a failing check shows step and time on the row, with the changed-file list behind the menu. Tests: the row names the step; the timestamp renders as an age, not an ISO string; the file list is not in the row; a row with no failure shows neither.
 
 ## Notes
@@ -133,6 +259,29 @@ scrolling past it.
 Reported by the operator reading the section: *"shows 4 different things — Plan,
 PR, Ticket or branch to review or act upon."* The four kinds and their actions in
 the table above are theirs, not derived here.
+
+**The first draft of this plan was wrong and the correction is the finding.** It
+claimed four kinds shared one row shape and proposed a `kind` field to separate
+them. Measurement showed three of the four already have their own type and
+renderer. The operator's reframing is what located the real defect: *"Bei Plan
+und PR ist branch das Vehicle nicht der Fokus"*, then sharpened twice — a
+failing build is PR work, a merge conflict is branch work. The discriminator is
+**where the problem lives**, not whether a PR exists. Both render as a red badge
+beside a branch name today, and they send the reader to different places.
+
+`PlanRow` had already reached that conclusion for plans, in a comment that says
+so outright. This extends it one kind further.
+
+The interrogation moved four things: a PR that both conflicts and fails CI leads
+with the branch and needs `pr.states` as a set rather than an enum; the menu
+lands first because two rows of three have no actions at all; a release is a
+fifth kind; and the age-only sort here is the same defect #267 fixed one section
+over.
+
+That last one is worth noticing on its own. The flicker was found, diagnosed,
+fixed and merged in NOT STARTED — and the identical line sat four hundred lines
+away in the same file, unexamined, because nobody had watched *this* section
+reshuffle. A fix is not finished when the reported instance stops.
 
 The tooltip is the detail worth keeping in mind. *"Branch feature/… on the git
 host"* exists because someone already knew the row's kind was unclear — and
