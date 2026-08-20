@@ -3,6 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import type { BuildBoardOptions } from './board.js';
+import { readTail, type LogMissReason } from './worker-log.js';
 
 /**
  * The board's ONE state-changing route.
@@ -135,6 +136,99 @@ export const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
  */
 export function dispatchLogPath(repoRoot: string, slug: string): string {
   return path.join(path.resolve(repoRoot, '..'), `plot-dispatch-${slug}.log`);
+}
+
+/**
+ * What the dispatcher log read can say — the SAME shape as `WorkerLog`, keyed by
+ * SLUG rather than branch because that is what names this file.
+ *
+ * The two logs are siblings (`dispatchLogPath`), and rendering them wants the
+ * same panel — a tail of text, a full size, a path to open the rest. So the
+ * payload matches `WorkerLog` field for field, and only the key differs: a
+ * dispatcher log belongs to a plan, a worker log to a branch. Sharing the type
+ * outright would have misnamed the key, which is the one fact a reader uses to
+ * know WHICH of the two this is.
+ *
+ * `no-log` is the ordinary state, not a failure: a plan nobody has clicked Start
+ * work on has no dispatcher log, and the file is created the first time one is
+ * dispatched (`handleDispatch` opens it `'a'`). `no-worktree` cannot arise —
+ * the path is knowable without one — so the miss union is narrower here.
+ */
+export type DispatchLog =
+  | {
+      ok: true;
+      slug: string;
+      /** The log's absolute path — so a reader can open the whole file itself. */
+      path: string;
+      /** The tail, or "" for a log that exists and holds nothing. */
+      text: string;
+      /** The log's FULL size in bytes, not the length of `text`. */
+      bytes: number;
+      /** Whether `text` is the whole log or its end — see `readTail`. */
+      truncated: boolean;
+      /** Last write to the log, ISO-8601. */
+      modifiedAt: string;
+    }
+  | { ok: false; slug: string; reason: Exclude<LogMissReason, 'no-worktree'>; path: string };
+
+/**
+ * The dispatcher log for a slug, bounded, with absence and emptiness told apart.
+ *
+ * The path is DERIVED from the slug — validated by `SLUG_RE` at the route, and a
+ * slug has no slashes to escape with — so unlike `workerLog` there is no worktree
+ * lookup: `dispatchLogPath` is the whole address. The read reuses `readTail`, so
+ * a multi-megabyte log costs the same as a small one.
+ */
+export function dispatchLog(opts: BuildBoardOptions, slug: string): DispatchLog {
+  const logPath = dispatchLogPath(opts.repoRoot, slug);
+
+  let fd: number;
+  try {
+    fd = fs.openSync(logPath, 'r');
+  } catch (err) {
+    // ENOENT is *nobody has dispatched this plan* — the normal state, said as
+    // `no-log`; anything else is a file that exists and would not open.
+    const code = (err as NodeJS.ErrnoException).code;
+    return {
+      ok: false,
+      slug,
+      reason: code === 'ENOENT' ? 'no-log' : 'unreadable',
+      path: logPath,
+    };
+  }
+
+  try {
+    const st = fs.fstatSync(fd);
+    if (!st.isFile()) return { ok: false, slug, reason: 'unreadable', path: logPath };
+    const { text, truncated } = readTail(fd, st.size);
+    return {
+      ok: true,
+      slug,
+      path: logPath,
+      text,
+      bytes: st.size,
+      truncated,
+      modifiedAt: st.mtime.toISOString(),
+    };
+  } catch {
+    return { ok: false, slug, reason: 'unreadable', path: logPath };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/**
+ * Whether a dispatcher log exists for this slug — one `stat`, not a read.
+ *
+ * This is the presence signal the card carries so the `Status` menu entry can be
+ * offered *whenever a dispatcher log exists* and omitted otherwise. It is a
+ * `stat` deliberately: the log's BODY still travels only on demand through
+ * `/api/dispatch-log`, so the pulse gains one filesystem check per card and not
+ * one file read — the same discipline `worktreesFromPulse` and the worker log
+ * keep, that the periodic scan carries locations and existence, never contents.
+ */
+export function dispatchLogExists(repoRoot: string, slug: string): boolean {
+  return fs.existsSync(dispatchLogPath(repoRoot, slug));
 }
 
 /**

@@ -17,6 +17,7 @@ import {
   type FleetPulse,
   type PlanMeta,
   type WaveSummary } from '../contract/schema.js';
+import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor } from './fleet.js';
 
 /**
@@ -737,6 +738,12 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // the right answer everywhere the path would not exist.
     const worktrees = worktreesFromPulse(meta, pulse);
     if (worktrees.length > 0) card.worktrees = worktrees;
+    // Whether the DISPATCHER left a log for this plan — one `stat`, so the row's
+    // menu can offer a `Status` entry that reads it on demand. Attached only when
+    // true, like the fields above: absent and false are the same statement (*no
+    // dispatcher has run this plan*), and the client leaves the entry off either
+    // way. The log's contents never ride the pulse — see `dispatchLogExists`.
+    if (dispatchLogExists(repoRoot, slug)) card.hasDispatchLog = true;
     cards.push(card);
   }
 

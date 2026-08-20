@@ -104,16 +104,38 @@ export function verdictFromPulse(args: {
 }
 
 /**
- * How many board refreshes to wait for the row to move before saying so.
+ * How many board refreshes to wait for the row to move before the button stops
+ * watching for it.
  *
  * Long enough for a worktree create plus a push, short of leaving someone
- * staring at a spinner. When it elapses the button does NOT guess which of the
- * failure modes happened — the claim lost its race, no branch was eligible, the
- * script failed. The script already wrote the truth to the log; inventing a
- * reason here would be the board asserting something it does not know, which is
- * the failure mode this whole design is arranged against.
+ * staring at a spinner. When it elapses the button says only what it KNOWS — it
+ * dispatched, and the next pulse re-derives from git — and stops there. It does
+ * not guess which of the failure modes happened, and it no longer even asserts
+ * that one did: a claim can still be in flight after three pulses. The
+ * dispatcher wrote the truth to its log, and the `Status` entry in the row's
+ * menu is the durable route to it; inventing a verdict here would be the board
+ * asserting something it does not know, which is the failure mode this whole
+ * design is arranged against.
  */
 const PULSES_BEFORE_GIVING_UP = 3;
+
+/**
+ * What the button says once it stops watching, and NOTHING MORE.
+ *
+ * The old message was *no change — see log*, and it was wrong twice over: it
+ * asserted a FAILURE the button cannot know happened — a dispatch that prepared
+ * a worktree, pushed a booking and started an agent still leaves `claimed`
+ * unmoved for longer than the wait — and it offered the recourse as a TRANSIENT
+ * path that the next re-render destroyed, so a reader told to *see log* found no
+ * log to see.
+ *
+ * The button knows two things and says only those: it dispatched, and the next
+ * pulse re-reads git. So the message reassures rather than diagnoses, and the
+ * row travelling to WORKING is the confirmation. The dispatcher log — the thing
+ * *see log* pointed at — now has a home that outlives this render: the `Status`
+ * entry in the row's `...` menu, present whenever a dispatcher log exists.
+ */
+export const DISPATCHED_WORD = 'Agent work will show up shortly';
 
 export interface StartWorkButtonProps {
   card: Card;
@@ -135,8 +157,11 @@ export interface StartWorkButtonProps {
 
 type State =
   | { kind: 'idle' }
-  | { kind: 'starting'; since: number; log: string }
-  | { kind: 'no-change'; log: string }
+  | { kind: 'starting'; since: number }
+  // The click has been dispatched and the button has stopped watching for the
+  // row to move. NOT a failure and NOT a log path: the button reassures and the
+  // pulse confirms — see DISPATCHED_WORD. The dispatcher log lives in the menu.
+  | { kind: 'dispatched' }
   | { kind: 'failed'; message: string };
 
 /**
@@ -211,7 +236,11 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
       limit: PULSES_BEFORE_GIVING_UP,
     });
     if (verdict === 'confirmed') setState({ kind: 'idle' });
-    else if (verdict === 'gave-up') setState({ kind: 'no-change', log: state.log });
+    // The wait elapsed without the row moving. The button does not conclude a
+    // FAILURE from that — a claim can still be in flight — so it drops the
+    // spinner and shows the reassurance, nothing more. The dispatcher log is a
+    // menu entry away for anyone who wants to know what actually happened.
+    else if (verdict === 'gave-up') setState({ kind: 'dispatched' });
   }, [pulse, claimed, state]);
 
   const start = async () => {
@@ -220,7 +249,7 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
     // within a single tick. Local state only — no server-side in-flight
     // registry: a second TAB is a different question, and git holds the lock
     // there; the claim race is the real safety net.
-    setState({ kind: 'starting', since: pulse, log: '' });
+    setState({ kind: 'starting', since: pulse });
     try {
       const res = await fetch('/api/dispatch', {
         method: 'POST',
@@ -228,13 +257,17 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
         body: JSON.stringify({ slug: card.slug }),
       });
       const body = (await res.json()) as { slug?: string; log?: string; error?: string };
+      // A non-2xx is the ONE thing the button can report as a failure: the
+      // dispatch was refused before it began, and the server said why in words.
+      // The 202 body still carries `log` (the dispatcher log path), but the
+      // button no longer keeps it: the row's `Status` menu entry reads that log
+      // durably, rather than this render owning a pointer it will destroy.
       if (!res.ok) {
         setState({ kind: 'failed', message: body.error ?? `HTTP ${res.status}` });
         return;
       }
-      setState((prev) =>
-        prev.kind === 'starting' ? { ...prev, log: body.log ?? '' } : prev,
-      );
+      // Stay `starting` on success — the spinner runs until the pulse confirms
+      // the row moved (idle) or the wait elapses (dispatched). Nothing to store.
     } catch (e) {
       setState({ kind: 'failed', message: e instanceof Error ? e.message : String(e) });
     }
@@ -301,14 +334,14 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
           <span className="sr-only"> — unavailable: {refusal}</span>
         )}
       </button>
-      {state.kind === 'no-change' && (
-        // Deliberately not a diagnosis. Three things produce this and the board
-        // can tell them apart only by reading the log the script wrote.
-        <span
-          className="text-xs text-amber-700 dark:text-amber-400"
-          title={state.log ? `Dispatcher log: ${state.log}` : undefined}
-        >
-          no change — see log{state.log ? `: ${state.log}` : ''}
+      {state.kind === 'dispatched' && (
+        // Reassurance, not a verdict — and no log path. The button dispatched;
+        // whether the agent started is a fact the next pulse carries, not one
+        // this render can claim. Neutral (slate), not amber: an amber warning
+        // would re-assert the failure the old message wrongly implied. Anyone
+        // who wants the dispatcher's own words opens the row's `Status` menu.
+        <span data-dispatched className="text-xs text-slate-500 dark:text-slate-400">
+          {DISPATCHED_WORD}
         </span>
       )}
       {state.kind === 'failed' && (
