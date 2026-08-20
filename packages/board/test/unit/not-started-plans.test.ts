@@ -97,6 +97,52 @@ describe('sortByWaiting — oldest plan first', () => {
     expect(sortByWaiting(groups).map((g) => g.plan)).toEqual(['plot-sprint-support', 'fresh']);
   });
 
+  it('orders plans of the SAME age by name, so the list holds still', () => {
+    // THE MEASURED DEFECT, 2026-08-20: the NOT STARTED section reordered on
+    // almost every 4 s pulse. Waiting days is a coarse key — most plans here
+    // were approved the same day — so most comparisons return 0 and the
+    // surviving order is whatever `groups` arrived in.
+    //
+    // `Array.prototype.sort` is stable since ES2019, so it faithfully preserves
+    // that arrival order. The arrival order is what is not stable: it is
+    // rebuilt from a fresh scan every pulse. Stability preserved an unstable
+    // input, which is why this looked like a sorting bug and was not one.
+    //
+    // Passed in deliberately unsorted, so a comparator that only compares
+    // waiting days returns them in THIS order and fails.
+    const groups = groupByPlan([
+      row({ plan: 'zebra', branch: 'a', waitingDays: 3 }),
+      row({ plan: 'alpha', branch: 'b', waitingDays: 3 }),
+      row({ plan: 'mango', branch: 'c', waitingDays: 3 }),
+    ]);
+    expect(sortByWaiting(groups).map((g) => g.plan))
+      .toEqual(['alpha', 'mango', 'zebra']);
+  });
+
+  it('keeps age above the name — a name never promotes a younger plan', () => {
+    // The tiebreak is a TIEBREAK. `alpha` sorts first alphabetically and must
+    // still sit below a plan that has waited longer, or the section stops
+    // answering the question it exists for.
+    const groups = groupByPlan([
+      row({ plan: 'alpha', branch: 'a', waitingDays: 1 }),
+      row({ plan: 'zebra', branch: 'b', waitingDays: 90 }),
+    ]);
+    expect(sortByWaiting(groups).map((g) => g.plan)).toEqual(['zebra', 'alpha']);
+  });
+
+  it('orders UNDATED plans by name too, keeping them last', () => {
+    // Undated plans all score -1, so they are the population most exposed to
+    // this — and they sort last as a group, which the comparator's own note
+    // requires.
+    const groups = groupByPlan([
+      row({ plan: 'yak', branch: 'a', waitingDays: null }),
+      row({ plan: 'bison', branch: 'b', waitingDays: null }),
+      row({ plan: 'dated', branch: 'c', waitingDays: 2 }),
+    ]);
+    expect(sortByWaiting(groups).map((g) => g.plan))
+      .toEqual(['dated', 'bison', 'yak']);
+  });
+
   it('does not sort startable-first', () => {
     // Considered and rejected: it reads as more actionable and buys less. The
     // startable plans are already marked by their own note, and burying a
