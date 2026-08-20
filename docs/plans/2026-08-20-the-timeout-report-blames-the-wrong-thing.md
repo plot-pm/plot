@@ -137,7 +137,7 @@ picks the first:
 ## Branches
 
 ### Says
-- `bug/the-timeout-report-drops-what-it-cannot-measure` — `perSpawnMs` and the causal sentence are removed; the counts and the timeout stay. Tests: the report names the worktree and branch counts; it contains no per-spawn figure; it proposes no remedy it cannot support; `measureEstate` still returns null rather than a partial object when a count cannot be read; the bare-timeout fallback is unchanged where no counts are available.
+- `bug/the-timeout-report-drops-what-it-cannot-measure` — `perSpawnMs` and the causal sentence are removed; the counts and the timeout stay. Tests: the report names the worktree and branch counts; it contains no per-spawn figure; it proposes no remedy it cannot support; `measureEstate` still returns null rather than a partial object when a count cannot be read; the bare-timeout fallback is unchanged where no counts are available. PR #291.
 
 ## Notes
 
