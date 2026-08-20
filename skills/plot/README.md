@@ -19,6 +19,7 @@ Plot replaces issue trackers with git-native planning: markdown plan files on br
 | `plot/scripts/plot-pr-state.sh` | Helper: query plan PR state (draft/ready/merged/closed) |
 | `plot/scripts/plot-impl-status.sh` | Helper: query all impl PR states for a slug from plan on main |
 | `plot/scripts/plot-review-status.sh` | Helper: check review freshness for sprint items |
+| `plot/scripts/plot-sprint-candidates.sh` | Helper: every unfinished plan with its title, story and changelog, for the goal-driven sprint proposal |
 | `plot/scripts/plot-sprint-release.sh` | Helper: a sprint's `Release:` target and per-item states, for the release gate |
 | `plot/scripts/plot-update-board.sh` | Helper: update GitHub Projects board status for a PR |
 | `plot/scripts/board/board-server.mjs` | Local Kanban status board — built artifact of `@plot-pm/board` (run via `pnpm board`; rebuild via `pnpm build:board`) |
