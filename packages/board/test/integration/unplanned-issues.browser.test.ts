@@ -133,6 +133,30 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
     }
   });
 
+  it('is labelled Story, and is NOT given a plan phase it does not have', async () => {
+    // Slot 2 read `Discovery` on this row — a PLAN PHASE on a thing that is not
+    // a plan and has never entered the lifecycle that word comes from. It was
+    // defended as *not a fifth phase; the first one, worn by something that is
+    // not a plan yet*, which is coherent and still borrows another object's
+    // vocabulary to say what this row is.
+    //
+    // And the sentence that explained it was a TOOLTIP — *"Not a plan yet, this
+    // row asks whether it should become one"* — hover-only text doing a label's
+    // job, which is the second defect this branch closes.
+    const page = await open();
+    try {
+      const kind = issueRow(page, 228).locator('[data-kind]');
+      await expect.poll(() => kind.textContent()).toBe('Story');
+      // The phase word is gone, and so is the tooltip that stood in for a label.
+      await expect.poll(() => issueRow(page, 228).locator('[data-phase]').count()).toBe(0);
+      expect(await issueRow(page, 228).textContent()).not.toContain('Discovery');
+      const cell = issueRow(page, 228).locator('[role="gridcell"]').nth(1);
+      expect(await cell.getAttribute('title')).toBeNull();
+    } finally {
+      await page.close();
+    }
+  });
+
   it('leaves the branch column EMPTY rather than deriving a name', async () => {
     // A derived branch name would be indistinguishable from a branch nobody has
     // claimed — a row this board already renders, meaning something else.

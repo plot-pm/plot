@@ -367,7 +367,11 @@ describe('the activity mark glows, and travels without arriving', () => {
     const xOf = async (branch: string, selector: string) =>
       (await rectOf(rowFor(page, branch).locator(selector).first())).x;
 
-    for (const selector of ['[data-phase]', '[data-branch]']) {
+    // `[data-kind]` is slot 2's hook — it read `[data-phase]` until the plan
+    // phase moved to the plan heading. The CLAIM is unchanged: the column does
+    // not shift when a row wears an activity mark. Only the anchor's name moved,
+    // and it had to, because slot 2 no longer holds a phase to anchor on.
+    for (const selector of ['[data-kind]', '[data-branch]']) {
       const writing = await xOf('feature/writing', selector);
       const idle = await xOf('feature/idle', selector);
       expect(Math.abs(writing - idle), `${selector} moved`).toBeLessThan(1);
