@@ -199,6 +199,31 @@ refuse **with its reason on the control** rather than accept and disappoint —
 the row action menu's existing rule. And every action lives in the menu, so a
 reader learns one grammar rather than one per kind.
 
+### Grouping by plan fires for one plan in nine
+
+`showPlanHeading` returns true only when a plan holds **more than one row** in a
+section (`AgentList.tsx:686`). Measured on the live board, WORKING held **10 rows
+across 9 plans — 8 of them with exactly one row.** So one plan got a heading with
+`(2)` and eight rows repeated their plan name inline, in a column of truncated
+duplicates.
+
+The threshold is deliberate, and its comment records the case that set it: *"two
+plans, one row each turns out to be a case where headings are not wanted"* — a
+heading per row is noise when the section is small. That reasoning holds at two
+rows and inverts at ten: the section becomes a list where the *grouping* is the
+exception and the reader cannot tell at a glance which rows share a plan.
+
+It is the same shape as the sub-grouping question settled above, one level down,
+and it resolves the same way: **the row carries the plan, the section carries one
+order.** What changes is that a heading should not appear for one plan while
+eight others are inline — either every plan in the section gets a heading, or
+none does and the row states it. A mixed rendering teaches the reader that a
+heading means something it does not.
+
+WORKING is not the section this plan is about, so the finding is recorded here
+and the fix belongs with whichever branch touches `showPlanHeading` — it applies
+to every section that groups.
+
 ### The order holds still here too
 
 `AgentList.tsx:602` sorts this section by `Math.max(...ageMinutes)` alone — the
