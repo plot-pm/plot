@@ -703,6 +703,34 @@ export const FleetBranchSchema = z.object({
    */
   local_worktree: z.string().default(''),
   /**
+   * A local worktree holds this branch AND its tip has not merged — somebody
+   * holds it.
+   *
+   * THE DERIVATION `local_worktree` IS ONE INPUT TO, not a rename of it.
+   * `local_worktree` answers *where is this checked out here*; `held` answers
+   * *is that checkout evidence the branch is taken*. They diverge on exactly one
+   * branch: a CLEAN worktree left on a branch whose work has landed. That is a
+   * leftover directory — several exist on any machine that has run a fleet — and
+   * reading it as *someone is working here* is the merged-leftover misread that
+   * put shipped plans in WORKING. The scan excludes `merged` before it sets this,
+   * so a consumer reads one boolean instead of re-deriving `!merged` itself.
+   *
+   * THE CLAIM REF STAYS PRIMARY. Held is additive and cannot lower an answer:
+   * it is the only local signal a detached worker on another host cannot
+   * produce, so a branch claimed and worked elsewhere reports `held: false` here
+   * and answers from its claim ref exactly as before. Worktree evidence can only
+   * move a branch from free to held, never the reverse.
+   *
+   * NEVER AN INPUT TO WAVE ELIGIBILITY. A wave settles on `merged` alone; a held
+   * branch neither completes its own wave nor opens the next. Holding is a fact
+   * the board reports, not a state the arithmetic reads.
+   *
+   * Defaults to false so a pulse from an older scan still validates: absent and
+   * "nothing here holds it" are the same statement, and both mean "answer from
+   * refs and the claim ref".
+   */
+  held: z.boolean().default(false),
+  /**
    * Commits on the local branch that the remote does not have.
    *
    * The half `local_dirty` cannot answer, by construction: dirtiness reports

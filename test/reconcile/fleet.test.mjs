@@ -2030,6 +2030,141 @@ test('fleet: a branch with no worktree reports local_locked false', () => {
   f.cleanup();
 });
 
+// --- held: a worktree holding an unmerged branch --------------------------
+//
+// `local_worktree` answers WHERE a branch is checked out here; `held` answers
+// whether that checkout is EVIDENCE SOMEONE HOLDS THE BRANCH. The two differ on
+// exactly one branch: a clean worktree left on a branch whose tip has merged is
+// a leftover directory, not a held branch. So `held` is the AND of two facts the
+// scan already has at the point it emits them — a worktree here, and a tip not
+// merged — and it is what a consumer reads instead of re-deriving `!merged`
+// itself. Additive, like every other local signal: false wherever this machine
+// holds no worktree, which is every branch on every other machine.
+
+test('fleet: a committed-and-clean worktree reads held', () => {
+  // The case the plan is named for. A worktree holds the branch and its tip is
+  // NOT on main — the work is in flight, committed but not landed. `local_dirty`
+  // is false because the commit cleared it, and that is exactly the signal that
+  // used to make this branch read as free. `held` sees it.
+  const f = makeRepo('plot-fleet-held-clean-', ONE_WAVE('feature/in-flight'));
+  f.work('feature/in-flight', 'i.txt');
+  f.push('-u', 'origin', 'feature/in-flight');
+  git(f.dir, 'checkout', '-q', 'main');
+  const wt = addWorktree(f, 'feature/in-flight', 'inflight');
+
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === 'feature/in-flight');
+  assert.equal(b.local_dirty, false, 'the commit cleared the dirty signal — this is the point');
+  assert.equal(b.local_worktree, wt, 'the worktree is here');
+  assert.equal(b.state, 'wip', 'and its tip has not landed');
+  assert.equal(b.held, true, 'a worktree on an unmerged branch is held, committed or not');
+  f.cleanup();
+});
+
+test('fleet: a dirty worktree reads held', () => {
+  // The other in-flight shape: uncommitted edits on a branch whose tip has not
+  // landed. `held` and `local_dirty` both fire here, but they answer different
+  // questions — dirtiness says someone is editing, held says the branch is taken.
+  const f = makeRepo('plot-fleet-held-dirty-', ONE_WAVE('feature/editing'));
+  f.work('feature/editing', 'e.txt');
+  f.push('-u', 'origin', 'feature/editing');
+  git(f.dir, 'checkout', '-q', 'main');
+  const wt = addWorktree(f, 'feature/editing', 'editing');
+  fs.writeFileSync(path.join(wt, 'e.txt'), 'edited, not committed\n');
+
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === 'feature/editing');
+  assert.equal(b.local_dirty, true, 'uncommitted edits are present');
+  assert.equal(b.held, true, 'and the branch is held');
+  f.cleanup();
+});
+
+test('fleet: a clean worktree on a MERGED branch is not held', () => {
+  // The one branch `held` must NOT fire on, and the reason it is a derivation
+  // over the state rather than a rename of `local_worktree`. The branch merged
+  // (its ref still exists, so the ancestry path reads `merged`) and a clean
+  // worktree was left on it — a leftover directory, not somebody holding the
+  // branch. `local_worktree` still reports the path (location is a fact); `held`
+  // reports false (holding is not).
+  const f = makeRepo('plot-fleet-held-merged-', ONE_WAVE('feature/landed-wt'));
+  f.work('feature/landed-wt', 'l.txt');
+  f.push('-u', 'origin', 'feature/landed-wt');
+  f.prMerge('feature/landed-wt');            // --no-ff into main, ref kept
+  f.push('origin', 'main');
+  git(f.dir, 'checkout', '-q', 'main');
+  const wt = addWorktree(f, 'feature/landed-wt', 'landedwt');
+
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === 'feature/landed-wt');
+  assert.equal(b.state, 'merged', 'the tip has landed');
+  assert.equal(b.local_worktree, wt, 'the leftover directory is still located');
+  assert.equal(b.held, false, 'but a merged tip is a leftover, not a held branch');
+  f.cleanup();
+});
+
+test('fleet: a claim ref with no worktree still reads claimed, and not held', () => {
+  // `held` is ADDITIVE and comes from the worktree list; the claim comes from
+  // the refs. A dispatcher on another machine pushes a claim commit and this
+  // machine has no worktree for it — so `held` is false (nothing observed here)
+  // while `claimed` stands untouched. The one must not shadow the other: a claim
+  // ref is still the primary, cross-machine signal.
+  const f = makeRepo('plot-fleet-held-claim-', ONE_WAVE('feature/taken'));
+  git(f.dir, 'checkout', '-qb', 'feature/taken');
+  git(f.dir, 'commit', '-q', '--allow-empty', '-m', 'plot: claim feature/taken');
+  f.push('-u', 'origin', 'feature/taken');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === 'feature/taken');
+  assert.equal(b.state, 'claimed', 'the claim ref is untouched');
+  assert.equal(b.local_worktree, '', 'no worktree here');
+  assert.equal(b.held, false, 'and held is false where this machine holds nothing');
+  f.cleanup();
+});
+
+test('fleet: a branch with no local worktree reports held false', () => {
+  // The assertion that keeps `held` additive, in the shape its neighbours have.
+  // Every detached worker, every teammate's laptop, every CI run is this case.
+  const f = makeRepo('plot-fleet-held-elsewhere-', ONE_WAVE('feature/far-away'));
+  f.work('feature/far-away', 'a.txt');
+  f.push('-u', 'origin', 'feature/far-away');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === 'feature/far-away');
+  assert.equal(b.local_worktree, '', 'nothing here');
+  assert.equal(b.held, false, 'so nothing is held');
+  assert.equal(b.state, 'wip', 'and the refs answer is untouched');
+  f.cleanup();
+});
+
+test('fleet: holding a branch does not change its wave eligibility', () => {
+  // `held` is a REPORTED fact, never an input to the wave arithmetic. A held
+  // branch in an eligible wave stays eligible; a held branch does not settle its
+  // own wave or open the next. Two waves: wave One holds an unmerged, held branch
+  // (open work), so wave Two must stay blocked behind it exactly as it would if
+  // no worktree existed.
+  const plan =
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n' +
+    '### One\n- `feature/wave-a` — first\n\n' +
+    '### Two\n- `feature/wave-b` — second\n';
+  const f = makeRepo('plot-fleet-held-waves-', plan);
+  // wave-a: unmerged work, held by a local worktree.
+  f.work('feature/wave-a', 'a.txt');
+  f.push('-u', 'origin', 'feature/wave-a');
+  git(f.dir, 'checkout', '-q', 'main');
+  addWorktree(f, 'feature/wave-a', 'wavea');
+
+  const doc = JSON.parse(f.run(['--json']));
+  const waves = doc.plans[0].waves;
+  const a = waves[0].branches.find((x) => x.branch === 'feature/wave-a');
+  assert.equal(a.held, true, 'wave One is held');
+  assert.equal(waves[0].verdict, 'eligible', 'a held, unmerged branch keeps its wave eligible');
+  assert.equal(waves[1].verdict, 'blocked',
+    'and the next wave stays blocked behind it — holding settles nothing');
+  f.cleanup();
+});
+
 // --- unpushed commits are not "no commits yet" -------------------------------
 //
 // `local_dirty` reports *someone is editing*, and committing CLEARS it — so a

@@ -10,10 +10,13 @@
 #
 # Fires when the current branch is an implementation branch
 # (<prefix>/<slug> for the repo's configured branch prefixes, minus
-# idea/) whose plan file exists and is still phase Draft — including the
-# `Impl: same branch` flow, where the plan rides the work branch. Commits
-# that touch ONLY the plan directory always pass (refining a draft is how
-# it becomes approvable).
+# idea/) whose plan file exists and is still phase Draft OR Design —
+# including the `Impl: same branch` flow, where the plan rides the work
+# branch. Design is transitional (a spike or tracer bullet answering
+# whether the approach works), and implementation only ever references an
+# APPROVED plan — so both pre-Approved phases block. Commits that touch
+# ONLY the plan directory always pass (refining the plan is how it becomes
+# approvable).
 #
 # THE PHASE IS READ FROM A SHARED REF, NEVER THE WORKING TREE. The question this
 # gate means to ask is "has this plan been approved where everyone can see it?",
@@ -65,9 +68,12 @@ PREFIX_ALT="$(bash "$HERE/plot-config.sh" get "Branch prefixes" "idea/, feature/
   | tr ',' '\n' | tr -d ' ' | sed 's#/$##' | grep -v '^idea$' | grep -v '^$' | paste -sd'|' -)"
 [ -n "$PREFIX_ALT" ] || PREFIX_ALT='feature|bug|docs|infra'
 
+# $1 = reason, $2 = slug, $3 = phase title as read (e.g. Draft, Design). The
+# phase is NAMED, not hardcoded: Draft and Design both block, and telling a
+# reader "still Draft" over a Design plan sends them hunting for the wrong word.
 block() {
   echo "plot phase gate: $1" >&2
-  echo "The plan is still Draft — implementation only ever references an approved plan (Manifesto P2)." >&2
+  echo "The plan is still $3 — implementation only ever references an approved plan (Manifesto P2)." >&2
   echo "Either: review and approve it (/plot-approve $2), or — if this commit only refines the plan — stage only the plan file." >&2
   exit 2
 }
@@ -239,9 +245,19 @@ if [[ "$BRANCH" =~ ^(${PREFIX_ALT})/ ]]; then
   PHASE="$(bash "$HERE/plot-plan-meta.sh" "$GATE_BLOB" | jq -r .phase)"
   rm -rf "$GATE_DIR"
 
-  if [ "$PHASE" = "draft" ] && outside_plans; then
-    block "branch '$BRANCH' implements plan '$SLUG', which is still Draft on $GATE_REF." "$SLUG"
-  fi
+  # Draft AND Design both block: in both the approach is not yet settled, and
+  # implementation only ever references an APPROVED plan. Design is the one
+  # transitional phase before Approved — a spike or tracer bullet answering
+  # whether the approach works — and starting to build against it is exactly the
+  # premature-implementation this gate exists to stop.
+  case "$PHASE" in
+    draft|design)
+      if outside_plans; then
+        # Title-case for the message: "still Draft" / "still Design".
+        PHASE_TITLE="$(printf '%s' "$PHASE" | awk '{ print toupper(substr($0,1,1)) substr($0,2) }')"
+        block "branch '$BRANCH' implements plan '$SLUG', which is still $PHASE_TITLE on $GATE_REF." "$SLUG" "$PHASE_TITLE"
+      fi ;;
+  esac
 fi
 
 exit 0

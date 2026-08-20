@@ -1,0 +1,1 @@
+../2026-08-20-a-rate-limit-is-not-an-outage.md

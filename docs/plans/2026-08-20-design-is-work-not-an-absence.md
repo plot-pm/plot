@@ -17,6 +17,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20, jwloka, in-session
 - **Started:** 2026-08-20, Jan Wloka, `feature/the-gates-know-design`
+- **Started:** 2026-08-20, Jan Wloka, `feature/the-design-column-means-design`
 
 ## Problem
 

@@ -190,6 +190,25 @@ test('approve: Approved: fills the placeholder rather than appending after the l
   assert.equal(lines.filter((l) => l.startsWith('- **Approved:**')).length, 1);
 });
 
+test('approve: a plan in Design is approvable — flips to Approved and records it', () => {
+  // Design is a decided-enough phase to approve directly: the spike answered
+  // its question. The script must accept it as it accepts Draft, flip the phase
+  // (from Design, not just from Draft), and fill the Approved: record.
+  makeRepo(PLAN({ phase: 'Design' }));
+  const { code, out } = run(['approve-me']);
+  assert.equal(code, 0, `approving from Design must succeed:\n${out}`);
+  assert.match(out, /merged PR #42/);
+  assert.equal(hostState().state, 'MERGED');
+
+  refreshMain();
+  const plan = planOnMain();
+  assert.match(plan, /- \*\*Phase:\*\* Approved/,
+    `Design must be flipped to Approved on main:\n${plan}`);
+  assert.doesNotMatch(plan, /- \*\*Phase:\*\* Design/, 'no Design phase may remain');
+  assert.match(plan, /- \*\*Approved:\*\* \d{4}-\d{2}-\d{2}, .*plan-PR #42 merged/,
+    `the record must be filled:\n${plan}`);
+});
+
 // --- the three refusals -----------------------------------------------------
 
 test('approve: refuses a plan that is not Draft, and says why', () => {
