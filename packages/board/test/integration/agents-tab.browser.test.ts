@@ -553,11 +553,27 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // Read off the GRIDCELLS, which is what the tracks now are: the order of
       // the cells IS the order of the columns, and a swapped pair of tracks
       // would fail here rather than merely reordering two spans.
-      const cells = await group(page, 'Waiting on you')
+      const cells = group(page, 'Waiting on you')
         .locator('li[data-agent-row]').first()
-        .locator('[role="gridcell"]').allTextContents();
-      const plan = cells.findIndex((t) => t.trim() === 'beans');
-      const branch = cells.findIndex((t) => t.trim() === 'feature/reviewed');
+        .locator('[role="gridcell"]');
+      const texts = await cells.allTextContents();
+      const plan = texts.findIndex((t) => t.trim() === 'beans');
+      // The branch cell is found by its own MARKER rather than by its exact
+      // text, and that is the fix this test needed as much as the code did. It
+      // matched `=== 'feature/reviewed'`, which held only while the cell
+      // contained the branch name and nothing else — so it broke when the WAVE
+      // badge moved in beside the name, reporting `-1` for *the branch column is
+      // missing* when the column was there and had gained a second occupant.
+      //
+      // An exact-text match on a cell is a test of the cell's whole content
+      // wearing the shape of a test of column ORDER, which is what this is
+      // about. `[data-branch]` is the row's stable hook for the name; the
+      // `deferred` badge would have broken the old form the same way.
+      const count = await cells.count();
+      let branch = -1;
+      for (let i = 0; i < count; i++) {
+        if (await cells.nth(i).locator('[data-branch]').count()) { branch = i; break; }
+      }
       expect(plan).toBeGreaterThanOrEqual(0);
       expect(branch).toBeGreaterThanOrEqual(0);
       expect(plan).toBeLessThan(branch);

@@ -448,6 +448,31 @@ describe('every kind fills all six slots', () => {
     });
   }
 
+  it('gives a plan phase to the PLAN and to no other kind', () => {
+    // THE RELOCATION, asserted across all seven at once — which is the only
+    // place it can be asserted as a rule rather than as six separate absences.
+    //
+    // The phase is a fact about a PLAN. Slot 5 on a plan row is where it is
+    // true, and 71 branch rows printed it anyway (36 `Development`, 26
+    // `Endgame`, 9 `Design`) because slot 2 was a column looking for something
+    // to hold. A PR row and a build row have no phase at all — a CI run is not
+    // in `Endgame` — and a ticket has never entered the lifecycle the word
+    // comes from.
+    //
+    // Every projection here is handed a row that COULD leak one: `row()` carries
+    // `phase` and the plan fixture is in `Design`, so a projection reading
+    // `row.phase` into slot 5 would be caught rather than passing on absent data.
+    const PHASES = ['Discovery', 'Design', 'Development', 'Endgame', 'Released'];
+    for (const kind of RowKindSchema.options) {
+      const t = projections[kind]();
+      if (kind === 'plan') {
+        expect(t.status).toBe('Design');
+        continue;
+      }
+      expect(PHASES, `${kind} wears a plan phase in slot 5`).not.toContain(t.status);
+    }
+  });
+
   it('points a build BACK at its PR where a ticket points FORWARD at its plan', () => {
     // Direction is a property of the PAIR rather than a rule the reader has to
     // hold: both slots are linked and each says what it is, so a reader never
