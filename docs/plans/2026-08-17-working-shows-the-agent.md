@@ -380,7 +380,7 @@ in a wave whose shape the earlier ones are likely to change.
   manifest points at. Together they make an agent something the board can
   list with no branch at all, which is what `waiting` requires. Defensive
   by construction: an unreadable or unrecognised transcript omits its
-  fields rather than guessing them
+  fields rather than guessing them — PR #282
 
 ## Done when
 
