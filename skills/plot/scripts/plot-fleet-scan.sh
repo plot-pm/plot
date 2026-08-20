@@ -1082,6 +1082,38 @@ remote_ref_oid() { # $1=branch → oid, or ""
   printf '%s\n' "$REMOTE_REFS" | awk -F'\t' -v b="$1" '$1==b {print $2; exit}'
 }
 
+# EVERY LOCAL HEAD, IN ONE CALL — the same batch shape as REMOTE_REFS, for the
+# same reason. `local_ahead_of` (below) asks `refs/remotes/origin/<br>..refs/heads/<br>`
+# per branch, and on the population that dominates a real scan — branches living
+# on somebody else's machine, with no local `refs/heads/<br>` at all — that
+# rev-list exits 128 and answers 0. Measured on this repo in --json mode: 64
+# `local_ahead_of` calls, 25 of them against branches with no local head,
+# spawning a process to re-derive a zero already knowable from this one call.
+#
+# ONLY the no-local-head case is gated. A local head that HAS NO UPSTREAM
+# (committed, never pushed) still spawns the rev-list — it is a real question
+# with a real 128-failure answer, pinned by `a MISSING upstream is detected, not
+# read as zero`, and gating it here would answer 0 without ever looking, which
+# is the exact accident that test exists to forbid.
+LOCAL_HEADS=$(git for-each-ref --format='%(refname:strip=2)' \
+  "refs/heads" </dev/null 2>/dev/null)
+
+# Whether `refs/heads/$1` exists locally, from the batch. An empty LOCAL_HEADS —
+# a bare repo, or a failed for-each-ref — makes this false for every branch, so
+# `local_ahead_of` falls back to spawning and its own 128-handling decides. The
+# gate can only ever SKIP a spawn it is certain would answer 0; it never invents
+# one.
+local_head_exists() { # $1=branch → 0 when refs/heads/$1 is present
+  case "
+$LOCAL_HEADS
+" in
+    *"
+$1
+"*) return 0 ;;
+  esac
+  return 1
+}
+
 WORKTREES=""
 while IFS=$'\t' read -r wt_branch wt_path; do
   [ -n "$wt_branch" ] || continue
@@ -1291,6 +1323,13 @@ worker_of() { # $1=branch → "state\tpid\texit"
 # report saturation.
 local_ahead_of() { # $1=branch → count of local commits the remote lacks, or 0
   local out
+  # NO LOCAL HEAD, NO SPAWN. A branch with no `refs/heads/$1` — the common case,
+  # every branch on another machine — makes the rev-list below exit 128 and
+  # answer 0. That 0 is already known from the LOCAL_HEADS batch, so the process
+  # is not spawned to rediscover it. This skips ONLY the absent-head case; a
+  # present head with no upstream still falls through and fails 128 as before,
+  # because absent-upstream is a different fact the caller's tests pin.
+  local_head_exists "$1" || { printf '0'; return; }
   # Exit code, never emptiness. `|| return`-style shortcuts would swallow the
   # distinction this whole comment exists to preserve.
   if out=$(git rev-list --count \
@@ -2344,9 +2383,24 @@ branch_state() {
   real=${_bs_counts##* }
   if [ "${ahead:-0}" -gt 0 ]; then
     [ "${real:-0}" = "0" ] && { echo "claimed"; return; }
-    # Has real work: merged only if that work already landed.
-    git merge-base --is-ancestor "origin/$br" "origin/$MAIN" </dev/null 2>/dev/null \
-      && { echo "merged"; return; }
+    # Real work that main does not yet contain: `wip`, and ONLY `wip`.
+    #
+    # This arm once asked `merge-base --is-ancestor origin/$br origin/$MAIN`
+    # here — "has the work already landed?" — and returned `merged` when it did.
+    # That question was already answered by the `ahead` count above it and could
+    # never fire: `ahead > 0` means `$br` carries at least one commit unreachable
+    # from `$MAIN`, and a branch with such a commit CANNOT be an ancestor of
+    # `$MAIN`, so `--is-ancestor` was false on every branch that reached it. It
+    # was one git spawn per `wip` branch spent to re-derive a fact already in
+    # hand — the per-branch tail this plan set out to thin — and its `merged`
+    # was dead code that changed no verdict.
+    #
+    # The landed-work case is not lost; it is answered ONE LEVEL UP. A branch
+    # whose commits are all in `$MAIN` counts `ahead = 0` and falls through to
+    # the `merged` below, and a merge that deleted the ref never reaches here at
+    # all (the no-ref arm returns first). If a future change makes `ahead`
+    # something other than "commits `$MAIN` lacks", THIS is the invariant that
+    # would break — the ancestry must move back, not be missed.
     echo "wip"; return
   fi
   # Nothing of its own. NOT a claim: that shape is indistinguishable from
