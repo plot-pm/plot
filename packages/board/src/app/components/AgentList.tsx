@@ -14,6 +14,7 @@ import {
   type WaitingGroup,
 } from '../../contract/schema.js';
 import { ApproveButton } from './ApproveButton.js';
+import { CommissionDesignButton } from './CommissionDesignButton.js';
 import { CreatePlanButton } from './CreatePlanButton.js';
 import { isDraft } from './PlanCard.js';
 import { StartWorkButton } from './StartWorkButton.js';
@@ -2659,6 +2660,152 @@ export function noActionReason(row: AgentRow): string {
 }
 
 /**
+ * The address Open navigates to — a fact already on the row, never a fetch.
+ *
+ * **This is the item that gives every fleet row a menu.** The motivating defect
+ * was two of three WAITING ON YOU rows with no `⋯` at all: a plain PR awaiting
+ * review offered nothing the old menu recognised, so its menu was absent and the
+ * reader had no route to the one thing they came to do — look at it.
+ *
+ * The PR wins where both exist, because a PR row's subject is the PR: the reader
+ * is deciding about `#240`, and the branch it rides on is the vehicle. A branch
+ * with no PR opens `branchUrl` — the same address `BranchName` already links.
+ *
+ * "" where neither is addressable: a merged branch (its remote page is gone) or
+ * a host that gave no PR url (Bitbucket). No address, no Open item — and the row
+ * falls back to whatever else its kind offers, or to no menu where it offers
+ * nothing, which is the honest answer for a row with nowhere to send you.
+ *
+ * Exported for test — the PR-over-branch precedence is the half a naive "return
+ * branchUrl" gets wrong on exactly the rows this feature is about.
+ */
+export function openTarget(row: Pick<AgentRow, 'pr' | 'branchUrl'>): string {
+  return row.pr?.url || row.branchUrl || '';
+}
+
+/**
+ * Does this row OFFER Open — and it is WAITING ON YOU, and only there.
+ *
+ * **The scope the motivating defect actually named.** The reported defect was a
+ * plain PR *awaiting review* with no `⋯` at all — a row the reader must act on,
+ * leading with a subject they had no route to. Open closes that. But a `quiet`,
+ * `blocked` or `done` row has nothing to do, and the rule
+ * `one-place-for-what-a-row-can-do` settled holds there: a menu whose only item
+ * opens a link the row ALREADY shows (its branch name is an anchor) is the empty
+ * `⋯` that lies, measured lying on two of six rows. So Open lives where the
+ * section's whole membership means *this wants a person*: WAITING ON YOU.
+ *
+ * `openTarget` stays a pure address resolver — *what* to open — and this answers
+ * *whether* to offer it. Two questions: a `done` row still HAS a branch address,
+ * it simply is not somewhere the reader needs sending.
+ *
+ * Exported for test: the negative — a branch waiting its turn keeps no menu
+ * though it has an address — is the half a check on the URL alone gets wrong,
+ * and the one that reopens the empty-menu defect a section over.
+ */
+export function offersOpen(row: Pick<AgentRow, 'pr' | 'branchUrl' | 'group'>): boolean {
+  return row.group === 'waiting-on-you' && openTarget(row) !== '';
+}
+
+/**
+ * Does this row offer Commission design — the Approve twin for a Draft plan that
+ * needs design work first?
+ *
+ * **The same row Approve is offered on**, and deliberately the same predicate:
+ * `isDraft(card) && waitingOn === 'you'` is the plan-level decision, and this is
+ * the OTHER answer to it. Approve says *this is ready to hand to development*;
+ * Commission design says *this needs a spec, a spike or a tracer bullet first*,
+ * and creates a plan in phase `Design` to hold that work.
+ *
+ * Reads the ROW, not the card, because the card gate lives in `RowActions`
+ * beside Approve's — this answers the row half (a Draft plan's first wave, or a
+ * shelved branch, says `waitingOn: 'you'`; a blocked wave says `time` and is
+ * excluded here exactly as it is for Approve). The card's `isDraft` is applied
+ * at the call site, so the two items agree on which rows are plan decisions.
+ *
+ * Exported for test: the negative — a blocked or started branch offers nothing —
+ * is the half a predicate keyed on the group alone gets wrong.
+ */
+export function canCommissionDesign(row: Pick<AgentRow, 'waitingOn' | 'state'>): boolean {
+  return row.waitingOn === 'you' && row.state === 'open';
+}
+
+/**
+ * What the Open item says — *Review* for a PR, *Open* for a branch.
+ *
+ * Opening a PR IS reviewing it: the reader lands on the page where the diff, the
+ * comments and the merge button live. A bare branch has no such page — *Open*
+ * takes them to the branch on the host, and there is nothing to review yet. The
+ * verb follows what the click actually does, the same rule that took *failing*
+ * off the run link when its condition widened.
+ *
+ * Exported for test.
+ */
+export function openLabel(row: Pick<AgentRow, 'pr'>): string {
+  return row.pr ? 'Review' : 'Open';
+}
+
+/**
+ * What the run link says — *Show failure* where the row IS failing, *Open last
+ * run* otherwise.
+ *
+ * The item opens the last run whatever that run concluded (the widening #269
+ * made explicit), so on a green row it must not promise a failure. It reads
+ * *Show failure* only where a failure is actually present — a PR whose checks
+ * failed, or a branch the detector called `ci-failing` — which is the PR-kind
+ * *Show failure* the plan names, and elsewhere it is honestly just the last run.
+ *
+ * Reads the row's own state, never the run's conclusion: `runHistory` may hold a
+ * green newest run on a row that is failing for a different check, and the row's
+ * `pr.state` / `stuck.state` is the classifier's verdict about the whole row.
+ *
+ * Exported for test — the green-row case is the half a label hard-coded to *Show
+ * failure* gets wrong.
+ */
+export function runLinkLabel(row: Pick<AgentRow, 'pr' | 'stuck'>): string {
+  // `Show failure` only where there is a failure to SHOW. A PR whose rollup is
+  // `failing` has one. A `ci-failing` row usually does — but not once its NEWEST
+  // run has gone green: the row is still classed failing on an earlier check
+  // while the run this link opens passed, and promising a failure there is the
+  // very over-claim the widening (#269) took the word *failing* off this link to
+  // avoid. So the ci case defers to the newest run's own conclusion.
+  const newestRun = row.stuck?.runHistory[0];
+  const ciShowsFailure = row.stuck?.state === 'ci-failing'
+    && (!newestRun || (newestRun.conclusion ?? '') !== 'success');
+  const failing = row.pr?.state === 'failing' || ciShowsFailure;
+  return failing ? 'Show failure' : 'Open last run';
+}
+
+/**
+ * Why *Create story* is offered but cannot act from the board — the reason it
+ * carries on its own control, the settled refusal rule.
+ *
+ * **It is offered, and it always refuses, and both halves are the design.** The
+ * ticket menu names *Create story* beside *Create plan* because a reader looking
+ * at an unplanned issue is deciding between exactly those two — and a menu that
+ * silently dropped one would hide half the decision. But creating a story is not
+ * a board write: `story-tracking` is built around questions a person answers —
+ * WHERE to home the story, whether it is even wanted yet — and an unattended
+ * agent has nobody to ask. So there is no `/api/story`, and this is not an
+ * oversight to be filled by a later wave the way `Commission design` was: it is
+ * a statement that the act belongs to a person at a terminal, not to a click.
+ *
+ * The reason is about the ACT, not the binding — deliberately not *the board is
+ * bound to <host>*, which would read as a limit that a story endpoint could one
+ * day lift. There is nothing to lift: the decision is the point.
+ *
+ * A constant rather than a `DispatchInfo` from the server, because the server
+ * has no capability to report here — the absence is total and permanent, and a
+ * flag would imply a route that could flip it.
+ *
+ * Exported for test.
+ */
+export function storyRefusal(): string {
+  return 'a story is a decision you make — where it lives, whether it is wanted yet — '
+    + 'so it is created with /story-tracking at a terminal, not from a board click';
+}
+
+/**
  * What a row's menu holds, and therefore whether it exists at all.
  *
  * **Two questions, and the old code asked only one.** `enabled` is *can
@@ -2708,19 +2855,46 @@ export function menuState(items: {
    * server only to look, never to act.
    */
   hasStatus: boolean;
+  /**
+   * This row has an address to OPEN — its PR page or its branch on the host.
+   *
+   * **The item that makes the menu fit EVERY kind.** The measured defect was
+   * two rows of three with no `⋯` at all — a plain PR awaiting review offered
+   * nothing, so its menu was absent and the reader had no route to it. Open is
+   * navigation to a fact the row already carries (`openTarget`), so it joins
+   * `enabled` without a `WillAct` term for the reason the run link and the log
+   * do: opening a page the row already names is not an act the server refuses.
+   */
+  hasOpen: boolean;
+  /**
+   * A Draft plan a person must decide about — the Commission design twin of
+   * Approve. It WRITES (spawns a plot agent to create a Design-phase plan), so
+   * it asks whether the server will act, exactly as Approve and the dispatches
+   * do.
+   */
+  canCommission: boolean;
   serverWillAct: boolean;
   approveWillAct: boolean;
+  /** Whether the server will act on Commission design — its own binding. */
+  commissionWillAct: boolean;
 }): { present: boolean; enabled: boolean } {
-  const { canStart, canApprove, canResolve, hasRun, hasLog, hasStatus, serverWillAct, approveWillAct } = items;
+  const {
+    canStart, canApprove, canResolve, hasRun, hasLog, hasStatus, hasOpen, canCommission,
+    serverWillAct, approveWillAct, commissionWillAct,
+  } = items;
   return {
-    present: canStart || canApprove || canResolve || hasRun || hasLog || hasStatus,
+    present:
+      canStart || canApprove || canResolve || hasRun || hasLog || hasStatus || hasOpen ||
+      canCommission,
     enabled:
       (canStart && serverWillAct) ||
       (canApprove && approveWillAct) ||
       (canResolve && serverWillAct) ||
+      (canCommission && commissionWillAct) ||
       hasRun ||
       hasLog ||
-      hasStatus,
+      hasStatus ||
+      hasOpen,
   };
 }
 
@@ -2928,6 +3102,7 @@ function RowActions({
   card,
   dispatch,
   approve,
+  commission,
   pulse,
   onStarting,
   onTaken,
@@ -2939,6 +3114,16 @@ function RowActions({
   dispatch?: DispatchInfo;
   /** Whether this server will act on Approve, and why not — the plan-PR half. */
   approve?: DispatchInfo;
+  /**
+   * Whether this server will act on Commission design, and why not.
+   *
+   * The SAME binding as `idea` — spawning a plot agent to write a plan is one
+   * authority, whether the plan comes from an issue (Create plan) or from a
+   * Draft plan that needs design work (Commission design). Passed under its own
+   * name so the item states its own refusal, and so a later split of the two
+   * authorities changes one prop rather than every call site.
+   */
+  commission?: DispatchInfo;
   pulse: number;
   onStarting?: (active: boolean) => void;
   /**
@@ -3046,6 +3231,29 @@ function RowActions({
   const canResolve = Boolean(
     row.stuck?.state === 'conflict' && card && dispatch,
   );
+  // OPEN — the item that makes the menu fit every WAITING ON YOU row. It is
+  // navigation to a fact the row already carries (`openTarget`: the PR page, or
+  // the branch on the host), so it needs no card, no dispatch verdict and no
+  // fetch — the same shape as the run link. A PR row's Open reads *Review*,
+  // because opening a PR is what reviewing it is; a branch row's reads *Open*.
+  //
+  // `offersOpen` scopes it to WAITING ON YOU, and that scope is load-bearing: a
+  // `quiet` or `done` row has an address too, but nothing to do — and an Open
+  // item there is the empty menu `one-place-for-what-a-row-can-do` removed, one
+  // section over. Where there is no address (a merged branch, a host with no PR
+  // url) there is no item either, and the row falls back to whatever else it
+  // offers.
+  const openUrl = offersOpen(row) ? openTarget(row) : '';
+  // COMMISSION DESIGN — the Approve twin for a Draft plan that needs design work
+  // first. Same card gate as Approve (`isDraft`), same row gate
+  // (`canCommissionDesign` reads `waitingOn === 'you'`), so the two items appear
+  // together on exactly the plan-decision rows and never on a blocked wave. It
+  // WRITES — it spawns a plot agent to create a Design-phase plan — so it asks
+  // its own binding whether the server will act, exactly as Approve does.
+  const canCommission = Boolean(
+    card && commission && isDraft(card) && canCommissionDesign(row),
+  );
+  const commissionWillAct = commission?.available ?? false;
   // ANY item, not one named item. The menu opens if something inside it could
   // act; which something it is, is the menu's own business.
   //
@@ -3073,14 +3281,19 @@ function RowActions({
   const hasStatus = Boolean(card?.hasDispatchLog);
   const { present: hasItems, enabled } = menuState({
     canStart, canApprove, canResolve, hasRun: Boolean(runUrl), hasLog, hasStatus,
-    serverWillAct, approveWillAct,
+    hasOpen: Boolean(openUrl), canCommission,
+    serverWillAct, approveWillAct, commissionWillAct,
   });
   const reason =
     canStart && !serverWillAct && dispatch?.reason
       ? dispatch.reason
       : canResolve && !serverWillAct && dispatch?.reason
         ? dispatch.reason
-        : noActionReason(row);
+        : // Commission design carries its own binding's words when it is the row's
+          // one refused act — the same shape Approve's refusal takes on its card.
+          canCommission && !commissionWillAct && commission?.reason
+          ? commission.reason
+          : noActionReason(row);
 
   // Close on Escape and on any click outside. A menu that survives a click
   // elsewhere on a view that repaints every five seconds is a menu that ends up
@@ -3176,6 +3389,26 @@ function RowActions({
           ref={menu}
           className="absolute right-0 z-10 mt-1 min-w-max rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
         >
+          {/* OPEN — the item that makes the menu fit every kind, and the reason
+              a plain PR row is no longer menuless. Navigation to a fact already
+              on the row (`openTarget`), so a real `<a>` with a real `href`: a
+              `cmd`-click opens it in a tab, and it needs no card, no dispatch
+              verdict and no fetch. It reads *Review* on a PR row and *Open* on a
+              bare branch (`openLabel`), because opening a PR is reviewing it. */}
+          {openUrl && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <a
+                href={openUrl}
+                target="_blank"
+                rel="noreferrer"
+                data-open-link
+                aria-label={`${openLabel(row)} ${row.branch} on the git host`}
+                className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+              >
+                {openLabel(row)}
+              </a>
+            </div>
+          )}
           {canStart && dispatch && card && (
             <div role="menuitem" className="px-2 py-1 text-left">
               <StartWorkButton
@@ -3196,6 +3429,22 @@ function RowActions({
           {canApprove && approve && card && (
             <div role="menuitem" className="px-2 py-1 text-left">
               <ApproveButton card={card} approve={approve} onApproving={onStarting} />
+            </div>
+          )}
+          {/* COMMISSION DESIGN — the OTHER answer to a Draft plan, beside
+              Approve. Approve hands the plan to development; this says it needs a
+              spec, a spike or a tracer bullet first, and creates a plan in phase
+              `Design` to hold that work. It ships minimally rather than as a
+              refusal: the `Design` phase landed in #259 and nothing filled it,
+              and a menu entry that only explained why it could not act would
+              leave the phase unreachable for longer.
+
+              Its own binding (`commission`) and its own armed-confirm button, so
+              the click that spawns an agent is as deliberate as Approve's — and
+              where the server refuses, it names the reason on the control. */}
+          {canCommission && commission && card && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <CommissionDesignButton card={card} commission={commission} onActing={onStarting} />
             </div>
           )}
           {/* THE CONFLICT DISPATCH, moved here on 2026-08-18 from the stuck
@@ -3252,10 +3501,10 @@ function RowActions({
                 rel="noreferrer"
                 data-stuck-link
                 onClick={onTaken}
-                aria-label={`Open the last run for ${row.branch}`}
+                aria-label={`${runLinkLabel(row)} for ${row.branch}`}
                 className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
               >
-                Open last run
+                {runLinkLabel(row)}
               </a>
             </div>
           )}
@@ -3391,6 +3640,13 @@ export interface AgentListProps {
    * row consults both.
    */
   idea?: DispatchInfo;
+  /**
+   * Whether this server will act on `Commission design`, and why not — the
+   * PLAN row's second decision, beside Approve. Same binding as `idea` today
+   * (both spawn a plot agent), kept its own prop for the reason every capability
+   * flag above it is: one flag for two capabilities is how they diverge.
+   */
+  commission?: DispatchInfo;
   /** Bumps once per BOARD refresh; the Start work button counts these. */
   pulse?: number;
   /** A Start work click became outstanding (true) or settled (false). */
@@ -3725,6 +3981,7 @@ function Row({
   card = null,
   dispatch,
   approve,
+  commission,
   continueWith,
   pulse = 0,
   onStarting,
@@ -3771,6 +4028,8 @@ function Row({
   dispatch?: DispatchInfo;
   /** Whether this server will act on Approve, and why not — the plan-PR half. */
   approve?: DispatchInfo;
+  /** Whether this server will act on Commission design, and why not. */
+  commission?: DispatchInfo;
   /**
    * Whether this server will act on `Continue with an answer`, and why not.
    *
@@ -4198,6 +4457,7 @@ function Row({
         card={card}
         dispatch={dispatch}
         approve={approve}
+        commission={commission}
         pulse={pulse}
         onStarting={onStarting}
         onTaken={() => setActionTaken(true)}
@@ -4333,53 +4593,42 @@ function IssueGlyph() {
 }
 
 /**
- * The issue row's `⋯` menu, holding its ONE action — *Create plan*.
+ * A ticket's actions, behind the SAME three-dot menu every other row wears.
  *
- * **Why a menu for a single item.** The board settled one rule for every row:
- * *the row says what IS, the menu says what you can DO* — and a branch row's
- * four actions already live behind `⋯` (`RowActions`). *Create plan* was the
- * last inline action anywhere on the board, on the row-kind the earlier move
- * did not touch, split from the others by nothing but which row was refactored
- * first. Wearing the same affordance is the point: a reader learns one grammar,
- * not one-plus-an-exception.
+ * **The ticket kind, brought under the one grammar.** Until now the issue row
+ * rendered `Create plan` inline while every branch and plan row put its actions
+ * in `⋯` — the split `one-place-for-what-a-row-can-do` closed for the fleet
+ * rows, reaching the one row it had not. The reader learns one place to look,
+ * whatever the row is.
+ *
+ * Three items, the kind's own:
+ *   - **Create plan** — the working action, `CreatePlanButton` verbatim, with
+ *     its own refusals (a host that cannot be asked, a lookup that broke).
+ *   - **Create story** — offered and refused, `storyRefusal` on the control:
+ *     a story is a person's decision, not a board write, so there is no route.
+ *   - **Open on host** — navigation to `issue.url`, no guard and no fetch, the
+ *     same shape the fleet row's Open takes.
+ *
+ * The menu is ALWAYS present on a ticket: `Create story` and `Open` are there
+ * whatever the binding, so a ticket row is never menuless — the motivating
+ * defect, closed for this kind too.
  *
  * **It also frees the age column.** *Create plan* sat in the `1.25rem` menu
  * track — a slot sized for a glyph — so its text overflowed left across the
  * `2.5rem` age cell, and the issue rows read `1d`/`Create plan` overlapping. A
- * `⋯` fits the track it was given, and the menu floats absolutely over the
- * grid rather than in it, so the age beside it renders alone.
- *
- * **The item is `CreatePlanButton`, unchanged.** Its two-step arm, its refusal
- * on a host that cannot be asked, its one-POST-per-click guard — all of that is
- * the button's, and moving it changed only where it hangs. The button carries
- * its own `data-create-plan` hook, so what the browser tests reach is the same
- * control; they open the menu first, which is the single behavioural difference.
- *
- * **The item is always present, so the menu always is.** An issue row reaches
- * the screen only on an `answered` host (`AgentList`), and `CreatePlanButton`
- * renders on every such row — enabled, or disabled with its reason on it. There
- * is no empty-menu case here the way there is for a branch row, so this does not
- * carry `menuState`'s present/enabled split: the `⋯` is unconditional because
- * its one item is.
+ * `⋯` fits the track it was given, and the menu floats absolutely over the grid
+ * rather than in it, so the age beside it renders alone.
  */
-function IssueRowActions({
-  issue,
-  idea,
-  issueAnswer,
-}: {
-  issue: IssueRow;
-  idea: DispatchInfo;
-  issueAnswer: IssueAnswer;
-}) {
+function IssueRowActions(
+  { issue, idea, issueAnswer }:
+  { issue: IssueRow; idea: DispatchInfo; issueAnswer: IssueAnswer },
+) {
   const [open, setOpen] = useState(false);
-  // The menu's own box — a click inside it is not a click outside it, and that
-  // has to be decided by hit-testing rather than by propagation, for the reason
-  // `RowActions` records: the close listener runs on CAPTURE, so it would fire
-  // before a bubbled handler inside the menu could. `CreatePlanButton` arms on
-  // its own document listeners; both must agree that a click on the armed button
-  // is inside.
   const menu = useRef<HTMLDivElement>(null);
 
+  // Close on Escape and on any click outside — the same effect `RowActions`
+  // runs, on CAPTURE for the same reason: a menu that survives a click on a view
+  // repainting every few seconds ends up over a row it no longer belongs to.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
@@ -4388,8 +4637,6 @@ function IssueRowActions({
       setOpen(false);
     };
     document.addEventListener('keydown', onKey);
-    // Capture, so the menu closes before a click lands anywhere else — the same
-    // phase `RowActions` uses, and the same reason.
     document.addEventListener('click', onDown, true);
     return () => {
       document.removeEventListener('keydown', onKey);
@@ -4398,12 +4645,9 @@ function IssueRowActions({
   }, [open]);
 
   return (
-    // The seventh track, `1.25rem` wide — a glyph fits it, the words did not.
-    // `onClick` stops propagation so a click on the `⋯` does not also count as a
-    // click on the row.
-    <span
+    <div
       role="gridcell"
-      className="relative flex w-5 shrink-0 justify-end"
+      className="relative w-5 shrink-0 text-right"
       onClick={(e) => e.stopPropagation()}
     >
       <button
@@ -4424,16 +4668,49 @@ function IssueRowActions({
           ref={menu}
           className="absolute right-0 z-10 mt-1 min-w-max rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
         >
-          {/* THE ROW'S ONE ACTION. It produces a Draft and writes nothing to the
-              tracker — see CreatePlanButton. It refuses itself on a host that
-              cannot be asked (`unsupported`) or a lookup that broke (`failed`),
-              which is why both answers travel here: neither implies the other. */}
+          {/* CREATE PLAN — the working action, unchanged. Its own arm/confirm and
+              its own refusals live inside the button; the menu only gives it a
+              home beside the other two. */}
           <div role="menuitem" className="px-2 py-1 text-left">
             <CreatePlanButton issue={issue} idea={idea} issueAnswer={issueAnswer} />
           </div>
+          {/* CREATE STORY — offered, and refused with its reason. A real
+              `<button>`, `aria-disabled`, never native `disabled`: the reason
+              must stay reachable by keyboard, the same rule the acting buttons
+              follow. There is no route to call, so it never acts — the click is
+              a no-op and the words are the whole of it. */}
+          <div role="menuitem" className="px-2 py-1 text-left">
+            <button
+              type="button"
+              data-create-story={issue.number}
+              aria-disabled
+              title={storyRefusal()}
+              className="cursor-not-allowed text-xs font-medium text-slate-400 no-underline dark:text-slate-600"
+            >
+              Create story
+              <span className="sr-only"> — unavailable: {storyRefusal()}</span>
+            </button>
+          </div>
+          {/* OPEN ON HOST — navigation to a fact the row already carries, or
+              nothing where the host gave no address (the same "" the number cell
+              already handles). No guard, no fetch. */}
+          {issue.url && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <a
+                href={issue.url}
+                target="_blank"
+                rel="noreferrer"
+                data-issue-open
+                aria-label={`Open issue #${issue.number} on the host`}
+                className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+              >
+                Open on host
+              </a>
+            </div>
+          )}
         </div>
       )}
-    </span>
+    </div>
   );
 }
 
@@ -4542,15 +4819,16 @@ function IssueRowView(
       >
         {issue.ageMinutes === null ? '' : ageLabel(issue.ageMinutes)}
       </span>
-      {/* THE ROW'S ONE ACTION, now behind the `⋯` menu every row wears —
-          `every-action-is-in-the-menu`. It moved out of this cell for two
-          reasons: the board's rule that a row's actions all live in its menu,
-          and the geometry — `Create plan` is wider than the `1.25rem` track and
-          overlapped the age column beside it. `IssueRowActions` renders the
-          glyph that fits, and floats the action over the grid.
-
-          The button itself is unchanged: a Draft, nothing to the tracker, its
-          own refusal on a host that cannot be asked. See IssueRowActions. */}
+      {/* THE ROW'S ACTIONS, now behind the same `⋯` menu every other row wears.
+          Create plan used to sit bare in this cell — the one row whose actions
+          were not in the menu. `every-action-is-in-the-menu` moved it out for
+          two reasons: the board's rule that a row's actions all live in its
+          menu, and the geometry — `Create plan` is wider than the `1.25rem`
+          track and overlapped the age column beside it. `the-menu-fits-the-kind`
+          then gave the ticket its full set: Create plan (works), Create story
+          (offered, refused with its reason), Open on host. `IssueRowActions`
+          renders the glyph that fits and floats the menu over the grid, so a
+          ticket row is never menuless. */}
       <IssueRowActions issue={issue} idea={idea} issueAnswer={issueAnswer} />
     </li>
   );
@@ -4641,6 +4919,7 @@ export function AgentList({
   cardForPlanFile,
   dispatch,
   approve,
+  commission,
   continueWith,
   idea,
   pulse = 0,
@@ -5079,6 +5358,7 @@ export function AgentList({
                                 card={cardForPlanFile?.(r.planFile) ?? null}
                                 dispatch={dispatch}
                                 approve={approve}
+                                commission={commission}
                                 continueWith={continueWith}
                                 pulse={pulse}
                                 onStarting={onStarting}
@@ -5145,6 +5425,7 @@ export function AgentList({
                           card={cardForPlanFile?.(r.planFile) ?? null}
                           dispatch={dispatch}
                           approve={approve}
+                          commission={commission}
                           continueWith={continueWith}
                           pulse={pulse}
                           onStarting={onStarting}

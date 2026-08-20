@@ -12,6 +12,12 @@ import {
   isCollapsible,
   noActionReason,
   menuState,
+  openTarget,
+  offersOpen,
+  openLabel,
+  runLinkLabel,
+  storyRefusal,
+  canCommissionDesign,
   splitBranch,
   prStateWord,
   noteWithoutPr,
@@ -2479,7 +2485,8 @@ describe("a row's actions all live in its menu", () => {
 describe('menuState — a refusal is not an absence', () => {
   const none = {
     canStart: false, canApprove: false, canResolve: false, hasRun: false,
-    hasLog: false, hasStatus: false, serverWillAct: false, approveWillAct: false,
+    hasLog: false, hasStatus: false, hasOpen: false, canCommission: false,
+    serverWillAct: false, approveWillAct: false, commissionWillAct: false,
   };
 
   it('renders no menu at all on a row with nothing to offer', () => {
@@ -2529,29 +2536,31 @@ describe('menuState — a refusal is not an absence', () => {
     // that is not there — one line of reasoning across four disjuncts, and
     // exactly the kind that gets re-derived wrongly in a later edit.
     const bools = [false, true];
-    for (const canStart of bools)
-      for (const canApprove of bools)
-        for (const canResolve of bools)
-          for (const hasRun of bools)
-            // EVERY disjunct, including the newest. An exhaustive sweep that
-            // pins one input to a constant stops being exhaustive silently —
-            // it keeps passing while covering half of what it claims to.
-            for (const hasLog of bools)
-              for (const hasStatus of bools)
-                for (const serverWillAct of bools)
-                  for (const approveWillAct of bools) {
-                    const state = menuState({
-                      canStart, canApprove, canResolve, hasRun, hasLog, hasStatus,
-                      serverWillAct, approveWillAct,
-                    });
-                    expect(
-                      !state.enabled || state.present,
-                      `enabled without present: ${JSON.stringify({
-                        canStart, canApprove, canResolve, hasRun, hasLog, hasStatus,
-                        serverWillAct, approveWillAct,
-                      })}`,
-                    ).toBe(true);
-                  }
+    // A sampled sweep rather than a full 2^10 grid: the invariant is per-disjunct
+    // (`enabled → present`), so every input is exercised at both values against a
+    // `none` baseline, plus a handful of combinations. The exhaustive nested loop
+    // it replaced grew a dimension with every new item; the property it proves did
+    // not, so it does not need the cartesian product to stay honest.
+    const keys = [
+      'canStart', 'canApprove', 'canResolve', 'hasRun', 'hasLog', 'hasStatus',
+      'hasOpen', 'canCommission', 'serverWillAct', 'approveWillAct',
+      'commissionWillAct',
+    ] as const;
+    const cases: (typeof none)[] = [{ ...none }];
+    for (const key of keys)
+      for (const v of bools) cases.push({ ...none, [key]: v });
+    // A few with an act flag AND its will-act partner, so `enabled` is reached.
+    cases.push({ ...none, canStart: true, serverWillAct: true });
+    cases.push({ ...none, canApprove: true, approveWillAct: true });
+    cases.push({ ...none, canResolve: true, serverWillAct: true });
+    cases.push({ ...none, canCommission: true, commissionWillAct: true });
+    for (const c of cases) {
+      const state = menuState(c);
+      expect(
+        !state.enabled || state.present,
+        `enabled without present: ${JSON.stringify(c)}`,
+      ).toBe(true);
+    }
   });
 
   // A READ, so it carries no guard — the same argument the run link makes one
@@ -2573,6 +2582,31 @@ describe('menuState — a refusal is not an absence', () => {
     expect(menuState({ ...none, hasStatus: true })).toEqual({
       present: true, enabled: true,
     });
+  });
+  // THE MOTIVATING DEFECT, in one line: a row that carried nothing else used to
+  // render no menu at all. Open is navigation the row already has the address
+  // for, so it makes the menu present — and enabled, because navigation is not
+  // an act the server can refuse.
+  it('renders and enables a menu for a row whose only item is Open', () => {
+    expect(menuState({ ...none, hasOpen: true })).toEqual({
+      present: true, enabled: true,
+    });
+  });
+
+  // Commission design writes — so it asks whether the server will act, exactly
+  // as Approve does, and is present-but-refused where the binding declines.
+  it('keeps Commission design present but disabled where the server refuses', () => {
+    expect(menuState({ ...none, canCommission: true })).toEqual({
+      present: true, enabled: false,
+    });
+  });
+
+  it('enables Commission design only on its own verdict', () => {
+    expect(menuState({ ...none, canCommission: true, commissionWillAct: true }).enabled)
+      .toBe(true);
+    // Not on the dispatch verdict — a different binding, a different question.
+    expect(menuState({ ...none, canCommission: true, serverWillAct: true }).enabled)
+      .toBe(false);
   });
 });
 
@@ -2643,5 +2677,170 @@ describe('waveLabel — the wave name a branch row shows, or none', () => {
     // above one and it returns whatever string the row holds, `(unnamed)`
     // included, rather than second-guessing the scan.
     expect(waveLabel(row({ wave: '(unnamed)' }), 2)).toBe('(unnamed)');
+  });
+});
+
+
+/**
+ * WHERE OPEN GOES — the one item that guarantees every fleet row has a menu.
+ *
+ * Navigation to an address the row already carries: no fetch, no host call. A PR
+ * row opens the PR (`pr.url`); a branch row opens the branch on the host
+ * (`branchUrl`). The PR wins where both exist — a reader looking at a PR row is
+ * deciding about the PR, and the PR page is where that decision is made.
+ */
+describe('openTarget — the address Open navigates to, from fields already on the row', () => {
+  it('opens the PR where the row has one', () => {
+    expect(openTarget(row({ pr: { number: 42, url: 'https://host/pr/42', draft: false, state: 'green' } })))
+      .toBe('https://host/pr/42');
+  });
+
+  it('opens the branch where there is no PR', () => {
+    expect(openTarget(row({ branchUrl: 'https://host/tree/feature/x' })))
+      .toBe('https://host/tree/feature/x');
+  });
+
+  it('prefers the PR address over the branch address', () => {
+    expect(openTarget(row({
+      pr: { number: 42, url: 'https://host/pr/42', draft: false, state: 'green' },
+      branchUrl: 'https://host/tree/feature/x',
+    }))).toBe('https://host/pr/42');
+  });
+
+  // A merged branch has no remote page and a PR whose host gave no address
+  // carries "" — the same absence `branchUrl` and `pr.url` already encode. No
+  // address, no Open item, and the row falls back to whatever else it offers.
+  it('is empty when neither a PR url nor a branch url is present', () => {
+    expect(openTarget(row())).toBe('');
+    expect(openTarget(row({ pr: { number: 42, url: '', draft: false, state: 'green' }, branchUrl: '' })))
+      .toBe('');
+  });
+});
+
+/**
+ * WHICH ROWS OFFER OPEN — and it is WAITING ON YOU, and only there.
+ *
+ * The motivating defect was a plain PR *awaiting review* with no menu — a row
+ * the reader must act on, leading with a subject they had no route to. Open
+ * answers that. But a `quiet`, `blocked` or `done` row has genuinely nothing to
+ * do, and the settled rule `one-place-for-what-a-row-can-do` holds there: a `⋯`
+ * that opens nothing but a link the row ALREADY shows (its branch is an anchor)
+ * is the empty menu that lies. So Open is a WAITING ON YOU affordance — the
+ * section whose whole membership is *this wants a person*.
+ *
+ * A branch waiting its turn (`not-started`, `waitingOn: 'time'`) is the sharp
+ * negative: it has a `branchUrl`, but it is not yours to act on yet, and the row
+ * says so in words. Its menu stays absent.
+ */
+describe('offersOpen — Open is a WAITING ON YOU affordance', () => {
+  it('offers Open on a waiting-on-you row with an address', () => {
+    expect(offersOpen(row({ group: 'waiting-on-you', branchUrl: 'u' }))).toBe(true);
+  });
+
+  it('does NOT offer Open on a quiet, blocked or done row, even with an address', () => {
+    for (const group of ['quiet', 'done', 'working', 'not-started', 'waiting-on-machine'] as const) {
+      expect(offersOpen(row({ group, branchUrl: 'u' })), `${group} offered Open`).toBe(false);
+    }
+  });
+
+  it('offers nothing where there is no address to open', () => {
+    expect(offersOpen(row({ group: 'waiting-on-you', branchUrl: '', pr: null }))).toBe(false);
+  });
+});
+
+/**
+ * CREATE STORY is offered on a ticket, and it always REFUSES — with its reason
+ * on the control, the settled rule. Creating a story is an interactive decision
+ * (`story-tracking` asks where to home it, and pushes back on premature ones),
+ * not a one-click board write, so the board has no route for it. Offering it and
+ * naming why is the honest answer; hiding it would leave the reader wondering
+ * whether the board even knows stories exist.
+ */
+describe('storyRefusal — Create story is offered, and says why it cannot act from here', () => {
+  it('always returns a non-empty reason', () => {
+    expect(storyRefusal()).not.toBe('');
+  });
+
+  it('names the interactive nature rather than pretending it is a binding limit', () => {
+    // Not *the board is not localhost* — that would be a lie the moment someone
+    // added a story endpoint. The reason is about the ACT: a story is a decision
+    // a person makes, with a home to choose, not a button to press.
+    expect(storyRefusal().toLowerCase()).toMatch(/story|interactive|decide|home/);
+  });
+});
+
+/**
+ * OPEN reads differently by kind, because opening a PR is REVIEWING it. The row
+ * says what it is; the verb the menu offers should match.
+ */
+describe('openLabel — Review for a PR, Open for a branch', () => {
+  it('says Review where the row has a PR', () => {
+    expect(openLabel(row({ pr: { number: 9, url: 'u', draft: false, state: 'green' } })))
+      .toBe('Review');
+  });
+
+  it('says Open where the row is a bare branch', () => {
+    expect(openLabel(row({ branchUrl: 'u' }))).toBe('Open');
+  });
+});
+
+/**
+ * THE RUN LINK reads *Show failure* when the row is failing and *Open last run*
+ * otherwise — the widening #269 made explicit: the item opens the last run
+ * whatever it said, so it must not promise a failure on a green row.
+ */
+describe('runLinkLabel — Show failure only where a failure is present', () => {
+  it('says Show failure for a PR whose checks are failing', () => {
+    expect(runLinkLabel(row({ pr: { number: 9, url: 'u', draft: false, state: 'failing' } })))
+      .toBe('Show failure');
+  });
+
+  it('says Show failure for a ci-failing stuck branch whose newest run failed', () => {
+    expect(runLinkLabel(row({
+      stuck: { state: 'ci-failing', conflicts: [], failingChecks: ['build'], changedPaths: [], runHistory: [{ url: 'u', conclusion: 'failure', startedAt: '' }], localAhead: 0 },
+    }))).toBe('Show failure');
+  });
+
+  it('says Open last run when a ci-failing row\'s NEWEST run has since gone green', () => {
+    // The widening case: still classed failing on an earlier check, but the run
+    // this link opens passed — promising a failure there would be the over-claim
+    // #269 took the word off this link to avoid.
+    expect(runLinkLabel(row({
+      stuck: { state: 'ci-failing', conflicts: [], failingChecks: [], changedPaths: [], runHistory: [{ url: 'u', conclusion: 'success', startedAt: '' }], localAhead: 0 },
+    }))).toBe('Open last run');
+  });
+
+  it('says Open last run for a row that is not failing', () => {
+    expect(runLinkLabel(row({ pr: { number: 9, url: 'u', draft: false, state: 'green' } })))
+      .toBe('Open last run');
+  });
+});
+
+/**
+ * COMMISSION DESIGN is offered on a PLAN kind row — a Draft plan a person must
+ * decide about — beside Approve. It is the twin of Approve for the other answer:
+ * this plan needs a spec, a spike or a tracer before it can be handed to
+ * development.
+ */
+describe('canCommissionDesign — offered on a Draft plan row, beside Approve', () => {
+  const draftPlanRow = row({
+    group: 'not-started', state: 'open', phase: 'Discovery', waitingOn: 'you',
+    note: DRAFT_PLAN_NOTE,
+  });
+
+  it('is offered on the same row Approve is — a Draft plan awaiting a decision', () => {
+    expect(canCommissionDesign(draftPlanRow)).toBe(true);
+  });
+
+  it('is NOT offered on a branch waiting its turn', () => {
+    // `waitingOn: 'time'` is a blocked wave, not a plan awaiting a person — the
+    // same exclusion Approve makes, and for the same reason.
+    expect(canCommissionDesign(row({ group: 'not-started', state: 'open', waitingOn: 'time' })))
+      .toBe(false);
+  });
+
+  it('is NOT offered on a started branch', () => {
+    expect(canCommissionDesign(row({ group: 'working', state: 'wip', waitingOn: null })))
+      .toBe(false);
   });
 });

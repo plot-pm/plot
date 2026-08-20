@@ -177,6 +177,36 @@ describe('the issue row has one action, and it creates a Draft', () => {
     }
   });
 
+  it('offers Create story beside it, refused with its reason', async () => {
+    // The other half of the ticket's decision. It is OFFERED — a reader weighing
+    // an unplanned issue is choosing between a plan and a story — and it refuses,
+    // because a story is a person's decision (where it lives, whether it is
+    // wanted yet), not a board write. The reason is on the control.
+    const { page } = await open();
+    try {
+      await openMenu(page, 228);
+      const story = issueRow(page, 228).locator('[data-create-story="228"]');
+      await expect.poll(() => story.count()).toBe(1);
+      await expect.poll(() => story.getAttribute('aria-disabled')).toBe('true');
+      await expect.poll(() => story.textContent()).toContain('Create story');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('offers Open on host in the same menu', async () => {
+    const { page } = await open();
+    try {
+      await openMenu(page, 228);
+      const openLink = issueRow(page, 228).locator('a[data-issue-open]');
+      await expect.poll(() => openLink.count()).toBe(1);
+      await expect.poll(() => openLink.getAttribute('href'))
+        .toBe('https://github.com/tiny/garden/issues/228');
+    } finally {
+      await page.close();
+    }
+  });
+
   it('names DRAFT in the confirmation, because that is the boundary', async () => {
     const { page } = await open();
     try {

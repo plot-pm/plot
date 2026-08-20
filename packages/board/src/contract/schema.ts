@@ -430,6 +430,20 @@ export const BoardSchema = z.object({
    */
   idea: DispatchInfoSchema.default({ available: false, reason: '' }),
   /**
+   * Whether "Commission design" will act — the fifth capability, and the twin of
+   * `idea`: both spawn a plot agent that writes a plan to this disk, so both
+   * answer the same localhost binding today. It stays its own field for the
+   * reason `approve` records — one flag for two capabilities is how they diverge
+   * when a later change makes only one of them local.
+   *
+   * Commission design is a decision about a Draft plan (the row already names
+   * it), so unlike `idea` it needs no tracker; the server checks the plan's own
+   * phase before spawning. Same default as the four above, for the same reason:
+   * an older server sends nothing and a newer client hides the control rather
+   * than offering one that 403s.
+   */
+  commission: DispatchInfoSchema.default({ available: false, reason: '' }),
+  /**
    * Newest release checklist, for the Endgame column: what is left before
    * signoff. null when no checklist exists or none could be parsed — the board
    * shows no badge rather than a guessed count.

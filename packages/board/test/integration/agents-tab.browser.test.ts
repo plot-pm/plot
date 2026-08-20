@@ -977,10 +977,24 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         expect(await rowFor(page, branch).getByRole('button', { name: 'Start work' }).count(),
           `${branch} offered Start work`).toBe(0);
       }
-      // No menu at all on the rows that are not agents and have no run to open.
-      for (const branch of claimed.filter((b) => b !== 'feature/beans-a')) {
+      // No menu at all on the rows that are not agents, have no run to open, AND
+      // are not in WAITING ON YOU. `the-menu-fits-the-kind` gives a WAITING ON
+      // YOU row a menu whatever else it offers, because Open (Review, for a PR
+      // row like `feature/reviewed`) is always something the reader can do there
+      // — so a green PR awaiting review is no longer menuless, which was the
+      // motivating defect. The others are quiet/done/not-started and stay bare.
+      const stillBare = ['feature/landed', 'feature/ghost', 'feature/shelved'];
+      for (const branch of stillBare) {
         expect(await menu(page, branch).count(), `${branch} rendered a menu`).toBe(0);
       }
+      // And `feature/reviewed` DOES carry a menu now — a WAITING ON YOU PR row —
+      // holding Review, and still nothing that dispatches it.
+      expect(await menu(page, 'feature/reviewed').count()).toBe(1);
+      await menu(page, 'feature/reviewed').click();
+      expect(await rowFor(page, 'feature/reviewed').locator('a[data-open-link]').textContent())
+        .toBe('Review');
+      expect(await rowFor(page, 'feature/reviewed').getByRole('button', { name: 'Start work' }).count())
+        .toBe(0);
       // And the WORKING row's menu holds the log — a read — and nothing that acts.
       await menu(page, 'feature/beans-a').click();
       const working = rowFor(page, 'feature/beans-a');

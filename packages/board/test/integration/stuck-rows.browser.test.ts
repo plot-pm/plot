@@ -484,22 +484,26 @@ describe('a stuck branch says so in its row', () => {
       const row = rowFor(page, 'feature/collides');
       // The cue SHOWS: something is stuck and waiting, and that is true here.
       await expect.poll(() => row.locator('[data-stuck-cue]').count()).toBe(1);
-      // A REFUSAL IS NOT AN ABSENCE, and that distinction is what keeps this
-      // row's menu button on screen while a row with nothing to do renders
-      // none. There IS something to do here — you simply cannot do it from this
-      // binding.
+      // A REFUSAL IS NOT AN ABSENCE. This row's menu is present AND enabled —
+      // `the-menu-fits-the-kind` added Open, which is navigation to the branch on
+      // the host and reads the same over Tailscale as at the machine, so the menu
+      // opens from anywhere. What the binding refuses is the CONFLICT dispatch,
+      // and that refusal moved one level in: onto the Resolve-conflict item,
+      // which stays reachable because a refusal names its reason on the control.
       const menu = row.locator('[data-row-actions]');
       expect(await menu.count()).toBe(1);
-      // The refusal is on the BUTTON rather than inside the menu, and it moved
-      // there with the action. It used to sit on an inline `StartWorkButton`'s
-      // title; the menu does not open when nothing inside it can act, so a
-      // reason that only rendered inside would be a reason nobody could reach.
-      expect(await menu.getAttribute('aria-disabled')).toBe('true');
-      const refusal = await menu.getAttribute('title');
+      // The menu button itself is no longer the carrier of the dispatch refusal
+      // — Open is enabled — so it opens.
+      await menu.click();
+      // The conflict dispatch is the StartWorkButton inside the menu, refused
+      // here and naming why. `aria-disabled`, never the native attribute — so it
+      // keeps its place in the tab order and the reason stays reachable.
+      const resolve = row.getByRole('button', { name: /Dispatch|Start work/i });
+      await expect.poll(() => resolve.count()).toBeGreaterThan(0);
+      expect(await resolve.first().getAttribute('aria-disabled')).toBe('true');
+      const refusal = await resolve.first().getAttribute('title');
       expect(refusal ?? '').toMatch(/localhost|worktree|machine/i);
-      // `aria-disabled`, never the native attribute — so the control keeps its
-      // place in the tab order and the explanation stays reachable by keyboard.
-      expect(await menu.evaluate((el) => (el as HTMLButtonElement).disabled)).toBe(false);
+      expect(await resolve.first().evaluate((el) => (el as HTMLButtonElement).disabled)).toBe(false);
     } finally {
       await page.close();
     }

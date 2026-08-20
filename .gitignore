@@ -23,6 +23,11 @@ node_modules/
 # A checked-in pulse would be one clone telling another what its branches are
 # doing.
 .plot/state/
+# The same cache, but written into a TEST FIXTURE by a browser test that starts a
+# real board against it (`test/fixtures/*/.plot/state/`). The unanchored `.plot/
+# state/` above only matches the repo root's own; a slash in the pattern anchors
+# it there. This catches the nested ones every fixture produces on a test run.
+**/.plot/state/
 
 # A dispatched worker's own traces, written into ITS worktree by
 # `plot-dispatch.sh`: the pid it started, the exit code it ended with, and the

@@ -178,15 +178,24 @@ describe('the stuck line begins where the row does', () => {
   // missing is simply not there, and a menu with no items renders no button at
   // all. Omission is the honest form of the same statement, and the row's own
   // note still says what it is waiting on.
-  it('shows NO cue and NO menu where nothing can be asked', async () => {
+  it('shows NO cue where the stuck action cannot be asked, and still says what is wrong', async () => {
+    // These rows carry no card, so the conflict cannot be dispatched — nothing
+    // can be asked of the STUCK state, so no cue moves. `the-menu-fits-the-kind`
+    // changed the neighbouring fact: a WAITING ON YOU row now carries a menu
+    // whatever its stuck state, because Open (navigation to the branch on the
+    // host) is always something the reader can do here. So the menu is present;
+    // what it does NOT hold is a control for the conflict, and no cue points at
+    // one.
     const page = await open();
     try {
       const stuckRow = rowFor(page, 'feature/no-phase');
-      // Nothing is moving…
+      // Nothing is moving — the cue marks an unanswered request, and there is no
+      // conflict request to leave unanswered on a row with no card.
       expect(await stuckRow.locator('[data-stuck-cue]').count()).toBe(0);
-      // …and nothing is offered, including the control that would have opened
-      // an empty menu.
-      expect(await stuckRow.locator('[data-row-actions]').count()).toBe(0);
+      // The menu is present (Open is a WAITING ON YOU affordance), but it holds
+      // no acting item for the conflict — there is nothing to resolve from here.
+      await stuckRow.locator('[data-row-actions]').click();
+      expect(await stuckRow.locator('[data-stuck-link]').count()).toBe(0);
       // The row still SAYS what is wrong — the state and its evidence are the
       // half that never moved.
       expect((await stuckRow.locator('[data-stuck]').innerText()).length)
