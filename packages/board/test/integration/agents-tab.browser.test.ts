@@ -2005,6 +2005,139 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
+  // ── A branch row names its wave, where the plan has more than one ──────────
+  //
+  // The phase this column would show is the PLAN's word, the same on every
+  // branch; which wave a branch belongs to is the fact that varies row to row.
+  // So the wave name takes the cell — but only where the plan divides its work,
+  // which is the whole rule: a caption over a plan's only wave is a partition of
+  // one, and it is not shown.
+
+  /**
+   * A fleet holding one MULTI-WAVE plan whose branches sit in different
+   * sections, plus two SINGLE-WAVE plans — one named, one unnamed.
+   *
+   * The multi-wave plan is what proves "in every section": its `Truth` branch is
+   * in WORKING and its `Fold` branches in NOT STARTED, so a per-section reading
+   * of the wave count would get one of them wrong. The named single-wave plan is
+   * the one a presence check leaks on — it HAS a name and must still show none.
+   */
+  function waveFleet(): Fleet {
+    return fleet({
+      rows: [
+        // Multi-wave plan `layered`: wave Truth (working) and wave Fold (two
+        // not-started branches). Two waves, three branches, two sections.
+        row({ branch: 'feature/truth-a', plan: 'layered', wave: 'Truth',
+              group: 'working', ageMinutes: 5, note: 'last commit 5 min ago',
+              branchUrl: `${GH}feature/truth-a` }),
+        row({ branch: 'feature/fold-a', plan: 'layered', wave: 'Fold',
+              group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+              waitingOn: 'time' as const, note: 'blocked by Truth',
+              branchUrl: `${GH}feature/fold-a` }),
+        row({ branch: 'feature/fold-b', plan: 'layered', wave: 'Fold',
+              group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+              waitingOn: 'time' as const, note: 'blocked by Truth',
+              branchUrl: `${GH}feature/fold-b` }),
+        // Single-wave plan `flat`, with a NAMED wave. The trap: it has a name and
+        // still must show none, because it is the plan's only wave.
+        row({ branch: 'feature/flat-a', plan: 'flat', wave: 'Layout',
+              group: 'working', ageMinutes: 8, note: 'last commit 8 min ago',
+              branchUrl: `${GH}feature/flat-a` }),
+        // Single-wave plan `plain`, UNNAMED — every branch carries `(unnamed)`.
+        row({ branch: 'feature/plain-a', plan: 'plain', wave: '(unnamed)',
+              group: 'working', ageMinutes: 12, note: 'last commit 12 min ago',
+              branchUrl: `${GH}feature/plain-a` }),
+        row({ branch: 'feature/plain-b', plan: 'plain', wave: '(unnamed)',
+              group: 'working', ageMinutes: 15, note: 'last commit 15 min ago',
+              branchUrl: `${GH}feature/plain-b` }),
+      ],
+    });
+  }
+
+  it('names a branch\'s wave in the phase cell, in EVERY section', async () => {
+    // The load-bearing claim, across two sections at once: the count is
+    // plan-wide, so a branch of a multi-wave plan names its wave whether it sits
+    // in WORKING or NOT STARTED. A per-section count would leave the lone WORKING
+    // branch reading as single-wave and blank its label.
+    const page = await openAgents(waveFleet());
+    try {
+      const truth = rowFor(page, 'feature/truth-a');       // WORKING
+      await expect.poll(() => truth.locator('[data-wave]').textContent()).toBe('Truth');
+      const foldA = rowFor(page, 'feature/fold-a');        // NOT STARTED
+      await expect.poll(() => foldA.locator('[data-wave]').textContent()).toBe('Fold');
+      const foldB = rowFor(page, 'feature/fold-b');
+      await expect.poll(() => foldB.locator('[data-wave]').textContent()).toBe('Fold');
+      // The wave took the PHASE cell, not a seventh column: no `data-phase` on a
+      // branch that now names its wave, and the wave word sits in that cell. Read
+      // off `data-wave` rather than the cell text, which also holds the sr-only
+      // "Wave:" prefix — the same shape the phase cell's own test reads.
+      expect(await truth.locator('[data-phase]').count()).toBe(0);
+      const waveCell = truth.locator('[role="gridcell"]').nth(PHASE_CELL);
+      expect(await waveCell.locator('[data-wave]').textContent()).toBe('Truth');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('shows NO wave label for a single-wave plan, named OR unnamed', async () => {
+    // Both halves, and the named one is the trap. `flat`'s only wave is called
+    // `Layout`; a presence check would print it, turning one branch into a line
+    // of ceremony. `plain` is unnamed and must be just as bare.
+    const page = await openAgents(waveFleet());
+    try {
+      const flat = rowFor(page, 'feature/flat-a');
+      await expect.poll(() => flat.count()).toBe(1);
+      expect(await flat.locator('[data-wave]').count()).toBe(0);
+      expect(await flat.textContent()).not.toContain('Layout');
+      const plain = rowFor(page, 'feature/plain-a');
+      expect(await plain.locator('[data-wave]').count()).toBe(0);
+      expect(await plain.textContent()).not.toContain('unnamed');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('groups a wave\'s consecutive rows without repeating the name on each', async () => {
+    // The grouping is unchanged — consecutive `Fold` rows read as one run
+    // because they are adjacent, not because a heading was drawn per wave. The
+    // name appears on BOTH rows (it is the phase cell's content, per row), which
+    // is what a column does; what it must not do is add a wave HEADING row.
+    const page = await openAgents(waveFleet());
+    try {
+      const notStarted = group(page, 'Not started');
+      // Both Fold rows carry the name, in document order, adjacent.
+      const waves = await notStarted.locator('li[data-agent-row] [data-wave]')
+        .allTextContents();
+      expect(waves).toEqual(['Fold', 'Fold']);
+      // And no extra ROW was invented for the wave — the section holds exactly
+      // its branches (under the plan row NOT STARTED draws), not a wave header.
+      expect(await notStarted.getByRole('heading', { name: /^Fold/ }).count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('keeps the grid tracks still whether a row names a wave or a phase', async () => {
+    // The wave name takes the phase cell rather than adding a column, so a row
+    // that names its wave and one that names its phase must start their branch
+    // cell at the same x. Asserted across the two plans in one section.
+    const page = await openAgents(waveFleet());
+    try {
+      await expect.poll(() => rowFor(page, 'feature/truth-a').count()).toBe(1);
+      // `truth-a` names a wave (multi-wave plan); `flat-a` names neither (its
+      // single wave shows nothing) — the pair whose cell would diverge if the
+      // wave label came from anywhere but the phase track.
+      expect(await cellX(page, 'feature/truth-a', BRANCH_CELL))
+        .toBe(await cellX(page, 'feature/flat-a', BRANCH_CELL));
+      // Seven tracks, unchanged: the wave did not earn a column of its own.
+      const tracks = await rowFor(page, 'feature/truth-a')
+        .evaluate((el) => getComputedStyle(el).gridTemplateColumns);
+      expect(tracks.split(' ')).toHaveLength(7);
+    } finally {
+      await page.close();
+    }
+  });
+
   it('gives the PR cell 14rem, and makes the LONG BRANCH pay for it', async () => {
     // The reported defect, measured in the browser rather than off the class
     // name: the PR cell held `⑂116 no checks` at 9rem and nothing wider, while
