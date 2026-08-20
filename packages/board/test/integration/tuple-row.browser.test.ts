@@ -23,13 +23,29 @@ import { AgentRowSchema, IssueRowSchema, RowKindSchema, type AgentRow } from '..
  *   - each of the seven kinds renders all six slots;
  *   - a kind with no data renders NO ROW rather than an empty one.
  *
- * ## Why this bundles a harness instead of driving the board
+ * ## Why this STILL bundles a harness, now that the board renders the row
  *
- * The tuple row has no live call site yet, and deliberately: the plan lands the
- * shape first and replaces `Row`, `PlanRow` and `IssueRowView` in a LATER wave,
- * because `AgentList.tsx` took eleven commits on 2026-08-20 alone and
- * conflicted on nearly every merge that day. So `/api/fleet` cannot reach this
- * component — there is nothing in the app that renders it.
+ * It bundled one because the tuple had no live call site: the shape landed
+ * first and `one-component-renders-every-row` replaced `Row`, `PlanRow` and
+ * `IssueRowView` in a later wave. That wave has landed, and the assertions this
+ * file's original note promised to move — one grid, the kind without hovering,
+ * the PR's three links, membership — now run against the real page in
+ * `one-grid.browser.test.ts`.
+ *
+ * **This file keeps the two kinds the board cannot serve.** `build` and `agent`
+ * have no data source: no CI run and no session registry reaches `/api/fleet`,
+ * so no row of either kind exists to drive. They are designed anyway, and the
+ * plan says why — *a shape that admits only what exists today has to be
+ * reopened for each kind that arrives, which is precisely how three components
+ * and two grids happened.* Retiring the harness wholesale would have deleted
+ * the only coverage of two of the seven kinds and left the argument for
+ * designing them untested.
+ *
+ * The five kinds the board DOES serve stay here too, and the redundancy is
+ * deliberate rather than leftover: this file proves the COMPONENT renders six
+ * slots from a tuple it is handed, and `one-grid` proves the three ADAPTERS
+ * hand it the right one. A single suite covering both would fail without
+ * saying which half broke.
  *
  * This repo has no component-test seat either: vitest runs `environment:
  * 'node'`, with no jsdom and no React Testing Library, a limit
@@ -41,9 +57,7 @@ import { AgentRowSchema, IssueRowSchema, RowKindSchema, type AgentRow } from '..
  *
  * So the component is bundled into a page and mounted in a real browser. Same
  * Chromium the sibling suites launch, same assertions against a live DOM — the
- * only difference is that the page is a harness rather than the board, because
- * the board does not yet mount this row. When the collapse wave gives it a call
- * site, these assertions move to the board's own page and the harness goes.
+ * only difference is that the page is a harness rather than the board.
  */
 const here = path.dirname(fileURLToPath(import.meta.url));
 

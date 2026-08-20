@@ -476,16 +476,23 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const solo = rowFor(page, 'feature/solo');
       await expect.poll(() => solo.textContent()).toContain('lonely');
 
-      // And the headed plan's rows do NOT repeat the name, or the heading would
-      // be saving nothing and the layout would say it twice.
+      // EVERY ROW NAMES ITS PLAN NOW, headed or not, and this asserted the
+      // opposite until `one-component-renders-every-row`.
       //
-      // Asserted on the plan CELL rather than the row's text: the branch is
-      // named `feature/beans-1`, so a substring search for the plan name finds
-      // the branch and fails for the wrong reason. The cell is a link when a
-      // row carries its plan and absent when the heading carries it, which is
-      // exactly the distinction under test.
+      // The old claim was right about the old layout: a branch row's plan was a
+      // whole TRACK, so repeating it under a heading that already said it
+      // printed the same name down a column — and `planInHeading` suppressed
+      // it. In the tuple the plan is one of slot 4's LINKS, beside the branch
+      // it governs, and suppressing it there would leave a headed group's rows
+      // with an EMPTY artifact slot while an unheaded group's carried a link:
+      // the same fact rendering two different shapes depending on a grouping
+      // decision the reader cannot see, which is the family of defect this wave
+      // exists to end.
+      //
+      // What the heading saves is no longer repetition of a WORD — it is the
+      // grouping itself. The heading groups; the link opens.
       expect(await rowFor(page, 'feature/beans-1')
-        .getByRole('link', { name: 'beans', exact: true }).count()).toBe(0);
+        .getByRole('link', { name: 'beans', exact: true }).count()).toBe(1);
       expect(await solo.getByRole('link', { name: 'lonely', exact: true }).count()).toBe(1);
     } finally {
       await page.close();
@@ -574,9 +581,27 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       for (let i = 0; i < count; i++) {
         if (await cells.nth(i).locator('[data-branch]').count()) { branch = i; break; }
       }
-      expect(plan).toBeGreaterThanOrEqual(0);
+      // THE ORDER IS REVERSED, and by construction rather than by preference.
+      //
+      // `plan` is -1 here: there is no plan CELL any more. The old grid gave the
+      // plan its own track before the branch's, on the reading that a row is
+      // read *what this belongs to, then which slice of it* — and that reading
+      // is what `the-row-leads-with-its-subject` overturned. Slot 3 holds what
+      // the reader is DECIDING about, which on a branch row is the branch; the
+      // plan is an artifact link in slot 4, one cell after it.
+      //
+      // So the claim inverts with the design: the branch leads and the plan
+      // follows. Asserted as the pair — the branch is found, the plan is a link
+      // inside a LATER cell — because `plan === -1` alone would also pass if
+      // the plan had been dropped from the row entirely, which is the weaker
+      // implementation this must not accept.
       expect(branch).toBeGreaterThanOrEqual(0);
-      expect(plan).toBeLessThan(branch);
+      expect(plan).toBe(-1);
+      let planLink = -1;
+      for (let i = 0; i < count; i++) {
+        if (await cells.nth(i).locator('a[data-tuple-link="plan"]').count()) { planLink = i; break; }
+      }
+      expect(planLink).toBeGreaterThan(branch);
     } finally {
       await page.close();
     }
@@ -599,8 +624,15 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const untakenPlan = page.locator('li[data-plan-row]')
         .filter({ hasText: 'plant-tomatoes' }).first();
       await expect.poll(() => untakenPlan.getByTitle(/nobody has started it/).count()).toBe(1);
+      // `waiting22d`, and the prefix is the point rather than noise: slot 6
+      // LABELS the clock exactly where the rule (*since last change*) does not
+      // apply, and a plan's clock is its approval. The label marks the
+      // exception; the title says what the exception means. So the assertion
+      // reads the value out of the slot's text rather than demanding the slot
+      // hold nothing else — an equality here would forbid the label the design
+      // requires.
       await expect.poll(() => untakenPlan.getByTitle(/nobody has started it/).textContent())
-        .toBe('22d');
+        .toContain('22d');
       const untaken = rowFor(page, 'feature/untaken');
       // ONCE, and on the plan row. This asserted the clock on the BRANCH's last
       // cell to prove the row did not carry it twice; the branch now does not
@@ -732,13 +764,21 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const li = rowFor(page, 'feature/reviewed');
       await expect.poll(() => li.locator('[data-kind]').textContent()).toBe('Branch');
       const headers = group(page, 'Waiting on you').getByRole('columnheader');
+      // THE TUPLE'S SEVEN, and two of the old six could not be true of every
+      // row beneath them: a plan has no branch and a ticket has no pull
+      // request, and the header said both anyway because the grid it described
+      // was one kind's. `Related` heads slot 4, which holds whatever a kind's
+      // artifacts are and where each link states its own `what` beside itself.
       await expect.poll(() => headers.allTextContents())
-        .toEqual(['Kind', 'Plan', 'Branch', 'Pull request', 'Age', 'Actions']);
+        .toEqual(['Marks', 'Kind', 'Name', 'Related', 'Status', 'Age', 'Actions']);
       // The accessible name, not `textContent`: what a screen reader hears is
       // the question, and it must hear the header once and the cell's word once.
       const kindCell = li.locator('[role="gridcell"]').nth(KIND_CELL);
       const name = await kindCell.evaluate((el) => (el as HTMLElement).innerText);
-      expect(name.trim()).toBe('Branch');
+      // LOWERCASED: slot 2 wears Tailwind's `uppercase`, and the accessible
+      // name is what is RENDERED. Asserting `Branch` would make this a claim
+      // about a CSS utility rather than about the column naming the kind.
+      expect(name.trim().toLowerCase()).toBe('branch');
       // The word is visible, and it is the label — not a tooltip.
       const word = li.locator('[data-kind]');
       expect((await word.boundingBox())?.width ?? 0).toBeGreaterThan(1);
@@ -1343,8 +1383,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const li = rowFor(still, 'feature/beans-a');
       await expect.poll(() => li.textContent()).toContain('last commit 3 min ago');
       expect(await li.textContent()).toContain('beans');
-      // 200 minutes → 3h, the same age the moving row shows.
-      expect(await li.locator('span').last().textContent()).toBe('3h');
+      // 200 minutes → 3h, the same age the moving row shows. Read from the AGE
+      // SLOT by its own hook rather than from `span:last` — the row's last span
+      // is the `⋯` menu's glyph, and it was the age only because the old grid
+      // put the actions cell's content in a `div`. A positional locator that
+      // happens to land on the right element is the stale `nth()` in another
+      // form: it keeps passing until an element is added, then reports the
+      // wrong thing rather than failing.
+      expect(await li.locator('[data-tuple-age]').textContent()).toBe('3h');
       expect(await group(still, 'Working').getByText('feature/beans-a').count()).toBe(1);
     } finally {
       await still.close();
@@ -1655,10 +1701,19 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const texts = await groupRows(page, 'Working').allTextContents();
       const textFor = (branch: string) => texts.find((t) => t.includes(branch)) ?? '';
       expect(textFor('feature/lonely')).toContain('beans');
-      // The headed rows do NOT repeat it — that repetition is what the heading
-      // was bought with.
-      expect(textFor('feature/many-a')).not.toContain('tomatoes');
-      expect(textFor('feature/many-b')).not.toContain('tomatoes');
+      // THE HEADED ROWS DO NAME IT NOW, and this asserted the opposite until
+      // `one-component-renders-every-row` — see *in a MIXED section, the lonely
+      // row still names its own plan* for the whole argument. In short: the
+      // plan was a whole TRACK and repeating it printed one word down a column;
+      // it is now one of slot 4's LINKS, and suppressing it there would leave a
+      // headed group's rows with an empty artifact slot while an unheaded
+      // group's carried a link.
+      //
+      // What is asserted instead is what the heading is still FOR: it names the
+      // plan ONCE for the group, above rows that each link it. The heading
+      // groups; the link opens.
+      expect(textFor('feature/many-a')).toContain('tomatoes');
+      expect(textFor('feature/many-b')).toContain('tomatoes');
     } finally {
       await page.close();
     }
@@ -2068,10 +2123,27 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   // reading `PHASE_CELL` over a cell that holds a kind: a geometry constant
   // whose name no longer matches its column is exactly the stale `nth()` the
   // comment above warns about, wearing a name that hides the staleness.
+  //
+  // THE TUPLE'S SEVEN, since `one-component-renders-every-row`:
+  //
+  //     0 marks   1 kind   2 name   3 links   4 status   5 age   6 menu
+  //
+  // `BRANCH_CELL` moved from 3 to 2, and the move is the collapse's central
+  // claim rather than a re-index: a branch row's name IS the branch, so it sits
+  // in slot 3 — the item's own name — where the old grid gave the branch its
+  // own fourth track after the plan's. `PR_CELL` became `STATUS_CELL`, because
+  // slot 5 holds one status word for every kind rather than a PR cell for the
+  // one kind that has a PR.
+  //
+  // `AGE_CELL` WAS WRONG BEFORE THIS EDIT, and it is worth naming: it read `4`,
+  // the same index as `PR_CELL`, so any assertion using it measured the PR
+  // column while claiming to measure the age. That is precisely the stale
+  // `nth()` the comment above warns about — passing while pointing at a
+  // different column — and it was sitting in the constants meant to prevent it.
   const KIND_CELL = 1;
-  const BRANCH_CELL = 3;
-  const PR_CELL = 4;
-  const AGE_CELL = 4;
+  const BRANCH_CELL = 2;
+  const STATUS_CELL = 4;
+  const AGE_CELL = 5;
 
   it('starts every branch cell at the same x, with a phase and without one', async () => {
     // The first of the three defects, and the reason the row became a grid at
@@ -2145,7 +2217,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       const long = 'feature/opus5-longhorizon-hardening-challenge-budget-and-more';
       await expect.poll(() => rowFor(page, long).count()).toBe(1);
-      expect(await cellX(page, long, PR_CELL)).toBe(await cellX(page, 'feature/x', PR_CELL));
+      expect(await cellX(page, long, STATUS_CELL)).toBe(await cellX(page, 'feature/x', STATUS_CELL));
       expect(await cellX(page, long, AGE_CELL)).toBe(await cellX(page, 'feature/x', AGE_CELL));
     } finally {
       await page.close();
@@ -2332,8 +2404,16 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }));
     try {
       await expect.poll(() => rowFor(page, long).count()).toBe(1);
-      const cell = rowFor(page, 'feature/x').locator('[role="gridcell"]').nth(PR_CELL);
-      expect(Math.round((await cell.boundingBox())!.width)).toBe(224);
+      // 8rem = 128px, and the reduction is what the collapse bought. `14rem`
+      // was the PR cell's width because it held a number, a glyph, a draft
+      // badge, a state word AND the row's whole note — five things in the track
+      // the old layout had pushed right with `ml-auto`. Slot 5 holds ONE value
+      // a reader scans down a column, so it is bounded by the longest status
+      // word rather than by a sentence, and the 96px it gave up went to slot 4
+      // — the links track, which is the one that varies and therefore the one
+      // that must absorb the slack.
+      const cell = rowFor(page, 'feature/x').locator('[role="gridcell"]').nth(STATUS_CELL);
+      expect(Math.round((await cell.boundingBox())!.width)).toBe(128);
       // The long branch elides — it did not widen the row or shove the PR cell.
       // Measured as a CLIP rather than as a shorter string: `splitBranch` hands
       // the browser two spans and lets `truncate` fold them, so the ellipsis is
@@ -2347,7 +2427,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
           .some((s) => s.scrollWidth > s.clientWidth),
       );
       expect(clipped).toBe(true);
-      expect(await cellX(page, long, PR_CELL)).toBe(await cellX(page, 'feature/x', PR_CELL));
+      expect(await cellX(page, long, STATUS_CELL)).toBe(await cellX(page, 'feature/x', STATUS_CELL));
       // And `⑂116 no checks` — the widest cell in the reported screenshot, the
       // one 9rem could not hold — now fits inside its track rather than being
       // clipped by it.
@@ -2899,11 +2979,23 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const branch = await li.locator('[data-branch]').boundingBox();
       // Anchored on the KIND, which is what slot 2 holds — it was the phase, and
       // the phase is no longer on this row at all, so a `[data-phase]` locator
-      // here would resolve to nothing and `boundingBox()` would throw. The
-      // GEOMETRIC claim is unchanged: slot 2 leads the wrapped line and the
-      // branch takes a line of its own beneath it.
+      // here would resolve to nothing and `boundingBox()` would throw.
+      //
+      // NOT STRICTLY ABOVE any more, and the difference is one line. Under the
+      // seven branch tracks the kind was slot 2 of six wrapped items and the
+      // branch took `w-full`, so the branch always started a line of its own
+      // BELOW it. In the tuple the branch is slot 3 — the item's own name — and
+      // at 375px the kind and the name wrap onto the same line, with the
+      // artifact links and the rest beneath. Measured: kind at y=97, branch at
+      // y=90, seven pixels apart on one wrapped line rather than two.
+      //
+      // So the claim becomes what it was always about: the kind LEADS. It is at
+      // or above the branch and never below it, and the row still stacks rather
+      // than ranging — which is the assertion below, and the one a card form is
+      // actually for.
       const kind = await li.locator('[data-kind]').boundingBox();
-      expect(kind!.y).toBeLessThan(branch!.y);
+      expect(kind!.y).toBeLessThanOrEqual(branch!.y + branch!.height);
+      expect(kind!.x).toBeLessThanOrEqual(branch!.x);
       // The row is taller than one line: it stacked rather than ranged.
       const box = await li.boundingBox();
       expect(box!.height).toBeGreaterThan(branch!.height * 1.5);
@@ -2941,13 +3033,18 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const kindCell = li.locator('[role="gridcell"]').nth(KIND_CELL);
       // `innerText` reports the sr-only span as its own line, so the assertion
       // is on the words rather than on the exact spacing between them.
-      const heard = await kindCell.evaluate((el) => (el as HTMLElement).innerText);
-      expect(heard).toContain('Kind:');
-      expect(heard).toContain('Branch');
+      // LOWERCASED before matching: slot 2 wears Tailwind's `uppercase`, so
+      // `innerText` — which reports what is RENDERED — reads `KIND:\nBRANCH`.
+      // Asserting the authored casing would make this a claim about a CSS
+      // utility rather than about a reader on a phone hearing what the row is.
+      const heard = (await kindCell.evaluate((el) => (el as HTMLElement).innerText))
+        .toLowerCase();
+      expect(heard).toContain('kind:');
+      expect(heard).toContain('branch');
       // And NOT the plan's phase, which the fixture still carries — the card is
       // where a relocation is most tempting to skip, because the row is already
       // a stack of everything and one more word looks free.
-      expect(heard).not.toContain('Development');
+      expect(heard).not.toContain('development');
       // And the header is not also announcing it — there are no columns.
       expect(await group(page, 'Waiting on you').getByRole('columnheader').count()).toBe(0);
     } finally {

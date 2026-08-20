@@ -263,33 +263,51 @@ describe('NOT STARTED renders one row per plan', () => {
     }
   });
 
-  it('lands a plan row\'s columns at the same x as a branch row\'s', async () => {
+  it('lands a plan row\'s slots at the same x as a branch row\'s', async () => {
     const page = await open();
     try {
-      // The section boundary must not break alignment — the cost
-      // `agent-rows-line-up` paid to remove. Both rows are laid on `ROW_TRACKS`,
-      // so the PLAN cell of each must start at one x.
+      // ONE GRID, AND THIS ASSERTS THE AGREEMENT AGAIN — which is the third
+      // thing this test has claimed, and the reversal is worth reading in one
+      // place because each version was right about the layout it was written
+      // against.
+      //
+      //   1. Originally: same x, because a plan row borrowed the branch tracks.
+      //      That is what made eight sibling plans read as a NESTING — the plan
+      //      name and the branch name below it both began at 222px, measured.
+      //   2. `a-plan-row-is-not-a-branch-row` gave the plan row its own
+      //      proportions and this asserted they DIFFER, by enough to see.
+      //   3. `one-component-renders-every-row` collapses both grids into
+      //      `TUPLE_TRACKS`, so they agree again — and the nesting version (1)
+      //      does not come back with them.
+      //
+      // What changed between 1 and 3 is not the geometry but what the shared
+      // slot HOLDS. A plan row's name cell used to hold a plan name at the same
+      // x as a branch name, with nothing saying which was which; slot 2 now
+      // states the KIND in a word — `Plan` above `Branch` — so the two are told
+      // apart by what they say rather than by an indent a reader must measure.
+      // That is the same repair slot 2 made for the four-meanings column, and
+      // it is why alignment is affordable again.
       await page.locator('[data-wave-toggle="activity-shows-itself"]').click();
       const branchRow = section(page).locator('li[data-agent-row]')
         .filter({ has: page.locator('[data-branch="feature/activity-marker-glows"]') });
       await branchRow.waitFor({ timeout: 5_000 });
-      // THE TWO ROWS NO LONGER SHARE TRACKS, and this asserts the difference
-      // rather than the agreement it used to.
-      //
-      // Until `a-plan-row-is-not-a-branch-row` a plan row borrowed the branch
-      // tracks, and this test held them to the same x — which is exactly what
-      // made eight sibling plans read as a nesting: the plan NAME and the
-      // branch NAME below it both began at 222px, measured on screen.
-      //
-      // A plan row now has its own proportions. Its name starts one track
-      // EARLIER than a branch name — where a branch row's phase begins — and
-      // that single track is the whole difference between a list and a
-      // nesting. So the assertion is that they differ, and by enough to see.
-      const planName = await planRow(page, 'activity-shows-itself')
-        .locator('[role="gridcell"]').nth(1).boundingBox();
-      const branchName = await branchRow.locator('[role="gridcell"]').nth(3).boundingBox();
-      expect(planName!.x).toBeLessThan(branchName!.x);
-      expect(branchName!.x - planName!.x).toBeGreaterThan(100);
+      const planRowEl = planRow(page, 'activity-shows-itself');
+      // EVERY slot, not just one — a single matching cell could be a
+      // coincidence of content width, and the claim is about the grid.
+      for (const slot of [0, 1, 2, 3, 4, 5, 6]) {
+        const p = await planRowEl.locator('[role="gridcell"]').nth(slot).boundingBox();
+        const b = await branchRow.locator('[role="gridcell"]').nth(slot).boundingBox();
+        expect(Math.abs(p!.x - b!.x), `slot ${slot} x`).toBeLessThan(1);
+      }
+      // AND THE NESTING IS STILL GONE, which is the property (2) was protecting
+      // and the one that must survive the realignment. It survives in the KIND
+      // rather than in the offset: the two rows say what they are.
+      // LOWERCASED, because slot 2 wears Tailwind's `uppercase` on the board
+      // while the authored words are `Plan` and `Branch`. Asserting the styled
+      // form would make this a claim about a CSS utility rather than about the
+      // two rows saying what they are.
+      expect((await planRowEl.locator('[data-kind]').innerText()).toLowerCase()).toBe('plan');
+      expect((await branchRow.locator('[data-kind]').innerText()).toLowerCase()).toBe('branch');
     } finally {
       await page.close();
     }
@@ -396,17 +414,26 @@ describe('NOT STARTED renders one row per plan', () => {
       // seven branch tracks hold their width and branch rows stay aligned with
       // branch rows in every other section.
       expect(await branchRow.locator('[data-phase]').count()).toBe(0);
-      // The plan row carries FEWER cells, and that is the point rather than an
-      // accident: it has no phase track, no PR cell and no actions cell, because
-      // it has no phase to state twice, no PR, and no branch to dispatch. A
-      // count that matched would mean it had gone back to borrowing tracks it
-      // has no facts for.
+      // THE SAME NUMBER OF CELLS, and this too is a reversal stated rather than
+      // quietly dropped. It asserted FEWER, on the argument that a plan row has
+      // no phase track, no PR cell and no actions cell — true of
+      // `PLAN_ROW_TRACKS`, and the reason there were two grids for what the
+      // contract says are seven kinds.
+      //
+      // A shape does not admit that argument. Every kind fills the same seven
+      // tracks and a kind with nothing for a slot renders NOTHING IN IT — which
+      // is not the same as having no slot: an empty cell holds its width, and
+      // that is what keeps a plan row's clock under a branch row's clock. The
+      // count matching now means the opposite of what it used to: not that a
+      // plan row went back to borrowing a branch's tracks, but that neither
+      // borrows because there is only one grid to borrow from.
       const planCells = await planRow(page, 'activity-shows-itself')
         .locator('[role="gridcell"]').count();
       const branchCells = await branchRow.locator('[role="gridcell"]').count();
-      expect(planCells).toBeLessThan(branchCells);
-      // The plan row's phase rides in its name cell rather than a track of its
-      // own, so it is still stated exactly once per group.
+      expect(planCells).toBe(branchCells);
+      // The plan row's phase rides in its STATUS slot — slot 5, the object the
+      // fact belongs to — rather than a track of its own, so it is still stated
+      // exactly once per group.
       expect(await planRow(page, 'activity-shows-itself').locator('[data-phase]').count()).toBe(1);
       // And the plan row still carries the clock the branches gave up.
       expect(await planRow(page, 'activity-shows-itself').textContent()).toMatch(/d|mo|today/);

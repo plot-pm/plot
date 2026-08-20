@@ -26,7 +26,6 @@ import {
   COLLAPSED_BY_DEFAULT,
   CARD_BELOW_PX,
   GROUPS,
-  ROW_TRACKS,
   CHANGE_MARK_MS,
   ChangeMarks,
   changedRows,
@@ -53,6 +52,10 @@ import {
   type WatchedState,
   type PlanGroup,
 } from '../../src/app/components/AgentList.js';
+// THE ONE GRID, from the component that owns it. It was `ROW_TRACKS` in
+// `AgentList.tsx` beside a second grid; `one-component-renders-every-row`
+// collapsed both into this.
+import { TUPLE_TRACKS } from '../../src/app/components/TupleRow.js';
 import { GROUP_ORDER } from '../../src/server/fleet.js';
 import {
   AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, type AgentRow, type Fleet,
@@ -1051,8 +1054,14 @@ describe('the activity mark is a track with a travelling dot', () => {
     // NO padding of its own — the row already carries `py-2`, and a second pair
     // here made every row as tall as a two-line one (both measured at 60px).
     // The height comes from the row's content; `self-stretch` only takes it.
+    // `items-start` SINCE THE TRACK WIDENED, and the change is measured. The
+    // marks track went from 1rem to 1.5rem with the tuple, and a CENTRED 12px
+    // mark in a 24px cell lands at 35px — to the RIGHT of the live dot at 33px,
+    // which sits at `sm:left-1` of this same cell. Two marks in the wrong order
+    // read as one smeared pair, which is what the track was cut to prevent.
+    // The marks LEAD the row, so they start where the cell starts.
     expect(ACTIVITY_MARK_PLACE.row).toBe(
-      'relative flex w-full shrink-0 flex-col items-center justify-center gap-1 self-stretch');
+      'relative flex w-full shrink-0 flex-col items-start justify-center gap-1 self-stretch');
     expect(ACTIVITY_MARK_PLACE.row).not.toMatch(/\bpy-/);
   });
 
@@ -1166,13 +1175,20 @@ describe('the activity mark is a track with a travelling dot', () => {
     // box begins 18.6px below the row's top edge, not the 8px or 10px a reader
     // would derive from the padding alone.
     // The cell answers this now: `self-stretch` takes the row's own height and
-    // `items-center` centres the marks across it. No number is stated at all —
-    // which is the strongest form of the same rule, since the line height it
+    // `justify-center` centres the marks across it. No number is stated at all
+    // — which is the strongest form of the same rule, since the line height it
     // used to name (`h-5`) was itself a value that could go stale.
+    //
+    // `justify-center`, not `items-center`, and the pairing is worth stating
+    // because the two were conflated here. In a `flex-col` the MAIN axis is
+    // vertical, so `justify-*` is what centres the stack and `items-*` decides
+    // where it sits horizontally — which is a different question, answered
+    // `items-start` above for a measured reason. An assertion on
+    // `items-center` was reading the cross axis while claiming the main one.
     const mark = ACTIVITY_MARK_PLACE.row;
     expect(mark).toContain('self-stretch');
-    expect(mark).toContain('items-center');
-    expect(mark).toContain('flex');
+    expect(mark).toContain('justify-center');
+    expect(mark).toContain('flex-col');
     // And no hand-computed offset, which is the failure mode this guards.
     expect(mark).not.toMatch(/\btop-\d/);
   });
@@ -2154,52 +2170,119 @@ describe('the change marker costs nothing outside the client', () => {
   });
 });
 
-describe('ROW_TRACKS — where the row\'s width goes', () => {
-  /** The six tracks, in order, read out of the one exported constant. */
+describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
+  /**
+   * THE ONE GRID, read out of the one exported constant.
+   *
+   * This described `ROW_TRACKS` until `one-component-renders-every-row`, and
+   * the rename is the whole point rather than a tidy-up. There were TWO grids —
+   * `ROW_TRACKS` for a branch row and `PLAN_ROW_TRACKS` for a plan row — and a
+   * ticket row was laid on the branch's, wearing a wave, a worker and a branch
+   * it does not have. The arithmetic below is the same arithmetic; what changed
+   * is that there is now one answer to it instead of two-and-a-borrowing.
+   */
   const tracks = () => {
-    const inner = /grid-cols-\[(.+)\]/.exec(ROW_TRACKS)?.[1];
-    expect(inner, `ROW_TRACKS is not a Tailwind track list: ${ROW_TRACKS}`).toBeTruthy();
+    const inner = /grid-cols-\[(.+)\]/.exec(TUPLE_TRACKS)?.[1];
+    expect(inner, `TUPLE_TRACKS is not a Tailwind track list: ${TUPLE_TRACKS}`).toBeTruthy();
     return inner!.split('_');
   };
 
-  it('gives the PR column 14rem, taken from the branch and not from the window', () => {
-    // The reported defect: at 9rem the PR cell held `⑂116 no checks` and
-    // nothing wider, while the window's whole slack collected in the branch's
-    // `1fr` as a gap that draws nothing.
-    // Seven tracks since the marks earned one: `1rem` for them, and the phase
-    // down to `5rem` to pay for it — see the breakpoint arithmetic below.
-    expect(tracks()).toEqual(['1rem', '5rem', '10rem', '1fr', '14rem', '2.5rem', '1.25rem']);
+  it('lays out the six slots, with the marks and the menu around them', () => {
+    // `[marks, kind, name, links, status, age, menu]` — the six slots plus the
+    // two the tuple does not own. The MARKS track comes first and holds slot
+    // 1's icon beside the activity marks; the MENU track is last and holds
+    // whatever the kind offers.
+    expect(tracks()).toEqual(
+      ['1.5rem', '4.5rem', '12rem', '1fr', '8rem', '4.5rem', '1.25rem']);
   });
 
-  it('keeps every track but the branch FIXED', () => {
+  it('flexes the LINKS track and no other', () => {
+    // THE ONE TRACK THAT VARIES IS THE ONE THAT MUST ABSORB THE SLACK, and
+    // which track that is moved with the collapse. Under `ROW_TRACKS` it was
+    // the BRANCH — the longest and most variable value on a branch row. Slot 4
+    // is now the zero-or-more slot: a branch carries no artifact link and a PR
+    // carries two, so the variation moved and the `1fr` moved with it.
+    //
     // The pairing that matters, and the reason this asserts the shape rather
-    // than only the number. `minmax(9rem, auto)` on the PR cell and
-    // `max-content` on the branch both make the column WIDER and both let an
-    // edge move between rows — passing "the status got more space" while
-    // undoing what fixed tracks are for. Exactly one track may be flexible.
+    // than only the number: `minmax(9rem, auto)` or `max-content` would both
+    // make a column wider and both let an edge move between rows — passing
+    // "the slot got more space" while undoing what fixed tracks are for.
+    // Exactly one track may be flexible.
     const flexible = tracks().filter((t) => !/^[\d.]+rem$/.test(t));
     expect(flexible).toEqual(['1fr']);
   });
 
-  it('still needs less than the card breakpoint before the branch gets a pixel', () => {
-    // The arithmetic `CARD_BELOW_PX` rests on, and the thing this change spent:
-    // the fixed tracks went from 460px to 540px, so the grid now needs 624px of
-    // the 640px breakpoint. Widening any fixed track again crosses it, and then
-    // `CARD_BELOW_PX` has to move too — this fails when that day comes.
-    // DERIVED from the track count, not hard-coded — and that is the fix this
-    // test needed as much as the code did. `84` was five gaps plus padding,
-    // correct for six tracks and silently wrong the moment a seventh arrived:
-    // it under-counted by one gap and would have passed a layout that overflows.
-    // A constant that only holds for the shape it was written against fails in
-    // the reassuring direction.
+  it('needs less than the card breakpoint before the links track gets a pixel', () => {
+    // THE ARITHMETIC THE COLLAPSE BOUGHT BACK, and the numbers are MEASURED
+    // here rather than quoted. `ROW_TRACKS` totalled 540px of fixed track and
+    // needed 624px of the 640px breakpoint — 16px of headroom, and its own
+    // comment recorded having crossed the line by 8px once and paid for it by
+    // shrinking a column. The tuple totals 508px and needs 604px: 36px clear,
+    // twice the room and not the 60px `TUPLE_TRACKS` claimed when it landed.
+    //
+    // THAT OVERSTATEMENT IS WORTH RECORDING, because it is the same error this
+    // test's own comment warns about, made in the constant's documentation
+    // rather than in its code. The docstring counted `84` of gaps and padding —
+    // five gaps plus 24 — while declaring SEVEN tracks, which have six. One
+    // uncounted gap, 12px, and the same shape of mistake `ROW_TRACKS` made and
+    // this assertion was rewritten to prevent. It shipped no defect: 604 is
+    // still under 640. It shipped a WRONG MARGIN, which is what a later
+    // widening would have been checked against.
+    //
+    // Why the tuple is narrower at all, and it is not a coincidence: seven
+    // tracks holding ONE kind's facts had to be wide enough for the widest of
+    // them, while seven tracks holding a SHAPE are each bounded by what every
+    // kind puts in them — a kind is one word, a status is one word, an age is
+    // four characters. Only slot 4 varies, and it is the one that flexes.
+    //
+    // DERIVED from the track count, never hard-coded.
     const GAP_PX = 12;
     const PADDING_PX = 24;
     const gapsAndPadding = (tracks().length - 1) * GAP_PX + PADDING_PX;
     const fixedPx = tracks()
       .filter((t) => t !== '1fr')
       .reduce((sum, t) => sum + Number.parseFloat(t) * 16, 0);
-    expect(fixedPx).toBe(540);
+    expect(fixedPx).toBe(508);
     expect(fixedPx + gapsAndPadding).toBeLessThan(CARD_BELOW_PX);
+    // AND THE HEADROOM IS NAMED, so a later widening has to argue with a
+    // number rather than merely stay under a ceiling — which is exactly what
+    // the docstring's uncounted gap took away.
+    expect(CARD_BELOW_PX - (fixedPx + gapsAndPadding)).toBe(36);
+  });
+
+  it('has no second grid left to drift from this one', () => {
+    // THE DELETION, asserted. Two grids for three components is how they
+    // drifted apart, and a test that only checks the survivor's numbers would
+    // pass just as well with `PLAN_ROW_TRACKS` still in the file and still
+    // rendering a plan row on four tracks of its own.
+    //
+    // Read out of the SOURCE, because the property is *this constant does not
+    // exist* and an import of a deleted binding is a compile error rather than
+    // a test failure — which reports the right fact in the wrong place, and
+    // only for as long as nobody adds it back under another name.
+    const src = readFileSync(
+      new URL('../../src/app/components/AgentList.tsx', import.meta.url), 'utf8');
+    // COMMENTS STRIPPED, and the distinction is the whole reason this is worth
+    // anything. Both adapters DISCUSS the grids they replaced — `PlanRow`'s
+    // docstring records the reversal at length, because *a plan row is not a
+    // branch row* was a correct argument that produced the second grid, and a
+    // deletion whose reasoning is not written down is one somebody re-derives.
+    // A match against the raw file would fail on the prose explaining why the
+    // code no longer does the thing, and a test that cannot tell a mention from
+    // a declaration is a test that gets deleted the first time it is wrong.
+    const code = src
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    expect(code).not.toMatch(/ROW_TRACKS/);
+    expect(code).not.toMatch(/PLAN_ROW_TRACKS/);
+    // And the stripping removed something, so the two assertions above are
+    // about code rather than about an empty string.
+    expect(src).toMatch(/PLAN_ROW_TRACKS/);
+    // ONE `grid-cols-` in the whole row estate, and it is the tuple's.
+    const tupleSrc = readFileSync(
+      new URL('../../src/app/components/TupleRow.tsx', import.meta.url), 'utf8');
+    expect([...tupleSrc.matchAll(/grid-cols-\[/g)]).toHaveLength(1);
+    expect(code).not.toMatch(/grid-cols-\[/);
   });
 });
 
@@ -2227,28 +2310,60 @@ describe('ROW_TRACKS — where the row\'s width goes', () => {
  * test data reaches it.
  */
 describe("a row's actions all live in its menu", () => {
-  const source = readFileSync(
-    new URL('../../src/app/components/AgentList.tsx', import.meta.url), 'utf8');
+  /**
+   * THE ROW ESTATE'S SOURCE — TWO FILES, and the second is what the collapse
+   * made load-bearing.
+   *
+   * This scan read `AgentList.tsx` alone while every row component lived there.
+   * `one-component-renders-every-row` moved the rendering into `TupleRow.tsx`
+   * and left three ADAPTERS behind, so a one-file scan would now walk from
+   * `Row` to `TupleRowView`, fail to find it, and report a clean row — while
+   * every anchor in the estate sat one file away, unwatched.
+   *
+   * That is precisely the failure this describe's own docstring warns about: *a
+   * scan that matched nothing passes the assertion forever while gating
+   * nothing at all.* The gate follows the components, not the file they were in
+   * when it was written.
+   */
+  const FILES = ['AgentList.tsx', 'TupleRow.tsx'] as const;
+  const sources = FILES.map((f) =>
+    readFileSync(new URL(`../../src/app/components/${f}`, import.meta.url), 'utf8'));
+  /** Kept for the assertions that ask about `AgentList.tsx` in particular. */
+  const source = sources[0];
 
   /**
-   * The source of one top-level `function Name(` declaration.
+   * The source of one top-level declaration, from whichever file holds it.
    *
    * It ends at the first `}` in COLUMN ZERO, which is where every top-level
-   * declaration in this file closes and nothing nested ever does. An earlier
+   * declaration in these files closes and nothing nested ever does. An earlier
    * version sliced to *the next `function `* instead and was wrong in the
    * direction that matters: past the last declaration there is no next one, so
    * `PrCell` swallowed the rest of the file and the scan reported two toggle
    * buttons that live hundreds of lines below it. A structural test whose
    * boundaries are wrong reports strays that are not there — and, on the other
    * side of the same error, misses ones that are.
+   *
+   * `export function` as well as `function`, because the tuple's two components
+   * are exported and the three adapters are not — a distinction about module
+   * boundaries that says nothing about whether a row renders an anchor.
    */
   function declaration(name: string): string {
-    const start = source.indexOf(`function ${name}(`);
-    expect(start, `no component named ${name}`).toBeGreaterThan(-1);
-    const end = source.indexOf('\n}\n', start);
-    expect(end, `${name} does not close in column zero`).toBeGreaterThan(-1);
-    return source.slice(start, end + 3);
+    for (const src of sources) {
+      for (const prefix of ['function ', 'export function ']) {
+        const start = src.indexOf(`${prefix}${name}(`);
+        if (start === -1) continue;
+        const end = src.indexOf('\n}\n', start);
+        expect(end, `${name} does not close in column zero`).toBeGreaterThan(-1);
+        return src.slice(start, end + 3);
+      }
+    }
+    expect.fail(`no component named ${name} in ${FILES.join(' or ')}`);
   }
+
+  /** Whether a name is a component either file declares. */
+  const declares = (name: string): boolean =>
+    sources.some((src) =>
+      src.includes(`function ${name}(`) || src.includes(`export function ${name}(`));
 
   /**
    * Every component reachable from the ROW BODY, following what each mounts —
@@ -2274,7 +2389,7 @@ describe("a row's actions all live in its menu", () => {
         // `HTMLAnchorElement` and friends are types in handler signatures, not
         // mounted components — they have no declaration and are skipped by the
         // same check that skips anything already visited.
-        if (!seen.has(child) && source.includes(`function ${child}(`)) queue.push(child);
+        if (!seen.has(child) && declares(child)) queue.push(child);
       }
     }
     return out;
@@ -2297,18 +2412,85 @@ describe("a row's actions all live in its menu", () => {
    * entry is a claim that the row NAMES the thing, and it has to be argued in
    * review rather than arrived at by rendering.
    */
-  const ROW_NAVIGATION = ['data-branch', 'data-pr-link', 'href={`/plan/'];
+  /**
+   * Where a JSX opening tag ENDS — the first `>` at brace depth zero.
+   *
+   * `indexOf('>')` was right for as long as no attribute value contained one,
+   * and the tuple's anchor broke it: `onClick={handle}` is fine but an inline
+   * `onClick={(e) => ...}` is not, and neither is any `{cond ? a : b}` holding
+   * a comparison. The old scan then cut the tag short, missed the
+   * `data-tuple-link` hook that sat past the cut, and reported the estate's one
+   * legitimate anchor as a stray.
+   *
+   * That failure is the benign direction — a false stray is noticed the moment
+   * the suite runs. The direction worth guarding is the other one, and it is
+   * why this counts braces rather than widening the slice: a fixed lookahead
+   * long enough to clear the handler would also reach into the NEXT element's
+   * attributes, and a stray `<button>` would be waved through by a hook
+   * belonging to the link above it.
+   */
+  function tagClose(body: string, from: number): number {
+    let depth = 0;
+    for (let i = from; i < body.length; i += 1) {
+      const c = body[i];
+      if (c === '{') depth += 1;
+      else if (c === '}') depth -= 1;
+      else if (c === '>' && depth === 0) return i;
+    }
+    return -1;
+  }
+
+  /**
+   * Block comments, gone — so prose ABOUT markup is not read AS markup.
+   *
+   * `IssueRowView` documents that its name cell is deliberately `not an <a>`,
+   * and that literal tag in the comment matched the raw-tag scan below. The
+   * branch-row gate escaped this only because its comments happen not to spell
+   * a bare tag; the rule is the same and so is the strip. Both the plain and the
+   * JSX-wrapped comment forms are removed, non-greedily, before any tag match.
+   */
+  const stripComments = (s: string): string =>
+    s
+      .replace(/\{?\/\*[\s\S]*?\*\/\}?/g, '')
+      // LINE comments too, and the collapse is what made this half necessary.
+      // `TupleLinkView` explains at length that a name with no address is *not
+      // an `<a>`* and that a missing link renders as text — prose about markup,
+      // in `//` comments the block-stripper walks straight past. The branch
+      // gate escaped this for as long as its comments happened not to spell a
+      // bare tag; the rule is the same and so is the strip.
+      .replace(/^[^\S\n]*\/\/.*$/gm, '');
+
+  const ROW_NAVIGATION = [
+    'data-branch',
+    'data-pr-link',
+    'href={`/plan/',
+    // THE TUPLE'S ONE ANCHOR, and it is the same allowance stated once instead
+    // of per component. `TupleLinkView` renders every linked name on every kind
+    // — a PR's number, a plan's slug, a branch's name — through ONE `<a>` whose
+    // `data-tuple-link` says what it points at. That is navigation to a thing
+    // the row NAMES, which is exactly what this list is for; the three hooks
+    // above it are the same permission as it was spelled when three components
+    // each rendered their own anchor.
+    'data-tuple-link',
+  ];
 
   it('renders no interactive element in a row body outside the menu', () => {
     // THE GATE. Every `<a>` and `<button>` reachable from the row body, minus
     // the row's own navigation — the remainder must be empty.
     const strays: string[] = [];
-    for (const { name, source: body } of rowBodySources()) {
+    for (const { name, source: decl } of rowBodySources()) {
+      // COMMENTS STRIPPED FIRST, so prose ABOUT markup is not read AS markup —
+      // the same strip the issue gate has always applied, now needed here too
+      // because `TupleLinkView` discusses the anchor it declines to render.
+      const body = stripComments(decl);
       for (const m of body.matchAll(/<(a|button)[\s>]/g)) {
-        // The element's own attributes: up to the end of its opening tag, which
-        // is where its `data-` hook and `href` are.
-        const tagEnd = body.indexOf('>', m.index);
-        const tag = body.slice(m.index, tagEnd === -1 ? m.index + 400 : tagEnd);
+        // The element's own attributes: up to the end of its opening TAG, which
+        // is where its `data-` hook and `href` are. `>` inside a JSX expression
+        // (`() => ...`) is not the tag's end, so the search skips a `>` that
+        // has an unbalanced `{` before it — measured on the tuple's anchor,
+        // whose `onClick` handler closes before the tag does.
+        const tagEnd = tagClose(body, m.index!);
+        const tag = body.slice(m.index, tagEnd === -1 ? m.index! + 400 : tagEnd);
         if (ROW_NAVIGATION.some((hook) => tag.includes(hook))) continue;
         strays.push(`${name}: ${tag.replace(/\s+/g, ' ').slice(0, 120)}`);
       }
@@ -2327,9 +2509,12 @@ describe("a row's actions all live in its menu", () => {
     // gating nothing at all, which is the failure mode a structural test is
     // most prone to. So the detector is run against a row body with the exact
     // element this plan removed put back into it.
+    // Injected at the row's MENU prop, which every kind's adapter has and which
+    // is the nearest thing left to the branch cell the old injection used —
+    // `<BranchName row={row} />` was deleted with the component that held it.
     const withStray = declaration('Row').replace(
-      '<BranchName row={row} />',
-      '<BranchName row={row} /><a href={runUrl} data-stuck-link>Open failing run</a>',
+      '      menu={',
+      '      extra={<a href={runUrl} data-stuck-link>Open failing run</a>}\n      menu={',
     );
     expect(withStray).toContain('data-stuck-link');
     const found = [...withStray.matchAll(/<(a|button)[\s>]/g)].filter((m) => {
@@ -2340,15 +2525,29 @@ describe("a row's actions all live in its menu", () => {
   });
 
   it('reaches the components the row mounts, not only Row itself', () => {
-    // The scan is transitive, and this is the property that makes it worth
-    // anything: the row's own links live in `BranchName` and `PrCell`, so a
-    // scan stopping at `Row` would read as clean while an inline action sat one
-    // component down — exactly where the next one would land.
+    // THE PROPERTY THAT MAKES THE GATE WORTH ANYTHING, and the collapse moved
+    // what it has to reach. The row's own links used to live in `BranchName`
+    // and `PrCell`; they now live in `TupleLinkView`, reached through
+    // `TupleRowView` — and in ANOTHER FILE, which is the reach a one-file scan
+    // silently lost. A scan stopping at `Row` reads as clean while every anchor
+    // in the estate sits one component and one module away.
     const names = rowBodySources().map((c) => c.name);
-    expect(names).toContain('BranchName');
-    expect(names).toContain('PrCell');
+    expect(names).toContain('TupleRowView');
+    expect(names).toContain('TupleLinkView');
     // And it does NOT enter the menu, which is where actions are allowed.
     expect(names).not.toContain('RowActions');
+  });
+
+  it('reaches the tuple from the PLAN row and the TICKET row too', () => {
+    // THE THIRD FILL SITE, which is what the whole collapse was about. Three
+    // components on two grids meant three places an inline action could land
+    // and only one the gate walked — so *Create plan* sat inline on a ticket
+    // row for as long as it did. One component renders every kind now, and the
+    // gate reaching it from all three adapters is what says so structurally
+    // rather than in a comment.
+    for (const adapter of ['PlanRow', 'IssueRowView']) {
+      expect(declaration(adapter)).toContain('<TupleRowView');
+    }
   });
 
   it('keeps the four actions in the menu, and the cue out of it', () => {
@@ -2381,19 +2580,15 @@ describe("a row's actions all live in its menu", () => {
    * is the one inline interactive element permitted, and everything else — which
    * today is *Create plan* alone — belongs behind the menu.
    */
-  const ISSUE_NAVIGATION = ['data-issue-link'];
+  const ISSUE_NAVIGATION = [
+    'data-issue-link',
+    // The tuple's one anchor, for the reason stated at `ROW_NAVIGATION`: since
+    // the collapse a ticket's tracker link and a branch's branch link are the
+    // SAME `<a>`, rendered by `TupleLinkView` from a `TupleLink`. The two
+    // allowances converged because the two rows did.
+    'data-tuple-link',
+  ];
 
-  /**
-   * Block comments, gone — so prose ABOUT markup is not read AS markup.
-   *
-   * `IssueRowView` documents that its name cell is deliberately `not an <a>`,
-   * and that literal tag in the comment matched the raw-tag scan below. The
-   * branch-row gate escaped this only because its comments happen not to spell
-   * a bare tag; the rule is the same and so is the strip. Both the plain and the
-   * JSX-wrapped comment forms are removed, non-greedily, before any tag match.
-   */
-  const stripComments = (s: string): string =>
-    s.replace(/\{?\/\*[\s\S]*?\*\/\}?/g, '');
 
   /**
    * Every component reachable from the ISSUE row body, not entering
@@ -2412,7 +2607,7 @@ describe("a row's actions all live in its menu", () => {
       const body = declaration(name);
       out.push({ name, source: body });
       for (const [, child] of body.matchAll(/<([A-Z][A-Za-z0-9]*)/g)) {
-        if (!seen.has(child) && source.includes(`function ${child}(`)) queue.push(child);
+        if (!seen.has(child) && declares(child)) queue.push(child);
       }
     }
     return out;
@@ -2427,8 +2622,8 @@ describe("a row's actions all live in its menu", () => {
     for (const { name, source: decl } of issueRowBodySources()) {
       const body = stripComments(decl);
       for (const m of body.matchAll(/<(a|button)[\s>]/g)) {
-        const tagEnd = body.indexOf('>', m.index);
-        const tag = body.slice(m.index, tagEnd === -1 ? m.index + 400 : tagEnd);
+        const tagEnd = tagClose(body, m.index!);
+        const tag = body.slice(m.index, tagEnd === -1 ? m.index! + 400 : tagEnd);
         if (ISSUE_NAVIGATION.some((hook) => tag.includes(hook))) continue;
         strays.push(`${name}: ${tag.replace(/\s+/g, ' ').slice(0, 120)}`);
       }

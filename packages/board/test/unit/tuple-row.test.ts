@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   KIND_ICON,
+  prStatus,
   KIND_LABEL,
   SESSION_ID_CHARS,
   releaseVersion,
@@ -165,6 +166,30 @@ describe('the server decides the kind, and the renderer reads it', () => {
     expect(tuple.name.label).toBe('feature/x');
   });
 
+  it('reads a row with NO kind at all as a branch', () => {
+    // `RowKindSchema.default('branch')` fills the field for every row that
+    // comes through the parser, and that is most of them. It is not all of
+    // them: a browser suite that fulfils `/api/fleet` from a literal serves
+    // rows the schema never saw, and twelve of this estate's suites do exactly
+    // that. So the projection carries the same fallback the contract states.
+    //
+    // MEASURED AS A REGRESSION rather than imagined. `icon` and `kindLabel`
+    // each guarded against an unknown kind while `kind` itself passed the raw
+    // value through, so a fieldless row rendered a branch's glyph and a
+    // branch's word beside `data-tuple-kind` and `data-kind` attributes that
+    // were ABSENT — a row that looks right and cannot be found. Two browser
+    // tests timed out on it, which reads like a hang rather than a defect.
+    const fieldless = { ...row(), kind: undefined } as unknown as AgentRow;
+    const t = tupleFromRow(fieldless);
+    expect(t.kind).toBe('branch');
+    expect(t.kindLabel).toBe('Branch');
+    expect(t.icon).toBe(KIND_ICON.branch);
+    // And the NAME is the branch's, which is the arm the fallback has to reach:
+    // a fallback that fixed only the label would leave a fieldless row taking
+    // whichever arm `undefined` happened to miss.
+    expect(t.name.what).toBe('branch');
+  });
+
   it('has no kind derivation in the client at all', () => {
     // A STRUCTURAL assertion, because the rule is about where code lives rather
     // than what one input produces. The projection may READ `row.kind`; it may
@@ -190,6 +215,40 @@ describe('the server decides the kind, and the renderer reads it', () => {
     // about code rather than about an empty string.
     expect(src).toMatch(/changeset-release/);
     expect(code.length).toBeLessThan(src.length / 2);
+  });
+});
+
+describe('slot 5 says where a PR stands, and draft is not a state', () => {
+  it('reports the CHECK STATE on a draft, never the word draft', () => {
+    // `draft` and `state` answer DIFFERENT questions — *is this offered for
+    // review* and *what is it waiting for* — and they are independent: a draft
+    // has CI like anything else. `prStatus` returned `'draft'` before consulting
+    // the state until 2026-08-20, which is the exact short-circuit that kept
+    // WAITING ON A MACHINE empty for three releases: the classifier used to
+    // return on every draft before the checks were read.
+    //
+    // The flag still reaches the row, as its OWN badge beside this word rather
+    // than instead of it. Slot 5 holds one value; the draft is a second fact.
+    expect(prStatus({ number: 1, url: 'u', draft: true, state: 'pending' }))
+      .toBe('CI running');
+    expect(prStatus({ number: 1, url: 'u', draft: true, state: 'conflicts' }))
+      .toBe('conflicts');
+    // And the state is the same word whether or not it is a draft, which is
+    // what *independent* means.
+    for (const state of ['green', 'pending', 'failing', 'none', 'conflicts'] as const) {
+      expect(prStatus({ number: 1, url: 'u', draft: true, state }))
+        .toBe(prStatus({ number: 1, url: 'u', draft: false, state }));
+    }
+  });
+
+  it('says nothing at all where the host could not report a state', () => {
+    // `unknown` is the host saying *I could not find out*, and a row printing
+    // its own ignorance in a slot a reader scans has said nothing. Absent
+    // renders as absent — and that holds on a draft too, which is the pairing:
+    // an implementation that returned `draft` here would pass every assertion
+    // above and still print a word where there is no answer.
+    expect(prStatus({ number: 1, url: 'u', draft: false, state: 'unknown' })).toBe('');
+    expect(prStatus({ number: 1, url: 'u', draft: true, state: 'unknown' })).toBe('');
   });
 });
 
@@ -495,13 +554,24 @@ describe('slot 5 holds a value, never a sentence', () => {
     expect(tupleFromRow(conflicting).status).toBe('conflicts');
   });
 
-  it('says draft before a check state — a different question, asked first', () => {
-    // *Is this offered for review* outranks *what is it waiting for* in one
-    // slot: a draft is not yours to look at yet, whatever its CI says.
+  it('holds the CHECK STATE on a draft, and lets the badge say draft', () => {
+    // THIS ASSERTED THE OPPOSITE until `one-component-renders-every-row`, and
+    // the reversal is the collapse rather than a change of mind. The argument
+    // was: *is this offered for review* outranks *what is it waiting for* in
+    // ONE slot, because a draft is not yours to look at yet whatever its CI
+    // says. That is right about one slot, and slot 5 was the only place a PR's
+    // condition appeared while `tupleFromRow` was the whole row.
+    //
+    // The row now has two places. `PrCell` rendered draft and state as two
+    // badges on purpose — `agents-tab` pins it, because *folding draft into the
+    // state would rebuild the short-circuit that kept WAITING ON A MACHINE
+    // empty for three releases* — and the collapse kept that badge beside slot
+    // 5. So there is no precedence left to arbitrate: the draft has its own
+    // element, and slot 5 carries the fact nothing else on the row states.
     const draft = row({
       kind: 'pr', pr: { number: 57, url: '', draft: true, state: 'failing' },
     });
-    expect(tupleFromRow(draft).status).toBe('draft');
+    expect(tupleFromRow(draft).status).toBe('checks failing');
   });
 
   it('falls back to the git state where there is no PR', () => {
