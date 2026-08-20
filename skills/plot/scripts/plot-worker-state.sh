@@ -70,9 +70,12 @@
 # still ACCEPTS, and the set only ever grows by measurement.
 PLOT_BLOCKED_MARKER='PLOT-BLOCKED:|TODO\((you|human)\)'
 
-# Plot's OWN records inside a worktree — `.plot-worker.pid`, `.plot-worker.exit`,
-# `.plot-worker.log`, and anything else the fleet drops under that prefix (a
-# rotated `.plot-worker.log.1`, say).
+# Plot's OWN records inside a worktree — `.plot-worker.pid`,
+# `.plot-worker.wrapper.pid`, `.plot-worker.exit`, `.plot-worker.log`, and
+# anything else the fleet drops under that prefix (a rotated `.plot-worker.log.1`,
+# say). `.plot-worker.pid` names the AGENT; `.plot-worker.wrapper.pid` names the
+# shell that records its exit — two pids with two names, because one pid with the
+# wrong meaning is the panel bug this prefix now covers a second file to fix.
 #
 # ONE PATTERN, USED BY BOTH EXCLUSIONS BELOW, because they had already drifted
 # apart inside this one file: the marker search excluded the whole prefix while

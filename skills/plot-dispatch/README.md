@@ -179,7 +179,13 @@ feature by a long way.
 ## Detached workers
 
 Workers are started with `nohup`, detached, one per worktree, logging to
-`.plot-worker.log` with the pid in `.plot-worker.pid`.
+`.plot-worker.log`. The command is backgrounded inside its wrapper so the
+wrapper can record the **agent's** pid — the process the command runs — in
+`.plot-worker.pid`; the wrapper's own pid lives in `.plot-worker.wrapper.pid`,
+where it survives to record the run's exit code in `.plot-worker.exit`. The
+split fixes a panel bug: recording the wrapper's pid named the dispatcher's
+shell, so every field the panel showed described the wrong process. `--stop`
+kills the agent by `.plot-worker.pid`; the wrapper then writes the exit code.
 
 Detached was a deliberate choice over Task-style subagents of the dispatching
 session. It settles three things at once:
