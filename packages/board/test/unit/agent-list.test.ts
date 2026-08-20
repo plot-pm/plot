@@ -55,6 +55,10 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   // scan could not look at. `ABSENT IS NOT FALSE`, so the base fixture must
   // never quietly assert *nothing is happening here*.
   localDirty: false, localLocked: false,
+  // NO PROCESS OBSERVED, which is the same stated absence as the two above and
+  // not a claim that nothing is running. `[]` is what the contract defaults to
+  // for a payload that predates the field: nothing was looked for.
+  processes: [],
   ...over,
 });
 
@@ -1767,7 +1771,7 @@ describe('the empty WAITING ON A MACHINE section names the host\'s limit', () =>
     // Measured: the Bitbucket adapter emits `checks:"unknown",
     // mergeable:"unknown"` on every row because `bb` has no run listing. That
     // section is therefore permanently empty there, and its default hint —
-    // *nothing — CI will finish* — is a claim the host cannot support.
+    // *nothing — a machine is working* — is a claim the host cannot support.
     expect(hostCannotReportCi([withState('a', 'unknown'), withState('b', 'unknown')]))
       .toBe(true);
   });
@@ -1878,7 +1882,7 @@ describe('the board says when it has not asked', () => {
   it('states evidence and never a verdict', () => {
     // The row says what happened to the CALL. It does not estimate, does not
     // retry-count, and never says *probably fine* — and it must not inherit the
-    // shape of the default hint (*nothing — CI will finish*), which is a claim
+    // shape of the default hint (*nothing — a machine is working*), which is a claim
     // about the machines that an unfetched section cannot support.
     for (const hint of Object.values(HOST_ANSWER_HINT)) {
       expect(hint).not.toMatch(/will finish|probably|fine|nothing/i);

@@ -38,7 +38,17 @@ import { WorkerLogModal } from './WorkerLogModal.js';
 export const GROUPS: { key: WaitingGroup; icon: string; label: string; hint: string }[] = [
   { key: 'waiting-on-you', icon: '⚠', label: 'Waiting on you', hint: 'review, merge, decide' },
   { key: 'working', icon: '🤖', label: 'Working', hint: 'nothing to do — just look' },
-  { key: 'waiting-on-machine', icon: '⏳', label: 'Waiting on a machine', hint: 'nothing — CI will finish' },
+  // *a machine is working* rather than *CI will finish*. The section lists
+  // PROCESSES and CI is only one kind: a worker running in a local worktree is a
+  // machine working too, and it is observable in this very checkout. The old
+  // hint named the one source the section was filled from and would now be
+  // wrong about an empty section for the other reason — no local run either.
+  //
+  // It also drops a FORECAST. *CI will finish* predicts an outcome nothing here
+  // measures; *a machine is working* is what was observed, and the section's own
+  // rule. `HOST_CANNOT_REPORT_HINT` still withdraws even this where the host
+  // cannot be asked at all.
+  { key: 'waiting-on-machine', icon: '⏳', label: 'Waiting on a machine', hint: 'nothing — a machine is working' },
   // *approved* rather than only *nobody has taken it*: the section is filtered
   // on the plan's phase first, so every row in it is one an agent may actually
   // take. The old hint described the branch and let three unclaimable kinds of
@@ -66,10 +76,13 @@ export const COLLAPSED_BY_DEFAULT: WaitingGroup[] = ['quiet', 'done'];
 /**
  * What the empty WAITING ON A MACHINE section says where the host cannot answer.
  *
- * The default hint — *nothing — CI will finish* — is a claim: it says there is
- * nothing on CI right now. On a host that cannot report checks or mergeability
- * that claim is unfounded, and the section is empty for a completely different
- * reason: nobody looked, because nobody could.
+ * The default hint — *nothing — a machine is working* — is a claim: it says no
+ * machine is working on any of this right now. On a host that cannot report
+ * checks or mergeability that claim is unfounded for the CI half of the section,
+ * and the section is then empty for a completely different reason: nobody
+ * looked, because nobody could. A local process would still be listed — that
+ * half is observed here rather than asked of the host — which is why the hint
+ * only ever replaces the sentence of an EMPTY section.
  *
  * Measured: the Bitbucket adapter emits a literal `checks:"unknown",
  * mergeable:"unknown"` on every row, because `bb` has no run listing. That is
@@ -113,6 +126,95 @@ export const HOST_CANNOT_REPORT_HINT = 'this host cannot report CI';
  *
  * Exported for test.
  */
+/**
+ * Does this row belong in WAITING ON A MACHINE?
+ *
+ * TWO WAYS IN, AND THEY ARE DIFFERENT QUESTIONS. The first is the row's own
+ * `group` — the placement `classify` decided, unchanged and still authoritative
+ * for a branch nobody holds. The second is `processes`: a machine is running for
+ * this branch whatever section the branch's own row sits in.
+ *
+ * THE SECOND IS WHY THE PREDICATE EXISTS. The section lists PROCESSES while
+ * WORKING lists AGENTS, and a live worker watching its own CI is both — an
+ * agent, and a process. Under `group === key` it could only be one, and which
+ * one it got was decided by an ordering that had nothing to do with the
+ * question. Measured 2026-08-18: an agent that exited while its checks ran
+ * belonged to NEITHER section, and one watching its own CI had to pick.
+ *
+ * NOT DUPLICATION. The same branch in both sections is two entities named once
+ * each, and every entry prints its branch, so two lines never read as one
+ * repeated. *Who is working?* is answered in WORKING; *what am I waiting on?* in
+ * WAITING ON A MACHINE.
+ *
+ * IT WIDENS THE SECTION AND REPLACES NOTHING. A host-side pending check reaches
+ * it exactly as before, through `group`, whether or not any process is listed —
+ * the first clause is the old rule verbatim.
+ *
+ * Exported for test: the negatives are the half a naive version gets wrong, and
+ * they are assertions about which section a row reaches.
+ */
+/**
+ * What a row says WHEN LISTED AS A PROCESS — the machine section's sentence,
+ * never the branch's.
+ *
+ * THE SECTION'S SENTENCE IS ABOUT THE PROCESS, and using `note` here is what
+ * makes the two entities read as one. A live worker's `note` is *worker running
+ * (pid 20145)* — a true statement about an AGENT, and the WORKING row already
+ * makes it. Repeating it under WAITING ON A MACHINE would put the same line in
+ * two sections and prove the duplication complaint right; the whole defence of
+ * listing a branch twice is that the two lines say different things.
+ *
+ * EVIDENCE, NEVER A FORECAST, and this is where that rule is visible to a
+ * reader. Each sentence names what was OBSERVED — *a worker process is running
+ * in a local worktree (pid 20145)*, *CI is running for PR #244* — and none names
+ * a remaining time. Nothing measures when a local run ends, GitHub publishes no
+ * finish time for a queued check, and a countdown nobody can honour is the shape
+ * this repo removes rather than adds. Principle 3: the scan collects, the reader
+ * concludes whether to wait.
+ *
+ * BOTH ARE JOINED, NEVER RANKED, when both hold. A branch with a live worker and
+ * a pending check has two machines working on it and the reader's next move
+ * differs per machine — one is `ps` here, the other a run page there. Dropping
+ * either because the other outranks it is the displacement this board keeps
+ * undoing; the list is ordered local-first (see `machineProcesses`) and prints
+ * whole.
+ *
+ * FALLS BACK TO `note` for a row that reached the section through `group` with
+ * no process listed — a `pending` check from an older pulse that predates
+ * `processes`. Its note already reads *PR #244, CI running*, which is exactly
+ * this sentence by the other road, so the fallback changes nothing that renders
+ * and keeps an older payload from going blank.
+ */
+export function machineNote(row: AgentRow): string {
+  const procs = processesOf(row);
+  if (procs.length === 0) return row.note;
+  return procs.map((proc) => proc.evidence).join('; ');
+}
+
+/**
+ * This row's processes, tolerating a payload that has none of the field at all.
+ *
+ * THE CLIENT IS SERVED BY A SERVER IT DOES NOT VERSION WITH. The board's page is
+ * a built artifact that a reader may have open across a restart, and
+ * `/api/fleet` answers from whichever server is running — so a row can arrive
+ * without `processes` even though the schema defaults it to `[]`, because the
+ * default applies where the payload is PARSED and the client renders what it was
+ * handed. Reading `.length` off an absent array crashes the whole board, and a
+ * blank page is a far worse answer to a missing convenience field than an empty
+ * list is.
+ *
+ * ABSENT IS NOT FALSE, applied as the codebase applies it everywhere else: an
+ * empty result here means *nothing was reported*, and the section then falls back
+ * to `group` — exactly the board's behaviour before this field existed.
+ */
+function processesOf(row: AgentRow): AgentRow['processes'] {
+  return row.processes ?? [];
+}
+
+export function inMachineSection(row: AgentRow): boolean {
+  return row.group === 'waiting-on-machine' || processesOf(row).length > 0;
+}
+
 export function hostCannotReportCi(rows: readonly AgentRow[]): boolean {
   const withPr = rows.filter((r) => r.pr && r.state !== 'merged');
   return withPr.length > 0 && withPr.every((r) => r.pr!.state === 'unknown');
@@ -194,8 +296,8 @@ export function hostAnswer(
  * scan's own outputs follow — scripts collect, humans conclude (Manifesto
  * Principle 3).
  *
- * Both must avoid the shape of the default hint (*nothing — CI will finish*),
- * which is a CLAIM about the machines. An empty section that still implies
+ * Both must avoid the shape of the default hint (*nothing — a machine is
+ * working*), which is a CLAIM about the machines. An empty section that still implies
  * something is running is the failure being corrected, whatever words it uses.
  */
 export const HOST_ANSWER_HINT: Record<Exclude<HostAnswer, 'answered'>, string> = {
@@ -3432,6 +3534,7 @@ function Row({
   marked = false,
   active = false,
   inPlanGroup = false,
+  section,
 }: {
   row: AgentRow;
   onOpenPlan?: AgentListProps['onOpenPlan'];
@@ -3481,6 +3584,20 @@ function Row({
    * the section around it can never disagree about which rows are active.
    */
   active?: boolean;
+  /**
+   * Which section is rendering this row — set only by WAITING ON A MACHINE.
+   *
+   * A ROW CAN NOW APPEAR TWICE, and the two appearances must not say the same
+   * thing. Everywhere else a row belongs to exactly one section and its `note`
+   * is its whole sentence; in the machine section it is being listed as a
+   * PROCESS, so it says what the process is doing rather than what its agent is.
+   * See `machineNote`.
+   *
+   * Passed in rather than derived from `row.group`, because `group` is precisely
+   * what cannot answer this: a live worker's group is `working` in both places
+   * it renders. The section knows which question it is asking; the row does not.
+   */
+  section?: WaitingGroup;
 }) {
   // Same convention as the card's Open control: a real anchor, so
   // cmd/ctrl/shift/middle-click open natively, and only a plain primary click is
@@ -3497,7 +3614,14 @@ function Row({
   // condition — see `noteWithoutPr`. Computed once: it is read three times
   // below (the guard, the title and the text), and three calls is how they
   // drift.
-  const note = noteWithoutPr(row.note, row.pr);
+  //
+  // IN THE MACHINE SECTION THE SENTENCE IS THE PROCESS'S — see `machineNote`.
+  // `noteWithoutPr` still trims what the PR cell already shows, so a host entry
+  // does not print the PR number twice in one line.
+  const note = noteWithoutPr(
+    section === 'waiting-on-machine' ? machineNote(row) : row.note,
+    row.pr,
+  );
 
   // **Taken, not resolved.** The cue answers a REQUEST, and the request is
   // answered by the click — whether the click worked is what the row's other
@@ -4459,7 +4583,15 @@ export function AgentList({
       )}
 
       {GROUPS.map(({ key, icon, label, hint }) => {
-        const rows = fleet.rows.filter((r) => r.group === key);
+        // WAITING ON A MACHINE ASKS A SECOND QUESTION — see `inMachineSection`.
+        // Every other section is its `group` and nothing else; this one lists
+        // processes, and a process can be running for a branch whose own row
+        // belongs in WORKING. The special case lives here rather than in
+        // `inMachineSection` so the predicate stays a statement about one
+        // section instead of a switch over all six.
+        const rows = key === 'waiting-on-machine'
+          ? fleet.rows.filter(inMachineSection)
+          : fleet.rows.filter((r) => r.group === key);
         // WAITING ON YOU is the section for what needs a human DECISION, and an
         // unplanned issue is exactly that — the decision being *is this worth a
         // plan?* rather than *fix it*. No other section can hold it: the row has
@@ -4703,6 +4835,11 @@ export function AgentList({
                                 onStarting={onStarting}
                                 marked={marked.has(rowKey(r))}
                                 active={active.has(rowKey(r))}
+                                // Which question this section is asking — see
+                                // the `section` prop. Only WAITING ON A MACHINE
+                                // changes what the row says; every other value
+                                // leaves it reading exactly as before.
+                                section={key}
                               />
                             ))}
                           </ul>
@@ -4764,6 +4901,10 @@ export function AgentList({
                           // whole fleet at once, so no two places can disagree
                           // about which rows are being written to.
                           active={active.has(rowKey(r))}
+                          // See the `section` prop: the machine section lists
+                          // this row as a PROCESS and says so, and no other
+                          // section's rendering changes.
+                          section={key}
                         />
                       ))}
                     </ul>
