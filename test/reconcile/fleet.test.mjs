@@ -2589,6 +2589,89 @@ test('fleet: host calls do not grow with the branch count', () => {
   large.cleanup();
 });
 
+// Count GIT spawns, not host calls. A shim earlier on PATH than the real git
+// records every invocation's subcommand and execs through, so the number is the
+// process count the scan actually pays for.
+function countGitSpawns(f, args = ['--json']) {
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-'));
+  const log = path.join(shim, 'git.txt');
+  const realGit = execFileSync('bash', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+  fs.writeFileSync(path.join(shim, 'git'),
+    `#!/bin/bash\nprintf '%s\\n' "$1" >> ${JSON.stringify(log)}\nexec ${realGit} "$@"\n`);
+  fs.chmodSync(path.join(shim, 'git'), 0o755);
+  try {
+    execFileSync('bash', [scan, ...args], {
+      encoding: 'utf8', cwd: f.dir,
+      env: { ...process.env, PATH: `${shim}:${process.env.PATH}` },
+    });
+  } catch { /* a non-zero exit still leaves a count worth reading */ }
+  const ops = fs.existsSync(log)
+    ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean) : [];
+  fs.rmSync(shim, { recursive: true, force: true });
+  return { ops, total: ops.length, count: (sub) => ops.filter((o) => o === sub).length };
+}
+
+test('fleet: the batched git reads stay constant as branches grow', () => {
+  // THE MEASUREMENT THIS PINS, taken on the plot repo 2026-08-20 with exactly
+  // this shim: 459 git spawns for one scan of 54 branches, at 56 ms of PROCESS
+  // LAUNCH each — roughly 24 s before git did any work. Four earlier rounds of
+  // optimisation had all aimed at the HOST, which by then was one `pr-list`.
+  //
+  // Three questions were asked once PER PLAN or PER BRANCH and each had a
+  // batched form. Those three are what this test holds, and the numbers below
+  // are what the same shim measured at 6 and 14 branches AFTER the change:
+  //
+  //   `show-ref --verify`  59 → 1   one `for-each-ref`      1 → 1
+  //   plan modes           69 → 1   one `ls-tree -r`        2 → 2
+  //   plan content         68 → 1   one `cat-file --batch`  1 → 1
+  //
+  // On the real repo that took the scan from 279 s to 43 s, because the plan
+  // reads dominated: one `git show` of a plan blob cost 407-621 ms and there
+  // were 68 of them, ~31 s in a single call site against a 30 s budget.
+  //
+  // WHAT THIS TEST DELIBERATELY DOES NOT CLAIM. A per-branch tail remains and
+  // is untouched by the batching — measured at 6 vs 14 branches:
+  //
+  //   diff 12 → 28   rev-list 12 → 28   merge-base 6 → 14
+  //   merge-tree 6 → 14   log 7 → 15
+  //
+  // Seven spawns per branch, linear in the branch count. They are individually
+  // cheap — removing 251 expensive calls bought 236 s while these 378 on the
+  // real repo cost almost seconds — so the tail is survivable, and it is the
+  // NEXT ceiling rather than this one. An earlier version of this test asserted
+  // "at most one new spawn per branch" and failed against its own fix, because
+  // it asserted a change nobody had made. The bound below is the measured one.
+  const small = makeInFlightRepo('plot-fleet-spawn-small-', 6);
+  const large = makeInFlightRepo('plot-fleet-spawn-large-', 14);
+
+  const s = countGitSpawns(small);
+  const l = countGitSpawns(large);
+
+  const subs = [...new Set([...s.ops, ...l.ops])].sort();
+  const deltas = subs.map((x) => `${x}:${s.count(x)}→${l.count(x)}`).join(' ');
+
+  // THE INVARIANT: the batched reads are asked a FIXED number of times whatever
+  // the branch count. Each of these regressing to per-branch is the specific
+  // defect this change removed, and the one a future refactor could reintroduce
+  // with every verdict still correct and nothing but the clock to report it.
+  for (const sub of ['for-each-ref', 'show-ref', 'ls-tree', 'show', 'cat-file']) {
+    assert.equal(l.count(sub), s.count(sub),
+      `\`git ${sub}\` must cost the same at 6 and 14 branches — it is batched.\n` +
+      `deltas: ${deltas}`);
+  }
+
+  // AND THE TAIL STAYS A TAIL. Not zero, and not asserted as zero: the bound is
+  // the seven per branch measured above, with one spare so an unrelated
+  // single-call addition does not fail this. A tenth per-branch call would.
+  const extra = l.total - s.total;
+  assert.ok(extra <= 8 * 8,
+    `the per-branch tail must not grow beyond ~8 spawns per branch: ` +
+    `6 branches cost ${s.total}, 14 cost ${l.total} (+${extra})\ndeltas: ${deltas}`);
+
+  small.cleanup();
+  large.cleanup();
+});
+
 test('fleet: a failed list reads as failure, never as "no PR"', () => {
   // The 2026-08-17 trap in a new shape. `plot-host.sh` separates a lookup miss
   // (exit 0, state NONE) from a transport failure (non-zero), and the join must
