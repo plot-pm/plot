@@ -468,6 +468,67 @@ describe('classify', () => {
     }
   });
 
+  // --- A WORKTREE HOLDING A BRANCH IS SOMEBODY WORKING ---------------------
+  //
+  // THE MEASUREMENT, 2026-08-20. Three worktrees each held one commit with a
+  // clean tree. The board printed `WORKING: none — nothing to do, just look`
+  // and offered all three branches as *eligible — nobody has taken it*, which
+  // invites a second agent onto finished work. `plot-dispatch.sh --dry-run`
+  // did exactly that.
+  //
+  // WHY THE WORKTREE AND NOT `local_ahead`. For a branch with no upstream,
+  // `local_ahead` is 0 — and correctly so: `local_ahead_of` compares against
+  // `origin/<branch>`, which does not exist, and a test named *a MISSING
+  // upstream is detected, not read as zero* pins that 0 as "could not compare"
+  // rather than "no commits". So the commit count cannot see these branches at
+  // all. `local_worktree` can, and it is the better signal anyway: a worktree
+  // exists on purpose, while a commit count cannot separate an agent at work
+  // from a leftover local ref.
+  //
+  // The field was collected by the scan and parsed by the schema at
+  // `schema.ts:700`, and was never passed to `classify` until now.
+  //
+  // ONE-DIRECTIONAL, like every other local signal — it may only LIFT.
+
+  const HELD = '/Users/x/plot-wt-held';
+
+  it('lifts an OPEN branch held by a worktree', () => {
+    // The motivating row: clean tree, no lock, no comparable commit count. The
+    // worktree is the only evidence, and it is enough.
+    const r = classify('open', 'eligible', null, QUIET, null, false, 0,
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, HELD);
+    expect(r.group).toBe('working');
+    expect(r.note).toMatch(/held in a local worktree/);
+  });
+
+  it('leaves an OPEN branch with NO worktree alone', () => {
+    // Genuinely not started. This is also the row that keeps `local_ahead`
+    // honest: commits without a worktree are a leftover local ref, and the
+    // test below this block pins that they do not lift.
+    const r = classify('open', 'eligible', null, QUIET, null, false, 0);
+    expect(r.group).toBe('not-started');
+  });
+
+  it('prefers the dirty note over the held note when both are true', () => {
+    // Dirtiness is the more specific fact — somebody is editing right now —
+    // so it must not be replaced by the weaker "held".
+    const r = classify('open', 'eligible', null, QUIET, null, true, 0,
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, HELD);
+    expect(r.group).toBe('working');
+    expect(r.note).toMatch(/uncommitted/);
+  });
+
+  it('never downgrades a MERGED branch held by a worktree', () => {
+    // The one-directional rule on the state most able to expose a violation:
+    // the work is done, and a leftover worktree is not a reason to unsay it.
+    const r = classify('merged', 'complete', 1, QUIET, null, false, 0,
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, HELD);
+    expect(r.group).toBe('done');
+  });
+
   it('never DOWNGRADES a group on unpushed commits either', () => {
     // The one-directional rule for the new signal. Unpushed commits on a merged
     // branch are a follow-up somebody has not pushed — true, and not a reason to
