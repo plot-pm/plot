@@ -350,7 +350,7 @@ this plan is what the tuple's slot list does not cover.
 
 ### Shaped
 - `bug/a-failure-is-shown-not-dumped` — a failing check shows step and time on the row, with the changed-file list behind the menu. Tests: the row names the step; the timestamp renders as an age, not an ISO string; the file list is not in the row; a row with no failure shows neither. (PR #287)
-- `bug/plans-of-equal-age-order-by-name` — this section gets the tiebreak #267 landed for NOT STARTED. Tests: two rows of equal age hold their order across pulses; the age ordering is unchanged where ages differ.
+- `bug/plans-of-equal-age-order-by-name` — this section gets the tiebreak #267 landed for NOT STARTED. Tests: two rows of equal age hold their order across pulses; the age ordering is unchanged where ages differ. (PR #288)
 
 ## What was moved, and why
 
