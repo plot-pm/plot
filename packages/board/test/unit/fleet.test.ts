@@ -488,19 +488,19 @@ describe('classify', () => {
   // exists on purpose, while a commit count cannot separate an agent at work
   // from a leftover local ref.
   //
-  // The field was collected by the scan and parsed by the schema at
-  // `schema.ts:700`, and was never passed to `classify` until now.
+  // The LIFT NOW READS `held`, the scan's derived boolean, rather than the raw
+  // worktree path #258 first passed. `held` is the path AND an unmerged tip, so
+  // it does not fire on a leftover worktree left on a merged branch — see the
+  // block below for the case that separates the two.
   //
   // ONE-DIRECTIONAL, like every other local signal — it may only LIFT.
 
-  const HELD = '/Users/x/plot-wt-held';
-
   it('lifts an OPEN branch held by a worktree', () => {
     // The motivating row: clean tree, no lock, no comparable commit count. The
-    // worktree is the only evidence, and it is enough.
+    // worktree HOLDS the branch — `held` is true — and that is enough.
     const r = classify('open', 'eligible', null, QUIET, null, false, 0,
       undefined, undefined, undefined, undefined, undefined, undefined,
-      undefined, HELD);
+      undefined, true);
     expect(r.group).toBe('working');
     expect(r.note).toMatch(/held in a local worktree/);
   });
@@ -518,7 +518,7 @@ describe('classify', () => {
     // so it must not be replaced by the weaker "held".
     const r = classify('open', 'eligible', null, QUIET, null, true, 0,
       undefined, undefined, undefined, undefined, undefined, undefined,
-      undefined, HELD);
+      undefined, true);
     expect(r.group).toBe('working');
     expect(r.note).toMatch(/uncommitted/);
   });
@@ -526,9 +526,11 @@ describe('classify', () => {
   it('never downgrades a MERGED branch held by a worktree', () => {
     // The one-directional rule on the state most able to expose a violation:
     // the work is done, and a leftover worktree is not a reason to unsay it.
+    // `held` is false for a merged branch anyway, but a stray true must not
+    // unsay `done` either — so it is passed true here on purpose.
     const r = classify('merged', 'complete', 1, QUIET, null, false, 0,
       undefined, undefined, undefined, undefined, undefined, undefined,
-      undefined, HELD);
+      undefined, true);
     expect(r.group).toBe('done');
   });
 
@@ -545,6 +547,79 @@ describe('classify', () => {
     const fresh = classify('wip', 'eligible', 5, QUIET, null, false, 4);
     expect(fresh.group).toBe('working');
     expect(fresh.note).toMatch(/last commit/);
+  });
+
+  // --- HELD IS THE AUTHORITATIVE SIGNAL, NOT THE RAW WORKTREE PATH -----------
+  //
+  // #258 lifted a held branch out of NOT STARTED by reading `local_worktree !==
+  // ''`. #266 then added `held` — `local_worktree` AND the tip is not merged —
+  // precisely because the path alone also fires on a leftover worktree left on
+  // a branch whose work has already landed. This branch feeds the consumer the
+  // derived boolean rather than re-deriving `!merged` from the path here.
+  //
+  // The difference is measurable on ONE branch: a squash-merged-and-deleted
+  // branch reads `open` (its ref is gone, so the merge is invisible to a plain
+  // ancestry walk), yet a clean worktree left on it is debris, not somebody
+  // working. `local_worktree` says lift it; `held` — which the scan set false
+  // after excluding `merged` — says leave it. The consumer must obey `held`.
+  //
+  // `held` is arg 16, the newest, appended after `localWorktree` (arg 15) by the
+  // same rule every local signal here follows: last, because inserting it
+  // mid-list shifts every spread caller past the compiler.
+
+  it('lifts a COMMITTED, CLEAN held branch that the path-only check could not', () => {
+    // The motivating row from the plan: an agent committed (so `local_dirty` is
+    // false), the branch has no upstream (so `local_ahead` is a could-not-
+    // compare 0), and nothing is locked. `held` is the only true signal, and it
+    // is enough to keep the agent in WORKING rather than offering its finished
+    // work as available.
+    const r = classify('open', 'eligible', null, QUIET, null, false, 0,
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, true);
+    expect(r.group).toBe('working');
+    expect(r.note).toMatch(/held in a local worktree/);
+  });
+
+  it('never offers a held branch as eligible', () => {
+    // The other face of the same coin: whatever else is true, a held branch is
+    // not *nobody has taken it*. This is the invitation that sent a second agent
+    // at finished work.
+    const r = classify('open', 'eligible', null, QUIET, null, false, 0,
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, true);
+    expect(r.note).not.toBe(ELIGIBLE_NOTE);
+  });
+
+  it('does NOT lift a clean leftover worktree on a merged-but-open branch', () => {
+    // The squash-merged-and-deleted case. A worktree is present but the scan set
+    // `held: false` after excluding the merged tip, so this is debris. The old
+    // path-only lift fired here — the merged-leftover misread the plan forbids —
+    // and `held: false` is what draws the line, keeping it in NOT STARTED.
+    const r = classify('open', 'eligible', null, QUIET, null, false, 0,
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, false);
+    expect(r.group).toBe('not-started');
+    expect(r.note).toBe(ELIGIBLE_NOTE);
+  });
+
+  it('keeps the dirty note above held even when held is true', () => {
+    // Dirtiness is the more specific fact and still wins — held may only lift a
+    // quiet branch, never replace a louder signal.
+    const r = classify('open', 'eligible', null, QUIET, null, true, 0,
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, true);
+    expect(r.group).toBe('working');
+    expect(r.note).toMatch(/uncommitted/);
+  });
+
+  it('never downgrades a MERGED branch on held', () => {
+    // One-directional, on the state most able to expose a violation. `held` is
+    // false here anyway (the scan excludes merged), but a stray true must still
+    // not unsay `done`.
+    const r = classify('merged', 'complete', 1, QUIET, null, false, 0,
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, true);
+    expect(r.group).toBe('done');
   });
 
   // --- a locked worktree is a write happening RIGHT NOW ----------------------
