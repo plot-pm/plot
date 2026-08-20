@@ -1211,7 +1211,11 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     // gate out too — otherwise the poll re-fires on the ordinary cadence and
     // spends the exhausted budget to be refused again. The wait comes from the
     // host's own message, exactly as the PR refresh derives it.
-    const backoff = rateLimitBackoffMs(message);
+    // AWAITED because #272 gave this a second shape: where the message carries
+    // no reset, it asks the host for the real one and returns a Promise. The
+    // synchronous paths still return a number, so the await costs a microtask
+    // and buys the caller one type instead of two.
+    const backoff = await rateLimitBackoffMs(message);
     if (backoff !== null) {
       // Measured from NOW — the host's "wait 90 seconds" starts when it said so.
       // EXTEND-ONLY: never pull the gate in. A longer backoff the PR fetch set a
