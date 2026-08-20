@@ -72,6 +72,9 @@
 #                  `<!-- claimed: ... -->`) bind to the LINE carrying the
 #                  backticked branch name. An annotation on a wrapped
 #                  continuation line is not seen — keep it on the branch line.
+#                  `<!-- deferred -->` (bare, no colon) sets the flag with no
+#                  reason; `waves[].branches[].deferred_reason` carries the
+#                  sentence after the colon, "" where none was written.
 #   prs            PR numbers from `→ #NNN` links in the `## Branches`
 #                  section (sorted, unique)
 #   changelog      the plan's `## Changelog` entries, one string per bullet, in
@@ -254,7 +257,7 @@ function reset_state() {
   fm_issue = ""; canon_issue = ""
   delete issues; n_issues = 0
   delete wave_names; delete wave_of; delete wave_seq; delete wave_count
-  delete deferred_of; delete claimed_of; delete ordered_b; n_waves = 0
+  delete deferred_of; delete deferred_why; delete claimed_of; delete ordered_b; n_waves = 0
   delete started; n_started = 0
   fm_changelog = ""
   delete changelog; n_changelog = 0; changelog_seen = 0; cl_open = 0
@@ -350,6 +353,7 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
     for (i = 1; i <= n_branches; i++) {
       if (wave_of[i] != w) continue
       out = out (first ? "" : ",") "{\"branch\":\"" jesc(ordered_b[i]) "\",\"deferred\":" deferred_of[i] \
+            ",\"deferred_reason\":\"" jesc(deferred_why[i]) "\"" \
             ",\"claimed\":\"" jesc(claimed_of[i]) "\"}"
       first = 0
     }
@@ -526,6 +530,30 @@ section == "branches" {
     sub(/[ \t]*-->.*$/, "", _c)
     claim_note = trim(_c)
   }
+  # THE REASON FOR THE DEFERRAL, and not merely the fact of one.
+  #
+  # `<!-- deferred: verified already implemented 2026-08-17 — startRepair() at
+  # fleet.ts:806 -->` was tested for presence and the sentence after the colon
+  # was dropped on the floor. So the board could say `deferred` beside `no
+  # commits` and never say that the first is the REASON for the second — a
+  # reader with no access to the plan file saw a branch nobody started and no
+  # statement that nobody should.
+  #
+  # Extracted the same way and in the same place as the claim note, for the same
+  # reason: `match()` in the branch loop below clobbers RSTART/RLENGTH, so
+  # anything read from the whole line must be read before it runs.
+  #
+  # Newlines are already impossible here — awk hands this rule one line, and the
+  # documented contract is that an annotation binds to the line carrying the
+  # branch name. A deferral whose text is wrapped onto a continuation line is
+  # not seen, exactly as `deferred` itself was not.
+  defer_note = ""
+  if (index($0, "deferred:") > 0) {
+    _d = $0
+    sub(/^.*<!--[ \t]*deferred:[ \t]*/, "", _d)
+    sub(/[ \t]*-->.*$/, "", _d)
+    defer_note = trim(_d)
+  }
   line = $0
   while (match(line, branch_re)) {
     b = substr(line, RSTART + 1, RLENGTH - 2)
@@ -533,7 +561,19 @@ section == "branches" {
     if (n_waves == 0) { wave_names[++n_waves] = "" }
     wave_of[n_branches] = n_waves
     wave_seq[n_branches] = ++wave_count[n_waves]
-    deferred_of[n_branches] = ($0 ~ /<!--[ \t]*deferred:/) ? "true" : "false"
+    # THE FLAG accepts the bare form as well as the annotated one.
+    #
+    # It matched `deferred:` only, so `<!-- deferred -->` — the annotation with
+    # nothing after it — read as NOT deferred at all: the strongest statement a
+    # plan can make about a branch, dropped for want of a colon. A reader
+    # writing the shorter form has said the branch will not be built; the
+    # parser now hears it.
+    deferred_of[n_branches] = ($0 ~ /<!--[ \t]*deferred[ \t]*(:|-->)/) ? "true" : "false"
+    # The reason travels with the flag. Empty on every non-deferred branch, and
+    # empty is also the honest answer for the bare form: the branch IS deferred
+    # and no reason was recorded, which is a different statement from a reason
+    # of "".
+    deferred_why[n_branches] = defer_note
     # Claim reflection, written by the worker after its ref push succeeds. This
     # is a reflection, not the claim: git refs remain authoritative.
     claimed_of[n_branches] = claim_note

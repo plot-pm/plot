@@ -3605,6 +3605,11 @@ export function rowsFromPulse(
           planFile: plan.file,
           wave: wave.name || '(unnamed)',
           state: b.state,
+          // WHY it was deferred, carried through from the plan's annotation.
+          // Passed straight along rather than combined with the note: the note
+          // is prose the row composes, and a reason the plan wrote is a fact
+          // the row renders. "" everywhere the question does not arise.
+          deferredReason: b.deferred_reason,
           // From the PAIR — see `rowPhase`. The plan supplies its phase; this
           // branch supplies the evidence that outranks a missing record.
           phase: rowPhase(plan.phase, b.state),
@@ -3845,6 +3850,8 @@ export function rowsFromPulse(
       planFile: ideaPlans?.get(branch) ?? '',
       wave: '',
       state: 'wip',
+      // No plan, so no deferral and nothing to explain.
+      deferredReason: '',
       // An idea branch CARRIES a plan still under review, and a plan under
       // review is Discovery by definition — that is what the phase means, and
       // the branch name is a convention Plot itself writes rather than a guess.

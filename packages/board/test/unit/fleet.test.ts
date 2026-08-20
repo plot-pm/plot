@@ -4079,3 +4079,51 @@ describe('a blocked wave names how many branches are outstanding', () => {
     expect(a.note).not.toMatch(/outstanding/);
   });
 });
+
+describe('the deferral reason travels from the plan to the row', () => {
+  // THE FIELD THE PIPELINE USED TO DROP.
+  //
+  // `plot-plan-meta.sh` tested whether the annotation was present and emitted
+  // `"true"`; the sentence after the colon never reached a row. So the board put
+  // `deferred` beside `no commits` as two unrelated facts, when the first is the
+  // reason for the second — and the explanation stayed in a file the reader of
+  // the board may not have.
+  const pulseWith = (reason: string): FleetPulse => ({
+    main: 'main',
+    head: 'abc1234',
+    plans: [{
+      file: '2026-08-18-the-repair-exists-but-nothing-calls-it.md',
+      phase: 'approved',
+      waves: [{
+        name: 'Implementation', verdict: 'eligible',
+        branches: [{
+          branch: 'feature/the-pulse-repairs-the-artifact',
+          state: 'deferred', deferred: true, deferred_reason: reason, claimed: '',
+        }],
+      }],
+    }],
+    summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 0, blocked: 0, deferred: 1 },
+  } as unknown as FleetPulse);
+
+  const rowFor = (reason: string) =>
+    rowsFromPulse(pulseWith(reason), new Map(), 'plot', QUIET)
+      .find((r) => r.branch === 'feature/the-pulse-repairs-the-artifact')!;
+
+  it('carries the sentence the plan recorded', () => {
+    const reason = 'verified already implemented 2026-08-17 — startRepair() at fleet.ts:806';
+    expect(rowFor(reason).deferredReason).toBe(reason);
+    // And it is carried BESIDE the note rather than folded into it: the note is
+    // prose this file composes, and a reason the plan wrote is a fact the row
+    // renders. Mixing them would make the sentence unfindable by a consumer.
+    expect(rowFor(reason).note).not.toContain('startRepair');
+  });
+
+  it('is empty where the plan recorded none, with the state still saying deferred', () => {
+    // The bare `<!-- deferred -->`. Two answers must stay distinguishable —
+    // *deferred, reason unrecorded* and *not deferred at all* — and `state` is
+    // what separates them, so the reason may be empty without lying.
+    const row = rowFor('');
+    expect(row.deferredReason).toBe('');
+    expect(row.state).toBe('deferred');
+  });
+});

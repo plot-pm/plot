@@ -121,24 +121,24 @@ test('plan-meta: only the first ## Branches heading contributes branches', () =>
 test('plan-meta: waves group branches by ### subheading, deferred flagged', () => {
   const actual = parse('canonical-waves.md');
   assert.deepEqual(actual.waves, [
-    { name: 'Tracer', branches: [{ branch: 'feature/thin-slice', deferred: false, claimed: '' }] },
+    { name: 'Tracer', branches: [{ branch: 'feature/thin-slice', deferred: false, deferred_reason: '', claimed: '' }] },
     {
       name: 'Implementation',
       branches: [
-        { branch: 'feature/api', deferred: false, claimed: '' },
-        { branch: 'feature/ui', deferred: false, claimed: '2026-08-14T10:22Z, session-3' },
-        { branch: 'feature/dropped', deferred: true, claimed: '' },
+        { branch: 'feature/api', deferred: false, deferred_reason: '', claimed: '' },
+        { branch: 'feature/ui', deferred: false, deferred_reason: '', claimed: '2026-08-14T10:22Z, session-3' },
+        { branch: 'feature/dropped', deferred: true, deferred_reason: 'covered by feature/api', claimed: '' },
       ],
     },
     {
       name: 'Wave 3',
       branches: [
-        { branch: 'feature/migration', deferred: false, claimed: '' },
+        { branch: 'feature/migration', deferred: false, deferred_reason: '', claimed: '' },
         // Annotations bind to the line carrying the backticked branch name.
         // A `deferred:` comment on a wrapped continuation line does NOT apply —
         // it would silently read as "still outstanding", and /plot-deliver's
         // branch gate would block delivery on a branch nobody intends to build.
-        { branch: 'feature/wrapped', deferred: false, claimed: '' },
+        { branch: 'feature/wrapped', deferred: false, deferred_reason: '', claimed: '' },
       ],
     },
   ]);
@@ -156,8 +156,8 @@ test('plan-meta: a plan without ### subheadings is a single unnamed wave', () =>
   assert.deepEqual(actual.waves, [{
     name: '',
     branches: [
-      { branch: 'bug/fix-crash', deferred: false, claimed: '' },
-      { branch: 'docs/fix-crash-notes', deferred: false, claimed: '' },
+      { branch: 'bug/fix-crash', deferred: false, deferred_reason: '', claimed: '' },
+      { branch: 'docs/fix-crash-notes', deferred: false, deferred_reason: '', claimed: '' },
     ],
   }]);
 });
@@ -561,4 +561,91 @@ Design: this prose lives under the heading, not in Status.
   assert.equal(meta.design_raw, '', 'only ## Status carries the record');
   assert.equal(meta.phase, 'approved');
   rmSync(dir, { recursive: true, force: true });
+});
+
+test('plan-meta: a deferral records its REASON, and the bare form records the flag alone', () => {
+  // THE SENTENCE THE PIPELINE USED TO DISCARD.
+  //
+  // `plot-plan-meta.sh` tested whether a `deferred:` annotation was PRESENT and
+  // emitted `"true"`; the text after the colon never left the plan file. So the
+  // board could render `deferred` beside `no commits` as two unrelated facts,
+  // when the first is the reason for the second — and a reader with no access
+  // to the plan file saw a branch nobody had started and no statement that
+  // nobody should. Three such rows existed on 2026-08-19, one of them on a
+  // Released plan since April: *"never created — the work landed directly on
+  // main"*.
+  //
+  // TWO CASES, and the pairing is the point: the flag with a reason, and the
+  // flag WITHOUT one. `<!-- deferred -->` bare used to read as not deferred at
+  // all — the strongest statement a plan can make about a branch, dropped for
+  // want of a colon — and it must now set the flag while leaving the reason
+  // empty. Empty-and-deferred and empty-and-not-deferred are different answers,
+  // and only `deferred` separates them.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-defer-'));
+  const f = path.join(dir, '2026-08-19-deferrals.md');
+  writeFileSync(f, `# Deferrals
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+
+## Branches
+
+- \`feature/with-reason\` <!-- deferred: verified already implemented 2026-08-17 — startRepair() at fleet.ts:806 --> — already on main.
+- \`feature/bare\` <!-- deferred --> — nothing recorded.
+- \`feature/ordinary\` — real work.
+`);
+  try {
+    const out = execFileSync('bash', [parser, f], { encoding: 'utf8' });
+    const actual = JSON.parse(out);
+    assert.deepEqual(actual.waves, [{
+      name: '',
+      branches: [
+        {
+          branch: 'feature/with-reason',
+          deferred: true,
+          deferred_reason: 'verified already implemented 2026-08-17 — startRepair() at fleet.ts:806',
+          claimed: '',
+        },
+        // The flag survives without a colon; the reason is honestly absent.
+        { branch: 'feature/bare', deferred: true, deferred_reason: '', claimed: '' },
+        // And a branch nobody deferred says nothing about a deferral.
+        { branch: 'feature/ordinary', deferred: false, deferred_reason: '', claimed: '' },
+      ],
+    }]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('plan-meta: a deferral reason with a quote survives as JSON', () => {
+  // The repo titles plans `... is not "no commits yet"`, and a deferral reason
+  // is free prose written by whoever shelved the branch. An unescaped quote
+  // would truncate the record rather than fail it — the failure mode
+  // `plot-sprint-candidates.sh` documents for exactly this reason.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-quote-'));
+  const f = path.join(dir, '2026-08-19-quoted.md');
+  writeFileSync(f, `# Quoted
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+
+## Branches
+
+- \`feature/quoted\` <!-- deferred: the answer is "nothing", and \\ is a backslash --> — shelved.
+`);
+  try {
+    const out = execFileSync('bash', [parser, f], { encoding: 'utf8' });
+    const actual = JSON.parse(out);
+    assert.equal(actual.waves[0].branches[0].deferred, true);
+    assert.equal(
+      actual.waves[0].branches[0].deferred_reason,
+      'the answer is "nothing", and \\ is a backslash',
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
