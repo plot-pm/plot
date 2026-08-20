@@ -2966,12 +2966,15 @@ describe('the row carries the PR condition as fields', () => {
         }],
       } as never,
       new Map(), 'plot', QUIET);
-    // NAMES THE WAVE. This asserted `/earlier wave/` until the wave's name
-    // reached the note — *blocked by which one?* is the reader's unavoidable
-    // next question, and the server is the only place that can answer it.
-    // Asserted against the fixture's own wave name rather than the literal, so
-    // renaming the fixture cannot leave a passing test measuring nothing.
-    expect(blocked[0].note).toBe(`blocked by ${pulse.plans[0].waves[0].name}`);
+    // NAMES THE WAVE AND COUNTS IT. This asserted `/earlier wave/` until the
+    // wave's name reached the note, then the bare `blocked by <name>` until the
+    // count did — *blocked by which one, and how many left?* is the reader's
+    // unavoidable next question, and the server is the only place that can
+    // answer it. Asserted against the fixture's own wave name rather than the
+    // literal, so renaming the fixture cannot leave a passing test measuring
+    // nothing. The forced-blocked wave holds this fixture's one open branch, so
+    // one is outstanding.
+    expect(blocked[0].note).toBe(`blocked by ${pulse.plans[0].waves[0].name} — 1 outstanding`);
     // And the field says it too, so nothing downstream has to read the prose.
     expect(blocked[0].waitingOn).toBe('time');
     expect(blocked[0].blockedBy).toBe(pulse.plans[0].waves[0].name);
@@ -3784,7 +3787,8 @@ describe('an eligible wave is not a blocker', () => {
     ]));
     const c = rows.find((r) => r.branch === 'feature/c')!;
     expect(c.blockedBy).toBe('Fold');
-    expect(c.note).toBe('blocked by Fold');
+    // Fold holds one non-deferred, unmerged branch — the count the sentence owes.
+    expect(c.note).toBe('blocked by Fold — 1 outstanding');
   });
 
   it('never names a BLOCKED wave as what a row waits for', () => {
@@ -3856,6 +3860,9 @@ describe('an eligible wave is not a blocker', () => {
     ]));
     const b = rows.find((r) => r.branch === 'feature/b')!;
     expect(b.blockedBy).toBeNull();
+    // No name, so no count either: the count answers "how many left in THAT
+    // wave", and an unnamed wave gives the reader nothing to attach it to. The
+    // bare sentence is the whole of what can honestly be said.
     expect(b.note).toBe('blocked by an earlier wave');
   });
 });
@@ -3917,5 +3924,119 @@ describe('a timed-out scan reports the estate that made it slow', () => {
     expect(message).not.toContain('56');
     expect(message).not.toMatch(/\b(?:estimat|about|roughly|~)/i);
     expect(message).toMatch(/7\b.*branch/i);
+  });
+});
+
+describe('a blocked wave names how many branches are outstanding', () => {
+  // The Count wave: `blocked by Fold` already names WHICH wave; this adds HOW
+  // MANY branches are left in it. The number matches the scan's own arithmetic
+  // (`plot-fleet-scan.sh`): a branch is outstanding when it is neither deferred
+  // nor merged. The board re-derives it from the blocker wave's branch list
+  // rather than reading a field, because the scan ships the list and Principle 3
+  // puts the counting on this side of the line.
+
+  const plan = (waves: {
+    name: string;
+    verdict: string;
+    branches: { branch: string; state?: string; deferred?: boolean }[];
+  }[]) => ({
+    main: 'main',
+    head: 'abc1234',
+    plans: [{
+      file: '2026-08-20-count-fixture.md',
+      phase: 'approved',
+      waves: waves.map((w) => ({
+        name: w.name,
+        verdict: w.verdict,
+        branches: w.branches.map((b) => ({
+          branch: b.branch, state: b.state ?? 'open', deferred: b.deferred ?? false, claimed: '',
+        })),
+      })),
+    }],
+    summary: { plans: 1, waves: waves.length, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+  }) as never as FleetPulse;
+
+  const rowsOf = (p: FleetPulse) => rowsFromPulse(p, new Map(), 'plot', QUIET);
+
+  it('names the eligible blocker AND its outstanding count', () => {
+    // The sentence the board owes: which wave, and how many branches remain in
+    // it. Fold holds three branches, none deferred, none merged — three left.
+    const rows = rowsOf(plan([
+      { name: 'Truth', verdict: 'complete', branches: [{ branch: 'feature/a', state: 'merged' }] },
+      {
+        name: 'Fold', verdict: 'eligible', branches: [
+          { branch: 'feature/b' }, { branch: 'feature/c' }, { branch: 'feature/d' },
+        ],
+      },
+      { name: 'Colour', verdict: 'blocked', branches: [{ branch: 'feature/e' }] },
+    ]));
+    const e = rows.find((r) => r.branch === 'feature/e')!;
+    expect(e.blockedBy).toBe('Fold');
+    expect(e.note).toBe('blocked by Fold — 3 outstanding');
+  });
+
+  it('excludes deferred and merged branches from the count, as the scan does', () => {
+    // The scan never counts a deferred branch, and a merged one is settled. So a
+    // blocker of five branches — two merged, one deferred, two open — is TWO
+    // outstanding, matching `plot-fleet-scan.sh`'s Pass 2 exactly.
+    const rows = rowsOf(plan([
+      {
+        name: 'Fold', verdict: 'eligible', branches: [
+          { branch: 'feature/a', state: 'merged' },
+          { branch: 'feature/b', state: 'merged' },
+          { branch: 'feature/c', deferred: true },
+          { branch: 'feature/d' },
+          { branch: 'feature/e' },
+        ],
+      },
+      { name: 'Colour', verdict: 'blocked', branches: [{ branch: 'feature/z' }] },
+    ]));
+    const z = rows.find((r) => r.branch === 'feature/z')!;
+    expect(z.note).toBe('blocked by Fold — 2 outstanding');
+  });
+
+  it('counts the branches of the BLOCKER wave, not the blocked row own wave', () => {
+    // The count belongs to the wave being waited ON. The blocked wave here holds
+    // four branches; the eligible blocker holds one. The sentence must report
+    // the blocker's one, never the reader's four.
+    const rows = rowsOf(plan([
+      { name: 'Fold', verdict: 'eligible', branches: [{ branch: 'feature/a' }] },
+      {
+        name: 'Colour', verdict: 'blocked', branches: [
+          { branch: 'feature/b' }, { branch: 'feature/c' },
+          { branch: 'feature/d' }, { branch: 'feature/e' },
+        ],
+      },
+    ]));
+    for (const branch of ['feature/b', 'feature/c', 'feature/d', 'feature/e']) {
+      expect(rows.find((r) => r.branch === branch)!.note).toBe('blocked by Fold — 1 outstanding');
+    }
+  });
+
+  it('says singular for one outstanding and plural for more', () => {
+    // "1 outstanding" not "1 outstandings" — the count is a count of branches,
+    // and the sentence reads as English at both ends of it.
+    const one = rowsOf(plan([
+      { name: 'Fold', verdict: 'eligible', branches: [{ branch: 'feature/a' }] },
+      { name: 'Colour', verdict: 'blocked', branches: [{ branch: 'feature/b' }] },
+    ]));
+    expect(one.find((r) => r.branch === 'feature/b')!.note).toBe('blocked by Fold — 1 outstanding');
+
+    const many = rowsOf(plan([
+      { name: 'Fold', verdict: 'eligible', branches: [{ branch: 'feature/a' }, { branch: 'feature/x' }] },
+      { name: 'Colour', verdict: 'blocked', branches: [{ branch: 'feature/b' }] },
+    ]));
+    expect(many.find((r) => r.branch === 'feature/b')!.note).toBe('blocked by Fold — 2 outstanding');
+  });
+
+  it('adds nothing to a single-wave plan whose wave cannot be blocked', () => {
+    // A plan with one wave has nothing to wait for — it cannot be blocked, so no
+    // count is owed. The eligible row keeps its own sentence, untouched.
+    const rows = rowsOf(plan([
+      { name: 'Only', verdict: 'eligible', branches: [{ branch: 'feature/a' }] },
+    ]));
+    const a = rows.find((r) => r.branch === 'feature/a')!;
+    expect(a.note).toBe(ELIGIBLE_NOTE);
+    expect(a.note).not.toMatch(/outstanding/);
   });
 });

@@ -3415,6 +3415,17 @@ export function rowsFromPulse(
     const eligibleWave = plan.waves.find((w) => w.verdict === 'eligible');
     const blocker = eligibleWave ?? plan.waves.find((w) => w.verdict !== 'complete');
     const blockerName = blocker?.name?.trim() ? blocker.name.trim() : null;
+    // HOW MANY branches are left in the blocking wave — the second half of the
+    // sentence *blocked by Fold — 2 outstanding*. The scan already decides this
+    // number (`plot-fleet-scan.sh` Pass 2); it just ships the list rather than
+    // the count, and Principle 3 puts the counting on this side. A branch is
+    // outstanding when it is neither deferred nor merged — the SAME predicate the
+    // scan uses to settle a wave, so the board's count and the scan's verdict
+    // read one fact. Derived per plan beside the name, since both answer the same
+    // reader's question about the same wave.
+    const blockerOutstanding = blocker
+      ? blocker.branches.filter((w) => !w.deferred && w.state !== 'merged').length
+      : 0;
     for (const wave of plan.waves) {
       for (const b of wave.branches) {
         const age = ages.get(b.branch) ?? null;
@@ -3468,7 +3479,13 @@ export function rowsFromPulse(
         // Through `blockedNote` rather than by concatenation: the unnamed form
         // stays a single declared constant, so a future reader can see which
         // spellings exist instead of finding three assembled variants.
-        const rowNote = waitingOn === 'time' ? blockedNote(blockerName) : note;
+        //
+        // The COUNT rides with the name — `blockedNote` drops it where the wave
+        // is unnamed, so an unnamed blocker keeps the bare sentence with nothing
+        // dangling off it. It is the blocker's own outstanding count, derived
+        // once per plan above.
+        const rowNote =
+          waitingOn === 'time' ? blockedNote(blockerName, blockerOutstanding) : note;
         rows.push({
           repo,
           branch: b.branch,

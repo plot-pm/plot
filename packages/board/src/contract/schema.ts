@@ -656,12 +656,28 @@ export type WaitingOn = z.infer<typeof WaitingOnSchema>;
  * is what a consumer reads, and `blockedBy` carries the name — but the prose
  * must still be one thing rather than many, or the next reader cannot tell
  * which spellings exist.
+ *
+ * THE COUNT RIDES WITH THE NAME, never without it. *blocked by Fold* answers
+ * *which wave*; *— 2 outstanding* answers *how many branches are left in that
+ * wave* — and "that wave" is only referable once it is named. So the count
+ * decorates the named form and the unnamed fallback stays bare: a dangling
+ * *— 2 outstanding* on *blocked by an earlier wave* would attach a number to a
+ * wave the reader was never given. The number is the blocker wave's
+ * non-deferred, unmerged branch count, matching `plot-fleet-scan.sh`'s own
+ * arithmetic; the caller derives it, this only spells it.
  */
 export const BLOCKED_NOTE = 'blocked by an earlier wave';
 
-/** `blocked by `Truth`` where the wave has a name, the bare sentence where not. */
-export function blockedNote(wave: string | null): string {
-  return wave ? `blocked by ${wave}` : BLOCKED_NOTE;
+/**
+ * `blocked by `Truth` — 2 outstanding` where the wave has a name and a count,
+ * `blocked by `Truth`` where the count is absent, the bare sentence where the
+ * wave itself is unnamed.
+ */
+export function blockedNote(wave: string | null, outstanding?: number): string {
+  if (!wave) return BLOCKED_NOTE;
+  return outstanding === undefined
+    ? `blocked by ${wave}`
+    : `blocked by ${wave} — ${outstanding} outstanding`;
 }
 
 export const FleetBranchSchema = z.object({
