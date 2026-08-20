@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   groupByPlan,
-  waveCountByPlan,
   waveLabel,
+  UNNAMED_WAVE,
   countdown,
   waitingLabel,
   showPlanHeading,
@@ -2620,73 +2620,65 @@ describe('menuState — a refusal is not an absence', () => {
   });
 });
 
-// A branch row names its wave, but only where the answer to *which slice of this
-// plan?* is not "all of it" — a plan with more than one wave. The count is what
-// decides that, and these pin it and the label it drives. The DOM half (the name
-// reaching the phase cell, in every section, without moving the grid) is in
+// A branch row names its wave BESIDE ITS BRANCH NAME, and the gate is now a
+// property of that one branch: does it name a wave? The plan-wide
+// `waveCountByPlan` went with the cell the label used to sit in — it existed to
+// answer *does this plan have more than one wave*, a question a reader could not
+// see the answer to, and it had no other reader.
+//
+// The count's own assertions are kept here as assertions about `waveLabel`,
+// because what they were really pinning is which STRINGS mean "no wave to name":
+// `''` for a planless row and `(unnamed)` for an undivided plan. Those are the
+// two the count used to collapse, and they are the two that must still not print.
+//
+// The DOM half — the name reaching the branch cell rather than the kind cell, in
+// every section, without moving the grid — is in
 // test/integration/agents-tab.browser.test.ts.
-describe('waveCountByPlan — how many waves a plan divides its work into', () => {
-  it('counts distinct wave names per plan across the whole fleet', () => {
-    const counts = waveCountByPlan([
-      row({ plan: 'p', branch: 'a', wave: 'Truth' }),
-      row({ plan: 'p', branch: 'b', wave: 'Fold' }),
-      row({ plan: 'p', branch: 'c', wave: 'Fold' }),
-      row({ plan: 'q', branch: 'd', wave: 'Line' }),
-    ]);
-    // `p` has two distinct waves though it has three branches — a wave with two
-    // branches is still one wave.
-    expect(counts.get('p')).toBe(2);
-    expect(counts.get('q')).toBe(1);
-  });
-
-  it('counts a plan whose branches all sit in one unnamed wave as ONE', () => {
-    // The server gives every branch of a plan with no `### ` sub-headings the
-    // one string `(unnamed)`, so three such branches are three rows of one
-    // wave. An unnamed wave is not the absence of a grouping — it is one group
-    // holding everything.
-    const counts = waveCountByPlan([
-      row({ plan: 'p', branch: 'a', wave: '(unnamed)' }),
-      row({ plan: 'p', branch: 'b', wave: '(unnamed)' }),
-      row({ plan: 'p', branch: 'c', wave: '(unnamed)' }),
-    ]);
-    expect(counts.get('p')).toBe(1);
-  });
-
-  it('skips a planless row carrying no wave', () => {
-    // A row built from the PR map belongs to no plan and carries `wave: ''`.
-    // Counting it would invent a wave named "" that no plan file states.
-    const counts = waveCountByPlan([
-      row({ plan: '', branch: 'loose', wave: '' }),
-      row({ plan: 'p', branch: 'a', wave: 'Truth' }),
-    ]);
-    expect(counts.has('')).toBe(false);
-    expect(counts.get('p')).toBe(1);
-  });
-});
-
 describe('waveLabel — the wave name a branch row shows, or none', () => {
-  it('names the wave where the plan has more than one', () => {
-    expect(waveLabel(row({ wave: 'Fold' }), 3)).toBe('Fold');
+  it('names the wave for any branch that has a named one', () => {
+    // No count, and no plan: the branch alone answers it. This is the change —
+    // the label used to require `waveCount > 1`, so a branch of a plan divided
+    // once showed nothing even though it had a wave to show, and the plan that
+    // relocated the label requires it be reachable for EVERY branch that has one.
+    expect(waveLabel(row({ wave: 'Fold' }))).toBe('Fold');
+    expect(waveLabel(row({ wave: 'Truth' }))).toBe('Truth');
   });
 
-  it('shows nothing for a single-wave plan, named OR unnamed', () => {
-    // The case a presence check gets wrong: a named single-wave plan HAS a name
-    // and still must show none, because a caption over a partition of one is
-    // noise. Both halves, since the named one is the one that would leak.
-    expect(waveLabel(row({ wave: 'Layout' }), 1)).toBeNull();
-    expect(waveLabel(row({ wave: '(unnamed)' }), 1)).toBeNull();
+  it('shows nothing for `(unnamed)` — the absence of a division, spelled', () => {
+    // The server writes this for a plan with no `### ` sub-headings, so it is
+    // what the MAJORITY of branches on this board carry. Printing it beside a
+    // branch name would put a parenthesised non-answer on most rows.
+    //
+    // This is the assertion that replaces the count: `(unnamed)` used to be
+    // filtered by counting to one, and it is now filtered by being recognised
+    // for what it is. Same rows suppressed, one fewer fact needed to do it.
+    expect(waveLabel(row({ wave: UNNAMED_WAVE }))).toBeNull();
+    expect(waveLabel(row({ wave: '(unnamed)' }))).toBeNull();
   });
 
-  it('shows nothing for a planless row or an uncounted plan', () => {
-    expect(waveLabel(row({ wave: '' }), undefined)).toBeNull();
-    expect(waveLabel(row({ wave: 'Fold' }), undefined)).toBeNull();
+  it('shows nothing for a planless row', () => {
+    // A row built from the PR map belongs to no plan and carries `wave: ''`. An
+    // empty wave name is the absence of a wave, not a wave named "".
+    expect(waveLabel(row({ plan: '', wave: '' }))).toBeNull();
   });
 
-  it('keeps `(unnamed)` honest where a multi-wave count somehow carries it', () => {
-    // The count gates, not an invariant baked into the label: hand it a count
-    // above one and it returns whatever string the row holds, `(unnamed)`
-    // included, rather than second-guessing the scan.
-    expect(waveLabel(row({ wave: '(unnamed)' }), 2)).toBe('(unnamed)');
+  it('names a wave for a plan divided ONCE, which the old gate suppressed', () => {
+    // The behaviour change, asserted as such rather than left to be inferred
+    // from the absence of a count. A plan with one NAMED wave gave its branches
+    // nothing before, on the argument that a caption over a partition of one is
+    // noise — sound while the label sat in a cell it shared with the plan phase,
+    // and moot beside the branch name, where it displaces nothing.
+    expect(waveLabel(row({ plan: 'p', branch: 'a', wave: 'Layout' }))).toBe('Layout');
+  });
+
+  it('does not read the plan, so two branches of one plan cannot disagree', () => {
+    // The property the count made impossible to hold: the label was a function
+    // of the fleet, so the same branch could name its wave in one render and not
+    // in another as sibling rows appeared and vanished between polls. It is now
+    // a function of the row, and the same row always answers the same way.
+    const r = row({ plan: 'p', branch: 'a', wave: 'Fold' });
+    expect(waveLabel(r)).toBe(waveLabel({ ...r }));
+    expect(waveLabel(r)).toBe('Fold');
   });
 });
 

@@ -9,6 +9,7 @@ import {
   type IssueRow,
   type PulseShrink,
   type Repair,
+  type RowKind,
   type Stuck,
   type StuckState,
   type WaitingGroup,
@@ -27,6 +28,11 @@ import { ChangedFilesModal } from './ChangedFilesModal.js';
 // reason `ageLabel` was split out of `age` so an issue row and a branch row
 // cannot render one duration two ways.
 import { agoLabel } from './AgentPanelFacts.js';
+// The word slot 2 prints for each kind, from the module that OWNS the tuple's
+// slot rules. Imported rather than restated: the tuple row and these three
+// components must agree about what a `pr` row is CALLED, and two tables of
+// seven words is how the two grids drifted apart in the first place.
+import { KIND_LABEL } from '../lib/tuple-row.js';
 
 /**
  * Groups in fixed order, each labelled by what it asks OF YOU rather than by
@@ -537,17 +543,24 @@ export function waitingLabel(days: number): string {
  * every row.
  *
  * ```
- * 6rem   10rem   1fr     14rem  2.5rem   1.25rem
- * phase  plan    branch  pr     age      menu
+ * 1rem   5rem   10rem   1fr     14rem  2.5rem   1.25rem
+ * marks  kind   plan    branch  pr     age      menu
  * ```
  *
  * The branch takes `1fr` because it is the longest and most variable value on
  * the line and the one worth reading in full; the others are bounded by their
- * own content — `Development` is the longest phase, `⑂1234 conflicts` the
- * longest PR cell. Every other track is FIXED, which is the whole point: an
- * empty cell now leaves a gap rather than shifting its neighbours, so a row
- * with no phase aligns with one that has a phase, and a row whose plan name
+ * own content — `Release` is the longest kind, `⑂1234 conflicts` the longest PR
+ * cell. Every other track is FIXED, which is the whole point: an empty cell
+ * leaves a gap rather than shifting its neighbours, so a row whose plan name
  * sits in the group heading aligns with one whose does not.
+ *
+ * TRACK 2 HOLDS THE KIND, and it held a plan phase (or a wave name, or nothing)
+ * until `the-wave-and-the-phase-find-their-owners` moved both facts to the
+ * objects they describe. The WIDTH did not change with the occupant: `5rem` was
+ * what the breakpoint had left after the marks took a track, and `Release` at
+ * seven characters fits where `Development` at eleven truncated — so the cell is
+ * now comfortably inside a budget it used to strain. The arithmetic below is
+ * unchanged and still governs.
  *
  * ONE constant, read by the header row and by `Row`. Two copies of a track list
  * is how a header stops lining up with the rows beneath it — and this grid has
@@ -584,14 +597,16 @@ export function waitingLabel(days: number): string {
 // overlapped and both hung half outside the section's own border, because
 // `left-0` is the row's edge and the section's border sits inside it.
 //
-// 1rem for the marks, and 5rem for the phase beside it — neither number is a
+// 1rem for the marks, and 5rem for the cell beside it — neither number is a
 // preference, both are what the breakpoint had left.
 //
 // A seventh track costs twice: its own width AND a sixth gap. The fixed tracks
 // plus gaps must stay under `CARD_BELOW_PX` (640px), and 1.5rem of marks with
-// the phase at 6rem came to 652px. So the phase gave up 1rem — it holds one
-// word (`Development` is the longest and truncates either way) where the marks
-// column holds a 12px mark that had nowhere legal to sit at all. The fixed tracks may total at most 540px before the grid needs more
+// track 2 at 6rem came to 652px. So track 2 gave up 1rem — it holds one word
+// (`Development`, the longest PHASE, truncated either way) where the marks
+// column holds a 12px mark that had nowhere legal to sit at all. The cell now
+// holds a KIND instead, and the longest of the seven is `Release` — so the 1rem
+// that was given up under protest is no longer being missed. The fixed tracks may total at most 540px before the grid needs more
 // than the 640px `CARD_BELOW_PX` it turns into a card at; 1.5rem crossed that
 // by exactly 8px. The test that caught it predicted this day in its own
 // comment. 16px still holds the widest mark (a 12px track) inside the panel,
@@ -603,8 +618,10 @@ export const ROW_TRACKS = 'grid-cols-[1rem_5rem_10rem_1fr_14rem_2.5rem_1.25rem]'
 // FIVE cells for the five things a plan row actually has: the marks column
 // (shared with every row, so the marks stay in one vertical line down the
 // section), the plan NAME, the wave summary, the clock, and an ACTIONS cell
-// the width of a branch row's. No phase cell — the phase belongs to the plan
-// and is stated in the name cell's own line; no PR cell, a plan has none.
+// the width of a branch row's. No phase TRACK — the phase belongs to the plan
+// and is stated in the name cell's own line, which since
+// `the-wave-and-the-phase-find-their-owners` is the ONLY place on this board
+// that states it; no PR cell, a plan has none.
 //
 // THE ACTIONS TRACK WAS ABSENT, AND IT COST THE ONE ACTION A PLAN HAS.
 //
@@ -651,7 +668,7 @@ type AgentPr = NonNullable<AgentRow['pr']>;
  * cross it, and then this constant has to move too.
  *
  * Below it each row becomes a small block: the branch on its own line, with
- * plan, phase, PR and age wrapped beneath it. **Nothing is dropped and nothing
+ * plan, kind, PR and age wrapped beneath it. **Nothing is dropped and nothing
  * is elided** — the same facts stack instead of ranging. Dropping the plan name
  * was the cheaper answer and is wrong: `showPlanHeading` just made naming the
  * plan the row's own responsibility whenever its group has no heading, and
@@ -851,63 +868,94 @@ export function groupByPlan(rows: AgentRow[]): PlanGroup[] {
 }
 
 /**
- * How many distinct waves each plan divides its work into, keyed by plan name.
+ * The wave name to print BESIDE A BRANCH NAME, or null to print none.
  *
- * PLAN-WIDE, read from the WHOLE fleet rather than from one section's rows: a
- * plan's two branches can sit in different waiting-groups (one working, one not
- * started), and whether the plan has more than one wave is a fact about the
- * plan, not about the slice of it a section happens to hold. Computed once from
- * `fleet.rows` and handed to every `Row`, so a branch answers *which wave am I*
- * the same way in every section it can appear in.
+ * ## It reads the branch alone, and that is the whole change
  *
- * By the wave STRING the row already carries (`wave.name || '(unnamed)'` on the
- * server): a plan with no `### ` sub-headings gives every branch the one string
- * `(unnamed)`, so its rows count as ONE wave — which is what it is. And measured
- * across the estate, no plan divides its work without naming the parts, so a
- * count above one is always a count of named waves. Keying on the count rather
- * than on a name's presence is deliberate: a plan whose single wave carries a
- * name is still one wave, and a caption over a partition of one is noise.
+ * This took a plan-wide wave COUNT until the wave moved out of the phase cell,
+ * and the count is what the reader could not see. The gate was
+ * `waveCount > 1`, justified — correctly, for where the label then sat — as
+ * *a caption over a partition of one is noise*: the wave shared a column with
+ * the plan phase, so an uninformative wave name displaced a different fact, and
+ * the cell's meaning therefore depended on how many waves the plan had.
  *
- * Planless rows carry `wave: ''` (built from the PR map, belonging to no plan)
- * and are skipped: an empty wave name is the absence of a wave, not a wave named
- * "", and counting it would invent a division nothing in a plan file states.
+ * That is the defect `a-row-is-a-tuple` measured as *one column, four
+ * meanings*, and it cannot be fixed by choosing which meaning wins. Beside the
+ * branch name the label displaces NOTHING, so the count has nothing left to
+ * arbitrate — and the plan that relocated it requires the wave be reachable for
+ * **every branch that has one**, not only for branches of plans divided more
+ * than once.
  *
- * Exported for test — this count is the whole rule that decides whether a wave
- * label is shown, and it is a pure function of the fleet.
+ * So the question becomes a property of the branch: *does this branch name a
+ * wave?* One row, one fact, no plan-wide arithmetic — which is what makes the
+ * label honest rather than merely shorter.
+ *
+ * ## `(unnamed)` is not a name
+ *
+ * The server writes `(unnamed)` for a branch of a plan with no `### `
+ * sub-headings — the absence of a division, spelled. It was a legitimate value
+ * while a count did the gating (a divided plan always names its parts, so the
+ * string could only arrive by a scan bug), and it is not one now: with the
+ * count gone, `(unnamed)` is what a single-wave plan's every branch carries,
+ * and printing it beside a branch name would put a parenthesised non-answer on
+ * the majority of rows on this board.
+ *
+ * Null for that, and null for a planless row (`wave: ''`) — a row built from
+ * the PR map belongs to no plan and has no wave to name.
+ *
+ * The `waveCount` parameter is GONE rather than ignored. A parameter no arm
+ * reads is a standing invitation to start reading it, which is how this gate
+ * came to depend on a fact about the plan in the first place.
+ *
+ * `waveCountByPlan` went with it. It existed to feed this gate and had no other
+ * reader — the plan row's own summary counts the waves in its OWN group
+ * (`waveSummaryFor`), which is a statement about a plan and the place a count
+ * belongs. An exported pure function with only a test to call it is dead code
+ * wearing a contract.
  */
-export function waveCountByPlan(rows: AgentRow[]): Map<string, number> {
-  const waves = new Map<string, Set<string>>();
-  for (const row of rows) {
-    if (row.wave === '') continue;
-    const seen = waves.get(row.plan) ?? new Set<string>();
-    seen.add(row.wave);
-    waves.set(row.plan, seen);
-  }
-  return new Map([...waves].map(([plan, set]) => [plan, set.size]));
+export function waveLabel(row: AgentRow): string | null {
+  if (row.wave === '' || row.wave === UNNAMED_WAVE) return null;
+  return row.wave;
 }
 
 /**
- * The wave name to print on a branch row, or null to print none.
+ * A row's kind, with the schema's own default applied — never re-decided.
  *
- * The name only carries information where the plan has MORE THAN ONE wave — the
- * answer to *which slice of this plan?* is "all of it" for a single-wave plan,
- * named or not, and a label saying so is a caption for a partition of one. So
- * the label appears exactly where `waveCount > 1`, and nowhere else.
+ * ## Why a fallback is needed at all on a field the contract defaults
  *
- * `(unnamed)` is a legitimate answer here: a multi-wave plan cannot have an
- * unnamed wave (the `### ` heading is what divides the work, so a division
- * always has names), but this stays honest about the string it is handed rather
- * than encoding that invariant — the count is what gates, and the name is
- * whatever the row carries.
+ * `RowKindSchema` declares `.default('branch')`, and that default is applied by
+ * **Zod, on parse** — which the client does not do. `App.tsx` casts the fetched
+ * body (`(await res.json()) as Fleet`) rather than parsing it, so a payload with
+ * no `kind` arrives with `kind: undefined` and TypeScript is none the wiser: the
+ * type says the field is there because the SCHEMA says so after parsing.
  *
- * Null for a planless row (`wave: ''`) and for any plan the map did not count,
- * which renders as an empty cell — the same nothing the phase cell shows for a
- * branch inside a plan group, so the grid is unmoved either way.
+ * That is not a hypothetical. An older server on the other end of a poll — the
+ * case the board already handles for `prNextInSeconds` — emits rows predating
+ * the field, and `data-kind={undefined}` omits the attribute entirely while
+ * `KIND_LABEL[undefined]` renders nothing. The cell would be silently blank on
+ * every row, which is the failure mode this cell exists to end.
+ *
+ * ## It restates the schema's default, and does not invent a rule
+ *
+ * `'branch'` because that is the value `RowKindSchema` names, for the reason it
+ * names: an unrecognised row most nearly IS a branch. This is emphatically not
+ * the renderer-side derivation the contract declines — it does not look at
+ * `row.pr`, `row.issue` or `row.planFile`, and it cannot reclassify a row the
+ * server did label. It fills in one absent field with the one value the contract
+ * says an absent field means.
  */
-export function waveLabel(row: AgentRow, waveCount: number | undefined): string | null {
-  if (row.wave === '' || (waveCount ?? 0) <= 1) return null;
-  return row.wave;
+function rowKindOf(row: AgentRow): RowKind {
+  return row.kind && row.kind in KIND_LABEL ? row.kind : 'branch';
 }
+
+/**
+ * What the server writes where a plan divides its work into no waves at all.
+ *
+ * `waveLabel` declines to print it, and this is why the string is named rather
+ * than inlined: it is a value the SERVER writes (`wave.name || '(unnamed)'`),
+ * so the client is matching a protocol constant and not a display choice.
+ */
+export const UNNAMED_WAVE = '(unnamed)';
 
 /**
  * Seconds until the next refresh, given how many have passed and how many the
@@ -3174,18 +3222,24 @@ function StuckCell({
       // rare and tall.
       //
       // **From column 2, not column 1**, and a screenshot settled the
-      // difference. `col-span-full` starts at the PHASE track, which is `6rem`
-      // wide and frequently empty — so on a row with no phase the evidence hung
-      // flush left under nothing while the branch it describes started `6rem`
-      // in, reading as a foreign element rather than as a continuation of the
-      // row. `2 / -1` starts it where the row's own content starts, and because
-      // the phase track is FIXED it lands identically whether or not that row
-      // has a phase — which is the property the fixed tracks exist for.
+      // difference. `col-span-full` starts at track 2, which is `5rem` wide and
+      // was frequently EMPTY when it held a phase — so on a row with no phase
+      // the evidence hung flush left under nothing while the branch it describes
+      // started `5rem` in, reading as a foreign element rather than as a
+      // continuation of the row. `2 / -1` starts it where the row's own content
+      // starts, and because that track is FIXED it lands identically whichever
+      // row it is on — the property the fixed tracks exist for.
       // COLUMN 3, not 2: the marks earned a track at the front, so the cell
-      // that used to begin past the phase now begins past the MARKS and runs
-      // under the phase — the exact defect this span was written to fix,
-      // reintroduced by a column inserted before it. Measured: the evidence
-      // line started at x=57 where the phase cell ends at 130.
+      // that used to begin past track 2 now begins past the MARKS and runs
+      // under it — the exact defect this span was written to fix, reintroduced
+      // by a column inserted before it. Measured: the evidence line started at
+      // x=57 where that cell ends at 130.
+      //
+      // Track 2 now holds the KIND and is never empty, which removes the
+      // *frequently empty* half of the original argument. The geometry does not
+      // change with it: the span still starts past the marks, because it is the
+      // row's own content it must line up with, and a full cell above an
+      // indented line is exactly as misaligned as an empty one.
       className="flex w-full flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs sm:col-start-3 sm:col-end-[-1]"
     >
       {/* The state as a WORD, in amber, and the word is the carrier — the
@@ -4047,12 +4101,13 @@ function BranchName({ row }: { row: AgentRow }) {
 /**
  * The column names, on the same tracks as the rows beneath them.
  *
- * This is what lets the phase's `sr-only` prefix go. The list used to be a
+ * This is what lets track 2's `sr-only` prefix go. The list used to be a
  * `<li>` of `<span>`s — as the old comment said, *"a visual table with no table
  * semantics"* — so column position conveyed nothing and each row was heard as a
- * run of words. `Development` does not announce itself as a phase, and every
- * cell needed a label of its own to compensate. With a header row a screen
- * reader announces the column, once, for every cell under it.
+ * run of words. `Branch` does not announce itself as a KIND any more than
+ * `Development` announced itself as a phase, and every cell needed a label of
+ * its own to compensate. With a header row a screen reader announces the
+ * column, once, for every cell under it.
  *
  * `sr-only` on screen and real in the accessibility tree. The six columns are
  * legible to a sighted reader from their alignment — that alignment is the
@@ -4066,12 +4121,17 @@ function BranchName({ row }: { row: AgentRow }) {
  * the DOM and gains the semantics.
  *
  * Hidden below `sm`, where the row stops being a row: a card has no columns for
- * a header to name, and the phase cell takes its own label back there.
+ * a header to name, and the kind cell takes its own label back there.
  */
 function HeaderRow() {
   return (
     <li role="row" className="sr-only max-sm:hidden">
-      <span role="columnheader">Phase</span>
+      {/* KIND, not `Phase`. The column held a plan phase, a wave name, nothing,
+          or a plan phase on a ticket; it now holds what the row IS, which is the
+          one thing every kind of row can answer in the same sort of word. The
+          header is where that word is named for a reader who cannot see the
+          alignment — and it is why the cell needs no per-row label above `sm`. */}
+      <span role="columnheader">Kind</span>
       <span role="columnheader">Plan</span>
       <span role="columnheader">Branch</span>
       <span role="columnheader">Pull request</span>
@@ -4091,9 +4151,14 @@ function HeaderRow() {
  * differently and land at the same x:
  *
  * ```
- * phase   plan            branch          pr/note   age            menu
+ * marks   plan            branch          pr/note   age            menu
  * (blank) the plan's name the wave summary (blank)   waitingDays    (blank)
  * ```
+ *
+ * The first column was labelled `phase` while a branch row's track 2 held one.
+ * A plan row never had a phase TRACK — its phase rides in the name cell — so
+ * this was a stale caption rather than a claim about the row, and it is corrected
+ * rather than removed because the column count is what the alignment rests on.
  *
  * **The plan takes the plan track**, where a branch row prints its plan name, so
  * the two read down one column. The wave summary takes the BRANCH track, which
@@ -4451,14 +4516,16 @@ function Row({
   /**
    * The wave this branch belongs to, or null to name none.
    *
-   * Non-null ONLY where the plan has more than one wave — see `waveLabel`, which
-   * decides it from a plan-wide count the component computes once. The row does
-   * not work this out itself: a branch cannot see how many waves its plan has,
-   * only its own, so the fact is handed down like `planInHeading` beside it.
+   * Rendered BESIDE THE BRANCH NAME, which is the object it names a slice of.
+   * It used to be rendered in the phase cell two tracks away, as one of that
+   * column's four meanings.
    *
-   * Rendered in the phase cell, which for a branch inside a plan group is empty
-   * (the plan states the phase once above). The wave name is the fact that
-   * belongs at branch level where the phase does not.
+   * Still a PROP rather than derived in the row, and the reason changed: it was
+   * handed down because the gate needed a plan-wide wave count the row could
+   * not see. `waveLabel` now reads the branch alone, so the row COULD compute
+   * it — but the call sites are where the section decides what a row shows, and
+   * one function called from two places is what keeps the two sections'
+   * branch rows saying the same thing.
    */
   waveName?: string | null;
   /**
@@ -4668,83 +4735,54 @@ function Row({
         {isUnpushed(row) && <UnpushedMark ahead={row.localAhead} inTrack />}
         {isLive(row) && <LiveDot />}
       </span>
-      {/* The phase takes the REPO's place rather than adding a seventh cell to
-          a row that already wraps on `feature/opus5-hardening-challenge-budget`.
-          The repo is the right thing to give up: constant in a one-repo board,
-          rendered nowhere else in the app, and a column showing the same word on
-          every row is chrome that never varies. The board's cards keep repo
-          context if a second repo ever appears.
+      {/* SLOT 2 — THE KIND, and it is the same sort of word on every row.
+          
+          This cell read a WAVE NAME, a PLAN PHASE, nothing, or a plan phase on
+          a ticket — four meanings in one unlabelled column, and which one
+          arrived depended on how many waves the row's plan had. A reader cannot
+          see a plan's wave count, so the cell could not be read at all without
+          knowing something the board never showed.
 
-          `w-24` rather than the repo's `w-16`, which fits 8–9 characters at
-          `text-xs`: "Development" is 11 and would render "Developm…", worse
-          than nothing.
+          Both of its old occupants have moved to the objects they describe:
 
-          SPELLED OUT, not abbreviated and not an icon. Discovery, Design and
-          Development all begin with D (and `DE` covers two of them), and
-          `PHASE_LEADERSHIP` maps 👤 to Discovery, Design AND Endgame because it
-          encodes who LEADS rather than which phase — an icon column would
-          collapse exactly the three this one exists to separate. The contract's
-          "symbol AND word" rule is not violated by the word travelling alone:
-          that rule exists to stop COLOUR being the sole carrier, and a word is
-          already the non-colour channel.
+            - the PLAN PHASE to the plan heading, which `PlanRow` already
+              states once per group — 71 branch rows printed their plan's word
+              (36 `Development`, 26 `Endgame`, 9 `Design`), a fact about the
+              plan on a row about something else;
+            - the WAVE beside the BRANCH NAME, one cell along, where the thing
+              it qualifies is.
 
-          The `sr-only` prefix that used to sit here is GONE. It existed, as
-          this comment used to say, because the list was "a visual table with no
-          table semantics" — column position conveyed nothing and each row was
-          heard as a run of words. The row is now a `role="row"` of
-          `role="gridcell"`s under a header carrying `role="columnheader"`, so a
-          screen reader announces the column name itself. Keeping the prefix as
-          well would have the column announced twice.
+          What is left is the fact this cell was always failing to state: WHAT
+          KIND OF THING THE ROW IS. `row.kind` is the server's judgement, made
+          where it holds both the branch and the PR — see `RowKindSchema` for
+          why it must not be re-decided here — and `KIND_LABEL` is the word for
+          it. A `Branch` row and a `PR` row now read the same kind of word in
+          the same place, whatever their plan is shaped like.
 
-          It survives BELOW `sm` and only there (`sm:hidden`), because that is
-          where the header goes with the columns: a card has no columns to be
-          announced by, so the word `Development` would once again arrive with
-          nothing saying what it is. The prefix is gone from the grid — where
-          the header replaced it — rather than gone from the app.
+          READ, NEVER DERIVED. Sniffing the kind from `row.pr` here is the
+          derivation the contract declines, and it breaks first on a RELEASE:
+          a release IS a PR whose branch is named `changeset-release/main`, so a
+          renderer-side rule would misclassify the one row nobody should merge by
+          reflex.
 
-          Empty where the row has no honest phase — a plan that is rejected,
-          superseded or simply unknown — rather than guessing a column. And
-          empty now leaves a GAP rather than shifting its neighbours, which is
-          the entire point of the tracks. */}
+          SPELLED OUT, and no tooltip is needed to say which fact it holds —
+          because there is only one fact it can hold now. The old cell's `title`
+          (`Wave: x` or `Phase: y`) existed to disambiguate four meanings, and
+          it was the only place the answer appeared: the tooltip-as-label defect
+          `the-kind-is-labelled-not-hovered` names. A single meaning needs no
+          disambiguation, so the attribute is gone rather than reworded.
+
+          The `sr-only` prefix survives BELOW `sm` and only there, exactly as
+          the phase's did before it: a card has no columns for the header to
+          name, so
+          `Branch` would arrive with nothing saying what it is. Above `sm` the
+          `columnheader` says `Kind` once for the whole grid. */}
       <span
         role="gridcell"
         className="min-w-0 shrink-0 truncate text-xs text-slate-500 dark:text-slate-400"
-        title={waveName ? `Wave: ${waveName}` : row.phase ? `Phase: ${row.phase}` : undefined}
       >
-        {/* THE WAVE NAME TAKES THIS CELL where the plan has more than one wave —
-            and only there (`waveName` is null otherwise, see `waveLabel`). The
-            phase this column would show is the PLAN's word, repeated down every
-            branch; which wave a branch belongs to is the fact that varies row to
-            row, so it is what the column is for. A single-wave plan keeps the
-            phase behaviour below unchanged: there is no wave to name, and one
-            caption over a partition of one is the noise this avoids. */}
-        {waveName ? (
-          <>
-            <span className="sr-only sm:hidden">Wave: </span>
-            <span data-wave={waveName}>{waveName}</span>
-          </>
-        ) : (
-          <>
-            {/* NOT inside a plan group. The phase is a property of the PLAN, and
-                the branch merely inherits it — so in a group the plan row states
-                it once and the branches beneath do not repeat it down a column.
-                Same bargain `planInHeading` already makes one cell along, and the
-                cell still renders so the tracks hold their width. */}
-            {/* A DEFERRED branch keeps its phase, exactly as it keeps its own age.
-                It is not a plan line waiting to be started — it was started and
-                handed back, so *nobody is working on this* (the phase) and
-                *someone gave it up* (the badge) are two facts and each alone is
-                wrong. The same exception the age cell makes one column along: a
-                property of the plan is repetition, a property of the branch is
-                information. */}
-            {(!inPlanGroup || row.state === 'deferred') && row.phase && (
-              <>
-                <span className="sr-only sm:hidden">Phase: </span>
-                <span data-phase={row.phase}>{row.phase}</span>
-              </>
-            )}
-          </>
-        )}
+        <span className="sr-only sm:hidden">Kind: </span>
+        <span data-kind={rowKindOf(row)}>{KIND_LABEL[rowKindOf(row)]}</span>
       </span>
       {/* Plan BEFORE branch: what this belongs to, then which slice of it — the
           order in which the tab is read. It also lets rows of one plan form a
@@ -4796,25 +4834,72 @@ function Row({
 
           `deferred` rides INSIDE this cell rather than taking a track of its
           own — it qualifies the branch's state, and a seventh column carrying
-          nothing on all but a handful of rows is the chrome the phase cell
-          replaced the repo to avoid. */}
+          nothing on all but a handful of rows is the chrome track 2 replaced
+          the repo to avoid. THE WAVE rides here for the same reason
+          and a stronger one: it qualifies THIS BRANCH, and a fact about the
+          branch belongs beside the branch. */}
       <span
         role="gridcell"
         className="flex w-full min-w-0 items-baseline gap-2 sm:w-auto"
       >
         <BranchName row={row} />
+        {/* THE WAVE, BESIDE THE THING IT NAMES A SLICE OF.
+            
+            It sat in the phase cell, two tracks away, where it was one of that
+            column's four meanings and appeared only when the plan had more than
+            one wave — so *which slice of this plan is this branch* was answered
+            in a cell that might instead be answering *what phase is the plan
+            in*, and the reader could not tell which without knowing a count the
+            board never printed.
+
+            Here the association is positional and needs no rule: the wave is
+            adjacent to the branch it divides, the way `deferred` beside it
+            qualifies the branch's state. That is the requirement
+            `a-row-is-a-tuple` states as *the artifact links are associated* —
+            a reader knows what a word is about because of what it sits next to.
+
+            Every branch that names a wave shows it, and the gate is now a
+            property of the ROW alone — see `waveLabel`, which reads the branch
+            and no longer takes a plan-wide count.
+
+            A MARK, not a link. A wave is a heading inside a plan file and has
+            no page of its own; the plan name one cell along is the link that
+            opens the document the wave is a section of. */}
+        {waveName && (
+          <span
+            data-wave={waveName}
+            className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+            // The word `wave` is in the TITLE and not in the badge, because the
+            // badge is read beside a branch name where the relation is already
+            // visible, and a screen reader gets the same sentence from here.
+            // This is not a tooltip standing in for a label — the wave NAME is
+            // rendered in text; the title only says what kind of name it is.
+            title={`Wave ${waveName} — the slice of the plan this branch belongs to`}
+          >
+            {waveName}
+          </span>
+        )}
         {/* Carried BESIDE the state, never instead of it — the same shape as the
             `no story` badge on a plan card: mark the thing, do not bend the
             state to encode it.
 
-            Both halves are needed and neither alone is the answer. The phase has
-            already fallen back a step (a deferred branch under an approved plan
-            reads Design), because `deferred` means the branch *isn't needed* and
-            was given up deliberately — `plot-deliver` skips such branches, so a
-            plan delivers without them. But a bare Design row is indistinguishable
-            from one nobody ever started, and that is the fact the badge carries:
-            this did not fall back because nobody began it, but because someone
-            handed it back. */}
+            THE BADGE IS NOW THE WHOLE ANSWER, and it used to be half of one.
+            The argument was that the phase had already fallen back a step (a
+            deferred branch under an approved plan read `Design`) and that a bare
+            `Design` row was indistinguishable from one nobody ever started — so
+            the row printed the phase AND the badge, and the deferred branch was
+            the one exception to *no plan phase inside a plan group*.
+            
+            The phase was the weaker of the two signals and it is gone with the
+            rest. What the pair was really distinguishing is *handed back* from
+            *never started*, and only the badge ever said that: `deferred` means
+            the branch isn't needed and was given up deliberately — `plot-deliver`
+            skips such branches, so a plan delivers without them — and the title
+            below carries the plan's own recorded reason where there is one.
+            
+            So this reads BESIDE the state and never instead of it, the same
+            shape as the `no story` badge on a plan card: mark the thing, do not
+            bend the state to encode it. */}
         {row.state === 'deferred' && (
           <span
             data-deferred
@@ -4927,7 +5012,7 @@ function Row({
           `Start work` used to sit here bare, after the age, which put the
           action behind the quietest number on the line. It is also about to
           stop being alone (`board-becomes-operable` adds `Approve`), and a row
-          that already carries phase, plan, branch, note, PR and age has no
+          that already carries kind, plan, branch, note, PR and age has no
           width left to spend on a second control.
 
           On the ROW, not on the group: a `not-started` group can hold branches
@@ -5313,8 +5398,8 @@ function IssueRowActions(
  * states. Here the cells are filled like this:
  *
  * ```
- * mark    phase       plan             branch   pr/note   age    menu
- * (blank) Discovery   inferred name    (BLANK)  🎫 #228   2h     ⋯
+ * mark    kind    plan             branch   pr/note   age    menu
+ * (blank) Story   inferred name    (BLANK)  🎫 #228   2h     ⋯
  * ```
  *
  * **The name is TEXT, never a link.** It is inferred from the issue's title so
@@ -5357,16 +5442,34 @@ function IssueRowView(
           issue — but present, because a row missing it lands every following
           cell a column left of its neighbours. */}
       <span role="gridcell" className={ACTIVITY_MARK_PLACE.row} />
-      {/* `Discovery` — the phase column's word for *not yet decided*, and the
-          honest one here: the issue has not entered the plan lifecycle, and this
-          row exists to ask whether it should. Not a fifth phase; the first one,
-          worn by something that is not a plan yet. */}
+      {/* `Story` — THE KIND, and a ticket is the row this cell was most wrong
+          about.
+          
+          It read `Discovery`, defended as *"the phase column's word for not yet
+          decided … not a fifth phase; the first one, worn by something that is
+          not a plan yet"*. That argument is coherent and it is still a PLAN
+          PHASE on a row that is not a plan and has no phase — the fourth of the
+          column's four meanings, and the one where the mismatch is total: an
+          issue has never entered the lifecycle the word comes from, so nothing
+          about it could ever be `Development` or `Endgame`.
+          
+          Worse, the sentence that said so was a TOOLTIP — *"Not a plan yet, this
+          row asks whether it should become one"* — hover-only text doing the
+          job of a label, which is exactly the defect
+          `the-kind-is-labelled-not-hovered` names. The word `Story` says in the
+          cell what the tooltip was explaining about it.
+          
+          The claim the old cell was making that IS worth keeping — this is a
+          proposal, not a plan — survives in what the row does and does not
+          render: the inferred name is text and not a link, and the branch track
+          is empty. Both are asserted, and neither depends on a word borrowed
+          from another object's vocabulary. */}
       <span
         role="gridcell"
         className="min-w-0 shrink-0 truncate text-xs text-slate-500 dark:text-slate-400"
-        title="Not a plan yet — this row asks whether it should become one"
       >
-        <span data-phase="Discovery">Discovery</span>
+        <span className="sr-only sm:hidden">Kind: </span>
+        <span data-kind="ticket">{KIND_LABEL.ticket}</span>
       </span>
       {/* The inferred name, in the plan track. TEXT, not an anchor — see above.
           `data-issue-name` is what the test asserts is not an `<a>`. */}
@@ -5651,12 +5754,6 @@ export function AgentList({
     pollSeconds === null || stale || fleet.prNextInSeconds == null
       ? null
       : Math.max(0, fleet.prNextInSeconds - tick);
-
-  // How many waves each plan divides its work into, over the WHOLE fleet. A
-  // branch names its wave only where its plan has more than one, and a plan's
-  // branches can be scattered across sections — so the count is plan-wide,
-  // computed once here and read per row through `waveLabel`.
-  const waveCounts = waveCountByPlan(fleet.rows);
 
   // Every status the board has to report, gathered into ONE panel rather than
   // stacked as a banner apiece — the corrected shape of
@@ -6063,11 +6160,9 @@ export function AgentList({
                                 // changes what the row says; every other value
                                 // leaves it reading exactly as before.
                                 section={key}
-                                // Names its wave where the plan has more than
-                                // one — this cell is otherwise empty in a plan
-                                // group (the plan states the phase above), so
-                                // the wave is the fact that belongs at the row.
-                                waveName={waveLabel(r, waveCounts.get(r.plan))}
+                                // Names its wave beside its branch name, for
+                                // every branch that has a named one.
+                                waveName={waveLabel(r)}
                                 onRevealBranch={onRevealBranch}
                                 highlighted={r.branch === highlightBranch}
                               />
@@ -6178,11 +6273,13 @@ export function AgentList({
                           // this row as a PROCESS and says so, and no other
                           // section's rendering changes.
                           section={key}
-                          // Names its wave where the plan has more than one. Here
-                          // the row is outside a plan group, so this cell would
-                          // otherwise repeat the plan's phase on every branch —
-                          // the wave is the fact that varies row to row.
-                          waveName={waveLabel(r, waveCounts.get(r.plan))}
+                          // The same wave label as inside a plan group, and
+                          // the same rule: a fact about the branch, beside the
+                          // branch. This row used to differ from one in a plan
+                          // group — it printed the plan's PHASE where the other
+                          // printed nothing — which is the inconsistency the
+                          // relocation removes.
+                          waveName={waveLabel(r)}
                           onRevealBranch={onRevealBranch}
                           highlighted={r.branch === highlightBranch}
                         />

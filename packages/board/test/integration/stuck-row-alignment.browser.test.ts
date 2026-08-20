@@ -147,20 +147,26 @@ describe('the stuck line begins where the row does', () => {
     }
   });
 
-  it('starts the evidence past the phase track, not under it', async () => {
+  it('starts the evidence past slot 2, not under it', async () => {
     // Read off the rendered row rather than assumed from the track list: the
-    // stuck line begins at or after the phase cell's right edge, which is what
-    // "column 2" means in pixels. Anchored on `[data-phase]` because that cell
-    // is the one the defect hid the line beneath.
+    // stuck line begins at or after slot 2's right edge, which is what
+    // "column 2" means in pixels.
+    //
+    // Anchored on `[data-kind]`, which is what slot 2 holds — it was
+    // `[data-phase]` until the plan phase moved to the plan heading, and the
+    // cell the defect hid the line beneath is the same cell either way. The row
+    // named `feature/has-phase` keeps its name: the fixture still SETS a phase,
+    // and that the row no longer prints it is another test's claim, not this
+    // one's.
     const page = await open();
     try {
-      const phase = await rowFor(page, 'feature/has-phase')
-        .locator('[data-phase]').first().boundingBox();
+      const slot2 = await rowFor(page, 'feature/has-phase')
+        .locator('[data-kind]').first().boundingBox();
       const stuckX = await leftOf(page, 'feature/has-phase', '[data-stuck]');
-      // `>=` rather than `>`: the phase cell's own text may be narrower than
-      // its 6rem track, so the line starts at the TRACK boundary, which is at
-      // or beyond where the text ends.
-      expect(stuckX).toBeGreaterThanOrEqual(phase!.x + phase!.width - 1);
+      // `>=` rather than `>`: the cell's own text may be narrower than its
+      // 5rem track, so the line starts at the TRACK boundary, which is at or
+      // beyond where the text ends.
+      expect(stuckX).toBeGreaterThanOrEqual(slot2!.x + slot2!.width - 1);
     } finally {
       await page.close();
     }

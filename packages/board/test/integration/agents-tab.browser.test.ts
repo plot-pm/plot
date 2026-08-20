@@ -553,11 +553,27 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // Read off the GRIDCELLS, which is what the tracks now are: the order of
       // the cells IS the order of the columns, and a swapped pair of tracks
       // would fail here rather than merely reordering two spans.
-      const cells = await group(page, 'Waiting on you')
+      const cells = group(page, 'Waiting on you')
         .locator('li[data-agent-row]').first()
-        .locator('[role="gridcell"]').allTextContents();
-      const plan = cells.findIndex((t) => t.trim() === 'beans');
-      const branch = cells.findIndex((t) => t.trim() === 'feature/reviewed');
+        .locator('[role="gridcell"]');
+      const texts = await cells.allTextContents();
+      const plan = texts.findIndex((t) => t.trim() === 'beans');
+      // The branch cell is found by its own MARKER rather than by its exact
+      // text, and that is the fix this test needed as much as the code did. It
+      // matched `=== 'feature/reviewed'`, which held only while the cell
+      // contained the branch name and nothing else — so it broke when the WAVE
+      // badge moved in beside the name, reporting `-1` for *the branch column is
+      // missing* when the column was there and had gained a second occupant.
+      //
+      // An exact-text match on a cell is a test of the cell's whole content
+      // wearing the shape of a test of column ORDER, which is what this is
+      // about. `[data-branch]` is the row's stable hook for the name; the
+      // `deferred` badge would have broken the old form the same way.
+      const count = await cells.count();
+      let branch = -1;
+      for (let i = 0; i < count; i++) {
+        if (await cells.nth(i).locator('[data-branch]').count()) { branch = i; break; }
+      }
       expect(plan).toBeGreaterThanOrEqual(0);
       expect(branch).toBeGreaterThanOrEqual(0);
       expect(plan).toBeLessThan(branch);
@@ -628,25 +644,31 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  // ── The phase takes the repo's place ──────────────────────────────────────
+  // ── Slot 2 holds the KIND ─────────────────────────────────────────────────
+  //
+  // This block tested the PHASE in this cell, and every assertion it made is
+  // kept — retargeted at the word that now lives here rather than deleted. What
+  // it was really pinning is a property of the COLUMN, not of the phase: the
+  // word is spelled out, it is not truncated at its longest, it is named by the
+  // header rather than by a per-row prefix, and it is not also stated in a
+  // tooltip. All four still have to hold, and the fourth is the one this branch
+  // is about — the phase cell said which of its four meanings it held ONLY in
+  // its `title`, which is a tooltip doing a label's job.
 
-  it('shows the phase SPELLED OUT, and not truncated at its longest', async () => {
-    // Initials cannot carry this: Discovery, Design and Development all begin
-    // with D, and `DE` covers two of them. Nor can icons — PHASE_LEADERSHIP
-    // maps 👤 to three of the five phases, because it encodes who LEADS rather
-    // than which phase. So the assertion is the full word, and that the cell is
-    // wide enough for the longest one: at `w-16` "Development" rendered
-    // "Developm…", which is worse than nothing.
+  it('shows the KIND spelled out, and not truncated at its longest', async () => {
+    // Initials cannot carry this any more than they could carry the phase, and
+    // the collision is worse: `Plan`, `PR` and... nothing else starts with P,
+    // but `Branch` and `Build` both start with B, and those two are the pair a
+    // reader most needs to tell apart — one is a ref to go and fix, the other a
+    // CI run to go and read. So the assertion is the full word, and that the
+    // cell is wide enough for the longest of the seven (`Release`, 7 chars).
     const page = await openAgents();
     try {
       const li = rowFor(page, 'feature/reviewed');
-      await expect.poll(() => li.textContent()).toContain('Development');
-      // Not clipped: the rendered width covers the text it holds. `scrollWidth`
-      // exceeding `clientWidth` is exactly what truncation looks like in the
-      // DOM, and it is invisible to a text assertion — `textContent` returns
-      // the full string even when the ellipsis is what the reader sees.
-      const cell = li.locator('[data-phase]');
-      expect(await cell.textContent()).toBe('Development');
+      // A branch with no PR is `Branch` — see `rowKind`, and the fixture's
+      // `kind` is what the server set, not something re-decided here.
+      await expect.poll(() => li.locator('[data-kind]').textContent()).toBe('Branch');
+      const cell = li.locator('[data-kind]');
       const fits = await cell.evaluate(
         (el) => el.scrollWidth <= (el.parentElement as HTMLElement).clientWidth,
       );
@@ -656,60 +678,106 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('drops the repo column — the phase took its place', async () => {
-    // A seventh cell would wrap a row that already wraps on long branch names.
-    // The repo is the right thing to give up: constant in a one-repo board and
-    // rendered nowhere else in the app. Asserted as an ABSENCE, because adding
-    // the phase beside the repo passes every other test in this file.
+  it('prints NO plan phase on a branch row, in any section', async () => {
+    // THE RELOCATION, asserted as an absence — which is the only way it can be
+    // asserted, and the reason it is a test of its own. 71 rows printed their
+    // plan's phase (36 `Development`, 26 `Endgame`, 9 `Design`): a fact about
+    // the plan, on a row about a branch.
+    //
+    // `feature/reviewed` carries `phase: 'Development'` in the fixture, so the
+    // fact REACHES the row and is declined by the renderer rather than being
+    // absent from the data. A fixture with no phase would pass this test while
+    // the defect stood.
     const page = await openAgents();
     try {
       const li = rowFor(page, 'feature/reviewed');
-      await expect.poll(() => li.textContent()).toContain('Development');
+      await expect.poll(() => li.locator('[data-kind]').count()).toBe(1);
+      expect(await li.locator('[data-phase]').count()).toBe(0);
+      expect(await li.textContent()).not.toContain('Development');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('drops the repo column — the kind holds the track the phase held', async () => {
+    // Unchanged in substance and kept for its absence: a seventh cell would
+    // wrap a row that already wraps on long branch names, so the repo stays
+    // given up. Asserted as an absence because adding the kind BESIDE the repo
+    // passes every other test in this file.
+    const page = await openAgents();
+    try {
+      const li = rowFor(page, 'feature/reviewed');
+      await expect.poll(() => li.locator('[data-kind]').count()).toBe(1);
       expect(await li.textContent()).not.toContain('garden');
     } finally {
       await page.close();
     }
   });
 
-  it('names the phase by its COLUMN, and drops the sr-only prefix that stood in', async () => {
-    // Both halves, and the second is the one an easy implementation gets wrong.
+  it('names the kind by its COLUMN, and states it in no tooltip', async () => {
+    // Three halves, and the third is what `the-kind-is-labelled-not-hovered`
+    // asks for.
     //
-    // The list used to be a `<li>` of `<span>`s — a visual table with no table
-    // semantics — so a row was heard as a run of words and nothing said which
-    // word was the phase. `Development` does not announce itself. An `sr-only`
-    // prefix compensated for that missing structure; with a header row carrying
-    // `role="columnheader"`, the structure exists and the prefix would be a
-    // second copy of the same word.
-    //
-    // A fix that adds the header AND keeps the prefix passes every assertion
-    // about the header, and announces the column twice on every row of the
-    // fleet. So the absence is asserted, not merely the presence.
+    // 1. The header names the column once for the whole grid — `Kind`, where it
+    //    read `Phase`.
+    // 2. The row does not say it again: no `sr-only` prefix above `sm`, because
+    //    the header is the structure that replaced it.
+    // 3. NO `title` ANYWHERE ON THE CELL. The old phase cell carried
+    //    `title={waveName ? "Wave: …" : "Phase: …"}` — hover-only text that was
+    //    the ONLY place the cell said which of its four facts it was showing.
+    //    A single-meaning cell has nothing to disambiguate, so the attribute is
+    //    gone rather than reworded, and this asserts that it is gone.
     const page = await openAgents();
     try {
       const li = rowFor(page, 'feature/reviewed');
-      await expect.poll(() => li.textContent()).toContain('Development');
-      // The header names the column, once for the whole grid.
+      await expect.poll(() => li.locator('[data-kind]').textContent()).toBe('Branch');
       const headers = group(page, 'Waiting on you').getByRole('columnheader');
       await expect.poll(() => headers.allTextContents())
-        .toEqual(['Phase', 'Plan', 'Branch', 'Pull request', 'Age', 'Actions']);
-      // And the row does not say it again — asserted on the ACCESSIBLE NAME
-      // rather than on `textContent`, which reports text a `display: none`
-      // element still holds in the DOM. What a screen reader hears is the
-      // question, and it hears the header once and the cell's word once.
-      //
-      // The prefix survives BELOW `sm`, and only there: a card has no columns
-      // for a header to name, so the word `Development` would arrive with
-      // nothing saying what it is. That half is asserted in the card tests.
-      // NOT `.first()` — that is the marks cell now. The phase is the second,
-      // read by the named constant so this stays in step with the geometry
-      // constants above.
-      const phaseCell = li.locator('[role="gridcell"]').nth(PHASE_CELL);
-      const name = await phaseCell.evaluate((el) => (el as HTMLElement).innerText);
-      expect(name.trim()).toBe('Development');
-      // The word itself is untouched, and visible.
-      const word = li.locator('[data-phase]');
-      expect(await word.textContent()).toBe('Development');
+        .toEqual(['Kind', 'Plan', 'Branch', 'Pull request', 'Age', 'Actions']);
+      // The accessible name, not `textContent`: what a screen reader hears is
+      // the question, and it must hear the header once and the cell's word once.
+      const kindCell = li.locator('[role="gridcell"]').nth(KIND_CELL);
+      const name = await kindCell.evaluate((el) => (el as HTMLElement).innerText);
+      expect(name.trim()).toBe('Branch');
+      // The word is visible, and it is the label — not a tooltip.
+      const word = li.locator('[data-kind]');
       expect((await word.boundingBox())?.width ?? 0).toBeGreaterThan(1);
+      expect(await kindCell.getAttribute('title')).toBeNull();
+      expect(await word.getAttribute('title')).toBeNull();
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('gives a PR row the word PR, so two kinds read differently in one column', async () => {
+    // The claim the four-meanings column could not make: two rows in one
+    // section, same column, and the word DIFFERS because the rows are different
+    // kinds of thing. The phase could never do this — both rows' plans share a
+    // phase, so both printed the same word.
+    //
+    // `kind` is the SERVER's judgement and this fixture states it; the renderer
+    // reading it rather than sniffing `row.pr` is what makes a release (a PR on
+    // a `changeset-release/*` branch) classifiable at all.
+    const page = await openAgentsAt(1280, fleet({
+      rows: [
+        row({ branch: 'feature/has-pr', plan: 'beans', group: 'waiting-on-you',
+              phase: 'Development', ageMinutes: 20, kind: 'pr',
+              note: 'awaiting review', branchUrl: `${GH}feature/has-pr`,
+              pr: { number: 41, url: `${GH}../pull/41`, draft: false, state: 'green' } }),
+        row({ branch: 'feature/no-pr', plan: 'beans', group: 'waiting-on-you',
+              phase: 'Development', ageMinutes: 25, kind: 'branch',
+              note: 'awaiting review', branchUrl: `${GH}feature/no-pr` }),
+      ],
+    }));
+    try {
+      await expect.poll(() => rowFor(page, 'feature/has-pr').locator('[data-kind]')
+        .textContent()).toBe('PR');
+      expect(await rowFor(page, 'feature/no-pr').locator('[data-kind]').textContent())
+        .toBe('Branch');
+      // And NEITHER is given the phase both their plans have — the same fixture
+      // phase on both rows, printed on neither.
+      expect(await rowFor(page, 'feature/has-pr').locator('[data-phase]').count()).toBe(0);
+      expect(await rowFor(page, 'feature/no-pr').locator('[data-phase]').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -752,19 +820,39 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  // ── A deferred branch reads Design AND says it was handed back ────────────
+  // ── A deferred branch says it was handed back, and borrows no phase ───────
 
-  it('shows a deferred branch its phase AND the badge — each alone is wrong', async () => {
-    // Both halves, asserted together. Bare Design is indistinguishable from a
-    // branch nobody ever started; the badge alone would leave a month-old
-    // branch reading Development while nobody is working on it and the question
-    // of whether it is wanted is back on the table.
+  it('says a deferred branch was handed back WITHOUT borrowing a plan phase', async () => {
+    // THIS TEST'S CLAIM SURVIVED ITS OWN PREMISE, and the premise is what
+    // changed.
+    //
+    // It asserted the row showed `Design` as well as the badge, because *bare
+    // Design is indistinguishable from a branch nobody ever started* — the
+    // deferred branch was the ONE exception to *no phase inside a plan group*,
+    // on the argument that the phase carried a fact the badge did not.
+    //
+    // It did not. Re-read what the test also asserted: `not.toContain
+    // ('Development')` — what it actually cared about is that the row must not
+    // read as being actively worked on. The fact that discriminates *handed
+    // back* from *never started* is the BADGE, which is still here and still
+    // carries its reason in its title; the phase was a second, weaker signal
+    // borrowed from the plan.
+    //
+    // With no branch row printing a plan phase, that property holds for every
+    // row rather than being arranged per row — so the exception is gone and
+    // what it protected is stronger than before.
     const page = await openAgents();
     try {
       const li = rowFor(page, 'feature/shelved');
       await expect.poll(() => li.textContent()).toContain('deferred');
-      expect(await li.textContent()).toContain('Design');
+      // Neither phase word — not the one it used to print, and not the one it
+      // was never allowed to.
+      expect(await li.textContent()).not.toContain('Design');
       expect(await li.textContent()).not.toContain('Development');
+      expect(await li.locator('[data-phase]').count()).toBe(0);
+      // And the badge still says WHY, which is the fact that was doing the work.
+      expect(await li.locator('[data-deferred]').getAttribute('title'))
+        .toMatch(/Handed back/);
     } finally {
       await page.close();
     }
@@ -1974,7 +2062,13 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   // shift is one edit — a stale `nth()` scattered through the file would keep
   // PASSING while measuring a different column, which is the quietest way for a
   // geometry test to stop meaning what it says.
-  const PHASE_CELL = 1;
+  // Slot 2 holds THE KIND, and it held a plan phase (or a wave name, or
+  // nothing) until `the-wave-and-the-phase-find-their-owners` moved both facts
+  // to the objects they describe. Renamed WITH the meaning rather than left
+  // reading `PHASE_CELL` over a cell that holds a kind: a geometry constant
+  // whose name no longer matches its column is exactly the stale `nth()` the
+  // comment above warns about, wearing a name that hides the staleness.
+  const KIND_CELL = 1;
   const BRANCH_CELL = 3;
   const PR_CELL = 4;
   const AGE_CELL = 4;
@@ -2107,11 +2201,15 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     });
   }
 
-  it('names a branch\'s wave in the phase cell, in EVERY section', async () => {
-    // The load-bearing claim, across two sections at once: the count is
-    // plan-wide, so a branch of a multi-wave plan names its wave whether it sits
-    // in WORKING or NOT STARTED. A per-section count would leave the lone WORKING
-    // branch reading as single-wave and blank its label.
+  it('names a branch\'s wave BESIDE ITS BRANCH NAME, in EVERY section', async () => {
+    // The relocation, across two sections at once. The wave sat in slot 2, two
+    // tracks from the branch it names a slice of, as one of that column's four
+    // meanings; it now sits next to the branch, where the association is
+    // positional and needs no rule.
+    //
+    // Both sections, still — a branch of a plan names its wave whether it sits
+    // in WORKING or NOT STARTED, and it used to be possible for those to differ
+    // because the label was gated on a fleet-wide count.
     const page = await openAgents(waveFleet());
     try {
       const truth = rowFor(page, 'feature/truth-a');       // WORKING
@@ -2120,69 +2218,92 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() => foldA.locator('[data-wave]').textContent()).toBe('Fold');
       const foldB = rowFor(page, 'feature/fold-b');
       await expect.poll(() => foldB.locator('[data-wave]').textContent()).toBe('Fold');
-      // The wave took the PHASE cell, not a seventh column: no `data-phase` on a
-      // branch that now names its wave, and the wave word sits in that cell. Read
-      // off `data-wave` rather than the cell text, which also holds the sr-only
-      // "Wave:" prefix — the same shape the phase cell's own test reads.
+      // IN THE BRANCH CELL, not in slot 2 — the whole point of the move, and the
+      // assertion that fails if the badge is rendered in the old place.
+      const branchCell = truth.locator('[role="gridcell"]').nth(BRANCH_CELL);
+      expect(await branchCell.locator('[data-wave]').count()).toBe(1);
+      // And slot 2 holds the KIND, not the wave and not a phase.
+      const kindCell = truth.locator('[role="gridcell"]').nth(KIND_CELL);
+      expect(await kindCell.locator('[data-wave]').count()).toBe(0);
+      expect(await kindCell.locator('[data-kind]').count()).toBe(1);
       expect(await truth.locator('[data-phase]').count()).toBe(0);
-      const waveCell = truth.locator('[role="gridcell"]').nth(PHASE_CELL);
-      expect(await waveCell.locator('[data-wave]').textContent()).toBe('Truth');
     } finally {
       await page.close();
     }
   });
 
-  it('shows NO wave label for a single-wave plan, named OR unnamed', async () => {
-    // Both halves, and the named one is the trap. `flat`'s only wave is called
-    // `Layout`; a presence check would print it, turning one branch into a line
-    // of ceremony. `plain` is unnamed and must be just as bare.
+  it('names the wave of a plan divided ONCE, which the count used to suppress', async () => {
+    // THE BEHAVIOUR CHANGE, and it is the reverse of what this block asserted
+    // before. `flat`'s only wave is called `Layout`, and it showed nothing: the
+    // gate was `waveCount > 1`, defended as *a caption over a partition of one
+    // is noise* — sound while the label shared a cell with the plan phase, moot
+    // beside the branch name where it displaces nothing.
+    //
+    // The plan that relocated it requires the wave be reachable for EVERY branch
+    // that has one, so a named single wave now prints.
     const page = await openAgents(waveFleet());
     try {
       const flat = rowFor(page, 'feature/flat-a');
-      await expect.poll(() => flat.count()).toBe(1);
-      expect(await flat.locator('[data-wave]').count()).toBe(0);
-      expect(await flat.textContent()).not.toContain('Layout');
-      const plain = rowFor(page, 'feature/plain-a');
-      expect(await plain.locator('[data-wave]').count()).toBe(0);
-      expect(await plain.textContent()).not.toContain('unnamed');
+      await expect.poll(() => flat.locator('[data-wave]').textContent()).toBe('Layout');
     } finally {
       await page.close();
     }
   });
 
-  it('groups a wave\'s consecutive rows without repeating the name on each', async () => {
-    // The grouping is unchanged — consecutive `Fold` rows read as one run
-    // because they are adjacent, not because a heading was drawn per wave. The
-    // name appears on BOTH rows (it is the phase cell's content, per row), which
-    // is what a column does; what it must not do is add a wave HEADING row.
+  it('shows NO wave label for `(unnamed)` — the absence of a division, spelled', () => {
+    // The half of the old gate that SURVIVES, and it is now the whole gate.
+    // `plain`'s branches carry `(unnamed)`, which the server writes for a plan
+    // with no `### ` sub-headings — most plans on this board. A parenthesised
+    // non-answer beside a branch name is worse than nothing.
+    return openAgents(waveFleet()).then(async (page) => {
+      try {
+        const plain = rowFor(page, 'feature/plain-a');
+        await expect.poll(() => plain.count()).toBe(1);
+        expect(await plain.locator('[data-wave]').count()).toBe(0);
+        expect(await plain.textContent()).not.toContain('unnamed');
+      } finally {
+        await page.close();
+      }
+    });
+  });
+
+  it('groups a wave\'s consecutive rows without inventing a heading row', async () => {
+    // Unchanged: consecutive `Fold` rows read as one run because they are
+    // adjacent, not because a heading was drawn per wave. The name appears on
+    // BOTH rows, which is what a per-row mark does; what it must not do is add a
+    // wave HEADING row.
     const page = await openAgents(waveFleet());
     try {
       const notStarted = group(page, 'Not started');
-      // Both Fold rows carry the name, in document order, adjacent.
       const waves = await notStarted.locator('li[data-agent-row] [data-wave]')
         .allTextContents();
-      expect(waves).toEqual(['Fold', 'Fold']);
-      // And no extra ROW was invented for the wave — the section holds exactly
-      // its branches (under the plan row NOT STARTED draws), not a wave header.
+      // `Layout` joins them now that a single named wave prints — `flat-a` sits
+      // in NOT STARTED too. The Fold pair is still adjacent, which is the claim.
+      expect(waves.filter((w) => w === 'Fold')).toEqual(['Fold', 'Fold']);
+      expect(waves.indexOf('Fold') + 1).toBe(waves.lastIndexOf('Fold'));
       expect(await notStarted.getByRole('heading', { name: /^Fold/ }).count()).toBe(0);
     } finally {
       await page.close();
     }
   });
 
-  it('keeps the grid tracks still whether a row names a wave or a phase', async () => {
-    // The wave name takes the phase cell rather than adding a column, so a row
-    // that names its wave and one that names its phase must start their branch
-    // cell at the same x. Asserted across the two plans in one section.
+  it('keeps the grid tracks still whether a row names a wave or not', async () => {
+    // THE COST OF THE MOVE, measured. The wave badge went INTO the branch cell,
+    // which is the `1fr` track — so a row with a badge and a row without must
+    // still start their branch cell at the same x, and the row must still have
+    // seven tracks and not eight.
+    //
+    // This is the assertion that fails if the badge is given a track of its own,
+    // which is the obvious implementation and the one that re-opens the defect:
+    // an eighth track crosses the `CARD_BELOW_PX` arithmetic `ROW_TRACKS`
+    // records having already crossed once by 8px.
     const page = await openAgents(waveFleet());
     try {
       await expect.poll(() => rowFor(page, 'feature/truth-a').count()).toBe(1);
-      // `truth-a` names a wave (multi-wave plan); `flat-a` names neither (its
-      // single wave shows nothing) — the pair whose cell would diverge if the
-      // wave label came from anywhere but the phase track.
+      // `truth-a` names a wave; `plain-a` names none (`(unnamed)`) — the pair
+      // whose branch cell would diverge if the badge changed the geometry.
       expect(await cellX(page, 'feature/truth-a', BRANCH_CELL))
-        .toBe(await cellX(page, 'feature/flat-a', BRANCH_CELL));
-      // Seven tracks, unchanged: the wave did not earn a column of its own.
+        .toBe(await cellX(page, 'feature/plain-a', BRANCH_CELL));
       const tracks = await rowFor(page, 'feature/truth-a')
         .evaluate((el) => getComputedStyle(el).gridTemplateColumns);
       expect(tracks.split(' ')).toHaveLength(7);
@@ -2733,12 +2854,23 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const li = rowFor(page, 'feature/phone');
       await expect.poll(() => li.count()).toBe(1);
       const text = (await li.textContent()) ?? '';
-      // All five facts, present.
+      // All five facts, present — and the second one CHANGED with the column.
+      // It read `Development`, the plan's phase, until that fact moved to the
+      // plan heading; the cell holds the row's KIND, and the kind is what has to
+      // survive the card. Below `sm` there is no header row to name the column,
+      // so the `sr-only` prefix comes back here and only here — which is why
+      // this asserts the word rather than only the attribute.
       expect(text).toContain('lonely-plan');   // plan
-      expect(text).toContain('Development');   // phase
+      expect(text).toContain('Branch');        // kind
+      expect(text).toContain('Kind:');         // ...and what the word IS, below sm
       expect(text).toContain('158');           // PR
       expect(text).toContain('green');         // PR state
       expect(text).toContain('20m');           // age
+      // The phase is gone from the card too — the relocation is not a
+      // wide-viewport-only rule. A card that kept it would state a fact about
+      // the plan on a row about a branch at exactly the width where the reader
+      // has the least room for it.
+      expect(text).not.toContain('Development');
       // And the branch, WHOLE — nothing elided in the card form.
       const shown = await li.locator('[data-branch]').evaluate(
         (el) => (el as HTMLElement).innerText.replace(/\s+/g, ''),
@@ -2765,10 +2897,13 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const li = rowFor(page, 'feature/phone');
       await expect.poll(() => li.count()).toBe(1);
       const branch = await li.locator('[data-branch]').boundingBox();
-      const phase = await li.locator('[data-phase]').boundingBox();
-      // The phase sits ABOVE the branch (plan and phase lead the wrapped line
-      // in DOM order), and nothing shares the branch's line to its right.
-      expect(phase!.y).toBeLessThan(branch!.y);
+      // Anchored on the KIND, which is what slot 2 holds — it was the phase, and
+      // the phase is no longer on this row at all, so a `[data-phase]` locator
+      // here would resolve to nothing and `boundingBox()` would throw. The
+      // GEOMETRIC claim is unchanged: slot 2 leads the wrapped line and the
+      // branch takes a line of its own beneath it.
+      const kind = await li.locator('[data-kind]').boundingBox();
+      expect(kind!.y).toBeLessThan(branch!.y);
       // The row is taller than one line: it stacked rather than ranged.
       const box = await li.boundingBox();
       expect(box!.height).toBeGreaterThan(branch!.height * 1.5);
@@ -2783,12 +2918,13 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('names the phase in the card, where there is no column to name it', async () => {
-    // The other half of dropping the `sr-only` prefix. The header goes with the
-    // columns below `sm`, so a card reader would otherwise hear `Development`
-    // with nothing saying what it is — exactly the defect the prefix was
-    // written for. It is gone from the GRID, where the header replaced it, not
-    // gone from the app.
+  it('names the KIND in the card, where there is no column to name it', async () => {
+    // The other half of dropping the `sr-only` prefix, and it survives the
+    // relocation intact because it is a claim about the CELL and not about the
+    // phase. The header goes with the columns below `sm`, so a card reader would
+    // otherwise hear `Branch` with nothing saying what it is — exactly the
+    // defect the prefix was written for. It is gone from the GRID, where the
+    // header replaced it, not gone from the app.
     const page = await openAgentsAt(375, fleet({
       rows: [row({
         branch: 'feature/phone', plan: 'lonely-plan', group: 'waiting-on-you',
@@ -2802,12 +2938,16 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // NOT `.first()` — that is the marks cell now. The phase is the second,
       // read by the named constant so this stays in step with the geometry
       // constants above.
-      const phaseCell = li.locator('[role="gridcell"]').nth(PHASE_CELL);
+      const kindCell = li.locator('[role="gridcell"]').nth(KIND_CELL);
       // `innerText` reports the sr-only span as its own line, so the assertion
       // is on the words rather than on the exact spacing between them.
-      const heard = await phaseCell.evaluate((el) => (el as HTMLElement).innerText);
-      expect(heard).toContain('Phase:');
-      expect(heard).toContain('Development');
+      const heard = await kindCell.evaluate((el) => (el as HTMLElement).innerText);
+      expect(heard).toContain('Kind:');
+      expect(heard).toContain('Branch');
+      // And NOT the plan's phase, which the fixture still carries — the card is
+      // where a relocation is most tempting to skip, because the row is already
+      // a stack of everything and one more word looks free.
+      expect(heard).not.toContain('Development');
       // And the header is not also announcing it — there are no columns.
       expect(await group(page, 'Waiting on you').getByRole('columnheader').count()).toBe(0);
     } finally {
@@ -2829,10 +2969,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const li = rowFor(page, 'feature/desk');
       await expect.poll(() => li.count()).toBe(1);
       const branch = await li.locator('[data-branch]').boundingBox();
-      const phase = await li.locator('[data-phase]').boundingBox();
-      // Same line: the phase is to the LEFT of the branch, not above it.
-      expect(phase!.x).toBeLessThan(branch!.x);
-      expect(Math.abs(phase!.y - branch!.y)).toBeLessThan(branch!.height);
+      const kind = await li.locator('[data-kind]').boundingBox();
+      // Same line: slot 2 is to the LEFT of the branch, not above it.
+      expect(kind!.x).toBeLessThan(branch!.x);
+      expect(Math.abs(kind!.y - branch!.y)).toBeLessThan(branch!.height);
       // And it really is a grid with six tracks.
       const tracks = await li.evaluate((el) => getComputedStyle(el).gridTemplateColumns);
       // SEVEN since the marks earned a track of their own at the front.
