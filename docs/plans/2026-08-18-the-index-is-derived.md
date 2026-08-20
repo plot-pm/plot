@@ -164,7 +164,7 @@ that could not find its own plan.
 
 ### Stop depending
 
-- `feature/the-lifecycle-does-not-need-the-symlink` — `/plot-idea` and `/plot-deliver` no longer depend on symlink maintenance for correctness. Whether they keep creating symlinks for human browsing is the first Open Point; this branch makes the lifecycle correct either way. Test: a plan created without a symlink is dispatchable, deliverable, and visible on the board.
+- `feature/the-lifecycle-does-not-need-the-symlink` — `/plot-idea` and `/plot-deliver` no longer depend on symlink maintenance for correctness. Whether they keep creating symlinks for human browsing is the first Open Point; this branch makes the lifecycle correct either way. Test: a plan created without a symlink is dispatchable, deliverable, and visible on the board. → #296
 
 ## Notes
 
