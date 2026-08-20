@@ -65,6 +65,25 @@ same PR number is reachable per branch — `plot-plan-meta.sh` reports `prs` per
 plan and the fleet scan resolves each branch's PR to decide `merged` — it simply
 is not carried onto the row that displays the branch.
 
+### One action sits outside the menu it belongs in
+
+Observed 2026-08-20. Every row action reaches the reader through the `...`
+menu — except *Create plan* on an issue row, which `CreatePlanButton.tsx`
+renders inline as text. Two consequences, both visible in the same screenshot:
+
+- **It collides with the age column.** The issue rows read `1d` and `Create
+  plan` overlapping in the same cell, because a fixed-width age track was never
+  asked to share with a button.
+- **The reader learns two grammars.** Actions are in the menu, *except this
+  one*. A row's affordances should be discoverable in one place, and an
+  exception has to earn itself — this one is an artefact of the button arriving
+  before the menu existed, not a decision.
+
+The menu already carries actions that write to the host, so *Create plan* is
+not too consequential for it. The two-step arm (`Create plan — Draft for #228?`)
+is worth keeping wherever it lives; that confirmation is about the write, not
+about the placement.
+
 ### The same gap, in dispatch
 
 `plot-dispatch.sh --dry-run` reported `claimed=0` across a fleet with four live
@@ -138,6 +157,7 @@ a warning it may read as advisory.
 ### Said
 - `bug/the-board-says-who-holds-a-branch` — `WORKING` shows a held branch whether or not its tree is dirty, and `NOT STARTED` says *held in a local worktree* instead of *nobody has taken it*. Tests: an agent that commits stays in WORKING; a held branch is never offered as eligible; the row names the worktree.
 - `bug/a-branch-row-carries-its-link` — the branch row carries the PR number and URL the scan already resolved, so the branch name links the way the plan name does. Tests: a branch with a merged PR carries its number; a branch with no PR carries none and renders as text rather than a dead link; the row's link survives a branch whose ref is deleted, since the PR outlives it.
+- `bug/every-action-is-in-the-menu` — *Create plan* moves into the `...` menu with every other row action, freeing the age column it currently overlaps. Tests: an issue row's menu offers Create plan; no action renders outside the menu; the two-step arm survives the move; the age column renders alone.
 - `bug/dispatch-refuses-a-held-branch` — `plot-dispatch.sh` refuses a branch whose worktree exists with an unmerged tip, naming the path, and says so in `--dry-run`. Tests: a held branch is refused and counted `skipped`; the refusal names the worktree; `--allow-local` does not override it; a leftover worktree on a merged branch is still dispatchable.
 
 ## Notes
