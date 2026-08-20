@@ -240,6 +240,17 @@ where the plan has more than one wave, and falls back to `row.phase` otherwise.
 Both choices are individually defended in the comment there — the wave is *"the
 fact that varies row to row"*, and a caption over a partition of one is noise.
 
+**A plan phase on a branch row is the phase of the wrong thing.** `Design`,
+`Development`, `Endgame` describe where the **plan** stands in its lifecycle.
+Printed on a branch row they repeat one fact down every branch of that plan, and
+they describe something the row is not: a branch is not in Development, its plan
+is. Counted on the live pulse — 36 rows read `Development`, 26 read `Endgame`,
+9 read `Design` — so three words account for 71 rows, none of which is about the
+row it sits on.
+
+Worse where the plan is multi-wave: the same column then reads `Says` on one row
+and `Development` on the next, and only one of those is about a branch.
+
 **Each half is right and the column is wrong.** A reader scanning down sees
 `Says`, `Design`, `Count`, `Development` and cannot tell which words name a wave
 and which name a phase, because nothing distinguishes them but knowing the plan.
@@ -255,9 +266,12 @@ kind of fact. Which one is a decision, and both readings are defensible:
 
 - **the wave**, with the phase moving to the plan heading where it is stated
   once rather than repeated down every branch — matching `PlanRow`, which
-  already states the phase in the plan's own line
+  already states the phase in the plan's own line. **This is the reading the
+  measurement favours**: the phase is not a fact about the branch, and 71 of the
+  rows carrying one are carrying their plan's word.
 - **the phase**, with the wave moving beside the branch name where
-  `a-branch-row-names-its-wave` (#275) put it
+  `a-branch-row-names-its-wave` (#275) put it — kept as the alternative, but it
+  leaves a branch row labelled with something that is not about it.
 
 What must not survive is a cell whose meaning depends on a property of the plan
 the reader cannot see.
@@ -314,7 +328,7 @@ failure shaping settle on top of it.
 
 ### Leads
 - `feature/the-row-leads-with-its-subject` — the dominant track holds what the reader must act on: the PR where the work is PR work, the branch where it is branch work. Replaces `pr.state` with `pr.states`, a set, so a PR can report a conflict and a failing build together; grouping picks the winner explicitly rather than inheriting it from a singular field. Tests: an open PR awaiting review leads with the PR; a PR with a failing check leads with the PR, since the fix updates the PR; a **merge conflict leads with the branch even when a PR is open**, since no PR resolves it; **a PR with both leads with the branch and names the build failure on a second line**; a branch with no PR leads with the branch; **a conflicting PR still lands in `waiting-on-you` after the set change** — the grouping at `fleet.ts:2198` is pinned by a test, not by the field's old shape; a release row is marked as its own kind rather than as an ordinary PR; **plans of equal age order by name**, the fix #267 landed for NOT STARTED; `PlanRow` and `IssueRowView` are untouched; no host call is added.
-- `bug/one-column-one-kind-of-fact` — the phase column holds one kind of fact rather than a wave name, a plan phase, or nothing depending on the plan's wave count. Tests: a multi-wave plan's branches and a single-wave plan's branches read the same kind of word; a PR row and a CI row are not given a phase they do not have; a ticket is not labelled with a plan phase; the distinction is visible without hovering.
+- `bug/one-column-one-kind-of-fact` — the phase column holds one kind of fact rather than a wave name, a plan phase, or nothing depending on the plan's wave count. **A branch row stops carrying its plan's phase**, which is a fact about the plan and not about the branch. Tests: a branch row does not print a plan phase; a multi-wave plan's branches and a single-wave plan's branches read the same kind of word; a PR row and a CI row are not given a phase they do not have; a ticket is not labelled with a plan phase; the distinction is visible without hovering.
 - `bug/the-kind-is-labelled-not-hovered` — the sentence in the tooltip becomes a visible label in the leading column. Tests: the label renders without hover; it names the same kind the tooltip did; a row whose kind cannot be determined says so rather than guessing.
 
 ### Shaped
