@@ -9,13 +9,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Delivered
 - **Type:** bug
 - **Story:** plot-board
 - **Sprint:**
 - **Review:** in-session
 - **Impl:** own branches
 - **Assignee:** jwloka
+- **Delivered:** 2026-08-20 by jwloka — PR #255; the only branch this plan had
 
 ## Problem
 
@@ -121,9 +122,25 @@ planning runs ahead of implementation — which is the normal state of a fleet.
 - [ ] Does `plot-host.sh` want a `pr-list --state all` fast path for Bitbucket,
       where `all` fans out to three calls?
 
+## Why the branch shipped a test and no fix
+
+The measurement that dissolved this plan's premise, recorded here rather than in
+an HTML comment on a branch line, because it is the finding:
+
+**The cache read at `plot-fleet-scan.sh:571-574` precedes the `--ask` arm.** So a
+merged-and-deleted branch that the joined list already names costs **zero** host
+calls — the defect this plan set out to fix did not exist. What shipped as #255
+is the regression test that pins the ordering, and nothing else.
+
+The inverted diagnosis is the reason the plan is kept rather than deleted: the
+*shape of the growth* — cost rising with every merge — was the whole argument for
+the fix, and it was the wrong shape. The fifteen remaining calls are branches a
+plan names and nobody has pushed, which grows with **planning**, not with
+merging, and needs a different fix.
+
 ## Branches
 
-- `bug/the-no-ref-arm-reads-the-join` — <!-- deferred: the defect does not exist. Measured 2026-08-20: the cache read at plot-fleet-scan.sh:571-574 precedes the --ask arm, so a merged-and-deleted branch the join names already costs zero host calls. Landing the regression test that pins that ordering, and nothing else. --> the regression test only: a merged-and-deleted branch that the arrived list names costs zero `pr-state` calls, asserted by counting invocations of a stubbed host. No behaviour change.
+- `bug/the-no-ref-arm-reads-the-join` → #255 — the regression test only: a merged-and-deleted branch that the arrived list names costs zero `pr-state` calls, asserted by counting invocations of a stubbed host. No behaviour change.
 
 ## Notes
 
