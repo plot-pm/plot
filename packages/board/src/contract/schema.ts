@@ -749,6 +749,37 @@ export const WaitingOnSchema = z.enum(['you', 'click', 'time']);
 export type WaitingOn = z.infer<typeof WaitingOnSchema>;
 
 /**
+ * WHETHER A BRANCH HAS THE ONE FILE A WORKER IS TOLD TO READ FIRST.
+ *
+ *   `present` the brief is there. Nothing stands between this branch and a
+ *             worker.
+ *   `missing` it is not. `/plot-implement` writes it, and until it does a
+ *             dispatch starts an agent that reads a file which is not there.
+ *   `unknown` the question could not be answered — `.plot/briefs` itself would
+ *             not be read, or nobody looked.
+ *
+ * THREE, AND THE THIRD IS THE POINT. `ClaimableSchema.briefExists` — the same
+ * fact, answered for `/api/attention` since #236 — is a BOOLEAN that returns
+ * `false` on any error, so *absent* and *could not tell* arrive as one value.
+ * That is defensible there: a caller asking *what should I do next* over a
+ * filtered set is being handed a path either way, and looking is its next move.
+ *
+ * It is not defensible on a ROW. A row is read by a person deciding whether to
+ * start work, and *no brief — write one first* is a claim about a repository.
+ * Made on the strength of an `EACCES`, it sends that person to write a file
+ * that already exists. This is the board's own standing rule — stated at
+ * `plot-board-probe.sh` for auth (`ok`/`failed`/`unknown`), at `conflicts_known`
+ * for an unexamined branch, and at `verdict` for a phase the board cannot place:
+ * **an unrecognised answer reads as *cannot verify*, never as the negative.**
+ *
+ * A FIELD RATHER THAN A SENTENCE, which is this file's other standing rule —
+ * see `ELIGIBLE_NOTE` and `waitingOn`. The note says what a reader hears; the
+ * field is what a consumer reads.
+ */
+export const BriefStateSchema = z.enum(['present', 'missing', 'unknown']);
+export type BriefState = z.infer<typeof BriefStateSchema>;
+
+/**
  * The note for a branch an earlier wave is holding back — without the name.
  *
  * The unnamed form is the FALLBACK, not the default: a plan with no `###`
@@ -1709,6 +1740,37 @@ export const AgentRowSchema = z.object({
    * a pulse then renders exactly as the board does today: in words, no colour.
    */
   waitingOn: WaitingOnSchema.nullable().default(null),
+  /**
+   * WHETHER THIS BRANCH HAS ITS BRIEF — see `BriefStateSchema`.
+   *
+   * The fact the row was missing, and the one that decides whether *eligible*
+   * can be acted on. `waitingOn: 'click'` above says the WAVE ordering is
+   * satisfied; this says whether the branch has the specification a worker is
+   * told to read first. Both are true of a startable branch and only the first
+   * was ever reported, so nine rows read *eligible — nobody has taken it* on
+   * 2026-08-19 and not one of them could be started.
+   *
+   * ALREADY MEASURED ELSEWHERE, AND THAT IS THE DEFECT RATHER THAN THE FIX.
+   * `ClaimableSchema.briefExists` has answered this for `/api/attention` since
+   * #236 — so an agent asking the API was told and a person reading the row was
+   * not, because the two answers are built by different code from one repo.
+   * This closes that, and closes it as a THIRD reader of the convention rather
+   * than by importing `attention.ts`: see `briefState` in `fleet.ts` for why,
+   * and `continue.ts`'s `briefPathFor`, which made the same choice first.
+   *
+   * `unknown` IS THE DEFAULT, and the choice is the opposite of `localDirty`'s.
+   * There, absent and false are one statement — a machine with no worktree
+   * honestly reports nothing. Here they are not: a server that never looked has
+   * said nothing about the repository, while `missing` is a claim that would
+   * send a reader to write a file. A pulse from a server predating this field
+   * therefore renders as it always did — the note, with nothing added.
+   *
+   * ON EVERY ROW, not only the startable ones. The question *does this branch
+   * have its brief* has an answer whatever the branch is doing, and scoping the
+   * field to `not-started` would make a row's own history unreadable the moment
+   * it moved. The RENDERER decides where saying so helps; see `AgentList.tsx`.
+   */
+  brief: BriefStateSchema.default('unknown'),
   /**
    * The name of the earlier wave blocking this row — `waitingOn: 'time'` only,
    * null everywhere else.

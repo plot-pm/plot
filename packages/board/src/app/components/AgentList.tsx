@@ -1198,6 +1198,72 @@ export function isStartable(row: AgentRow): boolean {
 }
 
 /**
+ * Does this row still need its BRIEF written before anyone can start it?
+ *
+ * `isStartable` above answers whether the wave ordering is satisfied. This
+ * answers the other half a dispatch needs, and until the row carried `brief`
+ * there was no way to ask it: the `Worker command` opens by telling the agent to
+ * read `.plot/briefs/<slug>.md`, and `plot-dispatch.sh` reports `brief=missing`
+ * unconditionally because it cannot write one — that is interpretation, and
+ * `/plot-implement` owns it.
+ *
+ * Measured 2026-08-19: nine eligible rows on this board, zero briefs. Every one
+ * read *eligible — nobody has taken it*, and every dispatch it invited would
+ * have started an agent that reads a file which is not there.
+ *
+ * SCOPED TO THE STARTABLE ROW, and the scope is the point rather than an
+ * economy. The brief is a precondition of STARTING, so the fact is worth a
+ * reader's attention exactly where starting is the row's available move. A
+ * blocked row has a wave to wait for first and a working row is past the
+ * question — saying it there would be true and would spend the reader's
+ * attention on something they cannot act on, which is what the tone rules in
+ * `waitingTone` are protecting.
+ *
+ * `missing` ONLY — never `unknown`. A row whose brief could not be checked has
+ * nothing to tell the reader, and *the board could not tell whether this has a
+ * brief* on every row of a server that never looked would be noise standing in
+ * for an answer. See `BriefStateSchema` for why the third value exists at all.
+ *
+ * READS THE FIELD, not the note — the standing rule this file states at
+ * `isStartable` and a file scan enforces (`verdict-not-prose.test.ts`).
+ */
+export function needsBrief(row: AgentRow): boolean {
+  return isStartable(row) && row.brief === 'missing';
+}
+
+/**
+ * What a row with no brief SAYS — and what it deliberately does not say.
+ *
+ * *"eligible — nobody has taken it"* was reported by an operator for naming a
+ * state and implying an action that does not work. The sharper half of the
+ * complaint is the phrasing: *nobody has taken it* supplies the reason nobody
+ * has taken it as if it were an accident of attention. It reads as an
+ * invitation with a missing actor, when what is missing is a FILE.
+ *
+ * So this names the file and the thing that writes it. THE MISSING PIECE IS A
+ * DOCUMENT, NOT A PERSON — and the distinction is not pedantry, it is the whole
+ * difference between two jobs done by two different things: a worker takes a
+ * branch, `/plot-implement` writes a brief. An operator told *nobody has taken
+ * it* runs `/plot-dispatch`; an operator told this runs the thing that helps.
+ *
+ * IT NAMES THE COMMAND RATHER THAN OFFERING IT. Whether the board should offer
+ * the brief-writing action is an Open Point the plan recorded and declined to
+ * settle — running `/plot-implement` is a real write, and the board's line is
+ * drawn at the acting endpoints it already has. Naming what to run is read-only
+ * and answers the reader's question; a button would be a second decision, and
+ * this row is not the place to take it unasked.
+ *
+ * The PATH is spelled out because it is the thing a reader can check and the
+ * place `/plot-implement` will write. It is derived the same way the server
+ * derives it — the branch name after its last `/` — and the two agree by
+ * construction, both following the convention Plot itself writes.
+ */
+export function briefGapNote(branch: string): string {
+  const slug = branch.split('/').pop() ?? branch;
+  return `no brief at .plot/briefs/${slug}.md — /plot-implement writes it`;
+}
+
+/**
  * The note's colour, by what the row is waiting for.
  *
  * ONLY ONE OF THE THREE IS LOUD, and that is the whole design. `needs you` is
@@ -4943,6 +5009,46 @@ function Row({
         >
           <span className="shrink-0 font-medium text-slate-600 dark:text-slate-300">deferred</span>
           <span className="min-w-0 max-sm:whitespace-normal">{row.deferredReason}</span>
+        </span>
+      )}
+      {/* WHAT STANDS BETWEEN THIS ROW AND A WORKER — the brief, named where it
+          is absent.
+
+          THE SAME LINE-BENEATH SHAPE AS THE DEFERRAL ABOVE, and for the same
+          measured reason: this is a SENTENCE, and every cell on line one is
+          bounded. The note track is a fixed `14rem` already carrying *eligible
+          — nobody has taken it*, so a path appended there would `truncate` to
+          nothing — exactly what happened to the deferral reason when it was
+          tried in that cell. Declared AFTER the deferral for the reason that
+          comment records: a cell spanning `3 / -1` opens the second grid row,
+          so both sentences stack beneath a line one that keeps all its cells.
+
+          Rendered, not hidden in a `title`: a title is unreachable by touch and
+          by keyboard, and this sentence is the answer to *why can I not start
+          this*. The two lines never appear together — a deferred branch is not
+          startable, so `needsBrief` is false on every row the deferral renders
+          on.
+
+          THIS ROW'S NOTE STILL SAYS *eligible*, and that is correct rather than
+          a leftover. The wave arithmetic IS satisfied: the branch is genuinely
+          next, which is what the operator's original question established. What
+          was wrong was the row stopping there — so the fact is added beside the
+          verdict rather than replacing it, the same rule `stuck` follows in
+          keeping a row's group while naming what holds it. */}
+      {needsBrief(row) && (
+        <span
+          role="gridcell"
+          data-brief-gap
+          className="flex w-full items-baseline gap-x-2 text-xs text-amber-700 sm:col-start-3 sm:col-end-[-1] dark:text-amber-400"
+          title={briefGapNote(row.branch)}
+        >
+          {/* AMBER, the `waitingOn: 'you'` colour — because that is what this
+              is. A missing brief is a person's errand and nothing in git will
+              clear it, which is precisely the state `waitingTone` paints amber.
+              The note beside it stays the ordinary `click` colour: the wave
+              really is open, and only this line is the thing needing someone. */}
+          <span className="shrink-0 font-medium">needs a brief</span>
+          <span className="min-w-0 max-sm:whitespace-normal">{briefGapNote(row.branch)}</span>
         </span>
       )}
       {logOpen && (

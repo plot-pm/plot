@@ -13,6 +13,7 @@ import {
   WaveVerdictSchema,
   type AgentRow,
   type BranchState,
+  type BriefState,
   type Fleet,
   type FleetPulse,
   type IssueAnswer,
@@ -3445,6 +3446,77 @@ export function compareWithinGroup(a: AgentRow, b: AgentRow): number {
 }
 
 /** Flatten a pulse into rows, grouped by what each one asks of you. */
+/**
+ * WHERE A BRANCH'S HAND-OFF BRIEF LIVES — `.plot/briefs/<slug>.md`, the slug
+ * being the branch name after its last `/`.
+ *
+ * A CONVENTION PLOT ITSELF WRITES, not a guess about one: `/plot-implement`
+ * writes exactly this path and the `Worker command` in `CLAUDE.md` opens by
+ * telling the agent to read it.
+ *
+ * A THIRD READER of that convention rather than an import, and deliberately so
+ * — the choice `continue.ts`'s `briefPathFor` made first and records at length.
+ * `attention.ts` derives the path to REPORT it to an agent; `continue.ts` to
+ * READ a file; this one to answer a yes/no about a row. Sharing a helper across
+ * a server-module boundary to save two lines would couple the render path to an
+ * advisory endpoint for no gain, and if the convention ever moves all three fail
+ * the same way — loudly, on a missing file — rather than one of them silently.
+ */
+function briefPathOf(branch: string): string {
+  const slug = branch.split('/').pop() ?? branch;
+  return path.join('.plot/briefs', `${slug}.md`);
+}
+
+/**
+ * Does this branch have its brief? `present`, `missing`, or `unknown`.
+ *
+ * THE THIRD ANSWER IS THE WHOLE REASON THIS IS NOT `existsSync` INLINE, and it
+ * is what separates this from `attention.ts`'s boolean twin, which returns
+ * `false` on any error. That boolean is right for its caller — an agent handed a
+ * path either way, whose next move is to look. It is wrong for a ROW: *no brief
+ * — write one first* is a claim about the repository, and made on the strength
+ * of an unreadable `.plot/briefs` it sends a person to write a file that may
+ * already be there.
+ *
+ * So the two failures are told apart by ASKING A SECOND QUESTION rather than by
+ * inspecting an errno. A missing FILE is the common case and a real answer:
+ * `plot-dispatch.sh` reports `brief=missing` unconditionally, because it cannot
+ * write a brief and never will — that is interpretation, and `/plot-implement`
+ * owns it. So most eligible branches genuinely have none. A DIRECTORY that
+ * exists and will not be read is not evidence about the file, and `unknown` is
+ * what the board says when it has not asked. The same shape
+ * `plot-board-probe.sh` uses for auth and `conflicts_known` for an unexamined
+ * branch.
+ *
+ * `existsSync` rather than a read: nothing here wants the contents, and it is
+ * exactly the question. Measured 2026-08-19 on this repo — 60 branches, 100
+ * iterations — 0.2 ms per pulse, against a scan that takes 14 s.
+ *
+ * DIRECTORY FIRST, and the order is load-bearing rather than an optimisation.
+ * `existsSync` cannot distinguish its own two falses: it swallows the error and
+ * returns `false` both for *not there* and for *could not look* — measured, on a
+ * readable file inside a `0o000` directory. Asking about the directory with a
+ * throwing call first is what makes the second call's `false` mean the one thing
+ * it is allowed to mean.
+ */
+export function briefState(repoRoot: string, branch: string): BriefState {
+  const rel = briefPathOf(branch);
+  try {
+    // Can the directory be READ AT ALL? `accessSync` throws where `existsSync`
+    // would quietly answer `false`, which is the distinction this function
+    // exists to preserve. A missing `.plot/briefs` is NOT unknown — a repo that
+    // has never had a brief written honestly has no such directory, and every
+    // branch in it is `missing`, which is the answer `/plot-implement` acts on.
+    // Only a directory that EXISTS and will not be read is unanswerable.
+    const dir = path.join(repoRoot, path.dirname(rel));
+    if (fs.existsSync(dir)) fs.accessSync(dir, fs.constants.R_OK);
+    return fs.existsSync(path.join(repoRoot, rel)) ? 'present' : 'missing';
+  } catch {
+    // The directory is there and would not answer. Not a claim about the file.
+    return 'unknown';
+  }
+}
+
 export function rowsFromPulse(
   pulse: FleetPulse,
   ages: Map<string, number | null>,
@@ -3490,6 +3562,25 @@ export function rowsFromPulse(
    * is what a caller that did not look should get, rather than a guess.
    */
   prsByHeadMap?: Map<string, PrRecord> | null,
+  /**
+   * The repository root, so a row can be asked whether its brief exists — the
+   * one file a worker is told to read first. See `briefState`.
+   *
+   * A ROOT RATHER THAN A PREBUILT MAP, which is the opposite of the choice
+   * `questions` above makes, and the difference is what each costs. A question
+   * costs a subprocess per waiting row, so it is read on the scan's clock and
+   * arrives already built. This is one `existsSync` — 0.2 ms per pulse for 60
+   * branches, measured — so passing the root and looking here keeps the answer
+   * as fresh as the row: a brief written between two pulses shows up on the
+   * next one, where a map built at scan time would hold the older answer for as
+   * long as the scan's cadence.
+   *
+   * Last in the parameter list because it is the newest, so every existing
+   * caller is unchanged. A caller passing nothing has not looked, and every row
+   * then reads `unknown` — which is exactly true of it, and renders as the board
+   * did before the field existed.
+   */
+  repoRoot = '',
 ): AgentRow[] {
   const rows: AgentRow[] = [];
   for (const plan of pulse.plans) {
@@ -3698,6 +3789,25 @@ export function rowsFromPulse(
           // inputs `classify` just used, so the colour and the sentence beside
           // it cannot disagree. See `waitingOnFor`.
           waitingOn,
+          // WHETHER THE BRANCH HAS ITS BRIEF — the second half of *can this be
+          // started*, and the half the row could not say.
+          //
+          // `waitingOn` above answers whether the WAVE ordering is satisfied;
+          // this answers whether the branch has the specification a worker is
+          // told to read first. Both must hold, and only the first was ever
+          // reported — which is how nine rows read *eligible* on 2026-08-19
+          // with zero briefs between them.
+          //
+          // ASKED FOR EVERY ROW, not only the startable ones, and the cost is
+          // what makes that affordable: one `existsSync`, 0.2 ms per pulse for
+          // 60 branches. Scoping the call to `not-started` would save nothing
+          // measurable and would make the field mean *asked* on some rows and
+          // *not asked* on others — a second meaning inside one value, which is
+          // the shape this row keeps splitting apart.
+          //
+          // `unknown` where no root was passed: a caller that did not look, and
+          // the renderer says nothing at all for it.
+          brief: repoRoot ? briefState(repoRoot, b.branch) : 'unknown',
           // And by WHICH wave, where that is the answer. Only the server can
           // say: `verdict` lives on the wave, the row carries only its own
           // name. Null on every row that is not blocked, and on a blocked row
@@ -3912,6 +4022,16 @@ export function rowsFromPulse(
       // answer `waitingOnFor` gives every row outside `not-started` — which
       // this row always is, since it reaches the board through the PR map.
       waitingOn: null,
+      // NO BRIEF QUESTION TO ASK, so `unknown` — and it is the honest answer
+      // here rather than a default standing in for one.
+      //
+      // A brief is written by `/plot-implement` FOR A BRANCH A PLAN NAMES. This
+      // row reaches the board through the PR map precisely because no plan names
+      // it, so there is no hand-off for a brief to be the specification of. It
+      // is not `missing`: nothing is absent that anything would ever write. And
+      // the renderer says nothing for `unknown`, which is what a row with no
+      // brief question should show.
+      brief: 'unknown',
       blockedBy: null,
       // NO WAVE, SO NO VERDICT — null, and for the same reason as the two
       // fields above rather than as a placeholder. This row is built from the PR
@@ -3994,7 +4114,11 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
   const rows = entry.pulse
     ? rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, entry.prs,
       entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans, entry.runs,
-      entry.questions, entry.prsByHead)
+      // The root, so each row can be asked whether its brief exists. Read HERE
+      // on the render clock rather than carried on the pulse: the check is one
+      // `existsSync` and a brief written between two scans is visible on the
+      // next pulse, where a scan-time answer would be as stale as the scan.
+      entry.questions, entry.prsByHead, opts.repoRoot)
     : [];
   return {
     generatedAt: new Date().toISOString(),
