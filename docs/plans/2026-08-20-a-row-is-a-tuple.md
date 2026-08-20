@@ -68,6 +68,27 @@ the branch and the artifact slot is empty. The row leads with what the reader is
 deciding about, and the vehicle follows in a slot that may be blank — the rule
 this estate reached from the other direction.
 
+**BOTH slots are links: the item itself, and its artifact.** Two destinations
+per row, and they are different places — `57` opens the pull request, while
+`feature/opus5-longhorizon-hardening` beside it opens the branch on the host.
+
+This is what makes the artifact slot's varying target harmless. The examples
+point at three sorts of thing — a Plan and a PR name a **branch**, a Build names
+a **PR**, a Ticket names the **plan that came from it** — and a reader never has
+to infer which, because the slot they are looking at is the one they clicked.
+The Ticket case even points *forward* along the chain where the Build points
+back; with both slots linked, direction is a property of the pair rather than a
+rule the reader must hold.
+
+It also repairs the defect measured on the live pulse: branch rows carried
+`branch, path` and **zero of seven** carried any URL, so a plan name was a link
+and the branch beside it was inert text. Two links per row is the general form of
+the fix `a-branch-row-carries-its-link` (#260) made for one case.
+
+Where a slot has no destination — a branch's empty artifact slot — it renders as
+nothing rather than as a dead control. The rule this board already applies to a
+PR cell with no PR.
+
 **One status slot, whatever the kind.** `conflicts`, `draft`, `thinking`,
 `no-checks` are all "where does this stand". The prose notes that vary per kind
 become one value in one place.
@@ -94,10 +115,6 @@ two grids for what will be seven kinds.
 
 - [ ] **Ticket age is blank in the example.** Is that deliberate — a ticket's age
       being the tracker's business — or an omission? Every other kind carries one.
-- [ ] **Build names itself `CI:1860` and points at `PR 283`**, while a PR points
-      at a branch. So the artifact slot is *"the thing one level down"* rather
-      than always a branch. Worth stating explicitly, or the slot drifts back
-      into meaning several things.
 - [ ] **Is `Release` a kind or a PR with a mark?** Recorded as a kind here,
       matching the operator's list, and it is the one row nobody should merge by
       reflex.
@@ -108,7 +125,7 @@ two grids for what will be seven kinds.
 ## Branches
 
 ### Shaped
-- `feature/a-row-is-a-tuple` — the contract carries the six slots and one grid renders them for every kind. Tests: each of the seven kinds renders all six slots; a blank artifact slot renders as blank rather than borrowing another fact; the kind is present without hovering; no host call is added.
+- `feature/a-row-is-a-tuple` — the contract carries the six slots and one grid renders them for every kind, with **both the item and its artifact linked**. Tests: each of the seven kinds renders all six slots; the item name and the artifact name are separate links to separate destinations; a blank artifact slot renders as nothing rather than as a dead control; a row whose item has no URL renders its name as text; the kind is present without hovering; no host call is added.
 
 ### Moved
 - `bug/the-row-drops-what-the-tuple-replaced` — the fields the tuple supersedes stop being rendered per kind, and `ROW_TRACKS`/`PLAN_ROW_TRACKS` collapse to one. Tests: a plan row and a branch row use the same grid; no row prints a phase belonging to another object; the sections keep their membership.
