@@ -374,7 +374,7 @@ the interesting one.
 
 ### Saying it
 
-- `bug/eligible-says-whether-it-can-start` — a NOT STARTED row distinguishes *ready* from *needs a brief*. `fleet.ts` collects `briefExists` per branch — one `existsSync`, measured at 0.2 ms per pulse for 60 branches — and the row renders it. Second wave rather than beside the first, because this one crosses the server: it is the only finding here that adds a field to the board row, and keeping it apart means the display work can land while the contract change is reviewed on its own terms. Tests: a branch with a brief reads as ready; one without names the gap and does not invite a dispatch; the phrasing never claims a person is missing when a file is; an unreadable `.plot/briefs` directory reads as unknown rather than as "no brief".
+- `bug/eligible-says-whether-it-can-start` — a NOT STARTED row distinguishes *ready* from *needs a brief*. `fleet.ts` collects `briefExists` per branch — one `existsSync`, measured at 0.2 ms per pulse for 60 branches — and the row renders it. Second wave rather than beside the first, because this one crosses the server: it is the only finding here that adds a field to the board row, and keeping it apart means the display work can land while the contract change is reviewed on its own terms. Tests: a branch with a brief reads as ready; one without names the gap and does not invite a dispatch; the phrasing never claims a person is missing when a file is; an unreadable `.plot/briefs` directory reads as unknown rather than as "no brief". PR #297.
 
 ## Notes
 
