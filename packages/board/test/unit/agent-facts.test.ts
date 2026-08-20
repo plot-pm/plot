@@ -7,7 +7,13 @@
 // markup.
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
-import { Fact, agoLabel, tokenLabel, uptimeLabel } from '../../src/app/components/AgentPanelFacts.js';
+import {
+  Fact,
+  LinkFact,
+  agoLabel,
+  tokenLabel,
+  uptimeLabel,
+} from '../../src/app/components/AgentPanelFacts.js';
 
 describe('uptime reads as the shortest true phrase', () => {
   const cases: [number, string][] = [
@@ -86,3 +92,56 @@ describe('a fact with nothing to say renders nothing', () => {
     assert.notEqual(Fact({ label: 'uptime', value: uptimeLabel(0) }), null);
   });
 });
+
+// The type of an interactive element carries the affordance: `button` is a
+// thing to press, and the tests read the element's `type` rather than scraping
+// class names. A React element's `type` is `'button'` for a `<button>`, so the
+// assertions below are about what the DOM will BE, not how it looks.
+//
+// The `type` of a host element hangs off the returned React element; a tiny
+// walk finds the first host element with a given tag anywhere in the tree.
+function findByType(node: unknown, tag: string): { props: Record<string, unknown> } | null {
+  if (!node || typeof node !== 'object') return null;
+  const el = node as { type?: unknown; props?: { children?: unknown } };
+  if (el.type === tag) return el as { props: Record<string, unknown> };
+  const kids = el.props?.children;
+  const list = Array.isArray(kids) ? kids : kids === undefined ? [] : [kids];
+  for (const kid of list) {
+    const found = findByType(kid, tag);
+    if (found) return found;
+  }
+  return null;
+}
+
+describe('a linked fact is a destination only when it has somewhere to go', () => {
+  it('renders a button that carries the value when given a handler', () => {
+    // The whole finding: BRANCH and PLAN are destinations. A button, because
+    // there is nowhere to href to — the reveal happens in the page, not a URL.
+    const el = LinkFact({ label: 'plan', value: '2026-08-20-a-plan.md', onOpen: () => {} });
+    const button = findByType(el, 'button');
+    assert.notEqual(button, null, 'a linked fact must render a button');
+    assert.equal(button?.props.children, '2026-08-20-a-plan.md');
+  });
+
+  it('degrades to a plain fact — never a button — when it has no handler', () => {
+    // The board's own rule for a dead PR link: an affordance that cannot
+    // navigate must not look like one. No handler, no button.
+    const el = LinkFact({ label: 'plan', value: '2026-08-20-a-plan.md' });
+    assert.equal(findByType(el, 'button'), null, 'an inert fact must not be a button');
+    // It is still the value, just not pressable — the fact does not vanish.
+    assert.notEqual(el, null);
+  });
+
+  it('renders nothing at all for an absent value, handler or not', () => {
+    // The omission rule reaches the linked facts too: a branch the panel could
+    // not read is no row, not an empty button.
+    assert.equal(LinkFact({ label: 'branch', value: '', onOpen: () => {} }), null);
+    assert.equal(LinkFact({ label: 'branch', value: null }), null);
+  });
+});
+
+// `CopyFact` carries a transient "Copied" flash (a hook), so it cannot be
+// called as a plain function the way `Fact` and `LinkFact` are here — a hook
+// outside a renderer throws. Its structural claim ("a Copy control, and NEVER
+// an anchor") and its clipboard behaviour are asserted in the browser, where
+// the hook runs — see test/integration/agent-panel-links.browser.test.ts.

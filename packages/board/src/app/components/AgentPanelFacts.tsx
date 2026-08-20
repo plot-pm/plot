@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { AgentPanel } from '../../server/agent-panel.js';
 
 /**
@@ -73,10 +74,137 @@ export function Fact({ label, value }: { label: string; value: string | null | u
   );
 }
 
+/**
+ * A labelled fact whose value is a DESTINATION — pressed rather than read.
+ *
+ * `BRANCH` and `PLAN` name things the board already holds: a row to scroll to,
+ * a card to open. A reader who opened the panel to understand an agent should
+ * reach those without hunting, so the value becomes a button.
+ *
+ * **A button, not a link, and that is the finding's own rule.** There is no URL
+ * to href to — the reveal happens IN the page (a scroll, a modal), not by
+ * navigation — so an anchor would be a lie about what a click does. It is the
+ * same shape the board applies to *Show in board*.
+ *
+ * **Degrades to a plain `Fact` when it has nowhere to go.** With no `onOpen`
+ * the value still shows, but as text — the board's rule for a dead PR link: an
+ * affordance that cannot navigate must not look like one. And the omission rule
+ * still holds first: an absent value renders nothing, button or not.
+ *
+ * Exported for test — that a handlerless fact is NOT a button is the half a
+ * naive "always render a button" gets wrong.
+ */
+export function LinkFact({
+  label,
+  value,
+  onOpen,
+}: {
+  label: string;
+  value: string | null | undefined;
+  onOpen?: () => void;
+}) {
+  if (value === null || value === undefined || value === '') return null;
+  if (!onOpen) return <Fact label={label} value={value} />;
+  return (
+    <div className="flex min-w-0 items-baseline gap-2" data-fact={label}>
+      <span className="shrink-0 text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        {label}
+      </span>
+      <button
+        type="button"
+        onClick={onOpen}
+        data-fact-link={label}
+        title={value}
+        className="min-w-0 truncate text-left font-mono text-xs text-blue-600 hover:underline dark:text-blue-400"
+      >
+        {value}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * A labelled fact whose value is a PATH TO COPY, never to follow.
+ *
+ * The worktree is the one value on the panel that names something outside the
+ * browser, and a browser refuses to navigate from `http://localhost` to
+ * `file://` — so a link would offer a move the browser then declines. The path
+ * leaves the browser by being copied into a terminal instead.
+ *
+ * The path is shown AND copyable: Copy sits beside the value, never replacing
+ * it, so a reader can still read the whole path (and the `title` carries it in
+ * full where the cell truncates). The success flash is transient component
+ * state — a copy is a momentary act, not a fact about the run.
+ *
+ * Exported for test — that it is never an anchor is the assertion that pins the
+ * "a link would lie" rule.
+ */
+export function CopyFact({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null | undefined;
+}) {
+  const [copied, setCopied] = useState(false);
+  if (value === null || value === undefined || value === '') return null;
+  const copy = () => {
+    void navigator.clipboard?.writeText(value).then(
+      () => {
+        setCopied(true);
+        // Long enough to read, short enough that it is gone before the reader
+        // wonders whether it stuck. It is a flash, not a state.
+        setTimeout(() => setCopied(false), 1_200);
+      },
+      () => {
+        // A clipboard the browser blocked leaves the path on screen to select
+        // by hand — the same honest fallback the log path already relies on.
+      },
+    );
+  };
+  return (
+    <div className="flex min-w-0 items-baseline gap-2" data-fact={label}>
+      <span className="shrink-0 text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        {label}
+      </span>
+      <span
+        data-fact-copy={label}
+        title={value}
+        className="min-w-0 truncate font-mono text-xs text-slate-700 dark:text-slate-300"
+      >
+        {value}
+      </span>
+      <button
+        type="button"
+        onClick={copy}
+        data-copy-path
+        className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+      >
+        {copied ? 'Copied' : 'Copy path'}
+      </button>
+    </div>
+  );
+}
+
 export interface AgentPanelFactsProps {
   panel: AgentPanel | null;
   /** Injected by tests so "last activity" does not race the clock. */
   now?: number;
+  /**
+   * Open the plan governing this branch — reveals the finding's PLAN fact as a
+   * destination. Given the plan's FILE (what `panel.plan` carries), because the
+   * board opens a plan by file, not by the name it renders.
+   *
+   * Optional: absent (or a panel whose `plan` is "") leaves PLAN plain text,
+   * which is the "an affordance that cannot navigate must not look like one"
+   * fallback rather than a dead button.
+   */
+  onOpenPlan?: (planFile: string) => void;
+  /**
+   * Scroll to and highlight this branch's fleet row — the BRANCH fact's
+   * destination. Optional for the same reason as `onOpenPlan`.
+   */
+  onRevealBranch?: (branch: string) => void;
 }
 
 /**
@@ -92,7 +220,7 @@ export interface AgentPanelFactsProps {
  * than `0s` — a frozen number would be believed exactly the way a stale model
  * name would.
  */
-export function AgentPanelFacts({ panel, now }: AgentPanelFactsProps) {
+export function AgentPanelFacts({ panel, now, onOpenPlan, onRevealBranch }: AgentPanelFactsProps) {
   if (!panel) return null;
   if (!panel.ok) {
     return (
@@ -120,9 +248,23 @@ export function AgentPanelFacts({ panel, now }: AgentPanelFactsProps) {
         label="uptime"
         value={panel.uptimeSeconds === null ? null : uptimeLabel(panel.uptimeSeconds)}
       />
-      <Fact label="branch" value={panel.branch} />
+      {/* BRANCH names a row this board holds — pressing it scrolls there and
+          highlights it. Plain text where no reveal is wired (the panel outside
+          the fleet page), which is the affordance rule, not a dead button. */}
+      <LinkFact
+        label="branch"
+        value={panel.branch}
+        onOpen={onRevealBranch ? () => onRevealBranch(panel.branch) : undefined}
+      />
       <Fact label="state" value={panel.worker} />
-      <Fact label="plan" value={panel.plan} />
+      {/* PLAN names a card. `panel.plan` is the plan's FILE, which is how the
+          board opens one; the name it renders is the same string. No card for a
+          plan the board never walked — then it stays plain text. */}
+      <LinkFact
+        label="plan"
+        value={panel.plan}
+        onOpen={onOpenPlan && panel.plan ? () => onOpenPlan(panel.plan) : undefined}
+      />
       <Fact label="wave" value={panel.wave} />
       {/* The three from the transcript. Each omits independently: a format that
           moved `usage` but kept `model` shows the model and no context, which
@@ -134,8 +276,11 @@ export function AgentPanelFacts({ panel, now }: AgentPanelFactsProps) {
       />
       <Fact label="last activity" value={ago} />
       {/* Full width: a worktree path and a worker command are both long. */}
+      {/* WORKTREE leaves the browser, so it offers Copy path rather than a link
+          — a browser will not follow http://localhost → file://, and a link
+          that cannot navigate must not look like one. */}
       <div className="col-span-2 min-w-0">
-        <Fact label="worktree" value={panel.worktree} />
+        <CopyFact label="worktree" value={panel.worktree} />
       </div>
       <div className="col-span-2 min-w-0">
         <Fact label="command" value={panel.command} />

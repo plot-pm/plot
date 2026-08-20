@@ -3651,6 +3651,21 @@ export interface AgentListProps {
   pulse?: number;
   /** A Start work click became outstanding (true) or settled (false). */
   onStarting?: (active: boolean) => void;
+  /**
+   * Scroll to and highlight a branch's row — the agent panel's BRANCH fact's
+   * destination. Owned by the page above the list, because the highlight is a
+   * kind of arrival marker (like the board's `?plan=`) that this list only
+   * renders, and because the panel that triggers it must close first.
+   */
+  onRevealBranch?: (branch: string) => void;
+  /**
+   * The branch just revealed, or "" — the row whose `<li>` wears the ring.
+   *
+   * The scroll target is `#agent-row-<branch>`; the ring is this. Transient by
+   * intent, like the board's `highlight`: it marks WHERE YOU ARRIVED, not a
+   * selection, so the page clears it on the next interaction.
+   */
+  highlightBranch?: string;
 }
 
 /**
@@ -3990,9 +4005,18 @@ function Row({
   inPlanGroup = false,
   section,
   waveName = null,
+  onRevealBranch,
+  highlighted = false,
 }: {
   row: AgentRow;
   onOpenPlan?: AgentListProps['onOpenPlan'];
+  /** Reveal a branch's row — forwarded to the agent panel's BRANCH fact. */
+  onRevealBranch?: AgentListProps['onRevealBranch'];
+  /**
+   * This row is the branch just revealed from an agent panel — wear the ring.
+   * The arrival marker `highlightBranch` resolves to, per row.
+   */
+  highlighted?: boolean;
   /**
    * The wave this branch belongs to, or null to name none.
    *
@@ -4140,13 +4164,22 @@ function Row({
     <li
       role="row"
       data-agent-row
+      // The scroll target the agent panel's BRANCH fact aims at. `getElementById`
+      // needs an id, and a branch name is unique within a fleet — the same shape
+      // `#plan-<slug>` uses for the board's card highlight.
+      id={`agent-row-${row.branch}`}
+      data-highlighted={highlighted ? 'true' : undefined}
       // Inside a plan group the RULE belongs to the group, which draws one line
       // under the plan and its branches together. A row drawing its own there
       // would put a line between a plan and its first branch — the defect this
       // replaces. Everywhere else the row is the unit, and keeps its own.
+      //
+      // The ring is `-inset` so it hugs the row without a track of its own, and
+      // it is the same blue the board's highlighted card wears — one arrival
+      // colour across both tabs.
       className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2 text-sm sm:grid ${ROW_TRACKS} sm:items-baseline sm:gap-x-3 ${
         inPlanGroup ? '' : 'border-b border-slate-200/60 last:border-0 dark:border-slate-800'
-      }`}
+      } ${highlighted ? 'rounded-sm ring-2 ring-inset ring-blue-500' : ''}`}
     >
       {/* The live indicator, on `working` rows only. `self-center` because the
           row aligns on the text baseline and a dot carries no text to align —
@@ -4491,6 +4524,13 @@ function Row({
           // cannot answer the second — it describes a branch, this describes
           // the binding.
           canContinue={continueWith}
+          // BRANCH and PLAN in the panel become destinations. `onOpenPlan`
+          // returns whether it opened a card; the panel discards that — its
+          // PLAN button is a convenience, and the row's own plan link is the
+          // durable route where the board holds no card. Wrapped so the void
+          // shape the panel wants does not force the boolean up the chain.
+          onOpenPlan={onOpenPlan ? (planFile) => void onOpenPlan(planFile) : undefined}
+          onRevealBranch={onRevealBranch}
         />
       )}
       {/* The dispatcher-log panel, mounted here for the same reason the worker
@@ -4924,6 +4964,8 @@ export function AgentList({
   idea,
   pulse = 0,
   onStarting,
+  onRevealBranch,
+  highlightBranch = '',
 }: AgentListProps) {
   // Whether the server is answering at all. Not the same question as
   // `fleet.error`, which is a server that answered to say its scan failed.
@@ -5374,6 +5416,8 @@ export function AgentList({
                                 // group (the plan states the phase above), so
                                 // the wave is the fact that belongs at the row.
                                 waveName={waveLabel(r, waveCounts.get(r.plan))}
+                                onRevealBranch={onRevealBranch}
+                                highlighted={r.branch === highlightBranch}
                               />
                             ))}
                           </ul>
@@ -5445,6 +5489,8 @@ export function AgentList({
                           // otherwise repeat the plan's phase on every branch —
                           // the wave is the fact that varies row to row.
                           waveName={waveLabel(r, waveCounts.get(r.plan))}
+                          onRevealBranch={onRevealBranch}
+                          highlighted={r.branch === highlightBranch}
                         />
                       ))}
                     </ul>
