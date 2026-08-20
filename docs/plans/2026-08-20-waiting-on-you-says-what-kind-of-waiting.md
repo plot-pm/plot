@@ -224,6 +224,44 @@ WORKING is not the section this plan is about, so the finding is recorded here
 and the fix belongs with whichever branch touches `showPlanHeading` — it applies
 to every section that groups.
 
+### One column, four meanings
+
+Observed 2026-08-20, in a single screenshot of one section:
+
+| Cell reads | It is | Row |
+|---|---|---|
+| `Says`, `Count`, `Registry`, `Seeing it` | a **wave name** | branches of multi-wave plans |
+| `Design`, `Development`, `Discovery` | a **plan phase** | branches of single-wave plans |
+| *(empty)* | nothing at all | a PR row, a CI row |
+| `Discovery` | a **plan phase** | a **ticket**, which has no plan |
+
+The mechanism is explicit at `AgentList.tsx:3900`: the cell renders `waveName`
+where the plan has more than one wave, and falls back to `row.phase` otherwise.
+Both choices are individually defended in the comment there — the wave is *"the
+fact that varies row to row"*, and a caption over a partition of one is noise.
+
+**Each half is right and the column is wrong.** A reader scanning down sees
+`Says`, `Design`, `Count`, `Development` and cannot tell which words name a wave
+and which name a phase, because nothing distinguishes them but knowing the plan.
+The tooltip does distinguish them — `Wave: Says` versus `Phase: Design` — which
+is the same tooltip-as-label defect recorded above, in a second place.
+
+And two rows have nothing to say in this column at all: a PR awaiting review and
+a CI run belong to no wave and take their phase from a plan they are only
+loosely attached to.
+
+**The fix follows the rule this plan already sets.** The column should hold one
+kind of fact. Which one is a decision, and both readings are defensible:
+
+- **the wave**, with the phase moving to the plan heading where it is stated
+  once rather than repeated down every branch — matching `PlanRow`, which
+  already states the phase in the plan's own line
+- **the phase**, with the wave moving beside the branch name where
+  `a-branch-row-names-its-wave` (#275) put it
+
+What must not survive is a cell whose meaning depends on a property of the plan
+the reader cannot see.
+
 ### The order holds still here too
 
 `AgentList.tsx:602` sorts this section by `Math.max(...ageMinutes)` alone — the
@@ -276,6 +314,7 @@ failure shaping settle on top of it.
 
 ### Leads
 - `feature/the-row-leads-with-its-subject` — the dominant track holds what the reader must act on: the PR where the work is PR work, the branch where it is branch work. Replaces `pr.state` with `pr.states`, a set, so a PR can report a conflict and a failing build together; grouping picks the winner explicitly rather than inheriting it from a singular field. Tests: an open PR awaiting review leads with the PR; a PR with a failing check leads with the PR, since the fix updates the PR; a **merge conflict leads with the branch even when a PR is open**, since no PR resolves it; **a PR with both leads with the branch and names the build failure on a second line**; a branch with no PR leads with the branch; **a conflicting PR still lands in `waiting-on-you` after the set change** — the grouping at `fleet.ts:2198` is pinned by a test, not by the field's old shape; a release row is marked as its own kind rather than as an ordinary PR; **plans of equal age order by name**, the fix #267 landed for NOT STARTED; `PlanRow` and `IssueRowView` are untouched; no host call is added.
+- `bug/one-column-one-kind-of-fact` — the phase column holds one kind of fact rather than a wave name, a plan phase, or nothing depending on the plan's wave count. Tests: a multi-wave plan's branches and a single-wave plan's branches read the same kind of word; a PR row and a CI row are not given a phase they do not have; a ticket is not labelled with a plan phase; the distinction is visible without hovering.
 - `bug/the-kind-is-labelled-not-hovered` — the sentence in the tooltip becomes a visible label in the leading column. Tests: the label renders without hover; it names the same kind the tooltip did; a row whose kind cannot be determined says so rather than guessing.
 
 ### Shaped
