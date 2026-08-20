@@ -3593,11 +3593,8 @@ function Row({
   marked = false,
   active = false,
   inPlanGroup = false,
-<<<<<<< HEAD
   section,
-=======
   waveName = null,
->>>>>>> 392b5e1f (board: a branch row names its wave)
 }: {
   row: AgentRow;
   onOpenPlan?: AgentListProps['onOpenPlan'];
@@ -4934,19 +4931,16 @@ export function AgentList({
                                 onStarting={onStarting}
                                 marked={marked.has(rowKey(r))}
                                 active={active.has(rowKey(r))}
-<<<<<<< HEAD
                                 // Which question this section is asking — see
                                 // the `section` prop. Only WAITING ON A MACHINE
                                 // changes what the row says; every other value
                                 // leaves it reading exactly as before.
                                 section={key}
-=======
                                 // Names its wave where the plan has more than
                                 // one — this cell is otherwise empty in a plan
                                 // group (the plan states the phase above), so
                                 // the wave is the fact that belongs at the row.
                                 waveName={waveLabel(r, waveCounts.get(r.plan))}
->>>>>>> 392b5e1f (board: a branch row names its wave)
                               />
                             ))}
                           </ul>
@@ -5008,18 +5002,15 @@ export function AgentList({
                           // whole fleet at once, so no two places can disagree
                           // about which rows are being written to.
                           active={active.has(rowKey(r))}
-<<<<<<< HEAD
                           // See the `section` prop: the machine section lists
                           // this row as a PROCESS and says so, and no other
                           // section's rendering changes.
                           section={key}
-=======
                           // Names its wave where the plan has more than one. Here
                           // the row is outside a plan group, so this cell would
                           // otherwise repeat the plan's phase on every branch —
                           // the wave is the fact that varies row to row.
                           waveName={waveLabel(r, waveCounts.get(r.plan))}
->>>>>>> 392b5e1f (board: a branch row names its wave)
                         />
                       ))}
                     </ul>
