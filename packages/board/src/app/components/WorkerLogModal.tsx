@@ -350,13 +350,89 @@ export function WorkerLogModal({
 
         {/* The path, always — including for the misses that know one. It is the
             answer to "then where should I look", and for `no-log` it is the
-            only actionable thing the panel can offer. */}
-        {log?.path && (
-          <footer className="shrink-0 truncate border-t border-slate-200 px-4 py-2 font-mono text-[11px] text-slate-400 dark:border-slate-800 dark:text-slate-500">
-            {log.path}
-          </footer>
-        )}
+            only actionable thing the panel can offer.
+
+            TEXT, NOT A LINK, and Copy beside it. The path names a file on disk;
+            a browser refuses to navigate from http://localhost to file://, so a
+            link here would look like a route it cannot follow — the same rule
+            this board applies to a dead PR link. The live view above is what
+            makes the path rarely needed: the reason to leave the browser is
+            wanting the log in an editor, and Copy is the shortest road there. */}
+        {log?.path && <FooterPath path={log.path} />}
       </div>
     </div>
   );
+}
+
+/**
+ * The footer path and its Copy — the one value on the panel that names something
+ * OUTSIDE the browser.
+ *
+ * It is rendered as text and never as a link: a browser will not navigate from
+ * `http://localhost` to `file://`, so an anchor here would look like a route it
+ * cannot follow. The affordance that DOES work is Copy — the exact string, for
+ * pasting into a terminal where a pager reads the whole file far better than a
+ * browser can. The rule is the board's own: an affordance that cannot navigate
+ * must not look like one.
+ *
+ * Copy first tries the async Clipboard API and falls back to `execCommand` for
+ * a context where it is unavailable — the board runs on `http://localhost`,
+ * which is a secure context and has it, but the fallback costs little and keeps
+ * the control honest anywhere. The confirmation is transient and never blocks a
+ * second copy.
+ */
+export function FooterPath({ path }: { path: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = () => {
+    const done = () => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1_500);
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(path).then(done, () => fallbackCopy(path, done));
+    } else {
+      fallbackCopy(path, done);
+    }
+  };
+
+  return (
+    <footer className="flex shrink-0 items-center gap-3 border-t border-slate-200 px-4 py-2 dark:border-slate-800">
+      <span
+        data-log-path
+        className="min-w-0 flex-1 truncate font-mono text-[11px] text-slate-400 dark:text-slate-500"
+      >
+        {path}
+      </span>
+      <button
+        type="button"
+        data-log-path-copy
+        onClick={copy}
+        className="shrink-0 rounded px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+      >
+        {copied ? 'Copied' : 'Copy path'}
+      </button>
+    </footer>
+  );
+}
+
+/**
+ * The clipboard road for a context without the async API — a hidden textarea and
+ * `document.execCommand('copy')`. Deprecated, but it is the only thing that works
+ * where `navigator.clipboard` does not, and copying a path must not silently do
+ * nothing there.
+ */
+function fallbackCopy(text: string, onDone: () => void) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+    onDone();
+  } finally {
+    document.body.removeChild(ta);
+  }
 }
