@@ -58,6 +58,13 @@
 
 ## Branches
 
+<!-- EVERY wave gets a `### <Name>` heading, including a plan with only one.
+     The parser accepts an unnamed wave — a plan written before waves existed
+     parses as one — but a nameless wave renders as an empty cell on the board,
+     where the reader cannot tell "this wave has no name" from "this field is
+     blank". A single wave still earns a name: it says what the wave is FOR,
+     which is the one thing a branch list does not. -->
+
 <!-- Optional: define a tracer bullet (thin vertical slice) first. -->
 <!-- See the tracer-bullets skill for guidance. -->
 <!-- ### Tracer -->
