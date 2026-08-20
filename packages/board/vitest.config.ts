@@ -7,9 +7,15 @@ import { defineConfig } from 'vitest/config';
 // so vitest never picks up the node:test files at test/*.test.mjs.
 //
 // Two projects, because the two halves need different parallelism and a single
-// config makes the whole suite take the stricter of the two. Measured
-// 2026-08-20: the 48 non-browser files ran 43 s serially and 25 s in parallel,
-// and they were serial only because they shared a config with the browser files.
+// config makes the whole suite take the stricter of the two. Measured 2026-08-20
+// on the 51 non-browser files as their own project, only --fileParallelism
+// differing: 91.0 s serial, 35.5 s parallel (-61%), with vitest's own
+// `tests 191.4 s` compressed into that 35.5 s of wall clock. They were serial
+// only because they shared a config with the browser files.
+//
+// The full `vitest run` moves much less — 779 s to 750 s — because the 20 serial
+// browser files dominate the total. The -61% is the number that describes this
+// change; anyone quoting a whole-suite figure is measuring the browser tail.
 //
 // `fileParallelism` is honoured per project — verified by timestamping file
 // starts, not by reading the types, which declare it on the root config: three
