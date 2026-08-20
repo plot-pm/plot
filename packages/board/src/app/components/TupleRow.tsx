@@ -227,6 +227,9 @@ export function TupleLinkView({
         data-tuple-text={link.what}
         {...valueAttr(link)}
         {...extraAttr?.text}
+        // The same reason as on the anchor above: a folded branch name is two
+        // `aria-hidden` spans, and this is where the unfolded one rides.
+        aria-label={link.what === 'branch' ? link.label : undefined}
         title={`${link.what}: ${link.label}`}
         className="flex min-w-0 items-baseline gap-1 text-slate-600 dark:text-slate-300"
       >
@@ -248,6 +251,17 @@ export function TupleLinkView({
     <a
       href={link.href}
       data-tuple-link={link.what}
+      // THE WHOLE NAME, where the label is FOLDED. `BranchLabel` renders two
+      // `aria-hidden` spans, so without this a branch link has no accessible
+      // name at all — which is worse than the defect the hiding prevents.
+      //
+      // Measured on `BranchName`, the component this replaces: the two halves
+      // are flex ITEMS and the accessible-name algorithm joins adjacent boxes
+      // with a space, so the row announced `feat ure/reviewed` — a branch name
+      // no host would recognise and one no reader could search for. Hiding the
+      // halves fixes that and takes the name with it; the label puts it back,
+      // whole, on the element that carries the destination.
+      aria-label={link.what === 'branch' ? link.label : undefined}
       {...valueAttr(link)}
       {...extraAttr?.link}
       onClick={handle}

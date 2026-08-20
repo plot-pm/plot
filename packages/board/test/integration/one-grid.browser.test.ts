@@ -223,8 +223,17 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // AND THE ROW LEADS WITH THE BRANCH — which is where the reader must go.
       // The pairing: a row that says `conflicts` while leading with the PR
       // sends them to a page that cannot fix it.
+      // READ FROM `data-branch`, not from the rendered text. A branch name is
+      // folded in the MIDDLE when the slot cannot hold it — `splitBranch` hands
+      // the browser two spans so the last twelve characters always survive —
+      // and `innerText` reports a newline between them: `featur\ne/conflicted`.
+      // The fold is a fact about the slot's width and belongs to the visual
+      // channel alone, which is why the halves are `aria-hidden` and the whole
+      // name rides on the attribute. A text assertion here would be a claim
+      // about the viewport rather than about which fact leads.
       const name = branch.locator('[role="gridcell"]').nth(2);
-      expect(await name.innerText()).toContain('feature/conflicted');
+      expect(await name.locator('[data-branch]').getAttribute('data-branch'))
+        .toBe('feature/conflicted');
       // The PR's NUMBER is still on the row, beside the condition — context
       // rather than a route, because the route is the branch.
       expect(await branch.innerText()).toContain('57');
@@ -277,6 +286,37 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       for (const w of new Set(words)) {
         expect(KINDS, `kind word: ${w}`).toContain(w.toLowerCase());
       }
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('announces a folded branch name WHOLE, not in halves', async () => {
+    const page = await open();
+    try {
+      // A long branch folds in the MIDDLE — `splitBranch` hands the browser two
+      // spans so the last twelve characters always survive, because six
+      // branches here share twenty-four characters of prefix and end-truncation
+      // renders them identically.
+      //
+      // THE FOLD IS VISUAL ONLY, and this is the assertion that keeps it so.
+      // The halves are flex ITEMS, and the accessible-name algorithm joins
+      // adjacent boxes with a space: `BranchName` measured the row announcing
+      // `feat ure/reviewed`, a name no host would recognise and none a reader
+      // could search for. Hiding the halves fixes that — and takes the name
+      // with it, which is the defect on the other side and the one the collapse
+      // shipped for one commit. Both are asserted here, because a fix for
+      // either alone passes half of this.
+      const link = page.locator('li[data-tuple-kind="branch"] a[data-tuple-link="branch"]').first();
+      await link.waitFor({ timeout: 10_000 });
+      const heard = await link.getAttribute('aria-label');
+      expect(heard).toBe('feature/conflicted');
+      // NOT ASSEMBLED FROM THE HALVES: no space, no newline, nothing the fold
+      // could have introduced.
+      expect(heard).not.toMatch(/\s/);
+      // And the halves really are hidden, so the label is what is announced
+      // rather than a second reading beside it.
+      expect(await link.locator('[aria-hidden="true"]').count()).toBe(1);
     } finally {
       await page.close();
     }
