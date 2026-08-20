@@ -166,7 +166,8 @@ describe('truncateColumn — a highlighted card is never hidden', () => {
 
 describe('phaseDateOf — each column measures recency on its own clock', () => {
   const dates = {
-    approved_raw: '2026-01-01, jwloka, plan-PR #146 merged',
+    design_raw: '2026-01-01, jwloka, tracer bullet',
+    approved_raw: '2026-02-02, jwloka, plan-PR #146 merged',
     delivered_raw: '2026-05-05',
     released_raw: '2026-08-08, v2.3.0',
   };
@@ -179,9 +180,18 @@ describe('phaseDateOf — each column measures recency on its own clock', () => 
     expect(phaseDateOf('Endgame', meta(dates))).toBe('2026-05-05');
   });
 
-  it('reads both approved columns by the approval date', () => {
+  it('reads Design by its DESIGN date and Development by its APPROVAL date', () => {
+    // Design is its own phase now, with its own record: a plan in Design has a
+    // `Design:` date but not yet an `Approved:` one, so the two columns cannot
+    // share a clock. Development sorts by approval, Design by entry into Design.
     expect(phaseDateOf('Design', meta(dates))).toBe('2026-01-01');
-    expect(phaseDateOf('Development', meta(dates))).toBe('2026-01-01');
+    expect(phaseDateOf('Development', meta(dates))).toBe('2026-02-02');
+  });
+
+  it('gives a Design card no date when it records no Design: line', () => {
+    // Same discipline as Endgame/Released: no borrowing another phase's record.
+    // A Design column with no design_raw sorts by arrival, not by approval.
+    expect(phaseDateOf('Design', meta({ approved_raw: '2026-02-02' }))).toBe('');
   });
 
   it('gives Discovery no date at all', () => {

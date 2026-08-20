@@ -441,9 +441,13 @@ export function leadingDate(record: string): string {
  * one field rather than four.
  *
  * Each column measures recency on its own clock: `Released` by when the work
- * shipped, `Endgame` by when it was delivered, `Design`/`Development` by when
- * the plan was approved. Reading one record for every column would sort at
- * least three of them by a date that is not theirs.
+ * shipped, `Endgame` by when it was delivered, `Development` by when the plan
+ * was approved, `Design` by when it entered Design. Reading one record for
+ * every column would sort most of them by a date that is not theirs.
+ *
+ * `Design` and `Development` read DIFFERENT records now that Design is its own
+ * phase: a plan in Design has an `Approved:` date only if it later leaves for
+ * Approved, so while it sits in Design the only date it owns is `Design:`.
  *
  * `Discovery` has none, and that is correct rather than a gap: a Draft plan has
  * recorded no transition yet, so there is no date to be recent by. Such cards
@@ -459,6 +463,7 @@ export function phaseDateOf(phase: Phase, meta: PlanMeta): string {
     case 'Endgame':
       return leadingDate(meta.delivered_raw);
     case 'Design':
+      return leadingDate(meta.design_raw);
     case 'Development':
       return leadingDate(meta.approved_raw);
     case 'Discovery':
@@ -692,8 +697,10 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // fails silently and merely looks untidy.
     const canonical = canonicalPath.get(meta.file);
     const relPath = canonical ?? path.relative(repoRoot, meta.file);
-    // `started` decides the Design/Development boundary, so it is read BEFORE
-    // the phase rather than attached to the card afterwards.
+    // `started` no longer moves the phase — an approved plan is Development with
+    // or without a Started: record — but toBoardPhase keeps the parameter so the
+    // board and rowPhase compose the one mapping, and passing the real value
+    // keeps this call honest rather than hard-coding a flag the answer ignores.
     const started = meta.started_raw.length > 0;
     const phase = toBoardPhase(meta.phase, started);
     if (!phase) continue;

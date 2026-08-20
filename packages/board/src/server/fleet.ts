@@ -1950,26 +1950,22 @@ export function stopFleetRefresh(): void {
  * Which board phase a ROW is in — from the PAIR, never from the plan file alone.
  *
  * The obvious implementation carries the plan's phase onto its rows and maps it
- * with `toBoardPhase`. That produces rows that contradict themselves, and this
- * repo had the example sitting in it: `opus5-longhorizon-hardening` is
- * `Phase: Approved` with zero `Started:` records while six of its branches carry
- * real commits. The board says Design ("approved, nobody has begun"); the pulse
- * says `in progress`. Both are right about their own source, and a row labelled
- * *Design* beside a note reading *no commit for 22 days* is two statements about
- * one branch that cannot both be true.
+ * with `toBoardPhase`. Once that mapping reads `approved` as Development
+ * regardless of `started`, the row's word and the board's column agree for an
+ * approved plan whatever git says — which is the point of the Design-is-a-phase
+ * change: an approved-but-unstarted plan is Development, waiting for an agent,
+ * on both surfaces. `toBoardPhase` stays the single definition of the mapping
+ * and gains no second implementation here; this function composes it with the
+ * branch state, and every phase word it can return came out of that call.
  *
- * So git supplies the `started` half. A branch carrying real work IS a start,
- * whether or not anyone wrote the record — the same principle that made
- * `fleet-sees-merged-branches` read merge commits rather than plan annotations.
- * The `opus5` rows then read Development while the board CARD keeps saying
- * Design, and that divergence is itself information: the plan's bookkeeping is
- * behind, which is worth seeing rather than smoothing over.
+ * The `started` half it supplies from git no longer moves an approved plan, but
+ * it is still read and still passed, so this function keeps composing the one
+ * mapping rather than restating it — and the moment `toBoardPhase` grows a
+ * phase that forks on `started` again, the composition is already in place.
  *
- * `toBoardPhase` stays the single definition of the mapping and gains no second
- * implementation here. This function composes it with the branch state; every
- * phase word it can return came out of that call.
- *
- * TWO PLACES THE COMPOSITION IS DELIBERATELY NOT SYMMETRIC.
+ * TWO PLACES THE COMPOSITION IS DELIBERATELY NOT SYMMETRIC — kept because they
+ * describe intent, even where the current mapping makes them return the same
+ * value the fall-through would.
  *
  * **"git wins" applies to an ABSENT record, not to a recorded decision.** A
  * commit landing under a plan already marked `delivered` does NOT pull the row
@@ -1980,38 +1976,36 @@ export function stopFleetRefresh(): void {
  * typo fix teaches readers to distrust the column. The commit is not hidden —
  * the row's age still shows something moved.
  *
- * **`deferred` sends the row BACK a phase.** The annotation does not mean
- * "paused, resuming later": the vocabulary is explicit that the branch *isn't
- * needed* and was *given up deliberately*, and `plot-deliver` skips deferred
- * branches in its completeness gate — a plan delivers without them. So the row
- * returns to where it is decided whether the branch is wanted at all, which is
- * the plan's own phase with the git evidence ignored. Past `delivered` the plan
- * is done deciding, so nothing moves.
+ * **`deferred` reads the row from the plan's own phase, git ignored.** The
+ * annotation does not mean "paused, resuming later": the vocabulary is explicit
+ * that the branch *isn't needed* and was *given up deliberately*, and
+ * `plot-deliver` skips deferred branches in its completeness gate — a plan
+ * delivers without them. So the row returns to where it is decided whether the
+ * branch is wanted at all, which is the plan's own phase. (With the Design fork
+ * gone this equals the started mapping for every phase, but the intent stands:
+ * a handed-back branch answers to the plan, not to its commits.)
  *
- * The `deferred` FACT is not carried by the phase — a bare Design row is
- * indistinguishable from one nobody ever started. `state` carries it, and the
- * row renders a badge from that.
+ * The `deferred` FACT is not carried by the phase — a bare Development row is
+ * indistinguishable from one an agent is on. `state` carries it, and the row
+ * renders a badge from that.
  */
 export function rowPhase(planPhase: string, state: BranchState): Phase | null {
   // A branch handed back returns to the plan's own phase, ignoring whatever its
   // commits say — the one place intent outranks git. `toBoardPhase(_, false)`
-  // is Design for an approved plan and Discovery for a draft, which is exactly
-  // "back to where it is decided whether this is wanted".
+  // reads the plan's phase straight through, which is exactly "back to where it
+  // is decided whether this is wanted". (With the Design fork gone the `false`
+  // no longer changes the answer, but the intent is preserved for the day a
+  // phase forks on `started` again.)
   if (state === 'deferred') return toBoardPhase(planPhase, false);
-  // Real work on THIS branch is what makes THIS row Development — the plan's
-  // own `Started:` count is deliberately not consulted.
+  // The `started` flag is read from THIS branch, not from the plan's own
+  // `Started:` count — a row is a statement about one branch. It no longer
+  // moves an approved plan (approved is Development regardless), but it still
+  // feeds the one mapping so the row and the board card cannot disagree, and it
+  // is the seam a future `started`-forking phase would use.
   //
-  // A row is a statement about one branch, and a plan's records are about the
-  // plan. A three-branch plan with one branch built and two untouched is in
-  // Development as a plan, and the untouched rows are not: they are the
-  // hand-off point, which is what Design means and what the Start button on
-  // them offers. Carrying the plan's count onto them would put `Development`
-  // beside a note reading *eligible — nobody has taken it*, which is the same
-  // class of self-contradicting row this derivation exists to remove.
-  //
-  // `merged` counts: work that landed is a stronger statement than a commit.
-  // `claimed` does NOT — an empty claim marker is a dispatcher taking the
-  // branch, not an agent having built anything.
+  // `merged` counts as started, `wip` counts; `claimed` does NOT — an empty
+  // claim marker is a dispatcher taking the branch, not an agent having built
+  // anything.
   return toBoardPhase(planPhase, state === 'wip' || state === 'merged');
 }
 
