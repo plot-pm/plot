@@ -94,6 +94,26 @@ the whole suite is quoting a measurement of the unit half in isolation. Where
 this lands is the question a rebase actually asks — *did I break anything that is
 not the browser* — which is now a ~40 s answer via `vitest run --project=parallel`.
 
+**The plan's open point is answered, and answering it cost one repair.** *Does
+any unit file depend on serial execution for a legitimate reason?* No — but ten
+parallel runs found one that depended on it ACCIDENTALLY. `continue-route.test.ts`
+asserted `PLOT_CONTINUATION` with `actual: ''`, once in ten: its worker writes the
+witness with `>`, which creates and truncates the file before `printf` writes into
+it, so a poll on `existsSync` could be satisfied by a file that was real and
+still empty. Six serial runs at the same load failed zero times.
+
+Parallelism **surfaced** that rather than causing it — the worker is detached, so
+nothing in the test was ever synchronised with its write, and the window existed
+at any load. The worker now writes a scratch file and renames it into place, so
+the witness name appears only when its content is complete, and the poll waits
+for content instead of for a filename. Verified falsifiable before landing: with
+the worker reporting a deliberately wrong value, the assertion fails and prints
+that value rather than an empty string.
+
+That is the same shape as this plan's wave-1 fix, one level up — an assumption
+about timing replaced by an assertion about the thing actually meant. It is also
+why *ten consecutive runs* was the right bar: nine would have shipped it.
+
 **Two browser files were already failing before this change**, under the
 untouched serial config, and the failing set shifts between runs
 (`button-claims`, `stuck-rows`, `start-work-refusal` — 1 to 3 files depending on
