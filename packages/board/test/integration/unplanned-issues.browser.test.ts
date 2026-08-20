@@ -187,15 +187,37 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
   it('says a failed lookup is UNKNOWN, never "no issues"', async () => {
     // The rule `an-outage-is-not-an-answer`. Silence here is indistinguishable
     // from an empty inbox, and a reader would conclude they had nothing to
-    // decide.
+    // decide. Asserted with an OUTAGE, so the wording pinned is the *could not
+    // be read* one — the rate-limit case, a THIRD state, is checked below.
     const page = await open(fleet({
-      issues: [], issueAnswer: 'failed', issueError: 'gh: API rate limit exceeded',
+      issues: [], issueAnswer: 'failed', issueError: 'gh: 503 Service Unavailable',
     }));
     try {
       const notice = section(page).locator('[data-issue-error]');
       await expect.poll(() => notice.count()).toBe(1);
       await expect.poll(() => notice.textContent()).toContain('could not be read');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('says a spent rate limit is a rate limit, never "could not be read"', async () => {
+    // `2026-08-20-a-rate-limit-is-not-an-outage.md`: a rate limit means the
+    // tracker was REFUSED, not that reading it failed. *could not be read*
+    // claims a check that ran and failed — the honest word is that the budget
+    // is spent and returns. The issue poll shares the PR gate, so
+    // `prNextInSeconds` is its reset too; 480 s is the measured ~8-minute reset.
+    const page = await open(fleet({
+      issues: [], issueAnswer: 'failed',
+      issueError: 'GraphQL: API rate limit already exceeded for user ID 870334',
+      prNextInSeconds: 480,
+    }));
+    try {
+      const notice = section(page).locator('[data-issue-error]');
+      await expect.poll(() => notice.count()).toBe(1);
       await expect.poll(() => notice.textContent()).toContain('rate limit');
+      await expect.poll(() => notice.textContent()).toContain('8 min');
+      await expect.poll(() => notice.textContent()).not.toContain('could not be read');
     } finally {
       await page.close();
     }

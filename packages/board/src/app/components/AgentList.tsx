@@ -307,6 +307,95 @@ export const HOST_ANSWER_HINT: Record<Exclude<HostAnswer, 'answered'>, string> =
 };
 
 /**
+ * The kind of a host failure — a rate limit is a THIRD state, never an outage.
+ *
+ * `2026-08-20-a-rate-limit-is-not-an-outage.md`: a spent budget is *partial,
+ * temporary, and with a known end*; an unreachable host is none of those. The
+ * note that reports the failure must not collapse the two into one word, so it
+ * reads the kind here first.
+ *
+ * The signal is the message string, `/rate limit/i` — the SAME string the
+ * backend keys on (`rateLimitBackoffMs` in fleet.ts). A shelled-out `gh` hands
+ * back only its stderr, so both ends read the same words; a second, cleverer
+ * detector on the client would be the place the two vocabularies drift, and the
+ * note would say *outage* while the fetch was already backing off for a rate
+ * limit. Anything the backend does NOT recognise as a rate limit is an outage
+ * here too — the honest default, since a message that names no reset has no end
+ * to promise.
+ */
+export type HostErrorState = 'rate-limited' | 'unreachable';
+
+export function hostErrorState(error: string | null): HostErrorState | null {
+  if (!error) return null;
+  return /rate limit/i.test(error) ? 'rate-limited' : 'unreachable';
+}
+
+/**
+ * When the spent budget returns, in the reader's words — or null when no reset
+ * is known.
+ *
+ * `prNextInSeconds` is the reset the fetch already waits for: *backoff
+ * included*, per the contract, which after the sibling wave is the host's real
+ * `rate_limit` reset rather than the nominal cadence. Rounded to the minute
+ * above a minute, because the wait is minute-scale and second-precision would
+ * flicker every render; kept in seconds below that, where a minute would read
+ * as *0 min*. Null (an older server, or a due-now gate at 0) yields no phrase,
+ * so the note says the budget is spent without inventing a time it cannot name.
+ */
+function resetPhrase(prNextInSeconds: number | null): string | null {
+  if (prNextInSeconds === null || prNextInSeconds <= 0) return null;
+  if (prNextInSeconds < 60) return `${prNextInSeconds}s`;
+  return `${Math.round(prNextInSeconds / 60)} min`;
+}
+
+/**
+ * The PR footer note — one sentence, or null when the host answered.
+ *
+ * TWO shapes for TWO failures, which is the whole branch. An unreachable host
+ * keeps the exact wording `an-outage-is-not-an-answer` settled — *PR data
+ * unavailable (…) — the two groups above that depend on it may be incomplete.*
+ * A rate limit is not unavailable: it says so, and names when service returns.
+ *
+ * Exported for test — the wording is the contract with the reader.
+ */
+export function prNote(fleet: Pick<Fleet, 'prError' | 'prNextInSeconds'>): string | null {
+  const kind = hostErrorState(fleet.prError);
+  if (kind === null) return null;
+  if (kind === 'rate-limited') {
+    const when = resetPhrase(fleet.prNextInSeconds);
+    return (
+      "PR data paused: the host's rate limit is spent" +
+      (when ? `, service returns in ~${when}` : '') +
+      ' — the two groups above that depend on it may be incomplete.'
+    );
+  }
+  return `PR data unavailable (${fleet.prError}) — the two groups above that depend on it may be incomplete.`;
+}
+
+/**
+ * The issue footer note — one sentence, or null when the tracker answered.
+ *
+ * The rate-limit case is the sharpest test the plan names: a spent budget means
+ * the tracker was REFUSED, not that reading it failed. *could not be read*
+ * claims a check that ran and failed, and a rate limit ran no check — so it
+ * must not borrow that wording. The issue poll shares the PR gate (`prNextAt`),
+ * so `prNextInSeconds` is its reset too.
+ */
+export function issueNote(fleet: Pick<Fleet, 'issueError' | 'prNextInSeconds'>): string | null {
+  const kind = hostErrorState(fleet.issueError);
+  if (kind === null) return null;
+  if (kind === 'rate-limited') {
+    const when = resetPhrase(fleet.prNextInSeconds);
+    return (
+      "Open issues paused: the tracker's rate limit is spent" +
+      (when ? `, service returns in ~${when}` : '') +
+      ' — this list may be incomplete.'
+    );
+  }
+  return `Open issues could not be read, so this list may be incomplete — ${fleet.issueError}`;
+}
+
+/**
  * Where the collapse state lives.
  *
  * `localStorage`, and that is a deliberate departure. The board's convention for
@@ -5125,16 +5214,20 @@ export function AgentList({
                   the section the rows would have appeared in. Silence here is
                   precisely the defect: it is indistinguishable from an inbox
                   with nothing in it, and a reader would conclude they had
-                  nothing to decide. */}
-              {key === 'waiting-on-you' && fleet.issueAnswer === 'failed' && (
+                  nothing to decide.
+
+                  A rate limit is a THIRD state — the tracker was refused, not
+                  unreachable — so `issueNote` chooses the wording: *could not be
+                  read* for an outage, *rate limit is spent, returns in ~N* for a
+                  spent budget, which does not claim a check that never ran. */}
+              {key === 'waiting-on-you' && fleet.issueAnswer === 'failed' && issueNote(fleet) && (
                 <li
                   role="row"
                   data-issue-error
                   className="border-t border-slate-100 px-3 py-2 text-sm text-amber-700 dark:border-slate-800 dark:text-amber-500"
                 >
                   <span role="gridcell">
-                    Open issues could not be read, so this list may be incomplete
-                    {fleet.issueError ? ` — ${fleet.issueError}` : ''}
+                    {issueNote(fleet)}
                   </span>
                 </li>
               )}
@@ -5182,7 +5275,7 @@ export function AgentList({
         {fleet.prAgeSeconds !== null && prNext !== null && ` · next in ${prNext}s`}
         {fleet.prAgeSeconds === null && !fleet.prError && ' · no PR data yet'}
       </p>
-      {fleet.prError && (
+      {prNote(fleet) && (
         // THE WHOLE MESSAGE, and the truncation it replaces was not merely
         // short — it was SILENT. `slice(0, 80)` cut
         //
@@ -5198,9 +5291,12 @@ export function AgentList({
         // is what a paragraph is for. It costs a line of height on the rare
         // occasion the board cannot reach the host — the one moment the reader
         // is owed the full sentence.
-        <p className="px-3 text-xs break-words text-amber-700 dark:text-amber-400">
-          PR data unavailable ({fleet.prError}) — the two groups above that
-          depend on it may be incomplete.
+        //
+        // `prNote` chooses the wording: an outage keeps the sentence above
+        // verbatim; a spent rate limit says so and names when service returns,
+        // rather than reporting a temporary refusal as *unavailable*.
+        <p data-pr-error className="px-3 text-xs break-words text-amber-700 dark:text-amber-400">
+          {prNote(fleet)}
         </p>
       )}
     </div>

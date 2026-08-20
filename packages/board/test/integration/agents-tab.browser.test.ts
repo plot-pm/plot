@@ -2913,6 +2913,33 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
+  it('says a spent rate limit is a rate limit, and names when it returns', async () => {
+    // `2026-08-20-a-rate-limit-is-not-an-outage.md`: a spent budget is partial,
+    // temporary, and has a KNOWN END — none of which *unavailable* conveys. The
+    // sibling wave taught the fetch to back off to the host's real reset and to
+    // carry that reset in `prNextInSeconds`; this branch is what SAYS so to the
+    // reader. 480 s is the ~8-minute reset this repo measured on 2026-08-20.
+    const page = await openAgents(fleet({
+      prAgeSeconds: null,
+      prError: 'GraphQL: API rate limit already exceeded for user ID 870334',
+      prNextInSeconds: 480,
+    }));
+    try {
+      const banner = page.locator('[data-pr-error]');
+      await banner.waitFor({ timeout: 10_000 });
+      const text = await banner.textContent();
+      // SAYS the state: a rate limit, not a generic outage.
+      expect(text).toMatch(/rate limit/i);
+      // NAMES when service returns — the known end an outage does not have.
+      expect(text).toContain('8 min');
+      // And does NOT read as *unavailable*, the outage word this branch removes
+      // from the rate-limit case.
+      expect(text).not.toContain('unavailable');
+    } finally {
+      await page.close();
+    }
+  });
+
   it('never lets a host-fed section borrow the git scan\'s freshness', async () => {
     // Two sources, two clocks. The git scan runs every few seconds and the host
     // every 60, so a board that is git-fresh and host-unfetched is not an edge

@@ -41,12 +41,15 @@ import {
   HOST_CANNOT_REPORT_HINT,
   hostAnswer,
   HOST_ANSWER_HINT,
+  hostErrorState,
+  prNote,
+  issueNote,
   type WatchedState,
   type PlanGroup,
 } from '../../src/app/components/AgentList.js';
 import { GROUP_ORDER } from '../../src/server/fleet.js';
 import {
-  AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, type AgentRow,
+  AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, type AgentRow, type Fleet,
 } from '../../src/contract/schema.js';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
@@ -1898,6 +1901,99 @@ describe('the board says when it has not asked', () => {
     for (const hint of Object.values(HOST_ANSWER_HINT)) {
       expect(hint).not.toBe('none');
     }
+  });
+});
+
+describe('hostErrorState — a rate limit is a THIRD state, never an outage', () => {
+  // `2026-08-20-a-rate-limit-is-not-an-outage.md`: a spent budget is partial,
+  // temporary and has a KNOWN END, where an unreachable host is none of those.
+  // The two must not collapse into one word, in either direction.
+  const RATE_LIMIT = 'GraphQL: API rate limit already exceeded for user ID 870334';
+  const SECONDARY = 'You have exceeded a secondary rate limit. Please wait 60 seconds…';
+
+  it('reads GitHub\'s exhaustion messages as rate-limited', () => {
+    // The exact strings the backend keys on (`rateLimitBackoffMs`, fleet.ts):
+    // client and server must read the SAME signal, or the note says outage
+    // while the fetch is already backing off for a rate limit.
+    expect(hostErrorState(RATE_LIMIT)).toBe('rate-limited');
+    expect(hostErrorState(SECONDARY)).toBe('rate-limited');
+  });
+
+  it('keeps every other failure an outage', () => {
+    // The plan's second test, in its mechanical form: an unreachable host keeps
+    // today's wording, so it must NOT be read as a rate limit. A 503, a broken
+    // path, a VPN timeout — none names a reset, and each stays `unreachable`.
+    expect(hostErrorState('gh: 503')).toBe('unreachable');
+    expect(hostErrorState('Command failed: bash …/plot-host.sh')).toBe('unreachable');
+  });
+
+  it('says nothing when there is no error at all', () => {
+    // A healthy pulse has no state to name — the note renders nothing.
+    expect(hostErrorState(null)).toBeNull();
+  });
+});
+
+describe('prNote — the PR note distinguishes the two failures', () => {
+  const at = (over: Partial<Fleet>): Fleet =>
+    ({ prError: null, prNextInSeconds: null, ...over } as Fleet);
+
+  it('is silent when the host answered', () => {
+    // No error, no note. The one banner exists for a failure to explain.
+    expect(prNote(at({ prError: null }))).toBeNull();
+  });
+
+  it('keeps TODAY\'S wording for an unreachable host', () => {
+    // The plan pins this verbatim: an outage that named no reset reads exactly
+    // as it did before this branch. Changing it would be re-solving
+    // `an-outage-is-not-an-answer`, which already holds.
+    expect(prNote(at({ prError: 'gh: 503' })))
+      .toBe('PR data unavailable (gh: 503) — the two groups above that depend on it may be incomplete.');
+  });
+
+  it('SAYS a rate limit is a rate limit, and NAMES when service returns', () => {
+    // The heart of the branch. A spent budget is not "unavailable" — it is
+    // rate-limited, temporary, and its end is known: `prNextInSeconds` is the
+    // reset the backoff already waits for (backoff included, per the contract).
+    const note = prNote(at({ prError: 'GraphQL: API rate limit already exceeded', prNextInSeconds: 480 }));
+    expect(note).toContain('rate limit');
+    expect(note).toContain('8 min');           // 480s named as the reset
+    expect(note).not.toContain('unavailable'); // NOT the outage word
+  });
+
+  it('says the budget is spent even when the reset is unknown', () => {
+    // An older server sends no `prNextInSeconds`. The state is still knowable
+    // from the message, so the note still says RATE LIMIT rather than falling
+    // back to the outage wording — it just cannot name the minute.
+    const note = prNote(at({ prError: 'GraphQL: API rate limit already exceeded', prNextInSeconds: null }));
+    expect(note).toContain('rate limit');
+    expect(note).not.toContain('unavailable');
+  });
+});
+
+describe('issueNote — the note never claims a check it did not run', () => {
+  const at = (over: Partial<Fleet>): Fleet =>
+    ({ issueError: null, prNextInSeconds: null, ...over } as Fleet);
+
+  it('is silent when the tracker answered', () => {
+    expect(issueNote(at({ issueError: null }))).toBeNull();
+  });
+
+  it('keeps TODAY\'S wording for an unreachable tracker', () => {
+    // `Open issues could not be read` is the honest report of a call that was
+    // MADE and FAILED — kept verbatim for the outage case.
+    expect(issueNote(at({ issueError: 'gh: 503' })))
+      .toBe('Open issues could not be read, so this list may be incomplete — gh: 503');
+  });
+
+  it('does NOT say issues "could not be read" for a rate limit', () => {
+    // The plan's third test, and the sharpest: a rate limit means the tracker
+    // was refused, NOT that reading it failed. "could not be read" claims a
+    // failed check; the honest word is that the budget is spent and returns.
+    // The issue poll shares the PR gate, so `prNextInSeconds` is its reset too.
+    const note = issueNote(at({ issueError: 'GraphQL: API rate limit already exceeded', prNextInSeconds: 480 }));
+    expect(note).toContain('rate limit');
+    expect(note).toContain('8 min');
+    expect(note).not.toContain('could not be read');
   });
 });
 

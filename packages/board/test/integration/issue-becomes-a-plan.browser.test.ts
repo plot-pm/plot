@@ -280,8 +280,11 @@ describe('the issue row has one action, and it creates a Draft', () => {
   });
 
   it('renders no action on a failed lookup, and does not read as "no issues"', async () => {
+    // The subject here is action-absence, so the failure is a plain OUTAGE: the
+    // rate-limit case is a THIRD state with its own wording, pinned in
+    // `unplanned-issues.browser.test.ts`.
     const { page, posts } = await open(fleet({
-      issueAnswer: 'failed', issueError: 'gh: API rate limit exceeded',
+      issueAnswer: 'failed', issueError: 'gh: 503 Service Unavailable',
     }));
     try {
       // AN OUTAGE IS NOT AN ANSWER: no action, and no silence either. The
@@ -291,7 +294,6 @@ describe('the issue row has one action, and it creates a Draft', () => {
       expect(posts).toEqual([]);
       const notice = await section(page).locator('[data-issue-error]').textContent();
       expect(notice).toContain('could not be read');
-      expect(notice).toContain('rate limit');
     } finally {
       await page.close();
     }
