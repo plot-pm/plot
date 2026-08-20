@@ -159,7 +159,7 @@ a warning it may read as advisory.
 ### Said
 - `bug/the-board-says-who-holds-a-branch` — `WORKING` shows a held branch whether or not its tree is dirty, and `NOT STARTED` says *held in a local worktree* instead of *nobody has taken it*. Tests: an agent that commits stays in WORKING; a held branch is never offered as eligible; the row names the worktree.
 - `bug/a-branch-row-carries-its-link` — the branch row carries the PR number and URL the scan already resolved, so the branch name links the way the plan name does. Tests: a branch with a merged PR carries its number; a branch with no PR carries none and renders as text rather than a dead link; the row's link survives a branch whose ref is deleted, since the PR outlives it.
-- `bug/every-action-is-in-the-menu` — *Create plan* moves into the `...` menu with every other row action, freeing the age column it currently overlaps. Tests: an issue row's menu offers Create plan; no action renders outside the menu; the two-step arm survives the move; the age column renders alone.
+- `bug/every-action-is-in-the-menu` — *Create plan* moves into the `...` menu with every other row action, freeing the age column it currently overlaps. Tests: an issue row's menu offers Create plan; no action renders outside the menu; the two-step arm survives the move; the age column renders alone. → #269
 - `bug/dispatch-refuses-a-held-branch` — `plot-dispatch.sh` refuses a branch whose worktree exists with an unmerged tip, naming the path, and says so in `--dry-run`. Tests: a held branch is refused and counted `skipped`; the refusal names the worktree; `--allow-local` does not override it; a leftover worktree on a merged branch is still dispatchable.
 
 ## Notes
