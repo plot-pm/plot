@@ -46,7 +46,7 @@ import { agoLabel } from './AgentPanelFacts.js';
 // slots are answered once, in `tuple-row.ts`, for every kind. So a new kind
 // costs a projection and no rendering at all, which is what the deleted three
 // could never do.
-import { splitBranch, tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave } from '../lib/tuple-row.js';
+import { splitBranch, tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave, prStatus, stateStatus} from '../lib/tuple-row.js';
 // RE-EXPORTED, not redefined. `splitBranch` moved to the module that owns the
 // slot rules when the collapse deleted `BranchName`; the unit suite imports it
 // from here, and a second definition is exactly the drift this wave removed.
@@ -796,8 +796,23 @@ export function waveGroupsFor(rows: AgentRow[], section: WaitingGroup): WaveGrou
         : section === 'done' ? ((r: AgentRow) => r.state === 'merged')
           : null;
   if (!claims) return [];
+  // NO `length > 1` THRESHOLD, and its removal is the correction that matters.
+  //
+  // It was there on `showsWaveFold`'s reasoning — *a heading over one row saves
+  // no repetition* — and that argument answers a different question. A fold is
+  // about SAVING REPETITION; a kind is about **what the row is ABOUT**. A branch
+  // cut for the wave `Surfaced` is that wave's work whether the wave holds one
+  // branch or five, and the count is a fact about how the plan was written.
+  //
+  // Measured on the live board, the threshold also never fired: all **12** waves
+  // in WAITING ON YOU hold exactly one branch, so the grouping was reachable
+  // only through the mock's hand-made two-branch wave. A rule that fires only in
+  // a fixture is a rule nothing tests.
+  //
+  // A wave holding several still folds — `expanded` is what the WaveRow does with
+  // a set. What changed is that a wave of one is a wave, not a PR.
   return groupByWave(rows.filter(claims))
-    .filter((wg) => wg.wave && wg.wave !== UNNAMED_WAVE && wg.rows.length > 1);
+    .filter((wg) => wg.wave && wg.wave !== UNNAMED_WAVE);
 }
 
 /**
@@ -4550,6 +4565,7 @@ function WaveRow({
   onStarting,
   groupedCount,
   groupedWord,
+  soleRow,
 }: {
   group: WaveGroup;
   /** The plan this wave slices — for the row's test hook, not for a link. */
@@ -4586,12 +4602,28 @@ function WaveRow({
    */
   groupedCount?: number;
   groupedWord?: string;
+  /**
+   * The one row this wave holds, where it holds exactly one — so the wave row can
+   * show that branch's own status and age.
+   *
+   * A wave of one gets no fold (there is nothing hidden to reveal), which means
+   * the wave row is the ONLY row that branch gets. Its PR condition —
+   * `conflicts`, `checks failing` — is a fact the verdict cannot carry and there
+   * would be no second row to read it from. Measured: all 12 waves in WAITING ON
+   * YOU hold one branch, so this is the ordinary case rather than an edge.
+   */
+  soleRow?: AgentRow;
 }) {
   const foldable = expanded !== null;
   // The wave's own age is the freshest of its branches — a wave has no tip, so
   // its clock is the clock of the work in it. `null` where none of them has one,
   // and then `tupleFromWave` falls back to the plan's approval clock, labelled.
   const ages = group.rows.map((r) => r.ageMinutes).filter((a): a is number => a !== null);
+  // A WAVE OF ONE INHERITS ITS BRANCH'S NOTE, since there is no branch row left
+  // to carry it: `conflicting: …`, `last commit 6h ago`, `PR #303, checks
+  // failing`. The verdict sentences are about starting, and this branch is
+  // started.
+  const soleNote = soleRow ? noteWithoutPr(soleRow.note, soleRow.pr) : '';
   // THE VERDICT IS THE WAITING-STATE, and these are the two cases NOT STARTED
   // holds: a wave a person may start, and a wave an earlier one is holding back.
   // Both are already answered by the verdict — see `aside` below for why the
@@ -4609,7 +4641,8 @@ function WaveRow({
   // exactly what an eligible wave is.
   const waveWaitingOn: WaitingOn | null =
     // `you` — a merge is a decision, whatever the verdict says about ordering.
-    groupedCount !== undefined ? 'you'
+    soleRow ? soleRow.waitingOn
+      : groupedCount !== undefined ? 'you'
       : group.verdict === 'eligible' ? 'you'
       : group.verdict === 'blocked' ? 'time'
         : null;
@@ -4617,7 +4650,8 @@ function WaveRow({
     // A REVIEWABLE WAVE says what it is waiting for, and it is a person. The
     // verdict's sentences are both about starting — and these branches are
     // started, so neither is true here.
-    groupedCount !== undefined ? groupedNote(groupedWord)
+    soleNote ? soleNote
+      : groupedCount !== undefined ? groupedNote(groupedWord)
       : group.verdict === 'eligible' ? 'approved — nobody has taken it'
         : group.verdict === 'blocked' ? 'an earlier wave has to land first'
           : '';
@@ -4629,6 +4663,9 @@ function WaveRow({
         verdict: group.verdict,
         groupedCount: groupedCount ?? null,
         groupedWord: groupedWord ?? '',
+        // THE SOLE BRANCH'S OWN CONDITION, where the wave holds one. `prStatus`
+        // is what a PR row would have shown, and this row stands in for it.
+        soleStatus: soleRow?.pr ? prStatus(soleRow.pr) : (soleRow ? stateStatus(soleRow) : ''),
         // ITS BRANCHES, and they are slot 4. Not its plan: the plan is what
         // this row sits under, and the nesting is the statement — a `PLAN x`
         // link on a row already nested under `x` is what the mock showed three
@@ -6339,6 +6376,18 @@ export function AgentList({
                   // was built for.
                   const headed = !countsPlans && key !== 'waiting-on-you'
                     && showPlanHeading(group);
+                  // A PLAN ROW HEADS ITS WAVES, where every row in the group is
+                  // one. That is the shape NOT STARTED already draws, and the one
+                  // a text heading cannot: a plan has a phase, an approval clock
+                  // and a menu, none of which an `h3` can carry.
+                  //
+                  // `group.plan` must be named — a group of rows no plan claims
+                  // has no plan row to draw — and the wave groups must account
+                  // for every row, or a plan row would head a set it does not
+                  // describe.
+                  const planHeads = !countsPlans && Boolean(group.plan)
+                    && ungroupedRows(group.rows, key).length === 0
+                    && waveGroupsFor(group.rows, key).length > 0;
                   if (countsPlans) {
                     const foldable = showsWaveFold(group);
                     const expanded = foldable ? openPlans.has(group.plan) : null;
@@ -6595,7 +6644,7 @@ export function AgentList({
                   <li
                     role="rowgroup"
                     key={group.plan}
-                    data-plan-group={headed ? group.plan : undefined}
+                    data-plan-group={headed || planHeads ? group.plan : undefined}
                     // AN OUTLINE, NOT A BORDER — and no margin.
                     //
                     // A border plus `m-1` drew exactly the edge this needs and
@@ -6612,7 +6661,7 @@ export function AgentList({
                     // background does the rest of the work of reading as one
                     // block.
                     className={
-                      headed
+                      headed || planHeads
                         ? 'block rounded-sm bg-slate-50/70 outline outline-slate-300 -outline-offset-1 dark:bg-slate-900/30 dark:outline-slate-700'
                         : undefined
                     }
@@ -6621,43 +6670,51 @@ export function AgentList({
                         nothing to head them WITH: rendering the heading anyway
                         printed a bare "(3)", a label that labels nothing.
                         `showPlanHeading` already refuses those. */}
-                    {headed && (
-                      // TWO SIZES FOR THREE LEVELS, decided from the rendered
-                      // board rather than from the table.
+                    {/* THE PLAN, as a ROW rather than as a text heading — where
+                        its rows are waves.
+                        
+                        *"We need to group branches for plans. Which should be
+                        Plan group with WAVES"* and *"PLANS are missing with their
+                        age"*. NOT STARTED has drawn exactly this since the wave
+                        kind landed: a plan row carrying the plan's phase and its
+                        approval clock, with its waves indented beneath. A text
+                        heading carries neither — it is a label, and a plan has a
+                        phase, an age and a menu.
+                        
+                        Only where every row under it is a wave. A group holding a
+                        release and a ticket has no plan to head it with, and the
+                        `h3` below still serves the mixed case. */}
+                    {planHeads && (
+                      <PlanRow
+                        group={group}
+                        onOpenPlan={onOpenPlan}
+                        // NO FOLD: these waves are what the section is showing,
+                        // and hiding them behind a control would hide the rows a
+                        // reader came for. NOT STARTED folds because its plans are
+                        // a list to browse; here they are the thing waiting.
+                        expanded={null}
+                        active={group.rows.some((r) => active.has(rowKey(r)))}
+                        card={cardForPlanFile?.(group.planFile) ?? null}
+                        approve={approve}
+                        onApproving={onStarting}
+                      />
+                    )}
+                    {headed && !planHeads && (
+                      // AND WHERE THE `h3` SURVIVES, IT KEEPS THE SIZE #302 GAVE IT.
+                      // The plan row above answers the grouped case; this
+                      // heading answers the MIXED one, where a group holds a
+                      // release or a ticket beside its waves and no single plan
+                      // heads it. That case still had the original defect: at
+                      // `text-[11px]` this label sat under the 13px branch names
+                      // it labels, the section's defect one level down.
                       //
-                      // The plan asked whether this heading needs a size of its
-                      // own, between the section's and the row's. It does not:
-                      // this heading sits INSIDE a tinted, outlined box that
-                      // holds exactly its own rows, and that container states
-                      // *inside a section* more plainly than a third type size
-                      // would. A distinction the layout already draws is not
-                      // worth spending a type step on.
-                      //
-                      // What it did need was to stop being the SMALLEST thing
-                      // on the page. At `text-[11px]` it was set under the
-                      // 13px branch names beneath it — a label smaller than
-                      // what it labels, the section's defect one level down.
-                      // `text-[13px]` puts it level with those names, where a
-                      // heading distinguished by weight and by its own tinted
-                      // band no longer has to be distinguished by shrinking.
-                      //
-                      // `py-0.5` because the TYPE grew and the padding did
-                      // not have to. 2px around a 13px label in a tinted band
-                      // holds the same proportion `py-1` held around an 11px
-                      // one; at 13px the band read loose.
-                      //
-                      // It also started as a 4px repayment. Growing the type
-                      // grew each heading's line box, twice over on a page with
-                      // a plan group in QUIET and in DONE, and the footer test
-                      // then bounded the page against a literal 800 — so 13px
-                      // headings at `py-1` failed it by 1.3px. That bound is
-                      // gone: the test now measures the footer against
-                      // `window.innerHeight`, having been found to pass on
-                      // macOS and fail on CI's Linux for the same code, a ~4px
-                      // font-metric difference no change here could control.
-                      // Nothing about this line is load-bearing for it any
-                      // more, which is why the reason above is the one stated
-                      // first.
+                      // `py-0.5` with it, because the type grew and the padding
+                      // did not have to — 2px around a 13px label in a tinted
+                      // band holds the proportion `py-1` held around an 11px
+                      // one. Taking either side of this conflict whole would
+                      // have lost one of the two: #304's structure drops the
+                      // sizing, #302's sizing drops the structure. Both are
+                      // wanted, and they are about different rows.
                       <h3 className="border-b border-slate-200/60 bg-slate-50 px-3 py-0.5 text-[13px] font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
                         {/* The heading CARRIES the link, because the rows below
                             no longer print the plan name. Grouping moved the
@@ -6693,7 +6750,7 @@ export function AgentList({
                         its rows sit where every other row in the fleet does. */}
                     <ul
                       role="presentation"
-                      className={headed
+                      className={headed || planHeads
                         ? 'ml-6 border-l border-slate-200 dark:border-slate-800'
                         : undefined}
                     >
@@ -6721,7 +6778,14 @@ export function AgentList({
                           group under the plan in NOT STARTED. Each section shows
                           only the branches its own question is about. */}
                       {waveGroupsFor(group.rows, key).map((wg) => {
-                        const waveOpen = openWaves.has(waveKey(group.plan, wg.wave));
+                        // A WAVE OF ONE NEEDS NO FOLD — its single branch is
+                        // already named in slot 4, so a control revealing a row
+                        // the reader can see is the noise this estate removed
+                        // twice. Measured: all 12 waves here hold one branch.
+                        const many = wg.rows.length > 1;
+                        const waveOpen = many
+                          ? openWaves.has(waveKey(group.plan, wg.wave))
+                          : null;
                         return (
                           <li key={`wave:${wg.wave}`} className="block">
                             <WaveRow
@@ -6729,7 +6793,7 @@ export function AgentList({
                               plan={group.plan}
                               waitingDays={planWaitingDays(group)}
                               expanded={waveOpen}
-                              onToggle={() => toggleWave(group.plan, wg.wave)}
+                              onToggle={many ? () => toggleWave(group.plan, wg.wave) : undefined}
                               active={wg.rows.some((r) => active.has(rowKey(r)))}
                               // NO `Start work` HERE: these branches are already
                               // started. The card and dispatch binding are what
@@ -6741,11 +6805,18 @@ export function AgentList({
                               // cannot say any of these, because it answers
                               // *may this be started* and all three describe
                               // waves that already were.
-                              groupedCount={wg.rows.length}
+                              // THE COUNT ONLY WHERE THERE IS MORE THAN ONE.
+                              // `1 to review` beside a single branch link states
+                              // what that link already shows, and it would hide
+                              // what a reader wants on a wave of one: that
+                              // branch's own condition, which no verdict carries
+                              // and no fold exists to reach.
+                              groupedCount={wg.rows.length > 1 ? wg.rows.length : undefined}
                               groupedWord={key === 'done' ? 'delivered'
                                 : key === 'quiet' ? 'stalled' : 'to review'}
+                              soleRow={wg.rows.length > 1 ? undefined : wg.rows[0]}
                             />
-                            {waveOpen && (
+                            {many && waveOpen && (
                               <ul
                                 role="presentation"
                                 data-wave-branch-list={wg.wave || '(unnamed)'}

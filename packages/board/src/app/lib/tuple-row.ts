@@ -885,6 +885,14 @@ export interface WaveRowFacts {
   /** The word for what `groupedCount` counts — `to review`, `stalled`, … */
   groupedWord?: string;
   /**
+   * The status of the ONE branch this wave holds — outranks the verdict, because
+   * a wave of one has no fold and so no second row to carry it.
+   *
+   * `conflicts` and `checks failing` are the host's answer about that branch, and
+   * no verdict computed from ordering can express either.
+   */
+  soleStatus?: string;
+  /**
    * How many of THIS wave's branches are still unfinished — `null` where the
    * question does not apply.
    *
@@ -953,7 +961,9 @@ export function tupleFromWave(facts: WaveRowFacts): TupleRow {
     // Only where there is more than one, since `1 left` beside a single branch
     // link in slot 4 states what that link already shows. The count earns its
     // place exactly when the branches are folded out of sight.
-    status: facts.groupedCount != null
+    status: facts.soleStatus
+      ? facts.soleStatus
+      : facts.groupedCount != null
       ? `${facts.groupedCount} ${facts.groupedWord || 'to review'}`
       : facts.verdict
         ? (facts.outstanding !== null && facts.outstanding > 1

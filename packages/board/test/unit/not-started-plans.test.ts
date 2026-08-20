@@ -317,12 +317,23 @@ describe('waveGroupsFor — which sections group by wave, and from which rows', 
     expect(groups[0].rows).toHaveLength(2);
   });
 
-  it('leaves a LONE reviewable branch as its own row', () => {
-    // One PR is a PR: there is no set for a wave row to name, and a heading over
-    // one row saves nothing. `showsWaveFold`'s rule, one level over.
+  it('makes a LONE reviewable branch its wave, not a PR', () => {
+    // THE REVERSAL, and the reasoning it corrects is my own. This asserted
+    // `toHaveLength(0)` on `showsWaveFold`'s rule — *a heading over one row saves
+    // no repetition* — which answers a different question. A fold is about
+    // saving repetition; a KIND is about what the row is ABOUT, and a branch cut
+    // for the wave `Modelled` is that wave's work whether the wave holds one
+    // branch or five.
+    //
+    // Measured on the live board: all **12** waves in WAITING ON YOU hold exactly
+    // one branch, so the threshold fired only through the mock's hand-made
+    // two-branch wave — a rule reachable only from a fixture.
     const rows = [row({ wave: 'Modelled', branch: 'a', state: 'wip', pr: pr(304) })];
-    expect(waveGroupsFor(rows, 'waiting-on-you')).toHaveLength(0);
-    expect(ungroupedRows(rows, 'waiting-on-you')).toHaveLength(1);
+    const groups = waveGroupsFor(rows, 'waiting-on-you');
+    expect(groups).toHaveLength(1);
+    expect(groups[0].wave).toBe('Modelled');
+    // And nothing is left over, so the branch renders once — as its wave.
+    expect(ungroupedRows(rows, 'waiting-on-you')).toHaveLength(0);
   });
 
   it('ignores a branch with no PR in WAITING ON YOU', () => {
@@ -332,9 +343,12 @@ describe('waveGroupsFor — which sections group by wave, and from which rows', 
       row({ wave: 'Modelled', branch: 'a', state: 'wip', pr: pr(304) }),
       row({ wave: 'Modelled', branch: 'b', state: 'open', pr: null }),
     ];
-    // One reviewable row, so no set — and both rows render on their own.
-    expect(waveGroupsFor(rows, 'waiting-on-you')).toHaveLength(0);
-    expect(ungroupedRows(rows, 'waiting-on-you')).toHaveLength(2);
+    // The wave claims the REVIEWABLE branch only; the one with no PR is not
+    // waiting on a review and renders on its own.
+    const groups = waveGroupsFor(rows, 'waiting-on-you');
+    expect(groups).toHaveLength(1);
+    expect(groups[0].rows.map((r) => r.branch)).toEqual(['a']);
+    expect(ungroupedRows(rows, 'waiting-on-you').map((r) => r.branch)).toEqual(['b']);
   });
 
   it('groups stalled branches in QUIET and delivered ones in DONE', () => {

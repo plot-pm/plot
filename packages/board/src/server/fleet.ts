@@ -860,12 +860,26 @@ async function ideaPlanFiles(opts: BuildBoardOptions): Promise<Map<string, strin
  * the honest fallback rather than an invented tag: the same rule the board
  * applies to a missing URL.
  */
-async function releaseVersions(
-  branches: string[],
-  opts: BuildBoardOptions,
-): Promise<Map<string, string>> {
+async function releaseVersions(opts: BuildBoardOptions): Promise<Map<string, string>> {
   const found = new Map<string, string>();
-  for (const branch of branches.filter((b) => RELEASE_BRANCH.test(b))) {
+  // THE REFS, not the plans — and the first version of this read the plans,
+  // which is why it found nothing on the live board while the mock looked right.
+  //
+  // `changeset-release/main` belongs to NO plan; that is precisely why it reaches
+  // the board through the planless-PR loop. Feeding this function
+  // `plans.flatMap(...waves...branches)` therefore passed a list that could never
+  // contain the one branch it exists to read, and the filter matched nothing.
+  //
+  // The mock HID it: `version` was set there by hand, so the fixture built to
+  // expose this shape was the reason it went unseen. Measured on the live board —
+  // `version: ""` on the only release row.
+  const refs = await run('git',
+    ['for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin/changeset-release/*'],
+    opts.repoRoot).catch(() => '');
+  const branches = refs.split('\n')
+    .map((l) => l.trim().replace(/^origin\//, ''))
+    .filter(Boolean);
+  for (const branch of branches) {
     // `?? ''` because `run` rejects on a missing ref, and a release branch that
     // vanished between the ref listing and this read is a race rather than a
     // defect — it reads as *no version*, which is what the row then says.
@@ -1844,10 +1858,7 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // THE RELEASE VERSION, from the release branch's own `package.json`. From
     // the REFS for the reason stated one line up: the PR map is on its own
     // timer and is still null at the first git refresh.
-    entry.versions = await releaseVersions(
-      complete.plans.flatMap((pl) => pl.waves.flatMap((w) => w.branches.map((b) => b.branch))),
-      opts,
-    );
+    entry.versions = await releaseVersions(opts);
     // WHAT THE WAITING WORKERS ASKED, read here and nowhere else.
     //
     // After `entry.pulse` is assigned, because the pulse is what says WHICH
@@ -3554,6 +3565,15 @@ export function rowKind(
    * has produced no evidence for the branch arm.
    */
   conflicts: boolean,
+  /**
+   * Whether CI is RUNNING for this row's PR — `pr.checks === 'pending'`.
+   *
+   * The fact that makes a row a `build`, and the reason it has to be passed
+   * rather than read from a PR record: `hasPr` above records the deliberate
+   * choice not to hand this function a condition no arm reads. This arm reads
+   * exactly one, so it takes exactly one boolean.
+   */
+  ciRunning = false,
 ): RowKind {
   if (RELEASE_BRANCH.test(branch)) return 'release';
   // A PLAN AWAITING APPROVAL, not code awaiting review — see arm 1b. Ordered
@@ -3561,6 +3581,20 @@ export function rowKind(
   // and the act it wants is approval rather than a rebase. It is BELOW the
   // release arm only because the two cannot both match.
   if (IDEA_BRANCH.test(branch) && hasPr) return 'plan';
+  // A RUN IN PROGRESS IS A BUILD, and this arm is why the `build` kind existed
+  // for weeks with nothing ever assigned to it — `tupleFromBuild` was written,
+  // tested, and unreachable, because this function's own docstring said *"a build
+  // and an agent have no row yet"* while `classify` was already routing these
+  // rows to WAITING ON A MACHINE.
+  //
+  // The result was a section whose subject is *what is a machine doing* holding
+  // a row labelled `PR`, with a note reading `CI is running for PR #304`.
+  // Reported from a screenshot; the section knew, the kind did not.
+  //
+  // BELOW the plan arm: a plan PR under CI is still a plan awaiting approval, and
+  // ABOVE the conflict arm, because a run in progress is what the reader is
+  // waiting on — the conflict is what they will find when it finishes.
+  if (ciRunning && hasPr) return 'build';
   if (conflicts) return 'branch';
   return hasPr ? 'pr' : 'branch';
 }
@@ -3925,6 +3959,10 @@ export function rowsFromPulse(
             b.branch,
             pr !== null,
             b.conflicts_known && b.conflicts.length > 0,
+            // CI RUNNING makes it a build — the same fact `classify` reads to
+            // put the row in WAITING ON A MACHINE, so the kind and the section
+            // now agree instead of the section knowing alone.
+            pr?.checks === 'pending',
           ),
           branch: b.branch,
           plan: plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, ''),
@@ -4190,7 +4228,7 @@ export function rowsFromPulse(
       // this loop therefore reads as `pr` — the PR is still where its checks
       // and its reviewers are, and the row says `conflicts` in its status slot
       // either way.
-      kind: rowKind(branch, true, false),
+      kind: rowKind(branch, true, false, pr.checks === 'pending'),
       plan: ideaSlug,
       // Resolvable since the plan viewer learned to read branch plans: before
       // that this was deliberately blank, because linking to a file the route
