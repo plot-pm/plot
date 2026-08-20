@@ -10,13 +10,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Story:** plot-board
 - **Sprint:**
 - **Review:** in-session
 - **Impl:** own branches
 - **Assignee:** jwloka
+- **Approved:** 2026-08-20 by jwloka (in-session) — throttle, do not fall back to a second budget
 
 ## Problem
 
