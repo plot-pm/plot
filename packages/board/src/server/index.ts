@@ -21,6 +21,7 @@ import {
   handleApprove,
 } from './approve.js';
 import { handleIdea, ideaAvailability, ideaStatus } from './idea.js';
+import { commissionAvailability, commissionStatus, handleCommission } from './commission.js';
 // Inlined at build time by esbuild's text loader — the artifact is a single
 // self-contained file, served from memory (no filesystem static serving, so no
 // path-traversal surface).
@@ -140,6 +141,16 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     // that question instead of posing it. Nothing here reaches the tracker in
     // the other direction: no comment, no label, no close.
     { path: '/api/idea', verb: 'creating an idea', handle: handleIdea },
+    // POST /api/commission — a Draft plan is moved into phase Design.
+    //
+    // The same class of route as /api/idea, and the same binding: it spawns a
+    // plot agent that writes to this disk. It is SLUG-scoped rather than
+    // issue-scoped — it acts on the Draft plan the row already names — and it
+    // asks the plan's own phase (through `plot-plan-meta.sh`) whether it is a
+    // Draft before spawning, because commissioning design is a decision about a
+    // Draft exactly as Approve is. It ships the `Design` phase minimally rather
+    // than as a refusal: #259 landed the phase and nothing filled it.
+    { path: '/api/commission', verb: 'commissioning design', handle: handleCommission },
     // POST /api/claim — reserve one branch of a plan, and return what resulted.
     //
     // Wraps `plot-dispatch.sh --no-start`, which already claims by pushing a ref
@@ -216,6 +227,12 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         // `issueAnswer` by the row — the binding says whether this BOARD can
         // act, and the answer says whether the TRACKER can be asked at all.
         idea: ideaAvailability(HOST),
+        // A FIFTH flag, and the SAME binding as `idea` today — commissioning
+        // design spawns the same plot agent that turns an issue into a plan. It
+        // stays a field of its own for the reason every flag above it does: one
+        // flag for two capabilities is how they diverge when a later change
+        // makes only one of them local.
+        commission: commissionAvailability(HOST),
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(board));
@@ -427,6 +444,21 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       ok
         ? JSON.stringify(ideaStatus(opts, number))
         : JSON.stringify({ error: 'number must be an issue number' }),
+    );
+    return;
+  }
+
+  // What happened to a commission somebody asked for — the same read-it-back
+  // shape `/api/idea/<number>` has, slug-keyed. A commission moves no row until
+  // its plan's phase changes, so the button watches this for the command's own
+  // words on a refusal.
+  if (url.pathname.startsWith('/api/commission/')) {
+    const slug = url.pathname.slice('/api/commission/'.length);
+    res.writeHead(SLUG_RE.test(slug) ? 200 : 400, { 'Content-Type': 'application/json' });
+    res.end(
+      SLUG_RE.test(slug)
+        ? JSON.stringify(commissionStatus(opts, slug))
+        : JSON.stringify({ error: 'slug must be a plan slug' }),
     );
     return;
   }

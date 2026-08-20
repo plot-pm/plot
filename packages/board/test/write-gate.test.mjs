@@ -45,6 +45,9 @@ const WRITE_ROUTES = [
   // by hand has the same weakness, so the assertion below that this list
   // matches the server's own table is not a formality.
   { path: '/api/idea', body: { number: 1 } },
+  // Commission design spawns a plot agent that writes a plan to this disk — the
+  // same class of write as /api/idea, and gated by the same loopback boundary.
+  { path: '/api/commission', body: { slug: 'ship-the-widget' } },
   { path: '/api/claim', body: { slug: 'ship-the-widget' } },
   { path: '/api/transition', body: { slug: 'ship-the-widget', transition: 'approve' } },
 ];

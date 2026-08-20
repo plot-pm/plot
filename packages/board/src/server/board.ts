@@ -777,6 +777,10 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // cannot say*, never *the answer is no* — the distinction the other three
     // record, and the one that keeps a default from becoming a claim.
     idea: { available: false, reason: '' },
+    // And once more for commissioning design — the same socket question, the
+    // same hand overwriting it in index.ts. Unavailable here means *this walker
+    // cannot say*, never *the answer is no*, exactly as the four above.
+    commission: { available: false, reason: '' },
     checklist: readChecklist(repoRoot, readConfig(opts, 'Release directory', 'docs/releases/')),
     sprints: collectSprints(repoRoot, sprintDir),
     stories: collectStories(repoRoot, storyDir),

@@ -372,6 +372,16 @@ export function App() {
     : board?.idea;
 
   /**
+   * The SAME treatment for Commission design — the Approve twin that spawns a
+   * plot agent to move a Draft plan into Design. Dimmed on a frozen page for the
+   * reason `ideaInfo` is: it writes a plan file, and a page that cannot re-read
+   * git cannot know the plan has already moved.
+   */
+  const commissionInfo = dimmed
+    ? { available: false, reason: BLOCKED_REASON }
+    : board?.commission;
+
+  /**
    * Coming back to a hidden tab RE-CHECKS instead of counting.
    *
    * Browsers throttle timers in hidden tabs, so a minimised window would
@@ -774,6 +784,10 @@ export function App() {
               // board can act, that one says the tracker can be asked, and an
               // action needs both.
               idea={ideaInfo}
+              // The fifth act, and the Approve twin: Commission design moves a
+              // Draft plan into Design. It reaches the same PLAN rows Approve
+              // does, in the row menu, and shares the idea binding today.
+              commission={commissionInfo}
               pulse={pulse}
               onStarting={onStarting}
             />
