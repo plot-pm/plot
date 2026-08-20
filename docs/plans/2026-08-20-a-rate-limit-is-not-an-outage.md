@@ -21,6 +21,7 @@
 - **Started:** 2026-08-20, Jan Wloka, `feature/every-host-consumer-slows-down`
 - **Started:** 2026-08-20, Jan Wloka, `feature/the-wait-comes-from-the-host`
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-note-names-the-rate-limit`
+- **Started:** 2026-08-20, Jan Wloka, `bug/a-degraded-view-says-so-at-the-top`
 
 ## Problem
 
