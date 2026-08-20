@@ -2,77 +2,92 @@
 "plot": patch
 ---
 
-board: the 51 non-browser test files run in parallel, and the 20 browser files still do not
+board: the test files that take no port and no browser run in parallel
 
-`vitest.config.ts` set `fileParallelism: false` for all 71 files, and its comment
-gave the reason honestly: *"The UI layer boots a server and launches Chromium —
-generous timeouts, and no cross-file parallelism so server spawns don't
-contend."* That reason is real and it applies to 20 files. The other 51 spawned
-no browser and waited on a constraint that was not about them.
+`vitest.config.ts` set `fileParallelism: false` for every vitest file, and its
+comment gave the reason honestly: *"The UI layer boots a server and launches
+Chromium — generous timeouts, and no cross-file parallelism so server spawns
+don't contend."* That reason is real for the files it describes. The ~50 in
+`test/unit` spawn no server and launch no browser, and waited on a constraint
+that was not about them.
 
 Two projects now carry the parallelism each half needs, so the suite no longer
 takes the stricter of the two.
 
-**The split is by browser, not by directory.** The plan proposed splitting
-`test/unit` from `test/integration`; measured, that is the wrong seam. The 20
-files that launch Chromium are marked by a `.browser.test.ts` suffix and all
-live *inside* `test/integration/`, alongside three `tiny-garden.*.test.ts`
-data-layer files that spawn the built artifact and no browser. Splitting by
-directory would have serialised those three for a cost they do not carry.
+**Split on the contended RESOURCE, not the directory and not the filename.**
+There are exactly two things to contend for — a port and a Chromium process —
+and a file that takes neither has nothing to fight over. Measured, the directory
+name is wrong in both directions: three files named `.browser.test.ts` start no
+server, and three not named `.browser.` (`tiny-garden.data|plan|story`) do. An
+earlier cut of this branch keyed the split on the `.browser.` suffix and put
+those three port-taking files in the parallel group; `PORT=0` makes that safe
+today, but it makes the config's grouping depend on a property of a helper rather
+than on the reason the comment states.
 
-**The three server-spawning files are safe on the parallel side, and the config
-comment is why.** It named two costs — booting a server *and* launching Chromium
-— and only the second one contends. `test/helpers.mjs` starts every board with
-`PORT=0`, so the OS assigns during the server's own `listen()`; there is no
-window where a port is known-free but unbound, and concurrent spawns cannot
-collide. That is a property the helper documents at length, having been written
-to fix exactly this.
-
-| | files | parallelism |
+| | takes | parallelism |
 |---|---|---|
-| `unit` project | 51 | parallel |
-| `browser` project | 20 | serial |
+| `parallel` project — `test/unit` | neither | parallel |
+| `serial` project — `test/integration` | a port, Chromium, or both | serial |
+
+The four Chromium-without-server files are **not** broken out into a third,
+port-free project. Chromium is itself contended and nothing here has measured
+how many instances this machine tolerates; a third project would need a
+concurrency number, and an unmeasured number is the next unfounded figure.
+
+**The premise is now a gate, not a comment.** The split is only safe because the
+parallel group takes neither resource, and that is a claim about the contents of
+a directory — exactly the kind a comment cannot keep true. Adding `startServer`
+to a file in `test/unit` would not fail; it would make the parallel project
+contend for ports intermittently and surface weeks later as an unrelated test
+flaking on a busy machine. `parallel-project-takes-no-resource.test.ts` asserts
+it instead, names the offending file, and says which project it belongs in.
+Verified against a planted violation: exactly the port assertion fails, and it
+prints the planted filename. Comments are stripped before matching, following
+`no-network.test.ts` — a check that fired on prose would push the next author to
+delete the reasoning to go green — and the file excludes itself, because both
+markers appear in its own assertion messages.
 
 **`fileParallelism` is honoured per project — verified, not read.** The vitest 4
-type declarations put it on the *root* config next to `projects`, which reads
-like a global that a project cannot override; `maxWorkers: 1` would have been
-the workaround. Types cannot distinguish *accepted and ignored* from *accepted
-and honoured*, so it was measured instead: two probe projects of three
-1.2 s-sleeping files each, timestamping every file's start. The parallel
-project's three files all started at +0 ms and ended together at +1202 ms; the
-serial project's started 1.3 s apart, at +1296, +2630, +3911. Vitest also runs
-the projects one after another, so the browser project never contends with the
-parallel one — the isolation is stronger than a shared pool would give.
+type declarations put it on the *root* config beside `projects`, which reads like
+a global a project cannot override; `maxWorkers: 1` would have been the
+workaround for a problem that does not exist. Types cannot distinguish *accepted
+and ignored* from *accepted and honoured*, so it was measured: two probe projects
+of three 1.2 s-sleeping files each, timestamping every file's start. The parallel
+project's three all started at +0 ms and ended together at +1202 ms; the serial
+project's started 1.3 s apart, at +1296, +2630, +3911. Vitest also runs the
+projects one after another, so the serial project never contends with the
+parallel one.
 
 `testTimeout: 30_000` is unchanged in both projects. A browser test that boots a
 server needs it, and a unit file that needs 30 s is a separate finding.
 
-**What it buys, measured on one machine at one commit.** The 51 files, run as
-their own project, with only `--fileParallelism` differing:
+**What it buys, and the honest shape of the number.** The plan's open point asks
+for an idle-machine measurement before the benefit is quoted; this machine was
+not idle (sibling agents, 16 CPUs), so the ratio is the finding and the absolute
+seconds are conditional. Two A/B pairs of the same project, only
+`--fileParallelism` differing:
 
-| the 51 non-browser files | duration | vitest's own accounting |
-|---|---|---|
-| serial (the old behaviour) | **91.0 s** | `tests 84.7 s` |
-| parallel (this change) | **35.5 s** | `tests 191.4 s` inside `Duration 35.5 s` |
+| pair | serial | parallel | |
+|---|---|---|---|
+| first session | 91.0 s | 35.5 s | −61 % |
+| later, quieter session | 60.2 s | 41.1 s | −32 % |
 
-**−61 %, and a 5.4x compression** of test time into wall clock. That is better
-than the 42 % the plan projected off its 43 s/25 s measurement.
+The serial leg itself moved 91 s → 60 s between sessions, which is how much
+ambient load was in the first pair — so **−61 % was over-generous and −32 % is
+the more defensible figure**, with the direction robust in every pair measured.
+This is the same confound the plan flags in its own table, reproduced here rather
+than inherited: back-to-back legs at different unknown loads.
 
-**The full suite moves far less, and the reason is worth recording: 779 s to
-750 s, −3.7 %.** The 55 s this saves is real, but it is spent against a serial
-browser tail that dominates the total — the 20 Chromium files are the overwhelming
-majority of `vitest run`'s wall clock, and this change deliberately does not touch
-them. Anyone reading the plan's *−42 %* and expecting the whole suite to drop by
-that much should read it as what it measured: the unit half in isolation.
-
-So the win lands where rebases actually pay it. `vitest run --project=unit` is
-now a 35 s answer to *did I break anything that is not the browser*, which is the
-question a rebase asks; the 8-minute figure that motivated the plan is a browser
-cost, and reducing it is not this branch.
+**The full `vitest run` moves much less: 779 s → 750 s, −3.7 %.** The serial
+project is ~700 s of that total, measured alone, so it dominates the suite and
+this change deliberately does not touch it. Anyone quoting the plan's −42 % for
+the whole suite is quoting a measurement of the unit half in isolation. Where
+this lands is the question a rebase actually asks — *did I break anything that is
+not the browser* — which is now a ~40 s answer via `vitest run --project=parallel`.
 
 **Two browser files were already failing before this change**, under the
-untouched serial config: `button-claims.browser.test.ts` and
-`stuck-rows.browser.test.ts` (4 tests). They fail for reasons this branch does
-not touch — it changes one config file and no source — and the before-measurement
-is what establishes that, rather than the parallel switch being blamed for
-finding them.
+untouched serial config, and the failing set shifts between runs
+(`button-claims`, `stuck-rows`, `start-work-refusal` — 1 to 3 files depending on
+load). They fail on a config this branch does not alter, in files it does not
+touch; the before-measurement is what establishes that, rather than the parallel
+switch being blamed for surfacing them.
