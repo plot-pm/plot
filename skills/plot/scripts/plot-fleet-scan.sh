@@ -2243,13 +2243,29 @@ fi
 # A commit whose stat cannot be read counts as REAL, matching the old code's
 # behaviour when `rev-parse` failed: an unreadable tree is not evidence of
 # emptiness.
-real_commits_beyond_main() { # $1=branch → count
-  local br="$1" n=0 line subj pending=0 _rcb_base _rcb_tip
+# ONE WALK, BOTH COUNTS — `<total> <real>` on stdout.
+#
+# `branch_state` asked `git rev-list --count "origin/$MAIN..origin/$br"` for the
+# TOTAL and then called this for the REAL count, which walks the SAME range with
+# `git log`. Two spawns for one question, once per branch: 64 `rev-list` calls
+# measured on this repo 2026-08-20, the last per-branch block after #262 batched
+# the plan reads.
+#
+# The walk already visits every commit to classify it, so the total is a counter
+# it was throwing away. `ahead-behind` in `for-each-ref` would answer this
+# repo-wide in one call and needs git 2.41; 2.39 is what ships with macOS, so
+# that is not available here.
+#
+# BOTH NUMBERS FROM ONE READING keeps them consistent by construction: a total
+# and a real count taken from two walks could disagree if a ref moved between
+# them, and the caller compares the two.
+real_commits_beyond_main() { # $1=branch → "<total> <real>"
+  local br="$1" n=0 total=0 line subj pending=0 _rcb_base _rcb_tip
   # NAMED AS SHAS, NOT AS REFS — see `REMOTE_REFS` for why. Both come from the
   # batch already in hand, so this costs no extra process.
   _rcb_base=$(remote_ref_oid "$MAIN")
   _rcb_tip=$(remote_ref_oid "$br")
-  [ -n "$_rcb_base" ] && [ -n "$_rcb_tip" ] || { echo 0; return; }
+  [ -n "$_rcb_base" ] && [ -n "$_rcb_tip" ] || { echo "0 0"; return; }
   # Records are `<sha>\t<subject>`, each optionally followed by a blank line and
   # a ` N files changed, ...` line. `pending` holds whether the record just read
   # is claim-titled and still waiting to learn if it was empty.
@@ -2265,6 +2281,9 @@ real_commits_beyond_main() { # $1=branch → count
     # A new record. Anything still pending was claim-titled AND produced no stat
     # line — an empty claim marker, which does not count.
     pending=0
+    # EVERY RECORD IS ONE COMMIT, which is what the separate `rev-list --count`
+    # was spawned to learn. Counted here, it costs nothing.
+    total=$((total + 1))
     subj=${line#*"$(printf '\t')"}
     case "$subj" in
       "plot: claim "*) pending=1 ;;
@@ -2273,7 +2292,7 @@ real_commits_beyond_main() { # $1=branch → count
   done <<EOF
 $(git log --format="%H%x09%s" --shortstat "$_rcb_base..$_rcb_tip" </dev/null 2>/dev/null)
 EOF
-  echo "$n"
+  echo "$total $n"
 }
 
 branch_state() {
@@ -2316,9 +2335,14 @@ branch_state() {
   # commits, not a bare pointer at main: two branches pointing at the same
   # commit do not diverge, so the second push would succeed and both sides
   # would think they held the claim (see plot-dispatch.sh, "THE CLAIM").
-  ahead=$(git rev-list --count "origin/$MAIN..origin/$br" </dev/null 2>/dev/null || echo 0)
-  if [ "$ahead" -gt 0 ]; then
-    real=$(real_commits_beyond_main "$br")
+  # ONE WALK ANSWERS BOTH. See `real_commits_beyond_main` for the measurement:
+  # the separate `rev-list --count` here asked for a number that walk was
+  # already computing and discarding, at one extra spawn per branch.
+  local _bs_counts
+  _bs_counts=$(real_commits_beyond_main "$br")
+  ahead=${_bs_counts%% *}
+  real=${_bs_counts##* }
+  if [ "${ahead:-0}" -gt 0 ]; then
     [ "${real:-0}" = "0" ] && { echo "claimed"; return; }
     # Has real work: merged only if that work already landed.
     git merge-base --is-ancestor "origin/$br" "origin/$MAIN" </dev/null 2>/dev/null \
