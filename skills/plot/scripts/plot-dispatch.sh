@@ -17,7 +17,10 @@
 # Output: one line per branch, each optionally followed by an indented
 #         `in flight:` line naming a branch that already holds files, then the
 #         summary block — an optional prose consequence line, then a
-#         machine-countable footer:
+#         machine-countable footer.
+#         A branch whose worktree exists with UNMERGED work is refused rather
+#         than dispatched — counted `skipped`, with the worktree path named,
+#         in `--dry-run` identically to a real run. See "THE HELD-BRANCH GATE".
 #             3 worktrees prepared, 0 workers started, no `Worker command` configured
 #             summary: dispatched=2 reused=0 skipped=1 started=2 brief=missing worker=unconfigured
 #
@@ -846,6 +849,140 @@ worktree_for() { # $1=branch
   printf '%s/plot-wt-%s' "$wt_root" "$(printf '%s' "$1" | tr '/' '-')"
 }
 
+# ---------------------------------------------------------------------------
+# THE HELD-BRANCH GATE
+# ---------------------------------------------------------------------------
+#
+# Is somebody already holding this branch — a worktree on this disk with work
+# in it that has not landed?
+#
+# THE MEASUREMENT. On 2026-08-20 `--dry-run` reported `claimed=0` across a fleet
+# with four live agents and offered `feature/the-row-carries-its-verdict` and
+# `feature/reconcile-calls-the-index-advisory` — both implemented, tested and
+# green in worktrees beside this repo — as dispatchable. Acting on that output
+# puts a second agent on finished work.
+#
+# WHY THE SCAN CANNOT SEE IT. `plot-fleet-scan.sh` derives every state from
+# `origin/<branch>`, and both branches had NO REMOTE REF: one local commit
+# each, never pushed. No remote ref means no claim, and no claim means
+# `eligible`. The scan is right about what it reads; it is reading the wrong
+# side of the machine.
+#
+# WHY A RULE CANNOT FIX IT. "Always dispatch through plot-dispatch.sh so the
+# claim ref exists" is answerable without doing it, and it was violated four
+# times in one evening by an operator who had read it that evening. See
+# CLAUDE.md § Gates Over Rules.
+#
+# WHY THIS SCRIPT CAN. It already enumerates worktrees and local refs for the
+# in-flight collision report, for the reason documented above that report:
+# dispatch is inherently machine-specific — it creates worktrees on THIS
+# machine, so a check blind to this machine is blind precisely where it acts.
+# The evidence was already being collected; it was simply never asked this
+# question.
+#
+# WHAT COUNTS AS HELD needs both halves, because either alone is wrong:
+#
+#   * A WORKTREE MUST EXIST — found by ASKING GIT which one holds the branch,
+#     never by rebuilding the path from the branch name. Without one there is no
+#     desk and nobody at it, and a local branch on its own is not a hold: plenty
+#     exist for other reasons.
+#
+#   * IT MUST HOLD WORK THAT HAS NOT LANDED — in a commit or in the working
+#     tree, and the working tree is checked first because no commit carries it.
+#     Several leftover worktrees on merged branches sit on this disk (6 of 36
+#     when this was written); their work landed and the directory was never
+#     removed. Refusing those would make the gate fire on exactly the branches
+#     that are safe, which is the fastest way to teach an operator to route
+#     around it.
+#
+# THE TWO SHAPES ARE NOT ONE QUESTION, and treating them as one is how the first
+# version of this gate shipped a hole. `--is-ancestor` against `origin/<main>`
+# answers for the merged leftover AND — identically — for a worktree cut minutes
+# ago: its branch points at whatever main was then, so it is an ancestor
+# trivially. Both read `ahead=0, behind=N`, and no walk of the history separates
+# them. Only the FILES do, which is why `uncommitted_files` is consulted before
+# the ancestry test rather than instead of it.
+#
+# NOT MERGE-BASE, ANCESTRY. A branch rebased onto a newer main is not behind
+# it, and the merged question is only ever "is this tip already in main".
+#
+# LOCAL REF, not `origin/<branch>`. Reading the remote here would reproduce the
+# scan's blind spot inside the fix.
+#
+# `--allow-local` DOES NOT REACH HERE, and must never be wired to. That flag is
+# the named escape for a repo whose `origin/<main>` cannot be resolved, and it
+# says something about reading a PHASE — nothing whatever about whether a human
+# is mid-edit in a worktree. It is absent from this function by design, not by
+# oversight; a test pins that the refusal survives it.
+held_worktree() { # $1=branch → prints the worktree path when held, else nothing
+  local br="$1" wt
+  # ASK GIT WHICH WORKTREE HOLDS THE BRANCH. Do not reconstruct the path from
+  # the branch name.
+  #
+  # MEASURED, after a first version did exactly that via `worktree_for`. Every
+  # hand-made worktree on this machine is named `plot-wt-<last-segments>` with
+  # the branch TYPE dropped — `plot-wt-a-branch-row-carries-its-link` for
+  # `bug/a-branch-row-carries-its-link`, where dispatch's own rule would say
+  # `plot-wt-bug-a-branch-row-carries-its-link`. A path-guessing gate therefore
+  # missed a worktree with six modified files in it.
+  #
+  # And it missed it in the WORST POSSIBLE POPULATION: worktrees dispatch did
+  # not create are precisely the ones carrying no claim ref, which is the entire
+  # reason this gate exists. A check that only recognises its own naming
+  # convention can only catch the branches that were already claimed.
+  #
+  # `git worktree list --porcelain` emits `worktree <path>` then `branch
+  # refs/heads/<name>` per entry, so the branch line is matched and the path
+  # remembered from the preceding line. A detached worktree has no branch line
+  # and never matches, which is right: it holds no branch to hold.
+  wt=$(git worktree list --porcelain </dev/null 2>/dev/null | awk -v want="refs/heads/$br" '
+    /^worktree /  { path = substr($0, 10) }
+    /^branch /    { if (substr($0, 8) == want) { print path; exit } }')
+  [ -n "$wt" ] || return 1
+  # A registered worktree whose directory is gone (removed by hand, not via
+  # `git worktree remove`) holds nobody. `status` cannot be read there anyway.
+  [ -d "$wt" ] || return 1
+
+  # UNCOMMITTED WORK IS UNLANDED WORK, and it is asked FIRST because the commit
+  # history cannot see it at all.
+  #
+  # MEASURED ON THIS REPO, after the tip check below was already written and
+  # green. `plot-wt-a-branch-row-carries-its-link` held six modified files for a
+  # live agent and carried NO COMMIT YET: its branch sat at the main tip of the
+  # moment the worktree was cut, so `--is-ancestor` answered "already landed"
+  # and the gate offered the branch. Three sibling worktrees were in the same
+  # shape. That is the plan's own failure — a second agent onto occupied work —
+  # re-entering through the one shape a tip-based check cannot see.
+  #
+  # A freshly cut worktree is `ahead=0, behind=N`: indistinguishable by history
+  # from the merged leftover the gate must NOT refuse. The file state is what
+  # separates them, and `uncommitted_files` was already collecting it for the
+  # in-flight report a few lines up.
+  [ -z "$(uncommitted_files "$wt")" ] || { printf '%s' "$wt"; return 0; }
+
+  # Its tip landed already — a leftover desk, not a held one.
+  git merge-base --is-ancestor "$br" "origin/$MAIN" </dev/null 2>/dev/null && return 1
+  printf '%s' "$wt"
+}
+
+# The refusal, printed identically by --dry-run and the real run.
+#
+# IDENTICAL BY CONSTRUCTION, via one function called from both loops rather
+# than two messages that agree today. A dry run that offers what a real run
+# would refuse is worse than no dry run: it is the same wrong answer with a
+# reassurance attached.
+#
+# It NEVER CLAIMS on the operator's behalf. Writing a claim ref for a worktree
+# this script did not create puts a record in git nobody asked for, and a stale
+# ref is worse than an absent one — the reaper cannot tell it from a real claim.
+# So the gate reports and stops, and the operator decides.
+report_held() { # $1=branch $2=worktree
+  echo "skipped $1 (held — worktree exists with unlanded work)"
+  echo "  worktree: $2"
+  echo "  nobody claimed it, so nothing here can tell a live agent from an"
+  echo "  abandoned desk. Check it, then remove the worktree or let it finish."
+}
+
 # Every local branch that holds files, with what it holds.
 #
 # LOCAL branches, because worktrees share one ref database: `git rev-parse`
@@ -924,6 +1061,14 @@ report_in_flight() { # $1=candidate branch
 if [ "$dry_run" = 1 ]; then
   while read -r br; do
     [ -n "$br" ] || continue
+    # The gate, BEFORE the "would dispatch" line — this loop's whole output is
+    # a prediction, and predicting a dispatch the real run refuses is the
+    # failure the gate exists to stop.
+    if held=$(held_worktree "$br"); then
+      report_held "$br" "$held"
+      n_skipped=$((n_skipped + 1))
+      continue
+    fi
     echo "would dispatch $br → $wt_root/plot-wt-$(printf '%s' "$br" | tr '/' '-')"
     report_in_flight "$br"
     n_dispatched=$((n_dispatched + 1))
@@ -932,7 +1077,10 @@ if [ "$dry_run" = 1 ]; then
   # information about the config — reporting "no workers started" here would be
   # true and useless, and would train the reader to skip the line on the real
   # run where it matters. Only the machine field travels.
-  echo "summary: dispatched=$n_dispatched reused=0 skipped=0 started=0 brief=missing worker=$(worker_state_field)"
+  # `skipped` is REAL here, not a constant. A dry run refuses held branches
+  # exactly as the real run does, so its count is a fact about this fleet — and
+  # it was hardcoded to 0 until the gate gave it something to count.
+  echo "summary: dispatched=$n_dispatched reused=0 skipped=$n_skipped started=0 brief=missing worker=$(worker_state_field)"
   exit 0
 fi
 
@@ -958,6 +1106,23 @@ while :; do
     echo "would dispatch $branch → $wt"
     report_in_flight "$branch"
     n_dispatched=$((n_dispatched + 1))
+    continue
+  fi
+
+  # THE HELD-BRANCH GATE, ahead of every write this loop makes.
+  #
+  # Ahead of the adoption path below in particular: `reusing existing worktree`
+  # is right for a desk THIS script laid out and a worker has since finished
+  # with, and wrong for one an operator opened by hand and is still using — and
+  # by tip alone those two are the same directory. Unlanded work is what
+  # separates them, so the gate asks first and adoption only sees what is left.
+  #
+  # `exhausted` is what makes the refusal terminal: --next has no memory and
+  # would keep offering this same branch until the loop's own break fired.
+  if held=$(held_worktree "$branch"); then
+    report_held "$branch" "$held"
+    n_skipped=$((n_skipped + 1))
+    exhausted+=("$branch")
     continue
   fi
 

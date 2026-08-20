@@ -41,7 +41,7 @@ or `--status` / `--stop <branch>` to inspect or stop running workers.
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
 | 1. Preflight | Small | Phase check + one script call |
-| 2. Dry run and confirm | Mid | How many agents is a judgment about cost and review capacity; the `in flight:` lines are facts to relay, and whether a shared file matters is the user's call |
+| 2. Dry run and confirm | Mid | How many agents is a judgment about cost and review capacity; the `in flight:` lines are facts to relay, and whether a shared file matters is the user's call. A `skipped … (held …)` line needs no judgment at all — the script decided, and it is relayed as decided |
 | 3. Ask about the worker command | Mid | One config read decides whether to ask at all; asking without an example, and recording an empty answer as `none` rather than leaving it blank, is the judgment |
 | 4. Fan out | Small | The script does the work; claims are atomic |
 | 5. Write a brief per branch | Frontier | Delegated to `/plot-implement`, whose brief step is itself Frontier: naming the alternatives the plan rejected is judgment |
@@ -111,6 +111,12 @@ saying "these collide" would be claiming a certainty nothing here has. If a
 candidate looks genuinely contested, the useful move is `--max N` or naming the
 branch to hold back, not a refusal.
 
+**One thing here *is* refused, and it is a different question.** A file two
+branches share is a prediction. A worktree that already exists *for the
+candidate itself*, holding work that has not landed, is a measurement — somebody
+is at that desk. Dispatch refuses that branch, counts it `skipped`, and names
+the worktree path; see [The held-branch gate](#the-held-branch-gate) below.
+
 No lines means nothing is held — the report stays silent rather than printing
 reassurance nobody would keep reading.
 
@@ -118,6 +124,45 @@ The report is capped at 8 branches and 6 files each, with the remainder counted
 (`(+4 more)`, `…and 5 more branches`). When you see an overflow line, the fleet
 is busy enough that `/plot-fleet <slug>` is the better view — say so rather than
 re-deriving the omitted rows yourself.
+
+#### The held-branch gate
+
+A branch whose **worktree already exists with work that has not landed** is
+refused rather than dispatched. Unlanded means either commits that are not in
+the default branch **or** uncommitted changes in the working tree — an agent
+mid-edit has often committed nothing at all:
+
+```
+skipped feature/the-row-carries-its-verdict (held — worktree exists with unlanded work)
+  worktree: /path/to/plot-wt-feature-the-row-carries-its-verdict
+  nobody claimed it, so nothing here can tell a live agent from an
+  abandoned desk. Check it, then remove the worktree or let it finish.
+```
+
+**Why this exists.** `/plot-fleet` derives every state from `origin/<branch>`,
+so a branch whose work was never pushed has no claim, and no claim reads
+*eligible*. On 2026-08-20 a dry run reported `claimed=0` across a fleet with
+four live agents and offered two branches that were already implemented, tested
+and green. Dispatch is the one component that can catch this, because it reads
+this machine's worktrees for the collision report above.
+
+**What to do with it.** Look at the worktree. It is either a live agent — leave
+it alone — or an abandoned desk, in which case remove the worktree and re-run.
+The gate deliberately **does not claim the branch for you**: a claim ref for a
+worktree Plot did not create is a record nobody asked for, and `/plot-reconcile`
+cannot tell a stale claim from a real one.
+
+`--dry-run` refuses identically, and `--allow-local` does **not** override it —
+that flag is about reading a plan's phase without a remote, and says nothing
+about whether a human is mid-edit. A leftover worktree whose tip **has** merged
+and which holds no uncommitted changes is still dispatched: those accumulate
+normally, and refusing them would fire the gate on exactly the branches that are
+safe.
+
+The worktree is found by **asking git which one holds the branch**, not by
+guessing a path from the branch name — hand-made worktrees are the population
+this gate is for, and they rarely follow dispatch's `plot-wt-<flattened>`
+convention.
 
 ### 3. Ask How This Project Runs an Agent Headless — Once
 
@@ -332,7 +377,14 @@ until you release it. Releasing is `/plot-reconcile`'s job.
 - **`--allow-local` is the escape for a repo with no remote**, and nothing else.
   It gates on the working tree and says so on stderr. Reach for it only when
   `origin/<main>` genuinely cannot be resolved; using it to get past a refusal
-  is how unapproved work gets dispatched.
+  is how unapproved work gets dispatched. It does **not** unlock a held branch —
+  see the next point, which it has no bearing on.
+- **A held branch is refused by the script**, not by your judgement. A worktree
+  on this machine carrying unlanded work means somebody is at that desk, and the
+  fleet scan cannot see it — the work is often unpushed, so there is no claim and
+  the branch reads *eligible*. Dispatch counts it `skipped` and names the path.
+  Do not route around it by deleting the worktree without looking, and do not
+  claim the branch by hand to make it dispatchable.
 - **Never dispatch a blocked wave.** Eligibility lives in
   `plot-fleet-scan.sh`; do not second-guess it or hand-pick a branch from a
   later wave.
@@ -349,6 +401,8 @@ until you release it. Releasing is `/plot-reconcile`'s job.
 | Fanning out without a dry run | Five agents start on work the user wanted scoped | `--dry-run` first, always, and ask |
 | Dispatching every eligible branch by default | PR review becomes the bottleneck; DoD gaps pile up | Ask for a count; offer `--max` |
 | Treating a rejected claim as an error | Duplicate work, or a deleted worktree someone was using | Rejection is normal — it means the lock worked |
+| Trusting `claimed=0` as "nobody is working" | A second agent onto finished work — measured, four live agents, two green branches offered | `claimed` counts pushed refs; the held-branch gate reads this machine's worktrees |
+| Creating a worktree by hand, then dispatching | No claim ref exists, so the fleet reads the branch as free | Dispatch through the script; the gate now refuses what the shortcut left behind |
 | Creating worktrees inside the repo | They appear in the repo's own status and globs | Worktrees are siblings: `../plot-wt-<suffix>` |
 | Starting workers that merge their own PRs | Concurrent merges invalidate each other's bases | The worker command must say "open a PR, do not merge" |
 | Stopping at the fan-out | A prepared, claimed worktree that nobody was handed — the gap a human closed by hand every time | Step 5: `/plot-implement` per dispatched branch |
