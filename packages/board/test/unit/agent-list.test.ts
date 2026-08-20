@@ -1797,6 +1797,26 @@ describe('the empty WAITING ON A MACHINE section names the host\'s limit', () =>
       .toBe(true);
   });
 
+  it('ignores a MERGED row, whose PR has no live condition to report', () => {
+    // The regression the merged-PR link would otherwise have introduced. A
+    // merged PR reports `mergeable: "unknown"` on GitHub — the question stops
+    // being computed once the branch lands — so it arrives here as `unknown`
+    // from a host that answers CI perfectly well.
+    //
+    // Before the row carried its merged PR's link such a row had no `pr` at all
+    // and fell out of this tally by accident. Counting it would turn a plan of
+    // merged branches plus one PR mid-outage into a false claim about the host.
+    const merged = (branch: string) =>
+      row({ branch, state: 'merged',
+        pr: { number: 252, url: 'https://host/pr/252', draft: false, state: 'unknown' } });
+    // One readable open PR beside two merged ones: the host clearly CAN report.
+    expect(hostCannotReportCi([merged('a'), merged('b'), withState('c', 'green')]))
+      .toBe(false);
+    // And a board of nothing but merged rows concludes nothing either way —
+    // no live PR was observed, so there is no evidence about the host at all.
+    expect(hostCannotReportCi([merged('a'), merged('b')])).toBe(false);
+  });
+
   it('withdraws the claim rather than merely rewording it', () => {
     // The default hint promises CI will finish. The replacement must not: an
     // empty section that still implies a machine is working is the failure this

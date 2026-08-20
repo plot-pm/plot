@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import {
   classify, compareWithinGroup, draftNote, humanAge, prState, rowPhase, rowsFromPulse,
@@ -7,6 +8,7 @@ import {
   prRefreshMsFor,
   prRequestsPerRefresh,
   prAsksNobody,
+  prOutranks,
   waitingOnFor,
 } from '../../src/server/fleet.js';
 import {
@@ -1648,6 +1650,128 @@ describe('rowsFromPulse', () => {
     const prs = new Map([['feature/b', pr({ head: 'feature/b' })]]);
     const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, prs);
     expect(rows.filter((r) => r.branch === 'feature/b')).toHaveLength(1);
+  });
+
+  describe('a branch row carries its PR link', () => {
+    // The reported defect: on the board the plan name is a link and the branch
+    // name beside it is inert text. Measured on one pulse — zero of seven branch
+    // rows held a `pr` field, so it was not a styling omission the UI could
+    // correct.
+    //
+    // The cause is one filter. `prs` is OPEN-only, deliberately, so that a
+    // merged PR never reaches `classify` and reopens a question the merge
+    // closed. But the same map decided the row's LINK, and there the filter
+    // drops exactly the PRs a reader still wants to open.
+
+    const merged = pr({
+      number: 252, head: 'feature/a', state: 'MERGED',
+      // What GitHub actually reports for a merged PR: mergeability stops being
+      // computed once the branch lands. Verified against the live host.
+      mergeable: 'unknown', url: 'https://host/pr/252',
+    });
+
+    it('carries the number and the URL of a MERGED PR whose ref is gone', () => {
+      // The case the brief names and the whole reason for the second map:
+      // #252/#253/#254 are merged with their refs deleted, and the PR page is
+      // still there. The PR outlives the branch, so the link must too.
+      const rows = rowsFromPulse(
+        pulse, ages, 'plot', QUIET, new Map(), '', null, Date.now(), null, null, null,
+        new Map([['feature/a', merged]]));
+      const row = rows.find((r) => r.branch === 'feature/a')!;
+      expect(row.pr).not.toBeNull();
+      expect(row.pr!.number).toBe(252);
+      expect(row.pr!.url).toBe('https://host/pr/252');
+      // The row still reads `merged` — the link is ADDED to what git said, not
+      // a substitute for it. Feeding the merged PR to `classify` would have been
+      // the other way to get the number here, and it would reopen the question.
+      expect(row.state).toBe('merged');
+    });
+
+    it('carries no PR at all where the head has none, and never a dead link', () => {
+      // The mirror, and the half that keeps the assertion above about the LINK
+      // rather than about a default. `feature/c` is `open` with no PR anywhere.
+      const rows = rowsFromPulse(
+        pulse, ages, 'plot', QUIET, new Map(), '', null, Date.now(), null, null, null,
+        new Map([['feature/a', merged]]));
+      expect(rows.find((r) => r.branch === 'feature/c')!.pr).toBeNull();
+    });
+
+    it('keeps the OPEN map as the only thing classify is told about', () => {
+      // The separation stated as a test. The link map holds a merged PR for
+      // `feature/b`, whose git state is `wip`; if that record reached `classify`
+      // the row would be grouped by a merge that has not happened to this
+      // branch. The number must arrive without the verdict coming with it.
+      const rows = rowsFromPulse(
+        pulse, ages, 'plot', QUIET, new Map(), '', null, Date.now(), null, null, null,
+        new Map([['feature/b', pr({ number: 300, head: 'feature/b', state: 'MERGED' })]]));
+      const row = rows.find((r) => r.branch === 'feature/b')!;
+      expect(row.pr!.number).toBe(300);
+      // Grouped from git and the wave, exactly as it was before the link map:
+      // a `wip` branch in an eligible wave is somebody's work in progress.
+      expect(row.state).toBe('wip');
+      expect(row.group).not.toBe('done');
+    });
+
+    it('leaves every existing caller unchanged when no link map is passed', () => {
+      // The parameter is last and optional, so the open map answers both
+      // questions exactly as it did. A caller that did not look gets no number
+      // — which is honest — rather than a guess.
+      const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, new Map());
+      expect(rows.find((r) => r.branch === 'feature/a')!.pr).toBeNull();
+    });
+
+    it('prefers an OPEN PR over a closed one on the same head', () => {
+      // A head can carry several PRs over its life — a closed attempt and its
+      // successor. The live one is what a reader can act on; linking the closed
+      // one sends them to a dead page while the review sits one number away.
+      //
+      // Asserted through `prOutranks` because that is where the rule lives, and
+      // in BOTH argument orders: an implementation that merely took the last
+      // record seen would pass a single-order test against a fixed listing.
+      const open = pr({ number: 10, head: 'feature/a', state: 'OPEN' });
+      const closed = pr({ number: 11, head: 'feature/a', state: 'CLOSED' });
+      expect(prOutranks(open, closed)).toBe(true);
+      expect(prOutranks(closed, open)).toBe(false);
+    });
+
+    it('costs no host call — the link comes off the fetch that already ran', () => {
+      // THE CONSTRAINT THE BRIEF NAMES, and the reason this feature is cheap:
+      // the number already exists server-side. `refreshPrs` asks `pr-list
+      // --state all` once on the slow PR timer and the merged PRs are already
+      // in that answer — the pipeline computed them, used them for one decision,
+      // and dropped them before shaping the row.
+      //
+      // READ OUT OF THE SOURCE, following `a row's actions all live in its menu`
+      // in agent-list.test.ts and for its stated reason: a behavioural assertion
+      // catches only what a fixture happens to reach, while a second `pr-list`
+      // added on the row path would sit behind the poll timer and a cache, where
+      // no unit fixture goes. This sees it whether or not any test data does.
+      //
+      // The board polls every 5 s against GitHub's metered API, so a per-row or
+      // per-pulse lookup here is not a small regression — it is the cost model
+      // `plot-fleet-scan.sh` already went to some trouble to avoid.
+      const source = readFileSync(
+        new URL('../../src/server/fleet.ts', import.meta.url), 'utf8');
+      const calls = source.split('\n')
+        .filter((l) => l.includes("'pr-list'"));
+      expect(calls, `expected exactly one pr-list call site, saw:\n${calls.join('\n')}`)
+        .toHaveLength(1);
+      // And all three indexes are built from THAT one answer's loop, so a fourth
+      // consumer costs nothing either. `prsByHead` is assigned beside its two
+      // siblings — moving it out of this function is what a second fetch would
+      // look like.
+      expect(source).toMatch(/entry\.prsByHead = byHead;/);
+    });
+
+    it('breaks a tie between two finished PRs by the higher number', () => {
+      // Neither a merged nor a closed PR is more current than the other, so the
+      // number decides — and it decides the same way whichever order the host
+      // lists them in, which is the property no adapter promises.
+      const older = pr({ number: 10, head: 'feature/a', state: 'MERGED' });
+      const newer = pr({ number: 11, head: 'feature/a', state: 'CLOSED' });
+      expect(prOutranks(newer, older)).toBe(true);
+      expect(prOutranks(older, newer)).toBe(false);
+    });
   });
 
   it('encodes an unplanned branch URL per segment, not whole', () => {
