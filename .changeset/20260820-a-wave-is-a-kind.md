@@ -270,6 +270,57 @@ kind label: measured 3px low, because its 24px hit area (a WCAG 2.2 minimum,
 not up for negotiation) sits against a 14px label, so the box keeps its size
 and moves up by half the difference.
 
+## What the real board found that the mock could not
+
+Five defects, each of which passed its own tests, and every one caught by
+rendering real data rather than a fixture.
+
+**`rowKind` never returned `build`.** Its docstring said "a build and an agent
+have no row yet" while `classify` was already routing CI-running rows to WAITING
+ON A MACHINE — so that section held a row labelled `PR` with a note reading `CI
+is running for PR #304`. The section knew; the kind did not. `ciRunning` is now a
+fact `rowKind` takes, from the same `pr.checks === 'pending'`.
+
+**The release version read the plans, which can never contain the release
+branch.** `changeset-release/main` belongs to no plan — that is why it arrives
+through the planless-PR loop — so the list passed to `releaseVersions` could not
+hold its own subject. **The mock hid it**: `version` was set there by hand, so
+the fixture built to expose this shape is why it went unseen. Reading the refs
+instead: `2.7.0`.
+
+**A wave of one is still a wave.** The `rows.length > 1` threshold came from
+`showsWaveFold`'s reasoning — *a heading over one row saves no repetition* —
+which answers a different question. A fold is about saving repetition; a KIND is
+about what the row is about. Measured: all 12 waves in WAITING ON YOU hold
+exactly one branch, so the threshold fired only through the mock's hand-made
+two-branch wave.
+
+**WAITING ON YOU holds two kinds of wait.** `isReviewable` recognised only *the
+work is done, merge it*. A branch whose PLAN is still in review also waits on a
+person — to approve it — and that was 12 of the 14 wave-bearing rows, ungrouped,
+repeating one sentence 13 times.
+
+**`double-claimed`, a fifth stuck state** — two plans claiming one branch, found
+because the board FLASHED. Two rows for one branch shared a `rowKey`
+(`repo/branch`, no plan), so each pulse one overwrote the other's remembered
+`wave` and lit the change mark for hours on a branch nobody had touched. It is a
+stuck state because nobody can act until a person decides: `plot-dispatch` would
+hand an agent one of two briefs with no way to choose. First among the arms,
+because *order is meaning* and nothing outranks not knowing whose work a branch
+is.
+
+## A plan row heads its waves, and folds
+
+Where every row in a group is a wave, a PLAN row heads them instead of a text
+`h3` — carrying the phase, the clock and the menu an `h3` cannot. Its clock is
+the freshest of its branches, not the approval clock: measured, `waitingDays:
+null` on every row in this section while `ageMinutes` read real values. A plan in
+Discovery with nothing pushed shows no age, which is honest — neither clock runs.
+
+Collapsed by default where it holds more than one wave. The group is homogeneous
+by construction (a plan's branches move through the lifecycle together), so the
+predicate can demand that every row be wave-grouped rather than handle a mixture.
+
 <!--
 bumps:
   skills:
