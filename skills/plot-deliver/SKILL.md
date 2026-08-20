@@ -39,10 +39,10 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
-| 1-4. Parse through Verify PRs | Small | Git/gh commands, helper script, state checks |
+| 1-4. Parse through Verify PRs | Small | Git/gh commands, helper script, state checks; discovery and existence read each plan's declared phase via `plot-plan-meta.sh` — the index is never asked |
 | 5. Verify Completeness | Frontier (orchestrator) + Small (subagents) | Orchestrator extracts deliverables and consolidates; small subagents gather PR diffs in parallel |
 | 6. Release Note Check | Small | File existence checks |
-| 7-8. Deliver and Board Status | Small | File ops, git commands, board sync |
+| 7-8. Deliver and Board Status | Small | File ops, git commands, board sync; the phase edit plus the `Delivered:` record are the transition, the index write is best-effort |
 | 7b. Delivery-Landed Gate | Small | Run the reconcile scan, grep for the delivered plan; gate progression on the real grep result |
 | 9. Summary | Small | Template formatting |
 
@@ -55,29 +55,60 @@ Step 5 is the prime example of subagent delegation: a frontier orchestrator hand
 ### 1. Parse Input
 
 If `$ARGUMENTS` is empty or missing:
-- List active plans: `ls docs/plans/active/ 2>/dev/null`
+- List deliverable plans — every plan in the plan directory whose **declared
+  phase** is `Approved`, not whatever is linked in `active/`:
+
+  ```bash
+  for f in docs/plans/*.md; do
+    ph=$(../plot/scripts/plot-plan-meta.sh "$f" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("phase",""))')
+    [ "$ph" = approved ] && echo "$f"
+  done
+  ```
+
+  A file whose phase does not parse is not a plan (`docs/plans/` also holds
+  decision logs and worker reports) — the parser's own answer decides, so the
+  skill never becomes a second implementation of the plan format.
 - If exactly one exists, propose: "Found plan `<slug>`. Deliver it?"
 - If multiple exist, list them and ask which one to deliver
 
 > **Unattended (`PLOT_UNATTENDED=1`):** stop unless `$ARGUMENTS` named the slug.
 > `PLOT-UNASKED: Which plan should be delivered? — stopped — <n> candidates; none delivered`
-- If none exist, explain: "No active plans found in `docs/plans/active/`."
+- If none exist, explain: "No plans with `Phase: Approved` found in
+  `docs/plans/`."
 
 Extract `slug` from `$ARGUMENTS` (trimmed, lowercase, hyphens only).
 
 ### 2. Verify Plan Exists
 
-Check that an active plan exists for this slug: `ls docs/plans/active/<slug>.md` on main.
+Resolve the slug to a plan **file**, then judge the file's own phase. The
+dated file first, then the two index directories — the same precedence
+`plot-fleet-scan.sh`, `plot-approve.sh` and `plot-dispatch.sh` already use, so
+a slug resolves identically whoever is asking:
 
-- If not in `active/`, check `docs/plans/delivered/<slug>.md` — if found there: "Already delivered."
-- Also check the Phase field in the plan file — if already `Delivered`, stop.
-- If not found anywhere: "No plan found for `<slug>`."
+```bash
+for cand in docs/plans/*<slug>.md docs/plans/active/<slug>.md docs/plans/delivered/<slug>.md; do
+  [ -e "$cand" ] && { PLAN_FILE="$cand"; break; }
+done
+```
 
-Resolve the symlink to find the actual plan file path (e.g., `docs/plans/YYYY-MM-DD-<slug>.md`).
+- If no candidate exists: "No plan found for `<slug>`."
+- Read the resolved file's **Phase** field. If already `Delivered` (or
+  `Released`): "Already delivered." If `Draft`: stop — an unapproved plan is
+  not deliverable.
+
+> **The phase decides, not the directory.** This step asked
+> `ls docs/plans/active/<slug>.md` until 2026-08-20 and treated a miss as *no
+> plan*. A plan written directly rather than through `/plot-idea` carries no
+> symlink, so a valid, approved, pushed plan was undeliverable — and the
+> message said it did not exist. Three plans in this repo were in exactly that
+> state on the day this changed, and `active/` no longer decides anything a
+> reader asks (`feature/the-scan-derives-its-plan-list`, #254). An index that
+> can only ever make a plan invisible is not a check; it is a second source of
+> truth about a fact the file already states.
 
 ### 3. Read and Parse Plan
 
-Read the plan file (resolved from the `active/` symlink) and find the section headed with "Branches" (matches `## Branches`, `## Implementation Branches`, `### Implementation Branches`, or any heading containing the word "Branches"). Parse it for PR references. If the plan has a `Sprint: <name>` field in its Status section, extract it for the summary.
+Read the plan file (`$PLAN_FILE`, resolved in step 2) and find the section headed with "Branches" (matches `## Branches`, `## Implementation Branches`, `### Implementation Branches`, or any heading containing the word "Branches"). Parse it for PR references. If the plan has a `Sprint: <name>` field in its Status section, extract it for the summary.
 
 Expected format once PRs exist (annotated at PR creation or back-filled above):
 ```markdown
@@ -217,7 +248,9 @@ Skip this step entirely for docs/infra plans (they don't need release notes).
 
 ### 7. Deliver Plan
 
-The plan file stays in place — only the symlink moves from `active/` to `delivered/`.
+The plan file stays in place. **The phase edit and the `Delivered:` record
+are the transition**; moving the symlink is convenience for human browsing and
+cannot fail the delivery.
 
 Do **not** check out main locally (see Branch Safety in the hub skill). Use a disposable branch:
 
@@ -225,18 +258,23 @@ Do **not** check out main locally (see Branch Safety in the hub skill). Use a di
 git fetch origin main
 git checkout -b plot/deliver-<slug> origin/main
 
-# Update Phase field in the plan file
-# Change **Phase:** Approved → **Phase:** Delivered
-# Add - **Delivered:** YYYY-MM-DD to the Status section
+# The transition. BOTH edits, always — see the note below on why the record
+# is not optional:
+#   Change **Phase:** Approved → **Phase:** Delivered
+#   Add    - **Delivered:** YYYY-MM-DD to the Status section
 DELIVER_DATE=$(date -u +%Y-%m-%d)
 
-# Move symlink from active/ to delivered/
-# (mkdir -p first — a fresh adopter repo has no delivered/ yet, and a bare
-#  `ln -s` into a missing dir half-lands the delivery: phase flips, symlink doesn't move.)
-mkdir -p docs/plans/delivered
-git rm docs/plans/active/<slug>.md
-ln -s ../YYYY-MM-DD-<slug>.md docs/plans/delivered/<slug>.md
-git add docs/plans/delivered/<slug>.md docs/plans/YYYY-MM-DD-<slug>.md
+git add docs/plans/YYYY-MM-DD-<slug>.md
+
+# Convenience index — best effort, and deliberately unable to fail the
+# delivery. Every `||` below is the point: a repo with no active/ link (a plan
+# written directly), no delivered/ directory (a fresh adopter), or a read-only
+# checkout still delivers, because nothing downstream reads these links to
+# decide anything.
+mkdir -p docs/plans/delivered 2>/dev/null || true
+git rm -q --ignore-unmatch docs/plans/active/<slug>.md 2>/dev/null || true
+ln -sfn ../YYYY-MM-DD-<slug>.md docs/plans/delivered/<slug>.md 2>/dev/null || true
+git add docs/plans/active docs/plans/delivered 2>/dev/null || true
 ```
 
 **Update sprint file** (if the plan has a `Sprint:` field): find the `[<slug>]` item in the sprint file.
@@ -264,11 +302,32 @@ merge it, so the delivery never half-lands. Carry a `bypassed` or
 `unknown` report into the Summary — there is nothing to undo, but a
 delivery that skipped CI should not be discovered by accident.
 
-(Replace `YYYY-MM-DD-<slug>.md` with the actual date-prefixed filename from the resolved symlink.)
+(Replace `YYYY-MM-DD-<slug>.md` with the actual date-prefixed filename —
+`$PLAN_FILE` from step 2, which resolved it without needing a symlink.)
+
+> **Why the index writes are best-effort.** This step ran a bare `git rm` and
+> `ln -s` until 2026-08-20, and both could fail the delivery: `git rm` on an
+> absent link exits non-zero, so a plan with no `active/` entry — the ordinary
+> shape for a plan written directly — aborted the delivery of work that was
+> genuinely finished. That is a transition blocked by the state of a browsing
+> aid. The ordering matters too: the plan file is staged *first*, so the
+> transition is already in the index before anything touches a link.
+>
+> `ln -sfn` rather than `ln -s`: re-running a delivery must be repair, not a
+> second failure on an existing link.
+
+> **The `Delivered:` record is load-bearing, not provenance.**
+> `plot-fleet-scan.sh` shows delivered plans for a rolling window and reads
+> that window from `delivered_raw` — the record itself. Measured 2026-08-20
+> while writing e2e flow e: a plan flipped to `Phase: Delivered` with no
+> record was filtered out of the terminal group entirely, so the scan reported
+> **zero** plans for it. A phase flip without the record trades a missing
+> symlink for a missing field — the same invisibility one level in. Write both,
+> in the same commit.
 
 ### 7b. Delivery-Landed Gate
 
-Delivery is a multi-step write (flip phase, move symlink, commit, push) — the biggest drift source in practice is a delivery that half-lands. This step is a **gate, not a rule**: the objective, checkable condition is *the reconcile scan's own output shows no drift for the plan you just delivered*. You cannot answer "did the delivery land?" without running the scan and reading its result — so run it, and **show the real output**. Do not declare delivery complete (do not proceed to the Summary) on a self-asserted claim; proceed only on the pasted evidence below.
+Delivery is a multi-step write (flip phase, write the `Delivered:` record, commit, push) — the biggest drift source in practice is a delivery that half-lands. The index move is no longer one of the steps that can half-land it: it is best-effort, and section 7 of the scan reports its absence as convenience rather than drift. This step is a **gate, not a rule**: the objective, checkable condition is *the reconcile scan's own output shows no drift for the plan you just delivered*. You cannot answer "did the delivery land?" without running the scan and reading its result — so run it, and **show the real output**. Do not declare delivery complete (do not proceed to the Summary) on a self-asserted claim; proceed only on the pasted evidence below.
 
 Run the scan and capture both its `summary:` footer and the targeted grep:
 
@@ -315,7 +374,9 @@ mechanical details follow.
 Print:
 - Delivered: `<slug>`
 - Plan file: `docs/plans/YYYY-MM-DD-<slug>.md` (unchanged location)
-- Index: moved from `active/` to `delivered/`
+- Transition: `Phase: Delivered` + `Delivered:` record on main (this is the
+  delivery — report the index move, if it happened, as a separate convenience
+  line, and say so plainly if it was skipped)
 - All implementation PRs: merged
 - Delivery-landed gate: paste the **actual** `summary:` footer line the scan produced in step 7b (the objective artifact — not the words "verified" or "clean"), e.g. `summary: drift=0 merged_not_delivered=0 stale=… claims=… attention=0 concurrent=… unreleased_delivered=… index_drift=… pr_source=… main=…`. If the gate was skipped, print `Delivery-landed gate: SKIPPED — scan unavailable (<reason>)` instead. Add any optional branch-cleanup commands the scan suggested.
 - If the plan has a Sprint field: show sprint progress ("N/M sprint items delivered")

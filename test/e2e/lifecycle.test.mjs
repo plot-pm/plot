@@ -7,6 +7,7 @@ import path from 'node:path';
 import {
   makeSandbox, stubHost, runScript, planMeta,
   instantiatePlan, recordApproval, recordStarted, annotatePr, runGate, sh,
+  recordDelivered,
 } from './helpers.mjs';
 
 // ── Flow a: pr + own branches, CLASSIC config (pre-Plot-2 compat) ────────────
@@ -192,6 +193,76 @@ test('flow d: split-home cross-repo PR resolution via the host adapter', () => {
       stub.calls().some((c) => c.includes('-R example/impl-repo') && c.includes('pr view 7')),
       `expected cross-repo gh call, got: ${stub.calls().join(' | ')}`,
     );
+  } finally {
+    sb.cleanup();
+  }
+});
+
+// ── Flow e: the lifecycle does not need the symlink ──────────────────────────
+// Proves the third wave of "the index is derived": a plan carrying NO index
+// symlink is still discoverable, deliverable and reportable. Wave 1 made the
+// READERS derive from phase; this flow covers the WRITE path, where the index
+// was the thing that decided a plan existed at all.
+//
+// The three claims are the plan's own test. Dispatchability and board
+// visibility were already bought by wave 1 and by the `$PLAN_DIR` fallback
+// plot-dispatch.sh/plot-approve.sh already carried — asserted here anyway,
+// because "still true after this change" is the property that matters and no
+// test held it. Deliverability is the one that was broken.
+test('flow e: an unlinked plan is discoverable, deliverable, and reportable', () => {
+  const sb = makeSandbox({ name: 'e', config: '- **Plan directory:** docs/plans/\n' });
+  const stub = stubHost(`
+    if (argv.includes('view')) {
+      process.stdout.write(JSON.stringify({ number: 77, state: 'MERGED', isDraft: false, url: 'https://example.test/pr/77' }));
+    } else { process.stdout.write('{}'); }
+  `);
+  try {
+    // A plan written directly — the measured 2026-08-18 failure shape. It
+    // parses, it carries a phase, it names a branch, and NOTHING links it.
+    const rel = instantiatePlan(sb.work, {
+      date: '2026-08-20', slug: 'flow-e', title: 'Flow E', link: false,
+    });
+    const active = path.join(sb.work, 'docs/plans/active/flow-e.md');
+    assert.ok(!fs.existsSync(active), 'fixture must carry no index symlink');
+
+    recordApproval(sb.work, rel, { channel: 'in-session' });
+    annotatePr(sb.work, rel, 'feature/flow-e', '#77');
+    sh(sb.work, 'git add -A && git commit -qm "plot: Flow E" && git push -q origin main');
+
+    // CLAIM 1 — the plan is found by slug with no link to find it by.
+    const meta = planMeta(sb.work, rel, stub);
+    assert.equal(meta.phase, 'approved');
+
+    // CLAIM 2 — deliverable: the PR verification /plot-deliver gates on
+    // resolves for a slug that appears in no index.
+    const status = JSON.parse(runScript('plot-impl-status.sh', ['flow-e'], { cwd: sb.work, stub }));
+    assert.equal(status.prs.length, 1, 'impl-status must resolve an unlinked plan');
+    assert.equal(status.prs[0].state, 'MERGED');
+
+    // The delivery itself: the phase flip AND the `Delivered:` record are the
+    // whole transition. No `git rm` of a link that was never there, and no
+    // `mkdir -p`/`ln -s` pair whose failure could half-land the delivery
+    // (phase flipped, index not moved).
+    //
+    // The record is not decoration, which this flow measured rather than
+    // assumed: flipping the phase alone left claim 3 below reporting ZERO
+    // plans. The scan's rolling delivered window reads `delivered_raw`, so a
+    // Delivered plan with no record is filtered out of the terminal group —
+    // the same invisibility this plan exists to remove, one field further in.
+    // Dated today because the window is relative to now, not to a fixture.
+    const today = new Date().toISOString().slice(0, 10);
+    recordDelivered(sb.work, rel, { date: today });
+    sh(sb.work, 'git add -A && git commit -qm "plot: deliver flow-e" && git push -q origin main');
+    assert.equal(planMeta(sb.work, rel, stub).phase, 'delivered');
+
+    // CLAIM 3 — reportable: the derived scan groups it as delivered from the
+    // phase it declares, with no delivered/ link to group it by either.
+    assert.ok(!fs.existsSync(path.join(sb.work, 'docs/plans/delivered/flow-e.md')));
+    const scan = JSON.parse(runScript('plot-fleet-scan.sh',
+      ['--json', '--offline', 'flow-e'], { cwd: sb.work, stub }));
+    const plans = Array.isArray(scan) ? scan : scan.plans;
+    assert.equal(plans.length, 1, 'the derived scan must see the unlinked plan');
+    assert.equal(plans[0].phase, 'delivered');
   } finally {
     sb.cleanup();
   }
