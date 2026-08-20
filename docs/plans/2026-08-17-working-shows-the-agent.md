@@ -438,6 +438,89 @@ transcript, which is exactly the guess the manifest exists to eliminate.
 The pid keeps its place as a live-process fact and stops being asked to identify
 a run it has outlived.
 
+### Subagents already carry a parent, measured
+
+Claude shows the conversation of its in-session agents, and the files that back
+that are already on disk: **492 `agent-*.jsonl` transcripts** across this repo's
+worktrees, measured 2026-08-20. Each first line carries the relationship
+explicitly — nothing is inferred:
+
+| field | value in the one read |
+|---|---|
+| `agentId` | `a8a325d` — its own identity |
+| `sessionId` | `b148d00d-…` — **the parent run that spawned it** |
+| `isSidechain` | `true` — the runtime's own marker for "I am a subagent" |
+| `gitBranch`, `cwd` | what it was working on |
+
+So a registry entry keyed on `session` can find its subagents by filtering
+`agent-*.jsonl` in the same directory on `sessionId`. The hierarchy is a **read**,
+not a derivation.
+
+`transcriptFile` deliberately skips `agent-` files when guessing the newest,
+because a subagent's transcript answers about the wrong process — correct for the
+guess, and it is also why the exact-id join matters: the parent is found by name,
+the children by their parent's name.
+
+**Not in this wave.** The wave lists agents the dispatcher launched; a subagent
+was launched by an agent, and the dispatcher writes no manifest for it. Recorded
+as the open point below, because the data exists and the question is only whether
+a subagent earns a row or is detail behind its parent.
+
+### An expert agent is a role, not a new mechanism
+
+The operator asked how to have test, Jenkins and UI experts. Measured: **106 agent
+definitions** already exist under `~/.claude/agents/` — `engineering-devops-automator`,
+`design-ui-designer`, `testing-accessibility-auditor`,
+`engineering-incident-response-commander` — each with a name, a description and a
+declared stance.
+
+And the runtime already supports continuing one run: `claude --resume <session-id>`,
+with `--fork-session` to branch it. What it does not support is *joining* a live
+session, and it should not — two processes writing one transcript is a conflict.
+
+So what Plot lacks is **not an agent catalogue and not a spawning mechanism**. It
+lacks a place to write down which role a branch wants. `Worker command` is already
+per-repo configurable (Principle 5), so a role is one field:
+
+| today | with roles |
+|---|---|
+| one `Worker command` for every branch | the command takes a role argument |
+| the role is nowhere declared | `<!-- role: test -->` on the branch's plan line |
+| an agent is an anonymous process | the manifest carries `role` beside `session` |
+
+The manifest is where `role` belongs — it is launch-time knowledge exactly like
+branch and command.
+
+**`role` is where this starts, and it is knowingly not sufficient.** Settled
+2026-08-20. Measured against the 106 definitions: only **5 declare a model** and
+**12 declare tools** — the other 94 are stance alone, a name, a description and a
+`vibe`. So a role name picks a *personality* and settles neither of the two things
+a wave actually needs:
+
+| what a wave needs | does `role` give it |
+|---|---|
+| **which stance** — how the agent approaches the work | yes, this is what a role is |
+| **which model** — cost against capability | **no**, 5 of 106 say |
+| **which tools** — what it may touch | **no**, 12 of 106 say |
+
+A UI expert on Haiku and a UI expert on Opus are the same `role` and are not the
+same agent. A test expert allowed to write under `packages/` is a different agent
+from one that may only read. Both distinctions matter to a dispatch and neither is
+in a role name.
+
+Starting with `role` anyway, for a reason that is not laziness: **the manifest can
+carry a field the dispatcher does not yet use, but it cannot carry one nobody has
+named.** A role is the coarsest useful cut and the one the 106 definitions already
+express, so it is what a plan line can declare today. Model and tools follow when
+something reads them — and when they do, they belong beside `role` in the same
+manifest rather than in a second mechanism.
+
+What must NOT happen in the meantime is the failure mode this repo has a rule
+against: a `role` field that is written, rendered, and changes nothing. If the
+dispatcher does not forward it to the runtime, the manifest records a fact about
+an intention rather than about a launch, and that is the one thing the manifest is
+built to never do.
+
 ## Done when
 
 - **A WORKING row can show its worker's log**, without the pulse carrying
@@ -501,6 +584,22 @@ a run it has outlived.
 - **A missing or unreadable transcript costs fields, not entries.** Assert
   an agent whose transcript is absent or in an unrecognised format is still
   listed, with model and context absent rather than guessed.
+
+### "No worker has written a log" is right, and incomplete
+
+Measured 2026-08-20 for the two worktrees showing it: **no `.plot-worker.*` file
+of any kind**, and **no claim ref on origin** for either branch. `plot-dispatch.sh`
+redirects the log unconditionally at launch, so an absent log means `start_worker`
+never ran — and an absent claim ref means no dispatch happened at all. Both
+worktrees were made by hand.
+
+The sentence is therefore accurate and carefully worded: it says *no worker has
+written a log*, not *the log is missing*. What it withholds is the consequence —
+that nothing is running and nothing will start on its own. A reader takes it as
+"the log has not appeared yet".
+
+Recorded here rather than fixed: it belongs with `bug/the-row-shows-what-it-withholds`,
+which is the branch already open on exactly this question.
 
 ## Notes
 
