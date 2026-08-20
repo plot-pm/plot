@@ -73,8 +73,17 @@ export function planMeta(cwd, file, stub) {
   return JSON.parse(out.trim().split('\n').pop());
 }
 
-/** Instantiate the SHIPPED template (title/slug substituted) — real file. */
-export function instantiatePlan(work, { date, slug, title, fields = {} }) {
+/**
+ * Instantiate the SHIPPED template (title/slug substituted) — real file.
+ *
+ * `link: false` creates the plan with NO index symlink. That is not an exotic
+ * fixture: it is what an agent produces when it writes a plan file directly,
+ * and it is the state three plans in this repo were in on 2026-08-20. This
+ * helper linked unconditionally until then, which is why no test could catch a
+ * lifecycle step that required the link to exist — the harness guaranteed the
+ * precondition that was under test.
+ */
+export function instantiatePlan(work, { date, slug, title, fields = {}, link = true }) {
   let t = fs.readFileSync(TEMPLATE, 'utf8')
     .replace(/<title>/g, title)
     .replace(/<slug>/g, slug);
@@ -86,7 +95,9 @@ export function instantiatePlan(work, { date, slug, title, fields = {} }) {
   fs.mkdirSync(path.join(work, 'docs', 'plans', 'active'), { recursive: true });
   fs.mkdirSync(path.join(work, 'docs', 'plans', 'delivered'), { recursive: true });
   fs.writeFileSync(path.join(work, rel), t);
-  fs.symlinkSync(`../${date}-${slug}.md`, path.join(work, 'docs', 'plans', 'active', `${slug}.md`));
+  if (link) {
+    fs.symlinkSync(`../${date}-${slug}.md`, path.join(work, 'docs', 'plans', 'active', `${slug}.md`));
+  }
   return rel;
 }
 
@@ -103,6 +114,21 @@ export function recordStarted(work, rel, { who = 'alice', branch, date = '2026-0
   const f = path.join(work, rel);
   let t = fs.readFileSync(f, 'utf8');
   t = t.replace(/- \*\*Approved:\*\* [^\n]*/, (m) => `${m}\n- **Started:** ${date}, ${who}, \`${branch}\``);
+  fs.writeFileSync(f, t);
+}
+
+/**
+ * The documented deliver edit (skill plot-deliver step 7), mechanized: flip the
+ * phase AND write the `Delivered:` record. Both, because the record is not
+ * decoration — `plot-fleet-scan.sh`'s rolling delivered window reads it, and a
+ * plan flipped to Delivered without one is filtered out of the terminal group
+ * entirely. The phase alone is not the whole transition.
+ */
+export function recordDelivered(work, rel, { date = '2026-07-31' } = {}) {
+  const f = path.join(work, rel);
+  let t = fs.readFileSync(f, 'utf8');
+  t = t.replace('- **Phase:** Approved', '- **Phase:** Delivered');
+  t = t.replace(/- \*\*Type:\*\* [^\n]*/, (m) => `${m}\n- **Delivered:** ${date}`);
   fs.writeFileSync(f, t);
 }
 
