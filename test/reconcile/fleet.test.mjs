@@ -2679,6 +2679,79 @@ test('fleet: the no-ref lookup is bounded by absent branches, not by all', () =>
   f.cleanup();
 });
 
+test('fleet: a merged-and-deleted branch the list names costs no lookup', () => {
+  // THE THIRD SIDE OF THE COIN, and the one the other two leave unpinned.
+  //
+  // Both tests above stub `pr-list` to emit NOTHING, so they establish what a
+  // no-ref branch costs when the join cannot answer for it. Neither establishes
+  // what it costs when the join CAN — and that is the case the fleet actually
+  // spends its life in: a repo merging with `--delete-branch` turns every
+  // finished branch into a no-ref branch, and `pr list --state all` keeps
+  // returning its PR long after the ref is gone.
+  //
+  // Verified against this repo on 2026-08-20: PRs #252, #253 and #254 all
+  // appear in the list as MERGED while `git ls-remote --heads` returns 0 refs
+  // for each, and a counting wrapper around `gh` recorded ZERO `pr view` calls
+  // for all three.
+  //
+  // THE ORDERING IS LOAD-BEARING AND OTHERWISE UNDOCUMENTED, which is the whole
+  // reason this test exists when nothing else changes. `merged_by_host` passes
+  // `--ask` unconditionally, so this costs nothing only because
+  // `host_pr_state` consults the per-branch cache BEFORE it reaches the `--ask`
+  // arm. Nothing states that dependency; the two blocks are simply adjacent.
+  //
+  // WHAT A REORDERING COSTS. Read the cache only on the no-ask path — or hoist
+  // the ask above it — and every terminal branch pays one host call per branch
+  // PER PULSE again. Measured on this repo 2026-08-20: 15 such calls, and the
+  // board pulses every 5 s.
+  //
+  //   GitHub     461 ms x 15  =  6.9 s per pulse
+  //   Bitbucket  ~10 s  x 15  =  ~150 s per pulse — five times the 30 s budget
+  //
+  // AND EVERY ANSWER STAYS CORRECT. The verdicts do not change, so no other
+  // test fails, no rendered line differs, and nothing but the clock reports it.
+  //
+  // The reordering is also a PLAUSIBLE REFACTOR rather than a contrived break:
+  // "only consult the cache when we are not asking" reads like a tidy-up to
+  // anyone who has not measured it. A regression that looks like an improvement
+  // in review is exactly the kind a counted assertion has to catch.
+  //
+  // Counted rather than timed, for the reason the block above says: a timing
+  // assertion on CI is a flake and the count is the actual claim.
+  const f = makeRepo('plot-fleet-joincarries-', ONE_WAVE('feature/squashed'));
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 42);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  // The list ARRIVES and NAMES the branch — the difference from every other
+  // count test here. `pr-state` still answers MERGED, so the rendered verdict
+  // cannot distinguish a cache hit from a round trip; only the count can.
+  const { out, ops } = countCalls(f, `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) echo '{"number":42,"title":"the work","state":"MERGED","head":"feature/squashed"}' ;;
+  pr-state) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  assert.equal(ops.filter((o) => o === 'pr-state').length, 0,
+    'a no-ref branch the list already names must not be asked about again');
+  assert.equal(ops.filter((o) => o === 'pr-list').length, 1,
+    'one list answers it');
+  // The saving must not have cost the answer. A count that fell to zero because
+  // the branch stopped reading `merged` would settle nothing and block its
+  // successor wave forever — the defect the no-ref arm exists to fix.
+  assert.match(branchLine(out, 'feature/squashed'), / — merged$/,
+    'answered from the join, and answered correctly');
+  assert.match(waveLine(out, 'One'), / — complete$/,
+    'the wave completes on the joined answer, as it does on a fetched one');
+  f.cleanup();
+});
+
 test('fleet: a failed list does not answer for branches the join never covered', () => {
   // THE 2026-08-17 TRAP, IN THE SHAPE THE JOIN GIVES IT. The scan must keep
   // `plot-host.sh`'s distinction between a lookup MISS (exit 0, state NONE) and
