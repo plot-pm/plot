@@ -1670,6 +1670,17 @@ export const MachineProcessSchema = z.object({
 });
 export type MachineProcess = z.infer<typeof MachineProcessSchema>;
 
+/**
+ * The branch a `changeset-release` PR rides on — the ONE name this repo matches.
+ *
+ * IN THE CONTRACT because both sides ask the question: the server derives a
+ * row's `kind`, and the client's `isReleaseBranch` asks the same thing of the
+ * same string. `fleet.ts` states the rule this obeys — the name is matched in
+ * exactly one place, and *"a second copy on the client would be the defect"*.
+ * A shared constant is how that holds without the client importing server code.
+ */
+export const RELEASE_BRANCH = /^changeset-release\//;
+
 export const AgentRowSchema = z.object({
   /** Constant today. Present so the second repo is an addition, not a rebuild. */
   repo: z.string(),
@@ -1831,6 +1842,12 @@ export const AgentRowSchema = z.object({
      * withholds the reason — measured on PR #149 and PR #160, both of which read
      * `no checks` while GitHub said *this branch has conflicts*.
      *
+     * **THIS FIELD IS THE WINNER OF `states`, AND STAYS.** It answers the
+     * question most of its consumers actually ask — *the one thing this row
+     * waits for* — and every one of them was audited before `states` was added
+     * beside it rather than in place of it. What changed is that the losing
+     * facts are no longer destroyed to produce it: see `states`.
+     *
      * Defaults to `unknown` so an older pulse still validates, and because
      * unknown is the honest answer for a payload that predates the field —
      * absent is not clean.
@@ -1846,6 +1863,42 @@ export const AgentRowSchema = z.object({
     // was silently deciding the STATUS too.
     state: z.enum(['green', 'pending', 'failing', 'none', 'conflicts', 'unknown', 'closed'])
       .default('unknown'),
+    /**
+     * EVERYTHING the PR is waiting for — a SET, because a PR can be waiting for
+     * two things at once and `state` can only name one.
+     *
+     * The measured loss: a PR that both conflicts and has a failed check reads
+     * `conflicts` and NOTHING SAYS THE BUILD FAILED. `state`'s own comment
+     * documents the precedence as deliberate, and it is — for a single value.
+     * The precedence was never the defect; producing it by *discarding* the
+     * loser was. This field keeps both facts and lets each consumer decide
+     * which it needs, which is the one-observable-two-causes shape this estate
+     * keeps finding and removing.
+     *
+     * ORDERED BY PRECEDENCE, most-blocking first, so `states[0] === state` on
+     * every row. That is asserted by a test rather than left as a convention:
+     * two fields deriving one answer separately is exactly how a row's word and
+     * its sentence come to disagree, and the contract already records that
+     * failure twice (`classify` mirrors `prState`, and both say so).
+     *
+     * A row's SUBJECT is read from this, not from `state` — a conflict is
+     * branch work and a failing check is PR work, so a PR carrying both leads
+     * with the branch and names the build failure separately. That rule needs
+     * both facts present to be expressible at all.
+     *
+     * `unknown` and `green` are ALWAYS ALONE. Neither composes with anything:
+     * `unknown` means the host could not answer, so a second entry beside it
+     * would claim knowledge the row does not have, and `green` means nothing is
+     * outstanding, which is the absence of the other values rather than a peer
+     * of them. Only the errands compose.
+     *
+     * Defaults to `[]` so an older pulse still validates. Empty is NOT a
+     * seventh meaning — it is a payload that predates the field, and a consumer
+     * that finds it empty must fall back to `state`, whose default (`unknown`)
+     * is the honest answer there.
+     */
+    states: z.array(z.enum(['green', 'pending', 'failing', 'none', 'conflicts', 'unknown', 'closed']))
+      .default([]),
   }).nullable().default(null),
   /**
    * Where this branch lives on the git host, or "" — the address the row's own

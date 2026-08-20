@@ -1,3 +1,4 @@
+import { RELEASE_BRANCH } from '../contract/schema.js';
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -3477,8 +3478,48 @@ export function draftNote(pr: PrRecord): string {
  * `AgentPr` states: a draft has CI like anything else, and answering both
  * questions with one value is what kept WAITING ON A MACHINE empty.
  */
-export function prState(pr: PrRecord): 'green' | 'pending' | 'failing' | 'none' | 'conflicts' | 'unknown' | 'closed' {
-  // CLOSED OUTRANKS EVERY CHECK, and it has to come first.
+export function prState(pr: PrRecord): PrStateWord {
+  // DERIVED FROM `prStates`, never computed a second time. The set is ordered
+  // most-blocking first, so its head IS this answer — and deriving it here is
+  // what makes `states[0] === state` true by construction rather than by two
+  // functions agreeing. `classify` mirroring this function, and saying so in a
+  // comment, is the cost of the other arrangement; one derivation is cheaper
+  // than a mirror that has to be maintained.
+  //
+  // Non-empty on every input: `prStates` always answers at least `unknown`.
+  return prStates(pr)[0];
+}
+
+/** The words a PR's condition can be reported in — see `AgentPr.states`. */
+export type PrStateWord =
+  'green' | 'pending' | 'failing' | 'none' | 'conflicts' | 'unknown' | 'closed';
+
+/**
+ * EVERYTHING the PR is waiting for, most-blocking first — see `AgentPr.states`.
+ *
+ * The primitive `prState` is now derived from. What it fixes is a loss that was
+ * invisible in a single value: a PR that conflicts AND has a failed check
+ * reported `conflicts` and the build failure was gone before the row was built.
+ *
+ * **The precedence is unchanged and the discarding is what stopped.** `conflicts`
+ * still leads, for the reason `prState` has always given — GitHub starts no
+ * workflow for a branch that does not merge, so a conflicting PR reports an
+ * empty rollup and `none` there names the symptom while withholding the cause.
+ * A conflicting PR whose checks DID run and DID fail is the case that value
+ * could not express, and it is not hypothetical: a run can complete before main
+ * moves underneath the branch.
+ *
+ * `unknown` AND `green` ARE ALWAYS ALONE, and the two early returns are what
+ * guarantee it. Unknown mergeability poisons the checks answer as well — the
+ * `green-never-outranks-unknown` rule this function has carried since #165 —
+ * so it answers `['unknown']` and appends nothing: a second entry beside it
+ * would claim a knowledge the row does not have. Green is the absence of every
+ * errand rather than a peer of one, so nothing composes with it either.
+ */
+export function prStates(pr: PrRecord): [PrStateWord, ...PrStateWord[]] {
+  // CLOSED OUTRANKS EVERY CHECK, and it has to come first — the same rule the
+  // singular `prState` carried before this function existed, restored here
+  // because this is now where precedence is decided.
   //
   // A closed PR is ABANDONED work — somebody decided against it. Its checks are
   // whatever they were when it was closed, and reporting `green` about it says
@@ -3488,27 +3529,41 @@ export function prState(pr: PrRecord): 'green' | 'pending' | 'failing' | 'none' 
   // days ago, rendered `green` + `draft` on five rows — the board reading *five
   // reviews are waiting on you* about a wave that was deliberately dropped.
   //
-  // They reach a row at all because `prsByHead` keeps finished PRs on purpose:
-  // `prOutranks` states *"MERGED IS NOT RANKED ABOVE CLOSED … both are finished,
-  // both are worth linking"*. That is right about the LINK — the number is still
-  // where you read what happened — and it was silently also deciding the STATUS.
+  // ALONE IN THE SET, not appended to. The set exists to report conditions a
+  // reader can act on separately, and there is no errand beneath abandonment:
+  // a failing check on a PR nobody will merge is not a second problem.
   //
-  // `merged` is deliberately NOT given a state here: a merged PR's row is already
+  // `merged` is deliberately NOT given a state: a merged PR's row is already
   // `merged` via the branch state, and the two vocabularies would then disagree
   // about the same row.
-  if (pr.state === 'CLOSED') return 'closed';
-  if (pr.mergeable === 'conflicting') return 'conflicts';
-  // BELOW `conflicting`, never above it: a host that knows the branch conflicts
-  // must still say so, and reordering these two lines loses the cause.
-  //
+  if (pr.state === 'CLOSED') return ['closed'];
   // Anything that is not one of the two ANSWERS counts, not just the literal
   // word: an adapter predating the field, and a word from a future host, are
   // both in exactly the position Bitbucket is in. The ingest normalizes absent
-  // to `'unknown'` already, so this is belt-and-braces there — but `prState` is
+  // to `'unknown'` already, so this is belt-and-braces there — but `prStates` is
   // exported and called directly, and a pure function that says `green` on a
   // record it was handed without the field would be a defect one call site away.
-  if (pr.mergeable !== 'mergeable') return 'unknown';
-  switch (pr.checks) {
+  //
+  // ABOVE the conflict check, unlike the old ordering, and that is not a change
+  // of precedence: `mergeable === 'conflicting'` and `mergeable !== 'mergeable'`
+  // are disjoint, so no input reaches a different answer. It reads in the order
+  // the field is actually consulted.
+  if (pr.mergeable !== 'mergeable' && pr.mergeable !== 'conflicting') return ['unknown'];
+  const checks = checkWord(pr.checks);
+  if (pr.mergeable === 'conflicting') {
+    // The conflict leads. The checks follow it ONLY where they are an errand of
+    // their own: `none` beside a conflict is the empty rollup the conflict
+    // CAUSED, so appending it would print the symptom next to its own cause as
+    // though they were two problems. `pending` and `unknown` say nothing a
+    // reader can act on beneath a conflict, and `green` is not an errand.
+    return checks === 'failing' ? ['conflicts', 'failing'] : ['conflicts'];
+  }
+  return [checks];
+}
+
+/** One PR's check rollup as a word, with every unrecognised value as `unknown`. */
+function checkWord(checks: PrRecord['checks']): PrStateWord {
+  switch (checks) {
     case 'green': return 'green';
     case 'pending': return 'pending';
     case 'failing': return 'failing';
@@ -3562,7 +3617,7 @@ export function prOutranks(candidate: PrRecord, held: PrRecord): boolean {
  *
  * Exported for test.
  */
-export const RELEASE_BRANCH = /^changeset-release\//;
+export { RELEASE_BRANCH };
 
 /**
  * The branch `/plot-idea` cuts for a plan under review — `idea/<slug>`.
@@ -3841,12 +3896,20 @@ export function rowKind(
   return 'branch';
 }
 
-/** The PR fields a row carries: the link, and the two independent conditions. */
+/**
+ * The PR fields a row carries: the link, and the two independent conditions.
+ *
+ * `state` and `states` both travel, and `state` is read out of `states` rather
+ * than computed beside it — so the row cannot ship a head that disagrees with
+ * its own winner. A consumer that wants *the one thing this waits for* reads
+ * `state`; one that wants *what is true of this PR* reads `states`.
+ */
 export function agentPr(pr: PrRecord): {
   number: number; url: string; draft: boolean;
-  state: ReturnType<typeof prState>;
+  state: PrStateWord; states: PrStateWord[];
 } {
-  return { number: pr.number, url: pr.url ?? '', draft: pr.draft === true, state: prState(pr) };
+  const states = prStates(pr);
+  return { number: pr.number, url: pr.url ?? '', draft: pr.draft === true, state: states[0], states };
 }
 
 function withNote(base: string, note: string): string {

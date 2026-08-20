@@ -200,6 +200,9 @@ describe('AgentRowSchema.pr', () => {
     });
     expect(parsed.pr).toEqual({
       number: 42, url: 'https://host/pr/42', draft: true, state: 'conflicts',
+      // Absent in the input, so `[]` — the older-pulse default. Empty is not a
+      // seventh meaning: a consumer that finds it empty falls back to `state`.
+      states: [],
     });
   });
 
