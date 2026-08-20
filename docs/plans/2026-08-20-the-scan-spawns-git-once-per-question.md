@@ -135,7 +135,7 @@ redistributes it.
 - `bug/the-scan-walks-history-in-one-call` — replace the 68 per-branch `rev-list` calls with batched forms (`--stdin` where the question is per-branch ancestry). Tests: ancestry verdicts are byte-identical on this repo's 54 branches; `local_ahead_of` still returns 0 for a missing upstream; the spawn bound holds.
 
 ### Said
-- `feature/the-scan-says-what-it-is-paying-for` — when a scan exceeds its budget, it reports the estate that made it expensive (worktree count, spawn count, per-spawn cost) instead of only that it timed out. Tests: a scan under budget says nothing extra; one over budget names the counts; the numbers are measured, never estimated.
+- `feature/the-scan-says-what-it-is-paying-for` — when a scan exceeds its budget, it reports the estate that made it expensive (worktree count, spawn count, per-spawn cost) instead of only that it timed out. Tests: a scan under budget says nothing extra; one over budget names the counts; the numbers are measured, never estimated. (#278)
 
 ## Notes
 
