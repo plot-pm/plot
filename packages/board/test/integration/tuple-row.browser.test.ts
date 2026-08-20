@@ -1,0 +1,319 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import esbuild from 'esbuild';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium, type Browser, type Page } from 'playwright';
+import {
+  tupleFromAgent, tupleFromBuild, tupleFromIssue, tupleFromPlan, tupleFromRow,
+  type TupleRow,
+} from '../../src/app/lib/tuple-row.js';
+import { AgentRowSchema, IssueRowSchema, RowKindSchema, type AgentRow } from '../../src/contract/schema.js';
+
+/**
+ * A ROW IS A TUPLE — what only a rendered page can settle.
+ *
+ * The unit suite (`test/unit/tuple-row.test.ts`) owns the DATA: which slots a
+ * kind fills, which clock an age names, where the kind is decided. This owns the
+ * claims that are about a DOM and cannot be answered by a projection:
+ *
+ *   - the kind is present WITHOUT HOVERING — a visible label, not a `title`;
+ *   - a PR row renders THREE separate links to three destinations;
+ *   - a branch row renders one link and NO empty artifact control;
+ *   - a name with no URL is not an anchor;
+ *   - each of the seven kinds renders all six slots;
+ *   - a kind with no data renders NO ROW rather than an empty one.
+ *
+ * ## Why this bundles a harness instead of driving the board
+ *
+ * The tuple row has no live call site yet, and deliberately: the plan lands the
+ * shape first and replaces `Row`, `PlanRow` and `IssueRowView` in a LATER wave,
+ * because `AgentList.tsx` took eleven commits on 2026-08-20 alone and
+ * conflicted on nearly every merge that day. So `/api/fleet` cannot reach this
+ * component — there is nothing in the app that renders it.
+ *
+ * This repo has no component-test seat either: vitest runs `environment:
+ * 'node'`, with no jsdom and no React Testing Library, a limit
+ * `acting-spinner.test.ts` records and works around by reading source. Reading
+ * source is the honest answer for *which utility did this component choose*. It
+ * is NOT the honest answer for *is this text visible without hovering* — that
+ * is a question about a rendered box, and a regex over JSX would pass on a
+ * `title` attribute containing the same word.
+ *
+ * So the component is bundled into a page and mounted in a real browser. Same
+ * Chromium the sibling suites launch, same assertions against a live DOM — the
+ * only difference is that the page is a harness rather than the board, because
+ * the board does not yet mount this row. When the collapse wave gives it a call
+ * site, these assertions move to the board's own page and the harness goes.
+ */
+const here = path.dirname(fileURLToPath(import.meta.url));
+
+const row = (over: Partial<AgentRow> = {}): AgentRow => AgentRowSchema.parse({
+  repo: 'plot', branch: 'feature/opus5-longhorizon-hardening', plan: 'fleet-scan-asks-the-host',
+  planFile: '2026-08-20-fleet-scan-asks-the-host.md', wave: 'w', state: 'wip',
+  phase: 'Development', group: 'waiting-on-you', ageMinutes: 30, note: '', ...over,
+});
+
+/** One row per kind — the seven, each with the data its kind actually has. */
+const TUPLES: Record<string, TupleRow> = {
+  ticket: tupleFromIssue(IssueRowSchema.parse({
+    number: 228, title: 'Fleet scan asks the host once per branch',
+    url: 'https://host/issues/228', ageMinutes: 1440,
+  })),
+  plan: tupleFromPlan({
+    plan: 'fleet-scan-asks-the-host', planFile: '2026-08-20-fleet-scan-asks-the-host.md',
+    phase: 'Design', waitingDays: 1,
+  }),
+  pr: tupleFromRow(row({
+    kind: 'pr', ageMinutes: 25 * 1440,
+    pr: { number: 57, url: 'https://host/pull/57', draft: false, state: 'conflicts' },
+    branchUrl: 'https://host/tree/feature/opus5-longhorizon-hardening',
+  })),
+  build: tupleFromBuild({
+    name: 'CI:1860', url: 'https://host/runs/1860', prNumber: 283,
+    prUrl: 'https://host/pull/283', status: 'CI is running', ageMinutes: 10,
+  }),
+  agent: tupleFromAgent({
+    sessionId: 'f30b27a3-9c1e-4f2b-bb77-0d5a1e2f3c44',
+    branch: 'feature/opus5-longhorizon-hardening',
+    branchUrl: 'https://host/tree/feature/opus5-longhorizon-hardening',
+    status: 'thinking', sessionSeconds: 27 * 60, idleSeconds: 4 * 60,
+  }),
+  branch: tupleFromRow(row({
+    kind: 'branch', ageMinutes: 25 * 1440,
+    branchUrl: 'https://host/tree/feature/opus5-longhorizon-hardening',
+  })),
+  release: tupleFromRow(row({
+    kind: 'release', plan: '2.7.0', planFile: '', branch: 'changeset-release/main',
+    branchUrl: 'https://host/tree/changeset-release/main', ageMinutes: 12,
+    pr: { number: 300, url: 'https://host/pull/300', draft: false, state: 'none' },
+  })),
+};
+
+/**
+ * A row with NO DATA — the case that must render no row at all.
+ *
+ * A build nothing has run: no name, no URL, no PR, no age. The rule is that a
+ * kind with no data renders NO ROW rather than an empty one, and the harness
+ * asks the same question the board will: given this, is there a row?
+ */
+const EMPTY = tupleFromBuild({
+  name: '', url: '', prNumber: null, prUrl: '', status: '', ageMinutes: null,
+});
+
+/**
+ * The harness page: mount every tuple, plus the empty one, and let the DOM
+ * answer.
+ *
+ * `hasData` is the RULE, applied by the harness exactly as a section would: a
+ * tuple with no name and no status has nothing to say, so nothing is rendered
+ * for it. It lives here rather than inside `TupleRowView` on purpose — the
+ * component's job is to render a row it is given, and *should this row exist* is
+ * a membership question, which the plan puts outside this wave ("Membership.
+ * Which section a row appears in is a separate decision and this changes none
+ * of it").
+ */
+const HARNESS = `
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { TupleRowView } from ${JSON.stringify(path.resolve(here, '../../src/app/components/TupleRow.tsx'))};
+
+const tuples = window.__TUPLES__;
+const hasData = (t) => Boolean(t.name.label) || Boolean(t.status);
+createRoot(document.getElementById('root')).render(
+  React.createElement(
+    'ul',
+    { role: 'rowgroup' },
+    Object.entries(tuples)
+      .filter(([, t]) => hasData(t))
+      .map(([key, t]) => React.createElement(TupleRowView, {
+        key,
+        tuple: t,
+        // A MENU IS PASSED IN, per kind — and a release is handed none, which is
+        // how "its menu offers no release action" is enforced rather than
+        // promised: there is no item for the component to render.
+        menu: t.kind === 'release'
+          ? null
+          : React.createElement('button', { type: 'button', 'data-tuple-menu': t.kind }, '\\u22EF'),
+      })),
+  ),
+);
+`;
+
+describe('a row is a tuple — what a rendered page settles', () => {
+  let browser: Browser;
+  let page: Page;
+  let bundle: string;
+
+  beforeAll(async () => {
+    const built = await esbuild.build({
+      stdin: { contents: HARNESS, resolveDir: path.resolve(here, '../..'), loader: 'tsx' },
+      bundle: true, format: 'esm', write: false, jsx: 'automatic',
+      // The app's own React, resolved from this package — the same copy the
+      // board bundles, so the harness cannot pass on a version the app does not
+      // use.
+      absWorkingDir: path.resolve(here, '../..'),
+    });
+    bundle = built.outputFiles[0].text;
+    browser = await chromium.launch();
+    const context = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
+    page = await context.newPage();
+    await page.setContent('<div id="root"></div>');
+    await page.evaluate(
+      ([tuples, empty]) => {
+        (window as never as { __TUPLES__: unknown }).__TUPLES__ = { ...(tuples as object), empty };
+      },
+      [TUPLES, EMPTY] as const,
+    );
+    await page.addScriptTag({ content: bundle, type: 'module' });
+    await page.locator('li[data-tuple-kind]').first().waitFor({ timeout: 10_000 });
+  }, 60_000);
+
+  afterAll(async () => {
+    await browser?.close();
+  });
+
+  const rowOf = (kind: string) => page.locator(`li[data-tuple-kind="${kind}"]`);
+
+  it('renders one row for each of the seven kinds', async () => {
+    // Six here, and the seventh is the point of the next test: the `empty`
+    // build has no data and must not produce a row. Every kind that HAS data
+    // renders, which is the shape being a shape rather than a description of
+    // the three that happen to have components today.
+    for (const kind of RowKindSchema.options) {
+      await expect.poll(() => rowOf(kind).count(), { timeout: 10_000 })
+        .toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it('renders NO ROW for a kind with no data — not an empty one', async () => {
+    // The rule stated directly. An empty row holds a reader's attention and
+    // says nothing; the board's standing answer to absence is absence.
+    const rows = await page.locator('li[data-tuple-kind]').count();
+    expect(rows).toBe(RowKindSchema.options.length);
+    // And the empty build is the one that is missing: two build tuples went in,
+    // one row came out.
+    expect(await rowOf('build').count()).toBe(1);
+  });
+
+  it('states the kind VISIBLY, with no hover required', async () => {
+    // THE DEFECT THIS REPLACES: `Branch … on the git host` was hover-only text
+    // doing a label's job, and before that a column whose one word meant four
+    // different things depending on the plan's wave count.
+    //
+    // `innerText` rather than `textContent`, because the question is what a
+    // reader SEES — `innerText` is computed from layout and reports nothing for
+    // a hidden box, so a label moved into a tooltip or display:none fails here.
+    for (const [kind, tuple] of Object.entries(TUPLES)) {
+      const slot = rowOf(kind).locator('[data-tuple-kind-label]');
+      // CASE-INSENSITIVE, and the reason is worth recording: the harness page
+      // carries no stylesheet, so Tailwind's `uppercase` does not apply and
+      // `innerText` reports the authored casing. Asserting the styled form
+      // would make this test a claim about a CSS utility rather than about the
+      // kind being visible, and it would fail for a reason that has nothing to
+      // do with what is being tested.
+      await expect.poll(() => slot.innerText().then((t) => t.toLowerCase()),
+        { timeout: 10_000 }).toBe(tuple.kindLabel.toLowerCase());
+      // VISIBLE, and this is the half the defect was about: `innerText` is
+      // computed from layout and reports "" for a hidden box, so a kind moved
+      // back into a tooltip or a `display:none` span fails here.
+      expect(await slot.isVisible(), kind).toBe(true);
+    }
+  });
+
+  it('renders THREE separate links on a PR row, to three destinations', async () => {
+    // The PR, its plan, its branch — three destinations, three different places.
+    // All three facts were already on the row; what was missing is that only
+    // some rendered and only one was a link.
+    const links = rowOf('pr').locator('a[data-tuple-link], a[href]');
+    await expect.poll(() => links.count(), { timeout: 10_000 }).toBe(3);
+    const hrefs = await links.evaluateAll((els) => els.map((e) => e.getAttribute('href')));
+    expect(new Set(hrefs).size).toBe(3);
+    // And each says WHAT it points at, so they do not read as three
+    // interchangeable words.
+    const whats = await links.evaluateAll(
+      (els) => els.map((e) => e.getAttribute('data-tuple-link')));
+    expect(whats).toEqual(['pr', 'plan', 'branch']);
+  });
+
+  it('renders one link on a branch row and no empty artifact control', async () => {
+    // A branch's name IS the branch, and the artifact slot holds its plan. Where
+    // a slot has no destination it renders as NOTHING rather than as a dead
+    // control — the rule this board already applies to a PR cell with no PR.
+    const links = rowOf('branch').locator('a[data-tuple-link]');
+    await expect.poll(() => links.count(), { timeout: 10_000 }).toBe(2);
+    // The BRANCH row's own name, plus its plan. And a planless branch renders
+    // one link and nothing beside it — asserted on the release row, whose plan
+    // slot is empty by construction.
+    const releaseLinks = rowOf('release').locator('a[data-tuple-link]');
+    expect(await releaseLinks.count()).toBe(2);
+    // No empty anchors anywhere: an `<a>` with no text is a control a reader
+    // can tab into and learn nothing from.
+    const empties = await page.locator('a[data-tuple-link]').evaluateAll(
+      (els) => els.filter((e) => !(e as HTMLElement).innerText.trim()).length);
+    expect(empties).toBe(0);
+  });
+
+  it('renders a name with no URL as TEXT, not as an anchor', async () => {
+    // An agent's name is its session id and there is nothing to open — the
+    // transcript is a local file, reached from the menu. So the name renders as
+    // text, and `data-tuple-text` is what says so.
+    const name = rowOf('agent').locator('[data-tuple-text]').first();
+    await expect.poll(() => name.count(), { timeout: 10_000 }).toBe(1);
+    expect(await name.innerText()).toBe('f30b27a3');
+    // It is NOT an anchor — the assertion that a missing address never becomes
+    // an invented link.
+    expect(await name.evaluate((e) => e.tagName)).toBe('SPAN');
+  });
+
+  it('renders all six slots on every row', async () => {
+    // Slot 1 icon, slot 2 kind, slot 3 name, slot 4 links, slot 5 status, slot
+    // 6 age. The links slot may be EMPTY — it is zero-or-more, the one place the
+    // slot count bends — so the cell is asserted present rather than populated.
+    for (const kind of Object.keys(TUPLES)) {
+      const r = rowOf(kind);
+      expect(await r.locator('[data-tuple-icon]').count(), `${kind} icon`).toBe(1);
+      expect(await r.locator('[data-tuple-kind-label]').count(), `${kind} kind`).toBe(1);
+      expect(await r.locator('[data-tuple-status]').count(), `${kind} status`).toBe(1);
+      expect(await r.locator('[data-tuple-age]').count(), `${kind} age`).toBe(1);
+      // The name is a link or a text span, and exactly one of the two.
+      const name = await r.locator('[data-tuple-link], [data-tuple-text]').count();
+      expect(name, `${kind} name`).toBeGreaterThanOrEqual(1);
+      // Six gridcells, whatever the kind — the geometry that made a ticket wear
+      // a branch's tracks is what one grid ends.
+      expect(await r.locator('[role="gridcell"]').count(), `${kind} cells`).toBe(7);
+    }
+  });
+
+  it('shows the age unlabelled on the rule and labelled on the exception', async () => {
+    // The label marks the EXCEPTION rather than decorating the rule — the
+    // inverse of the four-meanings column, which was unlabelled *because* its
+    // meaning varied.
+    const prAge = rowOf('pr').locator('[data-tuple-age]');
+    expect(await prAge.innerText()).toBe('25d');
+    expect(await prAge.getAttribute('data-tuple-age-label')).toBeNull();
+    // A PLAN is aged from its approval, which is not a change — so it says so.
+    const planAge = rowOf('plan').locator('[data-tuple-age]');
+    expect(await planAge.getAttribute('data-tuple-age-label')).toBe('waiting');
+    // An AGENT carries two clocks, both labelled, because it does not change —
+    // it acts.
+    const agentAge = rowOf('agent').locator('[data-tuple-age]');
+    expect(await agentAge.innerText()).toContain('27m');
+    expect(await agentAge.innerText()).toContain('idle 4m');
+    expect(await agentAge.getAttribute('data-tuple-age-label')).toBe('session');
+  });
+
+  it('offers a RELEASE row no action at all', async () => {
+    // The mark exists to stop a reflex merge. A menu entry offering to release
+    // would put an outward-facing act on a board, and this repo cuts a release
+    // only on an explicit request — so the kind is handed no item and the
+    // component invents none.
+    expect(await rowOf('release').locator('[data-tuple-menu]').count()).toBe(0);
+    // Every other kind here got one, so the absence is about the release rather
+    // than about the harness passing no menus.
+    expect(await rowOf('pr').locator('[data-tuple-menu]').count()).toBe(1);
+  });
+
+  it('carries a ticket age, which the section orders by', async () => {
+    expect(await rowOf('ticket').locator('[data-tuple-age]').innerText()).toBe('1d');
+  });
+});

@@ -20,6 +20,7 @@ import {
   type MachineProcess,
   type Phase,
   type PulseShrink,
+  type RowKind,
   type StuckRun,
   type WaitingGroup,
   type WaitingOn,
@@ -1368,6 +1369,10 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     .map((i) => {
       const at = i.createdAt ? Date.parse(i.createdAt) : NaN;
       return {
+        // A ticket, stated rather than left to the consumer's call site — see
+        // `IssueRowSchema.kind`. Every one of the seven kinds arrives the same
+        // way, which is what lets one row component read slot 2 from the data.
+        kind: 'ticket' as const,
         number: i.number,
         title: i.title,
         url: i.url,
@@ -3260,6 +3265,87 @@ export function prOutranks(candidate: PrRecord, held: PrRecord): boolean {
   return candidate.number > held.number;
 }
 
+/**
+ * The branch a `changeset-release` PR rides on — the ONE name this file matches.
+ *
+ * A release reaches the board as a PR like any other, and nothing in its fields
+ * distinguishes it: same head, same checks, same mergeability. What marks it is
+ * the branch Changesets opens, and the name is a convention of the tool rather
+ * than a guess about one — the same standing this file already grants
+ * `idea/<slug>`, which `rowsFromPulse` reads to recover a plan slug.
+ *
+ * MATCHED HERE AND NOWHERE ELSE, which is the point of the constant. The plan
+ * that introduced `kind` argued that a renderer deriving a row's kind would
+ * have to hardcode this name or misclassify the row; hardcoding it in the
+ * SERVER, once, beside the other convention it already reads, is the version of
+ * that cost this contract accepts. A second copy on the client would be the
+ * defect.
+ *
+ * Exported for test.
+ */
+export const RELEASE_BRANCH = /^changeset-release\//;
+
+/**
+ * WHICH OF THE SEVEN a row is — the judgement `AgentRow.kind` carries.
+ *
+ * Made HERE because this is where all the facts are in hand at once. See
+ * `RowKindSchema` for why it must not be remade in the renderer.
+ *
+ * The order of the three arms is the rule, and each earns its place:
+ *
+ *   1. **A release is a release**, whatever else is true of it. It is the one
+ *      row nobody should merge by reflex, and the mark exists to stop that — so
+ *      it cannot be outranked by the PR arm that would otherwise claim it.
+ *   2. **A merge conflict makes it a `branch`**, even with an open PR, because
+ *      no PR resolves a conflict: the reader has to go to the branch and rebase.
+ *      This is the rule `the-row-leads-with-its-subject` settled, applied here
+ *      rather than restated per column.
+ *   3. **Anything else with an open PR is a `pr`**, because the fix updates the
+ *      PR — and 67 of 80 live rows carry both a branch and a PR, so this is the
+ *      normal case rather than an edge.
+ *
+ * Everything remaining is a `branch`: a claim nobody has started, a quiet ref,
+ * a merged branch whose PR has gone. `branch` is the fallback rather than a
+ * fourth arm, because a row with no PR has nothing else it could be about.
+ *
+ * `build`, `agent`, `plan` and `ticket` are NOT decided here. A build and an
+ * agent have no row yet; a plan row and a ticket row are built elsewhere and
+ * each says its own kind at its own site, which is the same rule — the kind is
+ * stated where the row is created.
+ *
+ * Exported for test.
+ */
+export function rowKind(
+  branch: string,
+  /**
+   * WHETHER the row has a PR, not what condition it is in — and the boolean is
+   * the honest signature.
+   *
+   * An earlier draft took the PR record so the arms could read its `state`, and
+   * none of them do: `conflicts` arrives as its own argument, from the SCAN's
+   * conflict set rather than from the host's mergeability, because those are
+   * two different questions and only one of them is answered for a branch
+   * nobody examined. A parameter carrying a condition no arm reads is a
+   * standing invitation to start reading it, which is how a two-fact decision
+   * quietly becomes a three-fact one.
+   */
+  hasPr: boolean,
+  /**
+   * Whether the scan FOUND a conflict — never *whether one was looked for*.
+   *
+   * The caller passes `conflicts_known && conflicts.length > 0`, so an
+   * unexamined branch arrives as `false` and takes the PR arm. That is correct
+   * and is the point: *not looked at* must not read as *clean*, and it must not
+   * read as conflicting either. A branch whose conflict set was never computed
+   * has produced no evidence for the branch arm.
+   */
+  conflicts: boolean,
+): RowKind {
+  if (RELEASE_BRANCH.test(branch)) return 'release';
+  if (conflicts) return 'branch';
+  return hasPr ? 'pr' : 'branch';
+}
+
 /** The PR fields a row carries: the link, and the two independent conditions. */
 export function agentPr(pr: PrRecord): {
   number: number; url: string; draft: boolean;
@@ -3499,6 +3585,21 @@ export function rowsFromPulse(
           waitingOn === 'time' ? blockedNote(blockerName, blockerOutstanding) : note;
         rows.push({
           repo,
+          // WHAT THIS ROW IS — decided here, where the branch name, the PR and
+          // the conflict set are all in hand. See `rowKind`: a release outranks
+          // everything, a conflict makes it a branch even with an open PR, and
+          // an open PR otherwise wins.
+          //
+          // The conflict fact comes from `stuck`, computed a few lines below —
+          // so it is read from the SCAN's own conflict set (`b.conflicts` with
+          // `b.conflicts_known`) rather than from the summary, because an
+          // unexamined branch reports no conflicts and *not looked at* must not
+          // read as *clean*.
+          kind: rowKind(
+            b.branch,
+            pr !== null,
+            b.conflicts_known && b.conflicts.length > 0,
+          ),
           branch: b.branch,
           plan: plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, ''),
           planFile: plan.file,
@@ -3720,6 +3821,21 @@ export function rowsFromPulse(
     const ideaSlug = /^idea\/(.+)$/.exec(branch)?.[1] ?? '';
     rows.push({
       repo,
+      // WHAT THIS ROW IS. Every row here has an open PR by the filter above, so
+      // the ordinary answer is `pr` — and this is the site where the release
+      // arm earns its keep: `changeset-release/main` reaches the board through
+      // THIS loop, because no plan names it. Without the mark it renders as one
+      // more open PR awaiting review, which is the row this repo must not merge
+      // by reflex.
+      //
+      // `false` for conflicts, and it is the honest argument rather than a
+      // convenience: no conflict set was ever computed for a planless branch
+      // (`conflictsKnown` is false in the `stuckState` call below, for the same
+      // reason), so nothing licenses the branch arm here. A conflicting PR in
+      // this loop therefore reads as `pr` — the PR is still where its checks
+      // and its reviewers are, and the row says `conflicts` in its status slot
+      // either way.
+      kind: rowKind(branch, true, false),
       plan: ideaSlug,
       // Resolvable since the plan viewer learned to read branch plans: before
       // that this was deliberately blank, because linking to a file the route
