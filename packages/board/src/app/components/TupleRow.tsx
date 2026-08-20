@@ -25,7 +25,10 @@
 // remove.
 import type { MouseEvent, ReactNode } from 'react';
 import type { TupleLink, TupleRow as TupleRowData } from '../lib/tuple-row.js';
-import { splitBranch, KIND_ICON_PATH } from '../lib/tuple-row.js';
+import { splitBranch, KIND_ICON_PATH,
+  LINK_ICON_PATH,
+  statusTone,
+} from '../lib/tuple-row.js';
 import type { RowKind } from '../../contract/schema.js';
 
 /**
@@ -84,12 +87,22 @@ export const TUPLE_TRACKS =
  *     here made every row as tall as a two-line one — measured, a plain row and
  *     a row with a status line both came out at 60px, which would have made
  *     every alignment assertion hold on the defect too.
- *   - **`self-stretch`** takes the row's full height, so the marks centre
- *     against whatever the row grew to. The height comes from the row's
- *     content, never from this cell.
+ *   - **`self-stretch`** takes the row's full height, so the height comes from
+ *     the row's content and never from this cell.
+ *   - **`justify-start`, not `justify-center`.** With `self-stretch` the cell is
+ *     as tall as the row, and centring inside it floats the mark to the middle
+ *     of a row that WRAPPED — measured 2026-08-20, an agent row at 56px against
+ *     37px for the others, its activity dot half a line below the name it
+ *     belongs to. The docstring defended centring as *"the marks centre against
+ *     whatever the row grew to"*, which is right for a row that grew because its
+ *     own content is two lines tall and wrong for one whose slot 4 wrapped: the
+ *     mark marks the ROW, and the row starts at its first line.
+ *   - **`pt-0.5`** so the glyph's box sits on the first line's baseline rather
+ *     than a hair above it. The row is `items-baseline` and this cell is not
+ *     (it is a flex column), so the optical alignment is bought back here.
  */
 export const MARKS_CELL =
-  'relative flex w-full shrink-0 flex-col items-start justify-center gap-1 self-stretch';
+  'relative flex w-full shrink-0 flex-col items-start justify-start gap-1 self-stretch pt-0.5';
 
 /**
  * The VALUE-carrying attribute a link keeps, beyond `data-tuple-link`.
@@ -194,6 +207,7 @@ export function TupleLinkView({
   showWhat = false,
   onOpenPlan,
   extraAttr,
+  onActivate,
 }: {
   link: TupleLink;
   /** Whether to print what the link points at beside it. */
@@ -210,6 +224,19 @@ export function TupleLinkView({
    * link and the attribute for the same name with no address.
    */
   extraAttr?: { link?: Record<string, string>; text?: Record<string, string> };
+  /**
+   * Makes a name with NO ADDRESS into a control.
+   *
+   * An agent's name is its session id, and the thing it opens is a local panel
+   * rather than a URL — so it cannot be an anchor, and it must not be inert
+   * either. Given this, the hrefless branch below renders a `<button>` instead
+   * of a `<span>`: keyboard-reachable, announced as a control, and still not a
+   * fabricated link.
+   *
+   * Only ever passed for a name, never for an artifact link — an artifact either
+   * has an address or is text.
+   */
+  onActivate?: () => void;
 }) {
   const label = (
     <>
@@ -240,7 +267,7 @@ export function TupleLinkView({
           className="shrink-0 self-center text-slate-400 dark:text-slate-500"
         >
           <title>{link.what}</title>
-          <path d={KIND_ICON_PATH[link.what]} />
+          <path d={LINK_ICON_PATH[link.what]} />
         </svg>
       )}
       {link.what === 'branch' ? <BranchLabel name={link.label} /> : (
@@ -251,6 +278,25 @@ export function TupleLinkView({
   // NO ADDRESS, so no anchor. `data-tuple-text` is what a test asserts is not
   // an `<a>` — the assertion that a name without a URL stays a name.
   if (!link.href) {
+    // A BUTTON where the name opens something that is not a URL — see
+    // `onActivate`. Still `data-tuple-text`, because the assertion that matters
+    // is *this is not an anchor*: no address was invented, and a test reading
+    // that hook keeps its meaning.
+    if (onActivate) {
+      return (
+        <button
+          type="button"
+          data-tuple-text={link.what}
+          {...valueAttr(link)}
+          {...extraAttr?.text}
+          onClick={(e) => { e.stopPropagation(); onActivate(); }}
+          title={`${link.what}: ${link.label}`}
+          className="flex min-w-0 items-baseline gap-1 text-left text-blue-600 hover:underline dark:text-blue-400"
+        >
+          {label}
+        </button>
+      );
+    }
     return (
       <span
         data-tuple-text={link.what}
@@ -408,6 +454,7 @@ export function TupleRowView({
   beside = null,
   ageTitle,
   statusExtra = null,
+  onNameClick,
   statusAttr,
   nameAttr,
   id,
@@ -469,6 +516,8 @@ export function TupleRowView({
   ageTitle?: string;
   /** What a kind adds beside its status word — a draft badge, a note. */
   statusExtra?: ReactNode;
+  /** Makes slot 3's name a control, where it opens a panel rather than a URL. */
+  onNameClick?: () => void;
   /** Attributes for slot 3's name — see `TupleLinkView.extraAttr`. */
   nameAttr?: { link?: Record<string, string>; text?: Record<string, string> };
   /**
@@ -588,7 +637,7 @@ export function TupleRowView({
             alone. `gap-1.5` rather than `gap-2`: the icon and the name are one
             unit, not two items in a row. */}
         <KindIcon kind={tuple.kind} />
-        <TupleLinkView link={tuple.name} onOpenPlan={onOpenPlan} extraAttr={nameAttr} />
+        <TupleLinkView link={tuple.name} onOpenPlan={onOpenPlan} extraAttr={nameAttr} onActivate={onNameClick} />
         {beside}
       </span>
       {/* SLOT 4 — THE ARTIFACT LINKS, zero or more. Each says what it points at,
@@ -626,7 +675,14 @@ export function TupleRowView({
         className="flex min-w-0 items-baseline gap-2 truncate text-xs text-slate-500 dark:text-slate-400"
       >
         {tuple.status && (
-          <span {...statusAttr} className="min-w-0 truncate">{tuple.status}</span>
+          // COLOUR REINFORCES THE WORD, never replaces it — see `statusTone`,
+          // whose palette this restores from the `PrCell` the collapse deleted.
+          <span
+            {...statusAttr}
+            className={`min-w-0 truncate ${statusTone(tuple.status)}`}
+          >
+            {tuple.status}
+          </span>
         )}
         {statusExtra}
       </span>

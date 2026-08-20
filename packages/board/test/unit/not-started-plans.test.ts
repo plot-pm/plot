@@ -8,6 +8,8 @@ import {
   groupByPlan,
   type PlanGroup,
   groupByWave,
+  waveGroupsFor,
+  ungroupedRows,
 } from '../../src/app/components/AgentList.js';
 import { ELIGIBLE_NOTE, type AgentRow } from '../../src/contract/schema.js';
 
@@ -295,6 +297,102 @@ describe('showsWaveFold — an expander only where it reveals something', () => 
       row({ wave: 'Shaped', branch: 'never-begun' }),
       row({ wave: 'Shelved', branch: 'shelved', state: 'deferred', ageMinutes: 400 }),
     ))).toBe(true);
+  });
+});
+
+describe('waveGroupsFor — which sections group by wave, and from which rows', () => {
+  const pr = (n: number) => ({ number: n, url: `https://h/pr/${n}`, draft: false, state: 'green' as const });
+
+  it('groups reviewable branches in WAITING ON YOU', () => {
+    // *"Technically the PR with branch and the wave is a WAVE"* — in the section
+    // that asks *what needs a decision*, where three PRs of one wave are ONE
+    // decision about that wave.
+    const rows = [
+      row({ wave: 'Modelled', branch: 'a', state: 'wip', pr: pr(304) }),
+      row({ wave: 'Modelled', branch: 'b', state: 'wip', pr: pr(307) }),
+    ];
+    const groups = waveGroupsFor(rows, 'waiting-on-you');
+    expect(groups).toHaveLength(1);
+    expect(groups[0].wave).toBe('Modelled');
+    expect(groups[0].rows).toHaveLength(2);
+  });
+
+  it('leaves a LONE reviewable branch as its own row', () => {
+    // One PR is a PR: there is no set for a wave row to name, and a heading over
+    // one row saves nothing. `showsWaveFold`'s rule, one level over.
+    const rows = [row({ wave: 'Modelled', branch: 'a', state: 'wip', pr: pr(304) })];
+    expect(waveGroupsFor(rows, 'waiting-on-you')).toHaveLength(0);
+    expect(ungroupedRows(rows, 'waiting-on-you')).toHaveLength(1);
+  });
+
+  it('ignores a branch with no PR in WAITING ON YOU', () => {
+    // `isReviewable` is *the work is landed and somebody has to merge it*. A
+    // branch with no PR is not waiting on a review.
+    const rows = [
+      row({ wave: 'Modelled', branch: 'a', state: 'wip', pr: pr(304) }),
+      row({ wave: 'Modelled', branch: 'b', state: 'open', pr: null }),
+    ];
+    // One reviewable row, so no set — and both rows render on their own.
+    expect(waveGroupsFor(rows, 'waiting-on-you')).toHaveLength(0);
+    expect(ungroupedRows(rows, 'waiting-on-you')).toHaveLength(2);
+  });
+
+  it('groups stalled branches in QUIET and delivered ones in DONE', () => {
+    const stale = [
+      row({ wave: 'Batched', branch: 'a', state: 'wip', ageMinutes: 6 * 1440 }),
+      row({ wave: 'Batched', branch: 'b', state: 'wip', ageMinutes: 8 * 1440 }),
+    ];
+    expect(waveGroupsFor(stale, 'quiet')).toHaveLength(1);
+    const landed = [
+      row({ wave: 'Slows', branch: 'a', state: 'merged' }),
+      row({ wave: 'Slows', branch: 'b', state: 'merged' }),
+    ];
+    expect(waveGroupsFor(landed, 'done')).toHaveLength(1);
+    // And DONE does not claim an unmerged branch, nor QUIET a merged one — each
+    // section counts what its own word means.
+    expect(waveGroupsFor(stale, 'done')).toHaveLength(0);
+    expect(waveGroupsFor(landed, 'quiet')).toHaveLength(0);
+  });
+
+  it('groups NOTHING in WORKING or WAITING ON A MACHINE', () => {
+    // An agent works and a build runs; neither is a wave. A wave row in either
+    // would claim a subject that section does not have — the grammar
+    // `every-section-has-one-subject` settles it.
+    const rows = [
+      row({ wave: 'Modelled', branch: 'a', state: 'wip', pr: pr(304) }),
+      row({ wave: 'Modelled', branch: 'b', state: 'wip', pr: pr(307) }),
+    ];
+    expect(waveGroupsFor(rows, 'working')).toHaveLength(0);
+    expect(waveGroupsFor(rows, 'waiting-on-machine')).toHaveLength(0);
+    // …and every row then renders as itself, so nothing is lost.
+    expect(ungroupedRows(rows, 'working')).toHaveLength(2);
+  });
+
+  it('skips an unnamed wave rather than heading a group `(unnamed)`', () => {
+    // A label that labels nothing — the same reason `showPlanHeading` refuses a
+    // nameless plan.
+    const rows = [
+      row({ wave: '', branch: 'a', state: 'wip', pr: pr(1) }),
+      row({ wave: '', branch: 'b', state: 'wip', pr: pr(2) }),
+    ];
+    expect(waveGroupsFor(rows, 'waiting-on-you')).toHaveLength(0);
+  });
+
+  it('renders every row exactly once, grouped or not', () => {
+    // The property that matters: `ungroupedRows` is the complement of
+    // `waveGroupsFor` over the same input, computed from the claimed SET rather
+    // than by re-deriving the predicate — two spellings of *which rows are
+    // grouped* is how a row ends up rendered twice or not at all.
+    const rows = [
+      row({ wave: 'Modelled', branch: 'a', state: 'wip', pr: pr(304) }),
+      row({ wave: 'Modelled', branch: 'b', state: 'wip', pr: pr(307) }),
+      row({ wave: 'Alone', branch: 'c', state: 'wip', pr: pr(9) }),
+      row({ wave: '', branch: 'd', state: 'open', pr: null }),
+    ];
+    const grouped = waveGroupsFor(rows, 'waiting-on-you').flatMap((g) => g.rows);
+    const loose = ungroupedRows(rows, 'waiting-on-you');
+    expect(grouped.length + loose.length).toBe(rows.length);
+    expect(new Set([...grouped, ...loose]).size).toBe(rows.length);
   });
 });
 

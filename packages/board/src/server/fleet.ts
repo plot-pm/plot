@@ -285,6 +285,8 @@ interface CacheEntry {
   approvedAt: Map<string, number>;
   /** Plan filename per idea branch — see `ideaPlanFiles`. */
   ideaPlans: Map<string, string>;
+  /** The version each release branch would ship — see `releaseVersions`. */
+  versions: Map<string, string>;
   /**
    * What each `waiting` worker asked, by branch — see `workerQuestions`.
    *
@@ -833,6 +835,50 @@ async function ideaPlanFiles(opts: BuildBoardOptions): Promise<Map<string, strin
       .map((l) => l.trim())
       .find((l) => l.endsWith(`${slug}.md`));
     if (hit) found.set(branch, path.basename(hit));
+  }
+  return found;
+}
+
+/**
+ * The version a release branch would ship, read from its own `package.json`.
+ *
+ * **Read, never derived** — see `AgentRow.version` for why that distinction is
+ * the licence for this at all. Changesets consumes the `.changeset/*.md` files
+ * and writes the bumped version into `package.json` **on the release branch**,
+ * so the sum this board refuses to compute has already been computed by the
+ * tool whose job it is. Verified 2026-08-20:
+ * `origin/changeset-release/main:package.json` reads `2.7.0` where `main` reads
+ * `2.6.0`.
+ *
+ * ONE `git show` for the whole pulse, not one per row: release branches are rare
+ * (this estate has exactly one) and the map is built from the refs already in
+ * hand. The scan's cost discipline is the reason — `for-each-ref` earned its
+ * comment for the same trade.
+ *
+ * "" on anything unreadable — a ref that has gone, a repo whose root package
+ * carries no version, malformed JSON. The row then names its PR number, which is
+ * the honest fallback rather than an invented tag: the same rule the board
+ * applies to a missing URL.
+ */
+async function releaseVersions(
+  branches: string[],
+  opts: BuildBoardOptions,
+): Promise<Map<string, string>> {
+  const found = new Map<string, string>();
+  for (const branch of branches.filter((b) => RELEASE_BRANCH.test(b))) {
+    // `?? ''` because `run` rejects on a missing ref, and a release branch that
+    // vanished between the ref listing and this read is a race rather than a
+    // defect — it reads as *no version*, which is what the row then says.
+    const raw = await run('git', ['show', `origin/${branch}:package.json`], opts.repoRoot)
+      .catch(() => '');
+    if (!raw) continue;
+    try {
+      const version = (JSON.parse(raw) as { version?: unknown }).version;
+      if (typeof version === 'string' && version) found.set(branch, version);
+    } catch {
+      // Malformed JSON on a release branch is not this board's problem to
+      // report, and a partially-parsed version would be worse than none.
+    }
   }
   return found;
 }
@@ -1795,6 +1841,13 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // that one. Two clocks, one dependency: the same shape that pinned the
     // countdown at zero earlier today.
     entry.ideaPlans = await ideaPlanFiles(opts);
+    // THE RELEASE VERSION, from the release branch's own `package.json`. From
+    // the REFS for the reason stated one line up: the PR map is on its own
+    // timer and is still null at the first git refresh.
+    entry.versions = await releaseVersions(
+      complete.plans.flatMap((pl) => pl.waves.flatMap((w) => w.branches.map((b) => b.branch))),
+      opts,
+    );
     // WHAT THE WAITING WORKERS ASKED, read here and nowhere else.
     //
     // After `entry.pulse` is assigned, because the pulse is what says WHICH
@@ -1876,6 +1929,7 @@ export function freshCacheEntry(): CacheEntry {
     terminal: '',
     approvedAt: new Map(),
     ideaPlans: new Map(),
+    versions: new Map(),
     questions: new Map(),
     // `unsupported` before the first lookup, never `answered`: a board that
     // has not asked must not render an empty inbox as a clear one.
@@ -3420,6 +3474,20 @@ export function prOutranks(candidate: PrRecord, held: PrRecord): boolean {
 export const RELEASE_BRANCH = /^changeset-release\//;
 
 /**
+ * The branch `/plot-idea` cuts for a plan under review — `idea/<slug>`.
+ *
+ * A CONVENTION PLOT WRITES, which is what makes reading it sound rather than a
+ * guess: the same argument the row-building site makes when it recovers the plan
+ * slug from this name. The prefix is configurable per repo (`Branch prefixes` in
+ * `## Plot Config`), and `idea/` is the default every Plot repo starts from —
+ * a repo that renames it loses the mark and gets a `pr` row, which is the
+ * pre-2026-08-20 behaviour rather than a wrong answer.
+ *
+ * Exported for test.
+ */
+export const IDEA_BRANCH = /^idea\//;
+
+/**
  * WHICH OF THE SEVEN a row is — the judgement `AgentRow.kind` carries.
  *
  * Made HERE because this is where all the facts are in hand at once. See
@@ -3430,6 +3498,17 @@ export const RELEASE_BRANCH = /^changeset-release\//;
  *   1. **A release is a release**, whatever else is true of it. It is the one
  *      row nobody should merge by reflex, and the mark exists to stop that — so
  *      it cannot be outranked by the PR arm that would otherwise claim it.
+ *   1b. **An `idea/` branch's PR is a `plan`**, for the same reason and by the
+ *      same test: what the reader is deciding about is the PLAN, not the code.
+ *      Technically it is a pull request — and that is exactly why the mark is
+ *      needed, since without it a plan awaiting APPROVAL renders as one more
+ *      open PR awaiting review, and the two ask for different acts. Merging it
+ *      is `plot-approve.sh`'s job, which takes a plan and no branch.
+ *
+ *      The branch name is the whole detection, and it is a convention **Plot
+ *      itself writes** (`/plot-idea` names the branch after the plan's slug) —
+ *      not a guess about one, which is the argument the row-building site one
+ *      screen down already makes for reading the slug out of the same name.
  *   2. **A merge conflict makes it a `branch`**, even with an open PR, because
  *      no PR resolves a conflict: the reader has to go to the branch and rebase.
  *      This is the rule `the-row-leads-with-its-subject` settled, applied here
@@ -3442,10 +3521,11 @@ export const RELEASE_BRANCH = /^changeset-release\//;
  * a merged branch whose PR has gone. `branch` is the fallback rather than a
  * fourth arm, because a row with no PR has nothing else it could be about.
  *
- * `build`, `agent`, `plan` and `ticket` are NOT decided here. A build and an
- * agent have no row yet; a plan row and a ticket row are built elsewhere and
- * each says its own kind at its own site, which is the same rule — the kind is
- * stated where the row is created.
+ * `build`, `agent` and `ticket` are NOT decided here — each is built elsewhere
+ * and says its own kind at its own site, which is the same rule: the kind is
+ * stated where the row is created. `plan` used to be in that list and now has
+ * one arm here, because an idea branch's PR is a row this loop DOES build and
+ * the fact that identifies it (the branch name) is in hand at this site.
  *
  * Exported for test.
  */
@@ -3476,6 +3556,11 @@ export function rowKind(
   conflicts: boolean,
 ): RowKind {
   if (RELEASE_BRANCH.test(branch)) return 'release';
+  // A PLAN AWAITING APPROVAL, not code awaiting review — see arm 1b. Ordered
+  // ABOVE the conflict arm on purpose: a conflicting plan PR is still a plan,
+  // and the act it wants is approval rather than a rebase. It is BELOW the
+  // release arm only because the two cannot both match.
+  if (IDEA_BRANCH.test(branch) && hasPr) return 'plan';
   if (conflicts) return 'branch';
   return hasPr ? 'pr' : 'branch';
 }
@@ -3641,6 +3726,13 @@ export function rowsFromPulse(
   approvedAt?: Map<string, number> | null,
   now = Date.now(),
   ideaPlans?: Map<string, string> | null,
+  /**
+   * The version each release branch would ship, by branch — see
+   * `releaseVersions`. Threaded like `ideaPlans` and for the same reason: this
+   * function is SYNCHRONOUS and cannot read git, so anything from a ref arrives
+   * as a map the caller built.
+   */
+  versions?: Map<string, string> | null,
   /**
    * Recent CI runs per branch, for the failing ones — see `refreshRuns`. Last in
    * the parameter list because it is the newest, so every existing caller is
@@ -3837,6 +3929,11 @@ export function rowsFromPulse(
           branch: b.branch,
           plan: plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, ''),
           planFile: plan.file,
+          // NEVER A RELEASE, so never a version: this loop walks the branches a
+          // PLAN names, and `changeset-release/*` belongs to no plan — it
+          // reaches the board through the planless-PR loop below, which is where
+          // the version is read.
+          version: '',
           wave: wave.name || '(unnamed)',
           state: b.state,
           // WHY it was deferred, carried through from the plan's annotation.
@@ -4101,6 +4198,9 @@ export function rowsFromPulse(
       // now, so the caution is obsolete — and leaving it in cost the grouped
       // rows their only way to open the plan.
       planFile: ideaPlans?.get(branch) ?? '',
+      // THE VERSION a release branch would ship, read from its own
+      // `package.json` — "" on every other branch. See `releaseVersions`.
+      version: versions?.get(branch) ?? '',
       wave: '',
       state: 'wip',
       // No plan, so no deferral and nothing to explain.
@@ -4237,7 +4337,8 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
   const ageSeconds = entry.at === null ? 0 : Math.round((now - entry.at) / 1000);
   const rows = entry.pulse
     ? rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, entry.prs,
-      entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans, entry.runs,
+      entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans, entry.versions,
+      entry.runs,
       // The root, so each row can be asked whether its brief exists. Read HERE
       // on the render clock rather than carried on the pulse: the check is one
       // `existsSync` and a brief written between two scans is visible on the

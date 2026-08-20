@@ -1,5 +1,5 @@
 import { FleetSchema, RowKindSchema } from '../contract/schema.js';
-import type { Fleet, AgentRow } from '../contract/schema.js';
+import type { Fleet, AgentRow, Card, Column } from '../contract/schema.js';
 
 /**
  * The environment variable that turns the mock on. An env var rather than a
@@ -107,6 +107,45 @@ export function mockFleet(): Fleet {
       verdict: 'blocked', blockedBy: 'Relocated',
       note: 'blocked by Relocated — 1 outstanding',
     }),
+    // A PR THAT BELONGS TO A WAVE — the ordinary case, and the one whose wave
+    // was on the row and unrendered. A branch cut for a plan's wave keeps that
+    // membership through review, so the PR's artifacts are plan, wave and
+    // branch.
+    row({
+      kind: 'pr', group: 'waiting-on-you',
+      branch: 'feature/a-wave-is-a-kind',
+      branchUrl: 'https://example.invalid/tree/feature/a-wave-is-a-kind',
+      plan: 'a-wave-is-a-thing-not-a-label',
+      planFile: 'docs/plans/2026-08-20-a-wave-is-a-thing-not-a-label.md',
+      wave: 'Modelled', state: 'wip',
+      ageMinutes: 45, note: 'PR #304, green',
+      pr: {
+        number: 304, url: 'https://example.invalid/pull/304', draft: false,
+        state: 'green',
+      },
+    }),
+    // A SECOND PR IN THE SAME WAVE, so `Modelled` has a SET to name and earns a
+    // wave row in WAITING ON YOU. One PR is a PR — there is nothing to group —
+    // and two are a wave whose work is landed and waiting to be merged, which is
+    // the real shape the estate carries: `opus5-longhorizon-hardening ::
+    // Implementation` holds five such branches and reads `blocked`.
+    row({
+      kind: 'pr', group: 'waiting-on-you',
+      branch: 'bug/the-branch-row-stops-labelling-its-wave',
+      branchUrl: 'https://example.invalid/tree/bug/the-branch-row-stops-labelling-its-wave',
+      plan: 'a-wave-is-a-thing-not-a-label',
+      planFile: 'docs/plans/2026-08-20-a-wave-is-a-thing-not-a-label.md',
+      wave: 'Modelled', state: 'wip',
+      ageMinutes: 70, note: 'PR #307, checks failing',
+      pr: {
+        number: 307, url: 'https://example.invalid/pull/307', draft: false,
+        state: 'failing',
+      },
+    }),
+    // AND ONE THAT BELONGS TO NONE. `opus5-longhorizon-hardening` reaches the
+    // board through the planless-PR loop, which carries `wave: ''` — so its
+    // artifact slot holds plan and branch and nothing between them. The pair
+    // makes slot 4's zero-or-more visible rather than asserted.
     row({
       kind: 'pr', group: 'waiting-on-you',
       branch: 'feature/opus5-longhorizon-hardening',
@@ -126,14 +165,85 @@ export function mockFleet(): Fleet {
       plan: 'a-row-is-a-tuple', planFile: 'docs/plans/2026-08-20-a-row-is-a-tuple.md',
       wave: 'Shaped', ageMinutes: 3 * 1440, note: 'pushed, no PR yet',
     }),
+    // A BUILD RUNNING A WAVE'S BRANCH — the ordinary case, since almost every
+    // branch CI runs on was cut for a wave. Its artifacts are the PR it reports
+    // to, the wave the work belongs to, and the branch it built.
     row({
       kind: 'build', group: 'waiting-on-machine',
       branch: 'feature/a-build-is-running',
       branchUrl: 'https://example.invalid/tree/feature/a-build-is-running',
+      plan: 'a-wave-is-a-thing-not-a-label',
+      planFile: 'docs/plans/2026-08-20-a-wave-is-a-thing-not-a-label.md',
+      wave: 'Modelled', state: 'wip',
       ageMinutes: 10, note: 'CI is running for PR #283',
       pr: {
         number: 283, url: 'https://example.invalid/pull/283', draft: false,
         state: 'pending',
+      },
+    }),
+    // AND ONE ON A BRANCH THAT BELONGS TO NO WAVE — the release branch, whose CI
+    // runs for a PR no plan names. The pair shows the middle link is optional on
+    // a build exactly as it is on a PR.
+    row({
+      kind: 'build', group: 'waiting-on-machine',
+      branch: 'changeset-release/main',
+      branchUrl: 'https://example.invalid/tree/changeset-release/main',
+      wave: '', state: 'wip',
+      ageMinutes: 3, note: 'CI is running for PR #240',
+      pr: {
+        number: 240, url: 'https://example.invalid/pull/240', draft: false,
+        state: 'pending',
+      },
+    }),
+    // A PLAN WITH WAVES IN QUIET — two branches of one wave that stopped moving.
+    // QUIET is *nothing has happened here for a while*, so the wave grouping has
+    // to hold there too: without it a reader sees two unrelated stale branches
+    // rather than one wave that stalled.
+    row({
+      kind: 'branch', group: 'quiet',
+      branch: 'feature/the-scan-reads-refs-in-one-call',
+      branchUrl: 'https://example.invalid/tree/feature/the-scan-reads-refs-in-one-call',
+      plan: 'the-scan-spawns-git-once-per-question',
+      planFile: 'docs/plans/2026-08-14-the-scan-spawns-git-once-per-question.md',
+      wave: 'Batched', state: 'wip',
+      ageMinutes: 6 * 1440, note: 'last commit 6d ago',
+    }),
+    row({
+      kind: 'branch', group: 'quiet',
+      branch: 'feature/the-scan-walks-history-in-one-call',
+      branchUrl: 'https://example.invalid/tree/feature/the-scan-walks-history-in-one-call',
+      plan: 'the-scan-spawns-git-once-per-question',
+      planFile: 'docs/plans/2026-08-14-the-scan-spawns-git-once-per-question.md',
+      wave: 'Batched', state: 'wip',
+      ageMinutes: 8 * 1440, note: 'last commit 8d ago',
+    }),
+    // AND A DELIVERED WAVE IN DONE — `state: 'merged'`, which the row displays as
+    // `delivered`. Two branches of one wave, so DONE shows the wave that landed
+    // rather than two branches that each did.
+    row({
+      kind: 'branch', group: 'done',
+      branch: 'feature/every-host-consumer-slows-down',
+      branchUrl: 'https://example.invalid/tree/feature/every-host-consumer-slows-down',
+      plan: 'a-rate-limit-is-not-an-outage',
+      planFile: 'docs/plans/2026-08-16-a-rate-limit-is-not-an-outage.md',
+      wave: 'Slows', state: 'merged',
+      ageMinutes: 2 * 1440, note: 'merged',
+      pr: {
+        number: 271, url: 'https://example.invalid/pull/271', draft: false,
+        state: 'green',
+      },
+    }),
+    row({
+      kind: 'branch', group: 'done',
+      branch: 'feature/the-wait-comes-from-the-host',
+      branchUrl: 'https://example.invalid/tree/feature/the-wait-comes-from-the-host',
+      plan: 'a-rate-limit-is-not-an-outage',
+      planFile: 'docs/plans/2026-08-16-a-rate-limit-is-not-an-outage.md',
+      wave: 'Slows', state: 'merged',
+      ageMinutes: 2 * 1440, note: 'merged',
+      pr: {
+        number: 272, url: 'https://example.invalid/pull/272', draft: false,
+        state: 'green',
       },
     }),
     row({
@@ -145,10 +255,64 @@ export function mockFleet(): Fleet {
       wave: 'Inverted', ageMinutes: 27, worker: 'running',
       note: 'worker running (pid 12345)',
     }),
+    // A PLAN UNDER REVIEW, on its own `idea/` branch — the one plan row the
+    // SERVER emits, and the case `rowKind`'s idea arm exists for. Technically a
+    // PR; what the reader decides is whether to APPROVE the plan, which is a
+    // different act from reviewing code, so the row says `Plan`.
+    //
+    // **THE BRANCH NAME DECIDES, NOT THE DRAFT FLAG.** `rowKind` tests
+    // `IDEA_BRANCH.test(branch) && hasPr` and never looks at `draft` — a plan
+    // PR marked ready for review is still a plan. The two facts are independent,
+    // the same separation this board already insists on for the PR badge:
+    // *"`draft` and the state are TWO badges, not one… a draft has CI like
+    // anything else."* Draft says whether it is offered; the branch says what it
+    // IS.
+    //
+    // The mock carries BOTH, one row each, so the independence is visible rather
+    // than asserted: this one is a draft, the next is ready for review, and both
+    // read `Plan`.
+    //
+    // Shaped exactly as `rowsFromPulse` builds it: the slug recovered from the
+    // branch name, `wave: ''` (an idea branch belongs to no wave), `state: 'wip'`.
+    row({
+      kind: 'plan', group: 'waiting-on-you',
+      branch: 'idea/a-wave-is-a-thing-not-a-label',
+      branchUrl: 'https://example.invalid/tree/idea/a-wave-is-a-thing-not-a-label',
+      plan: 'a-wave-is-a-thing-not-a-label',
+      planFile: 'docs/plans/2026-08-20-a-wave-is-a-thing-not-a-label.md',
+      wave: '', state: 'wip', phase: 'Discovery',
+      ageMinutes: 90, note: 'PR #305, draft — waiting on its author',
+      pr: {
+        number: 305, url: 'https://example.invalid/pull/305', draft: true,
+        state: 'none',
+      },
+    }),
+    // THE SAME KIND, READY FOR REVIEW — the half that proves the kind does not
+    // come from the draft flag. `draft: false`, checks green, and it still reads
+    // `Plan`: the act it wants is approval, which `plot-approve.sh` performs on
+    // a plan and no branch.
+    row({
+      kind: 'plan', group: 'waiting-on-you',
+      branch: 'idea/the-row-is-legible',
+      branchUrl: 'https://example.invalid/tree/idea/the-row-is-legible',
+      plan: 'the-row-is-legible',
+      planFile: 'docs/plans/2026-08-20-the-row-is-legible.md',
+      wave: '', state: 'wip', phase: 'Discovery',
+      ageMinutes: 240, note: 'PR #306, green — ready for approval',
+      pr: {
+        number: 306, url: 'https://example.invalid/pull/306', draft: false,
+        state: 'green',
+      },
+    }),
     row({
       kind: 'release', group: 'waiting-on-you',
       branch: 'changeset-release/main',
       branchUrl: 'https://example.invalid/tree/changeset-release/main',
+      // THE VERSION, as the server reads it from `package.json` on the release
+      // branch. `2.7.0` is what this repo's own release branch actually carries
+      // — verified against `origin/changeset-release/main` — so the mock shows
+      // what the board shows rather than a made-up tag.
+      version: '2.7.0',
       ageMinutes: 12, note: 'PR #240, no checks',
       pr: {
         number: 240, url: 'https://example.invalid/pull/240', draft: false,
@@ -210,3 +374,72 @@ export function mockFleet(): Fleet {
 
 /** Every kind the contract knows, for a test that this mock covers them all. */
 export const MOCK_KINDS = RowKindSchema.options;
+
+/**
+ * The CARDS the mock fleet's rows belong to — because half the board's controls
+ * are card-shaped, and without these the mock could not show any of them.
+ *
+ * ## What this fixes
+ *
+ * `mockFleet` replaces `/api/fleet`. `/api/board` was left reading the real
+ * repo, so the mock's invented plan (`fleet-scan-asks-the-host`) had no card,
+ * `cardForPlanFile` returned null, and every control gated on a card silently
+ * vanished: `Start work`, `Approve`, `Commission design`, and the plan row's
+ * whole `⋯` menu. Measured 2026-08-20 — `[data-plan-actions]` count **0** on a
+ * mock whose entire purpose is showing what a row renders.
+ *
+ * That is the same class of defect as the four `kind: 'plan'` rows this file
+ * carried: a mock is worth only the fidelity it is checked for, and an ABSENT
+ * control looks exactly like a control the code fails to render.
+ *
+ * Matched to the fleet by plan-file BASENAME, which is how `cardForPlanFile`
+ * looks a card up.
+ *
+ * `phase: 'Development'` with `started: false` is what makes a plan startable —
+ * see `PlanCard`'s `isReadyToStart`, which read `phase === 'Design'` until #289.
+ */
+export function mockCards(): Column[] {
+  const card = (over: Partial<Card> & Pick<Card, 'slug' | 'title' | 'path'>): Card => ({
+    type: 'feature', phase: 'Development', prs: [], ...over,
+  } as Card);
+  return [
+    {
+      phase: 'Development',
+      cards: [
+        card({
+          slug: 'fleet-scan-asks-the-host',
+          title: 'The fleet scan asks the host once, not once per branch',
+          path: 'docs/plans/2026-08-20-fleet-scan-asks-the-host.md',
+          story: 'plot-board',
+          // NOT started, which is what `Start work` needs: a plan in
+          // Development that nothing has begun.
+          started: false,
+        }),
+        card({
+          slug: 'every-section-has-one-subject',
+          title: 'Every section has one subject',
+          path: 'docs/plans/2026-08-20-every-section-has-one-subject.md',
+          story: 'plot-board', started: true,
+        }),
+        card({
+          slug: 'a-row-is-a-tuple',
+          title: 'A row is a tuple',
+          path: 'docs/plans/2026-08-20-a-row-is-a-tuple.md',
+          story: 'plot-board', started: true,
+        }),
+      ],
+    },
+    {
+      phase: 'Endgame',
+      cards: [
+        card({
+          slug: 'opus5-longhorizon-hardening',
+          title: 'Opus 5 long-horizon hardening',
+          path: 'docs/plans/2026-07-25-opus5-longhorizon-hardening.md',
+          started: true,
+          prs: [{ number: 57, url: 'https://example.invalid/pull/57' }],
+        }),
+      ],
+    },
+  ];
+}

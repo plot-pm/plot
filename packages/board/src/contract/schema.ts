@@ -1542,6 +1542,28 @@ export const AgentRowSchema = z.object({
    * renders its plan as plain text.
    */
   planFile: z.string().default(''),
+  /**
+   * The version a RELEASE row is about — `2.7.0` — or "" on every other row.
+   *
+   * **Read from `package.json` on the release branch, never derived.** That
+   * distinction is the whole licence for this field. `releaseVersion` used to
+   * refuse the question, and its reason was exact: *"deriving 2.7.0 from a
+   * changeset file would mean reading and summing pending bumps, which is what
+   * would this ship — the question the plan explicitly refuses to answer on a
+   * board."*
+   *
+   * On a `changeset-release/*` branch that sum is **already computed**:
+   * changesets has consumed the `.changeset/*.md` files and written the new
+   * version into `package.json` on that branch. Verified 2026-08-20 —
+   * `origin/changeset-release/main:package.json` reads `2.7.0` where `main`
+   * reads `2.6.0`. Reading a file the release tool wrote is reading a FACT; the
+   * refusal stands against the board computing what a release would contain.
+   *
+   * "" where the file cannot be read — an unreadable ref, a repo whose root
+   * package carries no version — and the row then names its PR number, which is
+   * the honest fallback rather than an invented tag.
+   */
+  version: z.string().default(''),
   wave: z.string(),
   state: BranchStateSchema,
   /**

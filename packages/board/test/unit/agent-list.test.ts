@@ -1061,7 +1061,13 @@ describe('the activity mark is a track with a travelling dot', () => {
     // read as one smeared pair, which is what the track was cut to prevent.
     // The marks LEAD the row, so they start where the cell starts.
     expect(ACTIVITY_MARK_PLACE.row).toBe(
-      'relative flex w-full shrink-0 flex-col items-start justify-center gap-1 self-stretch');
+      'relative flex w-full shrink-0 flex-col items-start justify-start gap-1 self-stretch pt-0.5');
+    // STILL NO `py-`, and the guard is worded exactly right: SYMMETRIC vertical
+    // padding is what made every row as tall as a two-line one. `pt-0.5` is
+    // top-only, 2px, inside a `self-stretch` cell whose height comes from the
+    // row — and it was measured rather than reasoned about, because reasoning
+    // got this wrong once: single-line rows stay at 37px with it, and only the
+    // agent row is taller (56px), from its own wrapped slot 4.
     expect(ACTIVITY_MARK_PLACE.row).not.toMatch(/\bpy-/);
   });
 
@@ -1175,19 +1181,24 @@ describe('the activity mark is a track with a travelling dot', () => {
     // box begins 18.6px below the row's top edge, not the 8px or 10px a reader
     // would derive from the padding alone.
     // The cell answers this now: `self-stretch` takes the row's own height and
-    // `justify-center` centres the marks across it. No number is stated at all
-    // — which is the strongest form of the same rule, since the line height it
-    // used to name (`h-5`) was itself a value that could go stale.
+    // `justify-start` puts the marks at its TOP — the first line, which is what
+    // this test is named for. No number is stated at all, which is the strongest
+    // form of the same rule, since the line height it used to name (`h-5`) was
+    // itself a value that could go stale.
     //
-    // `justify-center`, not `items-center`, and the pairing is worth stating
-    // because the two were conflated here. In a `flex-col` the MAIN axis is
-    // vertical, so `justify-*` is what centres the stack and `items-*` decides
-    // where it sits horizontally — which is a different question, answered
-    // `items-start` above for a measured reason. An assertion on
-    // `items-center` was reading the cross axis while claiming the main one.
+    // It read `justify-center` until 2026-08-20, and centring across a
+    // `self-stretch` cell is *the first line* only while the row is one line
+    // tall — see the sibling test for the measurement that separated them.
+    //
+    // `justify-*`, not `items-*`, and the pairing is worth stating because the
+    // two were conflated here. In a `flex-col` the MAIN axis is vertical, so
+    // `justify-*` is what places the stack and `items-*` decides where it sits
+    // horizontally — a different question, answered `items-start` above for a
+    // measured reason. An assertion on `items-center` was reading the cross axis
+    // while claiming the main one.
     const mark = ACTIVITY_MARK_PLACE.row;
     expect(mark).toContain('self-stretch');
-    expect(mark).toContain('justify-center');
+    expect(mark).toContain('justify-start');
     expect(mark).toContain('flex-col');
     // And no hand-computed offset, which is the failure mode this guards.
     expect(mark).not.toMatch(/\btop-\d/);
@@ -1235,13 +1246,25 @@ describe('the activity mark is a track with a travelling dot', () => {
     // the branch name.
     //
     // Now a CELL rather than an offset, which answers the same question without
-    // arithmetic: `self-stretch` makes the box the full height of the row and
-    // `justify-center` centres the marks in it, so a row that grows a second
-    // line keeps its marks centred against the whole cell rather than against
-    // an assumption about the first line's height.
+    // arithmetic: `self-stretch` makes the box the full height of the row.
+    //
+    // AND `justify-start`, which this asserted as `justify-center` until
+    // 2026-08-20 — while its own TITLE said *first line*. The two agreed only
+    // for as long as rows were one line tall: centring in a one-line cell IS
+    // the first line. On a row that wraps they diverge, and centring puts the
+    // mark exactly where this test says it must not go — between the lines.
+    //
+    // Which is the scenario the comment above already cites: *"the stuck cell
+    // broke that by landing as its own line beneath the six columns."* Measured
+    // on the mock, an agent row 56px tall against 37px for its neighbours, its
+    // activity dot at y=24 while the name sat at y=9. With `justify-start` the
+    // dot is at y=11 — the line it belongs to.
+    //
+    // The title was right and the class was wrong.
     const mark = ACTIVITY_MARK_PLACE.row;
     expect(mark).toContain('self-stretch');
-    expect(mark).toContain('justify-center');
+    expect(mark).toContain('justify-start');
+    expect(mark).not.toContain('justify-center');
     // Every positioned form is GONE. Asserted negatively because leaving one
     // behind would fight the cell: a stray `translate-y` on the parent is a
     // transform the dot's own `translateX` travel would have to fight.
@@ -2472,6 +2495,24 @@ describe("a row's actions all live in its menu", () => {
     // above it are the same permission as it was spelled when three components
     // each rendered their own anchor.
     'data-tuple-link',
+    // THE HREFLESS NAME THAT IS STILL A DESTINATION, added 2026-08-20 for the
+    // agent row — and the justification the gate asks for.
+    //
+    // An agent's name is its session id, and what it opens is the agent PANEL: a
+    // local overlay, not a URL. So it cannot be an `<a>` — inventing an address
+    // is what this board refuses everywhere — and it must not be inert either,
+    // or the row names a thing a reader cannot reach.
+    //
+    // It IS navigation to a thing the row NAMES, which is precisely what this
+    // list permits; only the element differs, because the destination has no
+    // address. `TupleLinkView` renders a `<button>` exactly when a name is given
+    // an `onActivate`, so this hook cannot spread to an artifact link: those
+    // either have an href or stay text.
+    //
+    // `data-tuple-text` is deliberately the SAME hook a plain hrefless name
+    // wears, because the property tests assert on it is *this is not an anchor*
+    // — true of both, and the assertion that matters.
+    'data-tuple-text',
   ];
 
   it('renders no interactive element in a row body outside the menu', () => {
@@ -2587,6 +2628,11 @@ describe("a row's actions all live in its menu", () => {
     // SAME `<a>`, rendered by `TupleLinkView` from a `TupleLink`. The two
     // allowances converged because the two rows did.
     'data-tuple-link',
+    // And the same convergence for the hrefless name that is still a
+    // destination — see `ROW_NAVIGATION` for the full justification. It reaches
+    // this gate because both read `TupleLinkView`, not because an issue row has
+    // one: a ticket's name carries a tracker URL and takes the anchor above.
+    'data-tuple-text',
   ];
 
 

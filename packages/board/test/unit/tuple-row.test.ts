@@ -43,6 +43,47 @@ const issue = (over: Partial<IssueRow> = {}): IssueRow => IssueRowSchema.parse({
   url: 'https://host/issues/228', ageMinutes: 1440, ...over,
 });
 
+describe('rowKind — the server\'s judgement about what a row is about', () => {
+  it('marks an idea branch\'s PR as a PLAN, whatever the draft flag says', () => {
+    // *"Technically this is also a PR but we need to detect that this is a plan
+    // approval PR and show it as a plan"* — and *"it could be a draft PR but it
+    // does not have to be, the branch name gives it away."*
+    //
+    // The BRANCH NAME is the whole test, and `rowKind` never receives the draft
+    // flag at all — which is the strongest form of that independence. A plan PR
+    // ready for review is still a plan: the act it wants is approval, performed
+    // by `plot-approve.sh` on a plan and no branch, not the review a `pr` row
+    // asks for.
+    expect(rowKind('idea/a-wave-is-a-thing-not-a-label', true, false)).toBe('plan');
+    // A CONFLICTING plan PR is still a plan. Ordered above the conflict arm on
+    // purpose: what it wants is approval, not a rebase.
+    expect(rowKind('idea/a-wave-is-a-thing-not-a-label', true, true)).toBe('plan');
+  });
+
+  it('leaves an idea branch with NO PR a branch', () => {
+    // The plan is not under review until a PR asks for it — before that the row
+    // is a branch someone pushed, which is what it is.
+    expect(rowKind('idea/some-plan', false, false)).toBe('branch');
+  });
+
+  it('keeps a release a release, which the idea arm cannot outrank', () => {
+    // The two cannot both match, and the order records that rather than relying
+    // on it: a release branch is never an idea branch.
+    expect(rowKind('changeset-release/main', true, false)).toBe('release');
+  });
+
+  it('leaves every other branch exactly as it was', () => {
+    // The arm is NARROW — a prefix `/plot-idea` itself writes, and nothing else
+    // moves. A repo that renames the prefix gets `pr`, which is the behaviour
+    // from before this arm existed rather than a wrong answer.
+    expect(rowKind('feature/x', true, false)).toBe('pr');
+    expect(rowKind('feature/x', true, true)).toBe('branch');
+    expect(rowKind('feature/x', false, false)).toBe('branch');
+    // Not a prefix MATCH inside the name — `idea/` has to lead.
+    expect(rowKind('feature/an-idea/x', true, false)).toBe('pr');
+  });
+});
+
 describe('the contract carries all eight kinds', () => {
   it('names exactly the eight, and no ninth', () => {
     // The SHAPE rather than an inventory of what exists: four of the seven had
@@ -261,22 +302,41 @@ describe('slot 5 says where a PR stands, and draft is not a state', () => {
 });
 
 describe('slot 3 is the item and slot 4 is the vehicle', () => {
-  it('gives a PR row three separate links to three destinations', () => {
-    // A PR names three things — the PR, its plan, its branch — and all three are
-    // already on the row: measured on the live pulse, a PR row carries `plan`,
-    // `planFile`, `branch`, `branchUrl` and `pr`. Nothing new is fetched; what
-    // was missing is that only some rendered, and only one was a link.
+  it('gives a PR row separate links to separate destinations', () => {
+    // A PR names the PR, its plan and its branch — all already on the row:
+    // measured on the live pulse, a PR row carries `plan`, `planFile`, `branch`,
+    // `branchUrl` and `pr`. Nothing new is fetched; what was missing is that only
+    // some rendered, and only one was a link.
+    //
+    // WITHOUT A WAVE here, which is the planless-PR case: `changeset-release/*`
+    // and `idea/*` reach the board through a loop that sets `wave: ''`.
     const t = tupleFromRow(row({
-      kind: 'pr',
+      kind: 'pr', wave: '',
       pr: { number: 57, url: 'https://host/pr/57', draft: false, state: 'conflicts' },
       branchUrl: 'https://host/tree/feature/x',
     }));
     expect(t.name).toMatchObject({ what: 'pr', label: '57', href: 'https://host/pr/57' });
     expect(t.links.map((l) => l.what)).toEqual(['plan', 'branch']);
-    // THREE DESTINATIONS, all different. Interchangeable words are what the
-    // association requirement exists to prevent.
+    // DISTINCT DESTINATIONS. Interchangeable words are what the association
+    // requirement exists to prevent.
     const targets = [t.name.href, ...t.links.map((l) => l.href)];
     expect(new Set(targets).size).toBe(3);
+  });
+
+  it('adds the WAVE where the PR\'s branch belongs to one', () => {
+    // *"The PR item may have a WAVE if the branch is assigned to a WAVE."* A
+    // branch cut for a plan's wave keeps that membership through review, and
+    // `row.wave` carried it all along with nothing rendering it.
+    //
+    // Ordered plan → wave → branch, the chain narrowing: the plan holds the
+    // wave, the wave holds the branch.
+    const t = tupleFromRow(row({
+      kind: 'pr', wave: 'Modelled',
+      pr: { number: 304, url: 'https://host/pr/304', draft: false, state: 'green' },
+      branchUrl: 'https://host/tree/feature/x',
+    }));
+    expect(t.links.map((l) => l.what)).toEqual(['plan', 'wave', 'branch']);
+    expect(t.links[1]).toMatchObject({ label: 'Modelled', href: '' });
   });
 
   it('leads a branch row with the branch and links only its plan', () => {
@@ -633,6 +693,99 @@ describe('every kind fills all six slots', () => {
     expect(one.status).toBe('blocked');
   });
 
+  it('names a BUILD by its run and links both its artifacts', () => {
+    // `tupleFromBuild` existed with NO CALLER, so a build row — which arrives
+    // from the server as an `AgentRow` — fell through to the branch fallback.
+    // Measured on the mock: `BUILD  feature/a-build-is-running |
+    // CI is running for PR #283 | CI running 283` — the branch as the subject, a
+    // sentence where the artifacts belong, and the PR number inside slot 5.
+    const t = tupleFromRow(row({
+      kind: 'build', ageMinutes: 10, wave: '',
+      branch: 'feature/a-build-is-running',
+      branchUrl: 'https://host/tree/feature/a-build-is-running',
+      pr: { number: 283, url: 'https://host/pull/283', draft: false, state: 'pending' },
+    }));
+    expect(t.name.label).toBe('CI 283');
+    // TEXT, not a link: no run URL is on the wire. A fabricated
+    // `<repo>/pull/<n>/checks` is the guess this board refuses everywhere.
+    expect(t.name.href).toBe('');
+    // BOTH artifacts, PR first — a run reports to the PR and runs on the branch.
+    expect(t.links.map((l) => l.what)).toEqual(['pr', 'branch']);
+    expect(t.status).toBe('CI running');
+    expect(t.age.text).toBe('10m');
+  });
+
+  it('gives a BUILD with no PR its branch as the name', () => {
+    // A build on a branch with no PR yet: the branch is the only identity, and
+    // the artifact slot still holds it — the row's subject and its artifact can
+    // be the same thing when nothing else names it.
+    const t = tupleFromRow(row({
+      kind: 'build', branch: 'feature/x', branchUrl: 'https://host/tree/feature/x',
+      pr: null, ageMinutes: 4, wave: '',
+    }));
+    expect(t.name.label).toBe('feature/x');
+    expect(t.links.map((l) => l.what)).toEqual(['branch']);
+  });
+
+  it('gives a BUILD its wave where the branch belongs to one', () => {
+    // A branch cut for a wave keeps that membership through review AND through
+    // CI, so the run reports on a wave's work. The wave is the optional middle
+    // link, exactly as it is on a PR: a build on `changeset-release/main`
+    // belongs to no wave.
+    const t = tupleFromRow(row({
+      kind: 'build', wave: 'Modelled', ageMinutes: 10,
+      branch: 'feature/a-build-is-running',
+      branchUrl: 'https://host/tree/feature/a-build-is-running',
+      pr: { number: 283, url: 'https://host/pull/283', draft: false, state: 'pending' },
+    }));
+    expect(t.links.map((l) => l.what)).toEqual(['pr', 'wave', 'branch']);
+  });
+
+  it('gives an AGENT the worker state, never the branch state', () => {
+    // The row read `open` — the BRANCH's state, on a row about the agent that
+    // took it. Every worker exits 0, so `worker` is the only field that can say
+    // what the agent is doing.
+    const t = tupleFromRow(row({
+      kind: 'agent', worker: 'running', state: 'open', ageMinutes: 27,
+    }));
+    expect(t.status).toBe('working');
+    expect(t.status).not.toBe('open');
+  });
+
+  it('falls back to the branch state where the worker state says nothing', () => {
+    // `none` and `elsewhere` are not activity — the first means no worker, the
+    // second that this machine has nowhere to look. Printing a word about a
+    // worker it cannot see would be the row stating its own ignorance.
+    for (const worker of ['none', 'elsewhere'] as const) {
+      const t = tupleFromRow(row({ kind: 'agent', worker, state: 'wip' }));
+      expect(t.status, worker).toBe('in progress');
+    }
+  });
+
+  it('puts a PR number in slot 4, never in the status', () => {
+    // *"You cannot put the links to associated artifacts into the status row."*
+    // Measured before the change: `no checks 240` on a release and
+    // `CI running 283` on a build — a number wedged into the one slot whose
+    // whole purpose is a single word a reader scans down a column.
+    //
+    // Asserted across every kind that carries a PR, because the badge that did
+    // this was rendered by the ROW for all of them at once.
+    const kinds = [
+      row({ kind: 'branch', pr: { number: 57, url: 'https://host/pull/57', draft: false, state: 'green' } }),
+      row({ kind: 'build', pr: { number: 283, url: 'https://host/pull/283', draft: false, state: 'pending' } }),
+      row({
+        kind: 'release', plan: '2.7.0', planFile: '', branch: 'changeset-release/main',
+        pr: { number: 240, url: 'https://host/pull/240', draft: false, state: 'none' },
+      }),
+    ];
+    for (const r of kinds) {
+      const t = tupleFromRow(r);
+      expect(t.status, `${r.kind} status holds a number`).not.toMatch(/\d/);
+      const pr = t.links.find((l) => l.what === 'pr') ?? (t.name.what === 'pr' ? t.name : null);
+      expect(pr, `${r.kind} has its PR reachable`).toBeTruthy();
+    }
+  });
+
   it('renders a nameless wave as text rather than hiding it', () => {
     // Six of this estate's 71 waves have no name, all in plans written before
     // the convention. Refusing to render them would make six real waves
@@ -727,7 +880,10 @@ describe('slot 5 holds a value, never a sentence', () => {
   });
 
   it('falls back to the git state where there is no PR', () => {
-    expect(tupleFromRow(row({ state: 'merged', pr: null })).status).toBe('merged');
+    // `delivered` for the state `merged` — Plot's word for the transition, not
+    // git's word for what happened to the ref. The STATE keeps its name on the
+    // contract (`BranchStateSchema`); only the displayed word changed.
+    expect(tupleFromRow(row({ state: 'merged', pr: null })).status).toBe('delivered');
     expect(tupleFromRow(row({ state: 'claimed', pr: null })).status).toBe('claimed');
     expect(tupleFromRow(row({ state: 'open', pr: null })).status).toBe('open');
   });

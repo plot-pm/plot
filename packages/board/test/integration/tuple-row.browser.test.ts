@@ -93,12 +93,23 @@ const TUPLES: Record<string, TupleRow> = {
     branchUrl: 'https://host/tree/feature/opus5-longhorizon-hardening',
     status: 'thinking', sessionSeconds: 27 * 60, idleSeconds: 4 * 60,
   }),
+  // WITH A PR, which is the case the slot-5 badge removal must not lose. A
+  // branch row is a branch row precisely when the PR cannot resolve it (a merge
+  // conflict), so the branch leads — and the PR is still a destination.
+  // `fleet.ts` carries the warning about erasing it: *a branch started and then
+  // shelved read as never begun, with its age and its PR erased.*
   branch: tupleFromRow(row({
     kind: 'branch', ageMinutes: 25 * 1440,
     branchUrl: 'https://host/tree/feature/opus5-longhorizon-hardening',
+    pr: { number: 57, url: 'https://host/pull/57', draft: false, state: 'conflicts' },
   })),
   release: tupleFromRow(row({
-    kind: 'release', plan: '2.7.0', planFile: '', branch: 'changeset-release/main',
+    // `version`, the FIELD — read by the server from `package.json` on the
+    // release branch. This carried `plan: '2.7.0'` instead, exercising the slug
+    // fallback that no real row has ever taken: changesets names the branch
+    // after the BASE, so a release row's slug is never a version.
+    kind: 'release', version: '2.7.0', plan: '', planFile: '',
+    branch: 'changeset-release/main',
     branchUrl: 'https://host/tree/changeset-release/main', ageMinutes: 12,
     pr: { number: 300, url: 'https://host/pull/300', draft: false, state: 'none' },
   })),
@@ -262,17 +273,33 @@ describe('a row is a tuple — what a rendered page settles', () => {
     expect(whats).toEqual(['pr', 'plan', 'branch']);
   });
 
-  it('renders one link on a branch row and no empty artifact control', async () => {
-    // A branch's name IS the branch, and the artifact slot holds its plan. Where
-    // a slot has no destination it renders as NOTHING rather than as a dead
-    // control — the rule this board already applies to a PR cell with no PR.
+  it('renders every destination as a link, and no empty artifact control', async () => {
+    // A branch's name IS the branch, and its artifact slot holds its plan AND
+    // its PR. Where a slot has no destination it renders as NOTHING rather than
+    // as a dead control — the rule this board already applies to a PR cell with
+    // no PR.
+    //
+    // THREE, and it was two until 2026-08-20. The PR reached the reader through
+    // a badge in SLOT 5 then, so the artifact slot held only the plan. The badge
+    // is gone — an artifact in the status cell is the defect the tuple exists to
+    // end — and the third link is what makes its removal lossless.
     const links = rowOf('branch').locator('a[data-tuple-link]');
-    await expect.poll(() => links.count(), { timeout: 10_000 }).toBe(2);
-    // The BRANCH row's own name, plus its plan. And a planless branch renders
-    // one link and nothing beside it — asserted on the release row, whose plan
-    // slot is empty by construction.
+    await expect.poll(() => links.count(), { timeout: 10_000 }).toBe(3);
+    // And the PR is among them, which is the half that matters: the number is
+    // still REACHABLE, just from the slot that holds destinations.
+    expect(await rowOf('branch').locator('a[data-tuple-link="pr"]').count()).toBe(1);
+    // The BRANCH row's own name, plus its plan and its PR.
+    //
+    // THE RELEASE ROW carries three now — its version names the row, and its PR
+    // and branch are both artifacts. It was two while the version was unknown
+    // and the PR number had to serve as the name; the version is read from
+    // `package.json` on the release branch since 2026-08-20, so the number is
+    // free to be what it is: a destination.
     const releaseLinks = rowOf('release').locator('a[data-tuple-link]');
-    expect(await releaseLinks.count()).toBe(2);
+    expect(await releaseLinks.count()).toBe(3);
+    // The version leads it, and the PR is reachable beside the branch.
+    expect(await rowOf('release').locator('[role="gridcell"]').nth(2).innerText())
+      .toContain('2.7.0');
     // No empty anchors anywhere: an `<a>` with no text is a control a reader
     // can tab into and learn nothing from.
     const empties = await page.locator('a[data-tuple-link]').evaluateAll(

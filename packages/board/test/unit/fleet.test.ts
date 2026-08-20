@@ -1765,7 +1765,7 @@ describe('rowsFromPulse', () => {
       // #252/#253/#254 are merged with their refs deleted, and the PR page is
       // still there. The PR outlives the branch, so the link must too.
       const rows = rowsFromPulse(
-        pulse, ages, 'plot', QUIET, new Map(), '', null, Date.now(), null, null, null,
+        pulse, ages, 'plot', QUIET, new Map(), '', null, Date.now(), null, null, null, null,
         new Map([['feature/a', merged]]));
       const row = rows.find((r) => r.branch === 'feature/a')!;
       expect(row.pr).not.toBeNull();
@@ -1781,7 +1781,7 @@ describe('rowsFromPulse', () => {
       // The mirror, and the half that keeps the assertion above about the LINK
       // rather than about a default. `feature/c` is `open` with no PR anywhere.
       const rows = rowsFromPulse(
-        pulse, ages, 'plot', QUIET, new Map(), '', null, Date.now(), null, null, null,
+        pulse, ages, 'plot', QUIET, new Map(), '', null, Date.now(), null, null, null, null,
         new Map([['feature/a', merged]]));
       expect(rows.find((r) => r.branch === 'feature/c')!.pr).toBeNull();
     });
@@ -1792,7 +1792,7 @@ describe('rowsFromPulse', () => {
       // the row would be grouped by a merge that has not happened to this
       // branch. The number must arrive without the verdict coming with it.
       const rows = rowsFromPulse(
-        pulse, ages, 'plot', QUIET, new Map(), '', null, Date.now(), null, null, null,
+        pulse, ages, 'plot', QUIET, new Map(), '', null, Date.now(), null, null, null, null,
         new Map([['feature/b', pr({ number: 300, head: 'feature/b', state: 'MERGED' })]]));
       const row = rows.find((r) => r.branch === 'feature/b')!;
       expect(row.pr!.number).toBe(300);
@@ -2357,7 +2357,7 @@ describe('rowsFromPulse', () => {
       // `waiting-on-you` until this change and undercounted every one.
       const rows = rowsFromPulse(
         withWorker('waiting', '0', '900'), ages, 'plot', QUIET,
-        null, '', null, Date.now(), null, null, asking('PLOT-BLOCKED: which adapter?'));
+        null, '', null, Date.now(), null, null, null, asking('PLOT-BLOCKED: which adapter?'));
       expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('working');
     });
 
@@ -2367,7 +2367,7 @@ describe('rowsFromPulse', () => {
       // or see that it is not theirs — without opening the worktree first.
       const rows = rowsFromPulse(
         withWorker('waiting', '0', '900'), ages, 'plot', QUIET,
-        null, '', null, Date.now(), null, null,
+        null, '', null, Date.now(), null, null, null,
         asking('PLOT-BLOCKED: which adapter should the fallback use?'));
       expect(rows.find((r) => r.branch === 'feature/d')!.note)
         .toMatch(/which adapter should the fallback use\?/);
@@ -2444,7 +2444,7 @@ describe('rowsFromPulse', () => {
       // `waiting-on-you` the row had neither.
       const rows = rowsFromPulse(
         withWorker('waiting', '0', '900'), ages, 'plot', QUIET,
-        null, '', null, Date.now(), null, null, asking('PLOT-BLOCKED: which one?'));
+        null, '', null, Date.now(), null, null, null, asking('PLOT-BLOCKED: which one?'));
       expect(showsWorkerLog(rows.find((r) => r.branch === 'feature/d')!)).toBe(true);
     });
 
@@ -2458,7 +2458,7 @@ describe('rowsFromPulse', () => {
       // the second restart re-running work the first had finished.
       const rows = rowsFromPulse(
         withWorker('waiting', '0', '900', ['src/half-done.ts']), ages, 'plot', QUIET,
-        null, '', null, Date.now(), null, null, asking('PLOT-BLOCKED: which one?'));
+        null, '', null, Date.now(), null, null, null, asking('PLOT-BLOCKED: which one?'));
       const row = rows.find((r) => r.branch === 'feature/d')!;
       expect(row.group).toBe('working');
       // REBOUND TO THE STALLED SENTENCE THAT EXISTS. This read `not

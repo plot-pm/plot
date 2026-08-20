@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { buildBoard, renderPlanPage, renderStoryPage, type BuildBoardOptions } from './board.js';
 import { repairEnabledFromEnv } from './resolver.js';
 import { buildFleet } from './fleet.js';
-import { mockFleet, mockRequested } from './mock-fleet.js';
+import { mockFleet, mockRequested, mockCards} from './mock-fleet.js';
 import { buildAttention } from './attention.js';
 import { dispatchAvailability, dispatchLog, handleDispatch, SLUG_RE } from './dispatch.js';
 import { continueAvailability, handleContinue } from './continue.js';
@@ -209,6 +209,16 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       // still holds it once nothing is answering.
       const board = {
         ...buildBoard(opts),
+        // THE MOCK REPLACES THE COLUMNS, for the reason `mockCards` records:
+        // half this board's controls are gated on a card, and a mock serving
+        // rows without cards renders none of them — which looks exactly like
+        // the code failing to render them. Measured: `[data-plan-actions]` 0.
+        //
+        // The capability flags BELOW are deliberately left real. They answer
+        // *will this server act*, which is a fact about the binding and not
+        // about any plan — a mock must not claim a capability this process does
+        // not have, or the control it shows would be one that cannot work.
+        ...(mockRequested() ? { columns: mockCards() } : {}),
         dispatch: dispatchAvailability(HOST),
         server: serverInfo(opts, boundPort),
         // Its own field, and now the SAME answer as dispatch: both scripts ship

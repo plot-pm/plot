@@ -52,7 +52,10 @@ describe('the mock is a real payload', () => {
     // exists for fidelity. The check above (`carries no kind the real classifier
     // can produce`) is the other half; between them the two say what a payload
     // may hold and what it may not.
-    const CLIENT_ASSEMBLED = new Set(['ticket', 'plan', 'wave']);
+    // `plan` is BOTH now — assembled by the client for a plan's own row, and
+    // emitted by the server for an `idea/` branch's PR. So it is no longer an
+    // exemption here: the mock carries one.
+    const CLIENT_ASSEMBLED = new Set(['ticket', 'wave']);
     for (const kind of RowKindSchema.options) {
       if (CLIENT_ASSEMBLED.has(kind)) continue;
       assert.ok(rendered.has(kind), `no row for kind ${kind}`);
@@ -69,7 +72,11 @@ describe('the mock is a real payload', () => {
     // job, those rows became the branches inside a wave's fold and rendered
     // `Kind: Plan` two levels deep. The fidelity a mock is worth is exactly the
     // fidelity it is checked for, so this checks it.
-    const SERVER_KINDS = new Set(['release', 'branch', 'pr', 'build', 'agent']);
+    // `plan` JOINED THEM on 2026-08-20: `rowKind` returns it for an `idea/`
+    // branch's PR, which is a plan awaiting approval rather than code awaiting
+    // review. It is the one plan row the server emits — every other one is
+    // assembled by the client from the branches under it.
+    const SERVER_KINDS = new Set(['release', 'branch', 'pr', 'build', 'agent', 'plan']);
     for (const r of mockFleet().rows) {
       assert.ok(SERVER_KINDS.has(r.kind), `${r.branch} carries kind ${r.kind}, which no pulse emits`);
     }
@@ -124,6 +131,20 @@ describe('the mock is a real payload', () => {
     for (const r of notStarted) {
       assert.equal(r.kind, 'branch', `${r.branch} is in not-started as a ${r.kind}`);
     }
+    // And the PLAN row the server emits is in WAITING ON YOU, not here: a plan
+    // under review is waiting on a person, while NOT STARTED holds work nobody
+    // has begun. Two different questions, and `every-section-has-one-subject`
+    // settles which section asks which.
+    const planRows = rows.filter((r) => r.kind === 'plan');
+    assert.equal(planRows.length, 2, 'two server-emitted plan rows');
+    for (const r of planRows) {
+      assert.equal(r.group, 'waiting-on-you');
+      assert.ok(r.branch.startsWith('idea/'), `${r.branch} is an idea branch`);
+    }
+    // ONE DRAFT AND ONE NOT, because the branch name is what decides the kind
+    // and the draft flag is independent of it. A mock carrying only drafts would
+    // let a `draft`-reading implementation pass.
+    assert.deepEqual(planRows.map((r) => r.pr?.draft).sort(), [false, true]);
   });
 
   it('lists an agent in the registry, with a session and a transcript reading', () => {

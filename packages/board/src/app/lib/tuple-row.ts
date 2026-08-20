@@ -16,7 +16,7 @@
 // It carries no React, so the unit suite tests it as data — which is the other
 // half of why the collapse was cheap: the hard decisions were testable without
 // a browser, and the browser only had to confirm a layout.
-import type { AgentRow, IssueRow, RowKind } from '../../contract/schema.js';
+import type { AgentEntry, AgentRow, IssueRow, RowKind } from '../../contract/schema.js';
 
 /**
  * One linked name in a row — slot 4, of which there may be several.
@@ -43,7 +43,7 @@ export interface TupleLink {
    * icon comes from `KIND_ICON_PATH[what]`, so a missing value is a wrong glyph
    * rather than a missing one — the kind of error that looks like a design.
    */
-  what: 'plan' | 'branch' | 'pr' | 'ticket' | 'wave';
+  what: 'plan' | 'branch' | 'pr' | 'ticket' | 'wave' | 'worktree';
   label: string;
   href: string;
   /**
@@ -121,7 +121,11 @@ export interface TupleRow {
 
 /** The word slot 2 shows for each kind. */
 export const KIND_LABEL: Record<RowKind, string> = {
-  ticket: 'Story',
+  // `Ticket`, and it said `Story` until 2026-08-20. A story is a Plot artefact —
+  // an umbrella over several plans, tracked in `docs/stories` — and this row is
+  // an ISSUE on the git host that no plan references yet. Two different things,
+  // and the row was labelled with the name of the other one.
+  ticket: 'Ticket',
   plan: 'Plan',
   pr: 'PR',
   build: 'Build',
@@ -175,6 +179,26 @@ export const KIND_ICON_PATH: Record<RowKind, string> = {
   wave: 'M7.122.392a1.75 1.75 0 0 1 1.756 0l5.003 2.902c.83.481.83 1.68 0 2.162L8.878 8.358a1.75 1.75 0 0 1-1.756 0L2.119 5.456a1.25 1.25 0 0 1 0-2.162ZM8.125 1.69a.25.25 0 0 0-.25 0l-4.63 2.685 4.63 2.685a.25.25 0 0 0 .25 0l4.63-2.685ZM1.601 7.789a.75.75 0 0 1 1.025-.273l5.249 3.044a.25.25 0 0 0 .25 0l5.249-3.044a.75.75 0 0 1 .752 1.298l-5.248 3.044a1.75 1.75 0 0 1-1.756 0L1.874 8.814A.75.75 0 0 1 1.6 7.789Zm0 3.5a.75.75 0 0 1 1.025-.273l5.249 3.044a.25.25 0 0 0 .25 0l5.249-3.044a.75.75 0 0 1 .752 1.298l-5.248 3.044a1.75 1.75 0 0 1-1.756 0l-5.248-3.044a.75.75 0 0 1-.273-1.025Z',
 };
 
+
+/**
+ * The glyph a LINK wears for what it points at — slot 4's icons.
+ *
+ * Mostly `KIND_ICON_PATH`, because most `what` values name a kind and a reader
+ * who learns the fork means *branch* should read it in both columns. **`worktree`
+ * is the exception, and it is why this table exists**: a worktree is a PLACE on
+ * this machine, not a board object, so it has no kind and no entry there. It was
+ * the first `what` that broke the coincidence `what ⊆ RowKind`, and TypeScript
+ * said so rather than letting a row render a missing icon.
+ */
+export const LINK_ICON_PATH: Record<TupleLink['what'], string> = {
+  plan: KIND_ICON_PATH.plan,
+  branch: KIND_ICON_PATH.branch,
+  pr: KIND_ICON_PATH.pr,
+  ticket: KIND_ICON_PATH.ticket,
+  wave: KIND_ICON_PATH.wave,
+  // file-directory: a worktree is a directory, which is what it is.
+  worktree: 'M.513 1.513A1.75 1.75 0 0 1 1.75 1h3.5c.55 0 1.07.26 1.4.7l.9 1.2a.25.25 0 0 0 .2.1h6.5c.966 0 1.75.784 1.75 1.75v8.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75c0-.464.184-.909.513-1.237Zm1.237.237a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-8.5a.25.25 0 0 0-.25-.25H7.75a1.75 1.75 0 0 1-1.4-.7l-.9-1.2a.25.25 0 0 0-.2-.1Z',
+};
 
 /**
  * How many characters of a branch name are kept at the TAIL when the slot is
@@ -247,6 +271,41 @@ export function tupleWaitText(days: number): string {
   if (days < 1) return 'today';
   if (days < 60) return `${days}d`;
   return `${Math.floor(days / 30)}mo`;
+}
+
+/**
+ * The colour slot 5 wears for a status, or "" for the ordinary tone.
+ *
+ * **Restored 2026-08-20** — it was lost in `one-component-renders-every-row`,
+ * which replaced three row components with one grid and kept the WORDS while
+ * dropping the tones. Reported from a screenshot; measured, `conflicts`, `green`
+ * and `no checks` all rendered the identical grey.
+ *
+ * The palette is the deleted `PrCell`'s, verbatim, and so is its rule: **the
+ * state is a WORD and colour only reinforces it**, for the two values a reader
+ * acts on. Everything else keeps the ordinary tone — a third and fourth colour
+ * would make the column a legend to learn rather than a word to read, and
+ * `unknown` renders no word at all for the reason stated at `prStatus`.
+ *
+ * Keyed on the WORD rather than on `pr.state`, because slot 5 holds one string
+ * whatever the kind: a wave's `blocked`, a worker's `failed` and a PR's
+ * `conflicts` are all *something is wrong here*, and a reader scanning the
+ * column should see one vocabulary. That is the collapse's own argument applied
+ * to colour — one grid, one status slot, one tone rule.
+ */
+export function statusTone(status: string): string {
+  // The bad news: a conflict, a failing build, a worker that died, a wave that
+  // cannot start. `blocked` is deliberately NOT here — an earlier wave holding
+  // this one back is the system working, not a fault, and its note already
+  // carries the dimmed `time` tone.
+  if (/^(conflicts|checks failing|failed|stalled)/.test(status)) {
+    return 'text-rose-700 dark:text-rose-400';
+  }
+  // The good news, and the only other colour: green checks, finished work.
+  if (/^(green|delivered|finished)/.test(status)) {
+    return 'text-emerald-700 dark:text-emerald-500';
+  }
+  return '';
 }
 
 /**
@@ -326,7 +385,7 @@ function branchLink(row: AgentRow): TupleLink {
  *     links the branch;
  *   - a `branch` names the branch and links its plan.
  */
-export function tupleFromRow(row: AgentRow): TupleRow {
+export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow {
   const age: TupleAge =
     // A NOT-STARTED row is aged from its plan's approval, and it says so. The
     // rule is *since last change*, and nothing has changed here — that is what
@@ -371,8 +430,23 @@ export function tupleFromRow(row: AgentRow): TupleRow {
     // only one of those was a link.
     return {
       ...base,
-      name: { what: 'pr', label: `${row.pr.number}`, href: row.pr.url },
-      links: [...(plan ? [plan] : []), branchLink(row)],
+      name: prLink(row.pr),
+      // AND ITS WAVE, where the branch belongs to one — the same artifact the
+      // agent row carries, and present on the row all along as `row.wave`.
+      //
+      // Not every PR has one: a PR on a planless branch reaches the board
+      // through a different loop (`changeset-release/main` and `idea/*` come
+      // that way) and carries `wave: ''`. So the slot is zero-or-more here too,
+      // and the mock holds one of each.
+      //
+      // Ordered plan → wave → branch, which is the chain narrowing: the plan
+      // holds the wave, the wave holds the branch. A reader scanning slot 4 gets
+      // the same nesting the wave rows draw one section over.
+      links: [
+        ...(plan ? [plan] : []),
+        ...(row.wave ? [{ what: 'wave' as const, label: row.wave, href: '' }] : []),
+        branchLink(row),
+      ],
     };
   }
 
@@ -389,7 +463,145 @@ export function tupleFromRow(row: AgentRow): TupleRow {
         : row.pr
           ? { what: 'pr', label: `${row.pr.number}`, href: row.pr.url }
           : { what: 'branch', label: row.branch, href: row.branchUrl },
-      links: row.pr ? [branchLink(row)] : [],
+      // THE PR IS AN ARTIFACT, and this is where it belongs. A release row
+      // rendered `no checks 240` — the number inside the STATUS cell, which is
+      // the *"you cannot put the links to associated artifacts into the status
+      // row"* defect. Where the version names the row the PR is a second
+      // destination; where the PR already names it, only the branch is left.
+      links: row.pr
+        ? (releaseVersion(row) ? [prLink(row.pr), branchLink(row)] : [branchLink(row)])
+        : [],
+    };
+  }
+
+  if (kind === 'plan') {
+    // A PLAN AWAITING APPROVAL, on its own `idea/` branch — the one plan row the
+    // SERVER emits. Every other plan row is assembled by the client from the
+    // branches under it (`tupleFromPlan`); this one exists because an idea
+    // branch's PR *is* the plan, and `rowKind` says so.
+    //
+    // The plan is the subject, so slot 3 names it and the PR and branch are its
+    // artifacts — the same split a PR row makes, with the roles exchanged: there
+    // the PR is the item and the plan is where it came from; here the plan is the
+    // item and the PR is how it gets approved.
+    //
+    // `planFile` is the branch's own plan, which the plan route can read — so
+    // the name links where it resolves and stays text where it does not, by the
+    // rule `planLink` states.
+    return {
+      ...base,
+      name: plan ?? branchLink(row),
+      links: [...(row.pr ? [prLink(row.pr)] : []), branchLink(row)],
+    };
+  }
+
+  if (kind === 'build') {
+    // A BUILD IS THE RUN, not the branch it ran on — and its artifacts are
+    // *branch and optionally PR*, which is the rule the plan settled.
+    //
+    // This arm did not exist until 2026-08-20, and `tupleFromBuild` beside it
+    // had **no caller**: a build row arrives from the server as an `AgentRow`,
+    // so it fell through to the branch fallback below. Measured on the mock, the
+    // row read `BUILD  feature/a-build-is-running  | CI is running for PR #283 |
+    // CI running 283` — the branch as the subject, a sentence where the
+    // artifacts belong, and the PR number inside the status cell.
+    //
+    // ## The name should link to the pipeline run, and CANNOT yet
+    //
+    // *"Build hat name mit link auf Jenkins oder Github pipeline"* — right, and
+    // the address is **not on the wire**. `AgentRow.pr` carries `number`, `url`,
+    // `draft` and `state`; nothing carries a checks or run URL, and the host
+    // adapter is not asked for one.
+    //
+    // So the name renders as TEXT, by the rule this board applies without
+    // exception: a fabricated URL is indistinguishable from a real one until it
+    // 404s, and `CardPrSchema` states the same refusal for the same reason —
+    // *"the same arithmetic produces a confidently wrong link for GitHub
+    // Enterprise or a self-hosted Bitbucket"*. Guessing
+    // `<repo>/pull/<n>/checks` would be that guess.
+    //
+    // `CI 283` names the run by the PR it ran for, which is the only identity
+    // this row holds. An invented `CI:1860` is what `tupleFromBuild`'s own
+    // fixture used and what nothing can supply.
+    //
+    // What is missing to finish it: a `checksUrl` on the PR object, filled by
+    // the git-host adapter on the SERVER — GitHub answers it per PR, Jenkins per
+    // job. Then this becomes `href: row.pr.checksUrl` and nothing else here
+    // changes, because the address arrives on the row like every other fact.
+    //
+    // (Naming that script here would trip the gate one file over, which forbids
+    // its name in this module by scanning the source text. The gate is right and
+    // the wording bends: it cannot tell a call from a mention, and the property
+    // it protects — *the projection never asks the host anything* — is exactly
+    // what makes `checksUrl` a SERVER field rather than a lookup here.)
+    return {
+      ...base,
+      name: row.pr
+        ? { what: 'pr', label: `CI ${row.pr.number}`, href: '' }
+        : branchLink(row),
+      // PR, WAVE AND BRANCH. The PR first, because a run reports to it and that
+      // is where a reader goes to read the result; the wave where the branch
+      // belongs to one, for the reason the PR arm carries it — a branch cut for
+      // a wave keeps that membership through review AND through CI; the branch
+      // last, being what was built.
+      //
+      // The wave is the optional middle here as it is on a PR: a build on
+      // `changeset-release/main` belongs to no wave.
+      links: [
+        ...(row.pr ? [prLink(row.pr)] : []),
+        ...(row.wave ? [{ what: 'wave' as const, label: row.wave, href: '' }] : []),
+        branchLink(row),
+      ],
+    };
+  }
+
+  if (kind === 'agent') {
+    // AN AGENT IS A WHO, and its artifacts are what it is working ON — the
+    // branch, its wave, and the plan. Same gap as `build`: `tupleFromAgent`
+    // existed with no caller, so an agent row named its BRANCH and read
+    // `AGENT  feature/an-agent-is-working  | plan … worker running | open`.
+    //
+    // `open` was the branch's state, which says nothing about an agent — an
+    // agent's status is what it is DOING. The row's `worker` field is that, and
+    // it is the one fact no other row carries.
+    //
+    // ## Its artifacts are WAVE, BRANCH and WORKTREE
+    //
+    // *"ein AGENT hat als zu bearbeitende artefakte eine wave (mit branch),
+    // worktree, plan und einen status"* — and all of it is on the wire, on two
+    // objects that join by branch: `AgentRow` holds `wave` and `branch`, while
+    // `fleet.agents` holds `session`, `worktree` and `command`. That join is
+    // what `tupleFromAgent` was written for and why it never had a caller.
+    //
+    // The registry half arrives as `agent`, passed by the adapter — this
+    // projection is given a row and cannot look anything up.
+    //
+    // The NAME is the session id, shortened, with no href: the overlay is a
+    // local panel the ROW opens, not an address. `href: ''` renders it as text
+    // and the adapter makes it a control — which is why the row, not the
+    // projection, owns the click.
+    //
+    // `Inverted` used to render as the old wave BADGE beside the branch name;
+    // it is an artifact link now, like every other named thing on the row.
+    return {
+      ...base,
+      status: workerStatus(row.worker) || base.status,
+      name: agent?.session
+        ? { what: 'ticket', label: shortSessionId(agent.session), href: '' }
+        : branchLink(row),
+      links: [
+        ...(row.wave ? [{ what: 'wave' as const, label: row.wave, href: '' }] : []),
+        branchLink(row),
+        // THE WORKTREE — where the agent is actually working, and the one
+        // artifact no other kind has. Text, not a link: it is a local path and
+        // a browser cannot open one. Basename only, because the full path is
+        // `/Users/…/plot-wt-<branch>` and the leading half repeats on every row;
+        // the panel shows it in full and copyable.
+        ...(agent?.worktree
+          ? [{ what: 'worktree' as const, label: worktreeName(agent.worktree), href: '' }]
+          : []),
+        ...(plan ? [plan] : []),
+      ],
     };
   }
 
@@ -400,26 +612,85 @@ export function tupleFromRow(row: AgentRow): TupleRow {
   return {
     ...base,
     name: branchLink(row),
-    links: plan ? [plan] : [],
+    // AND ITS PR, where it has one. A branch row is a branch row precisely when
+    // the PR cannot resolve it (a merge conflict), so the branch is the SUBJECT
+    // — but the PR is still a destination, and `fleet.ts` carries the warning
+    // about erasing it: *a branch started and then shelved read as never begun,
+    // with its age and its PR erased*. Leading with the branch was about which
+    // fact is the subject; it was never an argument for dropping the other.
+    //
+    // It used to reach the reader as a badge in SLOT 5, beside the status — an
+    // artifact in the status cell, which is the defect the tuple exists to end.
+    links: [...(plan ? [plan] : []), ...(row.pr ? [prLink(row.pr)] : [])],
   };
+}
+
+/**
+ * The worktree as a row shows it — its last path segment.
+ *
+ * A dispatch worktree is `<parent>/plot-wt-<branch>`, so the leading half is
+ * identical on every agent row and the branch name is already in slot 4 beside
+ * it. The basename is what distinguishes one from another; the agent panel shows
+ * the full path, copyable, which is where a reader who needs to `cd` goes.
+ */
+export function worktreeName(path: string): string {
+  return path.replace(/[/\\]+$/, '').split(/[/\\]/).pop() ?? path;
+}
+
+/** The PR as an artifact link — slot 4's form of a pull request. */
+function prLink(pr: NonNullable<AgentRow['pr']>): TupleLink {
+  return { what: 'pr', label: `${pr.number}`, href: pr.url };
+}
+
+/**
+ * What an AGENT is doing, as slot 5's word — from `worker`, not from `state`.
+ *
+ * `state` is the branch's; an agent row showing `open` was reporting that
+ * nobody had taken the branch, on a row about the agent that had. The eight
+ * worker states are the answer, and the two TASK states matter most: every
+ * worker exits 0, so `waiting` and `stalled` are the only way the row can say
+ * the work did not finish with the process.
+ *
+ * "" where the worker state says nothing about activity (`none`, `elsewhere`),
+ * so the caller falls back to the branch's state rather than printing a word
+ * about a worker this machine cannot see.
+ */
+export function workerStatus(worker: AgentRow['worker']): string {
+  switch (worker) {
+    case 'running': return 'working';
+    case 'finished': return 'finished';
+    case 'failed': return 'failed';
+    case 'ended': return 'ended';
+    case 'waiting': return 'waiting on you';
+    case 'stalled': return 'stalled';
+    default: return '';
+  }
 }
 
 /**
  * The version a release row is about, or "" — read from the branch, never
  * invented.
  *
- * Changesets names its branch `changeset-release/<base>`, which carries the
- * BASE and not the version, so most release rows honestly know no version and
- * this returns "". A row whose plan slug looks like a version (`2.7.0`) is the
- * one case where the number is on the row already.
+ * **`row.version` now, and the field is READ from `package.json` on the release
+ * branch.** This used to test whether the plan SLUG looked like a version, which
+ * was true for no row this board has ever rendered: changesets names its branch
+ * `changeset-release/<base>`, so the slug carries the base and the fallback to
+ * the PR number fired every single time — measured, `RELEASE 240` where the
+ * release is 2.7.0.
  *
- * "" rather than a guess, and the guess is the thing being declined: deriving
- * `2.7.0` from a changeset file would mean reading and summing pending bumps,
- * which is *what would this ship* — the question the plan explicitly refuses to
- * answer on a board, because it makes the board the place release decisions are
- * prepared.
+ * The refusal that shaped the old version stands and is worth keeping straight:
+ * *deriving* `2.7.0` by reading and summing pending changeset bumps is *what
+ * would this ship*, a question this board must not answer. But on a
+ * `changeset-release/*` branch that sum is already computed and written down by
+ * the tool whose job it is — verified 2026-08-20,
+ * `origin/changeset-release/main:package.json` reads `2.7.0` where `main` reads
+ * `2.6.0`. Reading a file is not deriving a decision.
+ *
+ * The slug test is KEPT as a second source, because it costs nothing and a repo
+ * that names a plan after a version is a repo where that is the answer.
  */
 export function releaseVersion(row: AgentRow): string {
+  if (row.version) return row.version;
   return /^\d+\.\d+\.\d+/.test(row.plan) ? row.plan : '';
 }
 
@@ -434,7 +705,16 @@ export function releaseVersion(row: AgentRow): string {
  */
 export function stateStatus(row: AgentRow): string {
   switch (row.state) {
-    case 'merged': return 'merged';
+    // `delivered`, not `merged` — Plot's own word for the transition, and the
+    // one its lifecycle names: a plan goes Draft → Approved → **Delivered** →
+    // Released, and `/plot-deliver` is what performs it. `merged` describes what
+    // git did to a ref; `delivered` describes what happened to the work, which is
+    // what a reader of the DONE section is looking at.
+    //
+    // A DISPLAY word only. `BranchStateSchema` keeps `merged`, because that is
+    // the scan's vocabulary and the state IS the ref's — the same split
+    // `prStatus` makes between `pr.state` and the words it prints.
+    case 'merged': return 'delivered';
     case 'claimed': return 'claimed';
     case 'deferred': return 'deferred';
     case 'wip': return 'in progress';
@@ -592,6 +872,19 @@ export interface WaveRowFacts {
    */
   blockedBy: string | null;
   /**
+   * How many of this wave's branches the SECTION is counting, and the word for
+   * what the count means — `null` where the verdict is what slot 5 should say.
+   *
+   * It REPLACES the verdict: `3 to review`, `2 stalled`, `2 delivered`. The
+   * verdict answers *may this wave be started*, and every wave grouped this way
+   * already was — measured, `opus5-longhorizon-hardening :: Implementation`
+   * reads `blocked` with five landed branches, so the verdict would tell a
+   * reader to wait while five reviews wait on them.
+   */
+  groupedCount?: number | null;
+  /** The word for what `groupedCount` counts — `to review`, `stalled`, … */
+  groupedWord?: string;
+  /**
    * How many of THIS wave's branches are still unfinished — `null` where the
    * question does not apply.
    *
@@ -660,11 +953,13 @@ export function tupleFromWave(facts: WaveRowFacts): TupleRow {
     // Only where there is more than one, since `1 left` beside a single branch
     // link in slot 4 states what that link already shows. The count earns its
     // place exactly when the branches are folded out of sight.
-    status: facts.verdict
-      ? (facts.outstanding !== null && facts.outstanding > 1
-          ? `${facts.verdict} · ${facts.outstanding} left`
-          : facts.verdict)
-      : '',
+    status: facts.groupedCount != null
+      ? `${facts.groupedCount} ${facts.groupedWord || 'to review'}`
+      : facts.verdict
+        ? (facts.outstanding !== null && facts.outstanding > 1
+            ? `${facts.verdict} · ${facts.outstanding} left`
+            : facts.verdict)
+        : '',
     age: facts.ageMinutes !== null
       ? { text: tupleAgeText(facts.ageMinutes), label: '' }
       : facts.waitingDays !== null
