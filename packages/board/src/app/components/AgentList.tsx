@@ -3966,6 +3966,111 @@ function IssueGlyph() {
 }
 
 /**
+ * The issue row's `⋯` menu, holding its ONE action — *Create plan*.
+ *
+ * **Why a menu for a single item.** The board settled one rule for every row:
+ * *the row says what IS, the menu says what you can DO* — and a branch row's
+ * four actions already live behind `⋯` (`RowActions`). *Create plan* was the
+ * last inline action anywhere on the board, on the row-kind the earlier move
+ * did not touch, split from the others by nothing but which row was refactored
+ * first. Wearing the same affordance is the point: a reader learns one grammar,
+ * not one-plus-an-exception.
+ *
+ * **It also frees the age column.** *Create plan* sat in the `1.25rem` menu
+ * track — a slot sized for a glyph — so its text overflowed left across the
+ * `2.5rem` age cell, and the issue rows read `1d`/`Create plan` overlapping. A
+ * `⋯` fits the track it was given, and the menu floats absolutely over the
+ * grid rather than in it, so the age beside it renders alone.
+ *
+ * **The item is `CreatePlanButton`, unchanged.** Its two-step arm, its refusal
+ * on a host that cannot be asked, its one-POST-per-click guard — all of that is
+ * the button's, and moving it changed only where it hangs. The button carries
+ * its own `data-create-plan` hook, so what the browser tests reach is the same
+ * control; they open the menu first, which is the single behavioural difference.
+ *
+ * **The item is always present, so the menu always is.** An issue row reaches
+ * the screen only on an `answered` host (`AgentList`), and `CreatePlanButton`
+ * renders on every such row — enabled, or disabled with its reason on it. There
+ * is no empty-menu case here the way there is for a branch row, so this does not
+ * carry `menuState`'s present/enabled split: the `⋯` is unconditional because
+ * its one item is.
+ */
+function IssueRowActions({
+  issue,
+  idea,
+  issueAnswer,
+}: {
+  issue: IssueRow;
+  idea: DispatchInfo;
+  issueAnswer: IssueAnswer;
+}) {
+  const [open, setOpen] = useState(false);
+  // The menu's own box — a click inside it is not a click outside it, and that
+  // has to be decided by hit-testing rather than by propagation, for the reason
+  // `RowActions` records: the close listener runs on CAPTURE, so it would fire
+  // before a bubbled handler inside the menu could. `CreatePlanButton` arms on
+  // its own document listeners; both must agree that a click on the armed button
+  // is inside.
+  const menu = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    const onDown = (e: globalThis.MouseEvent) => {
+      if (menu.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    // Capture, so the menu closes before a click lands anywhere else — the same
+    // phase `RowActions` uses, and the same reason.
+    document.addEventListener('click', onDown, true);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('click', onDown, true);
+    };
+  }, [open]);
+
+  return (
+    // The seventh track, `1.25rem` wide — a glyph fits it, the words did not.
+    // `onClick` stops propagation so a click on the `⋯` does not also count as a
+    // click on the row.
+    <span
+      role="gridcell"
+      className="relative flex w-5 shrink-0 justify-end"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        data-issue-actions={issue.number}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Actions for issue #${issue.number}`}
+        title={`Actions for issue #${issue.number}`}
+        onClick={() => setOpen((v) => !v)}
+        className="text-xs leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"
+      >
+        ⋯
+      </button>
+      {open && (
+        <div
+          role="menu"
+          ref={menu}
+          className="absolute right-0 z-10 mt-1 min-w-max rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+        >
+          {/* THE ROW'S ONE ACTION. It produces a Draft and writes nothing to the
+              tracker — see CreatePlanButton. It refuses itself on a host that
+              cannot be asked (`unsupported`) or a lookup that broke (`failed`),
+              which is why both answers travel here: neither implies the other. */}
+          <div role="menuitem" className="px-2 py-1 text-left">
+            <CreatePlanButton issue={issue} idea={idea} issueAnswer={issueAnswer} />
+          </div>
+        </div>
+      )}
+    </span>
+  );
+}
+
+/**
  * An open tracker issue nobody has planned, on the SAME seven tracks as every
  * other row in the fleet.
  *
@@ -3974,7 +4079,7 @@ function IssueGlyph() {
  *
  * ```
  * mark    phase       plan             branch   pr/note   age    menu
- * (blank) Discovery   inferred name    (BLANK)  🎫 #228   2h     (blank)
+ * (blank) Discovery   inferred name    (BLANK)  🎫 #228   2h     ⋯
  * ```
  *
  * **The name is TEXT, never a link.** It is inferred from the issue's title so
@@ -3991,8 +4096,11 @@ function IssueGlyph() {
  * reported no address, and the number then renders as plain text rather than as
  * an invented link — `PrCell`'s own rule, applied to the same problem.
  *
- * READ-ONLY. No menu, because every action this board offers a row writes
- * somewhere, and nothing here may write to the tracker.
+ * **Its one action lives in the `⋯` menu**, like every other row's. *Create
+ * plan* writes only a plan file that REFERENCES the issue — nothing reaches the
+ * tracker — so the menu holds it the way `RowActions` holds a branch's actions.
+ * See {@link IssueRowActions}; the row itself carries only what it NAMES, which
+ * here is the tracker number and nothing else.
  */
 function IssueRowView(
   { issue, idea, issueAnswer }:
@@ -4067,18 +4175,16 @@ function IssueRowView(
       >
         {issue.ageMinutes === null ? '' : ageLabel(issue.ageMinutes)}
       </span>
-      {/* THE ROW'S ONE ACTION, and the only cell this wave changes.
-          Wave 1 left it empty and said why: an empty menu is better than one
-          offering something that does not work yet. It works now.
+      {/* THE ROW'S ONE ACTION, now behind the `⋯` menu every row wears —
+          `every-action-is-in-the-menu`. It moved out of this cell for two
+          reasons: the board's rule that a row's actions all live in its menu,
+          and the geometry — `Create plan` is wider than the `1.25rem` track and
+          overlapped the age column beside it. `IssueRowActions` renders the
+          glyph that fits, and floats the action over the grid.
 
-          The action is `Create plan`, it produces a DRAFT, and it writes
-          nothing to the tracker — see CreatePlanButton. It refuses itself on a
-          host that cannot be asked (`unsupported`) or a lookup that broke
-          (`failed`), which is why the answer travels here beside the binding
-          flag: neither fact implies the other. */}
-      <span role="gridcell" className="flex shrink-0 justify-end">
-        <CreatePlanButton issue={issue} idea={idea} issueAnswer={issueAnswer} />
-      </span>
+          The button itself is unchanged: a Draft, nothing to the tracker, its
+          own refusal on a host that cannot be asked. See IssueRowActions. */}
+      <IssueRowActions issue={issue} idea={idea} issueAnswer={issueAnswer} />
     </li>
   );
 }

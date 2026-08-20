@@ -2256,6 +2256,118 @@ describe("a row's actions all live in its menu", () => {
     expect(menu).not.toContain('<StuckCue');
     expect(declaration('StuckCell')).toContain('<StuckCue');
   });
+
+  /**
+   * THE SAME RULE, on the ISSUE row — the one the estate had not reached.
+   *
+   * An issue row is not a branch row: it is rendered by `IssueRowView`, which
+   * the scan above never enters because it starts at `Row`. So *Create plan*
+   * sat inline in the issue row's body while every branch action had already
+   * moved into a `⋯` menu, split by nothing but which row-kind was refactored
+   * first — the exact two-homes shape `one-place-for-what-a-row-can-do`
+   * existed to end, surviving on the one row that describe did not walk.
+   *
+   * `every-action-is-in-the-menu` moves it into `IssueRowActions`, and this is
+   * the gate that keeps it there. Its navigation allowance is narrower than the
+   * branch row's: an issue row NAMES only its tracker number, so `data-issue-link`
+   * is the one inline interactive element permitted, and everything else — which
+   * today is *Create plan* alone — belongs behind the menu.
+   */
+  const ISSUE_NAVIGATION = ['data-issue-link'];
+
+  /**
+   * Block comments, gone — so prose ABOUT markup is not read AS markup.
+   *
+   * `IssueRowView` documents that its name cell is deliberately `not an <a>`,
+   * and that literal tag in the comment matched the raw-tag scan below. The
+   * branch-row gate escaped this only because its comments happen not to spell
+   * a bare tag; the rule is the same and so is the strip. Both the plain and the
+   * JSX-wrapped comment forms are removed, non-greedily, before any tag match.
+   */
+  const stripComments = (s: string): string =>
+    s.replace(/\{?\/\*[\s\S]*?\*\/\}?/g, '');
+
+  /**
+   * Every component reachable from the ISSUE row body, not entering
+   * `IssueRowActions` — the issue row's equivalent of {@link rowBodySources},
+   * and transitive for the same reason: the tracker link lives in `IssueRowView`
+   * itself today, but a future cell could push it one component down.
+   */
+  function issueRowBodySources(): { name: string; source: string }[] {
+    const seen = new Set<string>(['IssueRowActions']);
+    const out: { name: string; source: string }[] = [];
+    const queue = ['IssueRowView'];
+    while (queue.length) {
+      const name = queue.shift() as string;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const body = declaration(name);
+      out.push({ name, source: body });
+      for (const [, child] of body.matchAll(/<([A-Z][A-Za-z0-9]*)/g)) {
+        if (!seen.has(child) && source.includes(`function ${child}(`)) queue.push(child);
+      }
+    }
+    return out;
+  }
+
+  it('renders no interactive element in an issue row body outside the menu', () => {
+    // THE GATE, for the issue row. Every `<a>`/`<button>` reachable from
+    // `IssueRowView`, minus the tracker link — the remainder must be empty.
+    // `CreatePlanButton` is reached only through `IssueRowActions`, which the
+    // scan does not enter, so its `<button>` does not count against this.
+    const strays: string[] = [];
+    for (const { name, source: decl } of issueRowBodySources()) {
+      const body = stripComments(decl);
+      for (const m of body.matchAll(/<(a|button)[\s>]/g)) {
+        const tagEnd = body.indexOf('>', m.index);
+        const tag = body.slice(m.index, tagEnd === -1 ? m.index + 400 : tagEnd);
+        if (ISSUE_NAVIGATION.some((hook) => tag.includes(hook))) continue;
+        strays.push(`${name}: ${tag.replace(/\s+/g, ' ').slice(0, 120)}`);
+      }
+    }
+    expect(
+      strays,
+      'An interactive element in an issue row body belongs in IssueRowActions — '
+        + 'the row says what IS, the menu says what you can DO. If this is '
+        + 'navigation to a thing the row NAMES, add its hook to ISSUE_NAVIGATION '
+        + 'and say why.',
+    ).toEqual([]);
+  });
+
+  it('finds a stray Create plan when one is added back to the issue body', () => {
+    // THE GATE'S OWN GATE, for the issue row: a scan that matched nothing would
+    // pass forever while gating nothing. So an inline action — the shape this
+    // branch moved into the menu — is put back beside the tracker link and must
+    // be caught. Anchored on `data-issue-link`, which stays in the body
+    // whatever happens to `Create plan`, so the injection survives the move.
+    const withStray = stripComments(declaration('IssueRowView')).replace(
+      'data-issue-link',
+      'data-issue-link />\n      <button data-create-plan={issue.number}',
+    );
+    expect(withStray).toContain('data-create-plan');
+    const found = [...withStray.matchAll(/<(a|button)[\s>]/g)].filter((m) => {
+      const tag = withStray.slice(m.index, withStray.indexOf('>', m.index));
+      return !ISSUE_NAVIGATION.some((hook) => tag.includes(hook));
+    });
+    expect(found.length).toBeGreaterThan(0);
+  });
+
+  it('keeps Create plan in the issue menu, and the tracker link out of it', () => {
+    // The other half: the gate above proves nothing inline remained; this proves
+    // the action arrived in the menu, and that the one navigation the row NAMES
+    // stayed on the row rather than being swept behind a click.
+    const menu = declaration('IssueRowActions');
+    expect(menu).toContain('<CreatePlanButton');
+    expect(declaration('IssueRowView')).toContain('data-issue-link');
+    expect(declaration('IssueRowView')).not.toContain('<CreatePlanButton');
+  });
+
+  it('reaches the issue components the row mounts, not only IssueRowView', () => {
+    const names = issueRowBodySources().map((c) => c.name);
+    expect(names).toContain('IssueRowView');
+    // And it does NOT enter the menu, which is where the action is allowed.
+    expect(names).not.toContain('IssueRowActions');
+  });
 });
 
 /**

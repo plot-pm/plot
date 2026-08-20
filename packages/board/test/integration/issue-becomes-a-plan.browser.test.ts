@@ -136,6 +136,16 @@ describe('the issue row has one action, and it creates a Draft', () => {
   const section = (page: Page) => page.locator('ul[role="grid"][aria-label^="Waiting on you"]');
   const issueRow = (page: Page, n: number) => section(page).locator(`li[data-issue-row="${n}"]`);
   const button = (page: Page, n: number) => issueRow(page, n).locator(`[data-create-plan="${n}"]`);
+  // THE `⋯` MENU the action now lives behind — `every-action-is-in-the-menu`.
+  // *Create plan* is no longer inline in the row; it hangs in the issue row's
+  // menu with the same `data-create-plan` hook, so every assertion below reaches
+  // the same control once the menu is open.
+  const menuButton = (page: Page, n: number) =>
+    issueRow(page, n).locator(`[data-issue-actions="${n}"]`);
+  const openMenu = async (page: Page, n: number) => {
+    await menuButton(page, n).click();
+    await button(page, n).waitFor({ timeout: 10_000 });
+  };
 
   /**
    * Click a control that announces itself as disabled.
@@ -151,9 +161,14 @@ describe('the issue row has one action, and it creates a Draft', () => {
   const clickAnyway = (page: Page, n: number) =>
     button(page, n).dispatchEvent('click');
 
-  it('offers Create plan on an issue row', async () => {
+  it('offers Create plan from the issue row menu', async () => {
     const { page } = await open();
     try {
+      // The action is behind the `⋯` now: absent until the menu opens, which is
+      // the whole point — the row says what IS, the menu says what you can DO.
+      await expect.poll(() => menuButton(page, 228).count()).toBe(1);
+      await expect.poll(() => button(page, 228).count()).toBe(0);
+      await openMenu(page, 228);
       await expect.poll(() => button(page, 228).count()).toBe(1);
       await expect.poll(() => button(page, 228).textContent()).toContain('Create plan');
       await expect.poll(() => button(page, 228).getAttribute('aria-disabled')).toBe(null);
@@ -165,6 +180,7 @@ describe('the issue row has one action, and it creates a Draft', () => {
   it('names DRAFT in the confirmation, because that is the boundary', async () => {
     const { page } = await open();
     try {
+      await openMenu(page, 228);
       // Arm — the first click confirms, the second acts. The armed label names
       // the CONSEQUENCE, and the consequence here is as much the boundary as
       // the act: a plan will exist, and nothing has been decided about it.
@@ -179,6 +195,7 @@ describe('the issue row has one action, and it creates a Draft', () => {
   it('posts only after the confirmation, and posts only a number', async () => {
     const { page, posts } = await open();
     try {
+      await openMenu(page, 228);
       await button(page, 228).click();
       // Armed, not acted: one click must never spawn an agent.
       expect(posts).toEqual([]);
@@ -196,9 +213,16 @@ describe('the issue row has one action, and it creates a Draft', () => {
   it('Escape cancels an armed control rather than trapping it', async () => {
     const { page, posts } = await open();
     try {
+      await openMenu(page, 228);
       await button(page, 228).click();
       await page.keyboard.press('Escape');
+      // Escape backs out of BOTH the armed state and the menu — the button and
+      // its menu each listen for it, and there is no reading in which Escape
+      // should leave one of them behind. So re-open and prove the control came
+      // back UNARMED: the arm was cancelled, not merely hidden.
+      await openMenu(page, 228);
       await expect.poll(() => button(page, 228).textContent()).toContain('Create plan');
+      await expect.poll(() => button(page, 228).getAttribute('aria-pressed')).toBe('false');
       expect(posts).toEqual([]);
     } finally {
       await page.close();
@@ -212,6 +236,7 @@ describe('the issue row has one action, and it creates a Draft', () => {
     // one signal — the row's own failure mode, caused by the row's own action.
     const { page, posts } = await open();
     try {
+      await openMenu(page, 228);
       await button(page, 228).click();
       await button(page, 228).dblclick();
       await expect.poll(() => posts.length).toBe(1);
@@ -278,6 +303,10 @@ describe('the issue row has one action, and it creates a Draft', () => {
       reason: 'the board is bound to 0.0.0.0, not localhost',
     });
     try {
+      // The `⋯` is always there — the row IS a thing you can act on, the board
+      // just cannot act right now. Open it and the item inside refuses itself,
+      // rather than the whole menu vanishing and reading as a healthy row.
+      await openMenu(page, 228);
       await expect.poll(() => button(page, 228).getAttribute('aria-disabled')).toBe('true');
       await clickAnyway(page, 228);
       expect(posts).toEqual([]);
@@ -290,7 +319,7 @@ describe('the issue row has one action, and it creates a Draft', () => {
     }
   });
 
-  it('leaves what wave 1 renders untouched', async () => {
+  it('leaves what wave 1 renders untouched, and frees the age column', async () => {
     // #236 settled the row's shape, and its own tests assert it. This is the
     // one thing THIS wave could plausibly break: the action lives in the
     // seventh track, and a row that grew a cell would shift every other one.
@@ -299,10 +328,21 @@ describe('the issue row has one action, and it creates a Draft', () => {
       const name = issueRow(page, 228).locator('[data-issue-name]');
       await expect.poll(() => name.locator('a').count()).toBe(0);
       const cells = issueRow(page, 228).locator('[role="gridcell"]');
+      // STILL SEVEN — the action did not grow a cell, it moved into the one that
+      // was already there. The menu component owns the seventh track.
       await expect.poll(() => cells.count()).toBe(7);
       // Track 4 (0-indexed 3) is still the empty branch column.
       await expect.poll(() => cells.nth(3).textContent()).toBe('');
       await expect.poll(() => issueRow(page, 228).locator('a[data-issue-link]').count()).toBe(1);
+      // THE AGE COLUMN RENDERS ALONE — the reported defect. Track 6 (0-indexed
+      // 5) held `1d`/`Create plan` overlapping when the button sat one track
+      // over and overflowed left; now it holds only the age.
+      await expect.poll(() => cells.nth(5).textContent()).toBe('2h');
+      // Track 7 (0-indexed 6) is the menu, and it holds the glyph — not the
+      // words. The action is one click in, not spilling across the age.
+      const menuCell = cells.nth(6);
+      await expect.poll(() => menuCell.locator('[data-issue-actions="228"]').count()).toBe(1);
+      await expect.poll(() => menuCell.textContent()).not.toContain('Create plan');
     } finally {
       await page.close();
     }
