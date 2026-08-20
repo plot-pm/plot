@@ -428,15 +428,20 @@ export function TupleRowView({
           menu says what can be DONE to it, and a kind with nothing to offer is
           handed nothing rather than a `⋯` that opens an empty list.
 
-          THE MENU BRINGS ITS OWN `gridcell`, which is why there is no wrapper
-          here. Each of the three — `RowActions`, `PlanActions`,
-          `IssueRowActions` — already declares one, and each floats its popup
-          out of the grid from its own `relative` box; wrapping them again would
-          nest a cell inside a cell, which the grid role does not admit and
-          which no reader of the accessibility tree could place. A kind with no
-          menu contributes no cell at all, and the track it would have taken
-          holds its width because it is fixed. */}
-      {menu}
+          THE CELL IS UNCONDITIONAL AND THE MENU INSIDE IT IS NOT — the same
+          split the marks track makes, and for the same reason. A row whose kind
+          offers nothing must still occupy the track, or every row that does
+          offer something lands its six preceding cells one column adrift of it.
+          That alignment is what the grid is for.
+          
+          So the three menu components — `RowActions`, `PlanActions`,
+          `IssueRowActions` — render their button and their popup and NOT a cell
+          of their own: this is the cell, and a nested one is something the grid
+          role does not admit. Each keeps its own `relative` box, which is what
+          floats the popup out over the rows below. */}
+      <span role="gridcell" className="relative flex w-5 shrink-0 items-center justify-end">
+        {menu}
+      </span>
       {extra}
     </li>
   );

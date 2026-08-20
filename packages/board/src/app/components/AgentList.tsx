@@ -3493,8 +3493,11 @@ function RowActions({
     // still while rows gain and lose their actions. In the grid it also has a
     // track of its own (`1.25rem`), so that stillness now holds across rows as
     // well as across refreshes.
+    // NO `role="gridcell"` — `TupleRowView` renders the cell this sits in, and
+    // renders it whether or not a kind offers a menu, so the track holds its
+    // width either way. This keeps `relative`, which is what the popup below
+    // floats out of.
     <div
-      role="gridcell"
       className="relative w-5 shrink-0 text-right"
       onClick={(e) => e.stopPropagation()}
     >
@@ -4194,8 +4197,11 @@ function PlanActions({
   }, [open]);
 
   return (
+    // NO `role="gridcell"` — `TupleRowView` renders the cell this sits in, and
+    // renders it whether or not a kind offers a menu, so the track holds its
+    // width either way. This keeps `relative`, which is what the popup below
+    // floats out of.
     <div
-      role="gridcell"
       className="relative w-5 shrink-0 text-right"
       onClick={(e) => e.stopPropagation()}
     >
@@ -4765,8 +4771,11 @@ function IssueRowActions(
   }, [open]);
 
   return (
+    // NO `role="gridcell"` — `TupleRowView` renders the cell this sits in, and
+    // renders it whether or not a kind offers a menu, so the track holds its
+    // width either way. This keeps `relative`, which is what the popup below
+    // floats out of.
     <div
-      role="gridcell"
       className="relative w-5 shrink-0 text-right"
       onClick={(e) => e.stopPropagation()}
     >
