@@ -19,6 +19,7 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — the defect was measured from a screenshot after the first reading of it was wrong; scope narrowed to the sizing branch
+- **Started:** 2026-08-20, Jan Wloka, `bug/the-command-has-a-size`
 
 ## Problem
 
