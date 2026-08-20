@@ -62,21 +62,30 @@ parallel one.
 server needs it, and a unit file that needs 30 s is a separate finding.
 
 **What it buys, and the honest shape of the number.** The plan's open point asks
-for an idle-machine measurement before the benefit is quoted; this machine was
-not idle (sibling agents, 16 CPUs), so the ratio is the finding and the absolute
-seconds are conditional. Two A/B pairs of the same project, only
-`--fileParallelism` differing:
+for an idle-machine measurement before the benefit is quoted. This machine was
+never idle — 16 CPUs, load average 7.2–8.0, nine sibling vitest processes from
+other agents throughout — so that point stays open and no single percentage here
+should be lifted as *the* figure. Four A/B pairs of the same project, each leg
+run back to back, only `--fileParallelism` differing:
 
 | pair | serial | parallel | |
 |---|---|---|---|
-| first session | 91.0 s | 35.5 s | −61 % |
-| later, quieter session | 60.2 s | 41.1 s | −32 % |
+| 1 | 91.0 s | 35.5 s | −61 % |
+| 2 | 60.2 s | 41.1 s | −32 % |
+| 3 | 85.9 s | 53.0 s | −38 % |
+| 4 | 141.7 s | 49.6 s | −65 % |
 
-The serial leg itself moved 91 s → 60 s between sessions, which is how much
-ambient load was in the first pair — so **−61 % was over-generous and −32 % is
-the more defensible figure**, with the direction robust in every pair measured.
-This is the same confound the plan flags in its own table, reproduced here rather
-than inherited: back-to-back legs at different unknown loads.
+**The spread is the finding, not an error bar to average away.** The serial leg
+swings 60 s → 142 s, a 2.4x range on identical work; the parallel leg stays
+inside 35–53 s. Serial wall-clock tracks ambient load almost directly, because
+one slow file blocks the queue behind it and nothing else proceeds. Parallel
+absorbs the same contention across 16 CPUs.
+
+So the defensible claim is not a percentage but a shape: **parallel is faster in
+every pair measured, and it is also far more predictable — and the gap widens
+exactly when the machine is busy.** That is when a rebase happens, which is the
+case this plan was written for. A reader wanting one number should take the
+worst-case pair, −32 %, rather than the best.
 
 **The full `vitest run` moves much less: 779 s → 750 s, −3.7 %.** The serial
 project is ~700 s of that total, measured alone, so it dominates the suite and
