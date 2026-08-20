@@ -796,6 +796,35 @@ function repoWithInFlight(label) {
     return wt;
   }
 
+  /**
+   * A branch holding `files` in a commit, with NO WORKTREE anywhere.
+   *
+   * For the candidate's own branch specifically. `committedWork` gives a branch
+   * a worktree, and a worktree holding unlanded work is what the held-branch
+   * gate refuses — so using it on the CANDIDATE makes the candidate un-offerable
+   * and the report is never reached. The property under test (a branch is not
+   * reported as blocking itself) is about `committed_files`, which reads refs
+   * and needs no worktree at all.
+   */
+  function committedWorkNoWorktree(branch, files) {
+    const tmpwt = path.join(t, `mk-${branch.replace(/\//g, '-')}`);
+    git(r, 'worktree', 'add', '-q', '-b', branch, tmpwt, 'origin/main');
+    git(tmpwt, 'config', 'user.email', 'test@example.invalid');
+    git(tmpwt, 'config', 'user.name', 'Plot Test');
+    git(tmpwt, 'config', 'commit.gpgsign', 'false');
+    for (const [f, body] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(tmpwt, f)), { recursive: true });
+      fs.writeFileSync(path.join(tmpwt, f), body);
+    }
+    git(tmpwt, 'add', '-A');
+    git(tmpwt, 'commit', '-qm', `work on ${branch}`);
+    // The commit stays on the branch; the desk goes away. `git worktree remove`
+    // rather than rm, so git's own registry forgets it too — a registered
+    // worktree whose directory is missing is a different state.
+    git(r, 'worktree', 'remove', '--force', tmpwt);
+    return tmpwt;
+  }
+
   /** A branch claimed but holding nothing: an EMPTY commit, like a real claim. */
   function bareClaim(branch) {
     const wt = path.join(path.dirname(r), `plot-wt-${branch.replace(/\//g, '-')}`);
@@ -815,7 +844,8 @@ function repoWithInFlight(label) {
     fs.rmSync(t, { recursive: true, force: true });
   }
 
-  return { tmp: t, repo: r, committedWork, uncommittedWork, bareClaim, cleanup };
+  return { tmp: t, repo: r, committedWork, uncommittedWork, committedWorkNoWorktree,
+    bareClaim, cleanup };
 }
 
 test('dispatch: reports files held in an UNPUSHED commit', () => {
@@ -997,7 +1027,11 @@ test('dispatch: the candidate is never reported as blocking itself', () => {
   // branch is not eligible, so `--next` would return nothing, the loop would
   // never run, and the assertion would pass without the report being reached.
   const f = repoWithInFlight('selfexclude');
-  f.committedWork('feature/candidate', { 'Own.tsx': 'my own work\n' });
+  // NO WORKTREE for the candidate. The held-branch gate refuses a candidate
+  // whose worktree holds unlanded work, which would make it un-offerable and
+  // the report unreachable — a different property, tested separately. What is
+  // under test here is `committed_files`, which reads refs and wants no desk.
+  f.committedWorkNoWorktree('feature/candidate', { 'Own.tsx': 'my own work\n' });
   assert.equal(git(f.repo, 'ls-remote', '--heads', 'origin', 'feature/candidate').trim(), '',
     'the candidate must stay unclaimed, or dispatch never reaches the report');
 
@@ -1418,4 +1452,327 @@ test('dispatch: --allow-local is the explicit escape, and says it took it', () =
   // Never silent: an operator must be able to tell the gate read the working tree.
   assert.match(got.err ?? '', /--allow-local/);
   fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// THE HELD-BRANCH GATE
+// ---------------------------------------------------------------------------
+//
+// THE MEASUREMENT these tests encode: on 2026-08-20 `--dry-run` reported
+// `claimed=0` across a fleet with four live agents and offered two branches
+// that were already implemented, tested and green — in worktrees beside the
+// repo, one local commit each, never pushed — as dispatchable.
+//
+// `plot-fleet-scan.sh` derives every state from `origin/<branch>`, so a branch
+// with no remote ref has no claim, and no claim reads `eligible`. The scan is
+// right about what it reads. The worktree is on the other side of the machine,
+// and plot-dispatch.sh was already enumerating worktrees for its collision
+// report — it could see what a branch TOUCHED and not that someone HELD it.
+//
+// The fixture below therefore plants work the way the failure arrived: a
+// worktree with a LOCAL commit and NO REMOTE REF. An implementation reading
+// `origin/*` — which is the obvious one, and the one the scan uses — sees an
+// unclaimed branch here and passes nothing in this block.
+
+/**
+ * A repo with a one-branch plan whose branch can be given a worktree in any of
+ * the three states that matter: unmerged work, merged work, or none at all.
+ */
+function repoWithHeldBranch(label) {
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), `plot-held-${label}-`));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, r);
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-h.md'),
+    '# H\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n'
+    + '\n## Branches\n\n- `feature/held` — the one under test\n');
+  fs.symlinkSync('../2026-01-01-h.md', path.join(r, 'plans', 'active', 'h.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  const wt = path.join(path.dirname(r), 'plot-wt-feature-held');
+  const worktrees = [];
+
+  function configure(w) {
+    git(w, 'config', 'user.email', 'test@example.invalid');
+    git(w, 'config', 'user.name', 'Plot Test');
+    git(w, 'config', 'commit.gpgsign', 'false');
+  }
+
+  /**
+   * A worktree holding a commit that is NOT in main and NOT pushed — the exact
+   * shape of the measured failure.
+   */
+  function heldWithWork() {
+    git(r, 'worktree', 'add', '-q', '-b', 'feature/held', wt, 'origin/main');
+    configure(wt);
+    fs.writeFileSync(path.join(wt, 'work.txt'), 'implemented and green\n');
+    git(wt, 'add', '-A');
+    git(wt, 'commit', '-qm', 'the work an agent already did');
+    worktrees.push(wt);
+    return wt;
+  }
+
+  /**
+   * A LEFTOVER worktree: its work landed in main and the directory was never
+   * removed. Several of these existed on the machine that measured the bug, so
+   * a gate that fires here fires on exactly the branches that are safe.
+   */
+  function heldButMerged() {
+    git(r, 'worktree', 'add', '-q', '-b', 'feature/held', wt, 'origin/main');
+    configure(wt);
+    fs.writeFileSync(path.join(wt, 'landed.txt'), 'this already merged\n');
+    git(wt, 'add', '-A');
+    git(wt, 'commit', '-qm', 'work that landed');
+    // Land it: main now contains the branch tip, so the tip is an ancestor.
+    git(wt, 'push', '-q', 'origin', 'HEAD:main');
+    git(r, 'fetch', '-q', 'origin');
+    worktrees.push(wt);
+    return wt;
+  }
+
+  /**
+   * A worktree cut minutes ago with NO COMMIT YET, holding modified files.
+   *
+   * The shape that got past the first version of this gate. Measured on the
+   * plot repo: `plot-wt-a-branch-row-carries-its-link` held six modified files
+   * for a live agent and carried no commit, so its branch pointed at whatever
+   * main was when the worktree was cut — `ahead=0, behind=N`, which
+   * `--is-ancestor` reads as "already landed", identically to a merged
+   * leftover. No walk of the history separates the two; only the files do.
+   */
+  function heldUncommitted() {
+    git(r, 'worktree', 'add', '-q', '-b', 'feature/held', wt, 'origin/main');
+    configure(wt);
+    // Main moves on AFTER the worktree is cut, which is what puts the branch
+    // behind rather than level — exactly the live-agent shape.
+    fs.writeFileSync(path.join(r, 'moved-on.txt'), 'main advanced\n');
+    git(r, 'add', '-A');
+    git(r, 'commit', '-qm', 'main moves on');
+    git(r, 'push', '-q', 'origin', 'main');
+    git(r, 'fetch', '-q', 'origin');
+    // The agent is mid-edit: files changed, nothing committed.
+    fs.writeFileSync(path.join(wt, 'in-progress.txt'), 'being edited right now\n');
+    worktrees.push(wt);
+    return wt;
+  }
+
+  function cleanup() {
+    for (const w of worktrees) fs.rmSync(w, { recursive: true, force: true });
+    fs.rmSync(wt, { recursive: true, force: true });
+    fs.rmSync(t, { recursive: true, force: true });
+  }
+
+  return { tmp: t, repo: r, wt, heldWithWork, heldButMerged, heldUncommitted, cleanup };
+}
+
+test('dispatch: refuses a branch whose worktree holds unmerged work', () => {
+  const f = repoWithHeldBranch('refuse');
+  f.heldWithWork();
+
+  // Prove the premise, or this test passes for the wrong reason: the work is
+  // on NO remote ref, so nothing claim-shaped exists for the scan to find.
+  assert.equal(git(f.repo, 'ls-remote', '--heads', 'origin', 'feature/held').trim(), '',
+    'the fixture must keep the work unpushed, or this tests the wrong bug');
+  assert.equal(git(f.repo, 'rev-list', '--count', 'origin/main..feature/held').trim(), '1',
+    'the fixture must hold one unmerged commit');
+
+  const got = tryRun(['--offline', '--no-start', 'h'], f.repo);
+  assert.equal(got.code, 0, `the gate refuses a branch, not the run:\n${got.err}`);
+  assert.match(got.out, /^skipped feature\/held/m,
+    `a held branch must be refused:\n${got.out}`);
+  assert.doesNotMatch(got.out, /^dispatched feature\/held/m,
+    `it must not be dispatched:\n${got.out}`);
+  assert.match(got.out, /summary: .*skipped=1/,
+    `and counted as skipped:\n${got.out}`);
+  assert.match(got.out, /summary: .*dispatched=0/,
+    `nothing was dispatched:\n${got.out}`);
+
+  f.cleanup();
+});
+
+test('dispatch: the refusal names the worktree path', () => {
+  // The operator's next action is to LOOK at the desk. A refusal that does not
+  // say which one sends them to `git worktree list` to guess.
+  const f = repoWithHeldBranch('names');
+  f.heldWithWork();
+
+  const got = tryRun(['--offline', '--no-start', 'h'], f.repo);
+  assert.ok(got.out.includes(f.wt),
+    `the refusal must name the worktree path (${f.wt}):\n${got.out}`);
+
+  f.cleanup();
+});
+
+test('dispatch: the gate never claims on the operator behalf', () => {
+  // A claim ref for a worktree this script did not create is a record in git
+  // nobody asked for, and a stale claim is worse than an absent one — the
+  // reaper cannot tell it from a real one.
+  const f = repoWithHeldBranch('noclaim');
+  f.heldWithWork();
+  const before = git(f.repo, 'rev-parse', 'feature/held').trim();
+
+  tryRun(['--offline', '--no-start', 'h'], f.repo);
+
+  assert.equal(git(f.repo, 'ls-remote', '--heads', 'origin', 'feature/held').trim(), '',
+    'the gate must push no claim');
+  assert.equal(git(f.repo, 'rev-parse', 'feature/held').trim(), before,
+    'and must add no commit to the held branch');
+
+  f.cleanup();
+});
+
+test('dispatch: --dry-run refuses a held branch identically', () => {
+  // A dry run that offers what a real run would refuse is worse than no dry
+  // run: it is the same wrong answer with a reassurance attached. This is the
+  // measured failure — the bug arrived through `--dry-run` output.
+  const f = repoWithHeldBranch('dryrun');
+  f.heldWithWork();
+
+  const got = tryRun(['--dry-run', '--offline', 'h'], f.repo);
+  assert.match(got.out, /^skipped feature\/held/m,
+    `--dry-run must refuse it too:\n${got.out}`);
+  assert.doesNotMatch(got.out, /would dispatch feature\/held/,
+    `--dry-run must not offer a branch the real run refuses:\n${got.out}`);
+  assert.ok(got.out.includes(f.wt), `and must name the worktree:\n${got.out}`);
+  // The footer was hardcoded `skipped=0` before the gate existed.
+  assert.match(got.out, /summary: .*skipped=1/,
+    `the dry-run footer must count the refusal:\n${got.out}`);
+  assert.match(got.out, /summary: .*dispatched=0/, 'and offer nothing');
+
+  f.cleanup();
+});
+
+test('dispatch: a leftover worktree on a MERGED branch is still dispatched', () => {
+  // Several of these sat on the machine that measured the bug (6 of 36
+  // worktrees). Refusing them would make the gate fire on exactly the branches
+  // that are safe — the fastest way to teach an operator to route around it.
+  const f = repoWithHeldBranch('merged');
+  f.heldButMerged();
+
+  // Prove the premise: the tip really is in main.
+  const merged = spawnSync('git',
+    ['merge-base', '--is-ancestor', 'feature/held', 'origin/main'],
+    { cwd: f.repo, encoding: 'utf8' });
+  assert.equal(merged.status, 0, 'the fixture must land the work in main');
+
+  const got = tryRun(['--dry-run', '--offline', 'h'], f.repo);
+  assert.doesNotMatch(got.out, /^skipped feature\/held/m,
+    `a merged tip is not a hold:\n${got.out}`);
+  assert.match(got.out, /would dispatch feature\/held/,
+    `a leftover worktree on merged work stays dispatchable:\n${got.out}`);
+
+  f.cleanup();
+});
+
+test('dispatch: --allow-local does not override the held-branch refusal', () => {
+  // That flag is the named escape for a repo whose origin/<main> cannot be
+  // resolved. It says something about reading a PHASE and nothing whatever
+  // about whether a human is mid-edit in a worktree.
+  const f = repoWithHeldBranch('allowlocal');
+  f.heldWithWork();
+
+  const got = tryRun(['--dry-run', '--offline', '--allow-local', 'h'], f.repo);
+  assert.match(got.out, /^skipped feature\/held/m,
+    `--allow-local must not unlock a held branch:\n${got.out}`);
+  assert.doesNotMatch(got.out, /would dispatch feature\/held/,
+    `and must not offer it:\n${got.out}`);
+
+  f.cleanup();
+});
+
+test('dispatch: a branch with no worktree is unaffected', () => {
+  // The gate needs BOTH halves. A local branch on its own is not a hold —
+  // plenty exist for other reasons — so without a worktree nothing changes.
+  const f = repoWithHeldBranch('nowt');
+  // A local branch carrying unmerged work, but NO worktree anywhere.
+  git(f.repo, 'branch', 'feature/held', 'origin/main');
+
+  const got = tryRun(['--dry-run', '--offline', 'h'], f.repo);
+  assert.match(got.out, /would dispatch feature\/held/,
+    `no worktree means no hold:\n${got.out}`);
+  assert.match(got.out, /summary: .*skipped=0/,
+    `and nothing to skip:\n${got.out}`);
+
+  f.cleanup();
+});
+
+test('dispatch: refuses a worktree holding UNCOMMITTED work and no commit', () => {
+  // THE SHAPE THAT GOT PAST THE FIRST VERSION of this gate, measured on the
+  // plot repo itself: a worktree cut minutes ago for a live agent, six files
+  // modified, nothing committed. Its branch points at the main tip of the
+  // moment it was cut, so `--is-ancestor` answers "already landed" — the same
+  // answer it gives for the merged leftover the gate must NOT refuse.
+  //
+  // A tip-based check passes every other test in this block and fails this one,
+  // which is the whole reason it is here.
+  const f = repoWithHeldBranch('uncommitted');
+  f.heldUncommitted();
+
+  // Prove the premise, both halves. The branch has no commit of its own...
+  assert.equal(git(f.repo, 'rev-list', '--count', 'origin/main..feature/held').trim(), '0',
+    'the fixture must carry no commit, or it tests the committed shape again');
+  // ...and its tip IS an ancestor of main, so history alone calls it landed.
+  const ancestor = spawnSync('git',
+    ['merge-base', '--is-ancestor', 'feature/held', 'origin/main'],
+    { cwd: f.repo, encoding: 'utf8' });
+  assert.equal(ancestor.status, 0,
+    'the fixture must be ancestor-clean, or the tip check would catch it anyway');
+  // ...but the working tree is dirty, which is the only distinguishing fact.
+  assert.notEqual(git(f.wt, 'status', '--porcelain').trim(), '',
+    'the fixture must hold uncommitted work');
+
+  const got = tryRun(['--dry-run', '--offline', 'h'], f.repo);
+  assert.match(got.out, /^skipped feature\/held/m,
+    `an agent mid-edit holds the branch:\n${got.out}`);
+  assert.doesNotMatch(got.out, /would dispatch feature\/held/,
+    `it must not be offered:\n${got.out}`);
+  assert.ok(got.out.includes(f.wt), `and the worktree must be named:\n${got.out}`);
+
+  f.cleanup();
+});
+
+test('dispatch: finds a worktree at a path dispatch would not have chosen', () => {
+  // THE POPULATION THIS GATE EXISTS FOR is worktrees dispatch did NOT create —
+  // those are the ones carrying no claim ref. And they are not named by
+  // dispatch's rule. Measured on the plot repo: every hand-made worktree drops
+  // the branch TYPE, so `bug/a-branch-row-carries-its-link` sat in
+  // `plot-wt-a-branch-row-carries-its-link` where dispatch's own flattening
+  // says `plot-wt-bug-a-branch-row-carries-its-link`.
+  //
+  // A first version of the gate rebuilt the path from the branch name and
+  // therefore missed a worktree with six modified files in it — passing every
+  // other test in this block, because every other fixture uses dispatch's
+  // naming. The gate must ASK GIT which worktree holds the branch.
+  const f = repoWithHeldBranch('oddpath');
+  // Deliberately NOT ../plot-wt-feature-held: a name a human would pick.
+  const odd = path.join(path.dirname(f.repo), 'my-checkout-of-held');
+  git(f.repo, 'worktree', 'add', '-q', '-b', 'feature/held', odd, 'origin/main');
+  git(odd, 'config', 'user.email', 'test@example.invalid');
+  git(odd, 'config', 'user.name', 'Plot Test');
+  git(odd, 'config', 'commit.gpgsign', 'false');
+  fs.writeFileSync(path.join(odd, 'work.txt'), 'implemented and green\n');
+  git(odd, 'add', '-A');
+  git(odd, 'commit', '-qm', 'work at an unconventional path');
+
+  // Prove the premise: the path dispatch WOULD have guessed does not exist.
+  assert.equal(fs.existsSync(path.join(path.dirname(f.repo), 'plot-wt-feature-held')), false,
+    'the fixture must not sit at the conventional path, or it tests nothing');
+
+  const got = tryRun(['--dry-run', '--offline', 'h'], f.repo);
+  assert.match(got.out, /^skipped feature\/held/m,
+    `a hold is a hold wherever the worktree lives:\n${got.out}`);
+  assert.ok(got.out.includes(odd),
+    `and the refusal must name the REAL path, not a guessed one:\n${got.out}`);
+
+  fs.rmSync(odd, { recursive: true, force: true });
+  f.cleanup();
 });

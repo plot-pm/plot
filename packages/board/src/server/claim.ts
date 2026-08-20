@@ -72,6 +72,10 @@ export interface ClaimOptions extends BuildBoardOptions {
  *   `dispatched <branch> → <worktree>`  — this run claimed it
  *   `reusing existing worktree for <branch> → <worktree>` — already ours
  *   `skipped <branch> (claimed by another session)` — lost the race
+ *   `skipped <branch> (held — worktree exists with unlanded work)` — a worktree
+ *     on that machine holds unlanded work, so the script refused rather than
+ *     put a second agent on it. Its indented detail lines are ignored here: the
+ *     `skipped ` line carries the reason, and `lines.find` takes the first.
  *   `summary: dispatched=N reused=N skipped=N started=N …`
  */
 export function parseClaim(slug: string, stdout: string): ClaimResult {

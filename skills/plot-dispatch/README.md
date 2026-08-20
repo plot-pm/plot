@@ -276,11 +276,78 @@ self-declaration: estimated while planning, never checked against what the
 branch writes, and phrased broadly enough not to be a nuisance — which is what
 makes it useless. A comparison is only as good as its weaker half.
 
-So dispatch reports the **measured side only** and **refuses nothing**. An
-earlier draft skipped colliding candidates; that only makes sense with a
-prediction worth trusting, and a skip built on this measurement alone would have
-blocked pairs that ran fine. `plot-dispatch` stays a tool that reports rather
-than a gate that judges — scripts collect and report, skills interpret.
+So dispatch reports the **measured side only** and, *for shared files*,
+**refuses nothing**. An earlier draft skipped colliding candidates; that only
+makes sense with a prediction worth trusting, and a skip built on this
+measurement alone would have blocked pairs that ran fine.
+
+### Where it does refuse: the held-branch gate
+
+One thing on this measured side *is* a refusal, and the difference is exactly
+the one this section is about. A file two branches share is a **prediction**
+about work that has not happened. A worktree that exists for the **candidate
+itself**, holding commits that have not landed, is a **measurement** of work that
+already has — somebody is at that desk, or was.
+
+```
+skipped feature/the-row-carries-its-verdict (held — worktree exists with unmerged work)
+  worktree: ../plot-wt-feature-the-row-carries-its-verdict
+```
+
+Measured on 2026-08-20: `--dry-run` reported `claimed=0` across a fleet with
+four live agents and offered `feature/the-row-carries-its-verdict` and
+`feature/reconcile-calls-the-index-advisory` — both implemented, tested and
+green — as dispatchable. `plot-fleet-scan.sh` derives every state from
+`origin/<branch>`, and neither branch had a remote ref: one local commit each,
+never pushed. No remote ref, no claim; no claim, `eligible`. The scan is right
+about what it reads, and the worktree is on the other side of the machine.
+
+Dispatch is the only component that can catch this, for the reason the section
+above gives: it reads local refs and worktrees because it *creates* worktrees on
+this machine. The evidence was already being collected — it had simply never
+been asked this question.
+
+Why a gate rather than a rule: "always dispatch through `plot-dispatch.sh` so
+the claim ref exists" was violated four times in one evening by an operator who
+had read it that evening. *Did I claim this?* is answerable without doing it.
+
+Two shapes count as unlanded, and the second was found only by running the gate
+against this repo after the first was written and green:
+
+- **Commits not in the default branch** — the measured case above.
+- **Uncommitted changes**, with no commit at all. A worktree cut minutes ago
+  points at whatever main was then, so `--is-ancestor` calls it *landed*,
+  identically to a merged leftover — `ahead=0, behind=N` for both, and no walk
+  of the history separates them. `plot-wt-a-branch-row-carries-its-link` held
+  six modified files for a live agent in exactly this shape. Only the files
+  distinguish it, so the working tree is checked first.
+
+The worktree is located by **asking git which one holds the branch**, never by
+rebuilding the path from the branch name. A first version did the latter and
+missed that same six-file worktree: every hand-made worktree on the machine
+drops the branch *type*, so `bug/a-branch-row-carries-its-link` lived in
+`plot-wt-a-branch-row-carries-its-link` where dispatch's flattening says
+`plot-wt-bug-a-branch-row-carries-its-link`. The failure landed in the worst
+possible population — worktrees dispatch did not create are exactly the ones
+with no claim ref, which is the entire reason the gate exists, so a
+convention-matching check could only ever have caught the already-claimed.
+
+Three boundaries, each of which a looser gate gets wrong:
+
+- **It claims nothing on the operator's behalf.** A claim ref for a worktree
+  this script did not create is a record in git nobody asked for, and
+  `/plot-reconcile` cannot tell a stale claim from a live one.
+- **A merged tip with a clean tree is not a hold.** Six of the thirty-six
+  worktrees on the machine that measured this were leftovers whose work had
+  landed. Refusing those fires the gate on precisely the safe branches, which is
+  how an operator learns to route around it.
+- **`--allow-local` does not reach it.** That flag is about reading a plan's
+  *phase* without a resolvable `origin/<main>`; it says nothing about whether a
+  human is mid-edit. It is absent from the check by construction, not by a
+  conditional.
+
+For everything else, `plot-dispatch` stays a tool that reports rather than a gate
+that judges — scripts collect and report, skills interpret.
 
 ## Workers never merge
 
@@ -316,7 +383,28 @@ passes for the wrong reason:
 - The **self-exclusion** test prepares the candidate's branch locally and never
   claims it on the remote. A claimed branch is not eligible, so `--next` would
   return nothing, the loop would never run, and the assertion would pass
-  without the report being reached.
+  without the report being reached. It also gives that branch **no worktree**,
+  which the held-branch gate made load-bearing: the gate refuses a candidate
+  whose worktree holds unlanded work, so a desk here would make the candidate
+  un-offerable and the report unreachable again — by the opposite route. The two
+  properties are close enough to collide and separate enough to need their own
+  fixtures: self-exclusion is about `committed_files`, which reads refs and wants
+  no worktree at all.
+
+The **held-branch** tests plant work the way the failure arrived: a worktree
+with a local commit and **no remote ref**. An implementation reading `origin/*` —
+the obvious one, and the one the fleet scan uses — sees an unclaimed branch and
+passes none of them. Each fixture asserts its own premise first (`ls-remote`
+empty, one commit ahead) so it cannot go green by testing the wrong bug.
+
+Three of the eight are guards rather than the fix: a leftover worktree on a
+**merged** branch must still dispatch, a branch with **no worktree** must be
+untouched, and **`--allow-local`** must not unlock a hold. They pass on `main`
+too, and that is the point — they pin the blast radius, not the feature.
+
+The measured `--dry-run`/real-run pair is checked as two assertions rather than
+one because they used to diverge: the dry-run footer carried a hardcoded
+`skipped=0`, so a refusal it printed was a refusal it did not count.
 
 Both were found by mutating the script and checking the tests went red — a
 green test proves nothing until it has been seen to fail.
