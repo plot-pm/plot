@@ -45,8 +45,14 @@
 #   file           the path given
 #   format         canonical | frontmatter | none
 #   phase_raw      primary phase value as written ("" if absent)
-#   phase          normalized: draft|approved|delivered|released|rejected|
-#                  superseded|UNKNOWN|NONE
+#   phase          normalized: draft|design|approved|delivered|released|
+#                  rejected|superseded|UNKNOWN|NONE
+#                  `design` is a phase of its own, not a synonym for anything:
+#                  a plan in Design cannot yet be handed to development because
+#                  it needs a spec, a spike or a tracer bullet first. That is a
+#                  different statement from "approved and nobody has started",
+#                  which is a queue. (`ready-for-review`/`in-review` DO
+#                  normalize onto `approved` — those are synonyms; this is not.)
 #   phase_alt_raw  secondary value when the file carries two (front matter
 #                  status: AND phase:), else ""
 #   phase_alt      normalized phase_alt_raw (NONE when absent)
@@ -101,6 +107,12 @@
 #                  `Released:` or front matter `released:` — date and version).
 #                  Empty until /plot-release records it; the tag stays the git
 #                  truth and this merely reflects it.
+#   design_raw     the design transition record as written (`## Status`
+#                  `Design:` or front matter `design:` — who/when, and what the
+#                  design work is); "" if absent. Reported for any plan that
+#                  carries the line, whatever its phase: a plan that WENT
+#                  THROUGH design keeps the record after moving on, exactly as
+#                  `approved_raw` outlives the Approved phase.
 #   approved_raw   the approval transition record as written (`## Status`
 #                  `Approved:` or front matter `approved:` — who/when/channel,
 #                  e.g. "2026-07-30, alice, in-session"); "" if absent
@@ -153,7 +165,7 @@ if [ ${#files[@]} -eq 0 ] && [ ${#missing[@]} -eq 0 ]; then
 fi
 
 for f in ${missing[@]+"${missing[@]}"}; do
-  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"issues":[],"changelog":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","approved_raw":"","released_raw":"","delivered_raw":"","started_raw":[]}\n' \
+  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"issues":[],"changelog":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","started_raw":[]}\n' \
     "$(printf '%s' "$f" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 done
 
@@ -181,7 +193,7 @@ function norm_phase(raw,   lower, toks, n, i, t) {
   for (i = 1; i <= n; i++) {
     t = toks[i]
     gsub(/^[^a-z]+/, "", t); gsub(/[^a-z-]+$/, "", t)
-    if (t ~ /^(draft|approved|delivered|released|rejected|superseded)$/) return t
+    if (t ~ /^(draft|design|approved|delivered|released|rejected|superseded)$/) return t
     if (t == "ready-for-review" || t == "in-review") return "approved"
   }
   return "UNKNOWN"
@@ -226,11 +238,11 @@ function reset_state() {
   fm_status = ""; fm_phase = ""; fm_type = ""
   fm_title = ""; fm_sprint = ""; fm_story = ""; fm_assignee = ""
   fm_review = ""; fm_impl = ""; fm_approved = ""; fm_started = ""; fm_released = ""
-  fm_delivered = ""
+  fm_delivered = ""; fm_design = ""
   canon_phase = ""; canon_type = ""
   canon_sprint = ""; canon_story = ""; canon_assignee = ""
   canon_review = ""; canon_impl = ""; canon_approved = ""; canon_released = ""
-  canon_delivered = ""
+  canon_delivered = ""; canon_design = ""
   h1_title = ""
   # "" means the plan carries no readable round — NOT zero. Emitted by omitting
   # the field, so a consumer cannot mistake "never interrogated" for "asked
@@ -247,7 +259,7 @@ function reset_state() {
   fm_changelog = ""
   delete changelog; n_changelog = 0; changelog_seen = 0; cl_open = 0
 }
-function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, review, impl, approved, delivered, issue, i, j, out, sorted_b, sorted_p, sorted_i, nb, np, ni) {
+function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, review, impl, design, approved, delivered, issue, i, j, out, sorted_b, sorted_p, sorted_i, nb, np, ni) {
   if (fm_status != "" || fm_phase != "") {
     fmt = "frontmatter"
     praw = (fm_status != "") ? fm_status : fm_phase
@@ -266,6 +278,7 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   assignee = strip_placeholder((fm_assignee != "") ? fm_assignee : canon_assignee)
   review   = strip_placeholder((fm_review   != "") ? fm_review   : canon_review)
   impl     = strip_placeholder((fm_impl     != "") ? fm_impl     : canon_impl)
+  design   = strip_placeholder((fm_design   != "") ? fm_design   : canon_design)
   approved = strip_placeholder((fm_approved != "") ? fm_approved : canon_approved)
   released = strip_placeholder((fm_released != "") ? fm_released : canon_released)
   delivered = strip_placeholder((fm_delivered != "") ? fm_delivered : canon_delivered)
@@ -345,6 +358,7 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   out = out "]"
   out = out ",\"review_raw\":\"" jesc(review) "\",\"review\":\"" norm_review(review) "\""
   out = out ",\"impl_raw\":\"" jesc(impl) "\",\"impl\":\"" norm_impl(impl) "\""
+  out = out ",\"design_raw\":\"" jesc(design) "\""
   out = out ",\"approved_raw\":\"" jesc(approved) "\""
   out = out ",\"released_raw\":\"" jesc(released) "\""
   out = out ",\"delivered_raw\":\"" jesc(delivered) "\""
@@ -376,6 +390,7 @@ in_fm {
   else if (lower ~ /^assignee:/ && fm_assignee == "") fm_assignee = val_after_colon($0)
   else if (lower ~ /^review:/ && fm_review == "") fm_review = val_after_colon($0)
   else if (lower ~ /^impl:/ && fm_impl == "") fm_impl = val_after_colon($0)
+  else if (lower ~ /^design:/ && fm_design == "") fm_design = val_after_colon($0)
   else if (lower ~ /^approved:/ && fm_approved == "") fm_approved = val_after_colon($0)
   else if (lower ~ /^released:/ && fm_released == "") fm_released = val_after_colon($0)
   else if (lower ~ /^delivered:/ && fm_delivered == "") fm_delivered = val_after_colon($0)
@@ -437,6 +452,7 @@ section == "status" {
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**issue[:*]/ && canon_issue == "") canon_issue = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**review[:*]/ && canon_review == "") canon_review = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**impl[:*]/ && canon_impl == "") canon_impl = val_after_colon($0)
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**design[:*]/ && canon_design == "") canon_design = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**approved[:*]/ && canon_approved == "") canon_approved = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**released[:*]/ && canon_released == "") canon_released = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**delivered[:*]/ && canon_delivered == "") canon_delivered = val_after_colon($0)
