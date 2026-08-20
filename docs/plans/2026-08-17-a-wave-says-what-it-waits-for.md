@@ -141,9 +141,20 @@ three verdicts the scan computes are the three the board shows.
 
   **What such a wave can never be is blocked.** Blocking is wave ORDER — a wave waits because an earlier one has unmerged branches — so a plan with exactly one wave has nothing to wait for by construction. That is already handled: `blockedNote(null)` returns *"blocked by an earlier wave"* as the fallback, and `schema.ts` records why — *"a plan with no `###` sub-headings has an unnamed wave and this is all that can honestly be said."* The fallback exists for the case where a LATER wave is unnamed, not for a lone one, which cannot reach that state.
 
-  What a row shows when the wave has no name is a real decision, not an edge case — 11 of 46 is a quarter of the estate. The honest answer is **nothing**: an unnamed wave has no name to state, and inventing one (`Wave 1`, the plan's own title) would put a label on the board that appears in no plan file, which is the class of invention this repo removes rather than adds. The grouping still shows — consecutive rows of one wave read as one group — and only the caption is absent.
+  **A wave name carries information only where the plan has more than one wave**, and that is the rule the label follows — not *"show it when it exists"*. Splitting the estate on both axes shows why:
 
-  Tests: a branch row names its wave in every section that holds branch rows; a plan whose branches are all in one unnamed wave gains **no** label rather than an invented or empty one, while its rows still group; consecutive branches of one wave read as one group without repeating the name on each row; row height and column alignment are unchanged; below `CARD_BELOW_PX` nothing regresses.
+  | | named | unnamed |
+  |---|---|---|
+  | **one wave** | 2 plans, 1 branch each | 5 plans, 11 branches |
+  | **several waves** | 9 plans, 33 branches | — none |
+
+  The empty cell is the finding: **no plan divides its work without naming the parts**, because the division is expressed by the `### ` heading itself. So *unnamed* and *one wave* are the same population plus two exceptions — `a-plan-row-is-not-a-branch-row` (wave *Layout*) and `the-marker-gets-a-track-of-its-own` (wave *Track*), each a single branch under a name that distinguishes it from nothing.
+
+  Keying on the name's presence would label those two and leave eleven branches bare; keying on the **wave count** labels exactly the rows where the answer to *which slice of this plan?* is not "all of it". A name over a plan's only wave is a caption for a partition of one.
+
+  Where the label is absent, the grouping still shows — consecutive rows of one wave read as one group — and only the caption goes. Nothing is invented: `Wave 1` or the plan's title would put a string on the board that appears in no plan file, which is the class of invention this repo removes.
+
+  Tests: a branch row names its wave in every section that holds branch rows, **wherever the plan has more than one wave**; a single-wave plan shows no wave label whether or not its wave is named — assert both the unnamed and the named case, since the named single-wave plan is what a presence check would get wrong; a plan whose branches all sit in one wave still has its rows group; consecutive branches of one wave read as one group without repeating the name on each row; row height and column alignment are unchanged; below `CARD_BELOW_PX` nothing regresses.
 
 ### Count
 
