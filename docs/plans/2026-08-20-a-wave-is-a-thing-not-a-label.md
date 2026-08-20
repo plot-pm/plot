@@ -64,20 +64,52 @@ it the other way round means:
 
 ## Design
 
+### A wave HAS a plan — containment, not provenance
+
+Settled 2026-08-20, and it resolves the open point this plan had recorded:
+*"it is the only kind whose artifact links are containment rather than
+provenance."*
+
+The operator's correction is that the direction is the other way round from what
+the table implied: **a wave has plans**, it did not come from one. So the
+`PLAN`-prefixed link is wrong, not merely redundant — a prefix that reads as
+*came from* on a link that means *contains*.
+
+| kind | relationship to its links | prefix |
+|---|---|---|
+| PR | came from a plan, travels on a branch | **`PLAN`**, **`BRANCH`** |
+| Release | cut through a PR, travels on a branch | **`PR`**, **`BRANCH`** |
+| **Wave** | **contains** its plan's work, **holds** its branches | **none** |
+
+**Containment needs no prefix, because the row's position says it.** A wave row
+sits under its plan — grouped, foldable — and that placement is the statement. A
+`PLAN x` label on a row already nested under `x` says the same thing twice, which
+is exactly what the screenshot shows.
+
+### The duplication measured
+
+From the live payload, NOT STARTED holds **one** row:
+
+    kind=plan  plan=fleet-scan-asks-the-host  wave=Shaped  note=approved — nobody has taken it
+
+The screen shows **two**. `countsPlans = key === 'not-started'`
+(`AgentList.tsx:5236`) makes NOT STARTED always render a plan line, and
+`showsWaveFold` (`:1026`) returns `group.rows.length > 1`. With a one-wave plan
+there is nothing to fold, so the plan line and the wave row stand side by side
+saying the same thing — one labelled `PLAN … 1 wave … Design`, the other
+`PLAN Shaped … approved — nobody has taken it`.
+
+**The grouping stays; the duplication goes.** Waves under a plan, expandable, is
+what the operator asked to keep. What must not survive is a plan rendered twice
+because one of its rows happens to be its only wave.
+
 ### `wave` becomes the eighth kind
-
-The tuple's rule applies unchanged — an item links **what it came from and what it
-travels on**:
-
-| kind | came from | travels on | artifact links |
-|---|---|---|---|
-| **Wave** | a **plan** | the **branches** it holds | **plan, branch(es)** |
 
 So a wave row is:
 
 | icon | kind | name | artifact links | status | age |
 |---|---|---|---|---|---|
-| wave | `Wave` | `Shaped` | `a-row-is-a-tuple`, `feature/a-row-is-a-tuple` | `eligible` | `1d` |
+| wave | `Wave` | `Shaped` | `feature/a-row-is-a-tuple` — its branches, **unprefixed** | `eligible` | `1d` |
 
 **Name**: the wave's name — which is why every wave earns one, the convention
 recorded in the plan template on 2026-08-20. A nameless wave would render a
@@ -87,9 +119,10 @@ nameless row.
 `blocked` — and where blocked, *what it waits on* becomes the artifact link to
 that wave rather than a sentence in a note.
 
-**Artifact links**: its plan, and its branches. A wave holding five branches links
-five — the artifact slot is zero-or-more, and this is the kind that uses the
-upper end of it.
+**Artifact links**: its **branches**, unprefixed. Not its plan — the plan is what
+the wave sits under, and the nesting states it. A wave holding five branches links
+five; the artifact slot is zero-or-more, and this is the kind that uses the upper
+end of it.
 
 ### What happens to `row.wave` and `row.verdict`
 
@@ -141,10 +174,13 @@ WAITING ON A MACHINE: a wave is not a build.
       branches would **not** — a blocked wave with nothing to show, a complete one
       — and expands to its branches where they matter. Decide from a rendered
       board with a multi-wave plan.
-- [ ] **Is `Wave` a kind or a group?** This plan says kind, because it has a name,
-      a status and links — the tuple's test. But it is also the only kind whose
-      artifact links are *containment* rather than provenance, which may argue it
-      is a grouping the sections already do.
+- [x] **Is `Wave` a kind or a group?** Both, and they do not conflict — settled
+      2026-08-20. It is a **kind** because it has a name, a status and links, which
+      is the tuple's test. Its links express **containment** rather than
+      provenance, and the consequence is that they carry **no prefix**: the row's
+      nesting under its plan says what a `PLAN` label would repeat. So the
+      grouping stays — waves under a plan, expandable — and the wave row is a
+      first-class row inside it.
 
 ## Branches
 
@@ -152,7 +188,7 @@ WAITING ON A MACHINE: a wave is not a build.
 - `feature/a-wave-is-a-kind` — the contract carries a wave as a row with its name, its verdict as status, and its plan and branches as artifact links; the scan's existing wave objects are the source. Tests: a wave row renders all six slots; its status is the scan's verdict, unchanged; a blocked wave links the wave it waits on **as an artifact link**, not as note prose; a wave holding five branches renders five artifact links; a wave with no name fails loudly rather than rendering blank; no host call is added; the scan is untouched.
 
 ### Relocated
-- `bug/the-branch-row-stops-labelling-its-wave` — `row.wave` and `row.verdict` stop being rendered on a branch row; the fields stay on the contract for the join. Tests: a branch row shows no wave label; **no `data-wave` element exists in the kind's track**; `blockedNote` has no caller; the plan heading no longer summarises wave states; a branch's wave is still discoverable — through the wave row that holds it.
+- `bug/the-branch-row-stops-labelling-its-wave` — `row.wave` and `row.verdict` stop being rendered on a branch row; a one-wave plan renders **one** row rather than a plan line beside its only wave; the fields stay on the contract for the join. Tests: **a plan with one wave produces exactly one row in NOT STARTED**; a plan with three waves keeps its foldable grouping; a wave row's artifact links carry **no `PLAN` prefix**; a branch row shows no wave label; **no `data-wave` element exists in the kind's track**; `blockedNote` has no caller; the plan heading no longer summarises wave states; a branch's wave is still discoverable — through the wave row that holds it.
 
 ## Notes
 
