@@ -154,10 +154,18 @@ describe('story overlay: opening a story from the board', () => {
         .toBeGreaterThan(0);
       await expect.poll(() => section.getByText('Write a compost-turning guide').count())
         .toBeGreaterThan(0);
-      await expect.poll(() => section.getByText('Design', { exact: true }).count())
+      // `Net the strawberry bed` is approved with no Started record, which is
+      // DEVELOPMENT — work waiting for an agent. It read `Design` while the
+      // board manufactured that column by forking approved on started; a plan
+      // reaches Design now only by being IN the Design phase, and no fixture
+      // plan is. Asserting `Design` here would pin the defect this wave removes.
+      await expect.poll(() => section.getByText('Development', { exact: true }).count())
         .toBeGreaterThan(0);
       await expect.poll(() => section.getByText('Endgame', { exact: true }).count())
         .toBeGreaterThan(0);
+      // …and Design is genuinely absent, which is the half that proves the
+      // column stopped being manufactured rather than merely renamed.
+      expect(await section.getByText('Design', { exact: true }).count()).toBe(0);
 
       // The fixture's STORY file disagrees on purpose: its hand-written
       // "Current Plan" section names a plan that does not exist and omits both

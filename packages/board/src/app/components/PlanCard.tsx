@@ -18,28 +18,47 @@ const PHASE_ACCENT: Record<Phase, string> = {
 
 /**
  * Approved, and nobody has started it — the exact state `plot-dispatch.sh`
- * requires and the exact state the **Ready** badge already described. The board
- * splits `approved` across two columns (Design without a Started record,
- * Development with one), so neither column alone answers "is this plan
- * approved"; `started === false` in Design does, and the card was already
- * computing it.
+ * requires and the exact state the **Ready** badge already described.
+ *
+ * **The column is now `Development`, not `Design`.** This predicate read
+ * `phase === 'Design'` while the board manufactured its Design column by
+ * forking `approved` on `started`; once `toBoardPhase` maps approved to
+ * Development *whether or not* a branch has started, an approved-unstarted plan
+ * is a Development card and this expression found nothing. Measured: the
+ * `Start work` button vanished from every plan that could be started, and nine
+ * browser tests timed out looking for a control that was no longer rendered.
+ *
+ * `started === false` still carries the whole distinction — it is the half that
+ * was always doing the work, and it is now the only half, since the column no
+ * longer varies with it.
  *
  * Exported so the badge and the Start work button are the SAME expression and
  * cannot drift into disagreeing about what Ready means.
  */
 export function isReadyToStart(card: Card): boolean {
-  return card.phase === 'Design' && card.started === false;
+  return card.phase === 'Development' && card.started === false;
 }
 
 /**
- * Approved, in whichever column the card sits. `plot-dispatch.sh` hard-gates on
- * phase `approved` and refuses every other one — Draft exits 1 with "Review it,
- * then: /plot-approve" — so keying the button on a COLUMN would put it on plans
- * where it could only fail, and hide it from approved-but-unstarted plans,
- * which is the first-dispatch case the button is most for.
+ * Approved, started or not. `plot-dispatch.sh` hard-gates on phase `approved`
+ * and refuses every other one — Draft exits 1 with "Review it, then:
+ * /plot-approve" — so a control keyed on anything narrower would sit on plans
+ * where it could only fail, or hide from approved-but-unstarted plans, which is
+ * the first-dispatch case the button is most for.
+ *
+ * **This is now exactly `phase === 'Development'`**, and it is written that way
+ * rather than as the two-branch union it used to be. While Design and
+ * Development split `approved` on `started`, the union named two real cases;
+ * once approved maps to Development regardless, the same union reads
+ * `(Development && !started) || (Development && started)` — a tautology whose
+ * shape suggests a distinction the board no longer draws.
+ *
+ * Kept as a named predicate rather than inlined: it is the one place that says
+ * *which board column means approved*, and the dispatch gate it mirrors lives
+ * in a shell script that cannot import it.
  */
 export function isApproved(card: Card): boolean {
-  return isReadyToStart(card) || (card.phase === 'Development' && card.started === true);
+  return card.phase === 'Development';
 }
 
 /**
