@@ -98,6 +98,36 @@ the story, and a `PLOT-UNASKED` line names the question that went unasked.
 So a story created from a click is indistinguishable from one created at a
 terminal over triage advice — which is what it is.
 
+### Counting homes reads the config, never the filesystem
+
+Measured across two repos on 2026-08-20, and it is the trap this design would
+otherwise walk into.
+
+Both have **exactly one** story home. This repo: `docs/stories/` holding
+`plot-board`, `plot-gates`, `plot-planning-model`. And
+`Quatico.Webseite/quaweb-website`: `docs/stories/` holding five stories and a
+README.
+
+But a naive search finds more in the second:
+
+    docs/stories/                             ← the home
+    packages/website/content/de/stories/      ← website content
+    packages/website/content/en/stories/      ← website content
+    packages/website/images__deprecated/…/success-stories/…  ← images
+
+Those are customer stories on a website and image assets. A
+`git ls-files | grep stories/` would count four "homes" where there is one, and
+the button would refuse with *"more than one home"* in a repo that has no
+ambiguity at all.
+
+**So the home count comes from `Story directory` in Plot Config** (default
+`docs/stories/`), which is the key Plot already reads — not from a filesystem
+search for a directory named `stories`. A repo declaring several homes declares
+them; a repo that happens to contain the word does not.
+
+This is Principle 5 applied: Plot discovers what a repo declares, and never
+infers structure from names it did not choose.
+
 ### Where more than one home exists
 
 The single-home escape is a property of the repo, not of the board. A repo with
@@ -132,7 +162,7 @@ already models for *Create plan* (`idea.available`).
 ## Branches
 
 ### Routed
-- `feature/a-ticket-becomes-a-story` — `/api/story` spawns a `Story command` for `/story-tracking` on a ticket, writing the issue to a file exactly as `/api/idea` does; `storyRefusal` becomes a not-configured refusal rather than a categorical one. Tests: the route writes the issue to a file and passes only its path; `PLOT_UNATTENDED=1` and `PLOT_ISSUE` are exported; an absent `Story command` refuses and **names the key**; a repo with more than one story home refuses with the home question named rather than guessing; nothing from the issue body reaches the shell; `/api/idea` is unchanged; the ticket menu still offers both entries.
+- `feature/a-ticket-becomes-a-story` — `/api/story` spawns a `Story command` for `/story-tracking` on a ticket, writing the issue to a file exactly as `/api/idea` does; `storyRefusal` becomes a not-configured refusal rather than a categorical one. Tests: the route writes the issue to a file and passes only its path; `PLOT_UNATTENDED=1` and `PLOT_ISSUE` are exported; an absent `Story command` refuses and **names the key**; a repo with more than one **declared** story home refuses with the home question named rather than guessing; **a repo containing unrelated `stories/` directories — website content, image assets — is still a one-home repo**, because the count reads `Story directory` and not the filesystem; nothing from the issue body reaches the shell; `/api/idea` is unchanged; the ticket menu still offers both entries.
 
 ## Notes
 
