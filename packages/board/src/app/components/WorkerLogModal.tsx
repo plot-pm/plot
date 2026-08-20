@@ -59,8 +59,19 @@ export function missWord(reason: LogMissReason): string {
  * misses would say the log is absent when the fact is that it is empty — the
  * distinction the server went to the trouble of preserving, thrown away at the
  * last step.
+ *
+ * IT STATES THE TOOL'S BEHAVIOUR, NOT A CLAIM ABOUT THE WORKER. The old wording
+ * — *"the worker has started and written nothing yet"* — read the empty FILE as
+ * evidence the AGENT was idle, and measured on the live board it was false: the
+ * agents had been working for minutes with 114k tokens of context while this
+ * log stayed empty by construction. `claude -p` (and agent runners like it)
+ * write their transcript on exit and emit nothing on stdout until then, so an
+ * empty log is what a BUSY agent looks like, not an idle one. The sentence says
+ * that — the same rule the fleet scan applies to a host it cannot reach: an
+ * absence of output is not evidence of an absence of work.
  */
-export const EMPTY_LOG_WORD = 'The log is empty — the worker has started and written nothing yet.';
+export const EMPTY_LOG_WORD =
+  'The log is empty — an agent that writes its transcript on exit shows nothing here until it finishes.';
 
 export interface WorkerLogModalProps {
   branch: string;

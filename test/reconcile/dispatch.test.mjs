@@ -726,6 +726,83 @@ test('dispatch: a real worker that exits records its status', () => {
   fs.rmSync(wt, { recursive: true, force: true });
 });
 
+test('dispatch: .plot-worker.pid records the AGENT process, not the wrapper', () => {
+  // The bug this pins: `plot-dispatch.sh` recorded `$!` of the backgrounded
+  // `sh -c` WRAPPER, so the panel named the dispatcher's shell rather than the
+  // agent doing the work — every field read correctly off the wrong process.
+  // The wrapper knows its own child; it must write the child's pid.
+  //
+  // HOW THE AGENT PROVES ITS OWN PID. The Worker command is
+  // `sh -c 'echo $$ > sentinel; exec sleep …'`. `exec` replaces that `sh` with
+  // `sleep` WITHOUT changing the pid, so the `$$` written a line earlier is
+  // exactly the pid the OS gives the running agent — captured at launch, so the
+  // check does not depend on the detached process surviving into the assertion
+  // (under a test harness it is reaped when the dispatcher exits). The record
+  // must equal that sentinel and differ from the wrapper's pid.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-agentpid-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, 'repo');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  const sentinel = path.join(t, 'agent.pid');
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n'
+    + `- **Worker command:** sh -c 'echo $$ > ${sentinel}; exec sleep 20'\n`);
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-w.md'),
+    '# W\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/real` — one\n');
+  fs.symlinkSync('../2026-01-01-w.md', path.join(r, 'plans', 'active', 'w.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  execFileSync('bash', [dispatch, '--offline', 'w'],
+    { encoding: 'utf8', cwd: r, timeout: 30_000 });
+
+  const wt = path.join(path.dirname(r), 'plot-wt-feature-real');
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline
+    && !(fs.existsSync(sentinel) && fs.existsSync(path.join(wt, '.plot-worker.pid')))) {
+    execFileSync('sleep', ['0.1']);
+  }
+  assert.ok(fs.existsSync(sentinel), 'the agent command must have run and reported its own pid');
+  const agentPid = fs.readFileSync(sentinel, 'utf8').trim();
+  assert.match(agentPid, /^\d+$/, `agent pid must be numeric, got: ${agentPid}`);
+
+  // The record must NAME THE AGENT — the pid the running `sleep` actually holds,
+  // which is what the panel, `--status` and the scan describe. This is the bug's
+  // exact shape: the record used to be the wrapper's pid, one process removed.
+  const recorded = fs.readFileSync(path.join(wt, '.plot-worker.pid'), 'utf8').trim();
+  assert.equal(recorded, agentPid,
+    `.plot-worker.pid must name the agent (${agentPid}), not the wrapper (got ${recorded})`);
+
+  // The wrapper's pid is kept separately — it is what writes .plot-worker.exit,
+  // and that must keep working. Two pids with two names beats one with the
+  // wrong meaning.
+  const wrapperFile = path.join(wt, '.plot-worker.wrapper.pid');
+  assert.ok(fs.existsSync(wrapperFile), 'the wrapper pid must be kept for exit detection');
+  const wrapperPid = fs.readFileSync(wrapperFile, 'utf8').trim();
+  assert.notEqual(recorded, wrapperPid, 'the agent pid must differ from the wrapper pid');
+
+  // The wrapper still records the exit code when the agent ends — the
+  // exit-recording the brief says must keep working. The agent is either reaped
+  // with the dispatcher or still running; kill by the recorded pid to be sure,
+  // then the wrapper's `wait` must return and write the code.
+  try { process.kill(Number(recorded), 'SIGTERM'); } catch { /* already gone */ }
+  const exitDeadline = Date.now() + 10_000;
+  while (Date.now() < exitDeadline && !fs.existsSync(path.join(wt, '.plot-worker.exit'))) {
+    execFileSync('sleep', ['0.2']);
+  }
+  assert.ok(fs.existsSync(path.join(wt, '.plot-worker.exit')),
+    'the wrapper must record an exit code after the agent stops');
+
+  fs.rmSync(t, { recursive: true, force: true });
+  fs.rmSync(wt, { recursive: true, force: true });
+});
+
 // ---------------------------------------------------------------------------
 // The work-in-flight report
 // ---------------------------------------------------------------------------

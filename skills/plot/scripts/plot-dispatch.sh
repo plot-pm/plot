@@ -761,10 +761,31 @@ start_worker() {
   fi
   local log="$wt/.plot-worker.log"
   rm -f "$wt/.plot-worker.exit"
-  ( cd "$wt" && PLOT_BRANCH="$branch" PLOT_WORKTREE="$wt" PLOT_EXIT_FILE="$wt/.plot-worker.exit" \
-      nohup sh -c '( '"$cmd"' ); rc=$?; printf "%s" "$rc" > "$PLOT_EXIT_FILE"' \
-      >"$log" 2>&1 </dev/null & echo $! >"$wt/.plot-worker.pid" )
-  echo "    started worker (pid $(cat "$wt/.plot-worker.pid" 2>/dev/null || echo '?')), log: $log"
+  # TWO PIDS, TWO NAMES. `.plot-worker.pid` must name the AGENT — the process
+  # doing the work, which is what the panel, `--status` and the scan describe.
+  # `$!` from the parent names the `sh -c` WRAPPER, and recording that is the
+  # bug this fixes: every field read correctly off the dispatcher's shell rather
+  # than off the agent. The wrapper is the one thing that knows its own child,
+  # so the wrapper writes the agent's pid; only the wrapper can, and a `pgrep`
+  # by command string is the failure this repo already recorded (`wait on your
+  # own PID, not a process name`).
+  #
+  # The wrapper's own pid is KEPT, under `.plot-worker.wrapper.pid`, because the
+  # wrapper is what writes `.plot-worker.exit` when the agent exits and that must
+  # keep working — `--stop` kills the agent, the wrapper survives to record the
+  # code. The paths travel as env vars so no quoting level inside the
+  # single-quoted `sh -c` mangles a path with spaces, exactly as the exit file
+  # already does.
+  #
+  # The agent runs backgrounded inside the wrapper so the wrapper can capture its
+  # `$!` and `wait` for it. There is a sub-millisecond window after the wrapper
+  # starts and before it writes `.plot-worker.pid`; a scan landing in it reads an
+  # absent pid file as `none` — honest, never "running" off a stale value.
+  ( cd "$wt" && PLOT_BRANCH="$branch" PLOT_WORKTREE="$wt" \
+      PLOT_EXIT_FILE="$wt/.plot-worker.exit" PLOT_PID_FILE="$wt/.plot-worker.pid" \
+      nohup sh -c '( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; wait "$agent"; rc=$?; printf "%s" "$rc" > "$PLOT_EXIT_FILE"' \
+      >"$log" 2>&1 </dev/null & echo $! >"$wt/.plot-worker.wrapper.pid" )
+  echo "    started worker (log: $log)"
   return 0
 }
 

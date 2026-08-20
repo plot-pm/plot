@@ -329,8 +329,11 @@ hardcodes no tooling):
 ```
 
 The command runs inside the worktree with `PLOT_BRANCH` and `PLOT_WORKTREE`
-set, detached, with output to `.plot-worker.log` and its pid in
-`.plot-worker.pid`. Without the key, worktrees are prepared and the user starts
+set, detached, with output to `.plot-worker.log`. The **agent's** pid — the
+process the command names, not the shell that wraps it — is recorded in
+`.plot-worker.pid`, so the panel describes the process doing the work; the
+wrapper's own pid is kept in `.plot-worker.wrapper.pid`, where it records the
+run's exit code. Without the key, worktrees are prepared and the user starts
 them.
 
 `- **Worker command:** none` records that the question was asked and the answer
