@@ -125,9 +125,30 @@ three verdicts the scan computes are the three the board shows.
 
 ### Line
 
-- `feature/a-wave-gets-its-own-row` — NOT STARTED renders a wave row
-  between the plan and its branches, reading `row.wave` for the first
-  time
+- `feature/a-wave-gets-its-own-row` — a wave row renders between the plan
+  and its branches, reading `row.wave` for the first time.
+
+  **In every section, not only NOT STARTED.** This branch said NOT STARTED
+  when it was written, because that is where a blocked wave is visible. The
+  restriction does not survive contact with the other sections: WAITING ON
+  YOU, WORKING and WAITING ON A MACHINE draw the same two levels — plan,
+  then branch — and a plan has waves, not branches. A wave row in one
+  section and not the others makes the middle level look like a property of
+  NOT STARTED rather than of the plan.
+
+  The phase column is the measurable consequence. `toBoardPhase(planPhase,
+  started)` forks in exactly one of four phases (`approved → started ?
+  Development : Design`), so in the other three every branch row repeats the
+  plan's own word. And where it does fork, `started` is a statement about
+  the WAVE: waves are dispatched together, block together, and
+  `plot-fleet-scan.sh` computes eligibility per wave and never per branch.
+  Until the wave has a row in a section, that fact has nowhere honest to
+  sit there.
+
+  Tests: a wave row appears in each of the sections that hold branch rows;
+  a plan with one wave still reads as a plan with one wave rather than
+  gaining a redundant level; branch rows stay aligned column-for-column
+  across sections.
 
 ### Count
 

@@ -211,6 +211,54 @@ The consequence is not cosmetic. A plan heading with five branches under it and
 two unrelated rows after it reads as a plan with seven, and the count beside the
 name says `(5)` — the reader has to arbitrate between the number and the layout.
 
+### The phase sits on the branch, and it is a statement about the wave
+
+A plan has waves; a wave has branches. The board draws two of those three
+levels, so the middle one has to be inferred from a name nobody shows — and the
+phase column is where that omission becomes visible.
+
+`toBoardPhase(planPhase, started)` (`schema.ts:432`) branches in exactly one
+place:
+
+```
+draft     → Discovery                          always
+approved  → started ? Development : Design     the only fork
+delivered → Endgame                            always
+released  → Released                           always
+```
+
+So a branch row's phase differs from its plan's in **one** of four phases. In
+the other three every branch of a plan repeats the plan's own word, column after
+column, for as many branches as the plan has.
+
+**And in the one case where it does differ, the difference belongs to the
+wave.** `started` asks *has anyone begun?* — which is what makes a wave
+eligible, in progress, or blocked. The branches of a wave share that answer by
+construction: they are dispatched together, they block together, and
+`plot-fleet-scan.sh` computes eligibility per wave and never per branch. Putting
+that answer on each branch spreads one fact across N rows and leaves the level
+it describes unnamed.
+
+`deferred` is the exception that confirms it: `rowPhase` ignores the branch's
+own commits there and returns the plan's phase, because someone decided this
+work stops. The comment calls it *"the one place intent outranks git"* — a
+decision about scope, which is again not a property of a commit.
+
+**The fix is not to move the phase to the plan row.** That was the first
+reading and it is wrong: a three-branch plan with one branch built is in
+Development *as a plan* while its untouched branches are not, and collapsing
+that would put `Development` beside *eligible — nobody has taken it*. The fix is
+to give the wave the row it already has data for, and let the phase sit there.
+
+**Which is why this finding does not become a branch here.**
+`a-wave-says-what-it-waits-for` (approved 2026-08-19) owns the wave row already:
+*"NOT STARTED renders a wave row between the plan and its branches, reading
+`row.wave` for the first time"*. What this plan contributes is the reason it
+must not stay confined to NOT STARTED — WAITING ON YOU, WORKING and WAITING ON A
+MACHINE draw the same two-level shape and inherit the same repetition, and the
+phase column has nowhere honest to live until the middle level is drawn in all
+of them.
+
 ### The controls are too small to read, and too small to hit
 
 Measured on the running board 2026-08-19, at 1480px wide:
