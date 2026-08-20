@@ -125,30 +125,21 @@ three verdicts the scan computes are the three the board shows.
 
 ### Line
 
-- `feature/a-wave-gets-its-own-row` — a wave row renders between the plan
-  and its branches, reading `row.wave` for the first time.
+- `feature/a-branch-row-names-its-wave` — a branch row states which wave it belongs to, in every section. **Not a wave row of its own**, and the measurement is why.
 
-  **In every section, not only NOT STARTED.** This branch said NOT STARTED
-  when it was written, because that is where a blocked wave is visible. The
-  restriction does not survive contact with the other sections: WAITING ON
-  YOU, WORKING and WAITING ON A MACHINE draw the same two levels — plan,
-  then branch — and a plan has waves, not branches. A wave row in one
-  section and not the others makes the middle level look like a property of
-  NOT STARTED rather than of the plan.
+  A row rather than a label was the first design, and it does not survive counting the estate. Measured 2026-08-20 across the 16 unreleased plans: **32 waves over 46 branches, and only 8 of those waves hold more than one branch.** A wave row would add 32 rows to 46 — **+70%** — to group something that in three cases out of four has exactly one member. That is the defect `a-plan-row-is-not-a-branch-row` removed this week, one level down: a level that claims to group what needs no grouping.
 
-  The phase column is the measurable consequence. `toBoardPhase(planPhase,
-  started)` forks in exactly one of four phases (`approved → started ?
-  Development : Design`), so in the other three every branch row repeats the
-  plan's own word. And where it does fork, `started` is a statement about
-  the WAVE: waves are dispatched together, block together, and
-  `plot-fleet-scan.sh` computes eligibility per wave and never per branch.
-  Until the wave has a row in a section, that fact has nowhere honest to
-  sit there.
+  The board also has no room to spare. Its pointer targets are being raised to 24 x 24 px in `the-row-says-what-it-knows` precisely because the grid is tight, and 70% more rows spends the space that fix needs.
 
-  Tests: a wave row appears in each of the sections that hold branch rows;
-  a plan with one wave still reads as a plan with one wave rather than
-  gaining a redundant level; branch rows stay aligned column-for-column
-  across sections.
+  So the wave becomes a **property of the branch row**, which is what the data already says: `row.wave` is on `AgentRowSchema` and `AgentList.tsx:1617` already compares it when deciding whether two rows belong together. The grouping exists; only the naming is missing.
+
+  **The phase column is where it goes.** `toBoardPhase(planPhase, started)` forks in one of four phases, so in the other three that column repeats the plan's own word on every branch — and where it does fork, `started` describes the wave, not the branch. The column is 5rem of grid stating a fact at the wrong level; the wave name is the fact that belongs there.
+
+  **Every branch belongs to a wave; not every wave has a name.** Measured 2026-08-20: of 46 branches, **35 sit in a `### `-named wave and 11 do not** — the scan reports those as `(unnamed)`, because a plan whose `## Branches` section carries no subheading has exactly one wave holding everything. The membership is therefore always answerable and the label sometimes is not, and the two must not be conflated: `a-blocked-wave-is-not-eligible` has **three** branches in one unnamed wave, so an absent name is not the same as an absent grouping.
+
+  What a row shows when the wave has no name is a real decision, not an edge case — 11 of 46 is a quarter of the estate. The honest answer is **nothing**: an unnamed wave has no name to state, and inventing one (`Wave 1`, the plan's own title) would put a label on the board that appears in no plan file, which is the class of invention this repo removes rather than adds. The grouping still shows — consecutive rows of one wave read as one group — and only the caption is absent.
+
+  Tests: a branch row names its wave in every section that holds branch rows; a plan whose branches are all in one unnamed wave gains **no** label rather than an invented or empty one, while its rows still group; consecutive branches of one wave read as one group without repeating the name on each row; row height and column alignment are unchanged; below `CARD_BELOW_PX` nothing regresses.
 
 ### Count
 
