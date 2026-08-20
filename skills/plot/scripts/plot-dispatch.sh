@@ -727,6 +727,65 @@ append_started_line() { # $1=file $2=date $3=who $4=branch
   mv "$f.plot-tmp" "$f"
 }
 
+# A session id, in the shape the runtime uses for its transcript filename.
+#
+# `uuidgen` where it exists (macOS and most Linux), falling back to `/dev/urandom`
+# — never to `$RANDOM` or a timestamp. Two workers launched in the same second by
+# the same fan-out would collide on either, and a collision here silently merges
+# two agents into one manifest.
+#
+# Lowercased because the runtime writes its transcript filename in lowercase and
+# the board joins on exact string equality; `uuidgen` on macOS returns uppercase.
+plot_session_id() {
+  local id=""
+  if command -v uuidgen >/dev/null 2>&1; then
+    id=$(uuidgen 2>/dev/null | tr 'A-Z' 'a-z')
+  fi
+  if [ -z "$id" ]; then
+    # 16 random bytes rendered as a v4-shaped id. The shape matters only for
+    # recognisability; nothing parses it.
+    id=$(od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \n' \
+         | sed -E 's/(.{8})(.{4})(.{4})(.{4})(.{12})/\1-\2-\3-\4-\5/')
+  fi
+  printf '%s' "$id"
+}
+
+# JSON-escape one string for a manifest value.
+#
+# `printf %s` through a substitution chain rather than `jq`: Plot's helpers must
+# run where only POSIX tools exist, and a Worker command routinely contains
+# double quotes and newlines — this repo's is a 1,400-character prompt full of
+# both. Backslash first, or it re-escapes what the later rules add.
+json_escape() {
+  printf '%s' "$1" \
+    | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g' \
+    | awk 'BEGIN{ORS=""} {if (NR>1) print "\\n"; print}'
+}
+
+# Write one agent manifest: launch-time facts only, keyed on the session id.
+#
+# Every field here is something `start_worker` holds at the moment of the call.
+# There is deliberately no model, no context and no pid: the first two belong to
+# the runtime and are read from the transcript, and the pid describes the PROCESS
+# rather than the agent — it is meaningless once that process exits, which is the
+# defect this manifest exists to fix.
+#
+# Written to a temp file and moved into place, so a scan reading the directory
+# never sees a half-written manifest. `mv` within one directory is atomic.
+write_agent_manifest() { # $1=path $2=session $3=branch $4=worktree $5=command
+  local out="$1" tmp="$1.plot-tmp"
+  {
+    printf '{\n'
+    printf '  "session": "%s",\n' "$(json_escape "$2")"
+    printf '  "branch": "%s",\n' "$(json_escape "$3")"
+    printf '  "worktree": "%s",\n' "$(json_escape "$4")"
+    printf '  "command": "%s",\n' "$(json_escape "$5")"
+    printf '  "startedAt": "%s"\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf '}\n'
+  } > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  mv "$tmp" "$out" 2>/dev/null || { rm -f "$tmp"; return 1; }
+}
+
 # Start one DETACHED worker per worktree. Detached is the whole point: the
 # fleet must outlive the dispatching session. Logs go beside the worktree so a
 # human can read them without knowing anything about how the worker was started.
@@ -761,6 +820,45 @@ start_worker() {
   fi
   local log="$wt/.plot-worker.log"
   rm -f "$wt/.plot-worker.exit"
+
+  # THE MANIFEST, AND WHY IT IS KEYED ON A SESSION ID RATHER THAN A BRANCH.
+  #
+  # An agent survives the branch it was launched on: it finishes one and takes
+  # another, and everything the board knows about it today lives INSIDE a
+  # worktree — `.plot-worker.pid` is a file in it, and the transcript directory
+  # is derived from its path. So an agent that moves on loses every identity the
+  # board holds, and the states that matter most (`waiting`, and an agent between
+  # branches) are exactly the ones no worktree can express.
+  #
+  # The manifest is the identity that outlives the worktree. It records ONLY
+  # launch-time knowledge — what this function has in hand at this line — because
+  # a record that infers is a record that can be wrong about the past. Model and
+  # context are absent here on purpose: they belong to the runtime and are read
+  # from the transcript, which the board joins by the id below.
+  #
+  # THE DISPATCHER MINTS THE ID. The plan assumed the runtime was already invoked
+  # with `--session-id`, but this repo's `Worker command` carries none, so reading
+  # one back would mean guessing at the newest file in a directory that holds one
+  # to eight of them (measured 2026-08-20) — the guess the manifest exists to
+  # remove. Minting keeps it launch-time knowledge, and exporting it as
+  # `PLOT_SESSION_ID` lets a `Worker command` forward it so the runtime's
+  # transcript lands where the manifest points. A command that ignores the
+  # variable still gets a complete manifest; only the transcript join degrades,
+  # to the absence the board already treats as the honest answer.
+  #
+  # WRITTEN BEFORE THE LAUNCH, for the reason the pid file's own comment gives
+  # one paragraph down: there is a window between spawn and first write, and a
+  # scan landing inside it must not read a started agent as absent. The manifest
+  # carries the identity, so its window would be worse than the pid's.
+  local session manifest_dir
+  session=$(plot_session_id)
+  manifest_dir="$repo_root/.plot/agents"
+  mkdir -p "$manifest_dir" 2>/dev/null || true
+  # `printf` per field with no interpretation: a command containing quotes,
+  # newlines or backslashes must survive into valid JSON, and this is the one
+  # place a Worker command's full text is recorded.
+  write_agent_manifest "$manifest_dir/$session.json" \
+    "$session" "$branch" "$wt" "$cmd" || true
   # TWO PIDS, TWO NAMES. `.plot-worker.pid` must name the AGENT — the process
   # doing the work, which is what the panel, `--status` and the scan describe.
   # `$!` from the parent names the `sh -c` WRAPPER, and recording that is the
@@ -782,6 +880,7 @@ start_worker() {
   # starts and before it writes `.plot-worker.pid`; a scan landing in it reads an
   # absent pid file as `none` — honest, never "running" off a stale value.
   ( cd "$wt" && PLOT_BRANCH="$branch" PLOT_WORKTREE="$wt" \
+      PLOT_SESSION_ID="$session" \
       PLOT_EXIT_FILE="$wt/.plot-worker.exit" PLOT_PID_FILE="$wt/.plot-worker.pid" \
       nohup sh -c '( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; wait "$agent"; rc=$?; printf "%s" "$rc" > "$PLOT_EXIT_FILE"' \
       >"$log" 2>&1 </dev/null & echo $! >"$wt/.plot-worker.wrapper.pid" )

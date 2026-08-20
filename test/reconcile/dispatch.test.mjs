@@ -1853,3 +1853,111 @@ test('dispatch: finds a worktree at a path dispatch would not have chosen', () =
   fs.rmSync(odd, { recursive: true, force: true });
   f.cleanup();
 });
+
+test('dispatch: the launch writes an agent manifest keyed on a session id', () => {
+  // THE MANIFEST IS THE IDENTITY THAT OUTLIVES THE WORKTREE. Everything else the
+  // dispatcher writes about a worker lives INSIDE the worktree — the pid file,
+  // the exit file, the log — so an agent that finishes one branch and takes
+  // another loses all of it. This file sits in the repo and is keyed on the
+  // session, so it survives the branch being merged away.
+  //
+  // Asserted from a REAL launch rather than by calling the helper, because the
+  // ordering is half the contract: the manifest must exist before the worker
+  // could have done anything, and only a real run proves that.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-manifest-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, 'repo');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  // A command carrying a double quote, because this repo's real one is 1,500
+  // characters full of them and the manifest must stay valid JSON.
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n'
+    + '- **Worker command:** echo "with a quote"; exit 0\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-m.md'),
+    '# M\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/manifest` — one\n');
+  fs.symlinkSync('../2026-01-01-m.md', path.join(r, 'plans', 'active', 'm.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  execFileSync('bash', [dispatch, '--offline', 'm'],
+    { encoding: 'utf8', cwd: r, timeout: 30_000 });
+
+  const dir = path.join(r, '.plot', 'agents');
+  const names = fs.readdirSync(dir).filter((n) => n.endsWith('.json'));
+  assert.equal(names.length, 1, `one manifest per launched worker, got ${names.join(',')}`);
+
+  const m = JSON.parse(fs.readFileSync(path.join(dir, names[0]), 'utf8'));
+
+  // The filename IS the session id: that is how the board finds a transcript.
+  assert.equal(`${m.session}.json`, names[0],
+    'the manifest is named for the session it records');
+  assert.match(m.session, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    'the session id is lowercase and uuid-shaped — the runtime writes it lowercase');
+
+  // EVERY FIELD TRACES TO LAUNCH-TIME KNOWLEDGE. This is the acceptance
+  // criterion, asserted in both directions: what is present, and what must not
+  // be because the dispatcher cannot know it.
+  assert.equal(m.branch, 'feature/manifest');
+  // `realpathSync`, because the dispatcher records the RESOLVED path and must:
+  // macOS `/var` is a symlink to `/private/var`, and the runtime derives its
+  // transcript directory from the real cwd. A manifest holding the symlink path
+  // would slug to a directory that does not exist and the join would fail
+  // silently — the exact failure this manifest exists to prevent.
+  assert.equal(m.worktree,
+    fs.realpathSync(path.join(path.dirname(r), 'plot-wt-feature-manifest')));
+  assert.equal(m.command, 'echo "with a quote"; exit 0',
+    'the command survives its quotes into valid JSON');
+  assert.match(m.startedAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+  assert.deepEqual(Object.keys(m).sort(),
+    ['branch', 'command', 'session', 'startedAt', 'worktree'],
+    'no field the dispatcher could only have guessed: no pid, no model, no context');
+});
+
+test('dispatch: the session id reaches the worker as PLOT_SESSION_ID', () => {
+  // The manifest points at a transcript, and the transcript only lands there if
+  // the runtime is told which session it is. The dispatcher mints the id — this
+  // repo's Worker command carries no `--session-id` — so the ONE thing that
+  // makes the join possible is that a command can read it back.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-sessenv-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  const seen = path.join(t, 'seen-session');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, 'repo');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n'
+    + `- **Worker command:** printf '%s' "$PLOT_SESSION_ID" > ${seen}\n`);
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-e.md'),
+    '# E\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/env` — one\n');
+  fs.symlinkSync('../2026-01-01-e.md', path.join(r, 'plans', 'active', 'e.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  execFileSync('bash', [dispatch, '--offline', 'e'],
+    { encoding: 'utf8', cwd: r, timeout: 30_000 });
+
+  // The worker only writes one file and exits; wait for it rather than sleeping
+  // a guessed interval.
+  const wt = path.join(path.dirname(r), 'plot-wt-feature-env');
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline && !fs.existsSync(path.join(wt, '.plot-worker.exit'))) {
+    execFileSync('sleep', ['0.1']);
+  }
+
+  const dir = path.join(r, '.plot', 'agents');
+  const [name] = fs.readdirSync(dir).filter((n) => n.endsWith('.json'));
+  const m = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
+  assert.equal(fs.readFileSync(seen, 'utf8').trim(), m.session,
+    'the worker saw the same session id the manifest records');
+});
