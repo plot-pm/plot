@@ -45,6 +45,38 @@ REST answers the same question:
 So the fleet scan, the board's PR column and `/plot-deliver`'s gate all stop
 working while 99.8 % of a second budget sits unused.
 
+### The board is not the biggest consumer — measured
+
+Asked while the budget was exhausted: **who spends it?** Measured at that moment
+— **zero `claude -p` workers running, zero board processes running, GraphQL still
+0/5000.** If nothing is running and the budget is empty, nothing running spent
+it.
+
+The arithmetic, per hour:
+
+| Consumer | Cost | Share of 5000 |
+|---|---|---|
+| the board | 1 `pr-list` per 60 s = **60** | 1.2 % |
+| ~20 agents | one PR each, a few `gh api` checks | low hundreds |
+| **operator tooling** | **26 PRs opened tonight**, each with `pr view` / `pr checks` / `pr merge`, plus watch loops polling **several PRs every 30–45 s** | the remainder |
+
+A single watch over four PRs at a 45 s cadence is **320 calls an hour**, and
+several ran concurrently.
+
+**So this plan throttles the 1.2 % consumer.** The finding it fixes is real —
+the issue poll genuinely re-fires into a spent budget — but it was never the
+cause. What exhausts GraphQL is *polling in a tight loop across several PRs*,
+which is operator tooling rather than anything Plot ships.
+
+That does not weaken the branches below: a board that keeps knocking while
+refused is wrong regardless of who emptied the budget, and on Bitbucket, where
+one call was measured at ~10 s, the board's share is three times larger. It does
+mean the plan should not claim to have fixed the *cause*.
+
+**Recorded as an open point rather than a branch**, because the fix is to how
+this repository is operated — a watch that names its cadence, or one that reads
+`rate_limit` before it polls — and not to anything in `plot-host.sh`.
+
 ### The throttle exists and is wired to one caller
 
 `rateLimitBackoffMs` (`fleet.ts:819`) reads three shapes and is correct for all
@@ -136,6 +168,12 @@ stderr; that string is the signal, and anything else stays an outage.
   it exactly when the host is least able to serve them.
 
 ### Open Points
+
+- [ ] **Operator watch loops are the real consumer** and nothing here bounds
+      them. A watch polling four PRs every 45 s costs 320 calls an hour; several
+      ran at once tonight. Should the repo ship a polling helper that reads
+      `rate_limit` first and widens its own cadence — the same rule this plan
+      applies to the board, applied to the tooling that watches it?
 
 - [ ] Should `issue-list` fall back too? REST has `/issues`, but the existing
       code deliberately uses `gh issue list` because *on GitHub every PR is an
