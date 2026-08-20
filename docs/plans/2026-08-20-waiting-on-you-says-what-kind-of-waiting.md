@@ -18,6 +18,7 @@
 - **Approved:** 2026-08-20 by jwloka (in-session) — interrogated; ten decisions recorded, menu lands first
 - **Started:** 2026-08-20, Jan Wloka, `feature/the-menu-fits-the-kind`
 - **Started:** 2026-08-20, Jan Wloka, `feature/the-row-leads-with-its-subject`
+- **Started:** 2026-08-20, Jan Wloka, `bug/one-column-one-kind-of-fact`
 
 ## Problem
 
