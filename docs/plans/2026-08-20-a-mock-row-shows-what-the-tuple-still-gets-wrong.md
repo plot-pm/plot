@@ -183,10 +183,23 @@ This is also how PR and issue already read elsewhere on this board: `⑂240`,
 `⊙228` — glyph immediately before the number, one unit. The tuple put the icon in
 a track of its own and lost that adjacency.
 
-**Consequence for slot 1**: the marks track no longer holds the icon, so the
-"icon gives way to the activity mark" rule (`TupleRow.tsx`, SLOT 1) disappears
-with it. That rule existed because two things shared one track; after this they
-do not.
+**The activity track is left free, and that is the point of the move.**
+`TupleRow.tsx` (SLOT 1) records the conflict it was built to survive:
+
+> *"where the two compete for this track, **the icon gives way**: a row's activity
+> is NOW … and the icon is constant."*
+
+That decision is right — activity beats a constant — but it accepted the
+competition rather than removing it. Moving the icon next to the name removes it:
+the marks track holds **only** activity, the "icon gives way" rule disappears
+because nothing is left to give way to, and the track becomes available for what
+activity information actually needs.
+
+**What that track may hold later is deliberately not decided here.** A pulse
+count, a last-changed pip, a spinner while a worker writes — all plausible, all
+requiring their own measurement. What this branch guarantees is that the space is
+**free**: no icon, no kind, nothing constant. A track shared with something
+permanent is a track that cannot show a moment.
 
 ### What must not change
 
@@ -218,7 +231,7 @@ do not.
 - `bug/the-wave-leaves-the-kind-alone` — the wave renders beside the branch name only, and never beside the kind slot. Tests: a branch row's wave is adjacent to its branch name; **no `data-wave` element sits in the kind's track**; a plan row shows no wave; the kind slot's column contains only kind labels, asserted by reading every cell in it.
 
 ### Marked
-- `feature/one-icon-set-one-place` — the seven icons become inline SVG in one size and one colour, the kind word moves to the first column, and the icon moves next to the item's name. Tests: every kind's icon is an `<svg>`, never an emoji or a text glyph; all seven render at the same size; all seven take their colour from `currentColor` and change with the theme; the first column holds the kind word for every kind; the icon is adjacent to the name, not in the marks track; the activity mark no longer competes with the icon for a track; no asset is fetched — the artifact stays self-contained; Octicon attribution is present.
+- `feature/one-icon-set-one-place` — the seven icons become inline SVG in one size and one colour, the kind word moves to the first column, and the icon moves next to the item's name. Tests: every kind's icon is an `<svg>`, never an emoji or a text glyph; all seven render at the same size; all seven take their colour from `currentColor` and change with the theme; the first column holds the kind word for every kind; the icon is adjacent to the name, not in the marks track; the activity mark no longer competes with the icon for a track; **the marks track contains nothing but activity** — asserted by reading that cell on a row with no activity and finding it empty; no asset is fetched — the artifact stays self-contained; Octicon attribution is present.
 
 ### Named
 - `bug/a-release-is-its-version` — a release's name is the version being cut, read from the PR title through a new contract field; its PR and its branch are **artifact links in slot 4**, never in the status column; a ticket's artifact link carries the same prefix every other kind's does. Tests: `PrSchema` carries the PR title and the row passes it through; a release row's name is `2.7.0`, not `240`; **the status column of a release contains no link** — asserted by looking for anchors in that cell, not by matching text; the PR and the branch both appear as labelled artifact links; a release whose PR title names no version falls back to the PR number **and says so**, rather than showing a number that reads like a version; a ticket's artifact link renders a `PLAN` prefix; every kind with an artifact link labels it.
