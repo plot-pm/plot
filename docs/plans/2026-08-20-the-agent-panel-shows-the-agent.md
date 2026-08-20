@@ -16,6 +16,7 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — six findings measured on the live board; PID 58282 was the dispatcher, the agent was 5501
+- **Started:** 2026-08-20, Jan Wloka, `bug/the-panel-names-the-working-process`
 
 ## Problem
 
