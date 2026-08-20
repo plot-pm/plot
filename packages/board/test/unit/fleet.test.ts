@@ -1293,33 +1293,37 @@ describe('rowPhase — derived from the PAIR, never from the plan file alone', (
   // through: reading the plan file alone produces rows that contradict
   // themselves, and the repo had the example sitting in it.
 
-  it('walks a same-branch plan Discovery → Design → Development as its plan moves', () => {
+  it('walks a same-branch plan Discovery → Development as its plan moves', () => {
     // `board-ui-polish` is the case that made this concrete: its plan was
     // written, interrogated and approved ON the branch an agent then built on,
-    // so one row passed through all three phases in sequence and the tab showed
-    // the same thing for every one of them.
+    // so one row passed through Discovery and then Development. Design is no
+    // longer a stop on this path — it is its own phase, entered deliberately
+    // for a spike, not a state an approved-unstarted row falls into.
     expect(rowPhase('draft', 'wip')).toBe('Discovery');
-    expect(rowPhase('approved', 'claimed')).toBe('Design');
+    expect(rowPhase('approved', 'claimed')).toBe('Development');
     expect(rowPhase('approved', 'wip')).toBe('Development');
   });
 
-  it('lets git win over a stale plan file — the opus5 shape, asserted directly', () => {
-    // `opus5-longhorizon-hardening`: Phase: Approved, ZERO Started: records,
-    // real commits on six of its branches. The board card says Design and the
-    // pulse says `in progress`; a row cannot say both. This is the assertion
-    // that fails if someone later simplifies the derivation to read the plan
-    // file alone — that version returns Design here.
+  it('reads a Design plan as Design on its rows', () => {
+    // Design is a real phase now. A row for a plan in Design says Design
+    // whatever its branch state — the work is human-led and git does not
+    // promote it out.
+    expect(rowPhase('design', 'open')).toBe('Design');
+    expect(rowPhase('design', 'wip')).toBe('Design');
+    expect(rowPhase('design', 'merged')).toBe('Design');
+    expect(rowPhase('design', 'deferred')).toBe('Design');
+  });
+
+  it('reads an approved plan as Development on every branch state', () => {
+    // The opus5 shape that motivated this derivation — Phase: Approved, zero
+    // Started: records, real commits on six branches — no longer diverges: an
+    // approved plan is Development whether the branch has work, an empty claim,
+    // or nothing. The board card and the row agree by construction, which is
+    // what the Design-is-a-phase change bought.
     expect(rowPhase('approved', 'wip')).toBe('Development');
-    // Merged counts too: work that LANDED is a stronger statement than a commit.
     expect(rowPhase('approved', 'merged')).toBe('Development');
-  });
-
-  it('does not call an empty claim a start', () => {
-    // A claim marker is a dispatcher taking the branch, not an agent having
-    // built anything. The plan is still at the end of Design — which is exactly
-    // what makes Design mean something rather than "we have not looked".
-    expect(rowPhase('approved', 'claimed')).toBe('Design');
-    expect(rowPhase('approved', 'open')).toBe('Design');
+    expect(rowPhase('approved', 'claimed')).toBe('Development');
+    expect(rowPhase('approved', 'open')).toBe('Development');
   });
 
   it('keeps a delivered plan at Endgame when a late commit lands', () => {
@@ -1336,18 +1340,17 @@ describe('rowPhase — derived from the PAIR, never from the plan file alone', (
     expect(rowPhase('released', 'wip')).toBe('Released');
   });
 
-  it('sends a deferred branch BACK a phase, not forward and not nowhere', () => {
+  it('reads a deferred branch from the plan phase, git ignored', () => {
     // `deferred` is not "paused, resuming later": the vocabulary says the
     // branch isn't needed and was given up deliberately, and /plot-deliver
-    // skips deferred branches in its completeness gate. So the row returns to
-    // where it is decided whether the branch is wanted at all.
+    // skips deferred branches in its completeness gate. So the row is read from
+    // the plan's own phase, not from whatever commits the branch carries.
     //
-    // A branch with real commits under an approved plan therefore reads Design,
-    // NOT Development — nobody is working on it. Bare Design would be
-    // indistinguishable from never-started, which is what the `deferred` badge
-    // (rendered from `state`) exists to say; both halves are needed and each
-    // alone is the wrong answer.
-    expect(rowPhase('approved', 'deferred')).toBe('Design');
+    // With the Design fork gone, an approved plan is Development whether or not
+    // its branch was handed back — the divergence this case once produced
+    // (Development for real commits vs Design for a deferred one) is gone. The
+    // `deferred` FACT is not lost: it rides the `state` badge, not the phase.
+    expect(rowPhase('approved', 'deferred')).toBe('Development');
     expect(rowPhase('draft', 'deferred')).toBe('Discovery');
   });
 
@@ -1368,7 +1371,7 @@ describe('rowPhase — derived from the PAIR, never from the plan file alone', (
     // and the row's word are the same claim about the same plan. Asserted as an
     // agreement rather than by inspection: every phase word rowPhase can
     // produce must be one toBoardPhase produced for the same inputs.
-    for (const p of ['draft', 'approved', 'delivered', 'released', 'rejected', '']) {
+    for (const p of ['draft', 'design', 'approved', 'delivered', 'released', 'rejected', '']) {
       // The un-started half: no branch, an empty claim, or work handed back.
       for (const state of ['open', 'claimed', 'deferred'] as const) {
         expect(rowPhase(p, state)).toBe(toBoardPhase(p, false));
@@ -2008,21 +2011,22 @@ describe('rowsFromPulse', () => {
       // holds a merged branch, a branch being built and one nobody has taken,
       // and each is at a different point — which a plan-level phase cannot say.
       const rows = rowsFromPulse(withPhase('approved'), ages, 'plot', QUIET);
-      // `feature/c` is `open` — designed, waiting to be picked up. Development
-      // here would sit beside a note reading *eligible — nobody has taken it*.
-      expect(rows.find((r) => r.branch === 'feature/c')!.phase).toBe('Design');
+      // Every branch of an approved plan is Development now — the branch state
+      // no longer forks it. `feature/c` is `open`, waiting for an agent, and
+      // that IS Development: it belongs beside the Start button, not in Design.
+      expect(rows.find((r) => r.branch === 'feature/c')!.phase).toBe('Development');
       // `feature/b` is `wip` — an agent is building.
       expect(rows.find((r) => r.branch === 'feature/b')!.phase).toBe('Development');
       // `feature/a` merged: the work landed, which is a start and then some.
       expect(rows.find((r) => r.branch === 'feature/a')!.phase).toBe('Development');
     });
 
-    it('reads Development from git where the plan file records no start', () => {
-      // The opus5 shape at the row level: the pulse carries `approved` and
-      // nothing else, and the branch's own commits are what name the phase.
+    it('reads Development for an approved plan whatever the branch state', () => {
+      // The opus5 shape at the row level no longer diverges: the pulse carries
+      // `approved`, and every branch — building or untouched — is Development.
       const rows = rowsFromPulse(withPhase('approved'), ages, 'plot', QUIET);
       expect(rows.find((r) => r.branch === 'feature/b')!.phase).toBe('Development');
-      expect(rows.find((r) => r.branch === 'feature/d')!.phase).toBe('Design');
+      expect(rows.find((r) => r.branch === 'feature/d')!.phase).toBe('Development');
     });
 
     it('keeps a delivered plan\'s rows at Endgame despite fresh commits', () => {
@@ -2053,10 +2057,10 @@ describe('rowsFromPulse', () => {
     });
 
     it('gives a deferred branch the phase AND the fact, not one or the other', () => {
-      // Both halves on the row: the phase falls back to Design, and `state`
-      // still says `deferred` so the badge has something to render from. Bare
-      // Design would be indistinguishable from never-started; Development with
-      // a badge would claim somebody is working on it.
+      // Both halves on the row: the phase is read from the plan (Development for
+      // an approved plan, git ignored), and `state` still says `deferred` so the
+      // badge has something to render from. The phase alone cannot say a branch
+      // was shelved — `state` carries that, and the row renders a badge from it.
       const shelved: FleetPulse = {
         ...pulse,
         plans: [{
@@ -2071,7 +2075,7 @@ describe('rowsFromPulse', () => {
       };
       const row = rowsFromPulse(shelved, new Map([['feature/shelved', 5]]), 'plot', QUIET)
         .find((r) => r.branch === 'feature/shelved')!;
-      expect(row.phase).toBe('Design');
+      expect(row.phase).toBe('Development');
       expect(row.state).toBe('deferred');
       // And the note is the branch's own, not the word `deferred`.
       expect(row.note).not.toBe('deferred');

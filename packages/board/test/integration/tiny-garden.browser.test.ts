@@ -195,13 +195,14 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
     }
   });
 
-  it('the approved-but-unstarted card (in Design) is the one that gets it', async () => {
+  it('the approved-but-unstarted card (now in Development) is the one that gets it', async () => {
     const page = await openBoard();
     try {
-      // "Development" means approved AND started; an approved plan nobody has
-      // begun renders under Design. Keying on the COLUMN would hide the button
-      // from exactly the first-dispatch case it is most for — so the button and
-      // the Ready badge are the same expression.
+      // An approved plan nobody has begun renders under Development now — Design
+      // is a phase of its own, not the approved-unstarted queue. The Start
+      // button keys on the plan being approved-and-unstarted, NOT on the column,
+      // which is exactly why moving the card between columns does not hide it
+      // from the first-dispatch case it is most for.
       const card = page.locator('article', { hasText: 'Fix the leaky soaker hose' });
       await expect.poll(() => card.getByText('Ready').count()).toBe(1);
       expect(await card.getByRole('button', { name: 'Start work' }).count()).toBe(1);

@@ -69,6 +69,16 @@ const APPROVED_STARTED = `# Started work
 - **Started:** 2026-07-31, alice, \`infra/started-work\`
 `;
 
+// A plan in the Design phase — written, but a question approval cannot answer
+// still stands, so someone is running a spike. Its own phase, not approved-and-
+// unstarted, and it belongs in the Design column its name promises.
+const DESIGN = `# Spike the sync protocol
+## Status
+- **Phase:** Design
+- **Type:** feature
+- **Design:** 2026-03-20, jwloka, tracer bullet under way
+`;
+
 // ── Rich repo: contract fields, phase mapping, discovery ─────────────────────
 
 describe('board: contract fields + frontmatter visibility', () => {
@@ -82,6 +92,7 @@ describe('board: contract fields + frontmatter visibility', () => {
         { name: '2026-02-11-sprint-support.md', content: DELIVERED },
         { name: '2026-04-01-frontmatter-plan.md', content: FRONTMATTER },
         { name: '2026-05-01-rejected-idea.md', content: REJECTED },
+        { name: '2026-03-20-sync-spike.md', content: DESIGN },
       ],
       sprints: [{ name: '2026-W18-alpha-week.md', content: SPRINT }],
       stories: [{ dir: 'kanban-board', file: 'STORY-kanban-board.md', content: STORY }],
@@ -104,7 +115,9 @@ describe('board: contract fields + frontmatter visibility', () => {
 
   it('frontmatter-format plan appears in its phase column (headline fix)', async () => {
     const board = await fetchBoard(server.port);
-    const approved = board.columns.find((c) => c.phase === 'Design').cards;
+    // An approved plan with no Started record is Development now, not Design —
+    // work waiting for an agent, beside the Start button that offers it.
+    const approved = board.columns.find((c) => c.phase === 'Development').cards;
     const fm = approved.find((c) => c.slug === 'frontmatter-plan');
     assert.ok(fm, 'frontmatter plan must render (it was invisible before)');
     assert.equal(fm.title, 'Frontmatter plan renders now', 'frontmatter title wins over H1');
@@ -112,9 +125,26 @@ describe('board: contract fields + frontmatter visibility', () => {
     assert.equal(fm.sprint, 'alpha-week');
   });
 
+  it('a Design-phase plan lands in the Design column, and only there', async () => {
+    // The column its name promises: a plan in the Design phase is design in
+    // progress — a spike, a tracer bullet, a spec against reality. It is the
+    // Design column's only member now that approved-unstarted work went to
+    // Development, and a column is a partition.
+    const board = await fetchBoard(server.port);
+    const design = board.columns.find((c) => c.phase === 'Design').cards;
+    const spike = design.find((c) => c.slug === 'sync-spike');
+    assert.ok(spike, 'a Design-phase plan belongs in the Design column');
+    assert.equal(spike.title, 'Spike the sync protocol');
+    // ...and nowhere else.
+    const elsewhere = board.columns
+      .filter((c) => c.phase !== 'Design')
+      .flatMap((c) => c.cards.map((x) => x.slug));
+    assert.ok(!elsewhere.includes('sync-spike'), 'a column is a partition');
+  });
+
   it('extracts title / type / sprint / story / assignee from a canonical plan', async () => {
     const board = await fetchBoard(server.port);
-    const approved = board.columns.find((c) => c.phase === 'Design').cards;
+    const approved = board.columns.find((c) => c.phase === 'Development').cards;
     const card = approved.find((c) => c.slug === 'board-sync');
     assert.ok(card);
     assert.equal(card.title, 'Sync board columns');
@@ -226,9 +256,14 @@ describe('board: a directory named *.md is ignored, not fed to the parser', () =
   });
 });
 
-// ── Ready vs In-progress: Approved cards carry the started flag ──────────────
+// ── Ready vs In-progress: both are Development; the started flag tells them ──
+//
+// Approved no longer splits across two COLUMNS — Design is its own phase now,
+// and an approved plan is Development whether or not a branch has started. The
+// Ready-vs-In-progress distinction survives as the card's `started` FLAG, which
+// the Ready badge and Start button key on; it just no longer moves the column.
 
-describe('board: Approved splits into Ready vs In progress via Started records', () => {
+describe('board: Approved is Development, Ready or In progress, via the started flag', () => {
   let tmp, server;
 
   before(async () => {
@@ -247,14 +282,20 @@ describe('board: Approved splits into Ready vs In progress via Started records',
     if (tmp) rmTree(tmp);
   });
 
-  it('an Approved plan with no Started record sits at the end of Design', async () => {
-    // The substantive change: Approved spans a phase boundary. Nobody has
-    // begun, so it is designed and waiting — human-led, not agent-led.
+  it('an Approved plan with no Started record is Development, flagged not-started', async () => {
+    // The substantive change: an approved plan nobody has begun is Development,
+    // NOT Design — work waiting for an agent, beside the Start button. The card
+    // still carries `started: false` so the Ready badge and button know it.
     const board = await fetchBoard(server.port);
-    const design = board.columns.find((c) => c.phase === 'Design');
-    const ready = design.cards.find((c) => c.slug === 'ready-plan');
-    assert.ok(ready, 'a Ready plan belongs in Design, not Development');
+    const dev = board.columns.find((c) => c.phase === 'Development');
+    const ready = dev.cards.find((c) => c.slug === 'ready-plan');
+    assert.ok(ready, 'a Ready plan is Development now, not Design');
     assert.equal(ready.started, false);
+
+    // ...and it must NOT appear in Design: Design is design in progress, and a
+    // plan waiting for an agent is not being designed.
+    const design = board.columns.find((c) => c.phase === 'Design');
+    assert.ok(!design.cards.some((c) => c.slug === 'ready-plan'));
   });
 
   it('an Approved plan WITH a Started record is in Development', async () => {
@@ -263,16 +304,12 @@ describe('board: Approved splits into Ready vs In progress via Started records',
     const started = dev.cards.find((c) => c.slug === 'started-plan');
     assert.ok(started, 'work in flight is agent-led and belongs in Development');
     assert.equal(started.started, true);
-
-    // ...and it must NOT also appear in Design: a column is a partition.
-    const design = board.columns.find((c) => c.phase === 'Design');
-    assert.ok(!design.cards.some((c) => c.slug === 'started-plan'));
   });
 
   it('a Draft plan sits in Discovery and carries no started flag', async () => {
-    // `started` is the Design/Development split, which is a question about
-    // approved work only. A Draft plan is in neither column — it is still being
-    // shaped — and must carry no flag that implies otherwise.
+    // `started` is the Ready-vs-In-progress flag on an approved card only. A
+    // Draft plan is in neither column — it is still being shaped — and must
+    // carry no flag that implies otherwise.
     const board = await fetchBoard(server.port);
     const discovery = board.columns.find((c) => c.phase === 'Discovery');
     const card = discovery.cards.find((c) => c.slug === 'draft-plan');

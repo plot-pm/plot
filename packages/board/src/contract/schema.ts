@@ -63,6 +63,16 @@ export const PlanMetaSchema = z.object({
   /** Plot 2 ceremony fields (absent on pre-Plot-2 plans). */
   review: z.string().default('NONE'),
   impl: z.string().default('NONE'),
+  /**
+   * The Design transition record as written — a date, who, and what was done.
+   *
+   * Empty on a plan that never entered Design, which is most of them: Design is
+   * an optional phase between Draft and Approved. Defaulted so a plan written
+   * before the phase existed still parses. It is the clock the Design column
+   * sorts by — an approved plan has an `Approved:` date, but a plan *in* Design
+   * has only this one, so `phaseDateOf` reads it rather than `approved_raw`.
+   */
+  design_raw: z.string().default(''),
   approved_raw: z.string().default(''),
   // Empty until /plot-release records it. Defaulted so a plan written
   // before the field existed still parses — the board must never fail on
@@ -101,24 +111,28 @@ export type PlanMeta = z.infer<typeof PlanMetaSchema>;
 
 /**
  * The columns the board renders, in order. These are the WORKFLOW phases, which
- * differ from the plan's four lifecycle states by asking *who leads* rather
- * than *what has happened*:
+ * differ from the plan's lifecycle states by asking *who leads* rather than
+ * *what has happened*:
  *
  *   Discovery    Draft — the plan is still being found          👤 human-led
- *   Design       Approved with no Started: record               👤 human-led
- *   Development  Approved WITH a Started: record                🤖 agent-led
+ *   Design       Design — a question approval cannot answer     👤 human-led
+ *   Development  Approved — handed to an agent, or waiting      🤖 agent-led
  *   Endgame      Delivered, not yet Released                    👤 human-led
  *   Released     done
  *
- * Design therefore means exactly one thing — designed, not yet started. Draft
- * belongs in Discovery instead: while a plan is under review the work is
- * deciding what the plan should be, which is a spike carried in a plan file,
- * and approval is where that ends.
+ * Design is a real phase now, not a state the board infers. A plan enters it
+ * when it is written but a question stands that approval cannot answer —
+ * whether the approach works — and someone runs a spike, a tracer bullet or a
+ * spec against reality to find out. It is work performed, not the absence of
+ * it. Draft belongs in Discovery: while a plan is under review the work is
+ * deciding what the plan should be, and approval is where that ends.
  *
- * `Approved` spans a boundary: a plan nobody has started sits at the end of
- * Design, one with work in flight is in Development. That distinction —
- * human-led versus agent-led — is what the whole model turns on, and the board
- * already had the data for it (`started`) without reading it as a phase change.
+ * `Approved` is Development whether or not a branch has started. An
+ * approved-but-unstarted plan is work waiting for an agent — it belongs beside
+ * the Start button that offers it, not in Design. The board once forked
+ * `approved` on `started` to manufacture the Design column; that fork is gone,
+ * because Design now holds design in progress rather than approved work nobody
+ * has picked up.
  *
  * Development ends at the MERGE, not at the release: Delivered means the code
  * landed and the agents are done, so what remains is verification and signoff.
@@ -473,8 +487,14 @@ export type Board = z.infer<typeof BoardSchema>;
 /**
  * Map a helper `phase` value to a board column, or null if the plan should not
  * appear on the board (rejected / superseded / unknown / legacy plans).
+ *
+ * The second parameter (`_started`) no longer changes any answer — an approved
+ * plan is Development whether or not a branch has started. It is kept, unread,
+ * so that `rowPhase` and the board card compose ONE mapping rather than two that
+ * can drift, and so the seam is already in place the day a phase forks on
+ * `started` again. Callers pass the real value; this function ignores it.
  */
-export function toBoardPhase(helperPhase: string, started = false): Phase | null {
+export function toBoardPhase(helperPhase: string, _started = false): Phase | null {
   switch (helperPhase) {
     case 'draft':
       // Draft IS discovery: a plan under review is the investigation deciding
@@ -482,11 +502,20 @@ export function toBoardPhase(helperPhase: string, started = false): Phase | null
       // investigation ends. Mapping it to Design put unfinished designs beside
       // finished ones and left Discovery a column nothing could ever reach.
       return 'Discovery';
+    case 'design':
+      // Design is now a phase Plot has, not a state the board infers. A plan
+      // enters it when it is written but a question stands that approval cannot
+      // answer — a spike, a tracer bullet, a spec completed against reality —
+      // and leaves toward Approved when the answer holds or back to Draft when
+      // it does not. Human-led work someone performs, not the absence of work.
+      return 'Design';
     case 'approved':
-      // The one place the board reads a plan state as two phases. Without a
-      // Started: record the plan is Ready — designed, waiting for a person to
-      // begin. With one, an agent is working.
-      return started ? 'Development' : 'Design';
+      // Approved is Development, whether or not a branch has started. An
+      // approved-but-unstarted plan is work waiting for an agent — it belongs
+      // in Development beside the Start button that offers it, not in Design,
+      // whose name means the approach is still open. This is the fork the board
+      // used to manufacture the Design column with; removing it is the change.
+      return 'Development';
     case 'delivered':
       return 'Endgame';
     case 'released':
@@ -1470,17 +1499,18 @@ export const AgentRowSchema = z.object({
    * Which board phase this ROW is in — derived from the PAIR (the plan's phase
    * and this branch's git state), never from the plan file alone.
    *
-   * The plan file alone produces rows that contradict themselves, and this repo
-   * had the example: `opus5-longhorizon-hardening` is `Phase: Approved` with
-   * zero `Started:` records while six of its branches carry real commits. Read
-   * from the file the row says *Design*; read from git the note beside it says
-   * *no commit for 22 days*. Two statements about one branch that cannot both
-   * be true, and exactly the defect class this board has hit three times.
+   * Derived from the PAIR because the two sources still disagree in the cases
+   * that remain — a `deferred` branch reads from the plan phase, not its
+   * commits, and a late commit under a `delivered` plan does not pull the row
+   * back. (The `opus5-longhorizon-hardening` shape that first motivated this —
+   * `Phase: Approved`, zero `Started:` records, real commits — no longer
+   * diverges: approved is Development on both surfaces now that Design is its
+   * own phase.)
    *
-   * See `rowPhase` for the mapping and for the one place the two sources
-   * disagree deliberately. null where no phase can honestly be named — a plan
-   * whose phase is rejected, superseded or simply unknown — and the cell then
-   * renders empty rather than guessing a column.
+   * See `rowPhase` for the mapping and for the places the two sources disagree
+   * deliberately. null where no phase can honestly be named — a plan whose
+   * phase is rejected, superseded or simply unknown — and the cell then renders
+   * empty rather than guessing a column.
    */
   phase: z.enum(BOARD_PHASES).nullable().default(null),
   group: WaitingGroupSchema,
