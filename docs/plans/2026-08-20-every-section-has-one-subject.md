@@ -1,5 +1,11 @@
-# An agent is the machine, and WORKING is about agents
+# Every section has one subject
 
+> Four rules from the operator, and together they say one thing: **each section
+> has a subject, and a row belongs to the section whose subject it is.** WORKING
+> is about agents. WAITING ON A MACHINE is about a build or a pipeline. WAITING ON
+> YOU is about anything needing a decision — and an agent only when the agent is
+> broken.
+>
 > Measured on the live board 2026-08-20: `bug/one-component-renders-every-row`
 > appears in **WORKING** *and* in **WAITING ON A MACHINE**, five minutes apart on
 > one screen. From `/api/fleet` for that row: `worker: running`, **`pr: None`** —
@@ -15,6 +21,18 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — the doubling was measured with `pr: None`, so it cannot be the two-waits case the rule was written for
+
+## The rule
+
+| section | subject | an agent appears |
+|---|---|---|
+| **WORKING** | the **agent** — the branch is what it holds | **always**, and only here while it works |
+| **WAITING ON A MACHINE** | a **build or pipeline** on a PR, branch or plan | **never** — an agent *is* a machine, not a wait |
+| **WAITING ON YOU** | anything needing a person: PR, branch, plan, release, build | **only when broken** — crashed, abandoned, out of context |
+
+The corollaries are what change code: no branch appears in WORKING without an
+agent holding it, no agent appears in the machine section at all, and an agent in
+WAITING ON YOU is by construction a problem report.
 
 ## Problem
 
@@ -203,6 +221,48 @@ somebody was.
 sections' own hints (`not-started`: *approved — nobody has taken it*; `quiet`:
 *still thinking, or dead?*). What is settled is that they leave WORKING.
 
+### WAITING ON YOU may hold anything — and an agent only as an exception
+
+Settled 2026-08-20. The section is for what needs a **person's decision**, so its
+normal population is a PR, a branch, a plan, a release or a build. An agent has no
+business there while it is working; an agent *is* the worker.
+
+**An agent appears here only when something is wrong with the agent** — and its
+presence is then itself the signal. Three cases named:
+
+| case | what the reader must do |
+|---|---|
+| **crashed** | read the log, decide whether to restart or abandon |
+| **abandoned** | it stopped without finishing and without asking; decide |
+| **compact context** | it is still running but out of room to think |
+
+**Two of the three are already representable, one is not.** Measured against
+`WorkerStateSchema`'s eight values:
+
+| case | existing state |
+|---|---|
+| abandoned | **`stalled`** — this is what it describes |
+| crashed | **`failed`** / **`ended`** |
+| compact context | **none** |
+
+`compact context` is unrepresentable today, and worse: it is invisible. An agent
+whose context is full still reports `running`, because the process is alive — the
+condition is not in the process, it is in the transcript. The registry reads
+`contextTokens` for exactly this, and measured on the live board it is **absent**:
+
+    agents[0]: contextTokens: ABSENT, model: ABSENT, lastActivity: ABSENT
+
+Because this repo's `Worker command` carries no `--session-id`, so the runtime's
+transcript does not land where the manifest points and the join degrades to the
+absence the registry treats as honest. **So the third case cannot be detected
+until that is fixed**, and this plan does not claim otherwise — it is recorded as
+the open point below rather than designed against data that is not arriving.
+
+**The exception must stay rare, and rarity is a property of the rule, not a hope.**
+Only a *problem* state admits an agent here. A working agent, a waiting agent
+(one that stopped to ask is in WORKING — it is working, and its question is the
+note), a finished one: none of them.
+
 ### `origin: 'local'` is removed
 
 `machineProcesses` keeps only its host half. The local branch (`fleet.ts:3009`)
@@ -251,6 +311,12 @@ is that **no worker state can put a row in this section**.
 
 ### Open Points
 
+- [ ] **`compact context` cannot be detected yet.** The registry's `contextTokens`
+      is the field for it and it arrives absent, because this repo's
+      `Worker command` forwards no `--session-id` so the transcript join fails.
+      Fixing the forward is a one-line config change; deciding *what counts as
+      full* is a judgement — a fraction of the window, or the runtime saying it
+      compacted. Neither is designed here.
 - [ ] Does the `⏳` hint *"nothing — a machine is working"* still read correctly
       when the section only ever holds host work? It was written when a local run
       could be the machine.
@@ -263,6 +329,9 @@ changes what the section *is* and depends on the registry the same day landed.
 
 ### Removed
 - `bug/an-agent-is-not-a-machine-you-wait-on` — `machineProcesses` loses its `origin: 'local'` half and `inMachineSection` stops admitting rows on worker state. Tests: **a running worker with no PR appears in WORKING only**; **a running worker with a pending check appears in WORKING, and the PR's row is in WAITING ON A MACHINE — the agent is not**; a stopped worker with a pending check is still listed, which is the case the local origin was wrongly credited with covering; no worker state of any kind (`running`, `waiting`, `stalled`, `finished`) puts a row in the machine section; `processes` still carries host entries; the CI grouping at `fleet.ts:2501` is unchanged.
+
+### Surfaced
+- `feature/a-broken-agent-needs-you` — a crashed or abandoned agent appears in WAITING ON YOU, naming what went wrong and where to look; every other agent state stays out of it. Tests: a `failed` worker appears in WAITING ON YOU; a `stalled` one appears, and the note distinguishes *stopped without finishing* from *crashed*; a **`running`** worker does not; a **`waiting`** worker does not — it stopped to ask and is working, with its question as the note; a `finished` one does not; the row names the log path and the worktree so the reader can act; no PR, branch or plan row moves.
 
 ### Inverted
 - `feature/working-is-about-agents` — WORKING renders the `agents` list rather than branch rows, each naming its agent with the branch as an artifact link; the four agentless paths into `working` (`unstarted`, `last commit N ago`, `locked`, `held`) go to the section their state belongs to. Tests: a running agent appears once, identified by its session, with its branch linked; **a branch with no agent does not appear in WORKING** — held, uncommitted, and write-locked branches all leave it carrying the marks they already have; **a `locked` worktree with no worker is not called working**; an agent holding **no** branch is listed, which is what the registry exists for; two agents on two branches are two rows; the same agent is never two rows; no other section loses a row.
