@@ -155,7 +155,7 @@ that could not find its own plan.
 
 ### Derive
 
-- `feature/the-scan-derives-its-plan-list` — `plot-fleet-scan.sh` enumerates plans from the plan directory and groups them by their declared phase, rather than by which symlinks exist in `active/`. `active/` keeps working; nothing depends on it being right. Test: a plan with no symlink must appear, and a symlink pointing at a delivered plan must not resurrect it.
+- `feature/the-scan-derives-its-plan-list` — `plot-fleet-scan.sh` enumerates plans from the plan directory and groups them by their declared phase, rather than by which symlinks exist in `active/`. `active/` keeps working; nothing depends on it being right. Test: a plan with no symlink must appear, and a symlink pointing at a delivered plan must not resurrect it. → #254
 
 ### Report
 
