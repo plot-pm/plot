@@ -10,6 +10,7 @@
 - **Started:** 2026-08-20, Jan Wloka, `feature/a-branch-row-names-its-wave`
 - **Delivered:**
 - **Released:**
+- **Started:** 2026-08-20, Jan Wloka, `feature/a-blocked-wave-names-its-blocker`
 
 ## Approval
 
