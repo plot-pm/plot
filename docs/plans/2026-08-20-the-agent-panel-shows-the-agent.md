@@ -8,13 +8,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Story:** plot-board
 - **Sprint:**
 - **Review:** in-session
 - **Impl:** own branches
 - **Assignee:** jwloka
+- **Approved:** 2026-08-20 by jwloka (in-session) — six findings measured on the live board; PID 58282 was the dispatcher, the agent was 5501
 
 ## Problem
 
