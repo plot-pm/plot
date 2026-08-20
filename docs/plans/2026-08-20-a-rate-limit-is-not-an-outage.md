@@ -107,7 +107,51 @@ itself rate-limited. Measured 2026-08-20: GraphQL `0/5000`, resets in ~8 minutes
 So the board can back off to the actual reset instead of retrying four times
 into a closed door, and can say when service returns rather than *unavailable*.
 
-### The message is in a footer, and a footer is the wrong home for it
+### One status panel, not one banner per condition
+
+The first reading of this said *"the two footer paragraphs become one
+degradation banner"* — one frame per condition, borrowed from
+`UnreachableOverlay`. That is still one-per-condition wearing a different coat:
+two problems would stack two frames, and a third would push the rows further
+down. The operator's correction is the right shape.
+
+**Two surfaces, two questions.**
+
+| Surface | Question | Where |
+|---|---|---|
+| **Board status** | *is something wrong?* | one panel, **top** |
+| **View status** | *how fresh is what I see?* | the existing line, **foot** |
+
+The footer line is not a status in the first sense and does not move:
+
+    74 branches across 23 plans · scanned 4s ago · next in 1s · PR data 16s ago · next in 37s
+
+Every word of it is about the currency of the view. It belongs where the eye
+lands after reading the rows, and it is *always* true — which is exactly what
+disqualifies it from a panel that must disappear when there is nothing to say.
+
+**The board-status panel holds every status in one box:**
+
+- **Most severe first, newest first within a severity.** A failed scan outranks
+  a rate limit; two rate limits sort by age. The reader's first line is always
+  the worst thing.
+- **It says how many it holds** — `3 statuses` — so a reader knows whether the
+  visible one is the whole story.
+- **Paging back and forth** through the stack, because the box holds one at a
+  time and the others must stay reachable rather than collapse into a count.
+- **A new status flashes at the top for a few seconds**, then sorts into the
+  stack by severity and age. Arrival is worth interrupting for; permanence is
+  not. This is the same distinction `the-line-flashes-on-any-written-update`
+  already draws.
+- **The panel disappears when there is nothing to report** — an empty status box
+  is a claim that the board is watching something, and a healthy board is not.
+
+**Why one box rather than a list of banners.** A list grows without bound and
+pushes the work off the screen; the panel is a fixed size whatever it holds. And
+a count plus paging is honest about there being more, where a truncated list
+would silently hide the third problem.
+
+### The old reading: a footer is the wrong home for a problem
 
 Both notes render as `<p>` elements at the foot of the Agents list —
 `AgentList.tsx:4696` and `:4762`. They wrap rather than truncate, which was a
@@ -192,7 +236,7 @@ stderr; that string is the signal, and anything else stays an outage.
 
 ### Says
 - `bug/the-note-names-the-rate-limit` — the note distinguishes a spent budget from an unreachable host and names when service returns. Tests: a rate-limited pulse says so and names the reset; an unreachable host keeps today's wording; the note never claims checks failed when they were not asked.
-- `bug/a-degraded-view-says-so-at-the-top` — the two footer paragraphs become one degradation banner in the frame the board already uses for `UnreachableOverlay`, above the rows they qualify rather than below. Tests: a single condition renders one banner, not two paragraphs; both a rate limit and an unreachable host use the same frame with different words; the banner appears above the first affected section; a healthy pulse renders no frame at all.
+- `bug/a-degraded-view-says-so-at-the-top` — **one board-status panel at the top carries every status the board has to report**, and the view-status line stays at the foot. Corrected from the first reading, which proposed a banner per condition; see the design below. Tests: two conditions render one panel, not two; the panel names how many statuses it holds; paging moves through them without changing the order; a new status flashes at the top and then sorts into place; the panel is absent entirely when there is nothing to report; the footer keeps `74 branches across 23 plans · scanned 4s ago · next in 1s · PR data 16s ago · next in 37s` and gains nothing.
 
 ## Notes
 

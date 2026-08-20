@@ -245,6 +245,81 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
     }
   });
 
+  // ── THE FOOTER PATH: COPYABLE, NEVER A LINK ───────────────────────────────
+  //
+  // The path names something OUTSIDE the browser, and a browser refuses to
+  // navigate from http://localhost to file://. So the footer must not look like
+  // a link it cannot follow, and the recourse it offers is Copy — the exact
+  // string, for pasting into a terminal where a pager reads the whole file.
+
+  it('renders the footer path as text, never as a link', async () => {
+    const page = await open(ok());
+    try {
+      await openPanel(page);
+      // The path is present…
+      await expect
+        .poll(() => page.getByText('/tmp/wt/.plot-worker.log').count())
+        .toBeGreaterThan(0);
+      // …and no anchor carries it. An affordance that cannot navigate must not
+      // look like one — the rule this board already applies to a dead PR link.
+      expect(await page.locator('footer a').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('copies the exact path when Copy is clicked', async () => {
+    const context = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const page = await context.newPage();
+    try {
+      await page.route('**/api/fleet', (r) =>
+        r.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet([row()])) }));
+      await page.route('**/api/worker-log*', (r) =>
+        r.fulfill({ contentType: 'application/json', body: JSON.stringify(ok()) }));
+      await page.goto(`${baseURL}?tab=agents`);
+      await page.getByText('Working').first().waitFor({ timeout: 10_000 });
+      await openPanel(page);
+
+      await page.getByRole('button', { name: /copy path/i }).click();
+      // The exact string the footer showed, byte for byte — not a re-derivation.
+      const copied = await page.evaluate(() => navigator.clipboard.readText());
+      expect(copied).toBe('/tmp/wt/.plot-worker.log');
+    } finally {
+      await page.close();
+      await context.close();
+    }
+  });
+
+  // ── LIVE, WITHOUT REOPENING ───────────────────────────────────────────────
+  //
+  // The panel already polls (LOG_POLL_MS). The claim of THIS branch is that a
+  // line the worker appends shows up in the open panel within one interval —
+  // the reader does not close and reopen to see the agent's newest output.
+
+  it('shows an appended line within one poll, without reopening', async () => {
+    const page = await browser.newPage();
+    let text = 'first line\n';
+    try {
+      await page.route('**/api/fleet', (r) =>
+        r.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet([row()])) }));
+      // The log GROWS between polls, as a live worker's does.
+      await page.route('**/api/worker-log*', (r) =>
+        r.fulfill({ contentType: 'application/json', body: JSON.stringify(ok({ text })) }));
+      await page.goto(`${baseURL}?tab=agents`);
+      await page.getByText('Working').first().waitFor({ timeout: 10_000 });
+      await openPanel(page);
+      expect(await page.locator('[data-log-body]').innerText()).toContain('first line');
+
+      // The worker writes more; the panel is left open and untouched.
+      text = 'first line\nsecond line\n';
+      await expect
+        .poll(() => page.locator('[data-log-body]').innerText(), { timeout: 7_000 })
+        .toContain('second line');
+    } finally {
+      await page.close();
+    }
+  });
+
   // ── ON DEMAND, AND ONLY WHILE OPEN ────────────────────────────────────────
 
   it('fetches no log until asked, and stops when the panel closes', async () => {
