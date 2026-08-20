@@ -81,7 +81,56 @@ carries none, a PR carries its plan and its branch.
 | Build | build | `Build` | `CI:1860` | `PR 283` | `CI is running for PR #283` | `10m` |
 | Agent | agent | `Agent` | `@Dev-Agent` | `feature/opus5-longhorizon-hardening` | `thinking` | `13m` |
 | Branch | branch | `Branch` | `feature/opus5-longhorizon-hardening` | — | `conflicts` | `25d` |
-| Release | release | `Release` | `2.7.0` | `changeset-release/main` | `no-checks` | `12m` |
+| Release | release | `Release` | `2.7.0` | `240`, `changeset-release/main` | `no-checks` | `12m` |
+
+### The artifact links follow a rule, not a list
+
+Settled 2026-08-20: an item links **what it came from and what it travels on.**
+Two kinds make the pattern visible because they are the same shape:
+
+| kind | came from | travels on | artifact links |
+|---|---|---|---|
+| **PR** | a plan | a branch | **plan, branch** |
+| **Release** | a PR | a branch | **PR, branch** |
+| Build | — | a PR | PR |
+| Ticket | — | — | the plan it became |
+| Plan | — | an idea branch | that branch |
+| Agent | — | a branch | that branch |
+| Branch | — | **itself** | none |
+
+So a release carries **two** links exactly as a PR does, and the count is a
+consequence rather than a per-kind decision. This is why the artifact slot is
+zero-or-more: a branch is its own vehicle and links nothing, a PR and a release
+each name two.
+
+**Nothing linked belongs in the status column.** Measured on the mock, a release
+rendered `⑂240` in its status because no second artifact slot was provided for
+it — so the link went where there was room. The status column says where the item
+stands and holds no destinations at all.
+
+**And both take their status from the same place.** A release's status is its
+PR's status — `conflicts`, `no checks`, a red build, green — exactly as a PR's is.
+Measured, the code already does this with one derivation and no per-kind branch
+(`tuple-row.ts:303`):
+
+    const status = row.pr ? prStatus(row.pr) : stateStatus(row);
+
+So the symmetry is complete, and it is worth stating because it means the release
+row needed **no** special handling and got some anyway. PR and release are the
+same shape throughout:
+
+| | PR | Release |
+|---|---|---|
+| name | the PR number | **the version** |
+| artifact links | plan, branch | **PR, branch** |
+| status | from its PR | **from its PR** |
+| age | since last change | since last change |
+
+The only real difference is the name, and it is the one thing that does not work:
+`releaseVersion()` reads `row.plan`, a release row has none, and the version lives
+in a PR title the contract does not carry. Everything else about a release was
+already right by construction — which is why the two visible defects were an
+extra link and a wrong name, not a missing status.
 
 **The kind is stated, not inferred — and it is a FIELD, not a derivation.**
 There is no `kind` on the contract today; a row's kind is implied by which
