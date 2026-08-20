@@ -6,7 +6,7 @@ import { buildBoard, renderPlanPage, renderStoryPage, type BuildBoardOptions } f
 import { repairEnabledFromEnv } from './resolver.js';
 import { buildFleet } from './fleet.js';
 import { buildAttention } from './attention.js';
-import { dispatchAvailability, handleDispatch, SLUG_RE } from './dispatch.js';
+import { dispatchAvailability, dispatchLog, handleDispatch, SLUG_RE } from './dispatch.js';
 import { continueAvailability, handleContinue } from './continue.js';
 import { handleClaim } from './claim.js';
 import { handleTransition } from './transition.js';
@@ -312,6 +312,42 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       res.end(JSON.stringify(log));
     } catch (err) {
       console.error('Error reading worker log:', err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+    }
+    return;
+  }
+
+  // GET /api/dispatch-log?slug=… — what the DISPATCHER did, on demand.
+  //
+  // The sibling of /api/worker-log, one file over: that reads the AGENT's
+  // console (`.plot-worker.log` in the worktree), this reads the dispatcher's
+  // own record (`plot-dispatch-<slug>.log` beside the repo). The button used to
+  // hand this path back as a transient string in a *no change — see log*
+  // message that expired the moment the row moved; the durable home for it is
+  // the `Status` entry in the row's menu, which fetches here.
+  //
+  // A SLUG, not a branch — the dispatcher log belongs to a plan, and its path is
+  // knowable from the slug alone (`dispatchLogPath`), with no worktree to
+  // resolve. Validated by the same `SLUG_RE` the POST uses, because the slug is
+  // a filename component and `../` must reach no log but the one it names.
+  //
+  // Always 200 for a well-formed slug: unlike /api/worker-log there is no
+  // `no-worktree` answer here — the path exists to be read whether or not any
+  // machine holds the branch — so `no-log` and `unreadable` both ride the body,
+  // never the status code.
+  if (url.pathname === '/api/dispatch-log') {
+    const slug = url.searchParams.get('slug');
+    if (!slug || !SLUG_RE.test(slug)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'slug must be a plan slug' }));
+      return;
+    }
+    try {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(dispatchLog(opts, slug)));
+    } catch (err) {
+      console.error('Error reading dispatch log:', err);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
     }

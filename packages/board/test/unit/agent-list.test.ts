@@ -2383,7 +2383,7 @@ describe("a row's actions all live in its menu", () => {
 describe('menuState — a refusal is not an absence', () => {
   const none = {
     canStart: false, canApprove: false, canResolve: false, hasRun: false,
-    hasLog: false, serverWillAct: false, approveWillAct: false,
+    hasLog: false, hasStatus: false, serverWillAct: false, approveWillAct: false,
   };
 
   it('renders no menu at all on a row with nothing to offer', () => {
@@ -2441,20 +2441,21 @@ describe('menuState — a refusal is not an absence', () => {
             // pins one input to a constant stops being exhaustive silently —
             // it keeps passing while covering half of what it claims to.
             for (const hasLog of bools)
-              for (const serverWillAct of bools)
-                for (const approveWillAct of bools) {
-                  const state = menuState({
-                    canStart, canApprove, canResolve, hasRun, hasLog,
-                    serverWillAct, approveWillAct,
-                  });
-                  expect(
-                    !state.enabled || state.present,
-                    `enabled without present: ${JSON.stringify({
-                      canStart, canApprove, canResolve, hasRun, hasLog,
+              for (const hasStatus of bools)
+                for (const serverWillAct of bools)
+                  for (const approveWillAct of bools) {
+                    const state = menuState({
+                      canStart, canApprove, canResolve, hasRun, hasLog, hasStatus,
                       serverWillAct, approveWillAct,
-                    })}`,
-                  ).toBe(true);
-                }
+                    });
+                    expect(
+                      !state.enabled || state.present,
+                      `enabled without present: ${JSON.stringify({
+                        canStart, canApprove, canResolve, hasRun, hasLog, hasStatus,
+                        serverWillAct, approveWillAct,
+                      })}`,
+                    ).toBe(true);
+                  }
   });
 
   // A READ, so it carries no guard — the same argument the run link makes one
@@ -2463,6 +2464,17 @@ describe('menuState — a refusal is not an absence', () => {
   // refuses every dispatch: looking at a log is not acting.
   it('enables the worker log without asking whether the server will act', () => {
     expect(menuState({ ...none, hasLog: true })).toEqual({
+      present: true, enabled: true,
+    });
+  });
+
+  // The dispatcher-log `Status` entry, added by
+  // `the-button-claims-only-what-it-knows`. A READ like the worker log and the
+  // run link, so it enables the menu on any binding — looking at what the
+  // dispatcher did is not acting. It is the durable home for what the Start work
+  // button used to hand back as a transient path.
+  it('enables the Status entry without asking whether the server will act', () => {
+    expect(menuState({ ...none, hasStatus: true })).toEqual({
       present: true, enabled: true,
     });
   });

@@ -246,6 +246,21 @@ export const CardSchema = z.object({
    */
   worktrees: z.array(z.object({ branch: z.string(), path: z.string() })).optional(),
   /**
+   * Whether a dispatcher log exists for this plan — `plot-dispatch-<slug>.log`
+   * beside the repo, written the first time anyone clicks Start work on it.
+   *
+   * A PRESENCE BIT, never the contents: the log's body travels only on demand
+   * through `/api/dispatch-log`, and this is one `stat` per card so the row's
+   * `...` menu can offer a `Status` entry *whenever a dispatcher log exists* and
+   * omit it otherwise. Same discipline as `worktrees` above — the pulse reports
+   * that a thing exists and where, never what is in it.
+   *
+   * Optional and defaulted false: an older server that never looked, and a plan
+   * nobody has dispatched, both read as *no log* — which is the honest answer,
+   * and the one that leaves the entry off the menu.
+   */
+  hasDispatchLog: z.boolean().optional(),
+  /**
    * The date belonging to THIS card's phase, as `YYYY-MM-DD` — or "" where the
    * plan records none.
    *

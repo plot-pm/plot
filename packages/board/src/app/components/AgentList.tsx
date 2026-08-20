@@ -18,6 +18,7 @@ import { CreatePlanButton } from './CreatePlanButton.js';
 import { isDraft } from './PlanCard.js';
 import { StartWorkButton } from './StartWorkButton.js';
 import { WorkerLogModal } from './WorkerLogModal.js';
+import { DispatchLogModal } from './DispatchLogModal.js';
 
 /**
  * Groups in fixed order, each labelled by what it asks OF YOU rather than by
@@ -2608,18 +2609,29 @@ export function menuState(items: {
    * log asks it only to look.
    */
   hasLog: boolean;
+  /**
+   * A dispatcher log exists for this row's plan, so a `Status` entry can read
+   * it — the durable home for what the Start work button's transient message
+   * used to point at and then destroy.
+   *
+   * Joins `enabled` without a `WillAct` term, for the reason `hasLog` and the
+   * run link do: it is a READ. Opening the dispatcher's own words asks the
+   * server only to look, never to act.
+   */
+  hasStatus: boolean;
   serverWillAct: boolean;
   approveWillAct: boolean;
 }): { present: boolean; enabled: boolean } {
-  const { canStart, canApprove, canResolve, hasRun, hasLog, serverWillAct, approveWillAct } = items;
+  const { canStart, canApprove, canResolve, hasRun, hasLog, hasStatus, serverWillAct, approveWillAct } = items;
   return {
-    present: canStart || canApprove || canResolve || hasRun || hasLog,
+    present: canStart || canApprove || canResolve || hasRun || hasLog || hasStatus,
     enabled:
       (canStart && serverWillAct) ||
       (canApprove && approveWillAct) ||
       (canResolve && serverWillAct) ||
       hasRun ||
-      hasLog,
+      hasLog ||
+      hasStatus,
   };
 }
 
@@ -2831,6 +2843,7 @@ function RowActions({
   onStarting,
   onTaken,
   onOpenLog,
+  onOpenStatus,
 }: {
   row: AgentRow;
   card: Card | null;
@@ -2854,6 +2867,12 @@ function RowActions({
    * see the item below for why a menu that unmounts on click cannot own it.
    */
   onOpenLog?: () => void;
+  /**
+   * Open this row's DISPATCHER log — what the dispatcher itself did, keyed by
+   * the plan's slug. Mounted by the Row for the same reason `onOpenLog` is:
+   * this menu unmounts on the very click that opens the panel.
+   */
+  onOpenStatus?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   // The menu's own box, so a click inside it can be told from a click outside.
@@ -2957,8 +2976,14 @@ function RowActions({
   // cases the endpoint was built to tell apart, and a reader cannot tell an
   // absent item from an absent log.
   const hasLog = showsWorkerLog(row);
+  // THE DISPATCHER LOG, offered whenever one exists — read from the CARD, not
+  // the row. The dispatcher log belongs to a plan (`plot-dispatch-<slug>.log`),
+  // and the card is where the plan's slug and its `hasDispatchLog` presence bit
+  // live. A row whose plan has no card cannot offer it, which is right: without
+  // a card there is no slug to name and the fetch would have nothing to ask for.
+  const hasStatus = Boolean(card?.hasDispatchLog);
   const { present: hasItems, enabled } = menuState({
-    canStart, canApprove, canResolve, hasRun: Boolean(runUrl), hasLog,
+    canStart, canApprove, canResolve, hasRun: Boolean(runUrl), hasLog, hasStatus,
     serverWillAct, approveWillAct,
   });
   const reason =
@@ -3167,6 +3192,30 @@ function RowActions({
                 className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
               >
                 Show the agent
+              </button>
+            </div>
+          )}
+          {/* THE DISPATCHER'S OWN WORDS — the durable home for what the Start
+              work button used to hand back as a transient *no change — see log*
+              string. Present whenever a dispatcher log exists for the plan
+              (`card.hasDispatchLog`); a plan nobody has dispatched has none, and
+              the item is simply not there.
+
+              Like `Show the agent` it only SETS state the ROW owns — the
+              close-on-outside-click effect runs on CAPTURE, so this menu unmounts
+              before a bubbled `onClick` from inside it would fire, and a panel
+              mounted HERE would be torn down by the same click that opened it.
+              The Row mounts the panel; this asks it to. */}
+          {hasStatus && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <button
+                type="button"
+                data-dispatch-log-open
+                onClick={onOpenStatus}
+                aria-label={`Show what the dispatcher did for ${row.branch}`}
+                className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+              >
+                Status
               </button>
             </div>
           )}
@@ -3716,6 +3765,12 @@ function Row({
   // a callback through Row → AgentList → App to buy no property this does not
   // already have.
   const [logOpen, setLogOpen] = useState(false);
+  // The dispatcher-log panel, ROW-LOCAL for the same reasons as `logOpen`: it
+  // opens from one place (the row's menu), belongs to one plan, and coordinates
+  // with nothing. Separate from `logOpen` because the two show DIFFERENT logs —
+  // the agent's console and the dispatcher's own record — and a reader may want
+  // either without the other.
+  const [statusOpen, setStatusOpen] = useState(false);
   // The cue follows what this ROW can actually ask, not what its state usually
   // offers — the menu omits an item whose precondition is missing, and an
   // animated dot pointing at a menu with nothing in it marks a request nobody
@@ -4058,6 +4113,7 @@ function Row({
         onStarting={onStarting}
         onTaken={() => setActionTaken(true)}
         onOpenLog={() => setLogOpen(true)}
+        onOpenStatus={() => setStatusOpen(true)}
       />
       {/* Why this branch cannot MOVE — a different question from where it is
           waiting, and the one nothing on this row could answer. It renders
@@ -4087,6 +4143,14 @@ function Row({
           // the binding.
           canContinue={continueWith}
         />
+      )}
+      {/* The dispatcher-log panel, mounted here for the same reason the worker
+          log is: the menu that opens it unmounts on the click, so the state and
+          the mount both have to live on the Row that survives it. Keyed by the
+          plan's slug — `statusOpen` is only reachable when `card.hasDispatchLog`
+          is set, so the card and its slug are present here. */}
+      {statusOpen && card && (
+        <DispatchLogModal slug={card.slug} onClose={() => setStatusOpen(false)} />
       )}
     </li>
   );

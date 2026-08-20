@@ -125,10 +125,13 @@ describe('verdictFromPulse — what the button concludes after a click', () => {
     expect(verdict({ claimedAtClick: 0, claimedNow: 0, pulsesElapsed: 2 })).toBe('waiting');
   });
 
-  it('`no change — see log` STILL fires when the dispatcher really declines', () => {
-    // The pairing that guards the fix: simply never showing the message would
-    // pass every success assertion above and delete a true signal. A lost claim
-    // race leaves the count where it was, and after the wait that is a decline.
+  it('stops watching (`gave-up`) once the wait elapses with the count unmoved', () => {
+    // The verdict is unchanged by `the-button-claims-only-what-it-knows`; what
+    // changed is what `gave-up` RENDERS. It no longer shows *no change — see
+    // log* (a failure the button cannot know happened, plus a path that
+    // expires) but the reassurance `DISPATCHED_WORD`, with the dispatcher log
+    // moved to the row's durable `Status` menu entry. The verdict layer still
+    // marks the moment the button stops watching, which is all it ever meant.
     expect(verdict({ claimedAtClick: 0, claimedNow: 0, pulsesElapsed: LIMIT })).toBe('gave-up');
   });
 
