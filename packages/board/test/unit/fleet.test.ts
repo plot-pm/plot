@@ -11,6 +11,7 @@ import {
   prAsksNobody,
   prOutranks,
   waitingOnFor,
+  withEstate,
 } from '../../src/server/fleet.js';
 import {
   AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, toBoardPhase, unknownPhaseNote,
@@ -3856,5 +3857,65 @@ describe('an eligible wave is not a blocker', () => {
     const b = rows.find((r) => r.branch === 'feature/b')!;
     expect(b.blockedBy).toBeNull();
     expect(b.note).toBe('blocked by an earlier wave');
+  });
+});
+
+// A TIMED-OUT SCAN SAYS WHAT MADE IT EXPENSIVE. A bare `timed out after
+// 90000ms` names the symptom and hides the cause: the scan spawns git once per
+// branch per question, and every spawn reads the ref database and worktree list
+// at startup, so a fat estate makes every one of them slower. The plan that
+// motivated this (`the-scan-spawns-git-once-per-question`) measured 44
+// worktrees at 56 ms per spawn and a 105 s scan; the operator who sees only the
+// timeout cannot know that tidying 33 stale worktrees would nearly halve it.
+describe('a timed-out scan reports the estate that made it slow', () => {
+  it('names the measured estate on the message a timeout produced', () => {
+    const message = withEstate('timed out after 90000ms', {
+      worktrees: 44,
+      branches: 54,
+      perSpawnMs: 56,
+    });
+    // Every number the plan called for is present and comes straight from the
+    // measurement object — the formatter multiplies nothing it was not given.
+    expect(message).toContain('timed out after 90000ms');
+    expect(message).toMatch(/44\b.*worktree/i);
+    expect(message).toMatch(/54\b.*branch/i);
+    expect(message).toMatch(/56\b.*ms/i);
+  });
+
+  it('says nothing extra when the scan did not time out', () => {
+    // A non-timeout failure — a spawn error, a helper that exited non-zero — is
+    // not explained by the estate, so the estate is not appended. "A scan under
+    // budget says nothing extra" applies to every non-timeout outcome too: the
+    // report is a timeout's, not a catch-all.
+    const message = withEstate('bash exited 2', {
+      worktrees: 44,
+      branches: 54,
+      perSpawnMs: 56,
+    });
+    expect(message).toBe('bash exited 2');
+  });
+
+  it('leaves a timeout unadorned when the estate could not be measured', () => {
+    // Measurement is itself a git call and can fail — a repo mid-rebase, a
+    // vanished worktree. When it does, the bare timeout stands rather than a
+    // half-filled sentence: an absent number is reported as absent, never as
+    // zero, the same rule the scan's own signals obey.
+    const message = withEstate('timed out after 90000ms', null);
+    expect(message).toBe('timed out after 90000ms');
+  });
+
+  it('multiplies nothing: spawn count is named as branches, not estimated', () => {
+    // The one honest measurement the board holds for spawn volume is the branch
+    // count — the scan makes a fixed number of spawns per branch, but the board
+    // cannot count the spawns of a process it just killed. So the report names
+    // the branches it measured and never prints a fabricated `8 × 54`.
+    const message = withEstate('timed out after 90000ms', {
+      worktrees: 10,
+      branches: 7,
+      perSpawnMs: 31,
+    });
+    expect(message).not.toContain('56');
+    expect(message).not.toMatch(/\b(?:estimat|about|roughly|~)/i);
+    expect(message).toMatch(/7\b.*branch/i);
   });
 });
