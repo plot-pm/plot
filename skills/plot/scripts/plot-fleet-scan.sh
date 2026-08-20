@@ -1821,12 +1821,15 @@ ref_plan_file() { # $1=path in ref → temp file path, or "" when unreadable
 #
 # TWO PARALLEL ARRAYS, because a plan now has two paths that must not be
 # confused. `plans` keeps the path AS THE REF SPELLS IT — that is the plan's
-# identity, and it is what the `$DELIVERED_DIR`/`$ACTIVE_DIR` pattern matches
-# and what the reader sees. `plan_reads` holds the file to PARSE, which in ref
-# mode is a temp file holding the blob. In worktree mode the two are equal, so
-# every consumer below reads the same way in both modes.
+# identity, and it is what the reader sees. `plan_reads` holds the file to
+# PARSE, which in ref mode is a temp file holding the blob. In worktree mode
+# the two are equal, so every consumer below reads the same way in both modes.
 plans=()
 plan_reads=()
+# The declared phase of each plan, filled during enumeration and indexed
+# alongside `plans`. It is read where the delivered window used to test the
+# path prefix — see "the group is the phase" below.
+plan_phases=()
 
 # Add one plan by its ref path, materializing the blob. A path that cannot be
 # read is SKIPPED rather than guessed at — a dangling index entry is a
@@ -1840,7 +1843,83 @@ add_ref_plan() { # $1=path in ref
   plan_reads+=("$f")
 }
 
+# ---------------------------------------------------------------------------
+# What makes a file a plan
+# ---------------------------------------------------------------------------
+#
+# A `.md` file directly in `$PLAN_DIR` whose PHASE PARSES — `phase` is anything
+# other than `NONE`. Nothing else qualifies, and the rule is the parser's own
+# answer rather than a second opinion about it: plot-plan-meta.sh is the format
+# contract (Manifesto Principle 3), so a scan that grepped for `Phase:` itself
+# would be a second implementation of the format, free to disagree with the
+# first.
+#
+# THIS HAD TO BE DECIDED rather than inherited. The old enumeration globbed
+# `$ACTIVE_DIR`, and the symlinks there happen to point only at plans — so
+# non-plans were excluded BY ACCIDENT, as a side effect of nobody having linked
+# them. Measured in this repo 2026-08-19: 64 `.md` files in `$PLAN_DIR`, of
+# which 62 are plans and two are notes that carry no `Phase:` field at all
+# (`2026-08-18-the-repair-exists-report.md`, `kanban-board-v1-open-questions.md`).
+# Enumerating the directory without a rule would report both as phase-less
+# plans with no branches — trading a list that is wrongly short for one that is
+# wrongly long.
+#
+# `UNKNOWN` COUNTS AS A PLAN, and that direction is deliberate. `UNKNOWN` means
+# the file declared a phase whose value the parser did not recognise — a typo,
+# or a phase word this version predates. That is a plan with a bad field, and
+# the whole point of this change is that a plan cannot be simultaneously valid
+# and invisible; hiding it for a misspelling would rebuild the failure one
+# level down, where it is harder to see than a missing symlink was. `NONE` is
+# the different case: no field at all, so nothing claimed to be a plan.
+#
+# `$PLAN_DIR` IS READ NON-RECURSIVELY, which is what keeps the index
+# directories out of the list. `$ACTIVE_DIR` and `$DELIVERED_DIR` live inside
+# `$PLAN_DIR` by default, and their symlinks resolve to files already
+# enumerated — counting both would double every plan. `git ls-tree` without
+# `-r` lists one level, and the worktree glob `"$PLAN_DIR"*.md` does not
+# descend either.
+is_plan_phase() { # $1=normalized phase → 0 when this file is a plan
+  case "$1" in
+    ""|NONE) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# The phase a file declares, or "" when it is not a plan. One parse, whose
+# result is kept: the plan loop below needs the phase anyway, so enumerating by
+# phase costs nothing that was not already going to be spent.
+plan_phase_of() { # $1=file to parse → normalized phase on stdout
+  "$script_dir/plot-plan-meta.sh" "$1" --prefixes "$PREFIX_RE" 2>/dev/null \
+    | python3 -c '
+import json, sys
+try:
+    print(json.load(sys.stdin).get("phase", ""))
+except Exception:
+    print("")
+' 2>/dev/null || printf ''
+}
+
+# A terminal phase belongs to the delivered group: the plan is finished, and it
+# appears only while its `Delivered:` record is inside the rolling window.
+#
+# `rejected` and `superseded` are terminal too, and they route here for the
+# same reason `/plot-deliver` files them under `$DELIVERED_DIR` (issue #33):
+# they are outcomes, not work. A worker may claim nothing under any of the
+# four.
+is_terminal_phase() { # $1=normalized phase → 0 when finished
+  case "$1" in
+    delivered|released|rejected|superseded) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 if [ -n "$slug" ]; then
+  # A NAMED SLUG IS NOT A LIST, so it keeps its own resolution: the caller
+  # already said which plan it means, and the phase rule would only be able to
+  # refuse the answer. `$ACTIVE_DIR`/`$DELIVERED_DIR` stay in the search path
+  # because a slug is the one place their stable, undated names are the
+  # QUESTION — `plot-fleet-scan.sh plot-sprint-support` names a symlink, not a
+  # dated file, and every caller that passes a slug got it from one.
   if [ "$PLAN_SOURCE" = "ref" ]; then
     # Same precedence as the worktree form: the dated plan file first, then the
     # active index, then delivered. `ref_ls` is filtered rather than globbed
@@ -1862,49 +1941,103 @@ if [ -n "$slug" ]; then
       }
     done
   fi
+  # The named plan's phase, recorded the same way the enumerated ones are so
+  # the loop below reads one array in both paths.
+  [ ${#plans[@]} -gt 0 ] && plan_phases+=("$(plan_phase_of "${plan_reads[0]}")")
 else
+  # ---------------------------------------------------------------------------
+  # THE GROUP IS THE PHASE, not the symlink
+  # ---------------------------------------------------------------------------
+  #
+  # The list came from a glob over `$ACTIVE_DIR` plus one over `$DELIVERED_DIR`,
+  # so a plan was visible because a LINK existed and grouped by WHICH directory
+  # held the link. Both facts are hand-maintained copies of something the plan
+  # already says about itself, and a copy maintained by hand disagrees with its
+  # original the moment somebody forgets.
+  #
+  # Measured 2026-08-18: an agent wrote a plan file directly rather than through
+  # `/plot-idea`. It parsed `canonical`, carried `Phase: Approved`, named three
+  # branches in two waves and sat on `origin/main` — and every unscoped scan
+  # reported 12 plans without it. Two agents were already working its branches.
+  # The failure is silent in the direction that matters: the scan does not say
+  # "one plan is unindexed", it says nothing at all and its footer count is
+  # simply lower than reality. Nothing in the output distinguishes *this plan
+  # does not exist* from *this plan is not indexed*, which is why it was
+  # misdiagnosed three times as a board defect before anyone looked at the index.
+  #
+  # So the plan directory is enumerated and each file is grouped by the phase it
+  # DECLARES. `$ACTIVE_DIR` keeps working and keeps being written — this change
+  # only stops anything DEPENDING on it being right. A stale link is now inert
+  # in both directions: an unlinked Approved plan appears, and a link pointing
+  # at a delivered plan cannot resurrect it, because neither link is consulted.
+  #
+  # COST, measured on this repo 2026-08-19 rather than assumed: 64 plans parse
+  # in 371 ms, ~5.8 ms each, against a full scan this file's own comments record
+  # at 500–1050 ms (18.3 s with the host round trips). The plan's fixture
+  # measurement puts the worst realistic case at ~300 ms extra for 1000 plans,
+  # a scale no Plot repo has reached, behind the board's 5 s cache.
+  #
+  # The delivered mtime PRE-FILTER is gone with the directory it read, and it
+  # was buying less than it appeared to: it keyed off the `$DELIVERED_DIR`
+  # symlink's mtime, and a fresh checkout stamps every symlink at once — 56 of
+  # 56 delivered links admitted here, so the parse it was meant to avoid was
+  # already being paid in full. `delivered_in_window` (the `Delivered:` record)
+  # was always the filter that actually decided, and the pre-filter's own
+  # contract was that it may only ever OVER-admit. Removing it takes that
+  # contract to its limit — strictly more correct, and on this repo not even
+  # more expensive.
+  #
+  # ORDER IS PRESERVED: active plans first, in enumeration order, with the
+  # terminal ones appended. A reader's list must not reshuffle when something is
+  # delivered, and it is the same order the two globs produced before.
+  #
+  # --next and --list-eligible skip the terminal group entirely rather than
+  # filter it later. Their question is "what may a worker claim", and a finished
+  # plan answers nothing to it: even an `open` branch under one is work somebody
+  # decided was not needed. Naming one would send a dispatcher at finished work.
+  terminal_plans=()
+  terminal_reads=()
+  terminal_phases=()
+
+  # One enumeration, two groups. `add_plan_by_phase` parses once and files the
+  # result, so no path below asks the format contract the same question twice.
+  add_plan_by_phase() { # $1=identity path, $2=file to parse
+    local id="$1" src="$2" ph
+    ph=$(plan_phase_of "$src")
+    is_plan_phase "$ph" || return 0
+    if is_terminal_phase "$ph"; then
+      [ "$next_only" = 1 ] && return 0
+      terminal_plans+=("$id")
+      terminal_reads+=("$src")
+      terminal_phases+=("$ph")
+    else
+      plans+=("$id")
+      plan_reads+=("$src")
+      plan_phases+=("$ph")
+    fi
+  }
+
   if [ "$PLAN_SOURCE" = "ref" ]; then
-    while IFS= read -r link; do
-      [ -n "$link" ] || continue
-      add_ref_plan "$link"
-    done <<< "$(ref_ls "$ACTIVE_DIR")"
+    while IFS= read -r plan_path; do
+      [ -n "$plan_path" ] || continue
+      # `ref_plan_file` rather than `add_ref_plan`: the phase decides the group,
+      # so the blob must be materialized before anything is appended.
+      plan_blob=$(ref_plan_file "$plan_path") || continue
+      [ -n "$plan_blob" ] || continue
+      add_plan_by_phase "$plan_path" "$plan_blob"
+    done <<< "$(ref_ls "$PLAN_DIR")"
   else
-    for link in "$ACTIVE_DIR"*.md; do
-      [ -e "$link" ] || continue
-      plans+=("$link")
-      plan_reads+=("$link")
+    for plan_path in "$PLAN_DIR"*.md; do
+      [ -e "$plan_path" ] || continue
+      add_plan_by_phase "$plan_path" "$plan_path"
     done
   fi
-  # Delivered candidates are appended, so the active plans keep their position
-  # and order — a reader's list does not reshuffle when something is delivered.
-  # They are still CANDIDATES here: the record check runs inside the plan loop,
-  # where the parse it needs has already happened for free.
-  #
-  # --next and --list-eligible skip them entirely rather than filter later.
-  # Their question is "what may a worker claim", and a delivered plan answers
-  # nothing to it: even an `open` branch under one is work somebody decided was
-  # not needed. Naming one would send a dispatcher at finished work.
-  if [ "$next_only" != 1 ]; then
-    if [ "$PLAN_SOURCE" = "ref" ]; then
-      # NO MTIME PRE-FILTER IN REF MODE, because a blob has no timestamp — and
-      # none is needed. The pre-filter's documented contract is that it may
-      # only OVER-admit, with `delivered_in_window` (the `Delivered:` record)
-      # having the last word. Admitting every delivered link and letting the
-      # record decide is that contract at its limit: strictly more correct,
-      # costing one parse per delivered plan. `delivered_candidates` stays for
-      # worktree mode, where mtime is real and cheap.
-      while IFS= read -r link; do
-        [ -n "$link" ] || continue
-        add_ref_plan "$link"
-      done <<< "$(ref_ls "$DELIVERED_DIR")"
-    else
-      while IFS= read -r link; do
-        [ -n "$link" ] || continue
-        plans+=("$link")
-        plan_reads+=("$link")
-      done <<< "$(delivered_candidates)"
-    fi
-  fi
+
+  for i in "${!terminal_plans[@]}"; do
+    plans+=("${terminal_plans[$i]}")
+    plan_reads+=("${terminal_reads[$i]}")
+    plan_phases+=("${terminal_phases[$i]}")
+  done
 fi
 
 if [ ${#plans[@]} -eq 0 ]; then
@@ -1913,7 +2046,10 @@ if [ ${#plans[@]} -eq 0 ]; then
   # all. Exiting 0 here would hand a caller an EMPTY branch name as if it were
   # valid work.
   [ "$next_only" = 1 ] && exit 1
-  echo "No active plans found in ${ACTIVE_DIR}."
+  # Names the directory that was actually READ. It named `$ACTIVE_DIR` while
+  # the scan globbed it; pointing a reader at the index would now send them to
+  # look for the cause of an empty list in a directory nothing consults.
+  echo "No plans found in ${PLAN_DIR}."
   echo "summary: plans=0 waves=0 branches=0 claimed=0 eligible=0 blocked=0 deferred=0 main=$MAIN"
   exit 0
 fi
@@ -2110,10 +2246,17 @@ import json, sys
 print(json.load(sys.stdin).get("phase", ""))
 ' 2>/dev/null) || plan_phase=""
 
-  # The delivered window's SECOND half: mtime admitted this file, the RECORD
-  # decides. Applied only to plans that came in through the delivered index — an
-  # ACTIVE plan carrying `Phase: Delivered` is drift, and the view that would
-  # reveal it must not be the one that hides it.
+  # The delivered window, applied to the plans the PHASE put in the terminal
+  # group. Enumeration grouped them; the `Delivered:` RECORD decides which of
+  # them still appears.
+  #
+  # THE TEST IS THE PHASE, not the path. It read `case "$plan" in "$DELIVERED_DIR"*)`
+  # — the directory the link sat in — and that made "which group is this plan
+  # in" a fact about a symlink while "what phase is it" was a fact about the
+  # file. The old comment here noted that an active plan carrying
+  # `Phase: Delivered` was drift the window must not hide; under the phase rule
+  # that drift cannot be constructed, because there is no second place for the
+  # answer to live. One source, so nothing to disagree.
   #
   # Two exits, and both matter:
   #   * the record's date has aged out of the window — ordinary expiry;
@@ -2121,19 +2264,25 @@ print(json.load(sys.stdin).get("phase", ""))
   #     the live example; showing it would create the one row that can never
   #     age out of DONE.
   # Both leave before a single git call is spent on the plan's branches.
-  case "$plan" in
-    "$DELIVERED_DIR"*)
-      delivered_in_window "$meta" || continue ;;
-  esac
+  if is_terminal_phase "$plan_phase"; then
+    delivered_in_window "$meta" || continue
+  fi
 
   n_plans=$((n_plans + 1))
   plan_target=$(readlink "$plan" 2>/dev/null && echo "" || true)
 
-  # The plan's DISPLAY NAME: the dated filename the link resolves to, never the
-  # index alias. In ref mode the resolution already happened in ref-space and
-  # the temp file was named after its result, so its basename IS the answer —
-  # `readlink` would ask the working tree, which is what this change stops
-  # doing. In worktree mode the readlink is unchanged.
+  # The plan's DISPLAY NAME: the dated filename, never an index alias.
+  #
+  # Unscoped enumeration now names `$PLAN_DIR` files directly, so the basename
+  # is already the dated name and the `readlink` is a no-op that falls through
+  # to `$plan`. It stays because a NAMED SLUG can still resolve to a symlink in
+  # `$ACTIVE_DIR`/`$DELIVERED_DIR` (see "a named slug is not a list"), and that
+  # path must keep printing the plan's own filename rather than the alias the
+  # caller typed.
+  #
+  # In ref mode the resolution already happened in ref-space and the temp file
+  # was named after its result, so its basename IS the answer — `readlink`
+  # would ask the working tree, which the ref enumeration stopped doing.
   if [ "$PLAN_SOURCE" = "ref" ]; then
     plan_base=$(basename "$plan_read")
   else
