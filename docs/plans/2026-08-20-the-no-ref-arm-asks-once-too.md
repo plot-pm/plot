@@ -1,10 +1,11 @@
 # The no-ref arm asks once too
 
 > Four optimisations landed and the scan still overruns its budget: 49.6 s
-> against 30 s. All fifteen remaining host calls come from one arm that was
-> deliberately left alone — the branch with no ref — on the assumption that
-> absent branches are few. Every branch merged with `--delete-branch` joins
-> them, so the scan's cost now grows with the work completed.
+> against 30 s. Fifteen host calls remain, and this plan asserted they were
+> merged-and-deleted branches whose cost grew with every merge. Measured
+> 2026-08-20, they are not: they are branches a plan names and nobody has
+> pushed. Merged branches already cost nothing. The diagnosis is inverted and
+> recorded here as such, because the shape of the growth was the whole argument.
 
 ## Status
 
@@ -31,113 +32,110 @@ was delivered.
 | a terminal branch is asked once | `c363f3ef` |
 | the cadence knows what a refresh costs | `8e2b2830` |
 
-Measured 2026-08-20 with a `gh` stub counting invocations: **15 host calls, all
-of them `pr view` — one per branch.** Total scan time **49.6 s** against a 30 s
-budget.
+Measured 2026-08-20 with a `gh` stub counting invocations: **16 host calls — 15
+`pr view` and one `pr list`.** Total scan time 34.7 s against a 30 s budget.
 
-### The arm that was left alone, and why the reason expired
+### What the fifteen calls actually are
 
-`#232` replaced the per-branch `host_pr_state()` loop with one repo-wide
-`pr-list`, and left exactly one caller able to ask per branch. The script says so
-where it happens:
+This plan's first draft said the fifteen were branches merged with
+`--delete-branch`, and therefore that **the scan gets slower the more the team
+ships.** That was wrong in both halves, and the correction is the finding:
 
-> *"THE ONE CALLER THAT MAY ASK PER BRANCH (PR #216). It is reached only from
-> the no-ref arm of `branch_state`, for a branch the repo-wide list may
-> legitimately not contain, and its cost is therefore bounded by ABSENT branches
-> rather than by all of them."*
+| Branch class | refs | in `pr list --state all` | host calls today |
+|---|---|---|---|
+| merged, ref deleted | 0 | **yes, `MERGED`** | **zero** |
+| planned, never pushed | 0 | **no PR exists** | **one each** |
 
-The bound is real and the assumption underneath it is not: **absent branches are
-not few.** This repo merges with `--delete-branch`, so every finished branch
-loses its ref and enters that arm. Fifteen of them today, and the number rises
-with each merge.
+Verified two ways on this repo, 2026-08-20:
 
-**The cost now scales with completed work.** A scan gets slower the more the team
-ships, which is the opposite of the intended shape.
+- `feature/the-plan-meta-reports-a-changelog`, `feature/a-sprint-proposes-its-work`
+  and `feature/the-scan-derives-its-plan-list` — the exact case the draft called
+  broken — each have 0 refs, appear in the list as `#252`/`#253`/`#254` `MERGED`,
+  and are asked about **zero** times.
+- Every one of the fifteen branches that *is* asked about has 0 refs **and no PR
+  at all.** The intersection of {asked} and {named by the arrived list} is empty.
 
-### Why the terminal cache does not cover it
+So the cost scales with **planned-not-started** work, not with completed work.
+Shipping a branch makes it free; planning one costs a call until someone pushes
+it. Fifteen is high today because this plan estate has fifteen branches sitting
+in approved plans, unstarted.
 
-`c363f3ef` caches terminal answers so a merged branch is asked once. It works —
-and it lives in the **board process**, not in the script. Every board restart
-pays the full round again, and `pnpm board` runs under `node --watch`, so a
-rebuild restarts it. On GitHub that is 6.9 s once per restart. On Bitbucket it is
-not.
+### Why the draft's fix was already implemented
 
-### Bitbucket, which is where this becomes fatal
+The draft blamed `merged_by_host` for passing `--ask` unconditionally. It does —
+and it does not matter: `host_pr_state` reads the per-branch cache at
+`plot-fleet-scan.sh:571-574`, **before** it ever looks at `$ask`. A branch the
+join answered returns from cache and costs nothing either way. Row 1 of the
+draft's own table is main's current behaviour.
+
+That ordering is load-bearing and was undocumented. A refactor moving the `--ask`
+test above the cache read would silently restore one call per terminal branch per
+pulse, with no test to catch it.
+
+### Bitbucket, which is where the residue still hurts
 
 One `bb` call was measured at **~10 s** on 2026-08-18 and the figure is recorded
-in `plot-host.sh:271`. Against GitHub's 461 ms per `gh pr view`, measured today:
+in `plot-host.sh:271`. Against GitHub's 461 ms per `gh pr view`:
 
 | | per call | 15 calls |
 |---|---|---|
-| GitHub | 461 ms | **6.9 s** |
+| GitHub | 461 ms | 6.9 s |
 | Bitbucket | ~10 000 ms | **150 s** |
 
-A **22× multiplier**, and 150 s is five times the whole budget — before the scan
-does anything else. Issue #228 already measured 27 `bb` calls over 9 branches on
-a real Bitbucket repo; this arm is the remaining half of that count.
+A 22× multiplier, and 150 s is five times the whole budget. The residue is real
+even though its cause is not the one this plan named — but it shrinks as the
+fleet works, rather than growing forever, and that changes what is worth doing
+about it.
 
 ## Design
 
-### The list already answers the question
+### What this plan can honestly land
 
-**Verified 2026-08-20, and this is what makes the fix cheap:** `pr list --state
-all` returns PRs for branches whose refs are gone. Measured against this repo —
-#252, #253 and #254 all appear in the list with `MERGED`, while
-`git ls-remote --heads` returns **0 refs** for each.
+Nothing behavioural. The property it wanted is already true, so the deliverable
+is the test that pins it — and the reason, written down where the ordering lives.
 
-So a branch with no ref does not need its own call. It needs the join it was
-excluded from.
+### What would remove the fifteen, and why it is not done here
 
-### Ask only about what the list could not answer
-
-The arm becomes three cases rather than one:
-
-| Branch has no ref, and… | Cost |
-|---|---|
-| the joined list names it | **zero** — the answer is already in hand |
-| the list arrived and does not name it | one call, as today |
-| the list never arrived | unchanged — an outage is not an answer |
-
-The third row is load-bearing and is the rule `an-outage-is-not-an-answer`
-established: a failed list must not be read as *no PR exists*. `host_pr_state`
-already distinguishes *asked and got nothing* from *could not ask*, via the
-`.list-arrived` marker — that distinction is what this change builds on rather
-than replaces.
-
-**Expected effect:** fifteen calls become zero on this repo, because every one of
-the fifteen is a merged branch the list already carries. What remains is the
-genuinely unknown branch — a ref deleted for a PR that was never opened — which
-is rare and correctly costs one call.
+Only one thing: treating an arrived list's silence about a branch as evidence
+that no PR exists. That is `an-outage-is-not-an-answer` inverted. It may be
+defensible — the `.list-arrived` marker already separates *the list arrived and
+did not name it* from *the list never arrived*, which is exactly the distinction
+such a change would rest on. But it is a decision about what counts as evidence,
+and it belongs to an interrogated plan rather than to a brief that forbade it in
+three places.
 
 ### Why not simply raise the timeout
 
-Considered and rejected. 30 s against a 5 s pulse is already generous, and a
-budget raised to fit a cost that grows with every merge buys weeks, not a fix.
-The board's own `the-board-renders-what-has-arrived` exists because the wait is
-structural; making the wait longer spends that work.
+Considered and rejected, and the correction does not revive it. A budget fitted
+to a cost that moves with the plan estate is a budget that fails whenever
+planning runs ahead of implementation — which is the normal state of a fleet.
 
 ### Open Points
 
+- [ ] Should the list's silence about an unjoined branch, on a list that
+      demonstrably arrived, count as evidence of no PR? This is the real
+      question behind the residue and needs its own plan.
 - [ ] Should the terminal cache move into the script, so a board restart stops
       paying the full round? It would need a file, and a cache on disk is a
       record rather than a derivation — the reason `c363f3ef` kept it in memory.
-      The right answer may be that a restart should be cheap enough not to care,
-      which is what this plan makes true.
 - [ ] Does `plot-host.sh` want a `pr-list --state all` fast path for Bitbucket,
-      where `all` fans out to three calls? That is `the-cadence-knows-what-a-refresh-costs`'s
-      territory and it made the cadence aware of the cost rather than removing
-      it. Removing it is a separate question.
+      where `all` fans out to three calls?
 
 ## Branches
 
-- `bug/the-no-ref-arm-reads-the-join` — a branch with no ref is answered from the joined `pr-list` where the list names it, and asked individually only where the list arrived and did not. Tests: a merged-and-deleted branch costs zero host calls when the list carries it, asserted by counting invocations of a stubbed host; a branch absent from an arrived list still costs one call and reads correctly; a list that never arrived leaves the branch reading exactly as it does today, never as "no PR"; the three-way state vocabulary is unchanged per branch.
+- `bug/the-no-ref-arm-reads-the-join` — <!-- deferred: the defect does not exist. Measured 2026-08-20: the cache read at plot-fleet-scan.sh:571-574 precedes the --ask arm, so a merged-and-deleted branch the join names already costs zero host calls. Landing the regression test that pins that ordering, and nothing else. --> the regression test only: a merged-and-deleted branch that the arrived list names costs zero `pr-state` calls, asserted by counting invocations of a stubbed host. No behaviour change.
 
 ## Notes
 
 Prompted by an operator asking whether the optimisations were already in — they
-were — and then whether Bitbucket would be worse. It is, by 22×, and the
-arithmetic is above rather than asserted.
+were — and then whether Bitbucket would be worse. It is, by 22×.
 
-The measurement that matters most is not the total but its shape: **the scan
-gets slower as the team ships more.** Every other cost in it is bounded by the
-repo's size.
+The draft's headline was *"the scan gets slower as the team ships more."* It is
+the opposite: shipping is what makes a branch free. The mistake was assuming
+`refs=0` implied *was merged*, because that is how this repo retires branches —
+but `refs=0` has a second and here larger cause, *never pushed*. Both classes
+are the same git shape and only the list tells them apart.
+
+Caught by the implementing agent, which measured the branch set before editing
+and refused a brief it had disproved. That refusal is the reason this file says
+something true.
