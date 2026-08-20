@@ -2149,24 +2149,43 @@ function classifyGroup(
    */
   workerQuestion = '',
   /**
-   * The path of a local worktree holding this branch — see
-   * `FleetBranchSchema.local_worktree`. Collected by the scan since the wave
-   * that added it, and until 2026-08-20 never passed here.
+   * Whether a local worktree HOLDS this branch — checked out here AND its tip
+   * has not merged. See `FleetBranchSchema.held`.
    *
-   * IT IS THE ONLY SIGNAL THAT SAYS *HELD* rather than merely *touched*, and
-   * that distinction is what the no-ref arm below needs. A branch can be ahead
-   * with no worktree — a leftover local ref nobody is on — and a worktree can
-   * be clean while holding commits, which is an agent that committed and kept
-   * working. Neither fact alone separates *someone is on this* from *nobody
-   * is*. A worktree does, because a worktree exists on purpose.
+   * THE ONLY SIGNAL THAT SAYS *HELD* rather than merely *touched*, and the
+   * distinction the no-ref arm below needs. A branch can be ahead with no
+   * worktree — a leftover local ref nobody is on — and a worktree can be clean
+   * while holding commits, which is an agent that committed and kept working.
+   * Neither fact alone separates *someone is on this* from *nobody is*. A held
+   * worktree does, because a worktree exists on purpose and `held` is the one
+   * that has already excluded the merged leftover.
    *
-   * LAST, BECAUSE IT IS THE NEWEST — the rule `workerQuestion` records above.
+   * THE AUTHORITATIVE FORM OF `local_worktree`, and the reason this branch
+   * exists. #258 lifted a branch out of NOT STARTED by reading the worktree PATH
+   * (`local_worktree !== ''`) directly, which also fires on a CLEAN worktree
+   * left on a branch whose work has landed — a leftover directory, not somebody
+   * working. That is the merged-leftover misread the plan forbids, and it is
+   * visible on exactly one branch: a squash-merged-and-deleted branch reads
+   * `open` (its ref is gone, so the merge is invisible to a plain ancestry
+   * walk), and a worktree left on it must not read WORKING. The scan excludes
+   * `merged` before it sets this, so the consumer reads one boolean here instead
+   * of re-deriving `!merged` from the path. The PATH still travels to the row —
+   * it is what the plan modal names — but only via the pulse's `worktrees` list,
+   * never through this function, which decides the lift and nothing else.
    *
-   * Same one-directional rule as `localDirty` and `localAhead`: it may only
-   * LIFT, and it is true on this machine only, so '' is what every branch
-   * elsewhere reports.
+   * Same one-directional rule as `localDirty`, `localAhead` and `localLocked`:
+   * it may only LIFT a branch out of quiet, and it is false on every machine
+   * that holds no worktree for the branch — so the claim ref stays primary and a
+   * branch worked on another host answers from its ref exactly as before.
+   *
+   * LAST, BECAUSE IT IS THE NEWEST — the rule `workerQuestion` and
+   * `workerDirtyPaths` record above, and for the reason recorded there:
+   * inserting a parameter mid-list shifts every spread-tuple caller in the suite
+   * silently past the compiler. Defaults to false so every caller predating the
+   * field is unchanged: absent and "nothing here holds it" are the same
+   * statement.
    */
-  localWorktree = '',
+  held = false,
 ): { group: WaitingGroup; note: string } {
   // A deferred branch is never `working` — the group is about the claim the row
   // makes, not about the age of its last commit, so a fresh commit does not
@@ -2394,8 +2413,17 @@ function classifyGroup(
     // offered all three as *eligible — nobody has taken it*, which is an
     // invitation to put a second agent on finished work. `local_ahead` was
     // read, plumbed to this line, and then discarded for a hardcoded 0.
-    if (localDirty || localLocked || localWorktree !== '') {
-      return workingLocally(localDirty, localAhead, localLocked, localWorktree);
+    //
+    // THE LIFT READS `held`, NOT THE RAW PATH. #258 keyed this on the worktree
+    // PATH (`local_worktree !== ''`), which also fires on a clean worktree left
+    // on a squash-merged-and-deleted branch — that branch reads `open` because
+    // its ref is gone, so the merge is invisible here, and the leftover
+    // directory read as *somebody working*. `held` is the path AND an unmerged
+    // tip, the AND the scan already computed; reading it keeps a merged leftover
+    // in NOT STARTED where it belongs. The path itself does not reach this
+    // function — the row NAMES it through the pulse's `worktrees` list.
+    if (localDirty || localLocked || held) {
+      return workingLocally(localDirty, localAhead, localLocked, held);
     }
     // THE PLAN'S PHASE IS ASKED FIRST, AND IT DECIDES THE SECTION.
     //
@@ -2903,7 +2931,7 @@ function workingLocally(
   dirty: boolean,
   ahead: number,
   locked = false,
-  worktree = '',
+  held = false,
 ): { group: WaitingGroup; note: string } {
   if (locked) return { group: 'working', note: 'a write is in progress in a local worktree' };
   // HELD WITH NOTHING ELSE TO REPORT. A worktree holds the branch, the tree is
@@ -2913,7 +2941,12 @@ function workingLocally(
   // "uncommitted work" here would invent a fact; saying nothing put the row in
   // NOT STARTED as *nobody has taken it*, which is what sent a second agent at
   // finished work on 2026-08-20.
-  if (!dirty && ahead <= 0 && worktree !== '') {
+  //
+  // `held` RATHER THAN THE RAW PATH. A path is present on a leftover worktree
+  // too; `held` is the path with the merged tip already excluded, so only a
+  // genuinely-held branch prints this note — the merged leftover it used to
+  // fire on now stays in NOT STARTED, which is the whole of the fix.
+  if (!dirty && ahead <= 0 && held) {
     return { group: 'working', note: 'held in a local worktree' };
   }
   if (ahead <= 0) return { group: 'working', note: 'uncommitted work in a local worktree' };
@@ -3272,10 +3305,13 @@ export function rowsFromPulse(
           // Absent for every other state; absent HERE, on a waiting row, is the
           // stated unknown — never a question invented to fill the sentence.
           questions?.get(b.branch) ?? '',
-          // The worktree that HOLDS this branch, if one does. Collected since
-          // the wave that added the field and never passed until now — see the
-          // parameter's own note for why the no-ref arm cannot answer without it.
-          b.local_worktree);
+          // Whether a worktree HOLDS this branch — the path with the merged tip
+          // excluded, the AND the scan computed. It decides the WORKING lift, so
+          // a leftover worktree on a merged branch stays in NOT STARTED instead
+          // of reading as somebody working. The PATH itself is not passed here —
+          // it names the place, which the row does through the pulse's
+          // `worktrees` list, not through classification.
+          b.held);
         // Derived once, read twice below — and derived from `group` rather than
         // re-deciding it, so a row `classify` placed outside `not-started`
         // cannot pick up a waiting-state by a rule that drifted apart from it.
