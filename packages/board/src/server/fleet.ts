@@ -10,6 +10,7 @@ import {
   FleetScanLineSchema,
   toBoardPhase,
   unknownPhaseNote,
+  WaveVerdictSchema,
   type AgentRow,
   type BranchState,
   type Fleet,
@@ -21,6 +22,7 @@ import {
   type StuckRun,
   type WaitingGroup,
   type WaitingOn,
+  type WaveVerdict,
   type WorkerState,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
@@ -1850,7 +1852,36 @@ export function waitingOnFor(
   return 'click';
 }
 
-export function classify(
+/**
+ * The wave verdict as a VALUE, or null where the scan did not report one this
+ * board recognises.
+ *
+ * `classify` takes `verdict` as a `string` — it is a field off a JSON pulse, and
+ * an older or newer scan may put anything in it — so the row's typed field needs
+ * this one gate between the two. Parsed rather than cast: a cast would put an
+ * unrecognised word on the row as though the scan had said it.
+ *
+ * NULL FOR EVERYTHING ELSE, including "". Absent is not a guess, which is the
+ * rule `planPhase` already follows a few dozen lines below: a pulse that
+ * reported no verdict licenses no claim about a wave, and a row with null here
+ * renders exactly as the board did before the field existed.
+ */
+export function waveVerdict(verdict: string): WaveVerdict | null {
+  const parsed = WaveVerdictSchema.safeParse(verdict);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
+ * What kind of row this branch is — its section and its sentence.
+ *
+ * The whole of the old `classify`, unchanged, and split out for one reason:
+ * `classify` now answers a THIRD thing, and the third answer does not depend on
+ * any of the thirty branches below. Threading `verdict` through every `return`
+ * would put thirty chances to forget it where there is genuinely one — and a
+ * forgotten one fails by leaving the field null, which is indistinguishable
+ * from an older scan. Computed once at the single exit instead.
+ */
+function classifyGroup(
   state: BranchState,
   verdict: string,
   ageMinutes: number | null,
@@ -2268,8 +2299,34 @@ export function classify(
     // is what the phase check above establishes: every row reaching here is one
     // an agent may actually take, so the wave verdict is now the only thing
     // left to refine.
-    if (verdict !== 'eligible') return { group: 'not-started', note: BLOCKED_NOTE };
-    return { group: 'not-started', note: ELIGIBLE_NOTE };
+    //
+    // THE BLOCKED CASE IS NAMED, not inferred from everything-but-eligible.
+    // This read `verdict !== 'eligible'`, which sent three inputs to one
+    // sentence: `blocked` (true), `complete` (FALSE — a finished wave blocks
+    // nobody), and an unrecognised or absent verdict (unknowable). The middle
+    // one is the defect the plan measured, and it is the same blocklist-collapse
+    // shape as the blocker search above — an allowlist of one good value, so
+    // every other input inherits the bad answer.
+    if (verdict === 'blocked') return { group: 'not-started', note: BLOCKED_NOTE };
+    if (verdict === 'eligible') return { group: 'not-started', note: ELIGIBLE_NOTE };
+    // `complete` AND EVERY UNRECOGNISED VERDICT, INCLUDING "", and the answer is
+    // deliberately the OLD sentence rather than a new one.
+    //
+    // An `open` branch of a `complete` wave is a contradiction: the scan counts
+    // an `open` branch as outstanding, so a wave holding one cannot be
+    // complete. So this arm is unreachable from a scan that agrees with itself,
+    // and the row it would build is one nobody has ever seen — which is exactly
+    // why it may not invent a sentence. `BLOCKED_NOTE` says *blocked by an
+    // earlier wave*: not startable, ordering not satisfied, no claim about
+    // WHICH wave. That is the honest reading of a verdict this board cannot
+    // place, and it is what every such row already said.
+    //
+    // What changed is that the reasoning is now recorded at the arm instead of
+    // being a side effect of the predicate. The row's `verdict` field says
+    // which case actually arrived — `complete`, or null for the unrecognised —
+    // so a consumer no longer has to infer it from a sentence shared by three
+    // inputs. The prose is the fallback; the field is the fact.
+    return { group: 'not-started', note: BLOCKED_NOTE };
   }
   // A WORKER'S OWN STATE outranks the commit clock, whatever that clock says.
   //
@@ -2501,6 +2558,28 @@ export function classify(
   }
   if (ageMinutes === null) return { group: 'quiet', note: 'pushed work, age unknown' };
   return { group: 'quiet', note: `no commit for ${humanAge(ageMinutes)}` };
+}
+
+/**
+ * What kind of row this branch is: its section, its sentence, and the verdict of
+ * the wave it sits in.
+ *
+ * THE THIRD ANSWER TRAVELS WITH THE OTHER TWO, and that is the whole reason it
+ * is returned here rather than read off the wave by the caller. The note and the
+ * verdict are two renderings of one input, and a consumer that finds them
+ * disagreeing has found a bug it cannot act on — so they leave this function
+ * together, from one reading of one `verdict` argument. `rowsFromPulse` has the
+ * wave in hand and could take the field from there; that would be a SECOND
+ * derivation, and the pair would then be able to drift.
+ *
+ * The signature is unchanged. Every caller — including the spread-tuple ones in
+ * the suite, whose argument positions this file has broken once before — passes
+ * exactly what it passed before and gets one more field back.
+ */
+export function classify(
+  ...args: Parameters<typeof classifyGroup>
+): { group: WaitingGroup; note: string; verdict: WaveVerdict | null } {
+  return { ...classifyGroup(...args), verdict: waveVerdict(args[1]) };
 }
 
 /**
@@ -2807,13 +2886,38 @@ export function rowsFromPulse(
     // Empty name → null, never "": a plan with no `###` sub-headings has an
     // unnamed wave, and the row then keeps the old sentence (*blocked by an
     // earlier wave*) rather than printing `blocked by ``.
-    const blocker = plan.waves.find((w) => w.verdict !== 'complete');
+    //
+    // TWO SEARCHES, NOT ONE — the split this wave exists for. The predicate was
+    // `verdict !== 'complete'`, which is the blocklist-collapse shape
+    // `green-never-outranks-unknown` removed from `prState`: it catches
+    // everything but one good value, so `eligible` and `blocked` arrive as the
+    // same answer. They are not. An ELIGIBLE wave is the one a person can start
+    // — startable, unclaimed, at the front of the queue — and it is the honest
+    // answer to *blocked by which one*. A BLOCKED wave is not: naming it
+    // answers that question with another blocked thing, which the paragraph
+    // above forbids and the old predicate permitted.
+    //
+    // They agree on today's pulses and that is precisely the danger. The scan
+    // clears `prior_ok` at the first incomplete wave, so exactly one wave per
+    // plan can be `eligible` and it is the first non-complete one — the two
+    // predicates pick the same wave by an INVARIANT OF THE SCAN that this file
+    // never states and does not own. A scan that ever reports two eligible
+    // waves, or a blocked wave ahead of an eligible one, would make the old
+    // predicate wrong silently. This one is right by its own reasoning.
+    //
+    // The fallback keeps the first-not-nearest property for the case the split
+    // opens up: no eligible wave at all. That happens where every wave is
+    // complete (no row is blocked, so nothing reads this) or where the scan
+    // reports blocked waves with none eligible — and there the front of the
+    // queue is still the most useful thing a reader can be pointed at.
+    const eligibleWave = plan.waves.find((w) => w.verdict === 'eligible');
+    const blocker = eligibleWave ?? plan.waves.find((w) => w.verdict !== 'complete');
     const blockerName = blocker?.name?.trim() ? blocker.name.trim() : null;
     for (const wave of plan.waves) {
       for (const b of wave.branches) {
         const age = ages.get(b.branch) ?? null;
         const pr = prs?.get(b.branch) ?? null;
-        const { group, note } = classify(
+        const { group, note, verdict } = classify(
           b.state, wave.verdict, age, quietMinutes, pr, b.local_dirty, b.local_ahead,
           // The plan's own phase, which the pulse has carried since #140 and
           // nothing read. It is the half git cannot answer: every branch of a
@@ -2920,6 +3024,19 @@ export function rowsFromPulse(
           // name. Null on every row that is not blocked, and on a blocked row
           // whose blocker has no name.
           blockedBy: waitingOn === 'time' ? blockerName : null,
+          // THE WAVE'S VERDICT, as a value — from `classify`, which composed the
+          // note beside it from the same reading. Not taken from `wave.verdict`
+          // here, though it is in hand: that would be a second derivation of one
+          // fact, and the field and the sentence could then drift apart. The
+          // pair leaving one function together is what makes them checkable
+          // against each other, which is what the tests do.
+          //
+          // On EVERY row, not only the blocked ones. `blockedBy` above is null
+          // outside its one case because a name for a thing that is not
+          // blocking is a false claim; a verdict is a fact about the wave
+          // whatever the branch is doing, and a merged branch of a still-open
+          // wave is precisely the row that had no way to say so.
+          verdict,
           // WHETHER IT CAN MOVE — a fact ADDED beside the group, never folded
           // into it. `classify` above answered what this branch IS; nothing it
           // can say means *this cannot advance without someone doing
@@ -3087,6 +3204,17 @@ export function rowsFromPulse(
       // this row always is, since it reaches the board through the PR map.
       waitingOn: null,
       blockedBy: null,
+      // NO WAVE, SO NO VERDICT — null, and for the same reason as the two
+      // fields above rather than as a placeholder. This row is built from the PR
+      // map: no plan names the branch, so there is no wave to hold a verdict
+      // about it.
+      //
+      // Explicitly NOT the `'eligible'` handed to `classify` a few lines up.
+      // That argument exists to steer the function into its PR arm, where an
+      // open PR's checks decide the group — it is a routing value, not a claim
+      // about a wave, and putting it on the row would state that the ordering
+      // of a plan that does not exist has been satisfied.
+      verdict: null,
       // `elsewhere` — NOWHERE TO LOOK, which is the exact truth for this row
       // and not a stand-in for one. The worker pid lives in the worktree, and
       // this row was built from the PR map: the worktree scan never visited
