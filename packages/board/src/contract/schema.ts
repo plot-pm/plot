@@ -969,6 +969,19 @@ export const FleetBranchSchema = z.object({
    * | `none`      | a worktree is here, but no pid — look in it       |
    * | `elsewhere` | no worktree here — ask the machine that took it   |
    *
+   * THE MOVES ARE WHY THE VALUES ARE SEPARATE, NOT WHAT THE ROW SAYS. This
+   * column is the argument for eight values — two states that take one move
+   * would not need two names — and it is read here and nowhere else. Two
+   * surfaces render from these states and they say different kinds of thing on
+   * purpose: `AttentionItem` gives ADVICE (`action: 'restart it'`, beside the
+   * `verdict` a consumer branches on and the `evidence` it traces to, which is
+   * that endpoint's declared job), while a row's `note` states only what was
+   * OBSERVED — an exit code, a stalled marker, a log's location. So *restart
+   * it* is right in the first and wrong in the second, and the three broken
+   * states (`failed`, `ended`, `stalled`) stopped saying it in notes on
+   * 2026-08-20: whether a crash is worth restarting depends on its log and on
+   * what else is in flight, neither of which the classifier can see.
+   *
    * `waiting` AND `stalled` SPLIT WHAT `finished` USED TO COVER, and they
    * arrive only where the process exited 0. Measured across seven worktrees in
    * a four-agent fleet run: EVERY worker exited 0 — the one that opened its PR,

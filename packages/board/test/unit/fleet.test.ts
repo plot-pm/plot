@@ -1404,7 +1404,12 @@ describe('classify — whether a worker is actually running', () => {
     const failed = classify('claimed', 'eligible', 3, QUIET, null, false, 0, '', 'failed', '1');
     const finished = classify('claimed', 'eligible', 3, QUIET, null, false, 0, '', 'finished', '0');
     expect(failed.note).not.toBe(finished.note);
-    expect(failed.note).toMatch(/failed/);
+    // THE WORDING MOVED, THE CLAIM DID NOT. `failed` read *worker failed* until
+    // 2026-08-20 and now reads *worker crashed*, because the note states what
+    // was observed rather than what to do — see `broken-agent.test.ts`. What
+    // this test has always asserted is that the two states are not one label,
+    // and that is checked above, on the notes themselves.
+    expect(failed.note).toMatch(/crashed/);
     expect(finished.note).toMatch(/finished/);
   });
 
@@ -1433,7 +1438,11 @@ describe('classify — whether a worker is actually running', () => {
     // stop looking.
     const r = classify('claimed', 'eligible', 3, QUIET, null, false, 0, '', 'ended', '');
     expect(r.group).toBe('waiting-on-you');
-    expect(r.note).toMatch(/unknown/);
+    // *not recorded* rather than *unknown* since 2026-08-20 — the same claim in
+    // the words of the thing observed: what is missing is the RECORD. The
+    // assertion that matters is that it never reads as success, below.
+    expect(r.note).toMatch(/not recorded/);
+    expect(r.note).not.toMatch(/finished|success/);
     expect(r.note).not.toMatch(/finished/);
   });
 
@@ -2324,7 +2333,10 @@ describe('rowsFromPulse', () => {
       const rows = rowsFromPulse(withWorker('failed', '2', '900'), ages, 'plot', QUIET);
       const row = rows.find((r) => r.branch === 'feature/d')!;
       expect(row.group).toBe('waiting-on-you');
-      expect(row.note).toMatch(/exit 2/);
+      // The exit code still travels; the sentence around it reads *crashed —
+      // exited 2* rather than *failed (exit 2)* since 2026-08-20. What this test
+      // is about is that the CODE arrives, which is asserted on the number.
+      expect(row.note).toMatch(/exited 2/);
     });
 
     it('carries a running worker\'s pid, so the reader can go look at the process', () => {
@@ -2395,7 +2407,11 @@ describe('rowsFromPulse', () => {
       const row = rows.find((r) => r.branch === 'feature/d')!;
       expect(row.group).toBe('waiting-on-you');
       expect(row.note).toMatch(/src\/retry\.ts/);
-      expect(row.note).toMatch(/resume it/);
+      // The sentence around the names stopped prescribing *resume it* on
+      // 2026-08-20 and now states what was observed — *stopped without finishing
+      // and without asking*. The names, which are what this test is about, are
+      // asserted above and unchanged.
+      expect(row.note).toMatch(/without finishing/);
     });
 
     it('counts the remainder rather than dropping it silently', () => {
@@ -2445,7 +2461,16 @@ describe('rowsFromPulse', () => {
         null, '', null, Date.now(), null, null, asking('PLOT-BLOCKED: which one?'));
       const row = rows.find((r) => r.branch === 'feature/d')!;
       expect(row.group).toBe('working');
-      expect(row.note).not.toMatch(/resume it/);
+      // REBOUND TO THE STALLED SENTENCE THAT EXISTS. This read `not
+      // toMatch(/resume it/)` until 2026-08-20, when the stalled note stopped
+      // prescribing a move — and a negative assertion against a string nothing
+      // composes any more passes whatever the ordering does, which is the one
+      // way this guarantee could have been lost silently. It now names the
+      // wording the stalled arm actually produces.
+      expect(row.note).not.toMatch(/without finishing/);
+      // AND POSITIVELY: the question is what the row must carry. If dirtiness
+      // won, this row would describe the floor instead of the ask.
+      expect(row.note).toMatch(/which one\?/);
     });
 
     it('renders the three claim cases as three different sentences', () => {
