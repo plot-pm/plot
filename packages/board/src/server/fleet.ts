@@ -428,6 +428,109 @@ function run(cmd: string, args: string[], cwd: string, timeoutMs = 30_000): Prom
 }
 
 /**
+ * The three facts about the REPO STATE that make a scan slow, all measured — the
+ * report a timeout owes and a bare `timed out after 90000ms` withholds.
+ *
+ * `worktrees` and `branches` are counts, not estimates: the scan spawns git once
+ * per branch per question, and every spawn reads the ref database and the
+ * worktree list at startup, so both multiply the launch overhead. `perSpawnMs`
+ * is the launch overhead itself, timed against this repo's actual estate rather
+ * than assumed — the same probe `the-scan-spawns-git-once-per-question` used to
+ * show 44 worktrees cost 56 ms per spawn and 11 cost 31 ms.
+ *
+ * There is no `spawnCount`. The board cannot count the spawns of a scan it just
+ * SIGKILLed, so it reports the branch count it CAN measure and lets the reader
+ * see the multiplier, rather than printing a fabricated `spawns ≈ 8 × branches`
+ * dressed as a measurement.
+ */
+export interface EstateMeasurement {
+  worktrees: number;
+  branches: number;
+  perSpawnMs: number;
+}
+
+/**
+ * The scan's timeout message, only if it IS a timeout. `runStreaming` rejects a
+ * budget overrun with exactly `timed out after <n>ms`; every other rejection —
+ * a non-zero exit, a spawn failure, a missing terminal line — is a different
+ * fault the estate does not explain, so this matches the one shape it fits.
+ */
+function isTimeout(message: string): boolean {
+  return /^timed out after \d+ms$/.test(message);
+}
+
+/**
+ * Append the measured estate to a scan error, but ONLY when the error is a
+ * timeout and the measurement succeeded.
+ *
+ * Every other case returns the message untouched, which is the spec's "a scan
+ * under budget says nothing extra" read at full width: a scan that failed for
+ * any reason but the budget, or one whose estate could not be measured (a repo
+ * mid-rebase, a vanished worktree), gets the bare message rather than a
+ * half-filled one. An absent number is reported as absent, never as zero.
+ */
+export function withEstate(message: string, m: EstateMeasurement | null): string {
+  if (m === null || !isTimeout(message)) return message;
+  return `${message} — ${estateReport(m)}`;
+}
+
+/**
+ * The measured estate as one sentence. Pure: the numbers it prints are exactly
+ * the numbers it was handed, so a test can assert "measured in, sentence out"
+ * without a repository. It multiplies nothing and rounds only `perSpawnMs`,
+ * which arrives as a float from the probe.
+ */
+export function estateReport(m: EstateMeasurement): string {
+  const wt = `${m.worktrees} worktree${m.worktrees === 1 ? '' : 's'}`;
+  const br = `${m.branches} branch${m.branches === 1 ? '' : 'es'}`;
+  const per = `${Math.round(m.perSpawnMs)} ms per git spawn`;
+  return `${wt}, ${br}, ${per} — the scan spawns git per branch, and every spawn `
+    + `reads this estate at startup; pruning stale worktrees cuts both the count `
+    + `and the per-spawn cost`;
+}
+
+/** How many bare `git` spawns to time when probing per-spawn launch cost. */
+const SPAWN_PROBE_COUNT = 5;
+
+/**
+ * Measure the estate that a slow scan blames, or null if the measurement itself
+ * fails.
+ *
+ * Only ever called ON the timeout path, so its own cost — a worktree list, a
+ * ref count, five bare `git` spawns — is paid once per failed scan, not per
+ * pulse. `git rev-parse --git-dir` is the cheapest real spawn there is: it does
+ * no ref or object work, so what it times is the launch overhead itself, which
+ * is the quantity the estate is about.
+ *
+ * Returns null rather than a partial object if any part throws: a sentence
+ * missing a number would be worse than the bare timeout it replaces, and the
+ * `an-outage-is-not-an-answer` rule says a value that could not be observed is
+ * reported as absent, not as zero.
+ */
+async function measureEstate(opts: BuildBoardOptions): Promise<EstateMeasurement | null> {
+  try {
+    const wtOut = await run('git', ['worktree', 'list', '--porcelain'], opts.repoRoot);
+    const worktrees = wtOut.split('\n').filter((l) => l.startsWith('worktree ')).length;
+
+    const brOut = await run('git',
+      ['for-each-ref', '--format=%(refname)', 'refs/remotes/origin'], opts.repoRoot);
+    const branches = brOut.split('\n').filter((l) => l.trim() !== '').length;
+
+    let total = 0;
+    for (let i = 0; i < SPAWN_PROBE_COUNT; i++) {
+      const started = process.hrtime.bigint();
+      await run('git', ['rev-parse', '--git-dir'], opts.repoRoot);
+      total += Number(process.hrtime.bigint() - started) / 1e6;
+    }
+    const perSpawnMs = total / SPAWN_PROBE_COUNT;
+
+    return { worktrees, branches, perSpawnMs };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Run a command and hand each complete stdout LINE to `onLine` as it arrives.
  *
  * The whole point of this file's streaming scan, and the reason it is not
@@ -1703,7 +1806,15 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // A failed refresh NEVER overwrites a good result. Replacing real state
     // with emptiness because one scan failed is what makes a monitoring view
     // untrustworthy — the tab keeps the last pulse, its age, and this error.
-    entry.error = err instanceof Error ? err.message : String(err);
+    const message = err instanceof Error ? err.message : String(err);
+    // A TIMEOUT SAYS WHAT MADE IT SLOW. `withEstate` appends the measured estate
+    // only when this is a budget overrun and the estate could be measured — a
+    // scan that failed any other way, or a repo that could not be probed, keeps
+    // the bare message. The measurement is paid here, on the failure path,
+    // because it is the only path that needs it and the scan is already dead.
+    entry.error = isTimeout(message)
+      ? withEstate(message, await measureEstate(opts))
+      : message;
   } finally {
     entry.running = false;
   }
