@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Story:** plot-planning-model
 - **Sprint:** the-board-tells-the-truth
@@ -12,7 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-18, jwloka, in-session
 - **Started:** 2026-08-18, Jan Wloka, `feature/a-sprint-names-its-release`
-- **Delivered:**
+- **Delivered:** 2026-08-20, jwloka, PRs #229, #252, #253
 - **Released:**
 
 ## Changelog
