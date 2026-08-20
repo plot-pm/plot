@@ -5501,7 +5501,28 @@ export function AgentList({
                             fold*, and hiding the row behind a control the reader
                             was not given would lose it entirely. */}
                         {(expanded === null || expanded) && (
-                          <ul role="presentation">
+                          // INDENTED, because grouping is a visual fact and a
+                          // heading above a row is not one. Measured 2026-08-20:
+                          // `TupleRow` carried **zero** `pl-*` or `ml-*`, so rows
+                          // of one plan were distinguished only by the heading
+                          // over them — siblings looked like neighbours, and a
+                          // reader scanning past the heading lost the set.
+                          //
+                          // `pl-6` matches the fold caret's own 24px box, so the
+                          // indent lines the children up with the space the
+                          // disclosure occupies on the parent — the shape a file
+                          // tree uses, and the one a reader already reads.
+                          //
+                          // The left border draws the set as one run rather than
+                          // three rows that happen to be shifted. Without it the
+                          // indent alone is ambiguous at the boundary: the last
+                          // child and the next plan's row differ only by 24px of
+                          // whitespace.
+                          <ul
+                            role="presentation"
+                            data-wave-list={group.plan}
+                            className="ml-6 border-l border-slate-200 dark:border-slate-800"
+                          >
                             {group.rows.map((r) => (
                               <Row
                                 key={rowKey(r)}

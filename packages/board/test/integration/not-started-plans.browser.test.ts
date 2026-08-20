@@ -263,7 +263,7 @@ describe('NOT STARTED renders one row per plan', () => {
     }
   });
 
-  it('lands a plan row\'s slots at the same x as a branch row\'s', async () => {
+  it('indents a plan\'s waves under it, and keeps their slots aligned with each other', async () => {
     const page = await open();
     try {
       // ONE GRID, AND THIS ASSERTS THE AGREEMENT AGAIN — which is the third
@@ -277,27 +277,52 @@ describe('NOT STARTED renders one row per plan', () => {
       //   2. `a-plan-row-is-not-a-branch-row` gave the plan row its own
       //      proportions and this asserted they DIFFER, by enough to see.
       //   3. `one-component-renders-every-row` collapses both grids into
-      //      `TUPLE_TRACKS`, so they agree again — and the nesting version (1)
-      //      does not come back with them.
+      //      `TUPLE_TRACKS`, so the tracks agree — told apart by slot 2 stating
+      //      the KIND in a word rather than by an offset.
+      //   4. NOW: the plan's waves are INDENTED under it, and the parent is not
+      //      one of them.
       //
-      // What changed between 1 and 3 is not the geometry but what the shared
-      // slot HOLDS. A plan row's name cell used to hold a plan name at the same
-      // x as a branch name, with nothing saying which was which; slot 2 now
-      // states the KIND in a word — `Plan` above `Branch` — so the two are told
-      // apart by what they say rather than by an indent a reader must measure.
-      // That is the same repair slot 2 made for the four-meanings column, and
-      // it is why alignment is affordable again.
+      // WHY (4) DOES NOT BRING BACK (1). What (1) feared was an ACCIDENT: eight
+      // sibling plans, each at the same x, reading as a nesting that did not
+      // exist. Here the nesting is the truth — a wave IS a child of its plan —
+      // so an indent states a real relationship instead of implying a false one.
+      //
+      // And (3)'s argument holds only where the kind word DIFFERS. Measured
+      // 2026-08-20 on a three-wave plan: parent and children all render `PLAN`,
+      // so slot 2 distinguishes nothing there and the reader had a heading and
+      // three identical labels. `a-wave-is-a-thing-not-a-label` fixes the label;
+      // the indent is what makes the set legible while it is still wrong.
+      //
+      // So the claim splits. **Children align with each other** — one grid, and
+      // a column a reader can scan down. **The parent sits 24px to their left**,
+      // matching its own fold control, which is the shape a file tree uses.
       await page.locator('[data-wave-toggle="activity-shows-itself"]').click();
       const branchRow = section(page).locator('li[data-agent-row]')
         .filter({ has: page.locator('[data-branch="feature/activity-marker-glows"]') });
       await branchRow.waitFor({ timeout: 5_000 });
       const planRowEl = planRow(page, 'activity-shows-itself');
-      // EVERY slot, not just one — a single matching cell could be a
-      // coincidence of content width, and the claim is about the grid.
+      // THE PARENT IS OUTDENTED, by the width of its own fold control. One
+      // measurement, because the offset is a single fact: if the indent were
+      // lost the difference would be 0, and if it were applied twice it would
+      // be 48.
+      const pFirst = await planRowEl.locator('[role="gridcell"]').first().boundingBox();
+      const bFirst = await branchRow.locator('[role="gridcell"]').first().boundingBox();
+      expect(bFirst!.x - pFirst!.x, 'the waves sit one indent right of their plan')
+        .toBeGreaterThan(16);
+
+      // AND THE CHILDREN AGREE WITH EACH OTHER, in every slot — which is what
+      // one grid buys and what a reader scanning a column depends on. A single
+      // matching cell could be a coincidence of content width; the claim is
+      // about the grid.
+      const siblings = section(page).locator('[data-wave-list] li[data-agent-row]');
+      const n = await siblings.count();
+      expect(n, 'more than one wave, or this asserts nothing').toBeGreaterThan(1);
       for (const slot of [0, 1, 2, 3, 4, 5, 6]) {
-        const p = await planRowEl.locator('[role="gridcell"]').nth(slot).boundingBox();
-        const b = await branchRow.locator('[role="gridcell"]').nth(slot).boundingBox();
-        expect(Math.abs(p!.x - b!.x), `slot ${slot} x`).toBeLessThan(1);
+        const first = await siblings.nth(0).locator('[role="gridcell"]').nth(slot).boundingBox();
+        for (let i = 1; i < n; i++) {
+          const other = await siblings.nth(i).locator('[role="gridcell"]').nth(slot).boundingBox();
+          expect(Math.abs(first!.x - other!.x), `slot ${slot} x, sibling ${i}`).toBeLessThan(1);
+        }
       }
       // AND THE NESTING IS STILL GONE, which is the property (2) was protecting
       // and the one that must survive the realignment. It survives in the KIND
