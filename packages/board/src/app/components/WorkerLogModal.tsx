@@ -204,6 +204,44 @@ export function WorkerLogModal({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  /**
+   * LOCK THE PAGE WHILE THE PANEL IS OPEN, and hand the reader back where they
+   * were on close.
+   *
+   * The overlay is modal, and modality means the page behind it does not move.
+   * `overflow-hidden` sits on the panel, not the body, so a wheel that reaches
+   * the backdrop scrolls the fleet list behind the open panel — and because the
+   * App scrolls the window (a `min-h-screen` document, no inner scroller),
+   * hiding the body's overflow alone would still leave the reader displaced when
+   * the scrollbar's width reflows the layout.
+   *
+   * So the lock is `position: fixed` pinned to the current offset: a fixed body
+   * cannot take a wheel, and the captured `scrollY` is restored exactly on
+   * cleanup. One mechanism, both guarantees — no background scroll, same place
+   * on close.
+   */
+  useEffect(() => {
+    const y = window.scrollY;
+    const body = document.body;
+    const prev = {
+      position: body.style.position,
+      top: body.style.top,
+      width: body.style.width,
+      overflow: body.style.overflow,
+    };
+    body.style.position = 'fixed';
+    body.style.top = `-${y}px`;
+    body.style.width = '100%';
+    body.style.overflow = 'hidden';
+    return () => {
+      body.style.position = prev.position;
+      body.style.top = prev.top;
+      body.style.width = prev.width;
+      body.style.overflow = prev.overflow;
+      window.scrollTo(0, y);
+    };
+  }, []);
+
   // Follow the tail, but only for a reader who is already at it.
   useEffect(() => {
     const el = bodyRef.current;
