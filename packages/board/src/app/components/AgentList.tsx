@@ -771,7 +771,30 @@ export function planWaitingDays(group: PlanGroup): number | null {
  * a sort that does nothing.
  */
 export function sortByWaiting(groups: PlanGroup[]): PlanGroup[] {
-  return [...groups].sort((a, b) => (planWaitingDays(b) ?? -1) - (planWaitingDays(a) ?? -1));
+  return [...groups].sort((a, b) => {
+    const byWaiting = (planWaitingDays(b) ?? -1) - (planWaitingDays(a) ?? -1);
+    if (byWaiting !== 0) return byWaiting;
+    // TIES ARE BROKEN BY NAME, and that is what makes the list readable.
+    //
+    // Waiting days is a COARSE key: most plans in this section were approved on
+    // the same day, so most comparisons return 0 and the surviving order is
+    // whatever `groups` happened to arrive in. `Array.prototype.sort` is stable
+    // in every engine since ES2019, so it faithfully preserves that arrival
+    // order — and the arrival order is rebuilt from a fresh scan every four
+    // seconds, from a Map whose insertion order follows the pulse. Stability
+    // preserves an input that is not itself stable.
+    //
+    // Observed on the live board 2026-08-20: the NOT STARTED section reordered
+    // on almost every pulse, which makes a list of a dozen plans unreadable —
+    // the eye re-finds its place from scratch each time, and a row clicked at
+    // the moment of a pulse can be a different row than the one aimed at.
+    //
+    // The plan NAME is the right tiebreak because it is the only field here
+    // that cannot change between pulses: `planWaitingDays` moves at midnight,
+    // row counts move as branches land, and both are derived. A name is the
+    // plan's identity.
+    return a.plan.localeCompare(b.plan);
+  });
 }
 
 /**
