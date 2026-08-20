@@ -94,6 +94,23 @@ export interface WorkerLogModalProps {
    * offered and 403s.
    */
   canContinue?: { available: boolean; reason: string };
+  /**
+   * Open the plan governing this branch — the panel's PLAN fact becomes a
+   * destination. Given the plan's FILE, which is how the board opens one.
+   *
+   * Optional: a panel rendered somewhere without the board's navigation leaves
+   * PLAN as plain text rather than a dead button.
+   */
+  onOpenPlan?: (planFile: string) => void;
+  /**
+   * Reveal this branch's fleet row — the panel's BRANCH fact's destination.
+   *
+   * Closing the panel is part of the reveal: the row it scrolls to sits behind
+   * the panel, so the panel is dismissed first. That is the caller's job (it
+   * owns both the panel's open state and the highlight), so the modal simply
+   * forwards the click.
+   */
+  onRevealBranch?: (branch: string) => void;
 }
 
 /**
@@ -116,6 +133,8 @@ export function WorkerLogModal({
   fetcher = fetch,
   now,
   canContinue,
+  onOpenPlan,
+  onRevealBranch,
 }: WorkerLogModalProps) {
   const [log, setLog] = useState<WorkerLog | null>(null);
   const [panel, setPanel] = useState<AgentPanel | null>(null);
@@ -284,7 +303,24 @@ export function WorkerLogModal({
         {/* WHAT IS KNOWN ABOUT THE RUN, above the log it produced. Each field
             omits independently when its source could not be read — see
             AgentPanelFacts, where that rule is structural rather than repeated. */}
-        <AgentPanelFacts panel={panel} now={now} />
+        {/* BRANCH reveals its row and PLAN opens its card — but the row it
+            reveals sits BEHIND this panel, so revealing a branch closes the
+            panel first. The caller owns the panel's open state and the
+            highlight both, so the reveal is composed here rather than in the
+            facts block. */}
+        <AgentPanelFacts
+          panel={panel}
+          now={now}
+          onOpenPlan={onOpenPlan}
+          onRevealBranch={
+            onRevealBranch
+              ? (b) => {
+                  onClose();
+                  onRevealBranch(b);
+                }
+              : undefined
+          }
+        />
 
         {/* THE TRUNCATION SAYS SO. A tail presented as a whole log is the same
             defect this board keeps removing — it reads as "the worker printed

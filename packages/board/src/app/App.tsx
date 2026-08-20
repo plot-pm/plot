@@ -107,6 +107,18 @@ export function App() {
   const [highlight, setHighlight] = useState<string>(
     () => new URLSearchParams(location.search).get('plan') ?? '',
   );
+  // The branch just revealed from an agent panel, and a nonce that lets the
+  // SAME branch be revealed twice.
+  //
+  // Not URL-synced, unlike `?plan=`: a branch reveal is an in-page move on the
+  // Agents tab triggered by a panel click, not something worth sending to
+  // someone — the board's convention is that the query string holds only what
+  // is shareable. The nonce is the arrival's identity: scrolling is idempotent,
+  // so re-clicking a branch whose name has not changed would otherwise fire an
+  // effect that does nothing, and the row would sit un-scrolled-to the second
+  // time.
+  const [highlightBranch, setHighlightBranch] = useState('');
+  const [revealNonce, setRevealNonce] = useState(0);
   // Counts board refreshes, not seconds. A Start work button waits for the row
   // to move, and what moves the row is a re-read of git — so re-reads are the
   // thing worth counting.
@@ -459,6 +471,11 @@ export function App() {
     if (next === 'agents') url.searchParams.set('tab', 'agents');
     else url.searchParams.delete('tab');
     history.replaceState(null, '', url);
+    // Leaving the Agents tab is the reader moving on, so the branch arrival
+    // marker goes — the same reason the plan highlight clears on the next
+    // filter change. Kept while staying on the tab: switching to agents is how
+    // `revealBranch` itself gets here.
+    if (next !== 'agents') setHighlightBranch('');
   };
 
   /**
@@ -481,6 +498,28 @@ export function App() {
     requestAnimationFrame(() => {
       document.getElementById(`story-${story}`)?.scrollIntoView({ block: 'start' });
     });
+  }, []);
+
+  /**
+   * Reveal a branch's fleet row — the agent panel's BRANCH fact's destination.
+   *
+   * The Agents tab is forced on first, for the same reason `scrollToStoryLane`
+   * forces lanes: the row only exists in that tab, and a scroll to an element
+   * that is not in the document looks exactly like a broken link. The panel that
+   * triggered this has already closed itself (the modal composes `onClose`
+   * before the reveal), so the row it lands on is not sitting behind an overlay.
+   *
+   * The nonce bump is what makes a second click on the same branch scroll again
+   * — see `highlightBranch`. The effect below does the scroll once the row is in
+   * the document.
+   */
+  const revealBranch = useCallback((branch: string) => {
+    setTab('agents');
+    const url = new URL(location.href);
+    url.searchParams.set('tab', 'agents');
+    history.replaceState(null, '', url);
+    setHighlightBranch(branch);
+    setRevealNonce((n) => n + 1);
   }, []);
 
   /**
@@ -702,6 +741,27 @@ export function App() {
     return () => cancelAnimationFrame(id);
   }, [validHighlight, tab, lanes, board]);
 
+  // Scroll to a revealed branch's row once it exists — the Agents-tab twin of
+  // the plan-card scroll above. Keyed on `revealNonce` so a repeated reveal of
+  // the same branch fires again; `highlightBranch` is read for the target but
+  // does not gate the re-run.
+  //
+  // Deferred a frame for the same reason: `setTab('agents')` has to render the
+  // list before `#agent-row-<branch>` is in the document. The dependency on
+  // `fleet` re-runs it when a not-yet-rendered branch arrives in a later pulse —
+  // a reveal fired before its row was in the fleet lands the moment it is.
+  useEffect(() => {
+    if (!highlightBranch || tab !== 'agents') return;
+    const smooth = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const id = requestAnimationFrame(() => {
+      document.getElementById(`agent-row-${highlightBranch}`)?.scrollIntoView({
+        block: 'center',
+        behavior: smooth ? 'smooth' : 'auto',
+      });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [highlightBranch, revealNonce, tab, fleet]);
+
   return (
     <div className="mx-auto min-h-screen max-w-[1600px] px-4 py-4">
       <header className="mb-4 flex flex-wrap items-center gap-3">
@@ -790,6 +850,11 @@ export function App() {
               commission={commissionInfo}
               pulse={pulse}
               onStarting={onStarting}
+              // The agent panel's BRANCH and PLAN facts are destinations.
+              // `onOpenPlanFile` is already passed as `onOpenPlan`; this is the
+              // branch half, and the row it reveals wears the ring below.
+              onRevealBranch={revealBranch}
+              highlightBranch={highlightBranch}
             />
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>
