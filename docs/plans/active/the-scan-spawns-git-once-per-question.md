@@ -1,0 +1,1 @@
+../2026-08-20-the-scan-spawns-git-once-per-question.md
