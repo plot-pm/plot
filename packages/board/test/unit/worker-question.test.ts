@@ -11,6 +11,7 @@ import {
   BLOCKED_MARKER,
   QUESTION_MAX,
 } from '../../src/server/worker-question.js';
+import type { SearchRunner } from '../../src/server/worker-question.js';
 import type { FleetPulse, WorkerState } from '../../src/contract/schema.js';
 
 // WHAT A WAITING AGENT IS WAITING ON — and the tests that matter most here are
@@ -154,6 +155,11 @@ describe('firstMarkerLine — the whole formatting judgement, tested directly', 
 
 describe('markerIn — reading the tree, and failing to', () => {
   it('finds a marker in a committed file', async () => {
+    // ALSO THE PROOF THAT `run` DEFAULTS TO A REAL SUBPROCESS. The killed-search
+    // tests below inject their runner, so none of them would notice `markerIn`
+    // losing its `execFile` default and spawning nothing. This one passes no
+    // runner, so it is the assertion that the seam still has a production
+    // wiring — verified against a stubbed default, which fails it.
     const wt = repoWith({ 'src/a.ts': '// PLOT-BLOCKED: which adapter?\n' });
     expect(await markerIn(wt)).toBe('PLOT-BLOCKED: which adapter?');
   });
@@ -192,22 +198,70 @@ describe('markerIn — reading the tree, and failing to', () => {
     expect(await markerIn(path.join(tmp, 'never-existed'))).toBe('');
   });
 
-  it('returns "" rather than rejecting when the search times out', async () => {
+  it('returns "" rather than rejecting when the search is killed', async () => {
     // Same rule as above, reached the other way: a worktree on a slow or
     // unmounted volume must not hold the 5 s scan open, and the answer to a
-    // timeout is the stated unknown.
+    // killed search is the stated unknown.
     //
-    // THE SEARCH MUST BE SLOW ENOUGH THAT THE BUDGET CANNOT WIN. A two-file
-    // repo with a 1 ms budget passed on macOS and FAILED on CI, where `git
-    // grep` finished inside the millisecond and returned the marker it was
-    // supposed to be killed before finding — the test raced the thing it was
-    // asserting. Enough files that no runner finishes them in 1 ms makes the
-    // kill deterministic rather than likely.
-    const many: Record<string, string> = {};
-    for (let i = 0; i < 2000; i++) many[`src/f${i}.ts`] = `// filler ${i}\n`;
-    many['src/z.ts'] = '// PLOT-BLOCKED: which adapter?\n';
-    const wt = repoWith(many);
-    expect(await markerIn(wt, 1)).toBe('');
+    // THE KILL IS INJECTED, NOT TIMED, and that is this test's whole point.
+    // What it asserts is a property of the ERROR PATH — a search that failed
+    // answers "" rather than rejecting — and nothing about how long a search
+    // takes. Two earlier rounds tried to reach that path with a real `git
+    // grep` and a 1 ms budget: the first raced a two-file repo and FAILED on
+    // CI, where grep finished inside the millisecond and returned the marker it
+    // was meant to be killed before finding; the second raised the repo to
+    // 2,000 files and failed intermittently under `--fileParallelism` instead,
+    // because a busy machine resolves the race the other way.
+    //
+    // THE FILE COUNT NEVER CONTROLLED THE OUTCOME. Measured 2026-08-20: a 1 ms
+    // budget kills the search whether the repo holds 2,000 files or NONE — even
+    // a bare process launch exceeds a millisecond — while a 400 ms budget lets
+    // grep win with the 2,000 still in place. Spawn latency against the budget
+    // decided it, and neither is a property of the module under test. So the
+    // repo here holds ONE file and no filler: if this test ever depended on
+    // search duration again, the absent 1,999 would be how it showed.
+    const wt = repoWith({ 'src/z.ts': '// PLOT-BLOCKED: which adapter?\n' });
+    const killed: SearchRunner = (_file, _args, _opts, cb) => {
+      // Exactly what `execFile` hands back for a timeout kill: the error it
+      // raises, and no output — the process died before writing any.
+      const err = Object.assign(new Error('spawn git ETIMEDOUT'), { killed: true, signal: 'SIGTERM' as const });
+      cb(err, '');
+    };
+    expect(await markerIn(wt, 1, killed)).toBe('');
+  });
+
+  it('does not reject when the search is killed — the promise settles', async () => {
+    // Stated separately because it is a DIFFERENT failure than answering wrong.
+    // `workerQuestions` runs these under `Promise.all` inside a scan refresh: a
+    // rejection there loses every other branch's answer, not just this one. An
+    // assertion on the resolved value alone would pass a version that rejected
+    // on some other error shape, so the settle is asserted on its own.
+    const wt = repoWith({ 'src/z.ts': '// PLOT-BLOCKED: which adapter?\n' });
+    const killed: SearchRunner = (_f, _a, _o, cb) => cb(Object.assign(new Error('killed'), { killed: true }), '');
+    await expect(markerIn(wt, 1, killed)).resolves.toBe('');
+  });
+
+  it('keeps output a killed search already wrote', async () => {
+    // THE ERROR ALONE IS NOT THE VERDICT — `if (err && !stdout)` is, and this
+    // is the half of that condition the kill tests cannot reach. `git grep -m1`
+    // writes its hit and exits; a kill that arrives after the write leaves BOTH
+    // an error and usable output, and discarding it would turn a marker the
+    // search did find into *reason unavailable*.
+    const wt = repoWith({ 'src/z.ts': 'ok\n' });
+    const lateKill: SearchRunner = (_f, _a, _o, cb) =>
+      cb(Object.assign(new Error('killed'), { killed: true }), '// PLOT-BLOCKED: which adapter?\n');
+    expect(await markerIn(wt, 1, lateKill)).toBe('PLOT-BLOCKED: which adapter?');
+  });
+
+  it('passes the caller\'s budget through to the search', async () => {
+    // The seam must not become a place where the timeout stops being wired.
+    // A runner that ignored `timeout` would pass every assertion above while
+    // letting a hung `git grep` hold the 5 s scan open in production.
+    const wt = repoWith({ 'src/z.ts': 'ok\n' });
+    let seen = -1;
+    const record: SearchRunner = (_f, _a, opts, cb) => { seen = opts.timeout; cb(null, ''); };
+    await markerIn(wt, 1234, record);
+    expect(seen).toBe(1234);
   });
 });
 
