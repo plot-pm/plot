@@ -9,6 +9,7 @@
 - **Story:** plot-planning-model
 - **Review:** in-session
 - **Impl:** own branches
+- **Started:** 2026-08-20, Jan Wloka, `feature/the-lifecycle-does-not-need-the-symlink`
 
 ## Changelog
 
