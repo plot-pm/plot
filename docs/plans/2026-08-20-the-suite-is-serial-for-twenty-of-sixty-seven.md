@@ -26,13 +26,38 @@ suite is the dominant cost of landing anything.
 
 ### Where the time is
 
-| | measured |
-|---|---|
-| full `test:board` | ~8 min |
-| 47 unit files, serial (today) | **43 s** |
-| the same 47, `--fileParallelism` | **25 s** (−42 %) |
-| vitest's own accounting, parallel | `tests 69.78s` inside `Duration 24.47s` |
-| 20 browser files | the remainder, and genuinely serial |
+| | measured | under |
+|---|---|---|
+| full `test:board` | ~8 min | fleet load |
+| 47 unit files, serial (today) | **43 s** | fleet load |
+| the same 47, `--fileParallelism` | **25 s** (−42 %) | fleet load |
+| vitest's own accounting, parallel | `tests 69.78s` inside `Duration 24.47s` | fleet load |
+| the `.mjs` suite, which this plan first forgot | **~47 s**, 180 tests, already at `--test-concurrency=4` | fleet load |
+| the 20 browser files alone | **>10 min — the attempt timed out** | 3 agents, load 6.19 |
+
+**Every number above was taken under fleet load, and the last line is why that
+matters.** Measuring the browser files in isolation exceeded ten minutes — longer
+than this plan's stated total for *everything* — while three dispatched agents ran
+and the load average sat at 6.19 on 16 CPUs.
+
+So the 43 s and the 25 s were measured back to back at *different* unknown loads,
+and part of the 42 % may be the difference between the two moments rather than
+between the two configurations. **The direction is robust; the magnitude is not
+established.** Re-measuring on an idle machine is required before the split's
+benefit is quoted anywhere — the numbers stay in this table with their conditions
+attached rather than being deleted, because they are what prompted the work.
+
+The finding they produced is unaffected: the race is reproducible and its
+diagnosis rests on reading the test, not on a stopwatch.
+
+**And `test:board` is three commands, not one.** It runs `build`, then
+`pnpm test` — the `.mjs` suite, 180 tests at ~47 s, already concurrent — then
+`vitest run`. This plan's first version accounted for only the third and called
+the browser files "the remainder", which was ~47 s too generous. There is a third
+reading it does not exclude, recorded because nothing here rules it out: **four
+agents each running a suite on 16 CPUs** may explain eight minutes better than a
+missing `fileParallelism` does, and in that case parallelism *inside* one suite
+makes it worse rather than better.
 
 `vitest.config.ts:16` sets `fileParallelism: false` for **all 67 files**, and the
 comment states the reason honestly: *"The UI layer boots a server and launches
@@ -75,10 +100,41 @@ that the race usually resolved the same way.
 
 ### Two changes, and they are independent
 
-**1. Split parallelism by directory.** Unit files run in parallel; browser files
-stay serial for the reason the comment gives. Vitest expresses this with
-workspace projects, so each keeps its own `fileParallelism` rather than the whole
-suite taking the stricter of the two.
+**1. Split parallelism by RESOURCE, not by directory.** Settled 2026-08-20, and
+the measurement is why: the directory name is wrong about **six of 67 files**, in
+both directions.
+
+| | chromium | server | count |
+|---|---|---|---|
+| `test/unit/*` | — | — | **47** |
+| `tiny-garden.data`, `.plan`, `.story` | — | **yes** | 3 |
+| `agent-panel-links`, `command-copy`, `worker-log` — all named `.browser.` | **yes** | — | 3 |
+| the other browser files | **yes** | **yes** | 17 |
+
+Three files named `.browser.test.ts` start **no server**, and three files *not*
+named `.browser.` **do**. A split on `test/unit` versus `test/integration` would
+put the first three in the serial group they do not need and let the reader
+believe the folder means something it does not.
+
+**The resource is what serialises, and there are two of them** — a port and a
+Chromium process. A file that takes neither has nothing to contend for. So the
+projects are keyed on what a file *does*, and the config says so, because the
+next file added will be classified by whoever names it:
+
+- **parallel** — takes neither. The 47 unit files, measured: zero of them mention
+  `chromium` or `startServer`.
+- **serial** — takes either. 23 files, which is 20 + the three the folder name
+  hid.
+
+Vitest expresses this with workspace projects, so each keeps its own
+`fileParallelism` rather than the whole suite taking the stricter of the two.
+
+**The three Chromium-without-server files are NOT split out into a third group.**
+They could run parallel to each other under the port rule, but Chromium is
+itself a contended resource and this plan has measured nothing about how many
+instances this machine tolerates. A third project would need a concurrency number,
+and an unmeasured number is the next unfounded figure. They stay serial, and the
+plan says why rather than leaving it to look like an oversight.
 
 **2. Make the timeout test deterministic instead of probable.** What the test
 means to assert is *a killed search answers `""` rather than rejecting* — that is
@@ -119,9 +175,20 @@ Recorded so the measurement is not lost, but they need no branch:
 
 ### Open Points
 
-- [ ] Does any unit file actually depend on serial execution for a legitimate
-      reason? Three runs found exactly one failure and it is a race, but three
-      runs is not proof of absence.
+- [x] **Does any unit file depend on serial execution for a legitimate reason?**
+      Answered by a test the plan already required and had not connected to the
+      question: wave 2 asserts *"the whole suite passes ten consecutive times"*.
+      That is the evidence, and it was written before the question was asked.
+
+      Supporting measurement, which makes ten runs a reasonable bar rather than a
+      hopeful one: **zero of the 47 unit files mention `chromium` or
+      `startServer`** — so the two contended resources are absent from the group
+      being parallelised, and there is no shared thing left for them to fight
+      over. Ten runs is then confirmation rather than the whole argument.
+
+- [ ] **Re-measure on an idle machine before quoting the benefit.** Every figure
+      in *Where the time is* was taken with three or four agents running. The
+      split may still be worth it; the 42 % is not established.
 
 ## Branches
 
