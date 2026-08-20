@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   classify, compareWithinGroup, draftNote, humanAge, prState, rowPhase, rowsFromPulse,
   rateLimitBackoffMs,
+  graphqlResetMs,
   prGateOpen,
   prNextDueAt,
   prRefreshMsFor,
@@ -2447,6 +2448,125 @@ describe('rateLimitBackoffMs — slow down for a quota, not for a blip', () => {
     // ceiling instead of retrying instantly against a live limit.
     const ms = rateLimitBackoffMs('API rate limit exceeded; reset at 1600000000', 1_700_000_000_000);
     expect(ms).toBe(120_000);
+  });
+});
+
+describe('the wait comes from the host, not from a constant', () => {
+  // Why this exists: the bare exhaustion message carries no reset, so the
+  // function fell back to a 120 s guess. But `gh api rate_limit` states the
+  // real reset and is itself free — the rate-limit endpoint is not rate-limited.
+  // When the message names its own wait we must NOT ask (the answer is already
+  // in hand); only the bare message reaches for the host, and only once.
+
+  const BARE = 'GraphQL: API rate limit already exceeded for user ID 870334';
+
+  it('uses the fetched reset when the message is bare', async () => {
+    // The host says GraphQL resets in 8 minutes; honour that over the ceiling.
+    const target = () => Promise.resolve(480_000);
+    const ms = await rateLimitBackoffMs(BARE, Date.now(), target);
+    expect(ms).toBe(480_000);
+  });
+
+  it('falls back to the ceiling when the reset cannot be read', async () => {
+    // `gh api rate_limit` failed (offline, unauthenticated, itself refused);
+    // the constant is the last resort, never a hang on an unknown wait.
+    const target = () => Promise.resolve(null);
+    const ms = await rateLimitBackoffMs(BARE, Date.now(), target);
+    expect(ms).toBe(120_000);
+  });
+
+  it('never asks the host when the message names its own wait', async () => {
+    // A named wait is already the answer. Spending a call to re-derive it is
+    // the exact waste the throttle exists to avoid.
+    let calls = 0;
+    const target = () => { calls++; return Promise.resolve(999_000); };
+    const ms = await rateLimitBackoffMs(
+      'You have exceeded a secondary rate limit. Please wait 90 seconds before trying again.',
+      Date.now(), target,
+    );
+    expect(ms).toBe(90_000);
+    expect(calls).toBe(0);
+  });
+
+  it('never asks the host when the message carries a reset stamp', async () => {
+    let calls = 0;
+    const target = () => { calls++; return Promise.resolve(999_000); };
+    const ms = await rateLimitBackoffMs(
+      'API rate limit exceeded; reset at 1700000180', 1_700_000_000_000, target,
+    );
+    expect(ms).toBe(180_000);
+    expect(calls).toBe(0);
+  });
+
+  it('never asks the host for an ordinary, non-rate-limit failure', async () => {
+    // The load-bearing negative kept: a VPN blip returns null and must not
+    // spend a free-but-still-real call on the way there.
+    let calls = 0;
+    const target = () => { calls++; return Promise.resolve(999_000); };
+    const ms = await rateLimitBackoffMs(
+      'dial tcp: lookup api.github.com: no such host', Date.now(), target,
+    );
+    expect(ms).toBeNull();
+    expect(calls).toBe(0);
+  });
+
+  it('reads the reset once per backoff, never per call', async () => {
+    // "Once per backoff" is structural: the function is called once per failed
+    // refresh, so one read here is one read per backoff window — provided the
+    // bare branch consults the fetcher exactly once.
+    let calls = 0;
+    const target = () => { calls++; return Promise.resolve(300_000); };
+    await rateLimitBackoffMs(BARE, Date.now(), target);
+    expect(calls).toBe(1);
+  });
+
+  it('is unchanged when no fetcher is supplied — the ceiling still answers', async () => {
+    // The pure call path the other callers use until they pass a fetcher.
+    const ms = await rateLimitBackoffMs(BARE);
+    expect(ms).toBe(120_000);
+  });
+});
+
+describe('graphqlResetMs — the reset the free endpoint states', () => {
+  // `gh api rate_limit` returns epoch-seconds resets per resource; GraphQL is
+  // the budget the PR fetch spends, so its reset is the one to wait for. Pure so
+  // the branching (missing field, expired stamp, malformed JSON) is covered
+  // without the network; the one untestable line is the `run()` that feeds it.
+
+  // Trimmed shape of a real `gh api rate_limit` response.
+  const payload = (graphqlReset: number) => JSON.stringify({
+    resources: {
+      core: { limit: 5000, remaining: 5000, reset: graphqlReset + 999 },
+      graphql: { limit: 5000, used: 5000, remaining: 0, reset: graphqlReset },
+    },
+    rate: { limit: 5000, remaining: 5000, reset: graphqlReset + 999 },
+  });
+
+  it('returns ms from now until the GraphQL reset', () => {
+    const now = 1_700_000_000_000; // ms
+    const ms = graphqlResetMs(payload(1_700_000_480), now); // resets in 480 s
+    expect(ms).toBe(480_000);
+  });
+
+  it('returns null when the reset is already past', () => {
+    // A stale reset must not become a negative or instant wait; the caller
+    // falls back to the ceiling instead.
+    const now = 1_700_000_000_000;
+    const ms = graphqlResetMs(payload(1_699_999_940), now); // 60 s ago
+    expect(ms).toBeNull();
+  });
+
+  it('returns null when the payload has no GraphQL resource', () => {
+    const now = 1_700_000_000_000;
+    const ms = graphqlResetMs(JSON.stringify({ resources: { core: { reset: 1_700_000_480 } } }), now);
+    expect(ms).toBeNull();
+  });
+
+  it('returns null on malformed JSON rather than throwing', () => {
+    // `gh` handed back something that is not the shape — an auth error page,
+    // an empty string. Null, never a crash inside the backoff decision.
+    expect(graphqlResetMs('not json at all', Date.now())).toBeNull();
+    expect(graphqlResetMs('', Date.now())).toBeNull();
   });
 });
 

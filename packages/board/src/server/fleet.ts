@@ -816,8 +816,24 @@ async function readBranchUrlBase(opts: BuildBoardOptions): Promise<string> {
  * silence, and the board would look stalled for a reason nothing could explain.
  * A message that names its own wait is honoured; everything else keeps the
  * normal timer, and the error is surfaced either way.
+ *
+ * `fetchGraphqlResetMs` is the escape from the bare message's guess. When the
+ * message carries neither a named wait nor a reset stamp, the host still knows
+ * when the budget returns — `gh api rate_limit` states it and is itself free
+ * (the rate-limit endpoint is not rate-limited). The fetcher supplies "ms from
+ * now until reset" or null when even that cannot be read, and the constant is
+ * the last resort behind it. It is consulted ONLY on the bare branch and ONLY
+ * once: the named-wait and reset-stamp branches already hold the answer, and a
+ * non-rate-limit failure must not spend a call on its way to null. With no
+ * fetcher supplied the ceiling answers exactly as before — the pure path the
+ * other host callers keep until they choose to pass one.
  */
-export function rateLimitBackoffMs(message: string, now = Date.now()): number | null {
+export function rateLimitBackoffMs(
+  message: string,
+  now?: number,
+  fetchGraphqlResetMs?: () => Promise<number | null>,
+): number | null | Promise<number | null> {
+  const at = now ?? Date.now();
   // "Please wait 60 seconds" / "try again in 45 seconds" — the host said how
   // long, so wait exactly that (never below the ordinary cadence, since a
   // shorter wait would just re-hit the limit).
@@ -827,15 +843,69 @@ export function rateLimitBackoffMs(message: string, now = Date.now()): number | 
   // An absolute reset stamp, if the message carries one.
   const reset = /rate limit.*?reset[^0-9]{0,20}(\d{10,13})/i.exec(message);
   if (reset) {
-    const at = Number(reset[1]);
-    const ms = (at < 1e12 ? at * 1000 : at) - now;
+    const stamp = Number(reset[1]);
+    const ms = (stamp < 1e12 ? stamp * 1000 : stamp) - at;
     if (ms > 0) return ms;
   }
 
-  // The bare exhaustion message — no reset offered. Back off to the ceiling
+  // The bare exhaustion message — no reset offered. Ask the host once for the
+  // real reset; only if that cannot be read do we fall back to the ceiling
   // rather than keep firing into a closed door.
-  if (/rate limit/i.test(message)) return PR_BACKOFF_MAX_MS;
+  if (/rate limit/i.test(message)) {
+    if (fetchGraphqlResetMs) {
+      return fetchGraphqlResetMs().then((ms) =>
+        ms != null && ms > 0 ? ms : PR_BACKOFF_MAX_MS);
+    }
+    return PR_BACKOFF_MAX_MS;
+  }
   return null;
+}
+
+/**
+ * Parse `gh api rate_limit`'s payload into "ms from now until the GraphQL budget
+ * resets", or null when it cannot be read.
+ *
+ * GraphQL because that is the budget `gh pr list` spends and the one that fails
+ * the PR fetch; the endpoint reports every resource's reset, and picking the
+ * wrong one would wait for a budget that was never exhausted. The reset is
+ * epoch SECONDS — GitHub states it in the same unit the message's stamp uses.
+ *
+ * Null, never a throw, on every unhappy shape: malformed JSON (an auth error
+ * page, an empty string), a payload missing the GraphQL resource, a reset
+ * already in the past. Each means "the host did not give us a usable reset", and
+ * the caller answers that with the ceiling — the same last resort a bare message
+ * had before this existed.
+ */
+export function graphqlResetMs(payload: string, now = Date.now()): number | null {
+  let reset: unknown;
+  try {
+    reset = (JSON.parse(payload) as { resources?: { graphql?: { reset?: unknown } } })
+      ?.resources?.graphql?.reset;
+  } catch {
+    return null;
+  }
+  if (typeof reset !== 'number') return null;
+  const ms = reset * 1000 - now;
+  return ms > 0 ? ms : null;
+}
+
+/**
+ * The I/O half of the reset read: shell `gh api rate_limit` and hand its stdout
+ * to {@link graphqlResetMs}. Returns null on any failure — `gh` absent, not
+ * authenticated, or the rate-limit endpoint itself refusing — so the backoff
+ * decision falls back to the ceiling rather than propagating an error out of a
+ * catch block that is already handling one.
+ *
+ * GitHub only. `bb` has no equivalent free reset endpoint, and the design holds
+ * Bitbucket untouched; the caller passes this fetcher only when the backend is
+ * `github`, so this is never reached on a Bitbucket board.
+ */
+async function fetchGraphqlResetMs(cwd: string): Promise<number | null> {
+  try {
+    return graphqlResetMs(await run('gh', ['api', 'rate_limit'], cwd));
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -1293,7 +1363,15 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
     // normal cadence spends quota to be told the same thing. Every other
     // failure keeps the ordinary rhythm — a VPN blip should recover in a
     // minute, not in two.
-    const backoff = rateLimitBackoffMs(message);
+    // On GitHub a bare exhaustion message carries no reset, so hand the throttle
+    // a way to ask `gh api rate_limit` — free, and it states the real reset. The
+    // fetcher is consulted at most once, and only when the message names neither
+    // a wait nor a stamp. Bitbucket has no such endpoint and passes none, so its
+    // bare message keeps the ceiling exactly as before.
+    const resetReader = backend === 'github'
+      ? () => fetchGraphqlResetMs(opts.repoRoot)
+      : undefined;
+    const backoff = await rateLimitBackoffMs(message, Date.now(), resetReader);
     // A backoff is measured from NOW — the host's "wait 90 seconds" starts when
     // it said so, not when we started asking. An ordinary failure rejoins the
     // ordinary cadence, so it anchors to the start like a success does; a
