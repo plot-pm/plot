@@ -17,6 +17,7 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — the board reported `WORKING: none` while four agents worked; finding 1+2 already fixed in #258
+- **Started:** 2026-08-20, Jan Wloka, `feature/a-worktree-holds-its-branch`
 
 ## Problem
 
