@@ -1823,9 +1823,88 @@ if [ "$PLAN_SOURCE" = "ref" ]; then
   [ -n "$REF_TMP" ] || PLAN_SOURCE="worktree"
 fi
 
+# EVERY PLAN PATH'S MODE, IN ONE CALL — see `REMOTE_REFS` for the measurement.
+#
+# `ref_plan_file` asked `git ls-tree` once per plan for a single field: the file
+# MODE, which is how a symlink (120000) is told from a regular file. Profiled
+# 2026-08-20 that was 69 spawns of the scan's 459, and unlike `show-ref` these
+# are not cheap — reading a tree out of a packfile is real work.
+#
+# `ls-tree -r` over the plan directories answers for every path at once: 134
+# entries in 512 ms here, against 69 separate spawns at 31-56 ms of launch
+# overhead EACH before any work happens.
+#
+# Scoped to the two directories plot keeps plans in rather than the whole tree,
+# because that is all `ref_plan_file` is ever asked about, and an unbounded
+# `ls-tree -r` on a large repo would trade one cost for another.
+PLAN_MODES=$(git ls-tree -r "origin/$MAIN" \
+  -- "$PLAN_DIR" "$ACTIVE_DIR" </dev/null 2>/dev/null)
+
+# The mode of $1 in the ref, from the batch. Empty when the path is not there,
+# which is what a failed per-path `ls-tree` also produced.
+ref_mode_of() { # $1=path → mode digits, or ""
+  printf '%s\n' "$PLAN_MODES" | awk -v p="$1" '
+    { path = $0; sub(/^[^\t]*\t/, "", path) }
+    path == p { print $1; exit }'
+}
+
+# EVERY PLAN BLOB, WRITTEN IN ONE PROCESS.
+#
+# `ref_plan_file` handed the parser a temp file per plan, fetched with its own
+# `git show`. MEASURED 2026-08-20: one such `show` cost 407-621 ms — variable
+# because several worktrees were hitting one object store — and there were 68 of
+# them: ~31 s for a single call site, against a 30 s budget. `cat-file --batch`
+# read NINETEEN blobs in 559 ms, so reading EVERY plan costs about what reading
+# one did.
+#
+# THE FRAMING IS BY BYTE COUNT, NOT BY PATTERN, and that is the whole reason
+# this is perl rather than awk. `--batch` emits `<oid> blob <size>` then exactly
+# `<size>` bytes then a newline; a plan containing a line shaped like
+# `deadbeef blob 42` would desynchronise any split that looks for the header
+# instead of counting. Two earlier attempts here did exactly that — one wrote
+# nothing at all, silently, and every plan fell through to the per-plan `show`
+# with the spawn count unchanged. The count is read from the header and honoured.
+#
+# Only REGULAR files are written. A symlink's blob is its target path rather than
+# a plan, and resolving it needs the link followed first — `ref_plan_file` still
+# does that, then finds the resolved target already here.
+#
+# Failure is silent BY DESIGN: an unwritten file misses the cache in
+# `ref_plan_file` and takes the per-plan `git show` exactly as before. This is a
+# cache, so it may only save work, never change an answer.
+if [ -n "$REF_TMP" ] && [ -n "$PLAN_MODES" ] && command -v perl >/dev/null 2>&1; then
+  printf '%s\n' "$PLAN_MODES" | awk -F'\t' '
+    $0 ~ /^100644 / { name = $2; sub(/.*\//, "", name)
+                      split($1, h, " "); print h[3] "\t" name }' \
+    > "$REF_TMP/.manifest" 2>/dev/null
+  if [ -s "$REF_TMP/.manifest" ]; then
+    awk -F'\t' '{print $1}' "$REF_TMP/.manifest" \
+      | git cat-file --batch </dev/stdin 2>/dev/null \
+      | perl -e '
+          my (%name, $dir); $dir = $ARGV[0];
+          open(my $m, "<", "$dir/.manifest") or exit 0;
+          while (<$m>) { chomp; my ($o, $n) = split(/\t/); $name{$o} = $n if $n }
+          close $m; binmode STDIN;
+          while (my $hdr = <STDIN>) {
+            chomp $hdr;
+            my ($oid, $type, $size) = split(/ /, $hdr);
+            last unless defined $size && $size =~ /^[0-9]+$/;
+            my ($buf, $nl); read(STDIN, $buf, $size); read(STDIN, $nl, 1);
+            next unless $type eq "blob" && $name{$oid};
+            open(my $fh, ">", "$dir/$name{$oid}") or next;
+            binmode $fh; print $fh $buf; close $fh;
+          }' "$REF_TMP" 2>/dev/null
+  fi
+fi
+
 ref_plan_file() { # $1=path in ref → temp file path, or "" when unreadable
   local p="$1" mode target content out
-  mode=$(git ls-tree "origin/$MAIN" -- "$p" </dev/null 2>/dev/null | awk '{print $1; exit}')
+  mode=$(ref_mode_of "$p")
+  # A path the batch does not carry may still exist — the batch is scoped to the
+  # plan directories, and a symlink can point outside them. Asked directly only
+  # then, so the fallback costs one spawn for a case that does not arise here
+  # rather than one per plan for the case that always does.
+  [ -n "$mode" ] || mode=$(git ls-tree "origin/$MAIN" -- "$p" </dev/null 2>/dev/null | awk '{print $1; exit}')
   if [ "$mode" = "120000" ]; then
     target=$(git show "origin/$MAIN:$p" </dev/null 2>/dev/null) || return 1
     [ -n "$target" ] || return 1
@@ -1854,6 +1933,19 @@ ref_plan_file() { # $1=path in ref → temp file path, or "" when unreadable
           p=$(printf '%s' "$p" | sed 's#[^/][^/]*/\.\./##')
         done ;;
     esac
+  fi
+  # ALREADY MATERIALISED? The batch below wrote every plan blob in the plan
+  # directory into `$REF_TMP` in ONE process. A hit here costs no git at all.
+  #
+  # THE MEASUREMENT that made this the change worth making, 2026-08-20: one
+  # `git show` of a plan blob cost 407-621 ms — variable because four worktrees
+  # were hitting one object store — while `cat-file --batch` read NINETEEN
+  # blobs in 559 ms, in a single process. Reading every plan therefore costs
+  # about what reading one did, and 68 `show` spawns were ~31 s of the scan on
+  # their own: over the whole 30 s budget for that one call site.
+  if [ -n "$REF_TMP" ] && [ -f "$REF_TMP/$(basename "$p")" ]; then
+    printf '%s' "$REF_TMP/$(basename "$p")"
+    return 0
   fi
   content=$(git show "origin/$MAIN:$p" </dev/null 2>/dev/null) || return 1
   [ -n "$content" ] || return 1
@@ -2115,21 +2207,56 @@ fi
 # subject alone is not evidence. A human commit titled "plot: claim handling
 # refactor" carrying real files would otherwise read as an empty claim, and
 # with a deferred: annotation the reaper would offer to DELETE real work.
+# ONE `git log` PER BRANCH, NOT THREE SPAWNS PER COMMIT.
+#
+# THE MEASUREMENT, 2026-08-20: this loop was the largest single spawn source in
+# the scan. Per commit it ran `git log -1` for the subject and, for a
+# claim-titled one, two `git rev-parse` for the two trees. `rev-parse` was the
+# top per-branch call in the profile (14 for a single plan) and it all came from
+# here.
+#
+# `--shortstat` COLLAPSES THE TREE COMPARISON INTO THE SAME WALK. An empty
+# commit produces NO stat line, a commit with changes produces one — which is
+# exactly `tree == parent tree`, asked once for the whole range instead of twice
+# per commit. Verified against a real claim on this repo: the
+# `plot: claim feature/...` commit prints no stat line, its sibling prints
+# `1 file changed, 111 insertions(+)`.
+#
+# THE TEST IS UNCHANGED, AND MUST STAY SO: a claim marker is titled
+# `plot: claim ...` AND empty. Both, or it counts as real work — a human commit
+# titled "plot: claim handling refactor" carrying real files must still count,
+# because with a `deferred:` annotation the reaper would otherwise offer to
+# DELETE real work. This changes where the two facts come from, never what they
+# decide.
+#
+# A commit whose stat cannot be read counts as REAL, matching the old code's
+# behaviour when `rev-parse` failed: an unreadable tree is not evidence of
+# emptiness.
 real_commits_beyond_main() { # $1=branch → count
-  local br="$1" c n=0 subj
-  for c in $(git rev-list "origin/$MAIN..origin/$br" </dev/null 2>/dev/null); do
-    subj=$(git log -1 --format=%s "$c" </dev/null 2>/dev/null)
-    # A claim marker is titled `plot: claim ...` AND empty. Both, or it counts
-    # as real work.
-    case "$subj" in
-      "plot: claim "*)
-        if [ "$(git rev-parse "$c^{tree}" </dev/null 2>/dev/null)" \
-             = "$(git rev-parse "$c^^{tree}" </dev/null 2>/dev/null)" ]; then
-          continue
-        fi ;;
+  local br="$1" n=0 line subj pending=0
+  # Records are `<sha>\t<subject>`, each optionally followed by a blank line and
+  # a ` N files changed, ...` line. `pending` holds whether the record just read
+  # is claim-titled and still waiting to learn if it was empty.
+  while IFS= read -r line; do
+    case "$line" in
+      '')  continue ;;
+      *' file changed,'*|*' files changed,'*)
+        # A stat line: the record before it had changes, so it is real work even
+        # if it was claim-titled.
+        [ "$pending" = 1 ] && { n=$((n + 1)); pending=0; }
+        continue ;;
     esac
-    n=$((n + 1))
-  done
+    # A new record. Anything still pending was claim-titled AND produced no stat
+    # line — an empty claim marker, which does not count.
+    pending=0
+    subj=${line#*"$(printf '\t')"}
+    case "$subj" in
+      "plot: claim "*) pending=1 ;;
+      *) n=$((n + 1)) ;;
+    esac
+  done <<EOF
+$(git log --format="%H%x09%s" --shortstat "origin/$MAIN..origin/$br" </dev/null 2>/dev/null)
+EOF
   echo "$n"
 }
 
