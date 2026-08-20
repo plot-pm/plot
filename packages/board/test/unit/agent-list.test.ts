@@ -13,6 +13,7 @@ import {
   noActionReason,
   menuState,
   openTarget,
+  offersOpen,
   openLabel,
   runLinkLabel,
   storyRefusal,
@@ -2717,6 +2718,37 @@ describe('openTarget — the address Open navigates to, from fields already on t
 });
 
 /**
+ * WHICH ROWS OFFER OPEN — and it is WAITING ON YOU, and only there.
+ *
+ * The motivating defect was a plain PR *awaiting review* with no menu — a row
+ * the reader must act on, leading with a subject they had no route to. Open
+ * answers that. But a `quiet`, `blocked` or `done` row has genuinely nothing to
+ * do, and the settled rule `one-place-for-what-a-row-can-do` holds there: a `⋯`
+ * that opens nothing but a link the row ALREADY shows (its branch is an anchor)
+ * is the empty menu that lies. So Open is a WAITING ON YOU affordance — the
+ * section whose whole membership is *this wants a person*.
+ *
+ * A branch waiting its turn (`not-started`, `waitingOn: 'time'`) is the sharp
+ * negative: it has a `branchUrl`, but it is not yours to act on yet, and the row
+ * says so in words. Its menu stays absent.
+ */
+describe('offersOpen — Open is a WAITING ON YOU affordance', () => {
+  it('offers Open on a waiting-on-you row with an address', () => {
+    expect(offersOpen(row({ group: 'waiting-on-you', branchUrl: 'u' }))).toBe(true);
+  });
+
+  it('does NOT offer Open on a quiet, blocked or done row, even with an address', () => {
+    for (const group of ['quiet', 'done', 'working', 'not-started', 'waiting-on-machine'] as const) {
+      expect(offersOpen(row({ group, branchUrl: 'u' })), `${group} offered Open`).toBe(false);
+    }
+  });
+
+  it('offers nothing where there is no address to open', () => {
+    expect(offersOpen(row({ group: 'waiting-on-you', branchUrl: '', pr: null }))).toBe(false);
+  });
+});
+
+/**
  * CREATE STORY is offered on a ticket, and it always REFUSES — with its reason
  * on the control, the settled rule. Creating a story is an interactive decision
  * (`story-tracking` asks where to home it, and pushes back on premature ones),
@@ -2763,10 +2795,19 @@ describe('runLinkLabel — Show failure only where a failure is present', () => 
       .toBe('Show failure');
   });
 
-  it('says Show failure for a ci-failing stuck branch', () => {
+  it('says Show failure for a ci-failing stuck branch whose newest run failed', () => {
     expect(runLinkLabel(row({
       stuck: { state: 'ci-failing', conflicts: [], failingChecks: ['build'], changedPaths: [], runHistory: [{ url: 'u', conclusion: 'failure', startedAt: '' }], localAhead: 0 },
     }))).toBe('Show failure');
+  });
+
+  it('says Open last run when a ci-failing row\'s NEWEST run has since gone green', () => {
+    // The widening case: still classed failing on an earlier check, but the run
+    // this link opens passed — promising a failure there would be the over-claim
+    // #269 took the word off this link to avoid.
+    expect(runLinkLabel(row({
+      stuck: { state: 'ci-failing', conflicts: [], failingChecks: [], changedPaths: [], runHistory: [{ url: 'u', conclusion: 'success', startedAt: '' }], localAhead: 0 },
+    }))).toBe('Open last run');
   });
 
   it('says Open last run for a row that is not failing', () => {

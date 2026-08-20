@@ -9,11 +9,15 @@ awaiting review offered nothing the menu recognised, so the reader had no route
 to any action whatever the row led with. The menu now fits each kind, and every
 row has one.
 
-**Open makes the menu universal.** Every fleet row gains an Open item —
-navigation to a fact the row already carries (`openTarget`: the PR page, or the
-branch on the host), so no fetch and no host call. It reads *Review* on a PR row
-and *Open* on a bare branch, because opening a PR is reviewing it. A row whose
-only offer is Open still has a menu, which is the motivating defect closed.
+**Open makes the menu fit every WAITING ON YOU row.** Each row in that section
+gains an Open item — navigation to a fact the row already carries (`openTarget`:
+the PR page, or the branch on the host), so no fetch and no host call. It reads
+*Review* on a PR row and *Open* on a bare branch, because opening a PR is
+reviewing it. A green PR awaiting review — the row that measured the defect — now
+has a menu where before it had none. Open is scoped to WAITING ON YOU on purpose:
+a quiet, blocked or done row has an address too but nothing to do, and a `⋯`
+opening a link the row already shows is the empty menu a neighbouring plan
+removed.
 
 **Per kind, the actions the reader needs:**
 

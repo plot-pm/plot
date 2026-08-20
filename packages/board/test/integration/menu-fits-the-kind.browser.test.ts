@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
 import { startServer } from '../helpers.mjs';
-import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type Stuck } from '../../src/contract/schema.js';
+import { type AgentRow, type Fleet, type Stuck } from '../../src/contract/schema.js';
 
 /**
  * THE MENU FITS THE KIND — what only a rendered page can settle.
@@ -189,27 +189,21 @@ describe('the menu fits the kind, and every row has one', () => {
     }
   });
 
-  it('keeps a refused act in the menu, disabled, with its reason on the control', async () => {
-    // A Draft plan's row over a board that cannot dispatch: its Approve /
-    // Commission acts are refused, but the menu is still present (Open is
-    // navigation) and enabled, and the refused control names why. Here the
-    // simplest form: a startable row whose server refuses still shows a `⋯`
-    // whose title carries the reason.
-    const startable = fleet({
-      rows: [
-        row({
-          branch: 'feature/eligible', group: 'not-started', state: 'open',
-          waitingOn: 'click', note: ELIGIBLE_NOTE, branchUrl: `${GH}/tree/feature/eligible`,
-        }),
-      ],
-      summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
-    });
-    const page = await open(startable);
+  it('gives a plain green PR its menu, enabled, though it has no acting item', async () => {
+    // THE ROW THAT MEASURED THE DEFECT, in its purest form: a green PR awaiting
+    // review, nothing to dispatch, no stuck state, no card. Its one affordance is
+    // Review — navigation to the PR — so the menu is present AND enabled (a read
+    // is never refused), and it opens. Before this feature the row was menuless.
+    const page = await open();
     try {
-      // NOT STARTED starts expanded here (one plan, one row). The menu is present
-      // because Open is navigation, even though the server refuses Start work.
+      const menu = menuButton(page, 'feature/needs-review');
+      await expect.poll(() => menu.count(), { timeout: 10_000 }).toBe(1);
+      // Enabled: navigation is not an act the server refuses, so the dimmed
+      // (aria-disabled) state a refused act would wear is absent here.
+      expect(await menu.getAttribute('aria-disabled')).toBeNull();
+      await menu.click();
       await expect
-        .poll(() => menuButton(page, 'feature/eligible').count(), { timeout: 10_000 })
+        .poll(() => rowFor(page, 'feature/needs-review').locator('[role="menu"]').count())
         .toBe(1);
     } finally {
       await page.close();

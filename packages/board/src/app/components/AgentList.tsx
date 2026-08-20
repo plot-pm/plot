@@ -2684,6 +2684,30 @@ export function openTarget(row: Pick<AgentRow, 'pr' | 'branchUrl'>): string {
 }
 
 /**
+ * Does this row OFFER Open — and it is WAITING ON YOU, and only there.
+ *
+ * **The scope the motivating defect actually named.** The reported defect was a
+ * plain PR *awaiting review* with no `⋯` at all — a row the reader must act on,
+ * leading with a subject they had no route to. Open closes that. But a `quiet`,
+ * `blocked` or `done` row has nothing to do, and the rule
+ * `one-place-for-what-a-row-can-do` settled holds there: a menu whose only item
+ * opens a link the row ALREADY shows (its branch name is an anchor) is the empty
+ * `⋯` that lies, measured lying on two of six rows. So Open lives where the
+ * section's whole membership means *this wants a person*: WAITING ON YOU.
+ *
+ * `openTarget` stays a pure address resolver — *what* to open — and this answers
+ * *whether* to offer it. Two questions: a `done` row still HAS a branch address,
+ * it simply is not somewhere the reader needs sending.
+ *
+ * Exported for test: the negative — a branch waiting its turn keeps no menu
+ * though it has an address — is the half a check on the URL alone gets wrong,
+ * and the one that reopens the empty-menu defect a section over.
+ */
+export function offersOpen(row: Pick<AgentRow, 'pr' | 'branchUrl' | 'group'>): boolean {
+  return row.group === 'waiting-on-you' && openTarget(row) !== '';
+}
+
+/**
  * Does this row offer Commission design — the Approve twin for a Draft plan that
  * needs design work first?
  *
@@ -2739,7 +2763,16 @@ export function openLabel(row: Pick<AgentRow, 'pr'>): string {
  * failure* gets wrong.
  */
 export function runLinkLabel(row: Pick<AgentRow, 'pr' | 'stuck'>): string {
-  const failing = row.pr?.state === 'failing' || row.stuck?.state === 'ci-failing';
+  // `Show failure` only where there is a failure to SHOW. A PR whose rollup is
+  // `failing` has one. A `ci-failing` row usually does — but not once its NEWEST
+  // run has gone green: the row is still classed failing on an earlier check
+  // while the run this link opens passed, and promising a failure there is the
+  // very over-claim the widening (#269) took the word *failing* off this link to
+  // avoid. So the ci case defers to the newest run's own conclusion.
+  const newestRun = row.stuck?.runHistory[0];
+  const ciShowsFailure = row.stuck?.state === 'ci-failing'
+    && (!newestRun || (newestRun.conclusion ?? '') !== 'success');
+  const failing = row.pr?.state === 'failing' || ciShowsFailure;
   return failing ? 'Show failure' : 'Open last run';
 }
 
@@ -3198,14 +3231,19 @@ function RowActions({
   const canResolve = Boolean(
     row.stuck?.state === 'conflict' && card && dispatch,
   );
-  // OPEN — the item that makes the menu fit every kind. It is navigation to a
-  // fact the row already carries (`openTarget`: the PR page, or the branch on
-  // the host), so it needs no card, no dispatch verdict and no fetch — the same
-  // shape as the run link. A PR row's Open reads *Review*, because opening a PR
-  // is what reviewing it is; a branch row's reads *Open*. Where there is no
-  // address (a merged branch, a host with no PR url) there is no item, and the
-  // row falls back to whatever else its kind offers.
-  const openUrl = openTarget(row);
+  // OPEN — the item that makes the menu fit every WAITING ON YOU row. It is
+  // navigation to a fact the row already carries (`openTarget`: the PR page, or
+  // the branch on the host), so it needs no card, no dispatch verdict and no
+  // fetch — the same shape as the run link. A PR row's Open reads *Review*,
+  // because opening a PR is what reviewing it is; a branch row's reads *Open*.
+  //
+  // `offersOpen` scopes it to WAITING ON YOU, and that scope is load-bearing: a
+  // `quiet` or `done` row has an address too, but nothing to do — and an Open
+  // item there is the empty menu `one-place-for-what-a-row-can-do` removed, one
+  // section over. Where there is no address (a merged branch, a host with no PR
+  // url) there is no item either, and the row falls back to whatever else it
+  // offers.
+  const openUrl = offersOpen(row) ? openTarget(row) : '';
   // COMMISSION DESIGN — the Approve twin for a Draft plan that needs design work
   // first. Same card gate as Approve (`isDraft`), same row gate
   // (`canCommissionDesign` reads `waitingOn === 'you'`), so the two items appear
