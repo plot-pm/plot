@@ -177,7 +177,7 @@ audited later.
 
 ### The gates know it
 
-- `feature/the-gates-know-design` — `plot-approve.sh` accepts a plan in Design as well as Draft, and `plot-phase-gate.sh` blocks implementation commits in Design as it does in Draft. `/plot-implement` still requires Approved, unchanged. Tests: approving from Design records `Approved:` and flips the phase; an implementation commit under Design is blocked with a message naming the phase; `/plot-implement` refuses a Design plan; the Draft paths are unchanged.
+- `feature/the-gates-know-design` — `plot-approve.sh` accepts a plan in Design as well as Draft, and `plot-phase-gate.sh` blocks implementation commits in Design as it does in Draft. `/plot-implement` still requires Approved, unchanged. Tests: approving from Design records `Approved:` and flips the phase; an implementation commit under Design is blocked with a message naming the phase; `/plot-implement` refuses a Design plan; the Draft paths are unchanged. → #265
 
 ### The board reads it
 
