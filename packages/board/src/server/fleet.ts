@@ -2011,6 +2011,25 @@ function classifyGroup(
    * every spread-tuple caller in the suite silently past the compiler.
    */
   workerQuestion = '',
+  /**
+   * The path of a local worktree holding this branch — see
+   * `FleetBranchSchema.local_worktree`. Collected by the scan since the wave
+   * that added it, and until 2026-08-20 never passed here.
+   *
+   * IT IS THE ONLY SIGNAL THAT SAYS *HELD* rather than merely *touched*, and
+   * that distinction is what the no-ref arm below needs. A branch can be ahead
+   * with no worktree — a leftover local ref nobody is on — and a worktree can
+   * be clean while holding commits, which is an agent that committed and kept
+   * working. Neither fact alone separates *someone is on this* from *nobody
+   * is*. A worktree does, because a worktree exists on purpose.
+   *
+   * LAST, BECAUSE IT IS THE NEWEST — the rule `workerQuestion` records above.
+   *
+   * Same one-directional rule as `localDirty` and `localAhead`: it may only
+   * LIFT, and it is true on this machine only, so '' is what every branch
+   * elsewhere reports.
+   */
+  localWorktree = '',
 ): { group: WaitingGroup; note: string } {
   // A deferred branch is never `working` — the group is about the claim the row
   // makes, not about the age of its last commit, so a fresh commit does not
@@ -2208,10 +2227,12 @@ function classifyGroup(
     // statements, and they contradict each other — measured 2026-08-17 on a
     // branch being edited at that moment.
     //
-    // `local_ahead` is deliberately NOT part of this. Unpushed commits are
-    // finished work sitting still; they earn the unpushed mark, not a claim
-    // that someone is at the keyboard. The same split `isActive` makes on the
-    // client, made here for the same reason.
+    // `local_ahead` WAS deliberately not part of this, on the reasoning that
+    // unpushed commits are finished work sitting still and earn the unpushed
+    // mark rather than a claim that someone is at the keyboard — the split
+    // `isActive` makes on the client. That reasoning survives everywhere a
+    // branch has a ref, and it was wrong here, where none does. See the note
+    // at the condition itself.
     //
     // Ordered ABOVE the wave verdict on purpose: someone editing a branch of a
     // blocked wave is still someone editing. The board reports what is, not
@@ -2222,8 +2243,22 @@ function classifyGroup(
     // And BELOW the terminal-phase check above, which is the one thing that
     // outranks it. See there for the measurement: a shipped plan's leftover
     // scratch files are not somebody working.
-    if (localDirty || localLocked) {
-      return workingLocally(localDirty, 0, localLocked);
+    //
+    // UNPUSHED COMMITS COUNT **HERE**, and only here. The paragraph above is
+    // right about a branch that HAS a ref: unpushed commits there are finished
+    // work sitting still, and they earn the unpushed mark rather than a claim
+    // that someone is at the keyboard. This arm is the other case — `open`
+    // means git has no ref for the branch at all — and there the same fact
+    // means something else entirely: commits nobody else can see are the ONLY
+    // evidence the branch exists. A worktree holding them is held.
+    //
+    // Measured 2026-08-20, three worktrees with one commit each and clean
+    // trees: the board printed `WORKING: none — nothing to do, just look` and
+    // offered all three as *eligible — nobody has taken it*, which is an
+    // invitation to put a second agent on finished work. `local_ahead` was
+    // read, plumbed to this line, and then discarded for a hardcoded 0.
+    if (localDirty || localLocked || localWorktree !== '') {
+      return workingLocally(localDirty, localAhead, localLocked, localWorktree);
     }
     // THE PLAN'S PHASE IS ASKED FIRST, AND IT DECIDES THE SECTION.
     //
@@ -2629,8 +2664,19 @@ function workingLocally(
   dirty: boolean,
   ahead: number,
   locked = false,
+  worktree = '',
 ): { group: WaitingGroup; note: string } {
   if (locked) return { group: 'working', note: 'a write is in progress in a local worktree' };
+  // HELD WITH NOTHING ELSE TO REPORT. A worktree holds the branch, the tree is
+  // clean, and `local_ahead` is 0 — which for a branch with no upstream is what
+  // "could not compare" reports, not what "no commits" reports. So this says the
+  // one thing that IS observed: somebody has this checked out. Saying
+  // "uncommitted work" here would invent a fact; saying nothing put the row in
+  // NOT STARTED as *nobody has taken it*, which is what sent a second agent at
+  // finished work on 2026-08-20.
+  if (!dirty && ahead <= 0 && worktree !== '') {
+    return { group: 'working', note: 'held in a local worktree' };
+  }
   if (ahead <= 0) return { group: 'working', note: 'uncommitted work in a local worktree' };
   const unpushed = `${ahead} commit${ahead === 1 ? '' : 's'} not pushed locally`;
   return {
@@ -2939,7 +2985,11 @@ export function rowsFromPulse(
           // What a `waiting` worker asked, so the row says what it waits ON.
           // Absent for every other state; absent HERE, on a waiting row, is the
           // stated unknown — never a question invented to fill the sentence.
-          questions?.get(b.branch) ?? '');
+          questions?.get(b.branch) ?? '',
+          // The worktree that HOLDS this branch, if one does. Collected since
+          // the wave that added the field and never passed until now — see the
+          // parameter's own note for why the no-ref arm cannot answer without it.
+          b.local_worktree);
         // Derived once, read twice below — and derived from `group` rather than
         // re-deciding it, so a row `classify` placed outside `not-started`
         // cannot pick up a waiting-state by a rule that drifted apart from it.
