@@ -1186,7 +1186,7 @@ async function referencedIssues(opts: BuildBoardOptions): Promise<Set<number> | 
  * KEEPS the last good list, the same rule `refreshPrs` follows — a row vanishing
  * on a fetch error looks like someone planned the issue.
  */
-async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
+export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
   let raw: string;
   try {
     raw = await run('bash',
@@ -1203,9 +1203,32 @@ async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry): Promis
       entry.issueError = null;
       return;
     }
+    const message = err instanceof Error ? err.message : String(err);
     entry.issueAnswer = 'failed';
-    entry.issueError = err instanceof Error ? err.message : String(err);
-    return; // `entry.issues` keeps its last good value on purpose
+    entry.issueError = message; // `entry.issues` keeps its last good value on purpose
+    // The issue poll is the neighbour the PR refresh's backoff never reached. It
+    // runs on the SAME gate (`prNextAt`), so a rate limit HERE must push that
+    // gate out too — otherwise the poll re-fires on the ordinary cadence and
+    // spends the exhausted budget to be refused again. The wait comes from the
+    // host's own message, exactly as the PR refresh derives it.
+    // AWAITED because #272 gave this a second shape: where the message carries
+    // no reset, it asks the host for the real one and returns a Promise. The
+    // synchronous paths still return a number, so the await costs a microtask
+    // and buys the caller one type instead of two.
+    const backoff = await rateLimitBackoffMs(message);
+    if (backoff !== null) {
+      // Measured from NOW — the host's "wait 90 seconds" starts when it said so.
+      // EXTEND-ONLY: never pull the gate in. A longer backoff the PR fetch set a
+      // tick earlier is a floor the host named, and this poll's own ceiling has
+      // no business shortening it — the same "more conservative only" rule
+      // `prNextDueAt` follows.
+      const due = prNextDueAt(Date.now(), backoff, Date.now(), entry.backend ?? 'github');
+      if (due.at > entry.prNextAt) {
+        entry.prNextAt = due.at;
+        entry.prNextIsBackoff = due.hard;
+      }
+    }
+    return;
   }
   const open: { number: number; title: string; url: string; createdAt: string }[] = [];
   for (const line of raw.split('\n')) {
@@ -1686,12 +1709,14 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
   }
 }
 
-function ensureCache(opts: BuildBoardOptions): CacheEntry {
-  const key = cacheKey(opts);
-  let entry = caches.get(key);
-  if (entry) return entry;
-
-  entry = {
+/**
+ * A cache entry as a fresh process starts one — every field at its cold-start
+ * value, nothing bridged in. The ONE definition of that shape, so a test can
+ * build an entry the same way the server does rather than copying a literal
+ * that would drift from this one.
+ */
+export function freshCacheEntry(): CacheEntry {
+  return {
     pulse: null, ages: new Map(), at: null, error: null, shrink: null, branchUrlBase: '',
     // Empty at construction, which is the whole of "a restart re-derives
     // everything": nothing survives this process, so the first pulse is cold.
@@ -1711,6 +1736,14 @@ function ensureCache(opts: BuildBoardOptions): CacheEntry {
     pulseComplete: true,
     timer: null, prTimer: null, running: false, prRunning: false,
   };
+}
+
+function ensureCache(opts: BuildBoardOptions): CacheEntry {
+  const key = cacheKey(opts);
+  let entry = caches.get(key);
+  if (entry) return entry;
+
+  entry = freshCacheEntry();
   caches.set(key, entry);
   // THE BRIDGE, read once — the only read in the process's life.
   //
