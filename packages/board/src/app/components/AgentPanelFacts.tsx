@@ -2,6 +2,27 @@ import { useState } from 'react';
 import type { AgentPanel } from '../../server/agent-panel.js';
 
 /**
+ * A worker command → its single-line collapsed preview.
+ *
+ * The command the dispatcher launches is ~1,400 characters — the whole brief
+ * the agent was handed, prose and all, with the newlines that prose carries.
+ * The collapsed form is what the panel shows before anyone expands it, and it
+ * must read as ONE line: newlines and runs of whitespace become single spaces
+ * so no wrap can reintroduce a break, and the ends are trimmed so the preview
+ * does not open on a gap.
+ *
+ * **Lossless BY DESIGN.** This collapses whitespace and nothing else — the
+ * brief path, the flags, every token survives — because the expanded view and
+ * the Copy control render the ORIGINAL string, not this. A collapse that
+ * dropped characters would make Copy yield "the truncated render", which is the
+ * exact defect this field exists to remove. Exported for test: the boundary
+ * cases (a tab, a leading space, an embedded newline) are invisible in markup.
+ */
+export function commandFirstLine(command: string): string {
+  return command.replace(/\s+/g, ' ').trim();
+}
+
+/**
  * Seconds → the shortest phrase that is still true, for uptime.
  *
  * Coarse ON PURPOSE. Uptime answers *has this agent been going a while*, and a
@@ -186,6 +207,90 @@ export function CopyFact({
   );
 }
 
+/**
+ * The COMMAND field: a preview that opens to the whole thing, and a Copy.
+ *
+ * The plain {@link Fact} truncates to one clipped line, which is right for a pid
+ * or a model name and wrong for the one value on this panel that is ~1,400
+ * characters — the entire brief the agent was handed, the single most useful
+ * fact when an agent misbehaves. Measured, the truncation stopped inside
+ * `.plot/briefs/`, so the reader could not even see which brief was named.
+ *
+ * So this field, and only this field, gets a dedicated control:
+ *
+ * - **Collapsed** it shows {@link commandFirstLine} — one line, clipped — which
+ *   is the panel's default and answers "what command, roughly".
+ * - **Expanded** it shows the ORIGINAL string, wrapped, so the whole brief
+ *   including its path is readable in place.
+ * - **Copy** yields the ORIGINAL string, always — the exact bytes the worker was
+ *   launched with, never the collapsed preview. That is the wave's contract: the
+ *   reader who copies gets the command, not the render of it.
+ *
+ * The omission rule from {@link Fact} is kept: an empty command (`""`, the shape
+ * a fleet with no `Worker command` configured takes) renders nothing at all,
+ * because there is nothing to expand or copy.
+ */
+export function CommandFact({ command }: { command: string | null | undefined }) {
+  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+  if (command === null || command === undefined || command === '') return null;
+
+  const copy = async () => {
+    // The command is present in the DOM either way, so a reader can always
+    // select it by hand; this is the convenience path. `navigator.clipboard`
+    // is absent over plain http and in older browsers — the same caveat
+    // PlanModal names — so a failure is swallowed rather than thrown at a
+    // reader who can still select the text they can see.
+    try {
+      await navigator.clipboard?.writeText(command);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1_500);
+    } catch {
+      // Left uncopied; the value is on screen to select.
+    }
+  };
+
+  return (
+    <div className="flex min-w-0 flex-col gap-1" data-fact="command" data-command-fact>
+      <div className="flex items-baseline gap-2">
+        <span className="shrink-0 text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          command
+        </span>
+        <button
+          type="button"
+          data-command-toggle
+          aria-expanded={expanded}
+          onClick={() => setExpanded((e) => !e)}
+          className="shrink-0 text-[11px] text-sky-600 hover:underline dark:text-sky-400"
+        >
+          {expanded ? 'Show less' : 'Show more'}
+        </button>
+        <button
+          type="button"
+          data-command-copy
+          onClick={copy}
+          className="shrink-0 text-[11px] text-sky-600 hover:underline dark:text-sky-400"
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      {/* The value carries a stable hook so a test can read exactly what is
+          shown. Collapsed it is the one-line preview and clips; expanded it is
+          the ORIGINAL string, wrapped, so nothing is hidden. */}
+      <span
+        data-command-value
+        className={
+          expanded
+            ? 'min-w-0 whitespace-pre-wrap break-all font-mono text-xs text-slate-700 dark:text-slate-300'
+            : 'min-w-0 truncate font-mono text-xs text-slate-700 dark:text-slate-300'
+        }
+      >
+        {expanded ? command : commandFirstLine(command)}
+      </span>
+    </div>
+  );
+}
+
 export interface AgentPanelFactsProps {
   panel: AgentPanel | null;
   /** Injected by tests so "last activity" does not race the clock. */
@@ -283,7 +388,7 @@ export function AgentPanelFacts({ panel, now, onOpenPlan, onRevealBranch }: Agen
         <CopyFact label="worktree" value={panel.worktree} />
       </div>
       <div className="col-span-2 min-w-0">
-        <Fact label="command" value={panel.command} />
+        <CommandFact command={panel.command} />
       </div>
     </div>
   );
