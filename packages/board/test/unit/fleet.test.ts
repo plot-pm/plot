@@ -12,6 +12,7 @@ import {
   prOutranks,
   waitingOnFor,
   withEstate,
+  estateReport,
 } from '../../src/server/fleet.js';
 import {
   AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, toBoardPhase, unknownPhaseNote,
@@ -3867,26 +3868,58 @@ describe('an eligible wave is not a blocker', () => {
   });
 });
 
-// A TIMED-OUT SCAN SAYS WHAT MADE IT EXPENSIVE. A bare `timed out after
-// 90000ms` names the symptom and hides the cause: the scan spawns git once per
-// branch per question, and every spawn reads the ref database and worktree list
-// at startup, so a fat estate makes every one of them slower. The plan that
-// motivated this (`the-scan-spawns-git-once-per-question`) measured 44
-// worktrees at 56 ms per spawn and a 105 s scan; the operator who sees only the
-// timeout cannot know that tidying 33 stale worktrees would nearly halve it.
-describe('a timed-out scan reports the estate that made it slow', () => {
-  it('names the measured estate on the message a timeout produced', () => {
+// A TIMED-OUT SCAN REPORTS WHAT IT MEASURED AND STOPS. A bare `timed out after
+// 90000ms` names the symptom and hides the estate, so the counts stay: worktrees
+// and branches are cheap, real counts of real things. What does NOT stay is the
+// mechanism the report used to assert on top of them. It named an actor, a cause
+// and a remedy — "pruning stale worktrees cuts both the count and the per-spawn
+// cost" — and acting on it falsified both halves: 26 of 37 worktrees were pruned,
+// the wall-clock did not move (97 s), and the per-spawn figure the report promised
+// would fall ROSE 33 % (80 → 106 ms). The probe behind it, a single
+// `git rev-parse --git-dir`, reads neither the ref database nor the worktree list,
+// so it was timing process launch on a loaded machine, not this repo's estate.
+// A wrong explanation costs more than no explanation, because it is actionable.
+describe('a timed-out scan reports the estate it measured and infers nothing', () => {
+  it('names the measured counts on the message a timeout produced', () => {
     const message = withEstate('timed out after 90000ms', {
       worktrees: 44,
       branches: 54,
-      perSpawnMs: 56,
     });
-    // Every number the plan called for is present and comes straight from the
-    // measurement object — the formatter multiplies nothing it was not given.
+    // Both counts are present and come straight from the measurement object —
+    // the formatter multiplies nothing it was not given.
     expect(message).toContain('timed out after 90000ms');
     expect(message).toMatch(/44\b.*worktree/i);
     expect(message).toMatch(/54\b.*branch/i);
-    expect(message).toMatch(/56\b.*ms/i);
+  });
+
+  it('prints no per-spawn figure, because no honest one exists', () => {
+    // `perSpawnMs` is gone rather than repaired. Measuring the estate's effect on
+    // spawn cost needs a SECOND estate to compare against, and the board has only
+    // the one it runs in — so there is no better probe to swap in, only a number
+    // to stop printing. No milliseconds, and no per-spawn phrasing to reintroduce
+    // one under another name.
+    const message = withEstate('timed out after 90000ms', {
+      worktrees: 44,
+      branches: 54,
+    });
+    expect(message).not.toMatch(/\bms\b/i);
+    expect(message).not.toMatch(/per[\s-]*spawn/i);
+    expect(message).not.toMatch(/\bspawn/i);
+  });
+
+  it('proposes no remedy it cannot support', () => {
+    // The falsified sentence named a cause and an action. Neither survives: the
+    // reader learns the estate is large and the scan did not finish, which is all
+    // a timeout report can honestly owe. Pruning was still worth doing for other
+    // reasons — what must not survive is the claim that it makes the scan faster.
+    const message = withEstate('timed out after 90000ms', {
+      worktrees: 37,
+      branches: 22,
+    });
+    expect(message).not.toMatch(/prun/i);
+    expect(message).not.toMatch(/\bcuts\b/i);
+    expect(message).not.toMatch(/at startup/i);
+    expect(message).not.toMatch(/stale/i);
   });
 
   it('says nothing extra when the scan did not time out', () => {
@@ -3897,7 +3930,6 @@ describe('a timed-out scan reports the estate that made it slow', () => {
     const message = withEstate('bash exited 2', {
       worktrees: 44,
       branches: 54,
-      perSpawnMs: 56,
     });
     expect(message).toBe('bash exited 2');
   });
@@ -3906,24 +3938,31 @@ describe('a timed-out scan reports the estate that made it slow', () => {
     // Measurement is itself a git call and can fail — a repo mid-rebase, a
     // vanished worktree. When it does, the bare timeout stands rather than a
     // half-filled sentence: an absent number is reported as absent, never as
-    // zero, the same rule the scan's own signals obey.
+    // zero, the same rule the scan's own signals obey. This is the
+    // `an-outage-is-not-an-answer` rule the fix leans on, unchanged.
     const message = withEstate('timed out after 90000ms', null);
     expect(message).toBe('timed out after 90000ms');
   });
 
-  it('multiplies nothing: spawn count is named as branches, not estimated', () => {
-    // The one honest measurement the board holds for spawn volume is the branch
-    // count — the scan makes a fixed number of spawns per branch, but the board
-    // cannot count the spawns of a process it just killed. So the report names
-    // the branches it measured and never prints a fabricated `8 × 54`.
+  it('multiplies nothing: spawn volume is named as branches, not estimated', () => {
+    // The board cannot count the spawns of a process it just SIGKILLed, so it
+    // names the branch count it CAN measure and never prints a fabricated
+    // `8 × 54`. That restraint was always right — the deleted per-spawn cost was
+    // the same fabrication one value over, which is the whole finding here.
     const message = withEstate('timed out after 90000ms', {
       worktrees: 10,
       branches: 7,
-      perSpawnMs: 31,
     });
-    expect(message).not.toContain('56');
     expect(message).not.toMatch(/\b(?:estimat|about|roughly|~)/i);
     expect(message).toMatch(/7\b.*branch/i);
+  });
+
+  it('renders the counts as the whole of the report', () => {
+    // Pinned exactly, because the defect was prose the numbers did not support:
+    // an assertion on substrings would have passed on the falsified sentence too.
+    expect(estateReport({ worktrees: 37, branches: 22 })).toBe('37 worktrees, 22 branches');
+    // Singulars, since a one-worktree repo is the common case off this machine.
+    expect(estateReport({ worktrees: 1, branches: 1 })).toBe('1 worktree, 1 branch');
   });
 });
 

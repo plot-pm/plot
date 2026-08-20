@@ -20,6 +20,7 @@ import {
   type MachineProcess,
   type Phase,
   type PulseShrink,
+  type RowKind,
   type StuckRun,
   type WaitingGroup,
   type WaitingOn,
@@ -428,25 +429,36 @@ function run(cmd: string, args: string[], cwd: string, timeoutMs = 30_000): Prom
 }
 
 /**
- * The three facts about the REPO STATE that make a scan slow, all measured — the
- * report a timeout owes and a bare `timed out after 90000ms` withholds.
+ * The two facts about the REPO STATE that a timeout can honestly report, both
+ * measured — what a bare `timed out after 90000ms` withholds, and nothing more.
  *
- * `worktrees` and `branches` are counts, not estimates: the scan spawns git once
- * per branch per question, and every spawn reads the ref database and the
- * worktree list at startup, so both multiply the launch overhead. `perSpawnMs`
- * is the launch overhead itself, timed against this repo's actual estate rather
- * than assumed — the same probe `the-scan-spawns-git-once-per-question` used to
- * show 44 worktrees cost 56 ms per spawn and 11 cost 31 ms.
+ * `worktrees` and `branches` are counts, not estimates: cheap to take, and real
+ * counts of real things. They say the estate is large. They do NOT say the
+ * estate is why the scan was slow, because that was measured and is false — see
+ * below.
  *
  * There is no `spawnCount`. The board cannot count the spawns of a scan it just
- * SIGKILLed, so it reports the branch count it CAN measure and lets the reader
- * see the multiplier, rather than printing a fabricated `spawns ≈ 8 × branches`
- * dressed as a measurement.
+ * SIGKILLed, so it names the branch count it CAN measure rather than printing a
+ * fabricated `spawns ≈ 8 × branches` dressed as a measurement.
+ *
+ * There is no `perSpawnMs` either, and its removal is the same rule applied one
+ * value over — the rule this file stated and then broke four lines later. It
+ * timed `git rev-parse --git-dir`, which prints a path: it reads neither the ref
+ * database nor the worktree list, so it was never timing the estate's effect on
+ * launch cost. It timed how loaded this machine was. Acting on the report proved
+ * it: 26 of 37 worktrees pruned, the count fell 70 %, the wall-clock did not
+ * move (97 s), and the figure promised to fall rose 33 % (80 → 106 ms). The same
+ * run clocked `git --version` — which opens no repository at all — at 2,037 ms.
+ *
+ * It is deleted rather than repaired because no honest version is reachable from
+ * here: attributing spawn cost to an estate needs a SECOND estate to compare
+ * against, and the board has only the one it runs in. The measured share of the
+ * scan spent inside git was 25 s of 131 s, so where the other 81 % went is a new
+ * measurement, not a correction — recorded as this plan's follow-up.
  */
 export interface EstateMeasurement {
   worktrees: number;
   branches: number;
-  perSpawnMs: number;
 }
 
 /**
@@ -475,34 +487,34 @@ export function withEstate(message: string, m: EstateMeasurement | null): string
 }
 
 /**
- * The measured estate as one sentence. Pure: the numbers it prints are exactly
- * the numbers it was handed, so a test can assert "measured in, sentence out"
- * without a repository. It multiplies nothing and rounds only `perSpawnMs`,
- * which arrives as a float from the probe.
+ * The measured estate as one clause: the two counts, and no mechanism.
+ *
+ * Pure, and now trivially so — the numbers it prints are exactly the numbers it
+ * was handed, it multiplies nothing, and it rounds nothing. It also EXPLAINS
+ * nothing, which is the point. It used to close with "pruning stale worktrees
+ * cuts both the count and the per-spawn cost", a cause and a remedy neither
+ * count supports; a reader who trusted it pruned 26 worktrees and got a slower
+ * scan reporting a higher number. A wrong explanation costs more than no
+ * explanation, because it is actionable.
+ *
+ * So the reader learns the estate is large and the scan did not finish. That is
+ * true, it is all this function measured, and it is what a timeout report owes.
  */
 export function estateReport(m: EstateMeasurement): string {
   const wt = `${m.worktrees} worktree${m.worktrees === 1 ? '' : 's'}`;
   const br = `${m.branches} branch${m.branches === 1 ? '' : 'es'}`;
-  const per = `${Math.round(m.perSpawnMs)} ms per git spawn`;
-  return `${wt}, ${br}, ${per} — the scan spawns git per branch, and every spawn `
-    + `reads this estate at startup; pruning stale worktrees cuts both the count `
-    + `and the per-spawn cost`;
+  return `${wt}, ${br}`;
 }
 
-/** How many bare `git` spawns to time when probing per-spawn launch cost. */
-const SPAWN_PROBE_COUNT = 5;
-
 /**
- * Measure the estate that a slow scan blames, or null if the measurement itself
- * fails.
+ * Count the estate a slow scan runs in, or null if the counting itself fails.
  *
- * Only ever called ON the timeout path, so its own cost — a worktree list, a
- * ref count, five bare `git` spawns — is paid once per failed scan, not per
- * pulse. `git rev-parse --git-dir` is the cheapest real spawn there is: it does
- * no ref or object work, so what it times is the launch overhead itself, which
- * is the quantity the estate is about.
+ * Only ever called ON the timeout path, so its cost — one worktree list, one ref
+ * enumeration — is paid once per failed scan, not per pulse. It used to also fire
+ * five bare `git` spawns to time launch overhead; those are gone with the number
+ * they fed, so the timeout path costs five spawns fewer as well as saying less.
  *
- * Returns null rather than a partial object if any part throws: a sentence
+ * Returns null rather than a partial object if either read throws: a sentence
  * missing a number would be worse than the bare timeout it replaces, and the
  * `an-outage-is-not-an-answer` rule says a value that could not be observed is
  * reported as absent, not as zero.
@@ -516,15 +528,7 @@ async function measureEstate(opts: BuildBoardOptions): Promise<EstateMeasurement
       ['for-each-ref', '--format=%(refname)', 'refs/remotes/origin'], opts.repoRoot);
     const branches = brOut.split('\n').filter((l) => l.trim() !== '').length;
 
-    let total = 0;
-    for (let i = 0; i < SPAWN_PROBE_COUNT; i++) {
-      const started = process.hrtime.bigint();
-      await run('git', ['rev-parse', '--git-dir'], opts.repoRoot);
-      total += Number(process.hrtime.bigint() - started) / 1e6;
-    }
-    const perSpawnMs = total / SPAWN_PROBE_COUNT;
-
-    return { worktrees, branches, perSpawnMs };
+    return { worktrees, branches };
   } catch {
     return null;
   }
@@ -1365,6 +1369,10 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     .map((i) => {
       const at = i.createdAt ? Date.parse(i.createdAt) : NaN;
       return {
+        // A ticket, stated rather than left to the consumer's call site — see
+        // `IssueRowSchema.kind`. Every one of the seven kinds arrives the same
+        // way, which is what lets one row component read slot 2 from the data.
+        kind: 'ticket' as const,
         number: i.number,
         title: i.title,
         url: i.url,
@@ -1807,11 +1815,19 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // with emptiness because one scan failed is what makes a monitoring view
     // untrustworthy — the tab keeps the last pulse, its age, and this error.
     const message = err instanceof Error ? err.message : String(err);
-    // A TIMEOUT SAYS WHAT MADE IT SLOW. `withEstate` appends the measured estate
-    // only when this is a budget overrun and the estate could be measured — a
-    // scan that failed any other way, or a repo that could not be probed, keeps
-    // the bare message. The measurement is paid here, on the failure path,
-    // because it is the only path that needs it and the scan is already dead.
+    // A TIMEOUT SAYS WHAT IT COUNTED, NOT WHAT MADE IT SLOW. `withEstate`
+    // appends the two measured counts only when this is a budget overrun and
+    // they could be read — a scan that failed any other way, or a repo that
+    // could not be probed, keeps the bare message. The counts are paid here, on
+    // the failure path, because it is the only path that needs them and the scan
+    // is already dead.
+    //
+    // They describe the estate; they do not diagnose the scan. This comment
+    // claimed the stronger thing until the claim was tested against reality —
+    // 81 % of a 131 s scan was measured OUTSIDE git, so the estate cannot be the
+    // explanation, whatever its size. Naming the plan the scan died in would be
+    // a real diagnosis and `--stream` makes it reachable; that is the follow-up,
+    // not this.
     entry.error = isTimeout(message)
       ? withEstate(message, await measureEstate(opts))
       : message;
@@ -3249,6 +3265,87 @@ export function prOutranks(candidate: PrRecord, held: PrRecord): boolean {
   return candidate.number > held.number;
 }
 
+/**
+ * The branch a `changeset-release` PR rides on — the ONE name this file matches.
+ *
+ * A release reaches the board as a PR like any other, and nothing in its fields
+ * distinguishes it: same head, same checks, same mergeability. What marks it is
+ * the branch Changesets opens, and the name is a convention of the tool rather
+ * than a guess about one — the same standing this file already grants
+ * `idea/<slug>`, which `rowsFromPulse` reads to recover a plan slug.
+ *
+ * MATCHED HERE AND NOWHERE ELSE, which is the point of the constant. The plan
+ * that introduced `kind` argued that a renderer deriving a row's kind would
+ * have to hardcode this name or misclassify the row; hardcoding it in the
+ * SERVER, once, beside the other convention it already reads, is the version of
+ * that cost this contract accepts. A second copy on the client would be the
+ * defect.
+ *
+ * Exported for test.
+ */
+export const RELEASE_BRANCH = /^changeset-release\//;
+
+/**
+ * WHICH OF THE SEVEN a row is — the judgement `AgentRow.kind` carries.
+ *
+ * Made HERE because this is where all the facts are in hand at once. See
+ * `RowKindSchema` for why it must not be remade in the renderer.
+ *
+ * The order of the three arms is the rule, and each earns its place:
+ *
+ *   1. **A release is a release**, whatever else is true of it. It is the one
+ *      row nobody should merge by reflex, and the mark exists to stop that — so
+ *      it cannot be outranked by the PR arm that would otherwise claim it.
+ *   2. **A merge conflict makes it a `branch`**, even with an open PR, because
+ *      no PR resolves a conflict: the reader has to go to the branch and rebase.
+ *      This is the rule `the-row-leads-with-its-subject` settled, applied here
+ *      rather than restated per column.
+ *   3. **Anything else with an open PR is a `pr`**, because the fix updates the
+ *      PR — and 67 of 80 live rows carry both a branch and a PR, so this is the
+ *      normal case rather than an edge.
+ *
+ * Everything remaining is a `branch`: a claim nobody has started, a quiet ref,
+ * a merged branch whose PR has gone. `branch` is the fallback rather than a
+ * fourth arm, because a row with no PR has nothing else it could be about.
+ *
+ * `build`, `agent`, `plan` and `ticket` are NOT decided here. A build and an
+ * agent have no row yet; a plan row and a ticket row are built elsewhere and
+ * each says its own kind at its own site, which is the same rule — the kind is
+ * stated where the row is created.
+ *
+ * Exported for test.
+ */
+export function rowKind(
+  branch: string,
+  /**
+   * WHETHER the row has a PR, not what condition it is in — and the boolean is
+   * the honest signature.
+   *
+   * An earlier draft took the PR record so the arms could read its `state`, and
+   * none of them do: `conflicts` arrives as its own argument, from the SCAN's
+   * conflict set rather than from the host's mergeability, because those are
+   * two different questions and only one of them is answered for a branch
+   * nobody examined. A parameter carrying a condition no arm reads is a
+   * standing invitation to start reading it, which is how a two-fact decision
+   * quietly becomes a three-fact one.
+   */
+  hasPr: boolean,
+  /**
+   * Whether the scan FOUND a conflict — never *whether one was looked for*.
+   *
+   * The caller passes `conflicts_known && conflicts.length > 0`, so an
+   * unexamined branch arrives as `false` and takes the PR arm. That is correct
+   * and is the point: *not looked at* must not read as *clean*, and it must not
+   * read as conflicting either. A branch whose conflict set was never computed
+   * has produced no evidence for the branch arm.
+   */
+  conflicts: boolean,
+): RowKind {
+  if (RELEASE_BRANCH.test(branch)) return 'release';
+  if (conflicts) return 'branch';
+  return hasPr ? 'pr' : 'branch';
+}
+
 /** The PR fields a row carries: the link, and the two independent conditions. */
 export function agentPr(pr: PrRecord): {
   number: number; url: string; draft: boolean;
@@ -3488,6 +3585,21 @@ export function rowsFromPulse(
           waitingOn === 'time' ? blockedNote(blockerName, blockerOutstanding) : note;
         rows.push({
           repo,
+          // WHAT THIS ROW IS — decided here, where the branch name, the PR and
+          // the conflict set are all in hand. See `rowKind`: a release outranks
+          // everything, a conflict makes it a branch even with an open PR, and
+          // an open PR otherwise wins.
+          //
+          // The conflict fact comes from `stuck`, computed a few lines below —
+          // so it is read from the SCAN's own conflict set (`b.conflicts` with
+          // `b.conflicts_known`) rather than from the summary, because an
+          // unexamined branch reports no conflicts and *not looked at* must not
+          // read as *clean*.
+          kind: rowKind(
+            b.branch,
+            pr !== null,
+            b.conflicts_known && b.conflicts.length > 0,
+          ),
           branch: b.branch,
           plan: plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, ''),
           planFile: plan.file,
@@ -3714,6 +3826,21 @@ export function rowsFromPulse(
     const ideaSlug = /^idea\/(.+)$/.exec(branch)?.[1] ?? '';
     rows.push({
       repo,
+      // WHAT THIS ROW IS. Every row here has an open PR by the filter above, so
+      // the ordinary answer is `pr` — and this is the site where the release
+      // arm earns its keep: `changeset-release/main` reaches the board through
+      // THIS loop, because no plan names it. Without the mark it renders as one
+      // more open PR awaiting review, which is the row this repo must not merge
+      // by reflex.
+      //
+      // `false` for conflicts, and it is the honest argument rather than a
+      // convenience: no conflict set was ever computed for a planless branch
+      // (`conflictsKnown` is false in the `stuckState` call below, for the same
+      // reason), so nothing licenses the branch arm here. A conflicting PR in
+      // this loop therefore reads as `pr` — the PR is still where its checks
+      // and its reviewers are, and the row says `conflicts` in its status slot
+      // either way.
+      kind: rowKind(branch, true, false),
       plan: ideaSlug,
       // Resolvable since the plan viewer learned to read branch plans: before
       // that this was deliberately blank, because linking to a file the route
