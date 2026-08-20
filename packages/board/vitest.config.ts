@@ -5,14 +5,51 @@ import { defineConfig } from 'vitest/config';
 // integration tests: a data layer that spawns the built artifact and a UI layer
 // that drives a real browser (Playwright) against it. Kept in test/{unit,integration}
 // so vitest never picks up the node:test files at test/*.test.mjs.
+//
+// Two projects, because the two halves need different parallelism and a single
+// config makes the whole suite take the stricter of the two. Measured
+// 2026-08-20: the 48 non-browser files ran 43 s serially and 25 s in parallel,
+// and they were serial only because they shared a config with the browser files.
+//
+// `fileParallelism` is honoured per project — verified by timestamping file
+// starts, not by reading the types, which declare it on the root config: three
+// files in a parallel project all start at +0 ms, three in a serial project
+// start 1.3 s apart. Vitest also runs the projects one after another, so the
+// browser project never contends with the parallel one.
+const testTimeout = 30_000;
+const hookTimeout = 30_000;
+
 export default defineConfig({
   test: {
-    include: ['test/{unit,integration}/**/*.test.ts'],
-    environment: 'node',
-    // The UI layer boots a server and launches Chromium — generous timeouts,
-    // and no cross-file parallelism so server spawns don't contend.
-    testTimeout: 30_000,
-    hookTimeout: 30_000,
-    fileParallelism: false,
+    projects: [
+      {
+        test: {
+          name: 'unit',
+          // Everything that spawns no browser. The three tiny-garden data-layer
+          // files do spawn the built artifact, but the server binds PORT=0 and
+          // the OS assigns during its own listen(), so concurrent spawns cannot
+          // contend for a port — the Chromium launch is the cost that had to
+          // stay serial, not the server.
+          include: ['test/{unit,integration}/**/*.test.ts'],
+          exclude: ['test/integration/**/*.browser.test.ts'],
+          testTimeout,
+          hookTimeout,
+          fileParallelism: true,
+        },
+      },
+      {
+        test: {
+          name: 'browser',
+          // The UI layer boots a server and launches Chromium — generous
+          // timeouts, and no cross-file parallelism so browser launches don't
+          // contend. This is the constraint the original single config applied
+          // to all 71 files; here it applies only to the 20 it is about.
+          include: ['test/integration/**/*.browser.test.ts'],
+          testTimeout,
+          hookTimeout,
+          fileParallelism: false,
+        },
+      },
+    ],
   },
 });
