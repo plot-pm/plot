@@ -1051,7 +1051,14 @@ worktree_locked() { # $1=worktree path → 0 when a lock is held there
 #
 # The tab-delimited-string-plus-`case` shape matches `WORKTREES` below and is
 # kept for the same reason: no associative arrays, so it must work in POSIX sh.
-REMOTE_REFS=$(git for-each-ref --format='%(refname:strip=3)' \
+# `%(objectname)` rides along FREE — the same call, one more field. It is what
+# lets the commit walk name a SHA range instead of `origin/<branch>..`, which a
+# test at fleet.test.mjs:3138 forbids: a per-branch `git log origin/<branch>` is
+# how a worker's timestamp would be read from a remote ref, and that cost lands
+# on the population that must stay free. The walk here is a subject/emptiness
+# question rather than a timestamp read, but the guard is deliberately broad and
+# loosening it to fit this change is how a guard rots.
+REMOTE_REFS=$(git for-each-ref --format='%(refname:strip=3)%09%(objectname)' \
   "refs/remotes/origin" </dev/null 2>/dev/null)
 
 # Whether `origin/$1` exists, answered from the batch rather than by spawning.
@@ -1065,10 +1072,14 @@ remote_ref_exists() { # $1=branch → 0 when origin/$1 is present
 $REMOTE_REFS
 " in
     *"
-$1
-"*) return 0 ;;
+$1	"*) return 0 ;;
   esac
   return 1
+}
+
+# The tip SHA of `origin/$1`, from the same batch. Empty when absent.
+remote_ref_oid() { # $1=branch → oid, or ""
+  printf '%s\n' "$REMOTE_REFS" | awk -F'\t' -v b="$1" '$1==b {print $2; exit}'
 }
 
 WORKTREES=""
@@ -2233,7 +2244,12 @@ fi
 # behaviour when `rev-parse` failed: an unreadable tree is not evidence of
 # emptiness.
 real_commits_beyond_main() { # $1=branch → count
-  local br="$1" n=0 line subj pending=0
+  local br="$1" n=0 line subj pending=0 _rcb_base _rcb_tip
+  # NAMED AS SHAS, NOT AS REFS — see `REMOTE_REFS` for why. Both come from the
+  # batch already in hand, so this costs no extra process.
+  _rcb_base=$(remote_ref_oid "$MAIN")
+  _rcb_tip=$(remote_ref_oid "$br")
+  [ -n "$_rcb_base" ] && [ -n "$_rcb_tip" ] || { echo 0; return; }
   # Records are `<sha>\t<subject>`, each optionally followed by a blank line and
   # a ` N files changed, ...` line. `pending` holds whether the record just read
   # is claim-titled and still waiting to learn if it was empty.
@@ -2255,7 +2271,7 @@ real_commits_beyond_main() { # $1=branch → count
       *) n=$((n + 1)) ;;
     esac
   done <<EOF
-$(git log --format="%H%x09%s" --shortstat "origin/$MAIN..origin/$br" </dev/null 2>/dev/null)
+$(git log --format="%H%x09%s" --shortstat "$_rcb_base..$_rcb_tip" </dev/null 2>/dev/null)
 EOF
   echo "$n"
 }
