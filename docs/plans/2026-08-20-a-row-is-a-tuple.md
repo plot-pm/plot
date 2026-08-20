@@ -44,6 +44,24 @@ that every row is**, so each kind grew its own rendering and its own exceptions.
 
 ## Design
 
+### The two things a row must get right
+
+Everything below serves two requirements, and they are the test for any variation
+of this design:
+
+1. **The item is recognisable.** A reader knows what kind of thing the row is
+   without hovering, without inferring it from a badge, and without knowing the
+   plan's wave count. This is what the icon and the kind slot are for, and what
+   the four-meanings phase column failed at.
+2. **The artifact links are associated.** Each linked name is visibly attached to
+   the item it belongs to, so a reader knows what they are about to open before
+   they click. A PR row carries three — the PR, its plan, its branch — and the
+   association is what stops them reading as a row of interchangeable words.
+
+The slot list is one way to satisfy both. Where it is inconvenient — a PR needing
+more link slots than a branch — **the requirements win and the slot count
+bends**, which is why the artifact slot is zero-or-more rather than one.
+
 ### Six slots, one shape
 
     [item-icon, item-kind, item-name, artifact-name-link*, item-status, item-age]
