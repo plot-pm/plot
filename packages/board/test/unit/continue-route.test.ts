@@ -411,15 +411,43 @@ describe('the environment the worker is started with', () => {
     dirs.push(wt);
     const witness = path.join(wt, 'witness.txt');
 
-    await post({ branch: BRANCH, answer: 'go' }, deps(wt, `printf '%s' "$${CONTINUATION_ENV}" > ${JSON.stringify(witness)}`));
+    // The worker writes to a scratch path and RENAMES it into place. `>` creates
+    // and truncates before `printf` writes into it, so a reader waiting on the
+    // witness's existence can observe a real but still-empty file; `mv` within
+    // one directory publishes the name only once the content is complete.
+    const scratch = path.join(wt, 'witness.part');
+    await post(
+      { branch: BRANCH, answer: 'go' },
+      deps(
+        wt,
+        `printf '%s' "$${CONTINUATION_ENV}" > ${JSON.stringify(scratch)} && mv ${JSON.stringify(scratch)} ${JSON.stringify(witness)}`,
+      ),
+    );
 
     // Poll for the witness rather than sleeping for a guessed duration — the
     // race this repo measured is a FIXED budget, not a bounded wait.
+    //
+    // Poll for CONTENT, not existence. Measured 2026-08-20 under
+    // `--fileParallelism`: this assertion failed once in ten runs with
+    // `actual: ''` — the file was there and empty, so `existsSync` was satisfied
+    // by a write that had not happened yet. Zero failures in six serial runs at
+    // the same load, which is why parallelism SURFACED this rather than caused
+    // it: the worker is detached, so nothing here was ever synchronised with its
+    // write. Waiting on content also makes the wait's subject the thing being
+    // asserted, so a regression in the publish step fails as a timeout rather
+    // than as an empty string compared against a path.
+    const read = (): string => {
+      try {
+        return fs.readFileSync(witness, 'utf8');
+      } catch {
+        return '';
+      }
+    };
     const deadline = Date.now() + 10_000;
-    while (!fs.existsSync(witness) && Date.now() < deadline) {
+    while (read() === '' && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 25));
     }
-    assert.ok(fs.existsSync(witness), 'the worker did not run within 10s');
-    assert.equal(fs.readFileSync(witness, 'utf8'), path.join(wt, CONTINUATION_NAME));
+    assert.ok(read() !== '', 'the worker did not report its environment within 10s');
+    assert.equal(read(), path.join(wt, CONTINUATION_NAME));
   });
 });
