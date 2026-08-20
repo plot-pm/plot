@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { buildBoard, renderPlanPage, renderStoryPage, type BuildBoardOptions } from './board.js';
 import { repairEnabledFromEnv } from './resolver.js';
 import { buildFleet } from './fleet.js';
+import { mockFleet, mockRequested } from './mock-fleet.js';
 import { buildAttention } from './attention.js';
 import { dispatchAvailability, dispatchLog, handleDispatch, SLUG_RE } from './dispatch.js';
 import { continueAvailability, handleContinue } from './continue.js';
@@ -253,7 +254,11 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     // single-threaded server roughly a quarter of the time.
     try {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(buildFleet(opts)));
+      // MOCK, when explicitly asked: one row per kind, for looking at. It
+      // REPLACES the payload rather than adding to it — a mock beside real rows
+      // is indistinguishable from a real estate behaving oddly, and the first
+      // confused reading would cost more than the aid saves.
+      res.end(JSON.stringify(mockRequested() ? mockFleet() : buildFleet(opts)));
     } catch (err) {
       console.error('Error building fleet:', err);
       res.writeHead(500, { 'Content-Type': 'application/json' });
