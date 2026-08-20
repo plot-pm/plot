@@ -25,7 +25,8 @@
 // remove.
 import type { MouseEvent, ReactNode } from 'react';
 import type { TupleLink, TupleRow as TupleRowData } from '../lib/tuple-row.js';
-import { splitBranch } from '../lib/tuple-row.js';
+import { splitBranch, KIND_ICON_PATH } from '../lib/tuple-row.js';
+import type { RowKind } from '../../contract/schema.js';
 
 /**
  * The tuple's tracks — six slots, and the FOURTH is the flexible one.
@@ -337,6 +338,38 @@ export function TupleLinkView({
  * RELEASE row offers no release action: it is handed no such item, and this
  * component invents none.
  */
+/**
+ * The kind's icon: inline SVG, one size, `currentColor`.
+ *
+ * SVG rather than a glyph because the first version mixed emoji with symbol
+ * characters, and **emoji ignore CSS colour** — measured, three of seven rendered
+ * yellow-orange while four were grey, and the emoji brought their own metrics so
+ * the leading track changed width by kind.
+ *
+ * `aria-hidden` because slot 2 states the kind in a word: the icon is a second
+ * channel and never the only one, which is the rule the tooltip-as-label defect
+ * established. A screen reader reads the word and is not told a shape.
+ *
+ * Sized here rather than by a class so the size is one number in one place —
+ * 14px, larger than the 13px the old glyphs used, because the icon is the mark a
+ * reader finds the row by.
+ */
+function KindIcon({ kind }: { kind: RowKind }) {
+  return (
+    <svg
+      aria-hidden
+      data-tuple-icon={kind}
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="currentColor"
+      className="shrink-0 self-center text-slate-400 dark:text-slate-500"
+    >
+      <path d={KIND_ICON_PATH[kind]} />
+    </svg>
+  );
+}
+
 export function TupleRowView({
   tuple,
   onOpenPlan,
@@ -464,38 +497,19 @@ export function TupleRowView({
         bordered ? 'border-t border-slate-100 dark:border-slate-800' : ''
       } ${highlighted ? 'rounded-sm ring-2 ring-inset ring-blue-500' : ''}`}
     >
-      {/* SLOT 1 — the icon, in the marks track it shares with the activity
-          marks. One track for *what is happening to this row* and *what kind of
-          row it is*: both are the row's identity rather than its content, and a
-          seventh fixed track costs its own width AND a gap. */}
+      {/* SLOT 1 — THE MARKS TRACK, AND NOTHING ELSE.
+          It held the icon too until 2026-08-20, and the comment that lived here
+          recorded the compromise that cost: *"where the two compete for this
+          track, the icon gives way"* — so the icon was `absolute`-positioned out
+          of the stack to stop its 12px box shifting every mark beside it, and a
+          row with activity showed no icon at all.
+          The icon now sits beside the item's name (see slot 3), which is where a
+          mark on a thing belongs and how `⑂240` already reads elsewhere on this
+          board. Two consequences, both wanted: the "gives way" rule is gone
+          because nothing is left to give way to, and this track is FREE for what
+          activity information actually needs. A track shared with something
+          permanent cannot show a moment. */}
       <span role="gridcell" className={MARKS_CELL}>
-        {/* THE ICON IS THE ROW'S LEAST URGENT MARK. It says what KIND of row
-            this is — which slot 2 also says, in a word a reader can see —
-            while the marks beside it say what is happening to the row RIGHT
-            NOW. So where the two compete for this track, the icon gives way:
-            it leaves the flow and the marks keep the alignment. */}
-        <span
-          aria-hidden
-          data-tuple-icon={tuple.kind}
-          // ON THE FIRST LINE, and OUT OF THE STACK — `absolute` within this
-          // cell rather than a flex item in it. Both facts are measured.
-          //
-          // In the flow, the icon and the marks share one vertical stack, so
-          // the icon's 12px box shifted every mark beside it: a row's activity
-          // mark came out 6px off the branch name it marks, against a 4px
-          // tolerance the suite has held since `agent-rows-line-up`. The marks
-          // are what must line up — they are read across rows, down a column —
-          // and the icon is constant, so the icon is what gives way.
-          //
-          // `top-2` matches the row's own `py-2`, which puts the icon on the
-          // FIRST LINE rather than at the row's centre. On a two-line row (one
-          // carrying a stuck status) the centre is the gap between the lines —
-          // the same defect `ActivityMark` records fixing for itself, and the
-          // icon would have re-introduced it one element over.
-          className="absolute left-0 top-2 text-xs leading-none"
-        >
-          {tuple.icon}
-        </span>
         {marks}
       </span>
       {/* SLOT 2 — THE KIND, as a word, VISIBLE. Not a tooltip and not a badge to
@@ -539,7 +553,13 @@ export function TupleRowView({
           leads with the PR, a branch with the branch, a ticket with its title.
           `showWhat` is off here — the kind slot immediately left has already
           said what this is, and repeating it would be the same word twice. */}
-      <span role="gridcell" className="flex min-w-0 items-baseline gap-2 font-medium">
+      <span role="gridcell" className="flex min-w-0 items-baseline gap-1.5 font-medium">
+        {/* THE ICON MARKS THE NAME, which is where a mark on a thing belongs and
+            how `⑂240` and `⊙228` already read elsewhere on this board. It left
+            the marks track on 2026-08-20 so that track could hold activity
+            alone. `gap-1.5` rather than `gap-2`: the icon and the name are one
+            unit, not two items in a row. */}
+        <KindIcon kind={tuple.kind} />
         <TupleLinkView link={tuple.name} onOpenPlan={onOpenPlan} extraAttr={nameAttr} />
         {beside}
       </span>

@@ -111,6 +111,15 @@ So a wave row is:
 |---|---|---|---|---|---|
 | wave | `Wave` | `Shaped` | `feature/a-row-is-a-tuple` — its branches, **unprefixed** | `eligible` | `1d` |
 
+**Icon**: Octicons' **`stack`** — three layered planes. Chosen because a wave
+*is* a layer of a plan and layers stack in order, which is exactly what the wave
+sequence expresses: *Shaped* before *Relocated* before *Moved*. The contrast with
+`plan` (a checklist) is the right one: a plan lists intentions, a wave bundles the
+work.
+
+Considered and declined: `versions` reads as release versions, and `git-merge` is
+too close to the PR icon it would sit beside.
+
 **Name**: the wave's name — which is why every wave earns one, the convention
 recorded in the plan template on 2026-08-20. A nameless wave would render a
 nameless row.

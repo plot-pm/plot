@@ -5341,7 +5341,7 @@ export function AgentList({
           // groups — the rows themselves stay at `py-2`, which is the density
           // an operator watching a fleet wants.
           <section key={key}>
-            <h2 className="mb-1 flex items-baseline gap-2 px-3 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+            <h2 className="mb-2 flex items-baseline gap-2 px-3 text-sm font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-300">
               {collapsible ? (
                 // A real button, so the header is reachable and operable by
                 // keyboard. `aria-expanded` is what tells a screen reader the
@@ -5364,7 +5364,7 @@ export function AgentList({
                       there for why a rotation beats a second glyph. */}
                   <span
                     aria-hidden
-                    className={`inline-block w-3 text-center text-[13px] leading-none transition-transform ${isFolded ? '' : 'rotate-90'}`}
+                    className={`inline-block w-4 text-center text-base leading-none transition-transform ${isFolded ? '' : 'rotate-90'}`}
                   >
                     ▸
                   </span>

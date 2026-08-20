@@ -78,8 +78,8 @@ carries none, a PR carries its plan and its branch.
 | Ticket | ticket | `Story` | `228: Fleet scan asks the host once per branch` | `fleet-scan-asks-the-host` | `open` | — |
 | Plan | plan | `Plan` | `fleet-scan-asks-the-host` | `idea/my-branch` | `draft` | `1d` |
 | PR | pr | `PR` | `57` | `fleet-scan-asks-the-host`, `feature/opus5-longhorizon-hardening` | `conflicts` | `25d` |
-| Build | build | `Build` | `CI:1860` | `PR 283` | `CI is running for PR #283` | `10m` |
-| Agent | agent | `Agent` | `@Dev-Agent` | `feature/opus5-longhorizon-hardening` | `thinking` | `13m` |
+| Build | build | `Build` | `CI:1860` | `feature/x`, and `283` where a PR exists | `CI is running` | `10m` |
+| Agent | agent | `Agent` | `f30b27a3` | `Shaped` (its wave), `plot-wt-…` (its worktree), `a-row-is-a-tuple` (its plan) | `thinking` | `session 27m · idle 4m` |
 | Branch | branch | `Branch` | `feature/opus5-longhorizon-hardening` | — | `conflicts` | `25d` |
 | Release | release | `Release` | `2.7.0` | `240`, `changeset-release/main` | `no-checks` | `12m` |
 
@@ -92,14 +92,41 @@ Two kinds make the pattern visible because they are the same shape:
 |---|---|---|---|
 | **PR** | a plan | a branch | **plan, branch** |
 | **Release** | a PR | a branch | **PR, branch** |
-| Build | — | a PR | PR |
+| Build | — | a **branch** | **branch**, and its PR where one exists |
 | Ticket | — | — | the plan it became |
 | Plan | — | an idea branch | that branch |
-| Agent | — | a branch | that branch |
+| Agent | — | a **wave** (which holds the branch) | **wave, worktree, plan** — three, the most of any kind |
 | Branch | — | **itself** | none |
 
 So a release carries **two** links exactly as a PR does, and the count is a
-consequence rather than a per-kind decision. This is why the artifact slot is
+consequence rather than a per-kind decision.
+
+**An agent works on a WAVE, not on a branch.** Settled 2026-08-20, and it follows
+from the wave being the thing that holds branches: an agent is dispatched to a
+wave's branch, so the wave is what it is working on and the branch arrives through
+it. Its three artifacts:
+
+| link | what it is |
+|---|---|
+| the **wave** | what it is working on — the branch comes with it |
+| the **worktree** | where it is working, which no other kind has |
+| the **plan** | what the work is for |
+
+The worktree is the one to notice: `an-agent-outlives-its-branch` records it in
+the manifest beside `branch`, so the data has been there since the registry
+landed — it was simply never rendered as an artifact. And it is the only artifact
+on this board that is **not a URL**: a browser refuses `file://` from
+`http://localhost`, so it is copied rather than followed, the rule `CopyFact`
+already applies.
+
+**A build's PR link is optional, and that is a fact about builds rather than a
+gap.** CI runs on a **branch** — a push builds whether or not anyone opened a PR,
+and the branch is what it checked out. Where a PR exists the build is also *for*
+that PR and links it; where none does, the build is no less real and links one
+thing. Settled 2026-08-20.
+
+This is why the artifact slot is zero-or-**more** rather than one-or-more: a
+branch links none, a build links one or two, a PR and a release link two. This is why the artifact slot is
 zero-or-more: a branch is its own vehicle and links nothing, a PR and a release
 each name two.
 
