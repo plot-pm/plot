@@ -1,0 +1,1 @@
+../2026-08-20-the-agent-panel-shows-the-agent.md
