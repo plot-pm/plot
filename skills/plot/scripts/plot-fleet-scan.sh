@@ -2634,6 +2634,25 @@ for i, w in enumerate(d.get("waves", [])):
         # every branch elsewhere gives.
         json_branches+=",\"local_locked\":${wt_lock:-false}"
         json_branches+=",\"local_worktree\":\"$(json_str "$wt_here")\""
+        # WHETHER SOMEBODY HOLDS THIS BRANCH — the derivation `local_worktree`
+        # is one input to, not a rename of it. A branch is held when a worktree
+        # here has it checked out AND its tip has not merged: the two facts this
+        # loop already holds, `wt_here` and `$st`. The AND is the whole point.
+        # `local_worktree` alone would also fire on a CLEAN worktree left on a
+        # branch whose work has landed — a leftover directory, not a held branch
+        # — and lifting that to WORKING is the merged-leftover misread the plan
+        # forbids. Excluding `merged` here is what keeps location and holding
+        # apart. `held` may only be true where a worktree is present, so it is
+        # false on every branch on every other machine, exactly like its
+        # neighbours: additive, never a downgrade of the refs answer. It is
+        # emitted for consumers to READ instead of re-deriving `!merged`; it is
+        # never fed back into the wave arithmetic below, which settles waves on
+        # `merged` alone and is untouched by holding.
+        if [ -n "$wt_here" ] && [ "$st" != "merged" ]; then
+          json_branches+=",\"held\":true"
+        else
+          json_branches+=",\"held\":false"
+        fi
         # From the REFS, not from the worktree table above — a local branch with
         # no worktree still holds commits nobody can see. 0 wherever this
         # machine has no local ref, which is what every branch elsewhere reports.
