@@ -79,7 +79,8 @@
 # never an error.
 #
 # WHAT IT REFUSES, and why refusing beats guessing:
-#   - phase is not `draft`   — nothing to approve.
+#   - phase is not `draft` or `design` — nothing to approve. (Design is the
+#     transitional phase before Approved; approving it is its forward exit.)
 #   - `Review:` is not `pr`  — `in-session` and `ballot` need a human in the
 #     room. Every plan in this repo declares `Review: pr`, so this fires for
 #     nothing today and is still load-bearing: /plot-idea offers all three, and
@@ -152,18 +153,21 @@ plan_branches=$(jfield '.branches[]?')
 
 # --- refusal 1: the phase ---------------------------------------------------
 #
-# `approved` is NOT a refusal: it is the idempotent case. A run that finds the
-# phase already flipped still has holds to clear, an annotation to check, and a
-# record that may be missing — the very half-states this script exists to
-# repair. Only phases with nothing to approve are refused.
+# `draft` and `design` both approve: Design is the transitional phase before
+# Approved — a spike or tracer bullet that answered its question — and approving
+# it is the forward exit the plan gives it. `approved` is NOT a refusal either:
+# it is the idempotent case. A run that finds the phase already flipped still
+# has holds to clear, an annotation to check, and a record that may be missing —
+# the very half-states this script exists to repair. Only phases with nothing to
+# approve are refused.
 case "$phase" in
-  draft|approved) ;;
+  draft|design|approved) ;;
   delivered|released)
     die "plan '$slug' is already $phase — nothing to approve." ;;
   NONE|"")
     die "cannot read the phase of '$slug' ($plan_file) — refusing rather than guessing." ;;
   *)
-    die "plan '$slug' is in phase '$phase', not Draft — nothing to approve." ;;
+    die "plan '$slug' is in phase '$phase' — only a Draft or Design plan can be approved." ;;
 esac
 
 # --- refusal 2: the review channel ------------------------------------------
@@ -305,7 +309,8 @@ real_plan_path() { # $1 = plan file as found
 rel=$(cd "$repo_root" && real_plan_path "$plan_file") || rel=""
 [ -n "$rel" ] || die "$plan_file is outside the repository root"
 
-# Flip `**Phase:** Draft` → `Approved` in the `## Status` section only.
+# Flip `**Phase:** Draft` OR `**Phase:** Design` → `Approved` in the `## Status`
+# section only. Both are the pre-Approved phases this script advances from.
 #
 # Scoped to that section because a plan that QUOTES a status block in its prose
 # (this repo has several, documenting the format) would otherwise have its
@@ -319,6 +324,10 @@ flip_phase() { # $1=file  → 0 if it changed the file, 1 if there was nothing t
     section == "status" && !done && tolower($0) ~ /^[ \t]*[-*]?[ \t]*\**phase[:*]/ {
       if (tolower($0) ~ /draft/) {
         sub(/[Dd]raft/, "Approved")
+        done = 1
+        changed = 1
+      } else if (tolower($0) ~ /design/) {
+        sub(/[Dd]esign/, "Approved")
         done = 1
         changed = 1
       }
