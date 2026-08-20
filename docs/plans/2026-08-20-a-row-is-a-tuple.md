@@ -18,6 +18,7 @@
 - **Approved:** 2026-08-20 by jwloka (in-session) — interrogated 2026-08-20; five decisions recorded — one component for all kinds, kind is a server-set field, seven kinds with four empty, age is since-last-change with the agent labelled, collapse goes last
 - **Started:** 2026-08-20, Jan Wloka, `feature/a-row-is-a-tuple`
 - **Started:** 2026-08-20, Jan Wloka, `feature/the-wave-and-the-phase-find-their-owners`
+- **Started:** 2026-08-20, Jan Wloka, `bug/one-component-renders-every-row`
 
 ## Problem
 
