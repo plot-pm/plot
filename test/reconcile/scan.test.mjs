@@ -26,6 +26,20 @@ function write(rel, content) {
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, content);
 }
+// Split the report by its `== N. … ==` headings → { '1': body, '2': body, … }.
+// Section-scoped assertions are what make the severity split testable: "omega
+// appears in the report" was true before and after this change; "omega appears
+// in 7 and NOT in 5" is the actual contract.
+function splitSections(text) {
+  const out = {};
+  let cur = null;
+  for (const line of text.split('\n')) {
+    const m = /^== (\d+)\. /.exec(line);
+    if (m) { cur = m[1]; out[cur] = ''; continue; }
+    if (cur) out[cur] += line + '\n';
+  }
+  return out;
+}
 
 before(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-'));
@@ -79,9 +93,11 @@ type: feature
 
 - \`bug/gamma\` — impl
 `);
-  // Section 5a: legacy plan without any phase field.
+  // Section 7a: a file with no phase field — not a plan (#254's rule), so it
+  // is a convenience-level note, NOT an attention finding.
   write('plans/2026-01-04-legacy.md', `# Legacy pre-plot notes\n`);
-  // Section 5b: plot-managed plan with no symlink in either index.
+  // Section 7b: plot-managed plan with no symlink in either index. Visible to
+  // the derived phase grouping since #254 — a browsing gap, not an orphan.
   write('plans/2026-01-05-omega.md', `# Omega
 
 ## Status
@@ -98,8 +114,8 @@ type: feature
 - **Phase:** Superseded
 - **Type:** feature
 `);
-  // Section 5 (terminal orphan routing): a Superseded plan with NO symlink —
-  // its suggested fix must target delivered/ (the terminal index), not active/.
+  // Section 7 (terminal routing): a Superseded plan with NO symlink — its
+  // suggested link must target delivered/ (the terminal index), not active/.
   write('plans/2026-01-07-tau.md', `# Tau
 
 ## Status
@@ -114,6 +130,10 @@ type: feature
   fs.symlinkSync('../2026-01-02-beta.md', path.join(repo, 'plans', 'active', 'beta.md'));
   fs.symlinkSync('../2026-01-03-gamma.md', path.join(repo, 'plans', 'active', 'gamma.md'));
   fs.symlinkSync('../2026-01-06-sigma.md', path.join(repo, 'plans', 'active', 'sigma.md'));
+  // Section 5: a link whose target does not exist. THE CONTRAST the advisory
+  // demotion has to preserve — a missing link is a browsing gap (section 7),
+  // a link pointing at nothing is a broken pointer and still needs attention.
+  fs.symlinkSync('../2026-01-99-vanished.md', path.join(repo, 'plans', 'active', 'vanished.md'));
 
   git(repo, 'add', '-A');
   git(repo, 'commit', '-q', '-m', 'plans');
@@ -164,10 +184,35 @@ test('scan: section 4 shows divergence for the active plan branch', () => {
   assert.match(report, /bug\/gamma — 1 ahead \/ 0 behind origin\/main/);
 });
 
-test('scan: section 5 reports legacy and orphaned plans, with symlink fix', () => {
-  assert.match(report, /2026-01-04-legacy\.md — no phase field \(pre-plot \/ legacy plan\)/);
-  assert.match(report, /2026-01-05-omega\.md — phase 'Approved' but NO symlink/);
-  assert.match(report, /fix: ln -s \.\.\/2026-01-05-omega\.md plans\/active\/omega\.md/);
+test('scan: section 7 reports an unlinked plan at convenience level, not as attention', () => {
+  // Since #254 the phase grouping is derived from plan content, so an unlinked
+  // plan is fully visible and the old "(orphaned)" verdict expired. It stays
+  // listed — the symlink is still a browsing convenience — but as `optional:`
+  // in section 7, and it must not appear in section 5.
+  const sections = splitSections(report);
+  assert.match(sections['7'], /2026-01-05-omega\.md — phase 'Approved', no symlink in plans\/active\/ or plans\/delivered\/ \(browsing only\)/);
+  assert.match(sections['7'], /optional: ln -s \.\.\/2026-01-05-omega\.md plans\/active\/omega\.md/);
+  assert.doesNotMatch(sections['5'], /2026-01-05-omega\.md/);
+  // The word that expired must be gone from the whole report for this plan.
+  assert.doesNotMatch(report, /2026-01-05-omega\.md[^\n]*orphaned/);
+});
+
+test('scan: section 7 calls a phase-less file a non-plan, agreeing with plot-fleet-scan.sh', () => {
+  // #254 decided a file whose phase parses as NONE is not a plan. This script
+  // used to call the same file a plan needing attention; that split is closed
+  // in #254's direction, and the file stays visible at convenience level.
+  const sections = splitSections(report);
+  assert.match(sections['7'], /2026-01-04-legacy\.md — no phase field → not a plan/);
+  assert.doesNotMatch(sections['5'], /2026-01-04-legacy\.md/);
+});
+
+test('scan: section 5 still flags a DANGLING index symlink as attention', () => {
+  // The contrast the demotion must preserve: no link is cosmetic, a link
+  // pointing at nothing is a broken pointer. No fix command is offered —
+  // repoint or remove is a judgment the script cannot make.
+  const sections = splitSections(report);
+  assert.match(sections['5'], /plans\/active\/vanished\.md — symlink target missing: \.\.\/2026-01-99-vanished\.md \(dangling index link\)/);
+  assert.doesNotMatch(sections['7'], /vanished\.md/);
 });
 
 test('scan: section 1 flags a Superseded plan still symlinked in active/ (terminal drift)', () => {
@@ -175,11 +220,12 @@ test('scan: section 1 flags a Superseded plan still symlinked in active/ (termin
   assert.match(report, /fix: git rm plans\/active\/sigma\.md && ln -s \.\.\/2026-01-06-sigma\.md plans\/delivered\/sigma\.md && git add -A/);
 });
 
-test('scan: section 5 routes a Superseded orphan fix to delivered/, not active/', () => {
-  assert.match(report, /2026-01-07-tau\.md — phase 'Superseded' but NO symlink/);
-  assert.match(report, /fix: ln -s \.\.\/2026-01-07-tau\.md plans\/delivered\/tau\.md/);
-  // Guard against regression to the old wrong default (active/).
-  assert.doesNotMatch(report, /fix: ln -s \.\.\/2026-01-07-tau\.md plans\/active\/tau\.md/);
+test('scan: section 7 routes an unlinked Superseded plan to delivered/, not active/', () => {
+  const sections = splitSections(report);
+  assert.match(sections['7'], /2026-01-07-tau\.md — phase 'Superseded', no symlink/);
+  assert.match(sections['7'], /optional: ln -s \.\.\/2026-01-07-tau\.md plans\/delivered\/tau\.md/);
+  // Guard against regression to the old wrong default (active/) — issue #33.
+  assert.doesNotMatch(report, /ln -s \.\.\/2026-01-07-tau\.md plans\/active\/tau\.md/);
 });
 
 test('scan: healthy plans produce no false findings', () => {
@@ -197,12 +243,14 @@ test('scan: summary footer carries machine-countable finding counts', () => {
   // drift: alpha (delivered-in-active) + sigma (superseded-in-active).
   // merged_not_delivered: beta. stale: feature/beta (merged) + bug/gamma
   // (orphan). claims: none — every branch here carries real commits, so the
-  // reaper's empty-claim classification finds nothing. attention: legacy +
-  // omega + tau (superseded orphan). concurrent: beta + gamma branches of
-  // active plans (sigma has no branch).
+  // reaper's empty-claim classification finds nothing. attention: the DANGLING
+  // active/vanished.md link ALONE — legacy, omega and tau moved to index_drift
+  // when the derived phase grouping (#254) made an unlinked plan visible, and
+  // asserting the NUMBER is what proves the demotion rather than a reworded
+  // line. concurrent: beta + gamma branches of active plans (sigma has none).
   const last = report.trim().split('\n').at(-1);
   assert.equal(last,
-    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=3 concurrent=2 unreleased_delivered=1 pr_source=degraded main=main');
+    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 index_drift=3 pr_source=degraded main=main');
 });
 
 test('scan: --offline skips git-host PR enumeration and reports pr_source=off', () => {

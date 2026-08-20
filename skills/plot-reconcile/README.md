@@ -4,9 +4,9 @@ Plot/branch hygiene sweep — surface drift between plan phase, index symlinks, 
 
 ## Purpose
 
-The periodic reconciliation pass for the Plot workflow. Per-delivery attention misses drift that only becomes visible in aggregate: a plan's phase disagreeing with which index dir (`active/` vs `delivered/`) its symlink lives in; an `Approved` plan whose impl branch already merged; merged-but-undeleted branches; and malformed plans (missing phase, front-matter `status:`/`phase:` disagreement).
+The periodic reconciliation pass for the Plot workflow. Per-delivery attention misses drift that only becomes visible in aggregate: a plan's phase disagreeing with which index dir (`active/` vs `delivered/`) its symlink lives in; an `Approved` plan whose impl branch already merged; merged-but-undeleted branches; malformed plans (unrecognized phase, front-matter `status:`/`phase:` disagreement, a dangling index symlink); and — at convenience level, blocking nothing — plans missing a symlink in either index.
 
-`/plot-reconcile` runs a deterministic scanner (`../plot/scripts/plot-reconcile-scan.sh`) that emits a five-section report, each finding carrying its exact remediating command as copy-paste text. It is **read-only by construction** — the only writes it performs are `git fetch` and (when unset) the local `origin/HEAD` ref. The human decides which printed commands to run.
+`/plot-reconcile` runs a deterministic scanner (`../plot/scripts/plot-reconcile-scan.sh`) that emits a seven-section report, each finding carrying its exact remediating command as copy-paste text. It is **read-only by construction** — the only writes it performs are `git fetch` and (when unset) the local `origin/HEAD` ref. The human decides which printed commands to run.
 
 Run it weekly, and especially **after a delivery batch**, when a half-landed `/plot-deliver` (symlink moved, phase not flipped) is freshest.
 

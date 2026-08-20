@@ -3,16 +3,16 @@
 # Usage: plot-reconcile-scan.sh [--no-fetch] [--no-pr] [--offline]
 #   --no-fetch  skip `git fetch`   --no-pr  skip git-host pr list
 #   --offline   both (no network)  — used by the ambient /plot hygiene line
-# Output: five-section text report on stdout (each finding carries its exact
+# Output: seven-section text report on stdout (each finding carries its exact
 #         remediating command as copy-paste text — nothing is executed),
 #         terminated by a machine-countable summary line:
-#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 pr_source=gh main=main
+#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 index_drift=0 pr_source=gh main=main
 #         Consumers that only need counts (the /plot dispatcher's hygiene
 #         line, /plot-reconcile's Automation Output) read that one line.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
 #
 # Reads the repo's plan files, symlink indexes, and git/git-host ref state and
-# emits a five-section report. This is the COMPUTATIONAL half of the
+# emits a seven-section report. This is the COMPUTATIONAL half of the
 # reconciliation loop: mechanical, reproducible enumeration. The INFERENTIAL
 # half — deciding which drift to fix, which branch is truly stale, whether a
 # plan is ready to deliver — is the human's, guided by the /plot-reconcile
@@ -36,7 +36,16 @@
 #                                 a branch contained in an open PR is listed
 #                                 as in flight and does NOT count as stale
 #   4. Concurrent-delivery      — active plans' branch divergence vs main
-#   5. Needs attention          — malformed / non-conforming / orphaned plans
+#   5. Needs attention          — malformed / non-conforming plans, plus
+#                                 DANGLING index symlinks (a link pointing at
+#                                 nothing is a broken pointer)
+#   6. Delivered but released   — delivered plans already inside a release tag
+#   7. Index drift              — CONVENIENCE level: a plan with no symlink, or
+#                                 a phase-less file in the plan directory.
+#                                 Since #254 the phase grouping is derived from
+#                                 plan content, so nothing depends on these;
+#                                 they are browsing gaps, deliberately kept out
+#                                 of the `attention` count that gates delivery
 #
 # Configuration is read via plot-config.sh from the adopting project's
 # `## Plot Config` (Plan directory, Active index, Delivered index, Branch
@@ -390,14 +399,17 @@ symlinked_from() { # $1=index_dir $2=dated_basename
 }
 
 n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0; n_unrel=0
+n_idx=0
 
 # ---------------------------------------------------------------------------
 # 1. Phase <-> symlink drift  (plot-managed plans only)
 # 5. Needs attention          (collected here in the same pass)
+# 7. Index drift, convenience level (also collected here)
 # ---------------------------------------------------------------------------
 
 drift_out=""
 attention_out=""
+index_out=""
 
 while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs _ptype; do
   [ -n "$f" ] || continue
@@ -407,11 +419,35 @@ while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs _ptype; do
   in_active=$(symlinked_from "$ACTIVE_DIR" "$base" || true)
   in_delivered=$(symlinked_from "$DELIVERED_DIR" "$base" || true)
 
-  # --- Needs attention: non-conforming plans ---
+  # --- A file with no phase field is NOT A PLAN, and says so at convenience
+  # level rather than counting as attention.
+  #
+  # THIS RESOLVES A DISAGREEMENT BETWEEN TWO CONSUMERS OF ONE DIRECTORY.
+  # plot-fleet-scan.sh (#254) decided the rule: a `.md` file in $PLAN_DIR whose
+  # `phase` parses as NONE never claimed to be a plan, so the pulse does not
+  # enumerate it — measured in plot's own repo, two such files are a worker
+  # report and an open-questions note. This script used to call the SAME file a
+  # plan needing attention. Two scripts, one file, opposite verdicts is exactly
+  # the shape of the invisible-plan incident this plan exists to close, so the
+  # split is settled here rather than left for a reader to discover.
+  #
+  # Settled in #254's direction — not a plan — because the alternative puts the
+  # format contract in two places. plot-plan-meta.sh is the contract (Manifesto
+  # Principle 3); "is this a plan" is its answer, and a maintenance sweep that
+  # answered differently would be a second implementation free to drift from
+  # the first. UNKNOWN stays attention for the same reason it stays a plan
+  # there: a declared-but-unrecognised phase IS a plan with a bad field.
+  #
+  # It is not silently dropped, because the visibility the old line bought was
+  # real: a phase-less file in the plan directory is still worth a human
+  # glance, and section 7 is where a glance-level finding belongs now. What
+  # changes is the claim — "nobody classified this" instead of "this plan is
+  # broken" — and that it no longer inflates the `attention` count that gates
+  # /plot-deliver and the /plot hygiene line.
   if [ "$st" = NONE ]; then
-    attention_out+="  $base — no phase field (pre-plot / legacy plan)\n"
-    n_att=$((n_att + 1))
-    continue   # legacy plans are not subject to drift rules
+    index_out+="  $base — no phase field → not a plan (decision log / note?)\n"
+    n_idx=$((n_idx + 1))
+    continue   # non-plans are not subject to drift or index rules
   fi
   if [ "$st" = UNKNOWN ]; then
     attention_out+="  $base — unrecognized phase: '$raw_phase'\n"
@@ -421,9 +457,31 @@ while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs _ptype; do
     attention_out+="  $base — status: '$raw_phase' disagrees with phase: '$alt_raw' (phase is machine-read)\n"
     n_att=$((n_att + 1))
   fi
+  # --- An unlinked plan is index drift, not an orphan.
+  #
+  # This line said "(orphaned)" and counted as attention until #254, and it was
+  # right when it was written: the fleet scan enumerated $ACTIVE_DIR, so a plan
+  # with no symlink was genuinely unreachable — invisible to every unscoped
+  # pulse, absent from the board, undispatchable. Orphaned was the accurate
+  # word for that.
+  #
+  # #254 made the pulse enumerate $PLAN_DIR and group by declared phase. The
+  # same plan is now fully visible everywhere that decides anything; only
+  # `ls $ACTIVE_DIR/` misses it. The report did not become wrong — it EXPIRED.
+  #
+  # So the severity drops to convenience: the symlinks still serve human
+  # browsing and stable slug-named paths, a missing one is worth mentioning,
+  # and the fix command is still printed for anyone who wants the browsing path
+  # back. What it must not do is count as `attention`, because that count gates
+  # the /plot-deliver delivery-landed check and the /plot hygiene line — and a
+  # cosmetic gap holding up a delivery is a false stop.
+  #
+  # A DANGLING SYMLINK KEEPS ITS SEVERITY and is reported below, separately: a
+  # link pointing at nothing is a broken pointer, which no amount of deriving
+  # makes harmless.
   if [ -z "$in_active" ] && [ -z "$in_delivered" ]; then
-    attention_out+="  $base — phase '$raw_phase' but NO symlink in $ACTIVE_DIR/ or $DELIVERED_DIR/ (orphaned)\n"
-    n_att=$((n_att + 1))
+    index_out+="  $base — phase '$raw_phase', no symlink in $ACTIVE_DIR/ or $DELIVERED_DIR/ (browsing only)\n"
+    n_idx=$((n_idx + 1))
     # Terminal phases (delivered/released AND superseded/rejected) belong in the
     # delivered/ terminal index — not active/. Suggesting active/ for a
     # Superseded plan is the exact wrong-default a downstream operator had to
@@ -432,9 +490,9 @@ while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs _ptype; do
       delivered|released|superseded|rejected) _idx="$DELIVERED_DIR" ;;
       *)                                       _idx="$ACTIVE_DIR" ;;
     esac
-    printf -v _cmd '    fix: ln -s ../%s %s/%s' "$base" "$_idx" \
+    printf -v _cmd '    optional: ln -s ../%s %s/%s' "$base" "$_idx" \
       "$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')"
-    attention_out+="$_cmd\n"
+    index_out+="$_cmd\n"
     continue
   fi
 
@@ -469,6 +527,36 @@ while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs _ptype; do
       ;;
   esac
 done <<< "$plan_rows"
+
+# --- Dangling index symlinks → attention (the severity the unlinked plan lost)
+#
+# A link in $ACTIVE_DIR/ or $DELIVERED_DIR/ whose target does not resolve. This
+# was reported NOWHERE before: the loop above walks PLANS and asks "does a link
+# point at me", so a link pointing at a file that no longer exists matched no
+# plan and was silently skipped — the check ran in the one direction that
+# cannot see it.
+#
+# It has to be reported now, and at attention level, because this is the fact
+# the demotion above must not swallow. A missing link is a browsing gap; a link
+# pointing at nothing is a BROKEN POINTER — `cat $ACTIVE_DIR/foo.md` fails, a
+# bookmarked path 404s, and the plan it named may have been renamed, moved, or
+# deleted. Deriving the phase grouping does not make that harmless: nothing
+# derives away a pointer to a file that is not there.
+#
+# No fix command is printed, deliberately. Two remedies exist — repoint the
+# link at the plan's new name, or remove a link whose plan is gone — and the
+# script cannot tell which without knowing why the target vanished. That is
+# judgment, and Principle 3 puts judgment on the other side of the line.
+for _idx_dir in "$ACTIVE_DIR" "$DELIVERED_DIR"; do
+  [ -d "$_idx_dir" ] || continue
+  for _l in "$_idx_dir"/*.md; do
+    [ -L "$_l" ] || continue
+    [ -e "$_l" ] && continue   # resolves — not our case
+    attention_out+="  $_l — symlink target missing: $(readlink "$_l" 2>/dev/null) (dangling index link)\n"
+    attention_out+="    inspect: readlink $_l — then repoint it at the renamed plan, or git rm it\n"
+    n_att=$((n_att + 1))
+  done
+done
 
 echo "== 1. Phase<->symlink drift =="
 if [ -n "$drift_out" ]; then printf '%b' "$drift_out"; else echo "  (none — all plot-managed plans consistent)"; fi
@@ -653,7 +741,7 @@ echo
 # 5. Needs attention
 # ---------------------------------------------------------------------------
 
-echo "== 5. Needs attention (malformed / non-conforming / orphaned) =="
+echo "== 5. Needs attention (malformed / non-conforming / broken pointers) =="
 if [ -n "$attention_out" ]; then printf '%b' "$attention_out"; else echo "  (none)"; fi
 echo
 
@@ -716,6 +804,24 @@ done <<< "$plan_rows"
 if [ -n "$unrel_out" ]; then printf '%b' "$unrel_out"; else echo "  (none)"; fi
 echo
 
+# ---------------------------------------------------------------------------
+# 7. Index drift (convenience level)
+#
+# A SEPARATE SECTION rather than a softer line inside section 5, because
+# section 5's count is load-bearing: /plot-deliver's delivery-landed gate and
+# the /plot hygiene line both read `attention=` from the footer, and a section
+# that mixed "worth a glance" with "needs a decision" would leave every reader
+# of that number to re-derive the split from the body — which is what reading a
+# machine-countable footer is meant to avoid.
+#
+# Nothing here blocks anything. The findings are cosmetic by construction: the
+# derived phase grouping (#254) already sees these plans, so the only thing
+# missing is the browsing convenience, and the printed command is `optional:`
+# for that reason — section 1's are `fix:`.
+echo "== 7. Index drift (convenience — nothing depends on these) =="
+if [ -n "$index_out" ]; then printf '%b' "$index_out"; else echo "  (none — the convenience indexes match the plans)"; fi
+echo
+
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel index_drift=$n_idx pr_source=$PR_SOURCE main=$MAIN"
 exit 0
