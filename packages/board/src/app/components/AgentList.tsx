@@ -142,57 +142,26 @@ export const HOST_CANNOT_REPORT_HINT = 'this host cannot report CI';
  * Exported for test.
  */
 /**
- * Does this row belong in WAITING ON A MACHINE?
- *
- * TWO WAYS IN, AND THEY ARE DIFFERENT QUESTIONS. The first is the row's own
- * `group` — the placement `classify` decided, unchanged and still authoritative
- * for a branch nobody holds. The second is `processes`: a machine is running for
- * this branch whatever section the branch's own row sits in.
- *
- * THE SECOND IS WHY THE PREDICATE EXISTS. The section lists PROCESSES while
- * WORKING lists AGENTS, and a live worker watching its own CI is both — an
- * agent, and a process. Under `group === key` it could only be one, and which
- * one it got was decided by an ordering that had nothing to do with the
- * question. Measured 2026-08-18: an agent that exited while its checks ran
- * belonged to NEITHER section, and one watching its own CI had to pick.
- *
- * NOT DUPLICATION. The same branch in both sections is two entities named once
- * each, and every entry prints its branch, so two lines never read as one
- * repeated. *Who is working?* is answered in WORKING; *what am I waiting on?* in
- * WAITING ON A MACHINE.
- *
- * IT WIDENS THE SECTION AND REPLACES NOTHING. A host-side pending check reaches
- * it exactly as before, through `group`, whether or not any process is listed —
- * the first clause is the old rule verbatim.
- *
- * Exported for test: the negatives are the half a naive version gets wrong, and
- * they are assertions about which section a row reaches.
- */
-/**
  * What a row says WHEN LISTED AS A PROCESS — the machine section's sentence,
  * never the branch's.
  *
- * THE SECTION'S SENTENCE IS ABOUT THE PROCESS, and using `note` here is what
- * makes the two entities read as one. A live worker's `note` is *worker running
- * (pid 20145)* — a true statement about an AGENT, and the WORKING row already
- * makes it. Repeating it under WAITING ON A MACHINE would put the same line in
- * two sections and prove the duplication complaint right; the whole defence of
- * listing a branch twice is that the two lines say different things.
+ * THE SECTION'S SENTENCE IS ABOUT THE MACHINE, never about who holds the
+ * branch. `note` is the row's own sentence and may be about an agent — *worker
+ * running (pid 20145)* — which is a true statement in WORKING and no answer at
+ * all to *what am I waiting on?*
  *
  * EVIDENCE, NEVER A FORECAST, and this is where that rule is visible to a
- * reader. Each sentence names what was OBSERVED — *a worker process is running
- * in a local worktree (pid 20145)*, *CI is running for PR #244* — and none names
- * a remaining time. Nothing measures when a local run ends, GitHub publishes no
- * finish time for a queued check, and a countdown nobody can honour is the shape
- * this repo removes rather than adds. Principle 3: the scan collects, the reader
- * concludes whether to wait.
+ * reader. The sentence names what was OBSERVED — *CI is running for PR #244* —
+ * and never a remaining time. GitHub publishes no finish time for a queued
+ * check, and a countdown nobody can honour is the shape this repo removes rather
+ * than adds. Principle 3: the scan collects, the reader concludes whether to
+ * wait.
  *
- * BOTH ARE JOINED, NEVER RANKED, when both hold. A branch with a live worker and
- * a pending check has two machines working on it and the reader's next move
- * differs per machine — one is `ps` here, the other a run page there. Dropping
- * either because the other outranks it is the displacement this board keeps
- * undoing; the list is ordered local-first (see `machineProcesses`) and prints
- * whole.
+ * JOINS WHAT IT IS GIVEN, NEVER RANKING IT. Only host entries reach the row
+ * since `machineProcesses` stopped writing a local one, so in practice this
+ * joins nothing — but a row with two pending checks is a row with two machines
+ * on it, and dropping either because the other came first is the displacement
+ * this board keeps undoing.
  *
  * FALLS BACK TO `note` for a row that reached the section through `group` with
  * no process listed — a `pending` check from an older pulse that predates
@@ -226,8 +195,37 @@ function processesOf(row: AgentRow): AgentRow['processes'] {
   return row.processes ?? [];
 }
 
+/**
+ * Whether this row belongs in WAITING ON A MACHINE — the server's grouping, and
+ * nothing added to it.
+ *
+ * AN AGENT IS THE MACHINE, NEVER THE WAIT. The section answers *what am I
+ * waiting on?* and holds a branch, a PR or a plan whose progress depends on
+ * something automated. An agent is not an answer to that question — it is the
+ * thing doing the work, and WORKING says so while also saying *who*.
+ *
+ * THIS PREDICATE USED TO ADD A SECOND CLAUSE, `|| processesOf(row).length > 0`,
+ * and that clause is what put agents here. It was written for *"an agent
+ * watching its own CI"* — listed twice, once as an agent and once as a process —
+ * but that case is two subjects, not one subject twice: the agent goes to
+ * WORKING and the PR comes here through `group`, each once. What the clause
+ * actually keyed on was *a process is running*, and an agent is always a
+ * process, so it fired for every live worker. Measured 2026-08-20:
+ * `bug/one-component-renders-every-row` rendered in both sections with
+ * **`pr: None`** — nothing automated anywhere near it.
+ *
+ * KEYED ON `group` ALONE, rather than on `processes` filtered to host entries,
+ * and the difference is where the guarantee lives. `machineProcesses` no longer
+ * writes a local entry, so both spellings render the same rows today — but a
+ * predicate that reads `processes` holds *no agent reaches this section* only
+ * for as long as that other file keeps its promise, which is a rule in a second
+ * place. Reading `group` makes it structural: the client cannot admit a row the
+ * server did not group, whatever `processes` later carries. The field stays on
+ * the row and `machineNote` still reads it for the section's sentence — this
+ * decides MEMBERSHIP, and membership has one source.
+ */
 export function inMachineSection(row: AgentRow): boolean {
-  return row.group === 'waiting-on-machine' || processesOf(row).length > 0;
+  return row.group === 'waiting-on-machine';
 }
 
 export function hostCannotReportCi(rows: readonly AgentRow[]): boolean {
@@ -5831,12 +5829,13 @@ export function AgentList({
           row break (35–36 px rows, `py-2`), and 16 px was not it. */}
       <div data-sections className="space-y-8">
       {GROUPS.map(({ key, icon, label, hint }) => {
-        // WAITING ON A MACHINE ASKS A SECOND QUESTION — see `inMachineSection`.
-        // Every other section is its `group` and nothing else; this one lists
-        // processes, and a process can be running for a branch whose own row
-        // belongs in WORKING. The special case lives here rather than in
-        // `inMachineSection` so the predicate stays a statement about one
-        // section instead of a switch over all six.
+        // EVERY SECTION IS ITS `group`, WAITING ON A MACHINE INCLUDED. It
+        // asked a second question until 2026-08-20 — admitting any row that
+        // carried a process — and that is what listed live agents as machines
+        // to wait on. See `inMachineSection` for why the answer is `group`
+        // alone; it is called by name here because the section's membership is
+        // the thing that plan settled, and a reader who follows the rule back
+        // should land on the argument rather than on a bare comparison.
         const rows = key === 'waiting-on-machine'
           ? fleet.rows.filter(inMachineSection)
           : fleet.rows.filter((r) => r.group === key);
