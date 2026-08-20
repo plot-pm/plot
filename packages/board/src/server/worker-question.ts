@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import type { ExecFileException } from 'node:child_process';
 import type { FleetPulse } from '../contract/schema.js';
 
 /**
@@ -53,6 +54,31 @@ export const QUESTION_MAX = 120;
 const GREP_TIMEOUT_MS = 5_000;
 
 /**
+ * How {@link markerIn} runs its search — the seam the suite makes fail.
+ *
+ * `execFile`'s shape, narrowed to what this module uses: the callback is handed
+ * an error or `null` and whatever reached stdout, and a runner reports a killed
+ * search exactly as `execFile` does — a non-null error and no output.
+ *
+ * A PARAMETER THAT EXISTS FOR THE TEST, and named as one rather than disguised.
+ * The alternative was to keep asserting the timeout through a real `git grep`,
+ * and that is the bug this seam replaces: the assertion below is about the
+ * ERROR PATH — *a search that failed answers `""` rather than rejecting* — and
+ * a real subprocess can only be steered onto that path by winning a race
+ * against its own start-up. Measured 2026-08-20: with the budget at 1 ms the
+ * kill wins whether the repo holds 2,000 files or none, and with the budget at
+ * 400 ms `git grep` wins with the 2,000 still there. The file count never
+ * controlled the outcome; spawn latency against the budget did, and neither is
+ * a property of this module.
+ */
+export type SearchRunner = (
+  file: string,
+  args: string[],
+  options: { encoding: 'utf8'; timeout: number; maxBuffer: number },
+  callback: (err: ExecFileException | null, stdout: string) => void,
+) => void;
+
+/**
  * The first marker line in a worktree, trimmed and bounded — or "" when none
  * could be read.
  *
@@ -88,10 +114,18 @@ const GREP_TIMEOUT_MS = 5_000;
  * --untracked` parses `--untracked` as a REVISION and dies "unable to resolve
  * revision" — exit 128, no match, silently. Measured in the scan twice, from
  * two causes; the ordering here is the same defence.
+ *
+ * `run` DEFAULTS TO `execFile` AND IS OVERRIDDEN ONLY BY THE SUITE — see
+ * {@link SearchRunner} for why the failure path needs a seam rather than a
+ * stopwatch. Production has exactly one runner and never passes the argument.
  */
-export function markerIn(worktree: string, timeoutMs = GREP_TIMEOUT_MS): Promise<string> {
+export function markerIn(
+  worktree: string,
+  timeoutMs = GREP_TIMEOUT_MS,
+  run: SearchRunner = execFile as SearchRunner,
+): Promise<string> {
   return new Promise((resolve) => {
-    execFile(
+    run(
       'git',
       [
         '-C', worktree, 'grep', '-hIEm1', '--untracked', '--exclude-standard',
