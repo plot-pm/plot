@@ -278,6 +278,69 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
     }
   });
 
+  // ── THE OVERLAY KEEPS ITS PLACE ───────────────────────────────────────────
+  //
+  // An open panel is modal, and modality means the page behind it does not move.
+  // The App scrolls the window (a `min-h-screen` document, no inner scroller), so
+  // the panel must lock the body while open and hand the reader back to exactly
+  // where they were on close. A wheel over the backdrop that scrolls the fleet
+  // list, or a close that lands the reader somewhere else, is the overlay
+  // asserting a modality it does not enforce.
+
+  // Give the document something to scroll, and put the reader a little way down
+  // it — small ON PURPOSE. The panel opens from a row menu at the top of the
+  // list, and Playwright scrolls a control it clicks into view; a large offset
+  // would put the ⋯ button off-screen and the click would reset scroll to 0
+  // before the panel ever mounts, measuring the harness rather than the lock. A
+  // 60px offset keeps the trigger visible, so the position the reader is at when
+  // the panel opens is a real non-zero one the close has to restore.
+  async function makeScrollable(page: Page, to = 60): Promise<void> {
+    await page.evaluate((y) => {
+      const spacer = document.createElement('div');
+      spacer.id = '__scroll_spacer';
+      spacer.style.height = '3000px';
+      document.body.appendChild(spacer);
+      window.scrollTo(0, y);
+    }, to);
+  }
+
+  it('does not scroll the list behind it when the backdrop takes a wheel', async () => {
+    const page = await open(ok());
+    try {
+      await makeScrollable(page);
+      await openPanel(page);
+      // With the page locked, the frozen document sits at the viewport top; the
+      // reader's real offset is held in the lock, and a wheel must not change the
+      // page underneath. Observe the visual scroll before and after the wheel.
+      const before = await page.evaluate(() => window.scrollY);
+      // A wheel delivered over the backdrop, outside the dialog itself.
+      await page.mouse.move(20, 20);
+      await page.mouse.wheel(0, 600);
+      await page.waitForTimeout(200);
+      const after = await page.evaluate(() => window.scrollY);
+      expect(after, 'a wheel over the backdrop scrolled the page behind it').toBe(before);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('restores the scroll position it opened at when it closes', async () => {
+    const page = await open(ok());
+    try {
+      // Opened at 60 (see makeScrollable): a real, non-zero reader position that
+      // survives the menu click. The round-trip the spec names is that closing
+      // lands the reader back there, not at the top.
+      await makeScrollable(page, 60);
+      await openPanel(page);
+      await page.getByRole('button', { name: 'Close' }).click();
+      await page.locator('[data-worker-log]').waitFor({ state: 'detached', timeout: 5_000 });
+      const after = await page.evaluate(() => window.scrollY);
+      expect(after, 'closing the panel left the reader somewhere else').toBe(60);
+    } finally {
+      await page.close();
+    }
+  });
+
   // Agent output is arbitrary bytes and frequently includes markup the agent was
   // asked to write. Rendering it as HTML would execute whatever a log contained.
   it('renders log content as TEXT, never as markup', async () => {
