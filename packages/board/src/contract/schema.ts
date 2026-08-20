@@ -40,6 +40,22 @@ export const PlanMetaSchema = z.object({
     branches: z.array(z.object({
       branch: z.string(),
       deferred: z.boolean().default(false),
+      /**
+       * WHY the branch was deferred — the sentence after the colon in
+       * `<!-- deferred: ... -->`, as the plan wrote it.
+       *
+       * The flag said a branch would not be built and the reason stayed in the
+       * plan file, so a row could show `deferred` beside `no commits` and never
+       * say the first was the cause of the second.
+       *
+       * `''` means TWO different things and the flag separates them: not
+       * deferred at all, or deferred with nothing recorded (the bare
+       * `<!-- deferred -->`). Read `deferred` first.
+       *
+       * Defaulted, so output from a `plot-plan-meta.sh` predating the field
+       * still validates.
+       */
+      deferred_reason: z.string().default(''),
       claimed: z.string().default(''),
     })).default([]),
   })).default([]),
@@ -684,6 +700,15 @@ export const FleetBranchSchema = z.object({
   branch: z.string(),
   state: BranchStateSchema,
   deferred: z.boolean(),
+  /**
+   * WHY the branch was deferred, as the plan recorded it — "" where nothing
+   * was, and "" on every branch that is not deferred. `deferred` says which.
+   *
+   * Defaulted, so a pulse from a scan predating the field still validates: an
+   * older scan cannot report a reason, and absent is the same answer it gave
+   * before the field existed.
+   */
+  deferred_reason: z.string().default(''),
   /** Claim note from the plan, or "" — never null (house style). */
   claimed: z.string(),
   /**
@@ -1349,6 +1374,22 @@ export const AgentRowSchema = z.object({
   planFile: z.string().default(''),
   wave: z.string(),
   state: BranchStateSchema,
+  /**
+   * WHY this branch was deferred, where the plan recorded a reason.
+   *
+   * `state: 'deferred'` says the branch will not be built; this says what
+   * decided that. The two arrived separately: the plan file has carried the
+   * sentence since April (`never created — the work landed directly on main`)
+   * while `plot-plan-meta.sh` tested only for the annotation's PRESENCE, so the
+   * board could put `deferred` beside `no commits` and never say the first was
+   * the reason for the second. A reader with no access to the plan file saw a
+   * branch nobody had started and no statement that nobody should.
+   *
+   * "" on every row that is not deferred, and "" on a deferred row whose plan
+   * recorded no reason — read `state` to tell those apart. Defaulted so an
+   * older pulse still validates.
+   */
+  deferredReason: z.string().default(''),
   /**
    * Which board phase this ROW is in — derived from the PAIR (the plan's phase
    * and this branch's git state), never from the plan file alone.

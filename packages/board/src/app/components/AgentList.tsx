@@ -600,17 +600,32 @@ export const ROW_TRACKS = 'grid-cols-[1rem_5rem_10rem_1fr_14rem_2.5rem_1.25rem]'
 
 // A PLAN ROW IS NOT A BRANCH ROW, so it does not borrow the branch tracks.
 //
-// Four cells for the four things a plan row actually has: the marks column
+// FIVE cells for the five things a plan row actually has: the marks column
 // (shared with every row, so the marks stay in one vertical line down the
-// section), the plan NAME, the wave summary, and the clock. No phase cell —
-// the phase belongs to the plan and is stated in the name cell's own line; no
-// PR cell and no actions cell, because dispatch is per branch and wave.
+// section), the plan NAME, the wave summary, the clock, and an ACTIONS cell
+// the width of a branch row's. No phase cell — the phase belongs to the plan
+// and is stated in the name cell's own line; no PR cell, a plan has none.
+//
+// THE ACTIONS TRACK WAS ABSENT, AND IT COST THE ONE ACTION A PLAN HAS.
+//
+// The argument for leaving it out was written about DISPATCH and is still
+// right about it: *dispatch is per branch and wave, so a control here would
+// have to guess which wave it meant.* Approving is not that. Approving is the
+// one act that belongs to the PLAN — `plot-approve.sh` takes a plan and no
+// branch — and the argument for the action that needs a branch was applied to
+// the cell that also held the one that does not. Measured on the board
+// 2026-08-19: a Draft plan whose whole state was *waiting for a person to
+// approve it* offered that person nothing to click, while the server reported
+// `approve: {available: true}` and the card carried the button all along.
+//
+// `1.25rem` is the branch row's own actions width, so the two menus line up
+// down the section — the alignment every other track here already keeps.
 //
 // The name starts at the marks column's right edge, which is where a branch
 // row's PHASE begins — one track earlier than a branch NAME. That single
 // track is the whole difference between *a list of plans* and *a nesting*,
 // and it costs nothing: the summary takes the slack.
-export const PLAN_ROW_TRACKS = 'grid-cols-[1rem_1fr_auto_2.5rem]';
+export const PLAN_ROW_TRACKS = 'grid-cols-[1rem_1fr_auto_2.5rem_1.25rem]';
 
 /**
  * The PR a row carries, derived from the row rather than imported.
@@ -3511,15 +3526,26 @@ function RowActions({
           aria-label={enabled ? `Actions for ${row.branch}` : reason}
           title={enabled ? `Actions for ${row.branch}` : reason}
           onClick={() => { if (enabled) setOpen((v) => !v); }}
+          // 24 x 24 OF HIT AREA. Measured on the running board 2026-08-19 this
+          // button was **12 x 12 px** — half of what WCAG 2.2 asks a pointer
+          // target, and the same size as the status glyphs beside it, which are
+          // not targets at all. Two marks of equal size where one is pressable
+          // and one is not is its own confusion.
+          //
+          // `h-6 w-6` grows the TARGET; the glyph keeps `text-xs`, so the row
+          // density is untouched. `-my-1` and `-mr-0.5` absorb the growth into
+          // the row rather than letting it push the line box taller or the
+          // right edge wider: the cell is a fixed `1.25rem` track and the
+          // stillness of that edge is the property it exists for.
           className={
             enabled
-              ? 'text-xs leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'
+              ? '-my-1 -mr-0.5 inline-flex h-6 w-6 items-center justify-center rounded text-xs leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
               : // Very dim, and this branch now means something narrower than
                 // it used to: not *a row with nothing to do* — such a row
                 // renders no button at all — but a row whose act the server
                 // has REFUSED. The reason is on the control; the dimness says
                 // not from here.
-                'cursor-default text-xs leading-none text-slate-300 dark:text-slate-700'
+                '-my-1 -mr-0.5 inline-flex h-6 w-6 cursor-default items-center justify-center text-xs leading-none text-slate-300 dark:text-slate-700'
           }
         >
           ⋯
@@ -4029,6 +4055,9 @@ function PlanRow({
   expanded,
   onToggle,
   active,
+  card = null,
+  approve,
+  onApproving,
 }: {
   group: PlanGroup;
   onOpenPlan?: AgentListProps['onOpenPlan'];
@@ -4037,6 +4066,12 @@ function PlanRow({
   onToggle?: () => void;
   /** Something is being written to one of this plan's branches. */
   active?: boolean;
+  /** This plan's board card — what `ApproveButton` acts on. Null off-board. */
+  card?: Card | null;
+  /** Whether this server will act on Approve, and why not. */
+  approve?: DispatchInfo;
+  /** A click is outstanding (true) or has settled (false). */
+  onApproving?: (active: boolean) => void;
 }) {
   const waiting = planWaitingDays(group);
   const summary = waveSummaryFor(group);
@@ -4117,20 +4152,50 @@ function PlanRow({
           // announced by keyboard — the caret alone is a visual fact. The plan
           // LINK cannot carry the toggle: a link that folds a section instead of
           // opening the plan is a link that lies about where it goes.
+          // 24 x 24 OF HIT AREA, AND A GLYPH BIG ENOUGH TO TELL APART.
+          //
+          // Measured on the running board 2026-08-19 at 1480px: this control
+          // was **5 x 10 px** at `font-size: 10px` — a fifth of what WCAG 2.2
+          // asks for a pointer target, and it is the control that answers *is
+          // there more here?* Five plans showed *"3 waves, first eligible"*
+          // above no rows at all, and the only sign they were folded was five
+          // pixels of caret.
+          //
+          // BIGGER HIT AREA, NOT MERELY A BIGGER GLYPH. `h-6 w-6` with the mark
+          // centred inside it: the target grows by padding while the caret grows
+          // only from 10px to 12px, so the row density survives — rows measure
+          // 35–36px and a 24px target fits inside one without changing it.
+          // `-my-1` keeps it from pushing the line box taller than the row.
+          //
+          // 10px was the outlier rather than the convention: 12px is used 82
+          // times on this board, 13px 24 times, 14px 33 times. `text-xs` is
+          // 12px, so the caret now sits at the most common size here.
           <button
             type="button"
             data-wave-toggle={group.plan}
             aria-expanded={expanded}
             aria-label={`${expanded ? 'Hide' : 'Show'} the branches of ${group.plan}`}
             onClick={onToggle}
-            className="shrink-0 text-[10px] leading-none text-slate-400 hover:text-slate-800 dark:text-slate-500 dark:hover:text-slate-100"
+            className="-my-1 inline-flex h-6 w-6 shrink-0 items-center justify-center self-center rounded text-xs leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-100"
           >
-            <span aria-hidden>{expanded ? '▾' : '▸'}</span>
+            {/* ONE glyph, ROTATED — not two glyphs of similar mass.
+                `▸` and `▾` differ by which way a small triangle points, and
+                the plan asked for a fold state that survives a screenshot. A
+                90-degree rotation of one shape is the same difference stated in
+                geometry rather than in typeface, and it animates, so the state
+                change is visible in motion as well as in the still. */}
+            <span
+              aria-hidden
+              className={`inline-block text-[13px] transition-transform ${expanded ? 'rotate-90' : ''}`}
+            >
+              ▸
+            </span>
           </button>
         ) : (
           // The same width where there is no fold, so the plan names of a
-          // foldable and an unfoldable row still begin at one x.
-          <span aria-hidden className="shrink-0 text-[10px] leading-none">{' '}</span>
+          // foldable and an unfoldable row still begin at one x. It tracks the
+          // BUTTON width, so widening the target above widens this too.
+          <span aria-hidden className="inline-block h-6 w-6 shrink-0" />
         )}
         <span className="min-w-0 truncate text-xs font-medium">
           <PlanLink plan={group.plan} planFile={group.planFile} onOpenPlan={onOpenPlan} />
@@ -4164,12 +4229,128 @@ function PlanRow({
       >
         {waiting === null ? '' : waitingLabel(waiting)}
       </span>
-      {/* No actions cell. Dispatch is per BRANCH and wave — `plot-dispatch`
-          takes a branch — so a control here would have to guess which of the
-          plan's waves it meant, and an empty track to hold nothing is what
-          this row just stopped doing. The branch rows in the fold keep their
-          own menus, where the row has already decided. */}
+      {/* THE ACTIONS CELL — and it holds exactly one act, for exactly one
+          reason: approving belongs to the PLAN.
+
+          Dispatch does not, and that half of the old argument stands: a
+          `plot-dispatch` control here would have to guess which of the plan's
+          waves it meant, so the branch rows in the fold keep their own menus,
+          where the row has already decided. What was lost was the other half.
+          `plot-approve.sh` takes a plan, the server reports `approve` per plan,
+          and the row that names the plan is the only honest place for it — the
+          branch menus were carrying it, and a Draft plan's branches have
+          nothing to start, so the menu they would have carried it in was
+          absent and all four of their cells read `—`.
+
+          The CELL is unconditional and the button inside it is not, the same
+          split the branch row's actions cell makes: the track holds its width
+          whether or not there is anything to click, so a Draft plan and an
+          Approved one land their clocks at the same x. */}
+      <PlanActions plan={group.plan} card={card} approve={approve} onApproving={onApproving} />
     </li>
+  );
+}
+
+/**
+ * The plan row's `⋯` menu — one item, and the reason it is a menu at all.
+ *
+ * `ApproveButton` arms itself on the first click and its armed label names the
+ * consequence (`Approve — merges PR #146?`), which is 25 characters in a cell
+ * `1.25rem` wide. On a branch row the same button lives inside `RowActions`'s
+ * popup for exactly that reason. So the plan row borrows the pattern rather
+ * than inventing a second one: same glyph, same `aria-haspopup`, same
+ * close-on-outside-click, same fixed-width cell.
+ *
+ * NOT `RowActions` itself. That component is typed on `AgentRow` and asks four
+ * questions about a branch (startable? resolvable? a run? a log?), none of
+ * which a plan row can answer — `row.branch` is what its labels are built
+ * from. Sharing it would mean making every one of those optional to serve one
+ * caller that wants none of them.
+ *
+ * **The absence states its reason.** Where the server has refused
+ * (`approve.available === false`) the button renders dim with the refusal on
+ * it, because a refusal is not an absence — the same rule `RowActions` follows.
+ * Where the plan is simply not Draft there is nothing to refuse and no button
+ * at all.
+ */
+function PlanActions({
+  plan,
+  card,
+  approve,
+  onApproving,
+}: {
+  plan: string;
+  card: Card | null;
+  approve?: DispatchInfo;
+  onApproving?: (active: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const menu = useRef<HTMLDivElement>(null);
+  // `isDraft(card)` rather than the group's phase word: `plot-approve.sh`
+  // accepts phase `draft` and refuses every other one, and the card's own gate
+  // is the single spelling of that rule. Two spellings drift — which is how the
+  // branch menu and the card came to disagree in the first place.
+  const canApprove = Boolean(card && approve && isDraft(card));
+  const willAct = approve?.available ?? false;
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: globalThis.KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    // Capture phase, so the menu closes before a click lands anywhere else —
+    // and the same hazard `RowActions` records applies: a bubbled handler
+    // inside a menu that unmounts on capture never fires. `ApproveButton`
+    // manages its own arm/run state internally, so it survives that.
+    const onDown = (e: globalThis.MouseEvent) => {
+      if (menu.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('click', onDown, true);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('click', onDown, true);
+    };
+  }, [open]);
+
+  return (
+    <div
+      role="gridcell"
+      className="relative w-5 shrink-0 text-right"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {canApprove && (
+        <button
+          type="button"
+          data-plan-actions={plan}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          // Never the native attribute — a natively disabled control leaves the
+          // tab order and takes the explanation with it.
+          aria-disabled={!willAct || undefined}
+          aria-label={willAct ? `Actions for ${plan}` : (approve?.reason ?? `Cannot approve ${plan} from here`)}
+          title={willAct ? `Actions for ${plan}` : (approve?.reason ?? `Cannot approve ${plan} from here`)}
+          onClick={() => { if (willAct) setOpen((v) => !v); }}
+          className={`inline-flex h-6 w-5 items-center justify-center leading-none ${
+            willAct
+              ? 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'
+              : 'cursor-default text-slate-300 dark:text-slate-700'
+          }`}
+        >
+          <span aria-hidden className="text-xs">⋯</span>
+        </button>
+      )}
+      {open && willAct && card && approve && (
+        <div
+          role="menu"
+          ref={menu}
+          className="absolute right-0 z-10 mt-1 min-w-max rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+        >
+          <div role="menuitem" className="px-2 py-1 text-left">
+            <ApproveButton card={card} approve={approve} onApproving={onApproving} />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -4570,8 +4751,28 @@ function Row({
             handed it back. */}
         {row.state === 'deferred' && (
           <span
+            data-deferred
             className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-            title="Handed back — the branch was given up deliberately, and the plan can deliver without it"
+            // THE REASON, where the plan recorded one — as the badge's own
+            // title, so the sentence sits on the word it explains.
+            //
+            // Measured on the board 2026-08-19: two rows read `deferred` beside
+            // `no commits` and the operator asked what to do with them. The
+            // honest answer is *nothing*, and the row did not say so — the
+            // sentence that would have (`verified already implemented
+            // 2026-08-17 — startRepair() at fleet.ts:806`) had been in the plan
+            // file since the day the branch was shelved, and the pipeline threw
+            // it away. So `deferred` and `no commits` sat side by side as two
+            // unrelated facts when the first is the reason for the second.
+            //
+            // The generic sentence stays where no reason was recorded. It says
+            // what `deferred` means, which is still worth saying; it just
+            // cannot say why THIS branch was.
+            title={
+              row.deferredReason
+                ? `Handed back — ${row.deferredReason}`
+                : 'Handed back — the branch was given up deliberately, and the plan can deliver without it'
+            }
           >
             deferred
           </span>
@@ -4703,6 +4904,47 @@ function Row({
           keep a 3 s timer alive per WORKING row for as long as the tab is open,
           which is the pulse-carries-every-log shape this wave exists to reject,
           rebuilt on the client. */}
+      {/* THE DEFERRAL'S REASON, on the row's OWN SECOND LINE.
+
+          Two homes were tried and both were wrong, and the reason is the same
+          one twice: this is a SENTENCE and every cell in this row is bounded.
+          Beside the branch name it crushed
+          `bug/the-no-ref-arm-reads-the-join` down to `b… ads-the-join` — the
+          row's primary key, spent on prose. In the PR/note cell, a fixed `14rem`
+          track with `no commits` already in it, `truncate` gave the sentence
+          zero width and it rendered as nothing at all.
+
+          So it takes a line, the same way the stuck cell does: full width from
+          column 3 (past the marks, where the row's own content starts) to the
+          end. This is the row shape the board already uses for evidence that
+          does not fit a column — `conflict / the host reports this branch does
+          not merge` reads exactly this way — and the deferral is the same kind
+          of statement: what a bounded cell cannot say.
+
+          Rendered rather than hidden in a `title`, because a title is
+          unreachable by touch and by keyboard, and this sentence is the whole
+          answer to the question an operator asked when two rows read `deferred`
+          beside `no commits`: what do I do with this? Nothing — and here is
+          why. Nothing at all where the plan recorded no reason: absent, not a
+          phrase invented to fill the line.
+
+          PLACED AFTER THE ACTIONS CELL, which is not cosmetic ordering. A cell
+          spanning `3 / -1` opens a second grid row, and everything declared
+          after it lands there — with the reason declared earlier, the `⋯` menu
+          dropped below the sentence and hung off the row it belongs to.
+          Measured on screen. So the reason is the LAST child: line one keeps
+          all seven of its cells and the sentence takes the line beneath. */}
+      {row.state === 'deferred' && row.deferredReason && (
+        <span
+          role="gridcell"
+          data-deferred-reason
+          className="flex w-full items-baseline gap-x-2 text-xs text-slate-500 sm:col-start-3 sm:col-end-[-1] dark:text-slate-400"
+          title={row.deferredReason}
+        >
+          <span className="shrink-0 font-medium text-slate-600 dark:text-slate-300">deferred</span>
+          <span className="min-w-0 max-sm:whitespace-normal">{row.deferredReason}</span>
+        </span>
+      )}
       {logOpen && (
         <WorkerLogModal
           branch={row.branch}
@@ -5045,8 +5287,10 @@ function IssueRowView(
             href={issue.url}
             target="_blank"
             rel="noreferrer"
+            // Same 24 px of vertical hit area as `data-pr-link`, by the same
+            // padding the row absorbs — see the note there.
             data-issue-link
-            className="shrink-0 text-blue-600 hover:underline dark:text-blue-400"
+            className="-my-1 inline-block shrink-0 py-1 text-blue-600 hover:underline dark:text-blue-400"
           >
             {number}
           </a>
@@ -5115,8 +5359,13 @@ function PrCell({ pr }: { pr: AgentRow['pr'] }) {
           href={pr.url}
           target="_blank"
           rel="noreferrer"
+          // 24 px TALL, by padding that the row absorbs. Measured
+          // 2026-08-19 this link was 35 x 16 px: wide enough, short by eight
+          // pixels. `inline-block py-1 -my-1` grows the box a pointer can hit
+          // without moving the text or the row — the growth is negative margin
+          // on both sides, so the line box is the height it was.
           data-pr-link
-          className="shrink-0 text-blue-600 hover:underline dark:text-blue-400"
+          className="-my-1 inline-block shrink-0 py-1 text-blue-600 hover:underline dark:text-blue-400"
         >
           {number}
         </a>
@@ -5371,6 +5620,13 @@ export function AgentList({
           view-status line stays at the foot. See `StatusPanel`. */}
       <StatusPanel statuses={statuses} />
 
+      {/* THE SECTIONS, spaced apart from each other and from nothing else.
+
+          Their own container so the gap between two sections is a number this
+          list owns. The page container above is `space-y-4` and holds the
+          banners as well; a section break has to read as a bigger break than a
+          row break (35–36 px rows, `py-2`), and 16 px was not it. */}
+      <div data-sections className="space-y-8">
       {GROUPS.map(({ key, icon, label, hint }) => {
         // WAITING ON A MACHINE ASKS A SECOND QUESTION — see `inMachineSection`.
         // Every other section is its `group` and nothing else; this one lists
@@ -5493,6 +5749,28 @@ export function AgentList({
         // heading's controls, the mark is a fact about what is behind them.
         const groupMark = pace && <ActivityMark pace={pace} place="heading" />;
         return (
+          // A SECTION BREAK MUST READ AS A BIGGER BREAK THAN A ROW BREAK.
+          //
+          // Measured on the live board 2026-08-19: 16 px between one section's
+          // block and the next section's heading, against 4 px between that
+          // heading and the block it introduces. A heading four pixels from its
+          // own rows and sixteen from the group above belongs almost equally to
+          // both — and 16 px is barely more than the gap between two rows, so
+          // the strongest structural break on the page was drawn with the
+          // page's weakest signal.
+          //
+          // The gap is set on the sections' OWN container (`space-y-8`, see
+          // `data-sections` below) rather than on the page container that also
+          // holds the stale and dead-server banners: those are notices about
+          // the page, not sections of it, and widening the page's `space-y`
+          // would push them apart too. It cannot be an `mt-*` on the section
+          // either — `space-y-*` writes its margin through
+          // `& > :not([hidden]) ~ :not([hidden])`, which outranks a plain
+          // utility class and would silently win.
+          //
+          // The heading keeps its `mb-1`. This is only about the space BETWEEN
+          // groups — the rows themselves stay at `py-2`, which is the density
+          // an operator watching a fleet wants.
           <section key={key}>
             <h2 className="mb-1 flex items-baseline gap-2 px-3 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
               {collapsible ? (
@@ -5504,9 +5782,23 @@ export function AgentList({
                   data-group-toggle={key}
                   aria-expanded={!isFolded}
                   onClick={() => toggle(key)}
-                  className="flex items-baseline gap-2 uppercase tracking-wide hover:text-slate-900 dark:hover:text-slate-100"
+                  // The heading's own fold, given the same treatment as the
+                  // plan row's for the same reason: it was a 10px caret, the
+                  // outlier size on a board that uses 12px 82 times. `py-1
+                  // -my-1` makes the whole heading line a 24px-tall target
+                  // without moving it — the label is part of the button
+                  // already, so the target was never as small as the caret,
+                  // but the caret is what a reader aims at.
+                  className="-my-1 flex items-center gap-2 py-1 uppercase tracking-wide hover:text-slate-900 dark:hover:text-slate-100"
                 >
-                  <span aria-hidden className="text-[10px]">{isFolded ? '▸' : '▾'}</span>
+                  {/* One glyph rotated, matching the plan row's fold — see
+                      there for why a rotation beats a second glyph. */}
+                  <span
+                    aria-hidden
+                    className={`inline-block w-3 text-center text-[13px] leading-none transition-transform ${isFolded ? '' : 'rotate-90'}`}
+                  >
+                    ▸
+                  </span>
                   <span aria-hidden>{icon}</span>
                   {label}
                   {tally}
@@ -5580,10 +5872,39 @@ export function AgentList({
                       //
                       // Drawn here, once per plan, and the rows inside drop
                       // theirs (see `PlanRow` / `Row`, keyed on `inPlanGroup`).
+                      //
+                      // AND THE EDGE IS THE GROUP'S OWN, not a row divider
+                      // reused.
+                      //
+                      // Measured on the board 2026-08-19: two issue rows (#227,
+                      // #228) rendered beneath the heading
+                      // `the-row-says-what-it-knows (5)` and belonged to no plan
+                      // at all. They are not misfiled — they arrive in the
+                      // separate `issues` field and render after the plan's
+                      // branches — but the group suppressed the dividers between
+                      // its own rows and then drew its closing line in exactly
+                      // the weight a row divider uses. The one arrangement that
+                      // makes a group look like it continues past its last
+                      // member.
+                      //
+                      // So: a full `border` at the group's own weight, and
+                      // `last:border-0` is GONE. The last group needs its
+                      // bottom edge most of all — that is the edge the issue
+                      // rows sat below — and the grid's own rounded border sits
+                      // further out, so the two do not collide. A plan with five
+                      // branches and two unrelated rows after it now reads as a
+                      // plan with five, which is what the `(5)` beside its name
+                      // has been saying all along.
                       <li
                         role="rowgroup"
-                        key={group.plan}
-                        className="border-b border-slate-200/60 last:border-0 dark:border-slate-800"
+                        data-plan-group={group.plan}
+                        // An OUTLINE and no margin, for the reason spelled out
+                        // on the headed group below: a border plus a margin
+                        // insets the rows inside it, and a plan row's cells have
+                        // to land at the same x as every other row's in the
+                        // fleet. An outline is drawn outside the layout box and
+                        // costs nothing.
+                        className="block rounded-sm bg-slate-50/60 outline outline-slate-300 -outline-offset-1 dark:bg-slate-900/30 dark:outline-slate-700"
                       >
                         <PlanRow
                           group={group}
@@ -5594,6 +5915,12 @@ export function AgentList({
                           // including one folded out of sight, which is the case
                           // the mark most needs to reach.
                           active={group.rows.some((r) => active.has(rowKey(r)))}
+                          // The PLAN's card, looked up by the group's own plan
+                          // file rather than by any branch's — the approval is
+                          // the plan's act and the card is the plan's record.
+                          card={cardForPlanFile?.(group.planFile) ?? null}
+                          approve={approve}
+                          onApproving={onStarting}
                         />
                         {/* The branches, folded. Removed from the tree rather
                             than hidden with CSS, the same as the section fold:
@@ -5649,7 +5976,49 @@ export function AgentList({
                   // rows rather than an unnamed `<li>` the tree cannot place.
                   // The per-plan sub-heading and its rows are exactly what a
                   // rowgroup is for.
-                  <li role="rowgroup" key={group.plan}>
+                  // THE HEADED GROUP GETS THE SAME EDGE AS THE PLAN GROUP.
+                  //
+                  // This is the arrangement the plan measured: two issue rows
+                  // (#227, #228) under a heading reading
+                  // `the-row-says-what-it-knows (5)`, belonging to no plan at
+                  // all. They arrive in the separate `issues` field and render
+                  // after the plan's branches — nothing claims they belong to
+                  // the plan; the layout simply offered no place where the
+                  // plan's group ended.
+                  //
+                  // A plan heading with five branches under it and two
+                  // unrelated rows after it reads as a plan with seven, and the
+                  // count beside the name says `(5)`: the reader has to
+                  // arbitrate between the number and the layout.
+                  //
+                  // Only where a HEADING was drawn. A nameless group heads
+                  // nothing and claims nothing, so there is no boundary to
+                  // assert and a box around it would invent one.
+                  <li
+                    role="rowgroup"
+                    key={group.plan}
+                    data-plan-group={headed ? group.plan : undefined}
+                    // AN OUTLINE, NOT A BORDER — and no margin.
+                    //
+                    // A border plus `m-1` drew exactly the edge this needs and
+                    // moved its rows 5 px right, so a HEADED group's branch cell
+                    // stopped landing at the same x as an unheaded group's:
+                    // measured 321 against 326, and
+                    // `agents-tab.browser.test.ts` catches it. That alignment is
+                    // the property the tracks exist for and this must not spend
+                    // it.
+                    //
+                    // `outline` is drawn outside the box and takes no layout, so
+                    // the rows inside are where they were. `outline-offset` lifts
+                    // it clear of the grid's own rounded border, and the tinted
+                    // background does the rest of the work of reading as one
+                    // block.
+                    className={
+                      headed
+                        ? 'block rounded-sm bg-slate-50/70 outline outline-slate-300 -outline-offset-1 dark:bg-slate-900/30 dark:outline-slate-700'
+                        : undefined
+                    }
+                  >
                     {/* A nameless group holds rows no plan claims, so there is
                         nothing to head them WITH: rendering the heading anyway
                         printed a bare "(3)", a label that labels nothing.
@@ -5782,6 +6151,7 @@ export function AgentList({
           </section>
         );
       })}
+      </div>
 
       {/* The ages are the honesty: a stale source says so rather than looking
           live. They are reported separately because they fail separately —

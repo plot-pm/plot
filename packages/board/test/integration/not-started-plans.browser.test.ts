@@ -353,8 +353,28 @@ describe('NOT STARTED renders one row per plan', () => {
       expect(await widthOf(planRow(page, 'activity-shows-itself'))).toBe('0px');
       expect(await widthOf(branchRow)).toBe('0px');
       // ...the GROUP does, once, around the pair.
+      //
+      // Read as border OR outline. `the-row-shows-what-it-withholds` gave the
+      // group a full edge on all four sides rather than a rule beneath it — a
+      // group that suppresses its inner dividers and closes with one bottom
+      // line is the arrangement that reads as continuing past its last member,
+      // which is how two unrelated issue rows came to sit under a plan heading.
+      // It is drawn as an `outline` because a border needs a margin to clear
+      // the grid's own, and that margin insets the rows inside the group,
+      // costing the column alignment every row in the fleet shares.
+      //
+      // The property under test is *the group draws the separator and its rows
+      // do not* — which is unchanged. Naming one CSS property was how this
+      // test came to fail on a change that kept its subject intact.
       const group = section(page).locator('li[role="rowgroup"]').first();
-      expect(await widthOf(group)).not.toBe('0px');
+      const edge = await group.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return Math.max(
+          parseFloat(cs.borderBottomWidth) || 0,
+          cs.outlineStyle === 'none' ? 0 : (parseFloat(cs.outlineWidth) || 0),
+        );
+      });
+      expect(edge).toBeGreaterThan(0);
     } finally {
       await page.close();
     }

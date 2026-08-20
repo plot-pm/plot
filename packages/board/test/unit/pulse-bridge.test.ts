@@ -23,7 +23,8 @@ const PULSE: FleetPulse = {
       name: 'One',
       verdict: 'eligible',
       branches: [{
-        branch: 'feature/a', state: 'claimed', deferred: false, claimed: 'claimed: someone',
+        branch: 'feature/a', state: 'claimed', deferred: false, deferred_reason: '',
+        claimed: 'claimed: someone',
         local_dirty: false, local_worktree: '', local_ahead: 0, local_locked: false,
         worker: 'elsewhere', worker_pid: '', worker_exit: '',
         // Written out rather than left to the schema's defaults, because this
