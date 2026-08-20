@@ -103,6 +103,39 @@ saying the same thing — one labelled `PLAN … 1 wave … Design`, the other
 what the operator asked to keep. What must not survive is a plan rendered twice
 because one of its rows happens to be its only wave.
 
+### Rendered with three waves, every defect is in one frame
+
+Reproduced 2026-08-20 with `PLOT_BOARD_MOCK=1` and a three-wave plan — the state
+a one-wave plan hides:
+
+    PLAN  fleet-scan-asks-the-host        3 waves                            Design   WAITING 1d
+    PLAN  f…an-asks-once   [Shaped]     PLAN fleet-scan-asks-the-host  approved…   open    1d
+    PLAN  …ds-its-owner    [Relocated]  PLAN fleet-scan-asks-the-host  blocked by Shaped — 1 outstanding   open  1d
+    PLAN  b… -column-goes  [Moved]      PLAN fleet-scan-asks-the-host  blocked by Relocated — 1 outstanding  open  1d
+
+**The grouping works** — the fold is there, `3 waves` counts them, the four rows
+are one box. Everything inside it is wrong:
+
+| slot | shows | should |
+|---|---|---|
+| kind | `PLAN` four times | `PLAN`, then **`WAVE`** three times |
+| name | the **branch** (`f…an-asks-once`) | the **wave** (`Shaped`) |
+| — | `Shaped` as a trailing badge | that *is* the name, not an ornament |
+| artifact | `PLAN fleet-scan-asks-the-host` **three times** | nothing — the nesting states it |
+| status | `open` three times | `eligible`, `blocked`, `blocked` — the verdicts the scan already computed |
+| note | `blocked by Shaped — 1 outstanding` | a **link** to the `Shaped` row one line above |
+
+Two things this frame settles that prose could not:
+
+**The plan link is repeated three times directly beneath the plan that heads the
+group.** Containment needs no prefix *and* needs no link — the row above is the
+link.
+
+**`blocked by Shaped` is a sentence about a row on screen.** `Shaped` is rendered
+one line up; the note spells its name in prose instead of pointing at it. That is
+`blockedNote()` doing a job an artifact link should do, and it is why that
+function becomes redundant rather than merely wordy.
+
 ### `wave` becomes the eighth kind
 
 So a wave row is:

@@ -50,12 +50,39 @@ function row(over: Partial<AgentRow> & Pick<AgentRow, 'kind'>): AgentRow {
 /** One row per kind, each in the section its kind belongs to. */
 export function mockFleet(): Fleet {
   const rows: AgentRow[] = [
+    // THREE WAVES ON ONE PLAN, because a one-wave plan hides the two questions
+    // that matter: does the grouping read as a set, and does a blocked wave say
+    // what it waits on. Their verdicts are the three the scan emits —
+    // `eligible`, `blocked`, `complete` — so the mock shows all of them.
     row({
       kind: 'plan', group: 'not-started',
       plan: 'fleet-scan-asks-the-host',
       planFile: 'docs/plans/2026-08-20-fleet-scan-asks-the-host.md',
       phase: 'Design', wave: 'Shaped', waitingDays: 1, ageMinutes: 1440,
+      branch: 'feature/the-scan-asks-once',
+      branchUrl: 'https://example.invalid/tree/feature/the-scan-asks-once',
+      verdict: 'eligible',
       note: 'approved — nobody has taken it',
+    }),
+    row({
+      kind: 'plan', group: 'not-started',
+      plan: 'fleet-scan-asks-the-host',
+      planFile: 'docs/plans/2026-08-20-fleet-scan-asks-the-host.md',
+      phase: 'Design', wave: 'Relocated', waitingDays: 1, ageMinutes: 1440,
+      branch: 'feature/the-wave-finds-its-owner',
+      branchUrl: 'https://example.invalid/tree/feature/the-wave-finds-its-owner',
+      verdict: 'blocked',
+      note: 'blocked by Shaped — 1 outstanding',
+    }),
+    row({
+      kind: 'plan', group: 'not-started',
+      plan: 'fleet-scan-asks-the-host',
+      planFile: 'docs/plans/2026-08-20-fleet-scan-asks-the-host.md',
+      phase: 'Design', wave: 'Moved', waitingDays: 1, ageMinutes: 1440,
+      branch: 'bug/the-old-column-goes',
+      branchUrl: 'https://example.invalid/tree/bug/the-old-column-goes',
+      verdict: 'blocked',
+      note: 'blocked by Relocated — 1 outstanding',
     }),
     row({
       kind: 'pr', group: 'waiting-on-you',
@@ -122,7 +149,7 @@ export function mockFleet(): Fleet {
     // rather than left at zero — a summary that disagreed with what is rendered
     // is the shape of defect this board keeps finding.
     summary: {
-      plans: 4, waves: 4, branches: rows.length,
+      plans: 4, waves: 6, branches: rows.length,
       claimed: 1, eligible: 1, blocked: 0, deferred: 0,
     },
     stuck: { stuck: 0, artifact: 0, conflict: 1, unpushed: 0, ci: 0 },

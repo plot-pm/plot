@@ -5341,7 +5341,7 @@ export function AgentList({
           // groups — the rows themselves stay at `py-2`, which is the density
           // an operator watching a fleet wants.
           <section key={key}>
-            <h2 className="mb-2 flex items-baseline gap-2 px-3 text-sm font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-300">
+            <h2 className="mb-2 flex items-baseline gap-2 px-3 text-base font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-300">
               {collapsible ? (
                 // A real button, so the header is reachable and operable by
                 // keyboard. `aria-expanded` is what tells a screen reader the
