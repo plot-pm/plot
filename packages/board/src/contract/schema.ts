@@ -1991,6 +1991,37 @@ export type IssueRow = z.infer<typeof IssueRowSchema>;
 export const IssueAnswerSchema = z.enum(['answered', 'unsupported', 'failed']);
 export type IssueAnswer = z.infer<typeof IssueAnswerSchema>;
 
+/**
+ * One agent from the dispatcher's registry — a process with an identity that
+ * outlives the branch it was launched on.
+ *
+ * The first five fields are LAUNCH-TIME facts, written by `plot-dispatch.sh`
+ * before the worker starts; they can never be wrong about the past. The last
+ * three are read from the session transcript and are **optional on purpose**: a
+ * transcript that is missing, still empty, or in a format this board does not
+ * recognise costs those fields and never the entry. The transcript format is the
+ * runtime's private business.
+ *
+ * There is deliberately no `pid`. A pid describes the PROCESS, is meaningless
+ * once it exits, and was measured on 2026-08-20 still being shown for a worker
+ * gone for hours — the defect this registry exists to fix. Liveness belongs to
+ * whatever is asking `ps` right now, not to a record of a launch.
+ */
+export const AgentEntrySchema = z.object({
+  /** The session id, minted at launch. The identity, and the transcript's name. */
+  session: z.string(),
+  /** The branch it holds, or `''` while it holds none — empty is a real value. */
+  branch: z.string().default(''),
+  worktree: z.string().default(''),
+  /** The `Worker command` as launched, quotes and newlines intact. */
+  command: z.string().default(''),
+  startedAt: z.string().default(''),
+  model: z.string().optional(),
+  contextTokens: z.number().optional(),
+  lastActivity: z.string().optional(),
+});
+export type AgentEntry = z.infer<typeof AgentEntrySchema>;
+
 export const FleetSchema = z.object({
   generatedAt: z.string(),
   /** Seconds since the cached scan completed — the tab shows this. */
@@ -2151,6 +2182,26 @@ export const FleetSchema = z.object({
    * two TOGETHER. [] alone is not "no issues".
    */
   issues: z.array(IssueRowSchema).default([]),
+  /**
+   * Every agent the dispatcher has launched, from the manifests under
+   * `.plot/agents/`, newest first.
+   *
+   * **Beside `rows`, and not derived from them, because an agent is not a
+   * branch.** A row is a branch and mentions its agent; this list is agents and
+   * mentions their branches — `branch` is `''` for one that holds none, which is
+   * the state `waiting` needs and no row can express. A running worker therefore
+   * appears twice, as its branch's row and as its own entry, and that is not
+   * duplication: the two entities differ.
+   *
+   * Defaults to [] so a client talking to an older server validates — the
+   * `issues` precedent. Unlike `issues` it needs **no companion answer field**,
+   * and the difference is worth stating: `issues` asks a remote tracker that can
+   * refuse, time out or rate-limit, so `[]` there is ambiguous between "none"
+   * and "never asked". This reads a local directory. An unreadable or absent
+   * `.plot/agents` means no dispatch has run, which is a real answer rather than
+   * a failure to obtain one.
+   */
+  agents: z.array(AgentEntrySchema).default([]),
   /**
    * Whether the tracker could be asked. Defaults to `unsupported`, which is the
    * only safe default: an older server sends no issues and no answer, and

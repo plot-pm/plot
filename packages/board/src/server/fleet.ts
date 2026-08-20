@@ -31,6 +31,8 @@ import { stuckState, summarizeStuck } from './stuck.js';
 import { repairFor, startRepair } from './resolver.js';
 import type { BuildBoardOptions } from './board.js';
 import { readBridge, writeBridge } from './pulse-bridge.js';
+import { readAgentRegistry } from './registry.js';
+import type { AgentEntry } from './registry.js';
 import { workerQuestions } from './worker-question.js';
 
 /**
@@ -315,6 +317,15 @@ interface CacheEntry {
   issues: IssueRow[];
   issueAnswer: IssueAnswer;
   issueError: string | null;
+  /**
+   * The dispatcher's agent registry, re-read on every scan tick.
+   *
+   * Not kept across a failure the way `prs` and `issues` are, and the difference
+   * is the source: those ask a host that can refuse, so retracting rows on an
+   * outage would be a lie. This reads a local directory, where absence means no
+   * dispatch has run — a fact, not a failure.
+   */
+  agents: AgentEntry[];
   prs: Map<string, PrRecord> | null;
   /**
    * The same records keyed by PR NUMBER. The fleet tab asks "what is this
@@ -1600,6 +1611,20 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
   // in progress cannot answer that.
   const before = entry.pulseComplete ? entry.pulse : null;
   try {
+    // FIRST, and before the scan spawns. The registry depends on neither git nor
+    // the pulse — it reads `.plot/agents/` and the transcripts those manifests
+    // point at — so it must not be behind anything that can fail. Two
+    // consequences, both wanted:
+    //
+    //   * A branchless agent appears in NO plan, so nothing downstream would
+    //     ever produce it. It exists only here.
+    //   * A repo whose git momentarily failed still lists the agents whose
+    //     manifests sit on disk. An agent invisible during an outage is an agent
+    //     that gets restarted into work it is already doing.
+    //
+    // Assigned rather than merged: the directory is the whole truth about which
+    // agents exist, so a manifest that was deleted must be able to disappear.
+    entry.agents = readAgentRegistry(opts.repoRoot);
     // Default mode, WITH the fetch: the refresh is off the request path, so a
     // second of work is free — and the fetch is what lets the board see
     // branches a remote worker pushed. `--stream` is the only flag added.
@@ -1853,7 +1878,7 @@ export function freshCacheEntry(): CacheEntry {
     questions: new Map(),
     // `unsupported` before the first lookup, never `answered`: a board that
     // has not asked must not render an empty inbox as a clear one.
-    issues: [], issueAnswer: 'unsupported', issueError: null,
+    issues: [], issueAnswer: 'unsupported', issueError: null, agents: [],
     prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prAt: null, prError: null,
     // 0, so the first fetch happens immediately rather than a minute in.
     prNextAt: 0, prNextIsBackoff: false,
@@ -4029,6 +4054,10 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
     // that was never reachable, and would render the second as the first.
     issues: entry.issues,
     issueAnswer: entry.issueAnswer,
+    // Beside `rows`, never derived from them: a row is a branch that mentions an
+    // agent, this is an agent that mentions a branch. A running worker appears
+    // in both and is not duplicated — the entities differ.
+    agents: entry.agents,
     issueError: entry.issueError,
   };
 }
