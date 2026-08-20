@@ -406,3 +406,159 @@ issue: "#77"
   assert.deepEqual(out[0].issues, [77]);
   assert.deepEqual(out[1].issues, [], 'a placeholder names no issue');
 });
+
+// `design` — the seventh phase, and its transition record. A plan in Design is
+// not a plan nobody started: it is a plan that cannot yet be handed to
+// development because it needs a spec, a spike or a tracer bullet first. The
+// board inferred that state from `approved && !started`, which conflates
+// "design work is outstanding" with "nobody has picked it up" — opposite
+// meanings for whoever reads the board. These tests pin the word, not the
+// inference.
+test('parser: Design is a phase of its own, with a Design record', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-design-'));
+  const f = path.join(dir, '2026-01-01-designing.md');
+  writeFileSync(f, `# A plan still being designed
+
+## Status
+
+- **Phase:** Design
+- **Type:** feature
+- **Design:** 2026-01-01, alice, tracer bullet through the queue
+- **Approved:** 2026-01-01, alice, in-session
+
+## Branches
+
+- \`feature/spike\`
+`);
+  const meta = JSON.parse(execFileSync('bash', [parser, f], { encoding: 'utf8' }).trim());
+  assert.equal(meta.phase, 'design', 'Design normalizes to its own phase, not to approved');
+  assert.equal(meta.phase_raw, 'Design');
+  assert.equal(meta.design_raw, '2026-01-01, alice, tracer bullet through the queue');
+  // The new field must not disturb the neighbouring records, the same
+  // discipline released_raw was held to.
+  assert.equal(meta.approved_raw, '2026-01-01, alice, in-session');
+  assert.equal(meta.type, 'feature');
+  assert.deepEqual(meta.branches, ['feature/spike']);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('parser: design_raw is empty when no record exists, and the plan is unchanged', () => {
+  // Every plan written before this field existed must still parse. Empty is
+  // the answer, not a missing key — and a plan can hold the record without the
+  // phase, or the phase without the record.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-nodesign-'));
+  const f = path.join(dir, '2026-01-01-plain.md');
+  writeFileSync(f, `# Plain plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+- **Approved:** 2026-01-01, bob, plan-PR #4 merged
+- **Delivered:** 2026-01-02
+`);
+  const meta = JSON.parse(execFileSync('bash', [parser, f], { encoding: 'utf8' }).trim());
+  assert.equal(meta.design_raw, '');
+  assert.equal(meta.phase, 'approved');
+  assert.equal(meta.approved_raw, '2026-01-01, bob, plan-PR #4 merged');
+  assert.equal(meta.delivered_raw, '2026-01-02');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('parser: front matter design: outranks a ## Status Design: line', () => {
+  // Front matter wins over the canonical body, the rule every other transition
+  // record follows.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-fmdesign-'));
+  const f = path.join(dir, '2026-01-01-fm.md');
+  writeFileSync(f, `---
+status: Design
+design: from front matter
+---
+# Front matter design plan
+
+## Status
+
+- **Phase:** Design
+- **Design:** from the status body
+`);
+  const meta = JSON.parse(execFileSync('bash', [parser, f], { encoding: 'utf8' }).trim());
+  assert.equal(meta.format, 'frontmatter');
+  assert.equal(meta.phase, 'design');
+  assert.equal(meta.design_raw, 'from front matter');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('parser: the six pre-existing phases are byte-identical', () => {
+  // The whole licence for adding a phase word: no fixture that parsed before
+  // parses differently now. Asserted on the FULL JSON of existing fixtures
+  // rather than on a field subset, so a stray change anywhere in the record
+  // fails here. design_raw is the one permitted addition, and it must be "".
+  const fixtures = [
+    ['canonical-draft.md', 'draft'],
+    ['canonical-approved-branches.md', 'approved'],
+    ['canonical-delivered-decorated.md', 'delivered'],
+    ['canonical-plain-fields.md', 'rejected'],
+    ['frontmatter-approved.md', 'approved'],
+    ['frontmatter-disagreement.md', 'delivered'],
+  ];
+  for (const [name, phase] of fixtures) {
+    const meta = parse(name);
+    assert.equal(meta.phase, phase, `${name} keeps its phase`);
+    assert.equal(meta.design_raw, '', `${name} carries an empty design record`);
+  }
+  // `released` completes the six; no fixture carries it, so the record written
+  // by the released_raw test above stands in.
+  assert.equal(norm_phase_of('Released'), 'released');
+  assert.equal(norm_phase_of('Superseded'), 'superseded');
+  // …and the two synonyms still fold onto approved, which `design` must not.
+  assert.equal(norm_phase_of('Ready-for-review'), 'approved');
+  assert.equal(norm_phase_of('In-review'), 'approved');
+});
+
+// Helper for the phase-word assertions above: parse a throwaway plan carrying
+// one phase value and report how it normalized.
+function norm_phase_of(raw) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-norm-'));
+  const f = path.join(dir, '2026-01-01-one-phase.md');
+  writeFileSync(f, `# One phase\n\n## Status\n\n- **Phase:** ${raw}\n`);
+  const meta = JSON.parse(execFileSync('bash', [parser, f], { encoding: 'utf8' }).trim());
+  rmSync(dir, { recursive: true, force: true });
+  return meta.phase;
+}
+
+test('parser: a missing file reports design_raw too', () => {
+  // The error object enumerates every field, so a caller reading a missing
+  // file gets the same shape as one reading a real plan.
+  const out = execFileSync('bash', [parser, fixture('does-not-exist.md')], { encoding: 'utf8' });
+  const actual = JSON.parse(out);
+  assert.equal(actual.error, 'file not found');
+  assert.equal(actual.design_raw, '');
+});
+
+test('parser: the `## Design` prose section does not become the Design record', () => {
+  // `design` is the one transition record whose name collides with a template
+  // SECTION: both plan templates carry a `## Design` heading, and every plan
+  // written from them has prose under it. The record is read from `## Status`
+  // only, like its three neighbours — without that, `design_raw` would fill
+  // itself from the first sentence of the design discussion on most plans in
+  // the repo.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-designsection-'));
+  const f = path.join(dir, '2026-01-01-has-a-design-section.md');
+  writeFileSync(f, `# A plan with a design section
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Design
+
+Design: this prose lives under the heading, not in Status.
+
+- **Design:** a bullet in the wrong section
+`);
+  const meta = JSON.parse(execFileSync('bash', [parser, f], { encoding: 'utf8' }).trim());
+  assert.equal(meta.design_raw, '', 'only ## Status carries the record');
+  assert.equal(meta.phase, 'approved');
+  rmSync(dir, { recursive: true, force: true });
+});
