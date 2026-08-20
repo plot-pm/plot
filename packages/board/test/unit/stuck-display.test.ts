@@ -33,6 +33,10 @@ const stuck = (over: Partial<Stuck> = {}): Stuck => ({
   changedPaths: [],
   failingChecks: [],
   runHistory: [],
+  // `double-claimed` names the plans, and this default is what the state-sweep
+  // below renders when it reaches the fifth state — the sweep whose comment says
+  // *"so a fifth one cannot slip past"*, and which duly caught it.
+  claimedBy: [],
   ...over,
 });
 

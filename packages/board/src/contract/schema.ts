@@ -1294,6 +1294,20 @@ export type WaitingGroup = z.infer<typeof WaitingGroupSchema>;
  */
 export const StuckStateSchema = z.enum([
   'artifact-conflict', 'conflict', 'unpushed', 'ci-failing',
+  // TWO PLANS CLAIM THIS BRANCH — a fifth reason a branch cannot move, and it
+  // belongs here for the reason the other four do: nobody can act on it until a
+  // person decides. `plot-dispatch` would hand an agent one of two briefs and
+  // there is no way to know which, so the branch is stuck in the strict sense.
+  //
+  // The same shape as `conflict` one level up: that one is *two branches
+  // disagree about a file*, this is *two plans disagree about a branch*.
+  //
+  // Found because the board FLASHED. Two rows for one branch shared a
+  // `rowKey` (`repo/branch`, no plan), so each pulse one overwrote the other's
+  // remembered `wave`, saw a difference, and lit the change mark — for hours,
+  // on a branch nobody had touched. Reported as *"why do always the same two
+  // waves flash if no one is changing them"*.
+  'double-claimed',
 ]);
 export type StuckState = z.infer<typeof StuckStateSchema>;
 
@@ -1323,6 +1337,16 @@ export const BOARD_ARTIFACT_PATH = 'skills/plot/scripts/board/board-server.mjs';
  */
 export const StuckSchema = z.object({
   state: StuckStateSchema,
+  /**
+   * The plans that each claim this branch — two or more on `double-claimed`,
+   * empty on every other state.
+   *
+   * NAMED rather than counted, for the reason `shrinkNote` states about the
+   * pulse: *"3 plans became 2 makes the reader open a terminal to find out
+   * which"*. Resolving this means editing one of the two plan files, so the row
+   * has to say which two.
+   */
+  claimedBy: z.array(z.string()).default([]),
   /**
    * The conflicting paths, for the two conflict states — [] for the other two.
    *

@@ -46,7 +46,7 @@ import { agoLabel } from './AgentPanelFacts.js';
 // slots are answered once, in `tuple-row.ts`, for every kind. So a new kind
 // costs a projection and no rendering at all, which is what the deleted three
 // could never do.
-import { splitBranch, tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave, prStatus, stateStatus} from '../lib/tuple-row.js';
+import { splitBranch, tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave, prStatus, stateStatus, tupleAgeText} from '../lib/tuple-row.js';
 // RE-EXPORTED, not redefined. `splitBranch` moved to the module that owns the
 // slot rules when the collapse deleted `BranchName`; the unit suite imports it
 // from here, and a second definition is exactly the drift this wave removed.
@@ -791,7 +791,21 @@ export function waveGroupsFor(rows: AgentRow[], section: WaitingGroup): WaveGrou
   // `every-section-has-one-subject` settles it, and a wave row in either would
   // claim a subject that section does not have.
   const claims =
-    section === 'waiting-on-you' ? isReviewable
+    // WAITING ON YOU HOLDS TWO KINDS OF WAIT, and the predicate was only
+    // recognising one.
+    //
+    // `isReviewable` — a branch with an open PR — is *the work is done, merge
+    // it*. But a branch whose PLAN is still in review is also waiting on a
+    // person: to approve the plan. Measured on the live board, that is **12 of
+    // the 14** wave-bearing rows in this section, all reading `open` with the
+    // note *plan not approved yet — still in review* — and none of them grouped,
+    // so the section showed 12 near-identical branch rows where it should show a
+    // plan and its waves.
+    //
+    // So a wave claims any branch that belongs to it. What differs per section is
+    // what must be EXCLUDED: a merged branch is done, and `done` wants only
+    // those.
+    section === 'waiting-on-you' ? ((r: AgentRow) => r.state !== 'merged')
       : section === 'quiet' ? ((r: AgentRow) => r.state !== 'merged')
         : section === 'done' ? ((r: AgentRow) => r.state === 'merged')
           : null;
@@ -1498,6 +1512,9 @@ export function stuckWord(state: StuckState): string {
     case 'conflict': return 'conflict';
     case 'ci-failing': return 'CI failed';
     case 'unpushed': return 'unpushed work';
+    // TWO PLANS, not two branches — and the word says which kind of collision it
+    // is, because `conflict` above is already taken by the other one.
+    case 'double-claimed': return 'claimed twice';
   }
 }
 
@@ -1563,6 +1580,19 @@ export function stuckEvidence(stuck: Stuck, now: number = Date.now()): string[] 
       return stuck.conflicts.length > 0
         ? [`conflicting: ${stuck.conflicts.join(', ')}`]
         : ['the host reports this branch does not merge — no file list available'];
+    case 'double-claimed':
+      // NAMES THE PLANS, because resolving this means editing one of them — the
+      // same reason `shrinkNote` names what vanished rather than counting it.
+      // Nothing here is a verdict about which plan is right: that is the
+      // judgement a person makes, and the row's job is to put both names in
+      // front of them.
+      // The NAMES where they are known, and the bare fact otherwise — the same
+      // shape the conflict arm above uses for an empty set: an unnamed collision
+      // is still a collision, and printing `claimed by 0 plans` would be the row
+      // stating a count it does not have.
+      return stuck.claimedBy.length > 0
+        ? [`claimed by ${stuck.claimedBy.length} plans: ${stuck.claimedBy.join(', ')}`]
+        : ['more than one plan claims this branch — the plans do not agree'];
     case 'ci-failing':
       return [
         stuck.failingChecks.length > 0
@@ -4172,9 +4202,20 @@ function PlanRow({
   card = null,
   approve,
   onApproving,
+  ageMinutes,
 }: {
   group: PlanGroup;
   onOpenPlan?: AgentListProps['onOpenPlan'];
+  /**
+   * The plan's clock in minutes, where the APPROVAL clock is not the one running.
+   *
+   * `planWaitingDays` is right for NOT STARTED — the branches have no tip, so
+   * `waitingDays` is all there is. Outside it the reverse holds: measured on the
+   * live board, `waitingDays: null` on every WAITING ON YOU row while
+   * `ageMinutes` reads real values. The caller passes the freshest of its
+   * branches, which is the same clock a wave row uses.
+   */
+  ageMinutes?: number;
   /** Whether the branches beneath are showing — null where there is no fold. */
   expanded: boolean | null;
   onToggle?: () => void;
@@ -4197,12 +4238,20 @@ function PlanRow({
   const phase = group.rows[0]?.phase ?? '';
   return (
     <TupleRowView
-      tuple={tupleFromPlan({
-        plan: group.plan,
-        planFile: group.planFile,
-        phase,
-        waitingDays: waiting,
-      })}
+      tuple={(() => {
+        const t = tupleFromPlan({
+          plan: group.plan,
+          planFile: group.planFile,
+          phase,
+          waitingDays: waiting,
+        });
+        // The BRANCH clock overrides the approval one where the caller has it and
+        // the approval clock is absent — see `ageMinutes`. Unlabelled, because
+        // *since last change* is the rule and this is a change.
+        return ageMinutes !== undefined && Number.isFinite(ageMinutes) && waiting === null
+          ? { ...t, age: { text: tupleAgeText(ageMinutes), label: '' } }
+          : t;
+      })()}
       onOpenPlan={onOpenPlan}
       rowAttr={{ 'data-plan-row': group.plan }}
       // THE PLAN'S CLOCK IS ITS APPROVAL, and the sentence says so. `waiting`
@@ -6385,6 +6434,22 @@ export function AgentList({
                   // has no plan row to draw — and the wave groups must account
                   // for every row, or a plan row would head a set it does not
                   // describe.
+                  // A PLAN GROUP IS HOMOGENEOUS BY CONSTRUCTION, which is why
+                  // this predicate can require that EVERY row be wave-grouped
+                  // rather than handling a mixture.
+                  //
+                  // The operator's observation, 2026-08-20: *"a plan group will
+                  // barely have mixed WAVES. Once a plan is approved the waves
+                  // land in NOT STARTED."* A plan's branches move through the
+                  // lifecycle together — in review here, then dispatchable in NOT
+                  // STARTED, then working, then done — so a group holding some
+                  // waves and some loose rows is a transient, not a shape to
+                  // design for.
+                  //
+                  // So the `=== 0` is a GATE rather than a limitation: where a
+                  // mixture does occur, the group falls back to the text heading
+                  // and every row renders as itself. Nothing is hidden, and the
+                  // plan row appears only where it describes the whole set.
                   const planHeads = !countsPlans && Boolean(group.plan)
                     && ungroupedRows(group.rows, key).length === 0
                     && waveGroupsFor(group.rows, key).length > 0;
@@ -6688,11 +6753,55 @@ export function AgentList({
                       <PlanRow
                         group={group}
                         onOpenPlan={onOpenPlan}
-                        // NO FOLD: these waves are what the section is showing,
-                        // and hiding them behind a control would hide the rows a
-                        // reader came for. NOT STARTED folds because its plans are
-                        // a list to browse; here they are the thing waiting.
-                        expanded={null}
+                        // THE FRESHEST BRANCH CLOCK, because `waitingDays` is
+                        // null here.
+                        //
+                        // `planWaitingDays` reads the approval clock, and its own
+                        // docstring says why that is right in NOT STARTED: *"the
+                        // branches have no tip to date"*. In THIS section the
+                        // reverse holds — measured, `waitingDays: null` on every
+                        // row while `ageMinutes` reads 178, 127, 120 — so the
+                        // plan row showed no age at all.
+                        //
+                        // The freshest of its branches, which is what a wave row
+                        // already uses: the plan's clock is the clock of the work
+                        // in it.
+                        ageMinutes={Math.min(
+                          ...group.rows.map((r) => r.ageMinutes)
+                            .filter((a): a is number => a !== null),
+                        )}
+                        // FOLDABLE, and OPEN by default — the reverse of NOT
+                        // STARTED, where a plan is collapsed because its list is
+                        // there to browse. Here the waves are what the section is
+                        // showing, so hiding them would hide the rows a reader
+                        // came for; but eight plans of four waves is 40 lines,
+                        // and a reader who has dealt with one plan wants it out
+                        // of the way.
+                        //
+                        // `openPlans` holds what is COLLAPSED in this section
+                        // rather than what is expanded — one Set, two defaults,
+                        // and the same click either way.
+                        // COLLAPSED BY DEFAULT WHERE IT HOLDS MORE THAN ONE
+                        // WAVE, open where it holds one.
+                        //
+                        // A plan of one wave collapsed shows a reader nothing
+                        // they did not already have — the plan row states its
+                        // phase and its clock, and the one wave beneath is the
+                        // only content. A plan of four is 5 lines, and eight such
+                        // plans are 40: that is the crowding the fold answers.
+                        //
+                        // The default is a QUESTION ABOUT THE GROUP, so the Set
+                        // holds the reader's overrides rather than the state
+                        // itself — one click flips whichever default applies.
+                        expanded={
+                          waveGroupsFor(group.rows, key).length > 1
+                            ? openPlans.has(`open:${group.plan}`)
+                            : !openPlans.has(`shut:${group.plan}`)
+                        }
+                        onToggle={() => togglePlan(
+                          waveGroupsFor(group.rows, key).length > 1
+                            ? `open:${group.plan}` : `shut:${group.plan}`,
+                        )}
                         active={group.rows.some((r) => active.has(rowKey(r)))}
                         card={cardForPlanFile?.(group.planFile) ?? null}
                         approve={approve}
@@ -6748,6 +6857,14 @@ export function AgentList({
                         move; its children do, and only where a heading is there
                         to explain why. An unheaded group gets no class at all, so
                         its rows sit where every other row in the fleet does. */}
+                    {/* FOLDED AWAY where the plan row's caret says so — removed
+                        from the tree rather than hidden with CSS, the same as
+                        every other fold on this board: a collapsed group should
+                        cost no vertical space, which is the whole complaint it
+                        answers. */}
+                    {(!planHeads || (waveGroupsFor(group.rows, key).length > 1
+                      ? openPlans.has(`open:${group.plan}`)
+                      : !openPlans.has(`shut:${group.plan}`))) && (
                     <ul
                       role="presentation"
                       className={headed || planHeads
@@ -6812,8 +6929,15 @@ export function AgentList({
                               // branch's own condition, which no verdict carries
                               // and no fold exists to reach.
                               groupedCount={wg.rows.length > 1 ? wg.rows.length : undefined}
+                              // THE WORD FOLLOWS THE BRANCHES, not the section:
+                              // WAITING ON YOU now holds waves waiting on a
+                              // MERGE (their branches have PRs) and waves waiting
+                              // on an APPROVAL (their plan is still in review),
+                              // and `to review` is false of the second.
                               groupedWord={key === 'done' ? 'delivered'
-                                : key === 'quiet' ? 'stalled' : 'to review'}
+                                : key === 'quiet' ? 'stalled'
+                                  : wg.rows.some(isReviewable) ? 'to review'
+                                    : 'to approve'}
                               soleRow={wg.rows.length > 1 ? undefined : wg.rows[0]}
                             />
                             {many && waveOpen && (
@@ -6914,6 +7038,7 @@ export function AgentList({
                         />
                       ))}
                     </ul>
+                    )}
                   </li>
                   );
                 })

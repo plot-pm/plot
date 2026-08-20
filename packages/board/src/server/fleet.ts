@@ -3750,6 +3750,36 @@ export function briefState(repoRoot: string, branch: string): BriefState {
   }
 }
 
+/**
+ * Which plans claim each branch — the index that finds a double claim.
+ *
+ * Built once per pulse over the whole estate, because the question is about the
+ * ESTATE and not about any one plan: a branch listed in two plans' `## Branches`
+ * sections looks perfectly ordinary from inside either one.
+ *
+ * Only collisions are kept. The common answer is one plan, and a map holding
+ * every branch would be a map nobody reads — the same rule `stuckState` follows
+ * in returning null for a branch that is not stuck.
+ */
+export function doubleClaimedBranches(pulse: FleetPulse): Map<string, string[]> {
+  const byBranch = new Map<string, Set<string>>();
+  for (const plan of pulse.plans) {
+    const slug = plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
+    for (const wave of plan.waves) {
+      for (const b of wave.branches) {
+        const seen = byBranch.get(b.branch) ?? new Set<string>();
+        seen.add(slug);
+        byBranch.set(b.branch, seen);
+      }
+    }
+  }
+  const collisions = new Map<string, string[]>();
+  for (const [branch, plans] of byBranch) {
+    if (plans.size > 1) collisions.set(branch, [...plans].sort());
+  }
+  return collisions;
+}
+
 export function rowsFromPulse(
   pulse: FleetPulse,
   ages: Map<string, number | null>,
@@ -3823,6 +3853,9 @@ export function rowsFromPulse(
   repoRoot = '',
 ): AgentRow[] {
   const rows: AgentRow[] = [];
+  // ONE PASS OVER THE ESTATE, before the plan loop — a double claim cannot be
+  // seen from inside either plan that makes it.
+  const doubleClaimed = doubleClaimedBranches(pulse);
   for (const plan of pulse.plans) {
     // WHICH earlier wave is blocking — the plan's FIRST incomplete one, read
     // once per plan rather than searched per row.
@@ -4107,6 +4140,9 @@ export function rowsFromPulse(
             changedPaths: b.changed_paths,
             failingChecks: pr?.failing_checks ?? [],
             runHistory: runs?.get(b.branch) ?? [],
+            // TWO PLANS CLAIMING ONE BRANCH — from the estate-wide index, since
+            // the collision is invisible from inside either plan.
+            claimedBy: doubleClaimed.get(b.branch) ?? [],
           }),
           // WHAT THE MACHINE DID ABOUT IT — beside the state, never folded into
           // it. A silent automatic write is indistinguishable from a defect, so

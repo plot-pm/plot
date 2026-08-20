@@ -55,6 +55,13 @@ export interface StuckInput {
   /** Commits this machine holds that the remote does not. */
   localAhead: number;
   /**
+   * The plans that claim this branch, where MORE THAN ONE does — otherwise empty.
+   *
+   * Passed in rather than derived, because only the caller walks every plan: this
+   * function is given one branch and cannot see the estate around it.
+   */
+  claimedBy?: readonly string[];
+  /**
    * What the host says about the PR, or null where there is none.
    *
    * TWO of the six values mean anything here, and they mean different things.
@@ -86,8 +93,13 @@ export interface StuckInput {
  * or pushing in place would reach into every other result. Fresh arrays cost
  * nothing here and cannot be aliased.
  */
-function noCiEvidence(): Pick<Stuck, 'changedPaths' | 'failingChecks' | 'runHistory'> {
-  return { changedPaths: [], failingChecks: [], runHistory: [] };
+function noCiEvidence(): Pick<
+  Stuck, 'changedPaths' | 'failingChecks' | 'runHistory' | 'claimedBy'
+> {
+  // `claimedBy: []` rides along here rather than being repeated in four arms:
+  // every state but `double-claimed` has exactly one plan, so an empty list is
+  // the honest answer and stating it once keeps the arms readable.
+  return { changedPaths: [], failingChecks: [], runHistory: [], claimedBy: [] };
 }
 
 /**
@@ -152,6 +164,31 @@ export function stuckState(input: StuckInput): Stuck | null {
   // everything" failure in its two purest forms.
   if (state === 'merged' || state === 'deferred') return null;
 
+  // TWO PLANS CLAIM IT — and this comes FIRST, because *order is meaning* and
+  // nothing outranks not knowing which plan governs a branch.
+  //
+  // Every other arm answers *what is wrong with this work*; this one answers
+  // *whose work is it*, and until that is settled a conflict set and a check
+  // rollup are facts about a branch nobody can act on. `plot-dispatch` would
+  // hand an agent one of two briefs with no way to choose.
+  //
+  // Found because the board FLASHED: two rows for one branch share a `rowKey`
+  // (`repo/branch`, no plan), so each pulse one overwrote the other's remembered
+  // `wave`, saw a difference, and lit the change mark — for hours, on a branch
+  // nobody had touched.
+  if ((input.claimedBy?.length ?? 0) > 1) {
+    return {
+      ...noCiEvidence(),
+      state: 'double-claimed',
+      // NAMED, and sorted so the row reads the same on every pulse — the same
+      // stability rule `conflicts` follows one arm down. AFTER the spread, which
+      // supplies `claimedBy: []` for the four states that have one plan.
+      claimedBy: [...input.claimedBy!].sort(),
+      conflicts: [],
+      localAhead: 0,
+    };
+  }
+
   // ABSENT IS NOT CLEAN. An unobserved conflict set is empty, exactly like a
   // clean one, so the flag is what separates them — and consulting the list
   // without it would report every branch on an old git as mergeable.
@@ -201,6 +238,8 @@ export function stuckState(input: StuckInput): Stuck | null {
   if (input.prState === 'failing') {
     return {
       state: 'ci-failing',
+      // One plan claims it, like every state but `double-claimed`.
+      claimedBy: [],
       conflicts: [],
       localAhead: 0,
       // THE THREE LINES, AND NO FOURTH. What failed, what the branch touches,

@@ -336,19 +336,35 @@ describe('waveGroupsFor — which sections group by wave, and from which rows', 
     expect(ungroupedRows(rows, 'waiting-on-you')).toHaveLength(0);
   });
 
-  it('ignores a branch with no PR in WAITING ON YOU', () => {
-    // `isReviewable` is *the work is landed and somebody has to merge it*. A
-    // branch with no PR is not waiting on a review.
+  it('claims a branch with no PR too — its PLAN is what waits', () => {
+    // THE SECOND REVERSAL, and the section is what forced it: WAITING ON YOU
+    // holds TWO kinds of wait. A branch with an open PR waits to be MERGED; a
+    // branch whose plan is still in review waits to be APPROVED. Both are
+    // decisions, and this asserted that only the first counted.
+    //
+    // Measured on the live board: **12 of the 14** wave-bearing rows here had no
+    // PR — all reading `open` with *plan not approved yet — still in review* —
+    // so the narrow predicate left the section showing 12 near-identical branch
+    // rows where it should show a plan and its waves.
     const rows = [
       row({ wave: 'Modelled', branch: 'a', state: 'wip', pr: pr(304) }),
       row({ wave: 'Modelled', branch: 'b', state: 'open', pr: null }),
     ];
-    // The wave claims the REVIEWABLE branch only; the one with no PR is not
-    // waiting on a review and renders on its own.
     const groups = waveGroupsFor(rows, 'waiting-on-you');
     expect(groups).toHaveLength(1);
-    expect(groups[0].rows.map((r) => r.branch)).toEqual(['a']);
-    expect(ungroupedRows(rows, 'waiting-on-you').map((r) => r.branch)).toEqual(['b']);
+    expect(groups[0].rows.map((r) => r.branch)).toEqual(['a', 'b']);
+    expect(ungroupedRows(rows, 'waiting-on-you')).toHaveLength(0);
+  });
+
+  it('excludes a MERGED branch from WAITING ON YOU', () => {
+    // What the predicate still refuses: merged work is done and belongs to DONE.
+    // That is the one exclusion the widening kept.
+    const rows = [
+      row({ wave: 'Modelled', branch: 'a', state: 'wip', pr: pr(304) }),
+      row({ wave: 'Modelled', branch: 'b', state: 'merged', pr: pr(300) }),
+    ];
+    expect(waveGroupsFor(rows, 'waiting-on-you')[0].rows.map((r) => r.branch))
+      .toEqual(['a']);
   });
 
   it('groups stalled branches in QUIET and delivered ones in DONE', () => {
