@@ -781,7 +781,9 @@ export interface PlanGroup {
  * Rows arrive age-sorted, so a plan's rows keep that order by construction and
  * the PLANS are ordered by their most urgent row — otherwise a plan holding one
  * stale branch would outrank one whose branch just moved. An unknown age sorts
- * last: "we do not know" is not "ancient".
+ * last: "we do not know" is not "ancient". **Plans of EQUAL age order by name**,
+ * because age alone leaves most pairs tied and the tie was being settled by an
+ * arrival order that changes every pulse — see the comparator.
  *
  * Exported for test, and because the count is what decides whether a
  * sub-heading earns its place — a group with one plan gets none.
@@ -794,7 +796,37 @@ export function groupByPlan(rows: AgentRow[]): PlanGroup[] {
     else groups.set(row.plan, { plan: row.plan, planFile: row.planFile, rows: [row] });
   }
   const urgency = (g: PlanGroup) => Math.max(...g.rows.map((r) => r.ageMinutes ?? -1));
-  return [...groups.values()].sort((a, b) => urgency(b) - urgency(a));
+  return [...groups.values()].sort((a, b) => {
+    const byUrgency = urgency(b) - urgency(a);
+    if (byUrgency !== 0) return byUrgency;
+    // TIES ARE BROKEN BY NAME — the tiebreak #267 landed for NOT STARTED,
+    // applied here where the same defect had been sitting unexamined.
+    //
+    // Age is a COARSE key. The rows of one pulse routinely share an age, so
+    // those comparisons return 0 and the surviving order is whatever this Map's
+    // insertion order happened to be. `Array.prototype.sort` is stable in every
+    // engine since ES2019, so it faithfully preserves that arrival order — and
+    // the arrival order is rebuilt from a fresh scan every four seconds.
+    // Stability preserves an input that is not itself stable, which is why this
+    // reads as a sorting bug and is not one.
+    //
+    // The plan NAME is the right tiebreak because it is the only field here
+    // that cannot change between pulses: an age moves by the minute and a row
+    // count moves as branches land, and both are derived. A name is identity.
+    //
+    // NOT the same line as `sortByWaiting`, and deliberately not shared with it.
+    // That comparator keys on `waitingDays` — the plan's approval clock — to
+    // answer *which plan has been ignored longest* for a section whose rows are
+    // not branches. This one keys on the branch tip's clock to answer *which
+    // plan holds the most urgent row*. Two questions, two keys; only the
+    // tiebreak behind them is the same, and it is three lines.
+    //
+    // Found because the flicker was fixed one section over and the identical
+    // line sat four hundred lines away in this file, unexamined — nobody had
+    // watched THIS section reshuffle. A fix is not finished when the reported
+    // instance stops.
+    return a.plan.localeCompare(b.plan);
+  });
 }
 
 /**
