@@ -491,17 +491,20 @@ export type WorkerState = z.infer<typeof WorkerStateSchema>;
  * kind of `not-started` row a person can actually pick up.
  *
  * In the CONTRACT rather than in `fleet.ts`, because both sides read it: the
- * server writes it from the wave verdict, and the Agents tab keys its Start
- * button on it. A row carries no `verdict` field, so this sentence is the only
- * place that verdict survives onto the row — and two copies of it would let a
- * reword turn every startable row into a blocked-looking one, with nothing
- * failing except the button quietly not appearing. (It cannot live in
- * `fleet.ts`: that module imports `node:child_process`, and the client bundle
- * must not reach it.)
+ * server writes it from the wave verdict, and two copies of it would let a
+ * reword turn every startable row into a blocked-looking one. (It cannot live
+ * in `fleet.ts`: that module imports `node:child_process`, and the client
+ * bundle must not reach it.)
  *
- * The better shape is a `verdict` field on `AgentRowSchema`, so the split is
- * data rather than prose. That widens the row contract two other branches are
- * widening today, so it is deliberately not done here.
+ * THIS SENTENCE IS NO LONGER THE VERDICT'S ONLY CARRIER, and the note above
+ * said so as a proposal until `AgentRowSchema.verdict` was built. The row now
+ * carries the verdict as data, so the split is a value rather than a phrase —
+ * and the Start button already reads `waitingOn` rather than this string.
+ *
+ * The sentence stays, because it is what a READER hears: *eligible* is a word
+ * for a person, and the field is a value for a consumer. What must not come
+ * back is a consumer matching this text — `verdict` is what it should read, and
+ * anything built on the prose fails by going quiet when the wording drifts.
  */
 export const ELIGIBLE_NOTE = 'eligible — nobody has taken it';
 
@@ -594,12 +597,13 @@ export function unknownPhaseNote(phase: string): string {
  * says. The field answers the coarse question; the prose answers the fine one.
  *
  * A FIELD RATHER THAN A STRING MATCH, and this is load-bearing. `isStartable`
- * derives startability by comparing `note === ELIGIBLE_NOTE` — the "parser for a
- * format nobody declared" shape #175 removed from the PR cell, which drops its
- * answer silently the moment the wording drifts. Deriving a COLOUR that way
- * would be worse, because this same change sharpens the notes: a rule matching
- * on `blocked by an earlier wave` breaks the moment that sentence gains the
- * wave's name, and it breaks by going quiet rather than by failing.
+ * USED TO derive startability by comparing `note === ELIGIBLE_NOTE` — the
+ * "parser for a format nobody declared" shape #175 removed from the PR cell,
+ * which drops its answer silently the moment the wording drifts. It reads this
+ * field now, and the prediction that made the case for the field came true in
+ * the same change that added it: *blocked by an earlier wave* gained the wave's
+ * name, so a rule matching that sentence would have gone quiet rather than
+ * failed. Deriving a COLOUR that way would have been worse still.
  *
  * Follows `pr.state` (#165) and `stuck` (#183), both of which replaced exactly
  * this shape for exactly this reason.
@@ -619,10 +623,10 @@ export type WaitingOn = z.infer<typeof WaitingOnSchema>;
  * one?* is the reader's unavoidable next question and it costs one string.
  *
  * A constant plus a defined append, never a sentence assembled at three call
- * sites: `isStartable` already keys on `ELIGIBLE_NOTE` by string comparison,
- * and that is the shape this plan's own field replaces. Nothing new may be
- * built on matching prose — but the prose must still be one thing rather than
- * many, or the next reader cannot tell which spellings exist.
+ * sites. Nothing new may be built on matching this prose — `verdict` on the row
+ * is what a consumer reads, and `blockedBy` carries the name — but the prose
+ * must still be one thing rather than many, or the next reader cannot tell
+ * which spellings exist.
  */
 export const BLOCKED_NOTE = 'blocked by an earlier wave';
 
@@ -1402,6 +1406,46 @@ export const AgentRowSchema = z.object({
    * earlier wave* with no name — the old sentence, and still true.
    */
   blockedBy: z.string().nullable().default(null),
+  /**
+   * The verdict of the WAVE this row sits in — `complete`, `eligible` or
+   * `blocked`, forwarded from `FleetWaveSchema.verdict`.
+   *
+   * THE SAME THREE VALUES, and reusing `WaveVerdictSchema` is the decision
+   * rather than the default. A row does not classify itself here: it repeats
+   * what the scan already decided about its wave, so a fourth value would have
+   * to mean something the scan cannot say. The row's OWN questions are answered
+   * by fields that already exist — `state` for its git shape, `group` for its
+   * section, `waitingOn` for what would move it — and a second three-value enum
+   * meaning almost the same thing is the drift this field exists to prevent.
+   *
+   * A FIELD RATHER THAN A STRING MATCH — the shape `ELIGIBLE_NOTE` proposed
+   * above and declined to build, and the same argument `worker`, `waitingOn`
+   * and `pr.state` each settled before it. Until this field existed the wave's
+   * verdict survived onto the row only as PROSE: `ELIGIBLE_NOTE` for eligible,
+   * `blockedNote()` for blocked, and NOTHING for complete — a `complete` wave's
+   * merged branch says *merged*, which is true of the branch and silent about
+   * the wave. So a consumer wanting the verdict had two sentences to match and
+   * one case it could not reach at all.
+   *
+   * FORWARDED, NEVER RE-DERIVED, like its neighbours. `classify` returns it
+   * beside the note it composed from the same input, so the field and the
+   * sentence cannot disagree — which is the entire point of having both, and
+   * what the tests assert as a pair.
+   *
+   * NULL WHERE THERE IS NO WAVE, which is two cases and both are honest
+   * absences rather than defaults:
+   *
+   *   - a planless row (built from the PR map) belongs to no plan, so no wave
+   *     has a verdict about it;
+   *   - a pulse from a scan whose verdict this board does not recognise. ""
+   *     and an unknown word are not the three values, and guessing one would
+   *     put a confident claim where nothing was reported. Same rule as
+   *     `planPhase` in `classify`: absent is not a guess.
+   *
+   * Defaults to null so a client talking to an older server still validates,
+   * and null renders as nothing — exactly as the board reads today.
+   */
+  verdict: WaveVerdictSchema.nullable().default(null),
   /**
    * Why this branch cannot move, or null — a fact ADDED to the row, never a
    * replacement for one.

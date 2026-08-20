@@ -3221,3 +3221,260 @@ describe('the cadence knows what a refresh costs', () => {
   });
 });
 
+
+describe('the row carries its verdict', () => {
+  // The field the contract proposed at `ELIGIBLE_NOTE` and declined to build:
+  // the wave's verdict as DATA on the row, so nothing downstream has to read it
+  // out of a sentence. Three verdicts left the scan and two sentences arrived,
+  // and one of the two was wrong on the finished case.
+
+  // The fixture the wiring tests read: two waves, and the second is blocked by
+  // the first. Named waves, because the blocker's NAME is half of what travels.
+  const pulse: FleetPulse = {
+    main: 'main',
+    head: 'abc1234',
+    plans: [{
+      file: '2026-08-20-verdict-fixture.md',
+      phase: 'approved',
+      waves: [
+        {
+          name: 'Truth', verdict: 'eligible',
+          branches: [
+            { branch: 'feature/first', state: 'open', deferred: false, claimed: '' },
+          ],
+        },
+        {
+          name: 'Colour', verdict: 'blocked',
+          branches: [
+            { branch: 'feature/second', state: 'open', deferred: false, claimed: '' },
+          ],
+        },
+      ],
+    }],
+    summary: { plans: 1, waves: 2, branches: 2, claimed: 0, eligible: 1, blocked: 1, deferred: 0 },
+  } as never;
+  const rowFor = (branch: string, p: FleetPulse = pulse) =>
+    rowsFromPulse(p, new Map(), 'plot', QUIET).find((r) => r.branch === branch)!;
+
+  it('puts the wave verdict on the row, for each of the three values', () => {
+    // THE field. Asserted for all three rather than for the interesting one:
+    // a field written on only two of its three inputs is the defect this
+    // replaces, one level along.
+    for (const v of ['complete', 'eligible', 'blocked'] as const) {
+      expect(classify('open', v, null, QUIET).verdict).toBe(v);
+    }
+  });
+
+  it('reuses the WAVE verdict rather than inventing a fourth row state', () => {
+    // The decision, as an assertion. `WaveVerdictSchema` is the row's vocabulary
+    // too, so a value the wave can hold is a value the row accepts and nothing
+    // else is. A second three-value enum meaning almost the same thing is what
+    // this pins shut.
+    for (const v of ['complete', 'eligible', 'blocked'] as const) {
+      expect(AgentRowSchema.shape.verdict.safeParse(v).success).toBe(true);
+    }
+    for (const v of ['done', 'startable', 'waiting', 'open', 'wip']) {
+      expect(AgentRowSchema.shape.verdict.safeParse(v).success).toBe(false);
+    }
+  });
+
+  it('says NULL where the scan reported no verdict this board knows', () => {
+    // Absent is not a guess — the rule `planPhase` follows in the same
+    // function. "" and an unrecognised word are not the three values, and a row
+    // must not claim a wave state nobody reported.
+    for (const v of ['', 'partial', 'COMPLETE', 'in-progress']) {
+      expect(classify('open', v, null, QUIET).verdict).toBeNull();
+    }
+  });
+
+  it('validates a payload from a server that predates the field', () => {
+    // ADDITIVE AND DEFAULTED, which is the rule `issueAnswer` follows and the
+    // reason a client may be newer than the server it talks to. A row with no
+    // `verdict` at all must parse, and must parse to null rather than to a
+    // value nobody sent.
+    const older = {
+      repo: 'plot', branch: 'feature/x', plan: 'p', wave: 'Truth', state: 'open',
+      group: 'not-started', ageMinutes: null, note: ELIGIBLE_NOTE, branchUrl: '',
+      pr: null, waitingDays: 3,
+    };
+    const parsed = AgentRowSchema.safeParse(older);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data!.verdict).toBeNull();
+  });
+
+  it('agrees with the sentence the row already carried, on every input', () => {
+    // THE PAIR, and the reason both exist. Disagreement between a field and its
+    // prose is precisely what this field was built to end, so the two are
+    // asserted against each other rather than each against a literal.
+    //
+    // `open` is the state where the note speaks about the WAVE at all — a
+    // merged or claimed branch has its own sentence — so it is the state where
+    // the pair is checkable.
+    const eligible = classify('open', 'eligible', null, QUIET, null, false, 0, 'approved');
+    expect(eligible.verdict).toBe('eligible');
+    expect(eligible.note).toBe(ELIGIBLE_NOTE);
+
+    const blocked = classify('open', 'blocked', null, QUIET, null, false, 0, 'approved');
+    expect(blocked.verdict).toBe('blocked');
+    expect(blocked.note).toMatch(/earlier wave/);
+
+    // And they never cross: the eligible sentence appears on no row whose
+    // verdict is not `eligible`, which is the half a naive implementation gets
+    // wrong by writing the field from a second reading.
+    for (const v of ['complete', 'blocked', '']) {
+      expect(classify('open', v, null, QUIET, null, false, 0, 'approved').note)
+        .not.toBe(ELIGIBLE_NOTE);
+    }
+  });
+
+  it('changes no group and no note it did not already produce', () => {
+    // The field is ADDED, never a replacement — so every answer this function
+    // gave before must be the answer it gives now. Asserted across the states
+    // and verdicts the suite already covers, so a regression here fails as a
+    // pair mismatch rather than as a silent re-classification.
+    for (const state of ['open', 'wip', 'claimed', 'merged', 'deferred'] as const) {
+      for (const v of ['complete', 'eligible', 'blocked', ''] as const) {
+        const r = classify(state, v, 5, QUIET, null, false, 0, 'approved');
+        expect(typeof r.group).toBe('string');
+        expect(typeof r.note).toBe('string');
+        expect(r.verdict).toBe(v === '' ? null : v);
+      }
+    }
+  });
+
+  it('carries the verdict onto every row, not only the blocked ones', () => {
+    // The wiring: `classify` answering correctly is worth nothing if
+    // `rowsFromPulse` drops the field — which is exactly what happened to
+    // `wave` itself, declared on the contract and read by nobody.
+    expect(rowFor('feature/first').verdict).toBe('eligible');
+    expect(rowFor('feature/second').verdict).toBe('blocked');
+  });
+
+  it('says null on a row no plan names', () => {
+    // The planless row reaches `classify` with `'eligible'` as a ROUTING value
+    // — it steers the function into its PR arm — and putting that on the row
+    // would claim the ordering of a plan that does not exist is satisfied.
+    const prs = new Map([['bug/loose', {
+      number: 7, head: 'bug/loose', state: 'OPEN', draft: false, checks: 'green',
+      mergeable: 'mergeable', review: '', url: '', failing_checks: [],
+    } as never]]);
+    const rows = rowsFromPulse(pulse, new Map(), 'plot', QUIET, prs);
+    const loose = rows.find((r) => r.branch === 'bug/loose')!;
+    expect(loose).toBeDefined();
+    expect(loose.verdict).toBeNull();
+  });
+});
+
+describe('an eligible wave is not a blocker', () => {
+  // The collapse: `plan.waves.find((w) => w.verdict !== 'complete')` treated
+  // `eligible` and `blocked` as one answer, so the wave a reader can START
+  // could be reported as the thing holding everything up — or worse, a BLOCKED
+  // wave could be named as a blocker, answering *blocked by which one* with
+  // another blocked thing.
+
+  const plan = (waves: { name: string; verdict: string; branches: string[] }[]) => ({
+    main: 'main',
+    head: 'abc1234',
+    plans: [{
+      file: '2026-08-20-blocker-fixture.md',
+      phase: 'approved',
+      waves: waves.map((w) => ({
+        name: w.name,
+        verdict: w.verdict,
+        branches: w.branches.map((b) => ({
+          branch: b, state: 'open', deferred: false, claimed: '',
+        })),
+      })),
+    }],
+    summary: { plans: 1, waves: waves.length, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+  }) as never as FleetPulse;
+
+  const rowsOf = (p: FleetPulse) => rowsFromPulse(p, new Map(), 'plot', QUIET);
+
+  it('names the ELIGIBLE wave as the blocker, not merely the first unfinished one', () => {
+    // Both predicates pick this wave, and that agreement is the danger rather
+    // than the reassurance: they agree by an invariant of the SCAN — one
+    // eligible wave per plan, and it is the first non-complete one — which this
+    // file neither states nor owns.
+    const rows = rowsOf(plan([
+      { name: 'Truth', verdict: 'complete', branches: ['feature/a'] },
+      { name: 'Fold', verdict: 'eligible', branches: ['feature/b'] },
+      { name: 'Colour', verdict: 'blocked', branches: ['feature/c'] },
+    ]));
+    const c = rows.find((r) => r.branch === 'feature/c')!;
+    expect(c.blockedBy).toBe('Fold');
+    expect(c.note).toBe('blocked by Fold');
+  });
+
+  it('never names a BLOCKED wave as what a row waits for', () => {
+    // The case the old predicate got wrong, and it got it wrong SILENTLY: with
+    // the eligible wave behind a blocked one, `!== 'complete'` returns the
+    // blocked wave — pointing the reader at something they can do nothing
+    // about, which the comment at the search explicitly forbids.
+    const rows = rowsOf(plan([
+      { name: 'Stalled', verdict: 'blocked', branches: ['feature/a'] },
+      { name: 'Ready', verdict: 'eligible', branches: ['feature/b'] },
+      { name: 'Later', verdict: 'blocked', branches: ['feature/c'] },
+    ]));
+    for (const branch of ['feature/a', 'feature/c']) {
+      const r = rows.find((x) => x.branch === branch)!;
+      expect(r.blockedBy).not.toBe('Stalled');
+      expect(r.blockedBy).not.toBe('Later');
+      expect(r.blockedBy).toBe('Ready');
+    }
+  });
+
+  it('keeps the FIRST eligible wave, never the nearest', () => {
+    // The property the comment at the search defends and this branch must not
+    // lose: a row three waves down is released by its predecessors in order, so
+    // the one a reader can act on is at the FRONT of the queue. A nearest-match
+    // implementation passes the test above and fails this one.
+    const rows = rowsOf(plan([
+      { name: 'One', verdict: 'complete', branches: ['feature/a'] },
+      { name: 'Two', verdict: 'eligible', branches: ['feature/b'] },
+      { name: 'Three', verdict: 'eligible', branches: ['feature/c'] },
+      { name: 'Four', verdict: 'blocked', branches: ['feature/d'] },
+    ]));
+    expect(rows.find((r) => r.branch === 'feature/d')!.blockedBy).toBe('Two');
+  });
+
+  it('falls back to the first unfinished wave where none is eligible', () => {
+    // The case the split opens: every wave blocked, nothing startable. The
+    // front of the queue is still the most useful thing to point at, and the
+    // fallback keeps first-not-nearest there too.
+    const rows = rowsOf(plan([
+      { name: 'Head', verdict: 'blocked', branches: ['feature/a'] },
+      { name: 'Tail', verdict: 'blocked', branches: ['feature/b'] },
+    ]));
+    expect(rows.find((r) => r.branch === 'feature/b')!.blockedBy).toBe('Head');
+  });
+
+  it('a COMPLETE wave does not claim to block', () => {
+    // The plan's headline defect, at the other half of the collapse:
+    // `verdict !== 'eligible'` in `classify` sent `complete` to *blocked by an
+    // earlier wave*, a sentence that is false about a finished wave. The arm is
+    // now named, so the row says which case arrived.
+    const complete = classify('open', 'complete', null, QUIET, null, false, 0, 'approved');
+    expect(complete.verdict).toBe('complete');
+    // No wave that is complete is ever reported as the blocker of a row.
+    const rows = rowsOf(plan([
+      { name: 'Done', verdict: 'complete', branches: ['feature/a'] },
+      { name: 'Now', verdict: 'eligible', branches: ['feature/b'] },
+      { name: 'Next', verdict: 'blocked', branches: ['feature/c'] },
+    ]));
+    for (const r of rows) expect(r.blockedBy).not.toBe('Done');
+  });
+
+  it('leaves an unnamed wave nameless rather than printing an empty blame', () => {
+    // Empty name → null, never "": the property the search already had, kept
+    // across the split. The note then reads the bare sentence, which is still
+    // true.
+    const rows = rowsOf(plan([
+      { name: '', verdict: 'eligible', branches: ['feature/a'] },
+      { name: 'Second', verdict: 'blocked', branches: ['feature/b'] },
+    ]));
+    const b = rows.find((r) => r.branch === 'feature/b')!;
+    expect(b.blockedBy).toBeNull();
+    expect(b.note).toBe('blocked by an earlier wave');
+  });
+});
