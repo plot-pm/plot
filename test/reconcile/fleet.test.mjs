@@ -2342,6 +2342,54 @@ test('fleet: a branch BEHIND the remote reports zero ahead', () => {
   f.cleanup();
 });
 
+test('fleet: a branch with NO local head is not asked, and answers zero', () => {
+  // The population that dominates a real scan: a branch pushed from another
+  // machine, so `origin/<br>` exists but this checkout has no `refs/heads/<br>`.
+  // `local_ahead_of` used to spawn a `rev-list` for it that exited 128 and
+  // answered 0 — one process per absent-head branch to rediscover a zero the
+  // LOCAL_HEADS batch already knows. The gate skips that spawn.
+  //
+  // This asserts the SKIP, not merely the 0: a 0 alone would pass whether the
+  // rev-list ran or not, which is the accident the companion upstream tests
+  // exist to forbid in the other direction. A git-argv shim records the ahead
+  // query's exact range and the assertion is that it was NEVER issued.
+  const f = makeRepo('plot-fleet-nohead-', ONE_WAVE('feature/elsewhere'));
+  f.work('feature/elsewhere', 'e.txt');
+  f.push('-u', 'origin', 'feature/elsewhere');
+  // Delete the LOCAL head, keeping origin/feature/elsewhere — the exact shape of
+  // a branch that only ever lived on someone else's machine.
+  git(f.dir, 'checkout', '-q', 'main');
+  git(f.dir, 'branch', '-D', 'feature/elsewhere');
+
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitshim-nohead-'));
+  const seen = path.join(shim, 'ahead.calls');
+  const realGit = execFileSync('bash', ['-lc', 'command -v git'],
+    { encoding: 'utf8' }).trim();
+  fs.writeFileSync(path.join(shim, 'git'), `#!/usr/bin/env bash
+for a in "$@"; do
+  case "$a" in
+    refs/remotes/origin/feature/elsewhere..refs/heads/feature/elsewhere)
+      printf '%s\\n' "$a" >> ${JSON.stringify(seen)} ;;
+  esac
+done
+exec ${JSON.stringify(realGit)} "$@"
+`);
+  fs.chmodSync(path.join(shim, 'git'), 0o755);
+
+  const out = execFileSync('bash', [scan, '--json'], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PATH: `${shim}:${process.env.PATH}` },
+  });
+  const b = JSON.parse(out).plans[0].waves[0].branches
+    .find((x) => x.branch === 'feature/elsewhere');
+  assert.equal(b.local_ahead, 0,
+    'a branch with no local head has no local work to hide — it answers 0');
+  assert.equal(fs.existsSync(seen), false,
+    'and it answers 0 WITHOUT spawning the ahead query — the skip is the point');
+  fs.rmSync(shim, { recursive: true, force: true });
+  f.cleanup();
+});
+
 test('fleet: unpushed commits make no host call, and are not capped', () => {
   // Two properties in one fixture, exactly as the worktree signal pins them.
   //
@@ -2765,17 +2813,23 @@ test('fleet: the batched git reads stay constant as branches grow', () => {
   // were 68 of them, ~31 s in a single call site against a 30 s budget.
   //
   // WHAT THIS TEST DELIBERATELY DOES NOT CLAIM. A per-branch tail remains and
-  // is untouched by the batching — measured at 6 vs 14 branches:
+  // is untouched by the ref/tree/plan batching — measured at 6 vs 14 branches:
   //
-  //   diff 12 → 28   rev-list 12 → 28   merge-base 6 → 14
-  //   merge-tree 6 → 14   log 7 → 15
+  //   diff 12 → 28   rev-list 12 → 28   merge-tree 6 → 14   log 7 → 15
   //
-  // Seven spawns per branch, linear in the branch count. They are individually
-  // cheap — removing 251 expensive calls bought 236 s while these 378 on the
-  // real repo cost almost seconds — so the tail is survivable, and it is the
-  // NEXT ceiling rather than this one. An earlier version of this test asserted
-  // "at most one new spawn per branch" and failed against its own fix, because
-  // it asserted a change nobody had made. The bound below is the measured one.
+  // `merge-base` was in this list (6 → 14) until the-scan-walks-history-in-one-call
+  // removed it: `branch_state` asked `merge-base --is-ancestor` per `wip` branch
+  // to re-derive a fact the `ahead` count already held — a branch `ahead > 0`
+  // cannot be an ancestor of main — so the call fired once per branch and could
+  // never change a verdict. It is now asserted CONSTANT below alongside the
+  // batched reads, because "0 → 0" is the shape a reintroduction would break.
+  //
+  // Six spawns per branch remain, linear in the branch count. They are
+  // individually cheap — removing 251 expensive calls bought 236 s while these
+  // on the real repo cost almost seconds — so the tail is survivable, and it is
+  // the NEXT ceiling rather than this one. An earlier version of this test
+  // asserted "at most one new spawn per branch" and failed against its own fix,
+  // because it asserted a change nobody had made. The bound below is measured.
   const small = makeInFlightRepo('plot-fleet-spawn-small-', 6);
   const large = makeInFlightRepo('plot-fleet-spawn-large-', 14);
 
@@ -2785,13 +2839,18 @@ test('fleet: the batched git reads stay constant as branches grow', () => {
   const subs = [...new Set([...s.ops, ...l.ops])].sort();
   const deltas = subs.map((x) => `${x}:${s.count(x)}→${l.count(x)}`).join(' ');
 
-  // THE INVARIANT: the batched reads are asked a FIXED number of times whatever
-  // the branch count. Each of these regressing to per-branch is the specific
-  // defect this change removed, and the one a future refactor could reintroduce
-  // with every verdict still correct and nothing but the clock to report it.
-  for (const sub of ['for-each-ref', 'show-ref', 'ls-tree', 'show', 'cat-file']) {
+  // THE INVARIANT: these reads are asked a FIXED number of times whatever the
+  // branch count. Each regressing to per-branch is the specific defect this
+  // change removed, and the one a future refactor could reintroduce with every
+  // verdict still correct and nothing but the clock to report it. `merge-base`
+  // joins the batched reads not because it was batched but because it was
+  // DELETED: it must stay constant (0 → 0) the way they stay batched, and a
+  // reappearing per-`wip`-branch `merge-base` is exactly the regression the
+  // removal guards against.
+  for (const sub of ['for-each-ref', 'show-ref', 'ls-tree', 'show', 'cat-file',
+                     'merge-base']) {
     assert.equal(l.count(sub), s.count(sub),
-      `\`git ${sub}\` must cost the same at 6 and 14 branches — it is batched.\n` +
+      `\`git ${sub}\` must cost the same at 6 and 14 branches.\n` +
       `deltas: ${deltas}`);
   }
 
