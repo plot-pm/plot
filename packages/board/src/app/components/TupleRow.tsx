@@ -114,6 +114,12 @@ export const MARKS_CELL =
  */
 function valueAttr(link: TupleLink): Record<string, string> {
   if (link.what === 'branch') return { 'data-branch': link.label };
+  // `wave` qualifies on the same test `branch` does: every `what: 'wave'` link
+  // is a wave, on every kind, with no second thing wearing the value. Today it
+  // has one producer — the wave a blocked wave waits on — and the hook is what
+  // lets a test assert *the blocker is a REFERENCE* rather than matching the
+  // sentence `blocked by Relocated` that this replaced.
+  if (link.what === 'wave') return { 'data-wave-link': link.label };
   // ONLY `branch`, and the omission of `ticket` is deliberate rather than an
   // oversight. `what: 'ticket'` is worn by TWO different things — an issue's
   // number-and-title, and an AGENT's session id — so a hook keyed on it would
@@ -208,12 +214,34 @@ export function TupleLinkView({
   const label = (
     <>
       {showWhat && (
-        <span
+        // THE ICON SAYS WHAT IT POINTS AT, where a 10px uppercase word used to.
+        //
+        // `link.what` is `plan | branch | pr | ticket` — and every one of those
+        // is a `RowKind` with a glyph in `KIND_ICON_PATH` already. So slot 4
+        // borrows the vocabulary slot 3 established rather than keeping a second
+        // one: a reader who learns the fork means *branch* learns it ONCE and
+        // reads it in both columns. `BRANCH` the word and the fork the glyph were
+        // two spellings of one fact, and the word was the one costing a reader
+        // horizontal space on every link of every row.
+        //
+        // `data-tuple-what` is the hook, replacing an assertion on the rendered
+        // word. The TITLE keeps the word, because that is the channel a glyph
+        // cannot be the only carrier of — the same argument slot 2 wins with:
+        // recognition must not DEPEND on decoding a symbol. Slot 2 states the
+        // row's own kind in a word regardless, so the row is never iconography
+        // alone.
+        <svg
           aria-hidden
-          className="shrink-0 text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500"
+          data-tuple-what={link.what}
+          viewBox="0 0 16 16"
+          width="12"
+          height="12"
+          fill="currentColor"
+          className="shrink-0 self-center text-slate-400 dark:text-slate-500"
         >
-          {link.what}
-        </span>
+          <title>{link.what}</title>
+          <path d={KIND_ICON_PATH[link.what]} />
+        </svg>
       )}
       {link.what === 'branch' ? <BranchLabel name={link.label} /> : (
         <span className="min-w-0 truncate">{link.label}</span>

@@ -12,6 +12,7 @@ import {
   tupleFromIssue,
   tupleFromPlan,
   tupleFromRow,
+  tupleFromWave,
 } from '../../src/app/lib/tuple-row.js';
 import {
   AgentRowSchema, IssueRowSchema, RowKindSchema,
@@ -42,14 +43,19 @@ const issue = (over: Partial<IssueRow> = {}): IssueRow => IssueRowSchema.parse({
   url: 'https://host/issues/228', ageMinutes: 1440, ...over,
 });
 
-describe('the contract carries all seven kinds', () => {
-  it('names exactly the seven, and no eighth', () => {
-    // The SHAPE rather than an inventory of what exists: four of the seven have
-    // no row today and are named anyway, because a shape that admits only
-    // today's kinds has to be reopened for each new one — which is how this
-    // board arrived at three row components and two grids.
+describe('the contract carries all eight kinds', () => {
+  it('names exactly the eight, and no ninth', () => {
+    // The SHAPE rather than an inventory of what exists: four of the seven had
+    // no row when this was written and were named anyway, because a shape that
+    // admits only today's kinds has to be reopened for each new one — which is
+    // how this board arrived at three row components and two grids.
+    //
+    // `wave` is the eighth, added 2026-08-20, and it is the case that proves the
+    // gate: adding the enum member failed THIS test, both projection loops
+    // below, and the `Record<RowKind, …>` icon and label tables — so a kind
+    // cannot arrive without a word, a glyph and a projection.
     expect([...RowKindSchema.options].sort()).toEqual(
-      ['agent', 'branch', 'build', 'plan', 'pr', 'release', 'ticket']);
+      ['agent', 'branch', 'build', 'plan', 'pr', 'release', 'ticket', 'wave']);
   });
 
   it('gives every kind a word and a glyph', () => {
@@ -494,6 +500,12 @@ describe('every kind fills all six slots', () => {
       branchUrl: 'https://host/tree/changeset-release/main', ageMinutes: 12,
       pr: { number: 300, url: 'https://host/pr/300', draft: false, state: 'none' },
     })),
+    wave: () => tupleFromWave({
+      name: 'Shaped', plan: 'a-plan', verdict: 'eligible',
+      blockedBy: null, outstanding: 1,
+      branches: [{ branch: 'feature/x', branchUrl: 'https://host/tree/feature/x' }],
+      ageMinutes: 1440, waitingDays: 1,
+    }),
   };
 
   for (const kind of RowKindSchema.options) {
@@ -532,6 +544,144 @@ describe('every kind fills all six slots', () => {
       }
       expect(PHASES, `${kind} wears a plan phase in slot 5`).not.toContain(t.status);
     }
+  });
+
+  it('names the WAVE and links its branches, unprefixed by any plan', () => {
+    // THE FIVE DEFECTS FROM ONE FRAME, pinned together — measured on the mock
+    // 2026-08-20, where a three-wave plan rendered four rows all labelled
+    // `PLAN`, each naming its BRANCH, each linking
+    // `PLAN fleet-scan-asks-the-host` directly beneath the plan row heading
+    // them, each showing `open` where the scan had computed the verdict.
+    const t = tupleFromWave({
+      name: 'Shaped', plan: 'fleet-scan-asks-the-host', verdict: 'eligible',
+      branches: [{ branch: 'feature/the-scan-asks-once', branchUrl: 'https://host/tree/x' }],
+      ageMinutes: 1440, waitingDays: 1,
+    });
+    expect(t.kindLabel).toBe('Wave');                 // not `Plan`
+    expect(t.name.label).toBe('Shaped');              // the wave, not the branch
+    // NO PLAN LINK. Containment needs no prefix AND no link — the row the wave
+    // sits under IS the link, and a `PLAN x` label on a row nested under `x`
+    // says the same thing twice.
+    expect(t.links.map((l) => l.what)).toEqual(['branch']);
+    expect(t.links[0].label).toBe('feature/the-scan-asks-once');
+    expect(t.status).toBe('eligible');                // the verdict, not `open`
+  });
+
+  it('links every branch a wave holds', () => {
+    // Slot 4 is zero-or-more, and the wave is the kind that uses its upper end:
+    // `opus5-longhorizon-hardening :: Implementation` holds five.
+    const t = tupleFromWave({
+      name: 'Implementation', plan: 'opus5-longhorizon-hardening', verdict: 'blocked',
+      blockedBy: 'Tracer', outstanding: 5,
+      branches: Array.from({ length: 5 }, (_, i) => ({
+        branch: `feature/opus5-hardening-${i}`, branchUrl: `https://host/tree/${i}`,
+      })),
+      ageMinutes: null, waitingDays: 25,
+    });
+    // FIVE links, and ONLY the branches. Slot 4 holds what the wave contains;
+    // the blocker it waits on points the other way and renders beside the NAME.
+    expect(t.links).toHaveLength(5);
+    expect(t.links.every((l) => l.what === 'branch')).toBe(true);
+    // THE VERDICT AND ITS OWN COUNT. `blocked` alone does not say how much is
+    // left, and the five branches are folded out of sight.
+    expect(t.status).toBe('blocked · 5 left');
+  });
+
+  it('splits `blocked by Relocated — 1 outstanding` into its three facts', () => {
+    // THE SENTENCE, DECOMPOSED — and the operator's own decomposition:
+    // *"blocked ist der status, by Relocated die reference (als Link),
+    // — 1 outstanding an die WAVE Zeile"*.
+    //
+    // `blockedNote()` composed all three into prose and printed it in the note
+    // column, one line below the very row it named. Each has a slot:
+    const t = tupleFromWave({
+      name: 'Moved', plan: 'a-plan', verdict: 'blocked',
+      blockedBy: 'Relocated', outstanding: 1,
+      branches: [{ branch: 'bug/the-old-column-goes', branchUrl: 'https://host/tree/x' }],
+      ageMinutes: 1440, waitingDays: 1,
+    });
+    // `blocked` — the verdict, in slot 5. One branch left, so no count: the
+    // single branch link in slot 4 already shows what remains.
+    expect(t.status).toBe('blocked');
+    // `by Relocated` — a REFERENCE, and it is NOT in slot 4. Slot 4 holds what
+    // the wave contains; the blocker renders as an INFO MARK beside the status
+    // in slot 5, which the row component owns. Beside the name was tried and
+    // measured: the blocker text truncated `Relocated` to `R…` and `Moved` to
+    // `M`, so the row lost the one thing it exists to say.
+    // So slot 4 carries the branches and nothing else.
+    expect(t.links.map((l) => l.label)).toEqual(['bug/the-old-column-goes']);
+    expect(t.links.every((l) => l.what === 'branch')).toBe(true);
+  });
+
+  it('puts the outstanding count on the wave it counts, not on the one waiting', () => {
+    // `— 1 outstanding` counted the BLOCKER's unfinished branches and printed
+    // them on the row that WAITED. So a wave holding three others back printed
+    // its count three times, each time describing a row the reader had to find
+    // by name. On its own row it is stated once, and only where it says
+    // something a folded link does not.
+    const two = tupleFromWave({
+      name: 'Relocated', plan: 'a-plan', verdict: 'blocked',
+      blockedBy: null, outstanding: 2,
+      branches: [], ageMinutes: 60, waitingDays: null,
+    });
+    expect(two.status).toBe('blocked · 2 left');
+    const one = tupleFromWave({
+      name: 'Relocated', plan: 'a-plan', verdict: 'blocked',
+      blockedBy: null, outstanding: 1,
+      branches: [], ageMinutes: 60, waitingDays: null,
+    });
+    expect(one.status).toBe('blocked');
+  });
+
+  it('renders a nameless wave as text rather than hiding it', () => {
+    // Six of this estate's 71 waves have no name, all in plans written before
+    // the convention. Refusing to render them would make six real waves
+    // invisible to punish six old plan files — and the board is not where an
+    // authoring convention is enforced.
+    const t = tupleFromWave({
+      name: '', plan: 'a-blocked-wave-is-not-eligible', verdict: 'complete',
+      blockedBy: null, outstanding: null,
+      branches: [], ageMinutes: 60, waitingDays: null,
+    });
+    expect(t.name.label).toBe('(unnamed)');
+    expect(t.name.href).toBe('');
+  });
+
+  it('never links a wave name, because a wave has no page', () => {
+    // A wave is a HEADING inside a plan file. Linking it to the plan would make
+    // three sibling waves three links to one document — which is the same
+    // repetition the missing plan prefix removes.
+    const t = tupleFromWave({
+      name: 'Shaped', plan: 'a-plan', verdict: 'eligible',
+      blockedBy: null, outstanding: null,
+      branches: [], ageMinutes: 60, waitingDays: null,
+    });
+    expect(t.name.href).toBe('');
+  });
+
+  it('says nothing in slot 5 where the scan reported no verdict', () => {
+    // The rule `prStatus` states for `unknown`: a row printing its own ignorance
+    // in a column a reader scans has said nothing. Absent renders as absent —
+    // and never as `open`, which is a fact about a BRANCH.
+    const t = tupleFromWave({
+      name: 'Shaped', plan: 'a-plan', verdict: null,
+      blockedBy: null, outstanding: null,
+      branches: [], ageMinutes: 60, waitingDays: null,
+    });
+    expect(t.status).toBe('');
+  });
+
+  it('falls back to the plan approval clock, labelled, where no branch has a tip', () => {
+    // A wave has no tip of its own, so its clock is the clock of the work in it.
+    // Where none of its branches has moved, the plan's approval clock is the only
+    // one running — and it wears its label, like every other exception to
+    // *since last change*.
+    const t = tupleFromWave({
+      name: 'Relocated', plan: 'a-plan', verdict: 'blocked',
+      blockedBy: null, outstanding: null,
+      branches: [], ageMinutes: null, waitingDays: 3,
+    });
+    expect(t.age).toEqual({ text: '3d', label: 'waiting' });
   });
 
   it('points a build BACK at its PR where a ticket points FORWARD at its plan', () => {

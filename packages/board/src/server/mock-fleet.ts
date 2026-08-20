@@ -54,8 +54,16 @@ export function mockFleet(): Fleet {
     // that matter: does the grouping read as a set, and does a blocked wave say
     // what it waits on. Their verdicts are the three the scan emits —
     // `eligible`, `blocked`, `complete` — so the mock shows all of them.
+    //
+    // `kind: 'branch'`, and these carried `kind: 'plan'` until the wave row
+    // existed. It read correctly while a not-started row STOOD FOR its plan;
+    // once the wave row took that job these became the branches inside a wave's
+    // fold and rendered `Kind: Plan` two levels deep. The mock was wrong the
+    // whole time and nothing could see it: `rowKind` returns only `release`,
+    // `branch` or `pr` — never `plan` — so no real pulse has ever carried a
+    // `kind: 'plan'` row. A mock is only worth what its fidelity is.
     row({
-      kind: 'plan', group: 'not-started',
+      kind: 'branch', group: 'not-started',
       plan: 'fleet-scan-asks-the-host',
       planFile: 'docs/plans/2026-08-20-fleet-scan-asks-the-host.md',
       phase: 'Design', wave: 'Shaped', waitingDays: 1, ageMinutes: 1440,
@@ -65,23 +73,38 @@ export function mockFleet(): Fleet {
       note: 'approved — nobody has taken it',
     }),
     row({
-      kind: 'plan', group: 'not-started',
+      kind: 'branch', group: 'not-started',
       plan: 'fleet-scan-asks-the-host',
       planFile: 'docs/plans/2026-08-20-fleet-scan-asks-the-host.md',
       phase: 'Design', wave: 'Relocated', waitingDays: 1, ageMinutes: 1440,
       branch: 'feature/the-wave-finds-its-owner',
       branchUrl: 'https://example.invalid/tree/feature/the-wave-finds-its-owner',
-      verdict: 'blocked',
+      verdict: 'blocked', blockedBy: 'Shaped',
       note: 'blocked by Shaped — 1 outstanding',
     }),
+    // A MULTI-BRANCH WAVE, because it is the case the estate has exactly one of
+    // (`opus5-longhorizon-hardening :: Implementation`, five branches, blocked)
+    // and the only one that exercises the wave's own fold. Two branches under
+    // one wave name: the wave row states `blocked` once and discloses both,
+    // where three separate rows would have said `blocked` three times.
     row({
-      kind: 'plan', group: 'not-started',
+      kind: 'branch', group: 'not-started',
       plan: 'fleet-scan-asks-the-host',
       planFile: 'docs/plans/2026-08-20-fleet-scan-asks-the-host.md',
       phase: 'Design', wave: 'Moved', waitingDays: 1, ageMinutes: 1440,
       branch: 'bug/the-old-column-goes',
       branchUrl: 'https://example.invalid/tree/bug/the-old-column-goes',
-      verdict: 'blocked',
+      verdict: 'blocked', blockedBy: 'Relocated',
+      note: 'blocked by Relocated — 1 outstanding',
+    }),
+    row({
+      kind: 'branch', group: 'not-started',
+      plan: 'fleet-scan-asks-the-host',
+      planFile: 'docs/plans/2026-08-20-fleet-scan-asks-the-host.md',
+      phase: 'Design', wave: 'Moved', waitingDays: 1, ageMinutes: 1440,
+      branch: 'bug/the-badge-goes-too',
+      branchUrl: 'https://example.invalid/tree/bug/the-badge-goes-too',
+      verdict: 'blocked', blockedBy: 'Relocated',
       note: 'blocked by Relocated — 1 outstanding',
     }),
     row({
@@ -149,7 +172,7 @@ export function mockFleet(): Fleet {
     // rather than left at zero — a summary that disagreed with what is rendered
     // is the shape of defect this board keeps finding.
     summary: {
-      plans: 4, waves: 6, branches: rows.length,
+      plans: 4, waves: 8, branches: rows.length,
       claimed: 1, eligible: 1, blocked: 0, deferred: 0,
     },
     stuck: { stuck: 0, artifact: 0, conflict: 1, unpushed: 0, ci: 0 },

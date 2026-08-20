@@ -7,6 +7,7 @@ import {
   showsWaveFold,
   groupByPlan,
   type PlanGroup,
+  groupByWave,
 } from '../../src/app/components/AgentList.js';
 import { ELIGIBLE_NOTE, type AgentRow } from '../../src/contract/schema.js';
 
@@ -182,10 +183,16 @@ describe('sortByWaiting — oldest plan first', () => {
 describe('waveSummaryFor — counted from the group\'s own rows', () => {
   it('names how many waves remain and that the first is eligible', () => {
     // `activity-shows-itself`, the plan that printed three identical rows.
+    // THREE DISTINCT WAVES, and the `wave` field is what makes them three.
+    // These rows carried three branch names and ONE wave (`w`, the fixture
+    // default) until 2026-08-20, and counted as three while the count was of
+    // ROWS. It is now of waves, so the fixture has to say what it means — a plan
+    // with three branches in one wave is one wave, which is the reading
+    // `groupByWave` enforces and the one the estate's five-branch wave needs.
     const group = groupOf(
-      row({ plan: 'activity-shows-itself', branch: 'feature/activity-marker-glows', note: ELIGIBLE_NOTE }),
-      row({ plan: 'activity-shows-itself', branch: 'feature/group-shows-inner-activity', waitingOn: 'time', note: 'blocked by Truth' }),
-      row({ plan: 'activity-shows-itself', branch: 'feature/unpushed-work-shows-still', waitingOn: 'time', note: 'blocked by Truth' }),
+      row({ plan: 'activity-shows-itself', wave: 'Shaped', branch: 'feature/activity-marker-glows', note: ELIGIBLE_NOTE }),
+      row({ plan: 'activity-shows-itself', wave: 'Marked', branch: 'feature/group-shows-inner-activity', waitingOn: 'time', note: 'blocked by Truth' }),
+      row({ plan: 'activity-shows-itself', wave: 'Moved', branch: 'feature/unpushed-work-shows-still', waitingOn: 'time', note: 'blocked by Truth' }),
     );
     expect(waveSummaryFor(group)).toBe('3 waves, first eligible');
   });
@@ -194,8 +201,8 @@ describe('waveSummaryFor — counted from the group\'s own rows', () => {
     // The summary must not promise an action the row menu then refuses — it
     // reads `isStartable`, the same predicate the menu does.
     const group = groupOf(
-      row({ branch: 'a', waitingOn: 'time', note: 'blocked by Truth' }),
-      row({ branch: 'b', waitingOn: 'time', note: 'blocked by Truth' }),
+      row({ wave: 'Marked', branch: 'a', waitingOn: 'time', note: 'blocked by Truth' }),
+      row({ wave: 'Moved', branch: 'b', waitingOn: 'time', note: 'blocked by Truth' }),
     );
     expect(waveSummaryFor(group)).toBe('2 waves');
   });
@@ -210,8 +217,8 @@ describe('waveSummaryFor — counted from the group\'s own rows', () => {
     // where the plan file lists three. That is the honest number for the
     // question the section asks, and the plan link carries the full arc.
     const group = groupOf(
-      row({ plan: 'partly-done', branch: 'wave-2' }),
-      row({ plan: 'partly-done', branch: 'wave-3' }),
+      row({ plan: 'partly-done', wave: 'Second', branch: 'wave-2' }),
+      row({ plan: 'partly-done', wave: 'Third', branch: 'wave-3' }),
     );
     expect(waveSummaryFor(group)).toBe('2 waves, first eligible');
   });
@@ -221,8 +228,8 @@ describe('waveSummaryFor — counted from the group\'s own rows', () => {
     // would describe it twice and in the wrong terms: not a wave nobody reached,
     // a branch somebody set down.
     const group = groupOf(
-      row({ branch: 'never-begun' }),
-      row({ branch: 'shelved', state: 'deferred', ageMinutes: 400, note: 'last commit 6h ago' }),
+      row({ wave: 'Shaped', branch: 'never-begun' }),
+      row({ wave: 'Shelved', branch: 'shelved', state: 'deferred', ageMinutes: 400, note: 'last commit 6h ago' }),
     );
     expect(waveSummaryFor(group)).toBe('1 wave, first eligible');
   });
@@ -237,7 +244,7 @@ describe('waveSummaryFor — counted from the group\'s own rows', () => {
     // `waveSummary` on the schema lives on the CARD; a fleet row knows only its
     // own wave. The group already HOLDS every row of the plan, so the count is
     // derived — this pins that the summary reads nothing a row does not carry.
-    const group = groupOf(row(), row({ branch: 'b' }));
+    const group = groupOf(row({ wave: 'Shaped' }), row({ wave: 'Moved', branch: 'b' }));
     const fields = new Set(Object.keys(group.rows[0]));
     expect(fields.has('waveSummary')).toBe(false);
     expect(waveSummaryFor(group)).toBe('2 waves, first eligible');
@@ -246,8 +253,11 @@ describe('waveSummaryFor — counted from the group\'s own rows', () => {
 
 describe('showsWaveFold — an expander only where it reveals something', () => {
   it('gives a plan with three unstarted waves a fold', () => {
-    expect(showsWaveFold(groupOf(row({ branch: 'a' }), row({ branch: 'b' }), row({ branch: 'c' }))))
-      .toBe(true);
+    expect(showsWaveFold(groupOf(
+      row({ wave: 'Shaped', branch: 'a' }),
+      row({ wave: 'Marked', branch: 'b' }),
+      row({ wave: 'Moved', branch: 'c' }),
+    ))).toBe(true);
   });
 
   it('gives a plan with ONE unstarted wave none', () => {
@@ -256,13 +266,96 @@ describe('showsWaveFold — an expander only where it reveals something', () => 
     expect(showsWaveFold(groupOf(row()))).toBe(false);
   });
 
-  it('gives a fold to one unstarted wave beside a deferred branch', () => {
+  it('gives a plan with three branches in ONE wave none', () => {
+    // COUNTED IN WAVES, and this is the case the row count got wrong. NOT
+    // STARTED renders one row per WAVE, so a plan whose single wave holds three
+    // branches has three rows and ONE child row — a fold here promised three and
+    // would reveal one. The three branches are disclosed by the WAVE's own fold,
+    // one level down.
+    //
+    // Real: `opus5-longhorizon-hardening :: Implementation` holds five branches.
+    expect(showsWaveFold(groupOf(
+      row({ wave: 'Implementation', branch: 'a' }),
+      row({ wave: 'Implementation', branch: 'b' }),
+      row({ wave: 'Implementation', branch: 'c' }),
+    ))).toBe(false);
+  });
+
+  it('gives a fold to one unstarted wave beside a deferred branch in another', () => {
     // Two rows to show, and the deferred one carries a PR and an age that appear
     // nowhere else — counting only the unbegun rows would hide it behind no
     // control at all.
+    //
+    // TWO WAVES, and the fixture now says so. A deferred branch sharing a wave
+    // with an unbegun one is a different case, pinned below: the wave row is one
+    // row, and the deferred branch's PR and age are reached through the WAVE's
+    // fold rather than the plan's. Either way it stays reachable, which is the
+    // property this test defends.
     expect(showsWaveFold(groupOf(
-      row({ branch: 'never-begun' }),
-      row({ branch: 'shelved', state: 'deferred', ageMinutes: 400 }),
+      row({ wave: 'Shaped', branch: 'never-begun' }),
+      row({ wave: 'Shelved', branch: 'shelved', state: 'deferred', ageMinutes: 400 }),
     ))).toBe(true);
+  });
+});
+
+describe('groupByWave — a wave has branches, not the other way round', () => {
+  it('gives a wave holding three branches ONE group', () => {
+    const groups = groupByWave([
+      row({ wave: 'Implementation', branch: 'a' }),
+      row({ wave: 'Implementation', branch: 'b' }),
+      row({ wave: 'Implementation', branch: 'c' }),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].wave).toBe('Implementation');
+    expect(groups[0].rows).toHaveLength(3);
+  });
+
+  it('keeps the arrival order rather than sorting', () => {
+    // `groupByPlan` spends twenty lines on why ties must not be left to arrival
+    // order — the rows of one pulse share an age and the input is rebuilt every
+    // four seconds. This function does not sort at all: a Map yields groups in
+    // first-appearance order, which IS the age order they came in. Sorting here
+    // would reintroduce that flicker one level down, and the wave sequence is the
+    // plan file's order rather than something to recompute.
+    const groups = groupByWave([
+      row({ wave: 'Shaped', branch: 'a' }),
+      row({ wave: 'Marked', branch: 'b' }),
+      row({ wave: 'Moved', branch: 'c' }),
+    ]);
+    expect(groups.map((g) => g.wave)).toEqual(['Shaped', 'Marked', 'Moved']);
+  });
+
+  it('takes the verdict from the first row that carries one', () => {
+    // Every branch of a wave receives the same `wave.verdict` from the server,
+    // so any of them answers. Taking the first NON-NULL rather than the first
+    // row means a five-branch wave still reports its verdict where one row's is
+    // absent.
+    const groups = groupByWave([
+      row({ wave: 'Implementation', branch: 'a', verdict: null }),
+      row({ wave: 'Implementation', branch: 'b', verdict: 'blocked' }),
+    ]);
+    expect(groups[0].verdict).toBe('blocked');
+  });
+
+  it('groups an unnamed wave rather than dropping it', () => {
+    // Six of this estate's 71 waves have no name — all in plans written before
+    // the naming convention. A board that dropped them would make six real waves
+    // invisible to punish six old plan files.
+    const groups = groupByWave([row({ wave: '', branch: 'a' })]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].wave).toBe('');
+  });
+
+  it('keeps a deferred branch reachable when it shares a wave with an unbegun one', () => {
+    // The pairing `showsWaveFold` defends, in the case where one wave holds
+    // both. The plan-level fold is gone (one wave), so the WAVE's fold is what
+    // discloses them — and it exists, because the wave holds two rows. The
+    // deferred branch's PR and age are one click further in, never lost.
+    const groups = groupByWave([
+      row({ wave: 'Shaped', branch: 'never-begun' }),
+      row({ wave: 'Shaped', branch: 'shelved', state: 'deferred', ageMinutes: 400 }),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].rows.map((r) => r.branch)).toEqual(['never-begun', 'shelved']);
   });
 });

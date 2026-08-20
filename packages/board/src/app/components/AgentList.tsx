@@ -12,6 +12,7 @@ import {
   type Stuck,
   type StuckState,
   type WaitingGroup,
+  type WaveVerdict,
 } from '../../contract/schema.js';
 import { ApproveButton } from './ApproveButton.js';
 import { CommissionDesignButton } from './CommissionDesignButton.js';
@@ -43,7 +44,7 @@ import { agoLabel } from './AgentPanelFacts.js';
 // slots are answered once, in `tuple-row.ts`, for every kind. So a new kind
 // costs a projection and no rendering at all, which is what the deleted three
 // could never do.
-import { splitBranch, tupleFromIssue, tupleFromPlan, tupleFromRow } from '../lib/tuple-row.js';
+import { splitBranch, tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave } from '../lib/tuple-row.js';
 // RE-EXPORTED, not redefined. `splitBranch` moved to the module that owns the
 // slot rules when the collapse deleted `BranchName`; the unit suite imports it
 // from here, and a second definition is exactly the drift this wave removed.
@@ -716,6 +717,73 @@ export function groupByPlan(rows: AgentRow[]): PlanGroup[] {
   });
 }
 
+/** One wave's rows within a plan group, in the order they arrived. */
+export interface WaveGroup {
+  /** The wave's name as the plan file gave it, or "" where it named none. */
+  wave: string;
+  /** The scan's verdict for this wave, or null where no row carried one. */
+  verdict: WaveVerdict | null;
+  /**
+   * The wave holding this one back, by name — from `row.blockedBy`, which the
+   * server has populated all along while the board rendered the same fact as
+   * the sentence `blocked by Relocated — 1 outstanding`.
+   */
+  blockedBy: string | null;
+  rows: AgentRow[];
+}
+
+/**
+ * Split one plan group's rows by wave.
+ *
+ * **A wave has branches, so the branches of one wave are one row's worth of
+ * thing.** Measured on `last-pulse.json` 2026-08-20 — 35 plans, 71 waves — the
+ * distribution is 57 waves of one branch, 8 of two, 3 of three, 1 of four and 2
+ * of five. So the multi-branch wave is real and this cannot assume one-to-one.
+ *
+ * The sharper number is the intersection with the verdict: of the 14
+ * multi-branch waves, **13 are `complete` and 1 is `blocked`**, and all 11
+ * `eligible` waves hold exactly one branch. Across the 21 UNFINISHED waves the
+ * split is 20 × one branch and 1 × five. That is not luck — a wave becomes
+ * eligible when its predecessor completes and dispatch claims its branches at
+ * once, so a wave is found with many branches either before anything reached it
+ * or after everything finished. **One row is the common case; the fold is the
+ * exception.**
+ *
+ * **INSERTION ORDER IS THE ORDER, and that is load-bearing.** `groupByPlan`
+ * spends twenty lines on why it must not leave ties to arrival order: the rows
+ * of one pulse share an age, `sort` is stable, and it faithfully preserves an
+ * input rebuilt from a fresh scan every four seconds. This function does not
+ * sort at all — a `Map` keyed on the wave name yields groups in first-appearance
+ * order, which IS the age order the rows arrived in. Sorting here would
+ * reintroduce that flicker one level down, and the wave sequence
+ * (*Shaped* before *Relocated*) is the plan file's order, not something to
+ * recompute.
+ *
+ * The verdict is taken from the FIRST row that carries one. Every branch of a
+ * wave receives the same `wave.verdict` from the server (`fleet.ts`), so any of
+ * them answers; taking the first non-null rather than the first row means a
+ * five-branch wave still reports its verdict when one row's is absent.
+ *
+ * Exported for test — the multi-branch wave is the case an implementation
+ * assuming one-to-one gets wrong while passing every single-branch assertion.
+ */
+export function groupByWave(rows: AgentRow[]): WaveGroup[] {
+  const groups = new Map<string, WaveGroup>();
+  for (const row of rows) {
+    const existing = groups.get(row.wave);
+    if (existing) {
+      existing.rows.push(row);
+      existing.verdict ??= row.verdict;
+      existing.blockedBy ??= row.blockedBy;
+    } else {
+      groups.set(row.wave, {
+        wave: row.wave, verdict: row.verdict, blockedBy: row.blockedBy, rows: [row],
+      });
+    }
+  }
+  return [...groups.values()];
+}
+
 /**
  * The wave name to print BESIDE A BRANCH NAME, or null to print none.
  *
@@ -1003,7 +1071,13 @@ export function sortByWaiting(groups: PlanGroup[]): PlanGroup[] {
 export function waveSummaryFor(group: PlanGroup): string {
   const unbegun = group.rows.filter(isUnbegun);
   if (unbegun.length === 0) return '';
-  const waves = `${unbegun.length} wave${unbegun.length === 1 ? '' : 's'}`;
+  // COUNTED IN WAVES, and it used to count ROWS while calling them waves. A
+  // one-wave plan holding five branches reported `5 waves`; the plan file lists
+  // one. The name of the unit was right and the number was of something else —
+  // exactly the confusion this wave exists to end, and it was in the summary
+  // whose job is to state the count.
+  const count = groupByWave(unbegun).length;
+  const waves = `${count} wave${count === 1 ? '' : 's'}`;
   return unbegun.some(isStartable) ? `${waves}, first eligible` : waves;
 }
 
@@ -1024,7 +1098,14 @@ export function waveSummaryFor(group: PlanGroup): string {
  * renders the expander gets wrong while passing every assertion about folding.
  */
 export function showsWaveFold(group: PlanGroup): boolean {
-  return group.rows.length > 1;
+  // COUNTED IN WAVES, not in rows — since NOT STARTED renders one row per WAVE
+  // rather than one per branch. A plan whose single wave holds five branches has
+  // five rows and ONE child row, so the row count promised a fold that revealed
+  // one line; and the wave's own fold is what discloses those five.
+  //
+  // Measured on the estate: `opus5-longhorizon-hardening :: Implementation`
+  // holds five branches, and it is the plan this got wrong.
+  return groupByWave(group.rows).length > 1;
 }
 
 /**
@@ -4095,6 +4176,209 @@ function PlanRow({
 }
 
 /**
+ * A WAVE, as a tuple — the eighth kind, and the row this section was missing.
+ *
+ * ## What it replaces
+ *
+ * Rendered on the mock 2026-08-20, a three-wave plan produced four rows all
+ * labelled `PLAN`. Each of the three beneath the plan named its BRANCH in slot
+ * 3, carried the wave name as a trailing badge, linked
+ * `PLAN fleet-scan-asks-the-host` in slot 4 — directly beneath the plan row
+ * heading them — showed `open` in slot 5 where the scan had computed
+ * `eligible`, `blocked`, `blocked`, and spelled `blocked by Shaped — 1
+ * outstanding` in prose one line below the `Shaped` row itself.
+ *
+ * Five defects, one cause: **a first-class entity rendered as an adjective on
+ * something else, and its status rendered as prose because it had no column.**
+ *
+ * ## The fold is the exception here, unlike on a plan
+ *
+ * A wave holding ONE branch renders one row and no fold — the branch is its
+ * artifact link and there is nothing hidden. Measured over the estate that is
+ * 20 of 21 unfinished waves, so it is the common case and not an edge. A wave
+ * holding several gets the disclosure, with its branches beneath.
+ *
+ * `showsWaveFold` on the plan row asks the same question one level up and
+ * answers it from a row count; this asks it of a wave's branches. Both are
+ * *does opening this reveal anything*, and neither renders a control over a
+ * single row the reader can already see.
+ */
+function WaveRow({
+  group,
+  plan,
+  waitingDays,
+  expanded,
+  onToggle,
+  active,
+}: {
+  group: WaveGroup;
+  /** The plan this wave slices — for the row's test hook, not for a link. */
+  plan: string;
+  /** The plan's approval clock, inherited where the wave has no tip of its own. */
+  waitingDays: number | null;
+  /** Whether the branches beneath are showing — null where there is no fold. */
+  expanded: boolean | null;
+  onToggle?: () => void;
+  /** Something is being written to one of this wave's branches. */
+  active?: boolean;
+}) {
+  const foldable = expanded !== null;
+  // The wave's own age is the freshest of its branches — a wave has no tip, so
+  // its clock is the clock of the work in it. `null` where none of them has one,
+  // and then `tupleFromWave` falls back to the plan's approval clock, labelled.
+  const ages = group.rows.map((r) => r.ageMinutes).filter((a): a is number => a !== null);
+  // THE VERDICT IS THE WAITING-STATE, and these are the two cases NOT STARTED
+  // holds: a wave a person may start, and a wave an earlier one is holding back.
+  // Both are already answered by the verdict — see `aside` below for why the
+  // colour has to come from the field rather than from a sentence.
+  const waveWaitingOn: WaitingOn | null =
+    group.verdict === 'eligible' ? 'click'
+      : group.verdict === 'blocked' ? 'time'
+        : null;
+  const waveNote =
+    group.verdict === 'eligible' ? 'approved — nobody has taken it'
+      : group.verdict === 'blocked' ? 'an earlier wave has to land first'
+        : '';
+  return (
+    <TupleRowView
+      tuple={tupleFromWave({
+        name: group.wave,
+        plan,
+        verdict: group.verdict,
+        // ITS BRANCHES, and they are slot 4. Not its plan: the plan is what
+        // this row sits under, and the nesting is the statement — a `PLAN x`
+        // link on a row already nested under `x` is what the mock showed three
+        // times in a row.
+        branches: group.rows.map((r) => ({ branch: r.branch, branchUrl: r.branchUrl })),
+        blockedBy: group.blockedBy,
+        // ITS OWN COUNT, derived from its own rows — no contract field, the same
+        // property `waveSummaryFor` keeps one level up. `blockedNote()` composed
+        // this number into a sentence on the row that WAITED on the wave; here it
+        // is on the wave it counts.
+        //
+        // Non-deferred and unmerged, matching `plot-fleet-scan.sh`'s own
+        // arithmetic — a deferred branch is set down, not outstanding.
+        outstanding: group.rows.filter(
+          (r) => r.state !== 'deferred' && r.state !== 'merged',
+        ).length,
+        ageMinutes: ages.length ? Math.min(...ages) : null,
+        waitingDays,
+      })}
+      rowAttr={{ 'data-wave-row': group.wave || '(unnamed)' }}
+      aside={
+        // THE WAITING-STATE COLOUR, on the row that now owns it.
+        //
+        // A note's tone distinguishes *waiting on you* (something to click) from
+        // *waiting on time* (an earlier wave has to land) — and in NOT STARTED
+        // that distinction had no carrier left: the branch rows that held
+        // `data-row-note` are folded into wave rows, and `tupleFromWave` has no
+        // note. Measured: zero `data-row-note` elements in the section.
+        //
+        // The VERDICT is the same distinction the note was encoding, so the tone
+        // is taken from it rather than from a sentence: `eligible` is
+        // `waitingOn: 'click'` — a person may start it — and `blocked` is
+        // `waitingOn: 'time'`, which is what `waitingOnFor` already computes on
+        // the server for exactly these two cases.
+        //
+        // The TEXT is the plain-English form of the status, and it is the one
+        // thing a wave row says twice on purpose: slot 5 holds the word a reader
+        // scans down a column, and this holds the sentence that explains the
+        // colour. Where the wave is complete there is nothing to wait for and
+        // nothing renders.
+        waveNote ? (
+          <span
+            data-row-note
+            data-waiting-on={waveWaitingOn ?? undefined}
+            className={`min-w-0 truncate ${waitingTone(waveWaitingOn)}`}
+            title={waveNote}
+          >
+            {waveNote}
+          </span>
+        ) : null
+      }
+      statusExtra={
+        // `blocked by Relocated` — AN INFO MARK IN SLOT 5, beside the status it
+        // explains, with the wave named on hover and for a screen reader.
+        //
+        // TWO PLACES TRIED AND MEASURED FIRST, and both failed for the same
+        // reason — the reference is a SENTENCE and the row has no unbounded slot
+        // spare:
+        //
+        //   1. Slot 4, as a link. That put a pointer UP among links pointing
+        //      DOWN — `wave Relocated` ahead of two branch links, in a column
+        //      headed `Related` whose every other kind reads one direction.
+        //   2. Beside the name in slot 3. Measured on the mock: `Relocated`
+        //      rendered as `R…` and `Moved` as `M`. The blocker text won the
+        //      width fight against the NAME, so the row lost the one thing it
+        //      exists to say.
+        //
+        // A mark is right structurally rather than merely smaller. `blocked` is
+        // the fact a reader SCANS down the column; *which wave* is the follow-up
+        // question a reader asks about one row. A follow-up belongs behind a
+        // disclosure — the same reason `ApproveButton`'s armed label lives in a
+        // popup rather than in a cell.
+        //
+        // NOT a link, because a wave has no page of its own — it is a heading
+        // inside a plan file. `title` and `aria-label` carry the name, and the
+        // name is also in the accessible label so it is not hover-only for a
+        // reader who cannot hover.
+        group.blockedBy ? (
+          <span
+            data-wave-blocked-by={group.blockedBy}
+            role="img"
+            aria-label={`Blocked by wave ${group.blockedBy}`}
+            title={`Blocked by wave ${group.blockedBy} — its work has to land first`}
+            className="ml-1 shrink-0 cursor-help text-slate-400 dark:text-slate-500"
+          >
+            <svg
+              aria-hidden
+              viewBox="0 0 16 16"
+              width="12"
+              height="12"
+              fill="currentColor"
+              className="inline-block align-text-bottom"
+            >
+              {/* Octicons `info` — the same vocabulary the kind glyphs use. */}
+              <path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z" />
+            </svg>
+          </span>
+        ) : null
+      }
+      // The verdict is the scan's, and the title says whose judgement it is —
+      // the status word alone (`blocked`) does not say blocked BY WHAT, and the
+      // branches in slot 4 are what a reader opens to find out.
+      statusAttr={group.verdict ? { 'data-verdict': group.verdict, title: `The scan's verdict for this wave: ${group.verdict}` } : undefined}
+      // NO BORDER, the same reason the plan row takes none: a wave with a fold
+      // heads its own little group, and a rule here would fall between a wave
+      // and its own first branch.
+      bordered={false}
+      marks={
+        <>
+          {foldable ? (
+            <button
+              type="button"
+              data-wave-branch-toggle={group.wave || '(unnamed)'}
+              aria-expanded={expanded}
+              aria-label={`${expanded ? 'Hide' : 'Show'} the branches of wave ${group.wave || '(unnamed)'}`}
+              onClick={onToggle}
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center self-center rounded leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+            >
+              <span
+                aria-hidden
+                className={`inline-block text-2xl leading-none transition-transform ${expanded ? 'rotate-90' : ''}`}
+              >
+                ▸
+              </span>
+            </button>
+          ) : null}
+          {active ? <ActivityMark pace="fast" inTrack /> : null}
+        </>
+      }
+    />
+  );
+}
+
+/**
  * The plan row's `⋯` menu — one item, and the reason it is a menu at all.
  *
  * `ApproveButton` arms itself on the first click and its armed label names the
@@ -4239,6 +4523,7 @@ function Row({
   marked = false,
   active = false,
   inPlanGroup = false,
+  inWaveGroup = false,
   section,
   waveName = null,
   onRevealBranch,
@@ -4275,6 +4560,11 @@ function Row({
    * else the row is the unit and keeps its border.
    */
   inPlanGroup?: boolean;
+  /**
+   * Whether this row sits inside a WAVE's fold, whose verdict is on screen one
+   * line up. Suppresses a redundant `open` — see `waveStatesIt`.
+   */
+  inWaveGroup?: boolean;
   /** This row's plan as a board card, or null where the board has none. */
   card?: Card | null;
   /** Whether this server will act on Start work, and why not. */
@@ -4319,6 +4609,22 @@ function Row({
   // What the note still has to say once slot 5 carries the PR's own condition —
   // see `noteWithoutPr`. IN THE MACHINE SECTION THE SENTENCE IS THE PROCESS'S.
   const note = noteWithoutPr(
+    // INSIDE A WAVE'S FOLD THE NOTE IS THE WAVE'S TO SAY, so the branch says
+    // nothing. `blocked by Relocated — 1 outstanding` rendered on both children
+    // of the `Moved` wave, one line below the row that now states the same three
+    // facts structurally — the verdict in slot 5, the blocker beside the name,
+    // the count on the wave it counts. The sentence this wave called redundant
+    // was still being printed, twice.
+    //
+    // The whole note rather than a match on its wording: `ELIGIBLE_NOTE`'s own
+    // rule is that nothing may be built on matching this prose, and every note a
+    // branch carries in NOT STARTED is about its wave's state — *approved,
+    // nobody has taken it*, *blocked by an earlier wave*. A branch inside a
+    // fold has no sentence of its own to lose.
+    //
+    // Same shape as the machine section one line down, and the same reason: a
+    // row appearing twice must not say the same thing twice.
+    inWaveGroup ? '' :
     section === 'waiting-on-machine' ? machineNote(row) : row.note,
     row.pr,
   );
@@ -4365,9 +4671,83 @@ function Row({
   // adapter's question, which is what an adapter is for.
   const inheritedClock = inPlanGroup && row.ageMinutes === null;
 
+  // THE WAVE'S VERDICT OUTRANKS THE BRANCH'S STATE, and inside a wave's fold
+  // the branch does not restate it.
+  //
+  // Reported from the mock: two branches under the wave `Moved`, whose verdict
+  // is `blocked`, each showing `open`. Both facts are true — `stateStatus` reads
+  // `row.state`, and a branch nobody has taken IS open — and together they
+  // contradict. `open` is the only word in the child's status column, so a
+  // reader scanning it concludes *available*, while the row one line up says
+  // `blocked` and `plot-dispatch.sh` would refuse the branch. That is the false
+  // promise `isStartable` exists to avoid, made by a status word instead of a
+  // button.
+  //
+  // Measured over `last-pulse.json`: branches inside BLOCKED waves are
+  // `open` × 9 and `wip` × 5; inside ELIGIBLE waves, `open` × 8 and `wip` × 3.
+  // Near-identical proportions — so the branch's state says nothing at all
+  // about whether it can be started. The wave's verdict is the fact, and it is
+  // already on screen.
+  //
+  // THE WHOLE STATE GOES, not just `open` — and the measurement is what settled
+  // it. A first attempt suppressed `row.state === 'open'` only, reasoning that
+  // `wip`, `deferred` and `merged` are events on the branch that no verdict
+  // states. Counted over `last-pulse.json`, that guard NEVER FIRES: a child row
+  // renders only inside a multi-branch unfinished wave, the estate holds exactly
+  // ONE of those, and all five of its branches are `wip`. So the condition
+  // covered a case that does not occur and left the case that does printing a
+  // status its wave owns.
+  //
+  // A rule rather than a list of exceptions: inside a wave's fold, the WAVE
+  // carries the status. What a branch alone knows still reaches the reader —
+  // `deferred` has its own badge beside the state (never instead of it, by the
+  // rule at that badge), a PR's condition rides in the PR cell, and a stuck
+  // branch takes its own second line. None of those is slot 5.
+  //
+  // A deferred branch never arrives here in any case: it is not part of a
+  // wave's unbegun work and keeps its own row beside the waves, which is where
+  // its PR and its age stay reachable.
+  //
+  // In the adapter and not the projection, for the reason `inheritedClock`
+  // records one line up: the same row outside a wave SHOULD print its state, and
+  // the projection cannot see what is asking.
+  const waveStatesIt = inWaveGroup;
+  const base = tupleFromRow(row);
+  // THE AGE GOES WITH THE STATUS, and for one reason rather than two: inside a
+  // wave's fold, the WAVE is the subject and the branch is its content.
+  //
+  // `inheritedClock` above already blanks the age where the row has no tip of
+  // its own — the plan's approval clock, repeated down a column, saying one
+  // number three times. Inside a wave the same argument covers the tip too: the
+  // wave row's clock is the freshest of its branches (`Math.min` over their
+  // ages), so it is already the number a reader wants, and per-branch ages
+  // beneath it are four measurements of one thing.
+  //
+  // Where a single branch's own clock IS the question, the row exists outside a
+  // wave — a deferred branch keeps its own row beside the waves, precisely so
+  // its age and its PR stay readable.
+  const tuple = {
+    ...base,
+    ...(inheritedClock || inWaveGroup ? { age: { text: '', label: '' } } : {}),
+    ...(waveStatesIt ? { status: '' } : {}),
+    // AND NO PLAN LINK, for the reason the wave row carries none: the plan is
+    // TWO rows up, heading the group these rows are nested in, and a link to it
+    // on every child says the same thing as many times as the wave has
+    // branches. Measured on the mock: `plan fleet-scan-asks-the-host` on both
+    // children of `Moved`, directly beneath a wave row that is itself directly
+    // beneath the plan row.
+    //
+    // A branch's artifact slot is *the plan that governs it, or NOTHING where no
+    // plan does* — and inside a wave's fold, nothing is what is left to say:
+    // slot 3 names the branch, and the two rows above name its wave and its
+    // plan. This is the same containment rule the wave row settled, applied one
+    // level deeper.
+    ...(inWaveGroup ? { links: [] } : {}),
+  };
+
   return (
     <TupleRowView
-      tuple={inheritedClock ? { ...tupleFromRow(row), age: { text: '', label: '' } } : tupleFromRow(row)}
+      tuple={tuple}
       onOpenPlan={onOpenPlan}
       // The scroll target the agent panel's BRANCH fact aims at.
       // `getElementById` needs an id, and a branch name is unique within a
@@ -5052,6 +5432,28 @@ export function AgentList({
     });
   };
 
+  // THE SAME FOLD, ONE LEVEL DOWN — a wave's branches, where it holds more than
+  // one. Every argument above applies unchanged: collapsed by default, not
+  // persisted, never derived from the rows.
+  //
+  // A SEPARATE SET rather than a shared one, keyed `plan\0wave`. Wave names
+  // repeat across plans — `Shaped` and `Sized` each appear in several of this
+  // estate's plans, and `Says` in three — so one namespace would fold every
+  // `Shaped` in the section on one click. The NUL separator cannot occur in
+  // either name, so the key is unambiguous where `plan/wave` would not be
+  // (branch-shaped wave names exist).
+  const [openWaves, setOpenWaves] = useState<Set<string>>(() => new Set());
+  const waveKey = (plan: string, wave: string) => `${plan}\0${wave}`;
+  const toggleWave = (plan: string, wave: string) => {
+    setOpenWaves((prev) => {
+      const next = new Set(prev);
+      const k = waveKey(plan, wave);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  };
+
   // Seconds since this payload arrived. The ages the server sent are true at the
   // moment of the poll and stale a second later, so a countdown built from them
   // alone would jump by the poll interval rather than tick. This is the only
@@ -5563,7 +5965,101 @@ export function AgentList({
                             data-wave-list={group.plan}
                             className="ml-6 border-l border-slate-200 dark:border-slate-800"
                           >
-                            {group.rows.map((r) => (
+                            {/* WAVES, NOT BRANCHES — the eighth kind, and the
+                                one this section had been rendering as its own
+                                branches all along.
+
+                                `groupByWave` partitions the plan's rows; each
+                                partition is ONE row naming the wave, carrying
+                                the scan's verdict as its status and its branches
+                                as its artifact links. A wave holding one branch
+                                (20 of 21 unfinished waves) is therefore one row
+                                and no fold; one holding several gets the
+                                disclosure and its branches beneath. */}
+                            {/* A DEFERRED BRANCH IS NOT PART OF A WAVE'S WORK,
+                                and it keeps its own row.
+
+                                `isUnbegun` already draws this line and
+                                `waveSummaryFor` already refuses to count a
+                                deferred branch as a wave: *"not a wave nobody
+                                reached, a branch somebody set down"*. The wave
+                                grouping has to honour it, because a wave row
+                                shows the WAVE's verdict and clock — and a
+                                deferred branch carries a PR and an age of its
+                                own that appear nowhere else. Folded into a
+                                single-branch wave they would be unreachable,
+                                which is exactly the loss `fleet.ts` warns of:
+                                *"a branch started and then shelved read as never
+                                begun, with its age and its PR erased."* */}
+                            {groupByWave(group.rows.filter(isUnbegun)).map((wg) => {
+                              const many = wg.rows.length > 1;
+                              const waveOpen = many
+                                ? openWaves.has(waveKey(group.plan, wg.wave))
+                                : null;
+                              return (
+                                <li key={wg.wave} className="block">
+                                  <WaveRow
+                                    group={wg}
+                                    plan={group.plan}
+                                    waitingDays={planWaitingDays(group)}
+                                    expanded={waveOpen}
+                                    onToggle={many ? () => toggleWave(group.plan, wg.wave) : undefined}
+                                    active={wg.rows.some((r) => active.has(rowKey(r)))}
+                                  />
+                                  {/* The branches of a MULTI-branch wave, folded
+                                      and indented again — the same `ml-6` and the
+                                      same rule the plan's own list draws, one
+                                      level deeper. A single-branch wave renders
+                                      none: its branch is already the artifact
+                                      link on the row above, and a fold over one
+                                      row the reader can see is the control this
+                                      estate has removed twice. */}
+                                  {many && waveOpen && (
+                                    <ul
+                                      role="presentation"
+                                      data-wave-branch-list={wg.wave || '(unnamed)'}
+                                      className="ml-6 border-l border-slate-200 dark:border-slate-800"
+                                    >
+                                      {wg.rows.map((r) => (
+                                        <Row
+                                          key={rowKey(r)}
+                                          row={r}
+                                          onOpenPlan={onOpenPlan}
+                                          inPlanGroup
+                                          // Inside a WAVE's fold: the verdict is
+                                          // one line up, so a bare `open` here
+                                          // contradicts it rather than adding to
+                                          // it.
+                                          inWaveGroup
+                                          card={cardForPlanFile?.(r.planFile) ?? null}
+                                          dispatch={dispatch}
+                                          approve={approve}
+                                          commission={commission}
+                                          continueWith={continueWith}
+                                          pulse={pulse}
+                                          onStarting={onStarting}
+                                          marked={marked.has(rowKey(r))}
+                                          active={active.has(rowKey(r))}
+                                          section={key}
+                                          // NO WAVE BADGE. The row is nested
+                                          // under the wave that names it, so the
+                                          // badge would repeat one line up —
+                                          // which is the duplication this whole
+                                          // wave removes.
+                                          onRevealBranch={onRevealBranch}
+                                          highlighted={r.branch === highlightBranch}
+                                        />
+                                      ))}
+                                    </ul>
+                                  )}
+                                </li>
+                              );
+                            })}
+                            {/* The rows that are not a wave's unbegun work —
+                                a deferred branch, with its own PR and its own
+                                age. Rendered as BRANCH rows, because that is
+                                what they are: something somebody started. */}
+                            {group.rows.filter((r) => !isUnbegun(r)).map((r) => (
                               <Row
                                 key={rowKey(r)}
                                 row={r}
@@ -5578,14 +6074,7 @@ export function AgentList({
                                 onStarting={onStarting}
                                 marked={marked.has(rowKey(r))}
                                 active={active.has(rowKey(r))}
-                                // Which question this section is asking — see
-                                // the `section` prop. Only WAITING ON A MACHINE
-                                // changes what the row says; every other value
-                                // leaves it reading exactly as before.
                                 section={key}
-                                // Names its wave beside its branch name, for
-                                // every branch that has a named one.
-                                waveName={waveLabel(r)}
                                 onRevealBranch={onRevealBranch}
                                 highlighted={r.branch === highlightBranch}
                               />

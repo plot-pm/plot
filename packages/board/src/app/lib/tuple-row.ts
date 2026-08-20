@@ -32,7 +32,18 @@ import type { AgentRow, IssueRow, RowKind } from '../../contract/schema.js';
  * associated*. A reader must know what they are about to open before they click.
  */
 export interface TupleLink {
-  what: 'plan' | 'branch' | 'pr' | 'ticket';
+  /**
+   * `wave` joined the four on 2026-08-20, and the reason is the defect it fixes.
+   *
+   * A blocked wave links the wave it waits on, and that link was typed
+   * `what: 'plan'` — the nearest true value of the four — so it rendered the
+   * checklist glyph and read as a link to the plan. Which is precisely the
+   * failure the wave kind exists to end: **a wave rendered as something else
+   * because no slot admitted it.** Every value here is a `RowKind`, and the
+   * icon comes from `KIND_ICON_PATH[what]`, so a missing value is a wrong glyph
+   * rather than a missing one — the kind of error that looks like a design.
+   */
+  what: 'plan' | 'branch' | 'pr' | 'ticket' | 'wave';
   label: string;
   href: string;
   /**
@@ -117,6 +128,7 @@ export const KIND_LABEL: Record<RowKind, string> = {
   agent: 'Agent',
   branch: 'Branch',
   release: 'Release',
+  wave: 'Wave',
 };
 
 /**
@@ -156,6 +168,11 @@ export const KIND_ICON_PATH: Record<RowKind, string> = {
   branch: 'M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z',
   // tag: a release is a named point
   release: 'M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.75 1.75 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.25.25 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z',
+  // stack: three layered planes — a wave is a LAYER of a plan, and layers stack
+  // in order, which is the one thing a wave sequence expresses that a plan's
+  // checklist does not. Declined: `versions` (reads as release versions) and
+  // `git-merge` (too near the PR icon it would sit beside).
+  wave: 'M7.122.392a1.75 1.75 0 0 1 1.756 0l5.003 2.902c.83.481.83 1.68 0 2.162L8.878 8.358a1.75 1.75 0 0 1-1.756 0L2.119 5.456a1.25 1.25 0 0 1 0-2.162ZM8.125 1.69a.25.25 0 0 0-.25 0l-4.63 2.685 4.63 2.685a.25.25 0 0 0 .25 0l4.63-2.685ZM1.601 7.789a.75.75 0 0 1 1.025-.273l5.249 3.044a.25.25 0 0 0 .25 0l5.249-3.044a.75.75 0 0 1 .752 1.298l-5.248 3.044a1.75 1.75 0 0 1-1.756 0L1.874 8.814A.75.75 0 0 1 1.6 7.789Zm0 3.5a.75.75 0 0 1 1.025-.273l5.249 3.044a.25.25 0 0 0 .25 0l5.249-3.044a.75.75 0 0 1 .752 1.298l-5.248 3.044a1.75 1.75 0 0 1-1.756 0l-5.248-3.044a.75.75 0 0 1-.273-1.025Z',
 };
 
 
@@ -508,6 +525,151 @@ export function tupleFromPlan(facts: PlanRowFacts): TupleRow {
       text: facts.waitingDays === null ? '' : tupleWaitText(facts.waitingDays),
       label: facts.waitingDays === null ? '' : 'waiting',
     },
+  };
+}
+
+/** The name the board shows for a wave the plan file did not name. */
+export const UNNAMED_WAVE = '(unnamed)';
+
+/**
+ * What a tuple row needs about a WAVE — a slice of a plan, with its own verdict.
+ *
+ * **A wave HAS branches; a branch does not have a wave.** The scan has emitted
+ * `{name, verdict, branches}` per wave since waves existed. The board read the
+ * name onto the branch row as a string, dropped the verdict onto that same row
+ * as a nullable field nothing rendered, and then rebuilt the verdict as ENGLISH
+ * in `blockedNote()`. Every piece was already on the wire.
+ *
+ * Client-assembled, like `PlanRowFacts` and for the same reason: the server
+ * emits one row per branch, and the wave is the group those rows fall into. So
+ * this is facts-in rather than a row-in, and the kind is declared here at the
+ * construction site.
+ */
+export interface WaveRowFacts {
+  /** The wave's name, or "" where the plan file named none. */
+  name: string;
+  /** The plan the wave is a slice of — for the row's identity, not for a link. */
+  plan: string;
+  /**
+   * The scan's verdict — slot 5. `null` where the scan reported none, and then
+   * the status is "" rather than a guessed word.
+   */
+  verdict: 'complete' | 'eligible' | 'blocked' | null;
+  /** The branches this wave holds — slot 4, and there may be five. */
+  branches: { branch: string; branchUrl: string }[];
+  /**
+   * The wave holding this one back, by name — `null` where nothing is.
+   *
+   * **A REFERENCE, and it renders AS AN INFO MARK IN SLOT 5**, beside the status
+   * it explains, with the wave named on hover and in its accessible label.
+   *
+   * Two other placements were tried and measured first, both failing because the
+   * reference is a SENTENCE and no slot on this row is spare: slot 4 put a
+   * pointer *up* among links pointing *down*, and beside the name in slot 3 the
+   * blocker text won the width fight against the name itself — `Relocated`
+   * rendered as `R…` and `Moved` as `M`, so the row lost the one thing it exists
+   * to say. `blocked` is the fact a reader scans down the column; *which wave*
+   * is a follow-up about one row, and a follow-up belongs behind a disclosure.
+   *
+   * The server has carried this as `blockedBy`
+   * all along while the board rendered the same fact as English:
+   * `blocked by Relocated — 1 outstanding`, composed by `blockedNote()` and
+   * printed into the note column. That sentence is three facts, and each has a
+   * slot:
+   *
+   *   `blocked`        the verdict         → slot 5, with the count
+   *   `by Relocated`   a reference         → slot 5, as an info mark
+   *   `1 outstanding`  a count             → the RELOCATED row, not this one
+   *
+   * Carried on the facts rather than read by `tupleFromWave`, because slot 3's
+   * `beside` belongs to the renderer: the projection decides what a row SAYS
+   * and `TupleRowView` decides what sits inside a slot. `WaveRow` passes it.
+   *
+   * The third fact is the one that says why this had to move at all. It counts
+   * what is unfinished in the BLOCKER, so a wave holding three others back
+   * printed `1 outstanding` three times, once on each waiting row, describing a
+   * row the reader had to find by name. It belongs on the wave it is about.
+   */
+  blockedBy: string | null;
+  /**
+   * How many of THIS wave's branches are still unfinished — `null` where the
+   * question does not apply.
+   *
+   * Its own count, on its own row: `Relocated` says how much is left in
+   * `Relocated`. That is what makes it a fact rather than a note, and it is why
+   * the row waiting on it needs only the reference.
+   */
+  outstanding: number | null;
+  /** Minutes since the wave last changed, or null. */
+  ageMinutes: number | null;
+  /** Days since the plan's approval, where that is the only clock running. */
+  waitingDays: number | null;
+}
+
+/**
+ * Project a wave into the six slots.
+ *
+ * **Its links are its BRANCHES, and they carry no `PLAN` prefix — because they
+ * are not its provenance.** A wave contains its work; it did not come from it.
+ * The plan is what the wave sits UNDER, and that nesting is the statement, which
+ * is why the plan is absent from the links entirely rather than present without
+ * a prefix. Measured on the mock before this existed: `PLAN fleet-scan-asks-the-host`
+ * rendered three times directly beneath the plan row heading those three rows.
+ *
+ * **The name is text, never a link.** A wave is a heading inside a plan file and
+ * has no page of its own — the same reason the wave badge it replaces was a mark
+ * rather than an anchor. Linking it to the plan file would make three sibling
+ * waves three links to one document.
+ *
+ * **`(unnamed)` renders rather than failing.** Six of this estate's 71 waves
+ * predate the naming convention and the server already substitutes for them at
+ * `fleet.ts`. Refusing to render them would make six real waves invisible to
+ * punish six old plan files, and the board is not where an authoring convention
+ * is enforced.
+ */
+export function tupleFromWave(facts: WaveRowFacts): TupleRow {
+  return {
+    kind: 'wave',
+    kindLabel: KIND_LABEL.wave,
+    name: { what: 'plan', label: facts.name || UNNAMED_WAVE, href: '' },
+    // SLOT 4 HOLDS WHAT THE WAVE CONTAINS, and only that. Its branches, and
+    // nothing pointing the other way.
+    //
+    // The blocker lived here for one commit, first in the list, on the argument
+    // that *why can I not start this* outranks *what is in it*. Rendered, that
+    // put a reference pointing UP among links pointing DOWN — `wave Relocated`
+    // ahead of two branch links, in a column headed `Related` whose every other
+    // kind reads one direction. The blocker qualifies the NAME, so it goes
+    // beside the name: *Moved, blocked by Relocated*. Same positional rule the
+    // wave badge followed beside a branch — adjacent to the thing it is about.
+    links: facts.branches.map((b) => ({
+      what: 'branch' as const,
+      label: b.branch,
+      href: b.branchUrl,
+    })),
+    // THE VERDICT THE SCAN ALREADY COMPUTED, and nothing derived beside it.
+    // `open` was what these rows showed — the branch's `state`, which is a fact
+    // about a branch and says nothing about whether the wave can be started.
+    // "" for a null verdict, by the rule `prStatus` states for `unknown`: a row
+    // printing its own ignorance in a column a reader scans has said nothing.
+    // THE VERDICT, AND THIS WAVE'S OWN COUNT WITH IT. `blocked` alone does not
+    // say how much is left, and `2 left` alone does not say whether anyone may
+    // start it — so slot 5 carries the verdict and the size of what remains,
+    // which are both facts about THIS wave.
+    //
+    // Only where there is more than one, since `1 left` beside a single branch
+    // link in slot 4 states what that link already shows. The count earns its
+    // place exactly when the branches are folded out of sight.
+    status: facts.verdict
+      ? (facts.outstanding !== null && facts.outstanding > 1
+          ? `${facts.verdict} · ${facts.outstanding} left`
+          : facts.verdict)
+      : '',
+    age: facts.ageMinutes !== null
+      ? { text: tupleAgeText(facts.ageMinutes), label: '' }
+      : facts.waitingDays !== null
+        ? { text: tupleWaitText(facts.waitingDays), label: 'waiting' }
+        : { text: '', label: '' },
   };
 }
 

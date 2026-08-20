@@ -591,8 +591,20 @@ export type BranchState = z.infer<typeof BranchStateSchema>;
  * it once, where it holds both facts — which is exactly why it must not be
  * remade in the renderer, where only some of them arrive.
  */
+/**
+ * `wave` is the eighth, and it is the one kind that is not a row the SERVER
+ * emits — the client assembles it from the branches grouped under a plan, the
+ * same way `plan` is assembled by `groupByPlan` and stated at `tupleFromPlan`.
+ *
+ * It is in this enum anyway, and the reason is the two `Record<RowKind, …>`
+ * tables the tuple keeps: `KIND_LABEL` and `KIND_ICON_PATH`. A kind absent from
+ * the enum gets its word and its icon from nowhere and has to invent both at
+ * its construction site, which is how a kind ends up rendering a branch's
+ * glyph. Being in the enum makes both tables a compile error until they answer
+ * for it — a gate rather than a rule.
+ */
 export const RowKindSchema = z.enum([
-  'ticket', 'plan', 'pr', 'build', 'agent', 'branch', 'release',
+  'ticket', 'plan', 'pr', 'build', 'agent', 'branch', 'release', 'wave',
 ]);
 export type RowKind = z.infer<typeof RowKindSchema>;
 

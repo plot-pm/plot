@@ -6,6 +6,7 @@ import { chromium, type Browser, type Page } from 'playwright';
 import {
   tupleFromAgent, tupleFromBuild, tupleFromIssue, tupleFromPlan, tupleFromRow,
   type TupleRow,
+  tupleFromWave,
 } from '../../src/app/lib/tuple-row.js';
 import { AgentRowSchema, IssueRowSchema, RowKindSchema, type AgentRow } from '../../src/contract/schema.js';
 
@@ -101,6 +102,18 @@ const TUPLES: Record<string, TupleRow> = {
     branchUrl: 'https://host/tree/changeset-release/main', ageMinutes: 12,
     pr: { number: 300, url: 'https://host/pull/300', draft: false, state: 'none' },
   })),
+  // A BLOCKED WAVE, because it is the shape that carries every part of the split
+  // this kind exists to make: `blocked` in slot 5, the wave it waits on as a
+  // LINK in slot 4, and its own outstanding count on its own row — the three
+  // facts `blockedNote()` used to crush into one sentence.
+  wave: tupleFromWave({
+    name: 'Relocated', plan: 'a-wave-is-a-thing-not-a-label', verdict: 'blocked',
+    branches: [
+      { branch: 'feature/a-wave-is-a-kind', branchUrl: 'https://host/tree/feature/a-wave-is-a-kind' },
+      { branch: 'bug/the-branch-row-stops-labelling-its-wave', branchUrl: 'https://host/tree/bug/x' },
+    ],
+    blockedBy: 'Modelled', outstanding: 2, ageMinutes: 1440, waitingDays: 1,
+  }),
 };
 
 /**
@@ -188,8 +201,8 @@ describe('a row is a tuple — what a rendered page settles', () => {
 
   const rowOf = (kind: string) => page.locator(`li[data-tuple-kind="${kind}"]`);
 
-  it('renders one row for each of the seven kinds', async () => {
-    // Six here, and the seventh is the point of the next test: the `empty`
+  it('renders one row for each of the eight kinds', async () => {
+    // Seven here, and the eighth is the point of the next test: the `empty`
     // build has no data and must not produce a row. Every kind that HAS data
     // renders, which is the shape being a shape rather than a description of
     // the three that happen to have components today.
