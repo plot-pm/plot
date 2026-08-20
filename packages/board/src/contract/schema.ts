@@ -1211,6 +1211,75 @@ export const RepairSchema = z.object({
 });
 export type Repair = z.infer<typeof RepairSchema>;
 
+/**
+ * Where a running process lives: on the git HOST, or on THIS machine.
+ *
+ * TWO VALUES, because the reader's next move differs and nothing else about the
+ * entry does. A `host` process is inspected on the git host — the run page, the
+ * check name, someone else's machine doing the work. A `local` process is
+ * inspected HERE: its pid is on this box and `ps` will answer for it. One label
+ * over both would send a reader to the wrong place, which is the
+ * one-label-many-states shape this contract keeps splitting apart.
+ *
+ * It is also the honesty boundary. A `local` process is observable only on the
+ * machine doing the looking — the same rule `localDirty`, `localLocked` and
+ * `localAhead` each carry — so a board on another host reports none of them.
+ * Naming the origin is what keeps an empty list from reading as *nothing is
+ * running anywhere*.
+ */
+export const MachineProcessOriginSchema = z.enum(['host', 'local']);
+export type MachineProcessOrigin = z.infer<typeof MachineProcessOriginSchema>;
+
+/**
+ * One process this board can see running for a branch.
+ *
+ * A PROCESS IS NOT A HOLDER, and that distinction is the whole reason this
+ * exists as its own entity rather than as another field on the row. The board
+ * has two sections asking two different questions:
+ *
+ * | Section              | Lists     | An entry is                |
+ * |----------------------|-----------|----------------------------|
+ * | WORKING              | agents    | *this agent is on `bug/x`* |
+ * | WAITING ON A MACHINE | processes | *CI is running for `bug/x`* |
+ *
+ * One row per branch cannot express both, and two measured cases prove it. An
+ * agent that exited cleanly while its checks still ran belonged to NEITHER
+ * section under a holder-keyed rule — no agent held it, and its checks had not
+ * landed. An agent watching its own CI belongs to BOTH, and a single `group`
+ * must pick one and be wrong about the other. The same branch appearing twice
+ * is not duplication: the entities differ, and each entry names its branch so
+ * two rows never read as one repeated.
+ *
+ * EVIDENCE, NEVER A FORECAST. `evidence` says what was OBSERVED — *a test run
+ * is in progress here* — and no field carries a remaining time, because nothing
+ * measures when a local run ends. A countdown nobody can honour is the shape
+ * this repo removes rather than adds, and Principle 3 puts the conclusion with
+ * the human: the scan collects, the reader decides whether to wait.
+ */
+export const MachineProcessSchema = z.object({
+  origin: MachineProcessOriginSchema,
+  /**
+   * What was observed, as a sentence — the row's own words for this process.
+   *
+   * A SENTENCE BESIDE A VALUE, not instead of one. `origin` is what a consumer
+   * branches on; this is what a person reads, and it exists because *a machine
+   * is working* is useless without saying WHICH machine and on what. Composed
+   * where the facts are, never parsed by anyone — the standing rule at
+   * `ELIGIBLE_NOTE`: nothing new may be built on matching prose.
+   */
+  evidence: z.string().default(''),
+  /**
+   * The pid, for a `local` process — "" for a host one, which has none here.
+   *
+   * Carried so a reader can go LOOK rather than take the row's word for it, the
+   * same standing `worker_pid` has. Never re-derived on the far side: `kill -0
+   * 0` signals the whole process group and succeeds, so liveness is decided once
+   * in the shared classifier and this value only ever renders.
+   */
+  pid: z.string().default(''),
+});
+export type MachineProcess = z.infer<typeof MachineProcessSchema>;
+
 export const AgentRowSchema = z.object({
   /** Constant today. Present so the second repo is an addition, not a rebuild. */
   repo: z.string(),
@@ -1563,6 +1632,40 @@ export const AgentRowSchema = z.object({
    * field: nobody could look, which licenses no claim about a worker either way.
    */
   worker: WorkerStateSchema.default('elsewhere'),
+  /**
+   * The processes this board can see running for this branch — [] when it can
+   * see none.
+   *
+   * A SECOND ENTITY ON THE ROW, and the row is the only place to put it: the
+   * pulse is keyed by branch, so a process is discovered while a branch is being
+   * read and has no carrier of its own. What travels here is the PROCESS entity
+   * the WAITING ON A MACHINE section lists, alongside the AGENT entity `group`
+   * and `worker` describe — the two the board had folded into one placement.
+   *
+   * IT DOES NOT DECIDE THE SECTION, and that is deliberate. `group` still says
+   * where the branch's own row goes, unchanged; this says which processes the
+   * machine section additionally lists. A row can therefore be in WORKING and
+   * have a process in WAITING ON A MACHINE at once — the agent-watching-its-own-CI
+   * case — without either field contradicting the other, because they answer
+   * different questions. Folding process liveness into `group` is what made that
+   * case a coin toss.
+   *
+   * DERIVED, NEVER COLLECTED ANEW. Every entry is composed from facts the pulse
+   * already carries — `worker`/`worker_pid` for a local run, `pr.checks` for a
+   * host one — so this field adds no scan cost and cannot disagree with the
+   * fields it reads. The same rule `worker` itself follows: forwarded, not
+   * re-derived.
+   *
+   * EMPTY MEANS *NONE OBSERVED*, which for `local` entries is only ever a claim
+   * about THIS machine. A branch whose worker runs on another host reports none
+   * here, exactly as `localDirty` reports false — absent is not false, and the
+   * `origin` field is what lets a reader tell the two apart.
+   *
+   * Defaults to [] so a client talking to an older server still validates, and
+   * because [] is the honest reading of a payload that predates the field:
+   * nothing was looked for.
+   */
+  processes: z.array(MachineProcessSchema).default([]),
 });
 export type AgentRow = z.infer<typeof AgentRowSchema>;
 

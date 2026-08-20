@@ -1312,7 +1312,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() => machine.count()).toBe(1);
       expect(await machine.locator('[data-group-toggle]').count()).toBe(0);
       expect(await machine.getByRole('heading', { level: 2 }).textContent())
-        .toContain('nothing — CI will finish');
+        .toContain('nothing — a machine is working');
       // And no "(0)" anywhere in that header.
       expect(await machine.getByRole('heading', { level: 2 }).textContent()).not.toContain('(0)');
     } finally {
@@ -2729,7 +2729,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const { header, body } = await machineSection(page);
       expect(body).toContain('none');
       expect(body).not.toContain('not checked yet');
-      expect(header).toContain('nothing — CI will finish');
+      expect(header).toContain('nothing — a machine is working');
     } finally {
       await page.close();
     }

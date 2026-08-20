@@ -17,6 +17,7 @@ import {
   type FleetPulse,
   type IssueAnswer,
   type IssueRow,
+  type MachineProcess,
   type Phase,
   type PulseShrink,
   type StuckRun,
@@ -2654,6 +2655,108 @@ function classifyGroup(
 }
 
 /**
+ * The processes this machine can see running for a branch — the entities the
+ * WAITING ON A MACHINE section lists.
+ *
+ * THE SECTION IS KEYED ON THE PROCESS, NEVER ON THE HOLDER, and that is the one
+ * sentence this function exists to make true. WAITING ON A MACHINE was filled
+ * from exactly one source — `pr.checks === 'pending'` — so it described a HOST
+ * fact only, while the board sat in the very repository a local run was
+ * happening in. Two measured cases fell through:
+ *
+ *   exit 0, branch pushed, PR open, checks pending, no worker alive
+ *     -> NEITHER section. Not WORKING, because no agent held it; not WAITING ON
+ *        YOU, because the checks had not landed.
+ *
+ *   one live worker, PR open, checks pending
+ *     -> BOTH, and a single `group` must pick one and be wrong about the other.
+ *
+ * The first is answered by `group` alone and always was — the PR arm sends a
+ * `pending` check to `waiting-on-machine` whatever the worker did, so that row
+ * is not homeless and this function must not claim credit for it. What this adds
+ * is the SECOND entity: an entry that can coexist with a WORKING row instead of
+ * displacing it.
+ *
+ * DERIVED FROM WHAT THE PULSE ALREADY CARRIES, and deliberately nothing more.
+ * `worker`/`workerPid` for a local run, `pr.checks` for a host one — both
+ * already read by `classify` two arguments away. No process enumeration, no
+ * `ps`, no scanning for cwds inside worktrees: a sweep of that kind would collect
+ * every editor and shell a person happens to have open in a checkout and report
+ * them as machines working, and it would be a new cost on a scan that is already
+ * 18.3 s. The fleet writes a pid where it starts a process; that pid IS the
+ * observation, and it is the only local process this board can honestly claim to
+ * see.
+ *
+ * EVIDENCE, NEVER A FORECAST. Each entry says what was observed and stops there.
+ * Nothing measures when a local run ends and GitHub does not publish a remaining
+ * time for a queued check, so no entry names one — the rule this plan estate
+ * repeats at every level, and the reason `evidence` is prose beside a value
+ * rather than a verdict in place of one.
+ *
+ * ORDER: LOCAL FIRST. A local process is the one a reader can act on from where
+ * they are sitting — `ps`, a log, the worktree — while a host check is somebody
+ * else's machine and a page to open. Both are listed whenever both hold; the
+ * question is only which the eye reaches first.
+ */
+export function machineProcesses(
+  worker: WorkerState,
+  workerPid: string,
+  pr?: PrRecord | null,
+): MachineProcess[] {
+  const out: MachineProcess[] = [];
+  // A RUNNING WORKER IS A PROCESS ON THIS MACHINE, and this is the entry that
+  // did not exist. It is the same fact that puts the row in WORKING — one
+  // observation, read twice for two questions — so the two can never disagree
+  // about whether a worker is alive. *Who is working?* is answered by the agent;
+  // *what am I waiting on?* by the process.
+  //
+  // `running` ONLY. The other seven states are not processes: `finished`,
+  // `failed` and `ended` are stopped, `waiting` and `stalled` describe a TASK
+  // rather than a running program, and `none`/`elsewhere` are stated unknowns —
+  // `plot-dispatch` writes a pid only where it started the worker itself, so an
+  // absent record licenses no claim in either direction. Listing an unknown as a
+  // process would put *a machine is working* under a branch nobody can see.
+  //
+  // The pid travels so a reader can go look. Never re-checked here: `kill -0 0`
+  // signals the whole process group and succeeds, and liveness is decided once,
+  // in the shared classifier.
+  if (worker === 'running') {
+    out.push({
+      origin: 'local',
+      // NAMES THE MACHINE AND WITHHOLDS THE VERDICT. *a worker process is
+      // running in a local worktree* is what was seen; whether it is nearly done
+      // is not, and the pid is how a reader finds out rather than a number this
+      // row invents.
+      evidence: workerPid
+        ? `a worker process is running in a local worktree (pid ${workerPid})`
+        : 'a worker process is running in a local worktree',
+      pid: workerPid,
+    });
+  }
+  // CI ON THE HOST — the one source this section ever had, kept verbatim as an
+  // entry so the two origins are listed by one mechanism. Adding the local case
+  // beside a special-cased host case would leave the section with two rules
+  // about its own membership, which is how the pair drifts.
+  //
+  // `pending` only, and read through `prState` for the reason the classifier
+  // reads it there: a conflicting PR reports an EMPTY rollup, so `pr.checks`
+  // alone would call it `none` and this would agree with a sentence the row does
+  // not say. One derivation of the PR's state, used by both.
+  if (pr && prState(pr) === 'pending') {
+    out.push({
+      origin: 'host',
+      // The host's own wording, matching the note the row already carries so a
+      // reader does not have to reconcile two sentences about one check. No
+      // duration: a queued check publishes no finish time, and *CI will be done
+      // in three minutes* is the claim this whole plan removes.
+      evidence: `CI is running for PR #${pr.number}`,
+      pid: '',
+    });
+  }
+  return out;
+}
+
+/**
  * What kind of row this branch is: its section, its sentence, and the verdict of
  * the wave it sits in.
  *
@@ -3252,6 +3355,19 @@ export function rowsFromPulse(
           // and a structural test asserts it. This carries that verdict
           // outward; it does not form a second one.
           worker: b.worker,
+          // THE PROCESSES, BESIDE THE AGENT — never instead of it. `worker`
+          // above says which agent holds this branch; this says which processes
+          // are running for it, and the WAITING ON A MACHINE section lists
+          // these while WORKING lists that. A live worker with a pending check
+          // therefore produces an agent entry and a process entry from one
+          // reading of one pulse, which is what makes them unable to disagree.
+          //
+          // Derived here rather than in `classify` because `classify` answers a
+          // SINGLE placement by contract, and threading a list out of its
+          // thirty returns would put thirty chances to forget it where there is
+          // one. Same argument the wave verdict settled by computing at one
+          // exit.
+          processes: machineProcesses(b.worker, b.worker_pid, pr),
         });
       }
     }
@@ -3414,6 +3530,14 @@ export function rowsFromPulse(
       // resolver was never offered it. The field is present and null rather than
       // absent: *nothing was attempted*, which is true and checkable.
       repair: repairFor(branch, now),
+      // NO LOCAL PROCESS CAN BE CLAIMED HERE, and the host one is the whole of
+      // what this row knows. `worker: 'elsewhere'` eleven lines up says the
+      // worktree scan never visited this branch, so `machineProcesses` is given
+      // that state verbatim and emits no local entry — the same rule
+      // `localDirty: false` follows, one entity along. A pending check on the
+      // host is still a machine working and still belongs in the section, which
+      // is the entry it does produce.
+      processes: machineProcesses('elsewhere', '', pr),
     });
   }
 
