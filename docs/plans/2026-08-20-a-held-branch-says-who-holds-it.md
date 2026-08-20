@@ -153,7 +153,7 @@ a warning it may read as advisory.
 ## Branches
 
 ### Held
-- `feature/a-worktree-holds-its-branch` — the fleet scan reports a branch as held when a worktree has it checked out with an unmerged tip, alongside the claim ref rather than instead of it. Tests: a committed-and-clean worktree reads held; a dirty worktree reads held; a clean worktree on a merged branch does not; a claim ref with no worktree still reads claimed; the branch's wave eligibility is unchanged by holding.
+- `feature/a-worktree-holds-its-branch` — the fleet scan reports a branch as held when a worktree has it checked out with an unmerged tip, alongside the claim ref rather than instead of it. Tests: a committed-and-clean worktree reads held; a dirty worktree reads held; a clean worktree on a merged branch does not; a claim ref with no worktree still reads claimed; the branch's wave eligibility is unchanged by holding. → #266
 
 ### Said
 - `bug/the-board-says-who-holds-a-branch` — `WORKING` shows a held branch whether or not its tree is dirty, and `NOT STARTED` says *held in a local worktree* instead of *nobody has taken it*. Tests: an agent that commits stays in WORKING; a held branch is never offered as eligible; the row names the worktree.
