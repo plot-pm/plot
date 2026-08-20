@@ -16,6 +16,7 @@ import {
 import { ApproveButton } from './ApproveButton.js';
 import { CommissionDesignButton } from './CommissionDesignButton.js';
 import { CreatePlanButton } from './CreatePlanButton.js';
+import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { isDraft } from './PlanCard.js';
 import { StartWorkButton } from './StartWorkButton.js';
 import { WorkerLogModal } from './WorkerLogModal.js';
@@ -5100,57 +5101,73 @@ export function AgentList({
   // computed once here and read per row through `waveLabel`.
   const waveCounts = waveCountByPlan(fleet.rows);
 
+  // Every status the board has to report, gathered into ONE panel rather than
+  // stacked as a banner apiece — the corrected shape of
+  // bug/a-degraded-view-says-so-at-the-top. Each was its own top-of-list `<p>`;
+  // a third would have pushed the rows down the page, and two independent ones
+  // read as unrelated notes. The panel ranks them (see `orderStatuses`), so the
+  // order these are pushed in does not decide what the reader sees first —
+  // severity does. Severities are spaced so a later status can slot between two.
+  //
+  // The distinctions the four separate banners drew are PRESERVED, now as
+  // severity rather than as vertical position:
+  //   · a dead SERVER (nothing came back) outranks everything — the whole view
+  //     is gone, not merely degraded, so it is the one rose status;
+  //   · a failed SCAN (the server answered to say its scan broke) is a distinct
+  //     failure from the dead server, and both can be true at once — the panel
+  //     holds both and pages between them rather than letting one erase the
+  //     other;
+  //   · a SHRINK (a scan that exited 0 and lost rows) is the smaller fact a
+  //     dead server or a broken scan can both explain, so it ranks below them;
+  //   · an unreachable HOST (PR data) is the least severe — another API
+  //     answered and the rows are real.
+  const statuses: BoardStatus[] = [];
+  if (stale) {
+    statuses.push({
+      key: 'stale',
+      severity: 40,
+      tone: 'rose',
+      text: `Not reaching the board server — last heard ${staleSeconds}s ago. `
+        + 'The numbers below are frozen at that moment and are no longer being checked.',
+    });
+  }
+  if (fleet.error) {
+    statuses.push({
+      key: 'scan-failed',
+      severity: 30,
+      tone: 'amber',
+      text: `Last scan failed: ${fleet.error}`
+        + (fleet.ready ? ' — showing the last successful pulse below.' : ''),
+    });
+  }
+  if (fleet.shrink) {
+    statuses.push({
+      key: 'shrink',
+      severity: 20,
+      tone: 'amber',
+      text: shrinkNote(fleet.shrink, fleet.ageSeconds + tick),
+    });
+  }
+  // `prNote` owns the WORDING — an unreachable host keeps the plain sentence, a
+  // spent rate limit says so and names when service returns (the sibling wave
+  // `bug/the-note-names-the-rate-limit`). The panel owns the FRAME and the
+  // placement. `prNote` is non-null exactly when `prError` is set, so the guard
+  // and the text agree.
+  const prMessage = prNote(fleet);
+  if (prMessage) {
+    statuses.push({
+      key: 'pr-error',
+      severity: 10,
+      tone: 'amber',
+      text: prMessage,
+    });
+  }
+
   return (
     <div className="space-y-4">
-      {/* The dead-server banner, ABOVE the scan-failure one and separate from
-          it. Two different failures: the server saying its scan broke, and the
-          server saying nothing at all. Both can be true — a scan that failed,
-          then a process that died — and the reader needs to know which they are
-          looking at, so neither replaces the other.
-
-          It names the number that was missing on 2026-08-16: how long ago the
-          last answer arrived. The frozen page gave no way to tell it apart from
-          a live one, and three hypotheses were spent before anyone checked what
-          was actually running. */}
-      {stale && (
-        <p
-          role="status"
-          className="rounded-md bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:bg-rose-950/40 dark:text-rose-300"
-        >
-          Not reaching the board server — last heard {staleSeconds}s ago. The
-          numbers below are frozen at that moment and are no longer being
-          checked.
-        </p>
-      )}
-
-      {fleet.error && (
-        <p className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-          Last scan failed: {fleet.error}
-          {fleet.ready && ' — showing the last successful pulse below.'}
-        </p>
-      )}
-
-      {/* The scan SUCCEEDED and lost something, which is neither of the two
-          banners above and must not be dressed as either.
-
-          `stale` means the server stopped answering; `fleet.error` means it
-          answered to say its scan broke — in both, the numbers below are the
-          last GOOD ones. Here they are the NEW ones, accepted from a scan that
-          exited 0, and they describe less than the board knew a moment ago.
-          Saying "last scan failed" would be a plain lie about what happened, and
-          saying nothing is the defect this whole change exists to remove: rows
-          vanishing with no error and no staleness marker.
-
-          Below the other two on purpose. A dead server or a broken scan is the
-          bigger fact and outranks a shrink they can both explain. */}
-      {fleet.shrink && (
-        <p
-          role="status"
-          className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
-        >
-          {shrinkNote(fleet.shrink, fleet.ageSeconds + tick)}
-        </p>
-      )}
+      {/* The board-status panel — one box carrying every status above, the
+          view-status line stays at the foot. See `StatusPanel`. */}
+      <StatusPanel statuses={statuses} />
 
       {GROUPS.map(({ key, icon, label, hint }) => {
         // WAITING ON A MACHINE ASKS A SECOND QUESTION — see `inMachineSection`.
@@ -5602,30 +5619,14 @@ export function AgentList({
         {fleet.prAgeSeconds !== null && prNext !== null && ` · next in ${prNext}s`}
         {fleet.prAgeSeconds === null && !fleet.prError && ' · no PR data yet'}
       </p>
-      {prNote(fleet) && (
-        // THE WHOLE MESSAGE, and the truncation it replaces was not merely
-        // short — it was SILENT. `slice(0, 80)` cut
-        //
-        //   Command failed: bash /Users/…/plot/skills/plot/scripts/plot-host.sh
-        //
-        // to `…/skills/plot/script`, which reads like a path and names a file
-        // that does not exist. Measured cost: one wrong lookup. A message whose
-        // whole purpose is to point at a cause must not point at a fiction, and
-        // a cut with no ellipsis cannot be told from a complete string.
-        //
-        // Raising the limit would only move the same defect to the next longer
-        // path, so there is no limit: `break-words` lets the footer WRAP, which
-        // is what a paragraph is for. It costs a line of height on the rare
-        // occasion the board cannot reach the host — the one moment the reader
-        // is owed the full sentence.
-        //
-        // `prNote` chooses the wording: an outage keeps the sentence above
-        // verbatim; a spent rate limit says so and names when service returns,
-        // rather than reporting a temporary refusal as *unavailable*.
-        <p data-pr-error className="px-3 text-xs break-words text-amber-700 dark:text-amber-400">
-          {prNote(fleet)}
-        </p>
-      )}
+      {/* This IS the view-status line, and it stays here: it answers *how fresh
+          is what I see?* and it is always true, so it belongs at the foot where
+          the eye lands after the rows rather than in the StatusPanel, whose
+          contract is to VANISH when there is nothing to say. The PR-failure note
+          that once trailed it moved UP into that panel — a reader was meeting
+          the incomplete rows before the sentence saying they were incomplete,
+          and `prNote` still chooses its wording (a spent rate limit says so,
+          an outage keeps the plain sentence). */}
     </div>
   );
 }

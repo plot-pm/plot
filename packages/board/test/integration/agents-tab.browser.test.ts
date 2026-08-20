@@ -223,6 +223,35 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   }
 
   /**
+   * Open the tab, then hand back a `push` that swaps what `/api/fleet` answers
+   * with — so a test can watch a status ARRIVE mid-session.
+   *
+   * The route reads a mutable `current` rather than being re-registered, the
+   * same way the fail-switch reads a mutable flag: a poll in flight at the
+   * moment of the swap cannot slip past an unrouted window. `push` waits a
+   * poll's length so the app has fetched the new payload before the test looks.
+   */
+  async function openAgentsPushable(
+    initial: Fleet = fleet(),
+  ): Promise<{ page: Page; push: (next: Fleet) => Promise<void> }> {
+    let current = initial;
+    const page = await browser.newPage();
+    await page.route('**/api/fleet', (route) =>
+      route.fulfill({ contentType: 'application/json', body: JSON.stringify(current) }));
+    await page.goto(`${baseURL}?tab=agents`);
+    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandPlans(page);
+    return {
+      page,
+      push: async (next: Fleet) => {
+        current = next;
+        // A poll every 4s; wait one so the swapped payload has been fetched.
+        await page.waitForTimeout(4_500);
+      },
+    };
+  }
+
+  /**
    * ONE agent row, by a branch name it contains.
    *
    * `locator('li', { hasText })` is not enough and stopped being enough the
@@ -1802,6 +1831,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // then a process that died. The server reporting its own scan failure
     // requires a server that answered; the other says nothing came back at all.
     // Collapsing them would tell the reader the wrong thing to go check.
+    //
+    // The status panel keeps both: it shows the most severe (the dead server)
+    // and holds the other a page away rather than stacking two boxes. "Does not
+    // erase" is now proved by the count and by paging TO the scan failure, not
+    // by both being on screen at once — the panel shows one at a time by design.
     const { page, fail } = await openAgentsWithFailSwitch(
       fleet({ error: 'plot-fleet-scan.sh exited 1' }),
     );
@@ -1809,9 +1843,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await page.getByText(/Last scan failed/).waitFor({ timeout: 10_000 });
       expect(await staleBanner(page).count()).toBe(0);
       fail();
+      // The dead server is the worse fact and takes the top of the panel.
       await staleBanner(page).waitFor({ timeout: 10_000 });
-      // The scan error is still shown: the newer failure does not erase it.
-      expect(await page.getByText(/Last scan failed/).count()).toBe(1);
+      // Both are held: the count says two, and the scan failure is one page over
+      // — the newer failure did not erase it.
+      const count = page.locator('[data-status-count]');
+      await expect.poll(() => count.textContent(), { timeout: 10_000 }).toContain('of 2 statuses');
+      await page.locator('[data-status-next]').click();
+      await page.getByText(/Last scan failed/).waitFor({ timeout: 10_000 });
     } finally {
       await page.close();
     }
@@ -2917,10 +2956,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(body).toContain('could not reach the host');
       expect(body).not.toContain('not checked yet');
       expect(header).toContain('could not reach the host');
-      // The existing banner still carries the message itself — the section says
-      // WHICH state it is in, the banner says what went wrong. Neither
-      // duplicates the other.
-      await page.locator('p', { hasText: 'PR data unavailable' })
+      // The status panel still carries the message itself — the section says
+      // WHICH state it is in, the panel says what went wrong. Neither duplicates
+      // the other.
+      await page.locator('[data-status-panel]', { hasText: 'PR data unavailable' })
         .waitFor({ timeout: 10_000 });
     } finally {
       await page.close();
@@ -2939,7 +2978,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       prNextInSeconds: 480,
     }));
     try {
-      const banner = page.locator('[data-pr-error]');
+      // The note moved from a footer into the status panel, but its WORDING is
+      // unchanged — `prNote` chooses it and the panel carries it verbatim.
+      const banner = page.locator('[data-status-panel]');
       await banner.waitFor({ timeout: 10_000 });
       const text = await banner.textContent();
       // SAYS the state: a rate limit, not a generic outage.
@@ -2990,17 +3031,140 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     expect(message.length).toBeGreaterThan(80);
     const page = await openAgents(fleet({ prError: message }));
     try {
-      const warning = page.locator('p', { hasText: 'PR data unavailable' });
+      const warning = page.locator('[data-status-panel]', { hasText: 'PR data unavailable' });
       await warning.waitFor({ timeout: 10_000 });
       // The tail is what a slice would have removed, and the script's name is
       // the whole point of reading the message at all.
       expect(await warning.textContent()).toContain('plot-host.sh pr-list --rich');
-      // And it WRAPS rather than widening the page: the footer is a paragraph,
-      // and a message with nowhere to break would otherwise push a horizontal
-      // scrollbar onto every other row on the board.
+      // And it WRAPS rather than widening the page: the status text is a
+      // paragraph, and a message with nowhere to break would otherwise push a
+      // horizontal scrollbar onto every other row on the board.
       const overflows = await page.evaluate(() =>
         document.documentElement.scrollWidth > document.documentElement.clientWidth);
       expect(overflows).toBe(false);
+    } finally {
+      await page.close();
+    }
+  });
+
+  // ── The board-status panel — bug/a-degraded-view-says-so-at-the-top ───────
+  //
+  // Corrected from a banner-per-condition to ONE panel at the top that carries
+  // every status, names how many it holds, and pages through them. The PR
+  // failure note stopped being a footer — a reader scanning WAITING ON YOU met
+  // the incomplete rows before the sentence saying they were incomplete.
+
+  // A shrink payload, so a scan that exited 0 and lost work is one of the
+  // statuses without needing the network fail-switch.
+  const SHRINK = { plans: ['c.md'], branches: ['bug/gone'], previousAt: '2026-08-20T00:00:00.000Z' };
+
+  it('gathers two conditions into ONE panel, not a frame each', async () => {
+    // The defect the panel removes: two independent failures used to stack as
+    // two unrelated banners, and a third pushed the rows down the page. However
+    // many are true, there is exactly one box.
+    const page = await openAgents(fleet({ error: 'plot-fleet-scan.sh exited 1', shrink: SHRINK, prError: 'gh: 503' }));
+    try {
+      await page.locator('[data-status-panel]').first().waitFor({ timeout: 10_000 });
+      await expect.poll(() => page.locator('[data-status-panel]').count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('names how many statuses it holds', async () => {
+    // A reader must know whether the visible status is the whole story or one of
+    // several — the count is what says so.
+    const page = await openAgents(fleet({ error: 'plot-fleet-scan.sh exited 1', shrink: SHRINK, prError: 'gh: 503' }));
+    try {
+      const count = page.locator('[data-status-count]');
+      await count.waitFor({ timeout: 10_000 });
+      expect(await count.textContent()).toContain('of 3 statuses');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('pages through the stack without reordering it', async () => {
+    // The box shows one at a time; the others stay reachable rather than
+    // collapsing into a count. Paging forward then back returns to the same
+    // status, in the same order — most severe first.
+    const page = await openAgents(fleet({ error: 'plot-fleet-scan.sh exited 1', shrink: SHRINK, prError: 'gh: 503' }));
+    try {
+      const text = page.locator('[data-status-text]');
+      await text.waitFor({ timeout: 10_000 });
+      // The most severe settled status shows first: a failed scan outranks a
+      // shrink outranks a spent host.
+      const first = await text.textContent();
+      expect(first).toContain('Last scan failed');
+
+      await page.locator('[data-status-next]').click();
+      const second = await text.textContent();
+      expect(second).not.toBe(first);
+
+      // Back one lands on the first again — paging does not reshuffle.
+      await page.locator('[data-status-prev]').click();
+      expect(await text.textContent()).toBe(first);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('flashes a newly-arrived status at the top, then sorts it into place', async () => {
+    // Arrival is worth interrupting for; permanence is not. A less-severe status
+    // arriving AFTER a more-severe one is shown first for a few seconds, then
+    // falls back into severity order.
+    const { page, push } = await openAgentsPushable(
+      fleet({ error: 'plot-fleet-scan.sh exited 1' }),
+    );
+    try {
+      const text = page.locator('[data-status-text]');
+      await text.waitFor({ timeout: 10_000 });
+      expect(await text.textContent()).toContain('Last scan failed');
+
+      // A spent host arrives — less severe, but NEW, so it flashes to the top.
+      await push(fleet({ error: 'plot-fleet-scan.sh exited 1', prError: 'gh: 503' }));
+      await expect
+        .poll(async () => (await text.textContent()) ?? '', { timeout: 10_000 })
+        .toContain('PR data unavailable');
+
+      // After the flash window it sorts back below the more severe scan failure.
+      await expect
+        .poll(async () => (await text.textContent()) ?? '', { timeout: 10_000 })
+        .toContain('Last scan failed');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('is absent entirely when there is nothing to report', async () => {
+    // An empty status box is a claim that the board is watching something; a
+    // healthy board is not, so the panel renders nothing at all.
+    const page = await openAgents(fleet({ error: null, shrink: null, prError: null }));
+    try {
+      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await expect.poll(() => page.locator('[data-status-panel]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('leaves the view-status line at the foot, unchanged', async () => {
+    // The footer answers *how fresh is what I see?* and is always true, so it
+    // stays where the eye lands after the rows — it does not move into the
+    // panel, and it gains nothing when a status appears.
+    const page = await openAgents(fleet({ prError: 'gh: 503' }));
+    try {
+      const footer = page.getByText(/branches across/);
+      await footer.waitFor({ timeout: 10_000 });
+      // Below the rows: the footer's top edge sits under the first section's.
+      const footerTop = await footer.evaluate((el) => el.getBoundingClientRect().top);
+      const headingTop = await page.getByRole('heading', { level: 2, name: /Waiting on you/ })
+        .evaluate((el) => el.getBoundingClientRect().top);
+      expect(footerTop).toBeGreaterThan(headingTop);
+      // And it still carries every currency reading it did before.
+      const line = (await footer.textContent()) ?? '';
+      expect(line).toMatch(/scanned \d+s ago/);
+      expect(line).toContain('PR data');
     } finally {
       await page.close();
     }
