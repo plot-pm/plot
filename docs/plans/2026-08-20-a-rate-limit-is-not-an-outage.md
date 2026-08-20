@@ -148,7 +148,7 @@ stderr; that string is the signal, and anything else stays an outage.
 
 ### Slows
 - `feature/every-host-consumer-slows-down` — the issue poll and the scan's host questions route their failures through `rateLimitBackoffMs`, as the PR refresh already does. Tests: a rate-limited issue poll waits rather than re-firing on the ordinary cadence; a non-rate-limit failure keeps the ordinary rhythm; the PR refresh's behaviour is unchanged. → #271
-- `feature/the-wait-comes-from-the-host` — where the message carries no reset, one free `rate_limit` read supplies the real one, with the constant as the last resort. Tests: a message naming seconds still wins; a bare message uses the fetched reset; an unreadable rate_limit falls back to the ceiling; the read happens once per backoff, never per call.
+- `feature/the-wait-comes-from-the-host` — where the message carries no reset, one free `rate_limit` read supplies the real one, with the constant as the last resort. Tests: a message naming seconds still wins; a bare message uses the fetched reset; an unreadable rate_limit falls back to the ceiling; the read happens once per backoff, never per call. → #272
 
 ### Says
 - `bug/the-note-names-the-rate-limit` — the note distinguishes a spent budget from an unreachable host and names when service returns. Tests: a rate-limited pulse says so and names the reset; an unreachable host keeps today's wording; the note never claims checks failed when they were not asked.
