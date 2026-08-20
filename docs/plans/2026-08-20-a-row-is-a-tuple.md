@@ -79,9 +79,23 @@ carries none, a PR carries its plan and its branch.
 | Branch | branch | `Branch` | `feature/opus5-longhorizon-hardening` | — | `conflicts` | `25d` |
 | Release | release | `Release` | `2.7.0` | `changeset-release/main` | `no-checks` | `12m` |
 
-**The kind is stated, not inferred.** It ends the tooltip-as-label defect and the
-four-meanings column in one move: the second slot says what the row is, and no
-other slot has to imply it.
+**The kind is stated, not inferred — and it is a FIELD, not a derivation.**
+There is no `kind` on the contract today; a row's kind is implied by which
+component happened to render it. Slot 2 reads a new `kind` field that the server
+sets where the row is created, because the server is the only place that knows
+why the row exists.
+
+The alternative — deriving it in the renderer from `row.pr`, `row.issue`,
+`row.planFile` — is declined, and the reason is the defect this plan exists to
+fix. A derivation is a guess with a rule attached, and the rule breaks first
+where two kinds share fields: **a release is a PR** whose branch happens to be
+named `changeset-release/main`, so any derivation must either hardcode that name
+or misclassify the one row nobody should merge by reflex. The four-meanings column
+was also a derivation — from the plan's wave count — and it produced four answers
+in one column.
+
+It ends the tooltip-as-label defect and the four-meanings column in one move: the
+second slot says what the row is, and no other slot has to imply it.
 
 **Name and artifact are different slots**, which settles *subject versus
 vehicle*. A PR's name is `57` and its vehicle is the branch; a branch's name IS
@@ -123,11 +137,91 @@ Where a slot has no destination — a branch's empty artifact slot — it render
 nothing rather than as a dead control. The rule this board already applies to a
 PR cell with no PR.
 
+### Seven kinds in the contract, three with data
+
+Measured 2026-08-20: only **three** of the seven have a row today.
+
+| kind | today | data exists |
+|---|---|---|
+| ticket | `IssueRowView` | yes |
+| plan | `PlanRow` | yes |
+| branch | `Row` | yes |
+| **pr** | a **cell** inside a branch row, not a row | yes — **and 67 of 80 rows carry one** |
+| **release** | an unmarked branch row | yes, undistinguished |
+| **build** | none | check data on the row; no row of its own |
+| **agent** | none | **no** — the registry is not merged |
+
+**`branch` and `pr` overlap on 84% of rows**, measured: 67 of 80 live rows carry
+both, 13 a branch alone. They are not two kinds of thing — they are two roles one
+row can be in, and `kind` picks the one the reader is deciding about. See the
+resolved open point below; it is the least obvious consequence of this design and
+the one that nearly broke it.
+
+**The contract carries all seven anyway, and four render nothing.** The slot list
+is a shape, and a shape that admits only what exists today would have to be
+reopened for each kind that arrives — which is precisely how three components and
+two grids happened. A kind with no data renders no row; it does not render an
+empty one.
+
+**The risk is named rather than discovered later.** The agent kind is designed
+against a registry that does not exist yet, and the plan's own example says
+`@Dev-Agent` — an invented name. Measured the same day, agents already have a real
+identity: the **session id** the runtime writes as its transcript filename, which
+is what `2026-08-17-working-shows-the-agent.md` keys its manifest on *because it
+survives the branch*. So slot 3 for an agent is the session id, shortened for
+display, and `@Dev-Agent` is dropped as a placeholder that was never a fact.
+
+`build` and `release` are cheaper: both derive from data already on the row, and
+`release` is a mark rather than a new source.
+
 **One status slot, whatever the kind.** `conflicts`, `draft`, `thinking`,
 `no-checks` are all "where does this stand". The prose notes that vary per kind
 become one value in one place.
 
 **Age is age.** Today a row can show `ageMinutes`, `waitingDays`, or nothing.
+
+But *age of what* differs by kind — a PR is aged from opening, an agent from its
+last turn, a ticket from creation, a build from its start. Left as one slot
+deliberately, and the reason is the requirement at the top of this section: the
+reader is judging **how long this has been like this**, and every kind answers
+that from its own clock. A slot that named its clock (`open 25d`, `idle 13m`)
+would be more precise and would put a second kind of word back into a slot the
+tuple just made uniform.
+
+The line it must not cross is the four-meanings failure: that column was
+ambiguous because a reader **could not tell which meaning applied** without
+knowing the plan's wave count. Here the kind is in slot 2, one column to the
+left — so the clock is stated by the row, not guessed. Recorded as an open point
+below rather than settled, because it is a claim about what a reader infers and
+this plan has been wrong about that once already.
+
+### Three components, two grids — and a ticket already wears a branch's
+
+Measured 2026-08-20, and it is the sharpest evidence for this design rather than
+an objection to it:
+
+| component | grid it uses | size |
+|---|---|---|
+| `Row` (branch, and PR as a cell) | `ROW_TRACKS` | **555 lines** |
+| `PlanRow` | `PLAN_ROW_TRACKS` | **149 lines** |
+| `IssueRowView` (ticket) | **`ROW_TRACKS`** | 2 lines — a wrapper |
+
+So it is not two grids for two kinds. It is **two grids for three components**,
+and the third — a ticket — is already rendered through the tracks of a *branch*.
+A ticket has no wave, no worker and no branch; it wears the columns of something
+it is not because there was no third grid to give it. That is the same defect as
+the four-meanings column, at a second site, and it was there before anyone
+noticed.
+
+**One component renders every kind.** `Row`, `PlanRow` and `IssueRowView` are
+replaced by a single tuple row rather than sharing a grid between three fillers.
+Three fill sites is exactly how the two grids drifted apart, and a shared grid
+with three fillers keeps that possibility while adding a contract.
+
+The cost is stated because it decides the wave order: **~700 lines of component**
+in a file of 5,664 that took **11 commits on 2026-08-20 alone** and conflicted on
+nearly every merge that day. Which is why the collapse is the LAST wave and not
+the first — see *Branches*.
 
 ### What this replaces
 
@@ -172,8 +266,11 @@ than narrowing it.
 
 ### Open Points
 
-- [ ] **Ticket age is blank in the example.** Is that deliberate — a ticket's age
-      being the tracker's business — or an omission? Every other kind carries one.
+- [x] **Ticket age is blank in the example** — an **omission**, settled
+      2026-08-20. Measured: the board already renders `1d` for issues #227 and
+      #228, so the age exists and reaches the row today. A ticket open for three
+      weeks is exactly what WAITING ON YOU orders by, and dropping it would make
+      the section's own sort key invisible on one of its four kinds.
 - [x] **Is `Release` a kind or a PR with a mark?** A kind, and it carries
       **only a mark — never an action.** Settled 2026-08-20. The mark exists to
       stop a reflex merge; a menu entry offering to release would put an
@@ -200,13 +297,40 @@ the wave and the plan phase — are relocated before the old column is deleted, 
 no pulse renders a row that has lost a fact and not yet gained its replacement.
 
 ### Shaped
-- `feature/a-row-is-a-tuple` — the contract carries the six slots and one grid renders them for every kind, with **every named thing linked** — a PR row links its PR, its plan and its branch. Tests: each of the seven kinds renders all six slots; the item name and the artifact name are separate links to separate destinations; a PR row renders three separate links; a branch row renders one and no empty artifact control; a row whose item has no URL renders its name as text; the kind is present without hovering; **a release row is marked as its own kind and its menu offers no release action**; no host call is added.
+- `feature/a-row-is-a-tuple` — the contract carries the six slots and a `kind` field for all seven kinds, and ONE tuple row renders them, with **every named thing linked** — a PR row links its PR, its plan and its branch. The three existing row components keep working: this adds the row and the field, it deletes nothing. Tests: `kind` is set by the server for every row it emits and is never derived in the renderer; each of the seven kinds renders all six slots; a kind with no data renders no row rather than an empty one; the item name and the artifact name are separate links to separate destinations; a PR row renders three separate links; a branch row renders one and no empty artifact control; a row whose item has no URL renders its name as text; the kind is present without hovering; a ticket carries its age; **a release is its own kind and its menu offers no release action**; an agent's name is its session id, never an invented handle; no host call is added.
 
 ### Relocated
 - `feature/the-wave-and-the-phase-find-their-owners` — the two facts slot 2 displaces move to the objects they describe: the wave beside the branch name, extending `a-branch-row-names-its-wave` (#275); the plan phase into the plan heading, where `PlanRow` already states it. Absorbs bug/one-column-one-kind-of-fact and bug/the-kind-is-labelled-not-hovered from `waiting-on-you-says-what-kind-of-waiting`. Tests: a branch row prints no plan phase; a multi-wave plan's branches and a single-wave plan's branches read the same kind of word in slot 2; a PR row and a build row are not given a phase they do not have; a ticket is not labelled with a plan phase; the kind is readable without hovering, and no tooltip is the only place a kind is stated; the wave is still reachable for every branch that has one.
 
-### Moved
-- `bug/the-row-drops-what-the-tuple-replaced` — the fields the tuple supersedes stop being rendered per kind, and `ROW_TRACKS`/`PLAN_ROW_TRACKS` collapse to one. Absorbs feature/the-row-leads-with-its-subject: with slot 3 holding the item name, "which fact leads" is answered by construction, and what remains is deleting the per-kind leading logic. Tests: a plan row and a branch row use the same grid; no row prints a phase belonging to another object; **a PR row's dominant slot holds the PR and its branch is an artifact link**; **a merge conflict is still readable on the branch it belongs to**; the sections keep their membership.
+### Collapsed
+- `bug/one-component-renders-every-row` — `Row`, `PlanRow` and `IssueRowView` are replaced by the tuple row; `ROW_TRACKS` and `PLAN_ROW_TRACKS` collapse to one grid. Absorbs feature/the-row-leads-with-its-subject: with slot 3 holding the item name, "which fact leads" is answered by construction, and what remains is deleting the per-kind leading logic. **Last on purpose** — it rewrites ~700 lines of the file that took 11 commits on 2026-08-20 and conflicted on nearly every merge, so it goes when no sibling branch is open against it. Tests: one grid renders a plan row, a branch row and a ticket row; no row prints a phase belonging to another object; **a PR row's dominant slot holds the PR and its branch is an artifact link**; **a merge conflict is still readable on the branch it belongs to**; a ticket no longer wears the branch tracks; the sections keep their membership; every assertion the three deleted components carried still has an owner.
+
+## Open Points
+
+- [ ] **Does the age slot need to name its clock?** A PR is aged from opening, an
+      agent from its last turn, a ticket from creation. One slot keeps the
+      uniformity the tuple just bought; naming the clock (`open 25d`, `idle 13m`)
+      is more precise and puts a second kind of word back. Slot 2 states the kind
+      one column left, so the clock is arguably stated already — but that is a
+      claim about what a reader infers, and this plan has been wrong about that
+      once. Decide from a rendered row, not from the design.
+- [x] **`kind` is what the row is ABOUT, not what object it came from.**
+      Settled 2026-08-20 by measurement: of 80 live rows, **67 carry both a
+      branch and a PR** and only 13 are a branch alone. So the both-case is the
+      normal case, not an edge, and `branch` and `pr` are not two kinds of row —
+      they are two **roles one row can be in**.
+
+      `kind` therefore answers *what is being decided here*, which is the
+      requirement at the top of this design (**the item must be recognisable**),
+      and the rule that picks it is the one `the-row-leads-with-its-subject`
+      already settled: a **merge conflict** makes it `branch`, because no PR
+      resolves it and the reader goes to the branch; anything else with an open
+      PR makes it `pr`, because the fix updates the PR.
+
+      This costs the design a simplification and the loss is worth stating:
+      `kind` is not a property of a thing, it is a judgement about a row. The
+      server makes it, once, where it has both facts — which is exactly why it
+      must not be derived in the renderer, where only some of them arrive.
 
 ## Notes
 
