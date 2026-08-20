@@ -19,6 +19,7 @@
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-panel-names-the-working-process`
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-button-claims-only-what-it-knows`
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-overlay-keeps-its-place`
+- **Started:** 2026-08-20, Jan Wloka, `bug/the-panel-facts-are-destinations`
 
 ## Problem
 
