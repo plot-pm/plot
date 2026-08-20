@@ -8,13 +8,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Story:** plot-board
 - **Sprint:**
 - **Review:** in-session
 - **Impl:** own branches
 - **Assignee:** jwloka
+- **Approved:** 2026-08-20 by jwloka (in-session) — interrogated 2026-08-20; five decisions recorded — one component for all kinds, kind is a server-set field, seven kinds with four empty, age is since-last-change with the agent labelled, collapse goes last
 
 ## Problem
 

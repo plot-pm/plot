@@ -8,12 +8,13 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** infra
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
 - **Assignee:** jwloka
+- **Approved:** 2026-08-20 by jwloka (in-session) — measured 43s serial against 25s parallel, and the parallel run exposed a real race; the race is fixed before the split
 
 ## Problem
 
