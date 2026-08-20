@@ -21,6 +21,7 @@
 - **Started:** 2026-08-20, Jan Wloka, `bug/one-column-one-kind-of-fact`
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-kind-is-labelled-not-hovered`
 - **Started:** 2026-08-20, Jan Wloka, `bug/a-failure-is-shown-not-dumped`
+- **Started:** 2026-08-20, Jan Wloka, `bug/plans-of-equal-age-order-by-name`
 
 ## Problem
 
