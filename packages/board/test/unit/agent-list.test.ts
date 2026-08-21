@@ -324,7 +324,10 @@ describe('isUnpushed — finished work nobody else can see', () => {
     // has not pushed. Asserted as two separate answers because the row renders
     // two separate marks, and an implementation testing them in sequence loses
     // whichever it tests second.
-    const both = row({ localDirty: true, localAhead: 3 });
+    // A PROCESS for the active half, since `isActive` reads the process rather
+    // than the worktree: an agent running on a branch that also holds unpushed
+    // commits. Two answers, two marks, neither derived from the other.
+    const both = row({ worker: 'running', localAhead: 3 });
     expect(isActive(both)).toBe(true);
     expect(isUnpushed(both)).toBe(true);
   });
@@ -370,112 +373,82 @@ describe('waitingTone — only one of the three is loud', () => {
   });
 });
 
-describe('isActive — which rows are actually being written to', () => {
-  it('marks a row holding a lock, and a row with uncommitted work', () => {
-    // The two entrances, and they are ORs rather than a sequence: someone is
-    // writing this instant, or has written and not committed.
-    expect(isActive(row({ localLocked: true }))).toBe(true);
-    expect(isActive(row({ localDirty: true }))).toBe(true);
-    expect(isActive(row({ localLocked: true, localDirty: true }))).toBe(true);
-  });
-
-  it('never marks a MERGED branch, whatever its worktree holds', () => {
-    // Measured on screen: a row sitting in DONE with the activity mark. Both
-    // halves were true — merged, and a dirty checkout — and the row said two
-    // things that cannot both be acted on. The dirt was one leftover
-    // `.plot-worker.exit` nobody had cleaned up.
+describe('isActive — which rows have a PROCESS running on them', () => {
+  it('marks a live agent and a running build, and nothing else', () => {
+    // THE MOVING DOT IS ABOUT MACHINES. It read `localLocked || localDirty`
+    // until 2026-08-22, and those describe a WORKTREE's contents rather than a
+    // process: measured on the live board, the row for the branch being
+    // committed to pulsed continuously for hours while nothing but a person
+    // typed in it.
     //
-    // Editing a merged branch's checkout is real and simply not what this mark
-    // means. `classify` already sends merged branches to `done` before looking
-    // at any local signal; this predicate now agrees with it rather than
-    // contradicting it one layer up.
-    expect(isActive(row({ state: 'merged', localDirty: true }))).toBe(false);
-    expect(isActive(row({ state: 'merged', localLocked: true }))).toBe(false);
+    // Two sources, one per kind of machine this board knows: `worker` for
+    // AGENTS, bounded by LIVE_WORKERS, and `pr.state === 'pending'` for BUILDS.
+    expect(isActive(row({ worker: 'running' }))).toBe(true);
+    expect(isActive(row({ worker: 'waiting' }))).toBe(true);
+    expect(isActive(row({ worker: 'stalled' }))).toBe(true);
+    expect(isActive(row({
+      pr: { number: 1, url: 'u', draft: false, state: 'pending' },
+    }))).toBe(true);
   });
 
-  it('still marks an UNMERGED branch with the same signals', () => {
-    // The pairing. A fix that suppressed the mark whenever a row sits in DONE —
-    // or worse, whenever a PR exists — would pass the assertion above and take
-    // the mark off every agent that is actually writing.
-    expect(isActive(row({ state: 'wip', localDirty: true }))).toBe(true);
-    expect(isActive(row({ state: 'claimed', localLocked: true }))).toBe(true);
-    expect(isActive(row({ state: 'open', localDirty: true }))).toBe(true);
+  it('does NOT mark a person editing — that is the background flash\'s job', () => {
+    // The split the operator drew: the DOT shows processes, the background
+    // FLASH shows writing. `localDirty` and `localLocked` are still watched by
+    // `changedRows`, so a write still reaches the reader — as a flash, on the
+    // change, rather than as a dot claiming a machine is at work.
+    expect(isActive(row({ localDirty: true }))).toBe(false);
+    expect(isActive(row({ localLocked: true }))).toBe(false);
+    expect(isActive(row({ localDirty: true, localLocked: true }))).toBe(false);
   });
 
-  it('does NOT mark a WORKING row that carries neither signal', () => {
-    // THE assertion, and the whole point of the wave. An implementation that
-    // kept reading `group === 'working'` passes every positive case above and
-    // fails here — a row sits in WORKING for HOURS while an agent works, while
-    // an agent has crashed, or while it waits on a human, and nothing measures
-    // the end. Six rows carried that claim in one session.
-    expect(isActive(row({ group: 'working' }))).toBe(false);
-    // Not even with the strongest note WORKING can carry: the note is a
-    // sentence the server composed, not an observation of a write.
-    expect(isActive(row({ group: 'working', note: 'claimed, no commits yet' }))).toBe(false);
-    expect(isActive(row({ group: 'working', ageMinutes: 1, note: 'last commit 1 min ago' })))
-      .toBe(false);
-  });
-
-  it('marks a row OUTSIDE working when the signals say so', () => {
-    // The other half of the same reversal: the group no longer decides. A quiet
-    // row whose worktree is dirty is being written to, whatever the classifier
-    // made of its commit age.
-    for (const group of GROUPS.map((g) => g.key)) {
-      expect(isActive(row({ group, localDirty: true }))).toBe(true);
+  it('reads a FINISHED run as no run — the six states that are not live', () => {
+    // `LIVE_WORKERS` is *is anybody on this now*, and the other five describe a
+    // run that is over or absent. Measured on this repo's board: 4 rows carry
+    // `finished` and every one is a merged PR in DONE.
+    for (const w of ['finished', 'failed', 'ended', 'none', 'elsewhere'] as const) {
+      expect(isActive(row({ worker: w })), `${w} read as live`).toBe(false);
     }
   });
 
-  it('does NOT treat unpushed commits as activity', () => {
-    // The pairing the plan names explicitly: an implementation OR-ing all three
-    // signals passes every positive assertion above and marks finished work
-    // sitting still as motion. A branch nobody has touched for hours that holds
-    // one unpushed commit must read as UNMARKED.
-    //
-    // Asserted against the field itself, now that `localAhead` reaches the row:
-    // the wave that added the unpushed mark forwarded it, exactly as this test's
-    // earlier form anticipated ("a later wave's own signal"). What that form
-    // asserted — that `local_ahead` is ABSENT from the row — was a statement
-    // about the plumbing of the day and stopped being true; what it MEANT is
-    // asserted here and does not expire: however many unpushed commits a row
-    // holds, `isActive` is false.
-    //
-    // Kept as its own test rather than folded into `isUnpushed`'s block: this
-    // one guards the predicate that must NOT see the field, and a fix that ORs
-    // the three signals together fails here and nowhere else.
-    const ahead = row({ group: 'working', localDirty: false, localLocked: false, localAhead: 3 });
-    expect(isActive(ahead)).toBe(false);
-    expect(isUnpushed(ahead)).toBe(true);
+  it('reads a SETTLED build as no build — pending is the only running one', () => {
+    // The other PR states are verdicts a machine left behind, not a machine at
+    // work. `conflicts` in particular is a standing condition, and a row that
+    // pulsed for it would pulse for weeks.
+    for (const st of ['green', 'failing', 'none', 'closed', 'conflicts', 'unknown'] as const) {
+      expect(isActive(row({ pr: { number: 1, url: 'u', draft: false, state: st } })),
+        `${st} read as running`).toBe(false);
+    }
   });
 
-  it('leaves an UNOBSERVED row unmarked, and never crashes on one', () => {
-    // ABSENT IS NOT FALSE. A scan that could not look at a worktree reports
-    // absence rather than cleanliness, so both fields default to false — and
-    // false here must yield NO MARK rather than a mark saying *idle*. The
-    // strongest licensed statement is *unknown, never nobody*.
-    const unobserved = AgentRowSchema.parse({
-      repo: 'plot', branch: 'feature/elsewhere', plan: 'p', wave: 'w', state: 'wip',
-      group: 'working', ageMinutes: 5, note: 'claimed, no commits yet',
-    });
-    expect(unobserved.localDirty).toBe(false);
-    expect(unobserved.localLocked).toBe(false);
-    expect(isActive(unobserved)).toBe(false);
-    // And the predicate survives a row that predates the fields entirely — the
-    // payload an older server sends.
-    expect(() => isActive({ localDirty: undefined, localLocked: undefined } as never))
-      .not.toThrow();
+  it('never marks a MERGED branch, whatever is running against it', () => {
+    // Measured on screen: a row in DONE carrying the mark. After the merge
+    // there is no work on the branch left to happen, which is why `classify`
+    // sends merged branches to `done` before it looks at any signal.
+    expect(isActive(row({ state: 'merged', worker: 'running' }))).toBe(false);
+    expect(isActive(row({
+      state: 'merged', pr: { number: 1, url: 'u', draft: false, state: 'pending' },
+    }))).toBe(false);
+    // And the same signals on an UNMERGED branch still mark it.
+    expect(isActive(row({ state: 'wip', worker: 'running' }))).toBe(true);
+  });
+
+  it('survives a row that predates the fields entirely', () => {
+    // The payload an older server sends.
+    expect(() => isActive({ worker: undefined, pr: undefined } as never)).not.toThrow();
   });
 
   it('is a DIFFERENT question from isLive, and neither answers the other', () => {
     // Three marks, three meanings — and the pairing that matters: no mark may
-    // be implemented by modifying another. A WORKING row with no signals is
-    // LIVE and not ACTIVE; a dirty QUIET row is ACTIVE and not LIVE.
+    // be implemented by modifying another. A WORKING row with no process is
+    // LIVE and not ACTIVE; an agent running OUTSIDE working is ACTIVE and not
+    // LIVE.
     const idleInWorking = row({ group: 'working' });
     expect(isLive(idleInWorking)).toBe(true);
     expect(isActive(idleInWorking)).toBe(false);
 
-    const dirtyOutside = row({ group: 'quiet', localDirty: true });
-    expect(isLive(dirtyOutside)).toBe(false);
-    expect(isActive(dirtyOutside)).toBe(true);
+    const agentOutside = row({ group: 'quiet', worker: 'running' });
+    expect(isLive(agentOutside)).toBe(false);
+    expect(isActive(agentOutside)).toBe(true);
   });
 });
 
@@ -651,15 +624,18 @@ describe('LOCK_ECHO_MS — long enough to outlive a pulse, short enough to read 
 
 describe('activeRowKeys — this pulse\'s signals, widened by recent locks', () => {
   it('marks rows the pulse reports active', () => {
+    // THE TWO KINDS OF PROCESS, and a row with neither. `isActive` reads the
+    // worker and the build since 2026-08-22 — a dirty worktree is a person
+    // writing, which the background flash reports and the dot does not.
     const rows = [
-      row({ branch: 'dirty', localDirty: true }),
-      row({ branch: 'locked', localLocked: true }),
+      row({ branch: 'agent', worker: 'running' }),
+      row({ branch: 'build', pr: { number: 9, url: 'u', draft: false, state: 'pending' } }),
       row({ branch: 'idle', group: 'working' }),
     ];
     expect([...activeRowKeys(rows, new Set())].sort())
       // KEYS CARRY THE PLAN since two plans can name one branch — the fixture's
       // `plan: 'a-plan'` is the third segment.
-      .toEqual(['plot/dirty/a-plan', 'plot/locked/a-plan']);
+      .toEqual(['plot/agent/a-plan', 'plot/build/a-plan']);
   });
 
   it('adds rows still echoing a lock, without the pulse saying anything', () => {
@@ -693,96 +669,46 @@ describe('activeRowKeys — this pulse\'s signals, widened by recent locks', () 
   });
 });
 
-describe('local write activity outranks the section', () => {
-  it('marks a written-to row in EVERY group, WAITING ON YOU included', () => {
-    // THE RULE, and it replaced a `showsActivity` predicate that stood for one
-    // day. That one began as *WAITING ON YOU never carries an activity mark*,
-    // reported from the live board — a plan head and its wave pulsing while, it
-    // seemed, nothing was running.
-    //
-    // Measuring the pulse behind the report is what overturned it: exactly one
-    // row in the fleet had a local signal, `feature/a-wave-is-a-kind` with
-    // `localDirty: true` — the branch being committed to at that moment — and
-    // the plan head that pulsed was ITS head. The mark was telling the truth.
-    //
-    // Whichever worktree or main dir is being written to, and whatever section
-    // the row is in, the mark shows. A section says what the work is WAITING
-    // for, and writing is not waiting.
+describe('a process is marked in EVERY section, and writing is not a process', () => {
+  it('marks a running process wherever the row is filed', () => {
+    // No section withholds the dot. A predicate that gated on the group stood
+    // for one day and was wrong twice — first refusing QUIET and DONE, where
+    // `group-activity` shows the mark matters most, then refusing WAITING ON
+    // YOU while a real process ran there. A section says what work is WAITING
+    // for; a process running is not waiting.
     for (const group of ['working', 'waiting-on-machine', 'waiting-on-you',
                          'quiet', 'done', 'not-started'] as const) {
-      const dirty = row({ branch: 'w', group, localDirty: true });
-      expect([...activeRowKeys([dirty], new Set())], `${group} withheld the mark`)
+      const busy = row({ branch: 'w', group, worker: 'running' });
+      expect([...activeRowKeys([busy], new Set())], `${group} withheld the mark`)
         .toHaveLength(1);
     }
   });
 
-  it('still refuses it where the ROW says nothing is being written', () => {
-    // The negative that keeps the positive meaning something: the question is
-    // the row's own three fields, not its group, and a row with no signal is
-    // unmarked in the liveliest section there is.
-    const idle = row({ branch: 'w', group: 'working', localDirty: false });
+  it('does NOT mark a person editing, in any section', () => {
+    // The split the operator drew: the DOT is for processes, the background
+    // FLASH is for writing. A dirty worktree is a person — or the master agent
+    // in the project directory — and it reaches the reader as a flash on the
+    // change, not as a dot claiming a machine is at work.
+    for (const group of ['working', 'waiting-on-you', 'quiet'] as const) {
+      const dirty = row({ branch: 'w', group, localDirty: true });
+      expect([...activeRowKeys([dirty], new Set())], `${group} marked a writer`)
+        .toHaveLength(0);
+    }
+  });
+
+  it('refuses it where nothing runs at all', () => {
+    // The negative that keeps the positive meaning something.
+    const idle = row({ branch: 'w', group: 'working', worker: 'none' });
     expect([...activeRowKeys([idle], new Set())]).toHaveLength(0);
   });
 
-  it('leaves the MERGED exception standing — it is about the branch, not the section', () => {
-    // `isActive` refuses a merged branch whatever its worktree holds, measured
-    // on a row in DONE carrying the mark over one leftover `.plot-worker.exit`.
-    // That guard reads `state`, which is a fact about the BRANCH, so removing
-    // the section rule does not disturb it.
-    expect(isActive({ state: 'merged', localDirty: true, localLocked: false })).toBe(false);
-    expect(isActive({ state: 'wip', localDirty: true, localLocked: false })).toBe(true);
-  });
-});
-
-describe('a wave name is not a wave — the mark must not cross plans', () => {
-  it('never merges same-named waves from DIFFERENT plans', () => {
-    // THE HAZARD the operator named: *make sure other waves are not shown by
-    // mistake*. `groupByWave` keys on `row.wave` ALONE, so two plans that both
-    // call a wave `Sized` would land in one group — and one written-to branch
-    // would then mark rows belonging to a plan nobody had touched.
-    //
-    // Measured on the live estate: EIGHT wave names are shared across plans,
-    // `Sized` by four of them. So this is the normal case, not a contrivance.
-    //
-    // What makes it safe is the CALL SITE, and this pins it: every caller
-    // passes one plan's rows (`group.rows`, where `group` carries `plan` and
-    // `planFile`), so two plans' waves never meet inside this function. The
-    // test states it from the outside — group each plan's rows separately, as
-    // the board does, and the same name stays two groups.
-    // Two BRANCHES, and on this estate that means two separate worktrees — the
-    // fleet cuts one per branch (14 live while this was written). So the
-    // `localDirty` below is one worktree's real state and cannot leak to the
-    // other by construction; what could leak is the RENDERING, if the two rows
-    // were grouped together.
-    const mine = row({ branch: 'feature/a', plan: 'plan-one', wave: 'Sized' });
-    const theirs = row({ branch: 'feature/b', plan: 'plan-two', wave: 'Sized' });
-
-    const perPlan = [
-      groupByWave([mine]),
-      groupByWave([theirs]),
-    ];
-    expect(perPlan[0]).toHaveLength(1);
-    expect(perPlan[1]).toHaveLength(1);
-    expect(perPlan[0][0].rows).toEqual([mine]);
-    expect(perPlan[1][0].rows).toEqual([theirs]);
-
-    // And the aggregation the board performs — `wg.rows.some(...)` — therefore
-    // cannot reach across: only the plan whose branch is being written to is
-    // marked.
-    const active = activeRowKeys([{ ...mine, localDirty: true }, theirs], new Set());
-    expect(perPlan[0][0].rows.some((r) => active.has(rowKey({ ...r, localDirty: true }))))
-      .toBe(true);
-    expect(perPlan[1][0].rows.some((r) => active.has(rowKey(r)))).toBe(false);
-  });
-
-  it('DOES merge one plan\'s own same-named rows, which is the point', () => {
-    // The positive that keeps the negative honest: within one plan, a wave is
-    // exactly the branches that name it, and they group.
-    const a = row({ branch: 'feature/a', plan: 'plan-one', wave: 'Sized' });
-    const b = row({ branch: 'feature/b', plan: 'plan-one', wave: 'Sized' });
-    const groups = groupByWave([a, b]);
-    expect(groups).toHaveLength(1);
-    expect(groups[0].rows).toHaveLength(2);
+  it('leaves the MERGED exception standing — it is about the branch', () => {
+    // `isActive` refuses a merged branch whatever runs against it, measured on
+    // a row in DONE carrying the mark. The guard reads `state`, a fact about
+    // the BRANCH, so neither the section rule's removal nor the change of
+    // source disturbs it.
+    expect(isActive({ state: 'merged', worker: 'running', pr: null })).toBe(false);
+    expect(isActive({ state: 'wip', worker: 'running', pr: null })).toBe(true);
   });
 });
 
@@ -862,21 +788,35 @@ describe('activityPace — fast means measured, slow means unobserved', () => {
     expect(activityPace(row({ localDirty: false, localLocked: false }))).toBe('slow');
   });
 
-  it('is the SAME predicate isActive already draws, and not a second one', () => {
-    // The load-bearing relationship: `activity-shows-itself` settled what
-    // *someone is writing here* means, and this wave reads that answer rather
-    // than inventing a rival. An implementation that graded the pace on the
-    // group, the note or the age would disagree with `isActive` on some row and
-    // put a fast dot on a branch nobody has touched.
-    for (const over of [
-      { localDirty: true, localLocked: false },
-      { localDirty: false, localLocked: true },
-      { localDirty: false, localLocked: false },
-      { localDirty: true, localLocked: true },
-    ]) {
-      const r = row(over);
-      expect(activityPace(r)).toBe(isActive(r) ? 'fast' : 'slow');
-    }
+  it('is a SECOND question, asked of the same row — not the same predicate', () => {
+    // THE TWO SPEEDS ARE THE TWO QUESTIONS, and they parted on 2026-08-22.
+    //
+    // This asserted `activityPace(r) === (isActive(r) ? 'fast' : 'slow')` —
+    // sound while both read the worktree, and false once they divided:
+    // `isActive` asks *does a process run here* (the worker, the build), and
+    // the pace asks *is that process doing anything*, for which the worktree is
+    // the only evidence the board has.
+    //
+    // So a claimed branch whose agent is thinking travels SLOW, and the moment
+    // it writes a file the same dot travels FAST. The operator's words: *the
+    // ActivityMark starts when a process runs and flickers faster when real
+    // work happens*.
+    const thinking = row({ worker: 'running', localDirty: false, localLocked: false });
+    expect(isActive(thinking)).toBe(true);
+    expect(activityPace(thinking)).toBe('slow');
+
+    const writing = row({ worker: 'running', localDirty: true });
+    expect(isActive(writing)).toBe(true);
+    expect(activityPace(writing)).toBe('fast');
+
+    const holdingLock = row({ worker: 'running', localLocked: true });
+    expect(activityPace(holdingLock)).toBe('fast');
+
+    // A BUILD is a process too, and it has the same two speeds: CI churning
+    // through a checkout that is being written to is the fast case.
+    const ci = row({ pr: { number: 9, url: 'u', draft: false, state: 'pending' } });
+    expect(isActive(ci)).toBe(true);
+    expect(activityPace(ci)).toBe('slow');
   });
 
   it('reads NOTHING but the two local signals', () => {

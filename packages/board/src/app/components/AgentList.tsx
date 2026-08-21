@@ -1519,27 +1519,42 @@ export function isLive(row: AgentRow): boolean {
  * fields and nothing else. `useActivity` no longer filters by group.
  */
 export function isActive(
-  row: Pick<AgentRow, 'localLocked' | 'localDirty' | 'state'>,
+  row: Pick<AgentRow, 'worker' | 'pr' | 'state'>,
 ): boolean {
-  // A MERGED BRANCH IS NOT ACTIVE, whatever its worktree still holds.
+  // A MERGED BRANCH IS NOT ACTIVE, whatever is still running against it.
   //
   // Measured on screen: a row in DONE carrying the activity mark. Both halves
-  // were individually true — `state: merged` and `local_dirty: true` — and the
-  // row said two things that cannot both be acted on. The dirt was one leftover
-  // `.plot-worker.exit` in a worktree nobody had removed.
-  //
-  // Editing a merged branch's checkout is a real thing to do and a real thing
-  // to see; it is simply not what this mark means. The mark says *work is
+  // were individually true — `state: merged` and a local signal — and the row
+  // said two things that cannot both be acted on. The mark says *work is
   // happening on this branch*, and after the merge there is no work on it left
-  // to happen — which is why `classify` sends merged branches to `done` before
-  // it looks at any local signal. This predicate now agrees with that instead
-  // of contradicting it one layer up.
-  //
-  // The mirror of the WORKING defect fixed the same day, and worth naming as
-  // one shape: there a running agent LOST its place because a single condition
-  // decided; here a finished branch KEPT a mark for the same reason.
+  // to happen; `classify` sends merged branches to `done` before it looks at
+  // any signal, and this predicate agrees with that rather than contradicting
+  // it one layer up.
   if (row.state === 'merged') return false;
-  return row.localLocked || row.localDirty;
+  // A PROCESS, AND ONLY A PROCESS — an agent working or a build running.
+  //
+  // This read `localLocked || localDirty` until 2026-08-22, and those are not
+  // processes: they are a WORKTREE's contents. The distinction is what the
+  // moving dot is for. A pulsing mark says *a machine is on this right now*,
+  // and a person editing files is not a machine — measured on the live board,
+  // the row for the branch being committed to pulsed continuously for hours
+  // while nothing but a person typed in it.
+  //
+  // Two sources, matching the two kinds of machine this board knows:
+  //
+  //   - `worker` for AGENTS, bounded by `LIVE_WORKERS` — `running`, `waiting`,
+  //     `stalled`. The other five (`finished`, `failed`, `ended`, `none`,
+  //     `elsewhere`) describe a run that is over or absent, which is the split
+  //     that set already states: *is anybody on this now*.
+  //   - `pr.state === 'pending'` for BUILDS. That is CI running, the one PR
+  //     state that describes a machine at work rather than a verdict it left
+  //     behind.
+  //
+  // Uncommitted work is still visible and still worth seeing: it reaches the
+  // reader as the row's NOTE and through `isUnpushed`'s own mark. What it no
+  // longer does is claim a process is running.
+  if (LIVE_WORKERS.has(row.worker)) return true;
+  return row.pr?.state === 'pending';
 }
 
 /**
@@ -2150,6 +2165,18 @@ export interface WatchedState {
  * stuck row four times a second.
  */
 export function watchedState(row: AgentRow): WatchedState {
+  // EVERY OBSERVED FACT, AND WRITING AMONG THEM.
+  //
+  // The three local fields are what make a WRITE an event here: the master
+  // agent editing in the project directory, or a worker in its own worktree,
+  // moves `localDirty`/`localLocked` and the row flashes. They sit beside the
+  // host's facts rather than replacing them — a PR turning red, a row moving
+  // section and a phase advancing are all changes worth a glance, and the flash
+  // is the one mark that says *this row is not what it was*.
+  //
+  // The moving DOT is the mark that narrowed instead: it answers *is a process
+  // running*, and its pace answers *is that process doing anything*. Two marks,
+  // two questions — the flash reports history, the dot reports machines.
   return {
     pr: row.pr?.state ?? null,
     prNumber: row.pr?.number ?? null,
@@ -2164,6 +2191,7 @@ export function watchedState(row: AgentRow): WatchedState {
     stuck: row.stuck === null ? null : JSON.stringify(row.stuck),
   };
 }
+
 
 /**
  * Which rows changed since the last pulse, and what to remember for the next.
@@ -2561,9 +2589,25 @@ export function activityPace(
   // `state` travels because `isActive` reads it: a merged branch is not active,
   // so it has no pace either. The narrow Pick is what surfaced that — a wider
   // signature would have compiled and quietly graded a finished branch.
-  row: Pick<AgentRow, 'localLocked' | 'localDirty' | 'state'>,
+  row: Pick<AgentRow, 'worker' | 'pr' | 'state' | 'localDirty' | 'localLocked'>,
 ): ActivityPace {
-  return isActive(row) ? 'fast' : 'slow';
+  // THE TWO SPEEDS ARE THE TWO QUESTIONS, and this is where they separate.
+  //
+  // `isActive` decides whether a dot appears AT ALL, and it asks about the
+  // PROCESS: an agent in a live state, or CI running. The pace then asks a
+  // second question of the same row — *is that process actually doing
+  // something* — and the worktree is the only evidence of it the board has: a
+  // held lock is a write in progress this instant, uncommitted work is a write
+  // that has happened.
+  //
+  // So a claimed branch whose agent is thinking travels SLOW, and the moment it
+  // writes a file the same dot travels FAST. Two facts, one mark, no second
+  // symbol to learn — which is the shape the operator asked for: *ActivityMark
+  // starts when a process runs and flickers faster when real work happens*.
+  //
+  // A row with no process has no pace, because it has no dot; callers gate on
+  // `isActive` first and this returns `slow` for it either way.
+  return row.localLocked || row.localDirty ? 'fast' : 'slow';
 }
 
 /**
