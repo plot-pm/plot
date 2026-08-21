@@ -37,6 +37,11 @@ const stuck = (over: Partial<Stuck> = {}): Stuck => ({
   // below renders when it reaches the fifth state — the sweep whose comment says
   // *"so a fifth one cannot slip past"*, and which duly caught it.
   claimedBy: [],
+  // `unsliced-wave` names the entangled branches; the state-sweep below renders
+  // this default when it reaches the sixth state — the sweep whose comment says
+  // *"so a fifth one cannot slip past"*, and which caught the fifth and the sixth
+  // in turn.
+  waveSiblings: [],
   ...over,
 });
 

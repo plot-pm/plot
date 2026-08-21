@@ -16,6 +16,7 @@ import {
   type AgentEntry,
   type RowKind,
   UNNAMED_WAVE,
+  isSpikeWave,
 } from '../../contract/schema.js';
 import { ApproveButton } from './ApproveButton.js';
 import { CommissionDesignButton } from './CommissionDesignButton.js';
@@ -1519,6 +1520,10 @@ export function stuckWord(state: StuckState): string {
     // TWO PLANS, not two branches — and the word says which kind of collision it
     // is, because `conflict` above is already taken by the other one.
     case 'double-claimed': return 'claimed twice';
+    // NOT "too many branches": the count is the symptom, the missing SLICE is
+    // the defect. A wave is meant to be carried out in one branch and one
+    // worktree, and this plan was never sliced after its spike.
+    case 'unsliced-wave': return 'wave not sliced';
   }
 }
 
@@ -1584,6 +1589,15 @@ export function stuckEvidence(stuck: Stuck, now: number = Date.now()): string[] 
       return stuck.conflicts.length > 0
         ? [`conflicting: ${stuck.conflicts.join(', ')}`]
         : ['the host reports this branch does not merge — no file list available'];
+    case 'unsliced-wave':
+      // NAMES THE BRANCHES, because repairing this means slicing the wave into
+      // one per branch and the reader has to see which are entangled. The
+      // sentence says what a wave IS rather than merely that the count is wrong,
+      // since the count is the symptom: `plan → * wave → 1 branch`.
+      return stuck.waveSiblings.length > 0
+        ? [`one wave, ${stuck.waveSiblings.length} branches: ${stuck.waveSiblings.join(', ')}`
+           + ' — a wave is carried out in one branch, so this plan needs slicing']
+        : ['this wave holds several branches — a wave is carried out in one'];
     case 'double-claimed':
       // NAMES THE PLANS, because resolving this means editing one of them — the
       // same reason `shrinkNote` names what vanished rather than counting it.
@@ -4619,6 +4633,7 @@ function WaveRow({
   groupedCount,
   groupedWord,
   soleRow,
+  planHeaded = false,
 }: {
   group: WaveGroup;
   /** The plan this wave slices — for the row's test hook, not for a link. */
@@ -4666,6 +4681,16 @@ function WaveRow({
    * YOU hold one branch, so this is the ordinary case rather than an edge.
    */
   soleRow?: AgentRow;
+  /**
+   * Whether a PLAN ROW heads this wave's group — set by the caller, which is the
+   * only place that knows.
+   *
+   * Suppresses the plan link on a wave of one: with a plan row directly above,
+   * the link says twice what the nesting already states. Measured when it did —
+   * `Tracer` rendered `plan opus5-longhorizon-hardening` beneath a plan row of
+   * that name and wrapped to double height.
+   */
+  planHeaded?: boolean;
 }) {
   const foldable = expanded !== null;
   // The wave's own age is the freshest of its branches — a wave has no tip, so
@@ -4729,14 +4754,42 @@ function WaveRow({
         // `WaveRow` was written for NOT STARTED, where a branch has no PR and no
         // plan link to lose. Every other section's branches have both.
         solePr: soleRow?.pr ?? null,
-        solePlan: soleRow?.plan ? {
+        // NO PLAN LINK WHERE A PLAN ROW HEADS THIS WAVE, and that is the whole
+        // condition: the plan is the row directly above, so a link to it here is
+        // the duplication this kind was built to remove.
+        //
+        // Measured after `solePlan` landed: the `Tracer` row rendered `plan
+        // opus5-longhorizon-hardening` under a PLAN row naming the same slug, and
+        // wrapped to 75px — double every sibling.
+        //
+        // It IS needed where no plan row heads the group: `waveGroupsFor` returns
+        // nothing for a mixed group, and a lone wave row then carries the only
+        // statement of which plan it belongs to. `planHeaded` is what the caller
+        // knows and this row cannot.
+        solePlan: soleRow?.plan && !planHeaded ? {
           slug: soleRow.plan, file: soleRow.planFile,
         } : null,
-        // ITS BRANCHES, and they are slot 4. Not its plan: the plan is what
-        // this row sits under, and the nesting is the statement — a `PLAN x`
-        // link on a row already nested under `x` is what the mock showed three
-        // times in a row.
-        branches: group.rows.map((r) => ({ branch: r.branch, branchUrl: r.branchUrl })),
+        // ITS BRANCHES — but only where the wave HOLDS ONE, and this is the
+        // correction the estate's one multi-branch wave forced.
+        //
+        // `opus5-longhorizon-hardening :: Implementation` holds five. Rendered
+        // with all five as artifact links, slot 4 wrapped to FIVE LINES — the row
+        // became five rows tall — and the fold below then listed the same five
+        // branches again as rows. Every name twice, and the plan's other wave
+        // (`Tracer`) pushed five rows down so the two waves no longer read as
+        // siblings. Reported from a screenshot.
+        //
+        // A PARENT NAMES ITS COUNT, NOT ITS MEMBERS. That is the rule the plan
+        // row already follows — `3 waves`, never three wave names — and the fold
+        // is what discloses them. The original design made branches the wave's
+        // artifact links, written when a wave of one was the case in view: there
+        // the single link IS the row's content and there is no fold at all.
+        //
+        // So: one branch, one link. Several, and slot 4 stays empty while the
+        // count lives in slot 5 (`5 stalled`) and the names live in the fold.
+        branches: group.rows.length === 1
+          ? group.rows.map((r) => ({ branch: r.branch, branchUrl: r.branchUrl }))
+          : [],
         blockedBy: group.blockedBy,
         // ITS OWN COUNT, derived from its own rows — no contract field, the same
         // property `waveSummaryFor` keeps one level up. `blockedNote()` composed
@@ -4751,7 +4804,33 @@ function WaveRow({
         ageMinutes: ages.length ? Math.min(...ages) : null,
         waitingDays,
       })}
-      rowAttr={{ 'data-wave-row': group.wave || '(unnamed)' }}
+      rowAttr={{
+        'data-wave-row': group.wave || UNNAMED_WAVE,
+        // A SPIKE says so as an attribute too, so a test asserts the KIND of wave
+        // rather than the colour of a glyph.
+        ...(isSpikeWave(group.wave) ? { 'data-wave-spike': '' } : {}),
+      }}
+      // AMBER FOR A SPIKE, slate for an implementation wave — and never colour
+      // alone: the word `spike` rides beside the name in `beside` below. A tracer
+      // that fails sends the reader back to the PLAN, and that is worth telling
+      // apart from a wave whose failure means a rebase.
+      iconTone={isSpikeWave(group.wave)
+        ? 'text-amber-600 dark:text-amber-400' : undefined}
+      beside={
+        // THE WORD, because a colour cannot be the only carrier — the same rule
+        // slot 2 follows for the kind itself. `spike` rather than `tracer` because
+        // it names what the wave IS for any of its spellings (`Tracer`, `Spike`,
+        // `Tracer bullet`), and the wave's own name is right beside it.
+        isSpikeWave(group.wave) ? (
+          <span
+            data-wave-kind="spike"
+            className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0 text-[11px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+            title="A spike — its outcome may be a refined plan, not merged work"
+          >
+            spike
+          </span>
+        ) : null
+      }
       aside={
         // THE WAITING-STATE COLOUR, on the row that now owns it.
         //
@@ -6968,6 +7047,7 @@ export function AgentList({
                                   : wg.rows.some(isReviewable) ? 'to review'
                                     : 'to approve'}
                               soleRow={wg.rows.length > 1 ? undefined : wg.rows[0]}
+                              planHeaded={planHeads}
                             />
                             {many && waveOpen && (
                               <ul

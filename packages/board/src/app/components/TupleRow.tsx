@@ -457,7 +457,7 @@ export function TupleLinkView({
  * 14px, larger than the 13px the old glyphs used, because the icon is the mark a
  * reader finds the row by.
  */
-function KindIcon({ kind }: { kind: RowKind }) {
+function KindIcon({ kind, tone }: { kind: RowKind; tone?: string }) {
   return (
     <svg
       aria-hidden
@@ -466,7 +466,14 @@ function KindIcon({ kind }: { kind: RowKind }) {
       width="14"
       height="14"
       fill="currentColor"
-      className="shrink-0 self-center text-slate-400 dark:text-slate-500"
+      // `tone` COLOURS THE GLYPH where a kind has a variant worth telling apart —
+      // today only a SPIKE wave, which is amber against the ordinary slate.
+      //
+      // Never the only channel: the row also carries the word (`spike` beside the
+      // wave's name), because colour alone fails a reader who cannot see it and
+      // the two-channel rule slot 2 established applies to a variant as much as
+      // to a kind.
+      className={`shrink-0 self-center ${tone ?? 'text-slate-400 dark:text-slate-500'}`}
     >
       <path d={KIND_ICON_PATH[kind]} />
     </svg>
@@ -484,6 +491,7 @@ export function TupleRowView({
   ageTitle,
   statusExtra = null,
   onNameClick,
+  iconTone,
   statusAttr,
   nameAttr,
   id,
@@ -547,6 +555,8 @@ export function TupleRowView({
   statusExtra?: ReactNode;
   /** Makes slot 3's name a control, where it opens a panel rather than a URL. */
   onNameClick?: () => void;
+  /** Colours the kind glyph, for a variant worth telling apart — see `KindIcon`. */
+  iconTone?: string;
   /** Attributes for slot 3's name — see `TupleLinkView.extraAttr`. */
   nameAttr?: { link?: Record<string, string>; text?: Record<string, string> };
   /**
@@ -665,7 +675,7 @@ export function TupleRowView({
             the marks track on 2026-08-20 so that track could hold activity
             alone. `gap-1.5` rather than `gap-2`: the icon and the name are one
             unit, not two items in a row. */}
-        <KindIcon kind={tuple.kind} />
+        <KindIcon kind={tuple.kind} tone={iconTone} />
         <TupleLinkView link={tuple.name} onOpenPlan={onOpenPlan} extraAttr={nameAttr} onActivate={onNameClick} />
         {beside}
       </span>

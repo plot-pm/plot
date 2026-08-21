@@ -4247,6 +4247,13 @@ export function rowsFromPulse(
             // TWO PLANS CLAIMING ONE BRANCH — from the estate-wide index, since
             // the collision is invisible from inside either plan.
             claimedBy: doubleClaimed.get(b.branch) ?? [],
+            // AND THE WAVE'S OTHER BRANCHES, where it holds more than one. A wave
+            // is carried out in ONE branch and one worktree, so several means the
+            // plan was never sliced after its spike. Read from the wave in hand —
+            // no index needed, unlike the double claim.
+            waveSiblings: wave.branches.length > 1
+              ? wave.branches.map((x) => x.branch)
+              : [],
           }),
           // WHAT THE MACHINE DID ABOUT IT — beside the state, never folded into
           // it. A silent automatic write is indistinguishable from a defect, so

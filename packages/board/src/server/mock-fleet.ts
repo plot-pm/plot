@@ -66,7 +66,9 @@ export function mockFleet(): Fleet {
       kind: 'branch', group: 'not-started',
       plan: 'fleet-scan-asks-the-host',
       planFile: 'docs/plans/2026-08-20-fleet-scan-asks-the-host.md',
-      phase: 'Design', wave: 'Shaped', waitingDays: 1, ageMinutes: 1440,
+      // `Tracer`, so the SPIKE marking is visible in the mock — the wave whose
+      // outcome may be a refined plan rather than merged work.
+      phase: 'Design', wave: 'Tracer', waitingDays: 1, ageMinutes: 1440,
       branch: 'feature/the-scan-asks-once',
       branchUrl: 'https://example.invalid/tree/feature/the-scan-asks-once',
       verdict: 'eligible',
@@ -79,8 +81,8 @@ export function mockFleet(): Fleet {
       phase: 'Design', wave: 'Relocated', waitingDays: 1, ageMinutes: 1440,
       branch: 'feature/the-wave-finds-its-owner',
       branchUrl: 'https://example.invalid/tree/feature/the-wave-finds-its-owner',
-      verdict: 'blocked', blockedBy: 'Shaped',
-      note: 'blocked by Shaped — 1 outstanding',
+      verdict: 'blocked', blockedBy: 'Tracer',
+      note: 'blocked by Tracer — 1 outstanding',
     }),
     // A MULTI-BRANCH WAVE, because it is the case the estate has exactly one of
     // (`opus5-longhorizon-hardening :: Implementation`, five branches, blocked)

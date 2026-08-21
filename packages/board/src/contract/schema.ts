@@ -619,6 +619,41 @@ export type RowKind = z.infer<typeof RowKindSchema>;
  */
 export const UNNAMED_WAVE = '(unnamed)';
 
+/**
+ * The wave names that mean a SPIKE — a wave whose product may be a changed plan.
+ *
+ * ## Why a tracer is a different kind of wave
+ *
+ * `tracer-bullets` Step 4 states the two outcomes: *"if validating a design,
+ * **refine the plan**. If implementing, merge the tracer and build on it."* So a
+ * tracer is **pre-planning**: a spike that informs how the plan is sliced, and a
+ * failure sends the reader back to the plan rather than to a rebase.
+ *
+ * An implementation wave carries out a slice a tracer has already de-risked. The
+ * two differ in the KIND of outcome, not merely in their order — and the board
+ * showed them identically until 2026-08-21: measured, `Tracer` read `green` and
+ * `Implementation` read `5 stalled`, with nothing saying which failure means
+ * *rethink the plan*.
+ *
+ * ## Why a name list rather than a contract field
+ *
+ * `### Tracer` is a documented convention `plot-approve` Step 2b recommends by
+ * name — *"Add a `### Tracer` subsection"* — and `plot-plan-meta.sh` already
+ * carries the heading through as the wave's name. The signal is free; three plans
+ * in this estate use it today.
+ *
+ * `Spike` is the same idea under the name most teams use. Matching is
+ * case-insensitive on the WHOLE name, so `Tracer bullet` and `spike` read as one
+ * and `Tracer-adjacent refactor` does not.
+ */
+export const SPIKE_WAVES = ['tracer', 'spike'] as const;
+
+/** Is this wave a spike — one whose outcome may be a refined plan? */
+export function isSpikeWave(wave: string): boolean {
+  const w = wave.trim().toLowerCase();
+  return SPIKE_WAVES.some((s) => w === s || w === `${s} bullet` || w === `${s} bullets`);
+}
+
 export const WaveVerdictSchema = z.enum(['complete', 'eligible', 'blocked']);
 export type WaveVerdict = z.infer<typeof WaveVerdictSchema>;
 
@@ -1319,6 +1354,25 @@ export const StuckStateSchema = z.enum([
   // on a branch nobody had touched. Reported as *"why do always the same two
   // waves flash if no one is changing them"*.
   'double-claimed',
+  // A WAVE HOLDING SEVERAL BRANCHES — invalid, and the sixth reason a branch
+  // cannot move cleanly.
+  //
+  // The model, settled with the operator 2026-08-21: a tracer or spike produces a
+  // REFINED PLAN; that plan is sliced into waves; and **each wave is carried out
+  // in exactly one branch and one worktree**. So `plan → * wave → 1 branch`, and a
+  // wave with five branches means the plan was never re-sliced after its spike.
+  //
+  // Measured on this estate: **49 waves hold one branch, 8 hold more** — and 7 of
+  // those 8 are already `complete`, so they shipped before the model was stated.
+  // The one unfinished case is `opus5-longhorizon-hardening :: Implementation`:
+  // five branches, `blocked`, 26 days, behind a tracer whose PR is green and
+  // unmerged. Exactly the failure the tracer exists to prevent.
+  //
+  // REPORTED, never repaired here. Re-slicing needs NAMES for the new waves, and
+  // naming is judgement — so the repair cannot be the licensed deterministic kind
+  // (`plot-resolve-artifact.sh`, whose permission *is* judgement's absence) and
+  // there is no script to wrap. It is its own plan.
+  'unsliced-wave',
 ]);
 export type StuckState = z.infer<typeof StuckStateSchema>;
 
@@ -1358,6 +1412,15 @@ export const StuckSchema = z.object({
    * has to say which two.
    */
   claimedBy: z.array(z.string()).default([]),
+  /**
+   * The sibling branches sharing this branch's wave — two or more on
+   * `unsliced-wave`, empty on every other state.
+   *
+   * NAMED rather than counted, for the reason `claimedBy` states: repairing this
+   * means slicing the wave into one per branch, so the row has to say which
+   * branches are entangled.
+   */
+  waveSiblings: z.array(z.string()).default([]),
   /**
    * The conflicting paths, for the two conflict states — [] for the other two.
    *
