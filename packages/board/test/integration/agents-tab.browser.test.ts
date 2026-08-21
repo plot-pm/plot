@@ -235,18 +235,35 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     initial: Fleet = fleet(),
   ): Promise<{ page: Page; push: (next: Fleet) => Promise<void> }> {
     let current = initial;
+    // SERVED COUNT, so `push` can wait for the EVENT rather than for a duration.
+    // The route already passes through this test, so the fetch that matters is
+    // observable — waiting 4.5s for a 4s poll spends the difference on every
+    // call and still only assumes the payload arrived.
+    let served = 0;
     const page = await browser.newPage();
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(current) }));
+    await page.route('**/api/fleet', (route) => {
+      served += 1;
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify(current) });
+    });
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandPlans(page);
     return {
       page,
       push: async (next: Fleet) => {
+        const before = served;
         current = next;
-        // A poll every 4s; wait one so the swapped payload has been fetched.
-        await page.waitForTimeout(4_500);
+        // The app polls every 4s. Wait for the NEXT fetch to be served, which is
+        // the fact this needs — a fixed sleep can only assume it. The bound stays
+        // generous because the poll's period is the app's business, not this
+        // helper's: it returns as soon as the fetch lands, so a slow poll costs
+        // patience and a fast one costs nothing.
+        await expect.poll(() => served, { timeout: 10_000 }).toBeGreaterThan(before);
+        // AND ONE RENDER PAST IT. The fetch resolving is not the DOM changing;
+        // React still has to commit. `requestAnimationFrame` fires after the next
+        // paint, so a caller that reads the DOM on the next line reads the new
+        // one — without a second sleep to cover the gap.
+        await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(null))));
       },
     };
   }
@@ -321,12 +338,33 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
    *
    * Idempotent, and silent where a plan has no fold: a plan with one branch
    * beneath it gets no expander, and its branch renders unconditionally.
+   *
+   * ## TWO LEVELS OF FOLD, and this opens both
+   *
+   * It opened `[data-wave-toggle]` only, which folds a PLAN. Since the wave kind
+   * landed there is a second fold one level down — `[data-wave-branch-toggle]`,
+   * which folds the branches of a WAVE — and a plan opened over waves that are
+   * themselves shut still shows no branch rows.
+   *
+   * That single omission accounted for **45 failing tests in this file**, across
+   * subjects with nothing in common: menus, collapse persistence, column
+   * alignment, change marks, the responsive card. Every one of them calls
+   * `openAgents`, every `openAgents` calls this, and a test that cannot see a
+   * branch row fails whatever it was asserting about it. The symptom was
+   * `expected +0 to be N` 32 times over — a count of rows that were rendered,
+   * shut, and never asked to open.
+   *
+   * Order matters: plans first, then waves. A wave's toggle does not exist in the
+   * DOM until the plan holding it is open, so a single pass over both selectors
+   * would miss every wave under a folded plan.
    */
   async function expandPlans(page: Page) {
-    const toggles = page.locator('[data-wave-toggle]');
-    for (let i = 0; i < (await toggles.count()); i += 1) {
-      const toggle = toggles.nth(i);
-      if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+    for (const selector of ['[data-wave-toggle]', '[data-wave-branch-toggle]']) {
+      const toggles = page.locator(selector);
+      for (let i = 0; i < (await toggles.count()); i += 1) {
+        const toggle = toggles.nth(i);
+        if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+      }
     }
   }
 
