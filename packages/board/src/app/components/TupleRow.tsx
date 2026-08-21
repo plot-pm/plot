@@ -202,6 +202,35 @@ function BranchLabel({ name }: { name: string }) {
   );
 }
 
+/**
+ * What a link ANNOUNCES — the kind of thing, then its name.
+ *
+ * `Pull request 158`, `Branch feature/x`, `Plan a-row-is-a-tuple`, `Wave Shaped`.
+ *
+ * Restoring an accessible name the collapse dropped, and it is an accessibility
+ * loss rather than a test detail. `PrGlyph` carried `aria-label="Pull request"`
+ * beside the number in slot 5; when the PR became an artifact link in slot 4 the
+ * glyph went with it, and the link's accessible name became the bare number —
+ * `158`, which tells a screen-reader user nothing about what it opens. Measured:
+ * 15 browser tests looked for `link, name: "Pull request 158"` and found nothing,
+ * which is what a reader using a screen reader would also have found.
+ *
+ * The `what` word is what SIGHTED readers get from the icon beside the label, so
+ * this is the same two-channel rule slot 2 follows — the label says the kind and
+ * the icon repeats it, neither alone.
+ *
+ * A branch announces its name ALONE, without the word, because `BranchLabel`
+ * folds it into two `aria-hidden` spans and the label is the only thing left to
+ * announce — the reason that case existed before this function did.
+ */
+export function linkLabel(link: TupleLink): string {
+  const kind = link.what === 'pr' ? 'Pull request'
+    : link.what === 'ticket' ? 'Ticket'
+      : link.what === 'worktree' ? 'Worktree'
+        : link.what.charAt(0).toUpperCase() + link.what.slice(1);
+  return link.what === 'branch' ? link.label : `${kind} ${link.label}`;
+}
+
 export function TupleLinkView({
   link,
   showWhat = false,
@@ -304,7 +333,7 @@ export function TupleLinkView({
         {...extraAttr?.text}
         // The same reason as on the anchor above: a folded branch name is two
         // `aria-hidden` spans, and this is where the unfolded one rides.
-        aria-label={link.what === 'branch' ? link.label : undefined}
+        aria-label={linkLabel(link)}
         title={`${link.what}: ${link.label}`}
         className="flex min-w-0 items-baseline gap-1 text-slate-600 dark:text-slate-300"
       >
@@ -336,7 +365,7 @@ export function TupleLinkView({
       // no host would recognise and one no reader could search for. Hiding the
       // halves fixes that and takes the name with it; the label puts it back,
       // whole, on the element that carries the destination.
-      aria-label={link.what === 'branch' ? link.label : undefined}
+      aria-label={linkLabel(link)}
       {...valueAttr(link)}
       {...extraAttr?.link}
       onClick={handle}

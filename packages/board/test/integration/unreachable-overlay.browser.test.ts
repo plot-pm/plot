@@ -110,9 +110,18 @@ describe('tiny-garden: a frozen board stops inviting', () => {
    * it was never an invitation, so withdrawing it is not the claim.
    */
   const eligibleMenu = (page: Page) =>
-    page.locator('li[data-agent-row]')
+    // THE MENU ON THE ROW THAT NAMES THIS BRANCH, whatever kind of row that is.
+    //
+    // An eligible branch renders as its WAVE since `a-wave-is-a-kind`, and the
+    // wave row carries the menu — `Start work` acts on a plan and a dispatch
+    // binding, never on a branch, so the wave is where it belongs. `data-row-actions`
+    // was the branch row's hook; `data-wave-actions` is the wave's, and this
+    // accepts either so the test asks *is the menu reachable* rather than *which
+    // component drew it*.
+    page.locator('li')
       .filter({ has: page.getByText('feature/untaken', { exact: true }) })
-      .locator('[data-row-actions]');
+      .locator('[data-row-actions], [data-wave-actions]')
+      .last();
 
   /**
    * How a real backgrounded tab comes back — and, here, the lever that drives

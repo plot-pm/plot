@@ -125,7 +125,15 @@ describe('the activity mark glows, and travels without arriving', () => {
   }
 
   const rowFor = (page: Page, branch: string) =>
-    page.locator('li[data-agent-row]').filter({ has: page.locator(`[data-branch="${branch}"]`) });
+    // THE ROW THAT CARRIES THIS BRANCH, whatever KIND of row states it.
+    //
+    // A branch belonging to a wave renders as its WAVE since `a-wave-is-a-kind`,
+    // so `li[data-agent-row]` alone matched nothing for any fixture row carrying
+    // one — which is every row here, `wave: 'w'` being the default. Every
+    // assertion in this file is about a branch's facts, and all of them survive
+    // the move: the wave row is the row that branch now gets.
+    page.locator('li').filter({ has: page.locator(`[data-branch="${branch}"]`) })
+      .filter({ has: page.locator('[role="gridcell"]') }).last();
 
   const markIn = (page: Page, branch: string) =>
     rowFor(page, branch).locator('[data-activity-mark]');
@@ -634,7 +642,15 @@ describe('the dot travels at two speeds, and they are distinguishable', () => {
   }
 
   const rowFor = (page: Page, branch: string) =>
-    page.locator('li[data-agent-row]').filter({ has: page.locator(`[data-branch="${branch}"]`) });
+    // THE ROW THAT CARRIES THIS BRANCH, whatever KIND of row states it.
+    //
+    // A branch belonging to a wave renders as its WAVE since `a-wave-is-a-kind`,
+    // so `li[data-agent-row]` alone matched nothing for any fixture row carrying
+    // one — which is every row here, `wave: 'w'` being the default. Every
+    // assertion in this file is about a branch's facts, and all of them survive
+    // the move: the wave row is the row that branch now gets.
+    page.locator('li').filter({ has: page.locator(`[data-branch="${branch}"]`) })
+      .filter({ has: page.locator('[role="gridcell"]') }).last();
 
   const dotIn = (page: Page, branch: string) =>
     rowFor(page, branch).locator('[data-activity-mark] [data-activity-dot]');
@@ -816,7 +832,15 @@ describe('the activity mark aligns to the row\'s first line', () => {
   }
 
   const rowFor = (page: Page, branch: string) =>
-    page.locator('li[data-agent-row]').filter({ has: page.locator(`[data-branch="${branch}"]`) });
+    // THE ROW THAT CARRIES THIS BRANCH, whatever KIND of row states it.
+    //
+    // A branch belonging to a wave renders as its WAVE since `a-wave-is-a-kind`,
+    // so `li[data-agent-row]` alone matched nothing for any fixture row carrying
+    // one — which is every row here, `wave: 'w'` being the default. Every
+    // assertion in this file is about a branch's facts, and all of them survive
+    // the move: the wave row is the row that branch now gets.
+    page.locator('li').filter({ has: page.locator(`[data-branch="${branch}"]`) })
+      .filter({ has: page.locator('[role="gridcell"]') }).last();
 
   const markIn = (page: Page, branch: string) =>
     rowFor(page, branch).locator('[data-activity-mark]');

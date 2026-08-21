@@ -267,7 +267,21 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // prefix of `feature/ghost-ready`, so a plain filter returns both rows; and
     // the name is now folded in the middle across two spans, so no single
     // element holds it as exact text.
-    page.locator('li[data-agent-row]').filter({ has: page.locator(`[data-branch="${branch}"]`) });
+    //
+    // ## `li[data-agent-row], li:has([data-wave-row])` — the row OR its wave
+    //
+    // A branch that belongs to a wave is rendered as its WAVE since
+    // `a-wave-is-a-kind`: the wave row names the wave and links the branch as an
+    // artifact, so `li[data-agent-row]` alone matched nothing for any fixture row
+    // carrying a wave — which is every row here, `wave: 'w'` being the default.
+    // Measured: **60 of 115** tests in this file failed on that one helper.
+    //
+    // This resolves to *the list item that carries this branch, whatever kind of
+    // row states it*. Every assertion in the file is about a branch's facts —
+    // its name, its PR, its age, its marks — and all of them survive the move,
+    // because the wave row is the row that branch now gets.
+    page.locator('li').filter({ has: page.locator(`[data-branch="${branch}"]`) })
+      .filter({ has: page.locator('[role="gridcell"]') }).last();
 
   /** The section for one waiting-group, by its heading text. */
   const group = (page: Page, label: string) =>
