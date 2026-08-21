@@ -494,20 +494,26 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('in a MIXED section, the lonely row still names its own plan', async () => {
+  it('in a MIXED section, every plan gets a row and every branch keeps its link', async () => {
     // The case a section-wide answer cannot express, asserted where it actually
     // breaks: in the DOM, across both halves of the rule at once.
     //
-    // `showPlanHeading` is pinned per group in test/unit, but it is a pure
-    // function of a group — it cannot observe the row side, and the row side is
-    // where a naive implementation fails. Drop a heading from a one-row group
-    // without moving the name back onto its row and that plan disappears from
-    // the tab entirely: the unit test still passes, and the reader is looking
-    // at a branch with nothing saying what it belongs to.
+    // **THE RULE CHANGED, and half this test's premise went with it.** It read
+    // *"the lonely row still names its own plan"*, and asserted exactly one `h3`
+    // in the section — `beans(3)` — on the rule that a three-row plan earns a
+    // heading while a one-row plan earns none and carries its name on its row.
     //
-    // So both halves are asserted together, in one section holding both shapes:
-    // `beans` with three rows earns a heading and its rows stay bare; `lonely`
-    // with one row earns none and its row must carry the name itself.
+    // A plan is a ROW now, not a heading: `PlanRow` carries the plan's phase, its
+    // age and its menu, which a text heading cannot. Measured here after the
+    // change: zero `h3`, and `data-plan-row` for BOTH `beans` and `lonely`. The
+    // one-row exception existed because a heading over a single line spends a
+    // line to repeat what that line says; a plan row does not repeat, it adds,
+    // so the exception has nothing left to prevent.
+    //
+    // What survives is the half that mattered — and it is asserted more strictly
+    // than before, on both plans rather than only the lonely one: **no branch
+    // loses the way back to its plan.** That was the failure mode the original
+    // guarded against, and it is unchanged by which shape heads the group.
     const rows = [
       row({ branch: 'feature/beans-1', plan: 'beans', group: 'quiet', ageMinutes: 500 }),
       row({ branch: 'feature/beans-2', plan: 'beans', group: 'quiet', ageMinutes: 400 }),
@@ -517,16 +523,23 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents(fleet({ rows }));
     try {
       await expand(page, 'quiet');
+      // AND THE PLAN FOLDS INSIDE IT. `openAgents` expands what exists at load,
+      // and QUIET's contents do not exist until the section itself is open — so
+      // the plan rows it reveals are still shut, and their branches with them.
+      await expandPlans(page);
       const quiet = group(page, 'Quiet');
 
-      // Exactly one heading in the section, and it is the multi-row plan's.
-      await expect.poll(() => quiet.getByRole('heading', { level: 3 }).allTextContents())
-        .toEqual(['beans(3)']);
+      // BOTH PLANS ARE HEADED, and by a row rather than by a heading. The
+      // asymmetry the old rule drew — three rows get a heading, one row does not
+      // — is gone with the heading itself.
+      await expect.poll(() => quiet.locator('[data-plan-row]').evaluateAll(
+        (els) => els.map((e) => e.getAttribute('data-plan-row')).sort(),
+      )).toEqual(['beans', 'lonely']);
+      // And no `h3` survives beside them: two shapes for one fact is what this
+      // replaced, so a section carrying both would be the defect back again.
+      expect(await quiet.getByRole('heading', { level: 3 }).count()).toBe(0);
 
-      // The one-row plan's name survives ON ITS ROW — the half that vanishes in
-      // a naive implementation, and the reason this test exists.
       const solo = rowFor(page, 'feature/solo');
-      await expect.poll(() => solo.textContent()).toContain('lonely');
 
       // EVERY ROW NAMES ITS PLAN NOW, headed or not, and this asserted the
       // opposite until `one-component-renders-every-row`.
@@ -543,9 +556,31 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       //
       // What the heading saves is no longer repetition of a WORD — it is the
       // grouping itself. The heading groups; the link opens.
-      expect(await rowFor(page, 'feature/beans-1')
-        .getByRole('link', { name: 'beans', exact: true }).count()).toBe(1);
-      expect(await solo.getByRole('link', { name: 'lonely', exact: true }).count()).toBe(1);
+      // THE PLAN LINK LIVES ON THE PLAN ROW, once for the group, and a grouped
+      // branch row carries only its own name. Measured on `feature/beans-1`: one
+      // link, `feature/beans-1`, and nothing else — `inWaveGroup` empties the
+      // row's links because the row above already holds them.
+      //
+      // The old assertion wanted the link on EVERY branch row, which was right
+      // while a heading was the only thing above them: a heading is text, so a
+      // row that dropped its plan link had no way back at all. A plan ROW is a
+      // link, so the way back moved rather than disappeared — and asserting it
+      // per branch row now demands the duplication the grouping removed.
+      const beansRow = rowFor(page, 'feature/beans-1');
+      expect(await beansRow.getByRole('link', { name: 'beans', exact: true }).count()).toBe(0);
+      expect(await beansRow.getByRole('link', { name: 'feature/beans-1' }).count()).toBe(1);
+      // AND IT IS REACHABLE ONE LINE UP, which is the property the original was
+      // protecting. This is the assertion that fails if grouping ever swallows a
+      // plan without putting it anywhere.
+      // BY THE ACCESSIBLE NAME, which is `Plan beans` rather than `beans`.
+      // `linkLabel` prefixes every link but a branch's with what it points at, so
+      // a reader hearing the row is told *plan* before the slug — and asserting
+      // the bare text here would pass for a link that had lost that prefix.
+      for (const plan of ['beans', 'lonely']) {
+        expect(await quiet.locator(`[data-plan-row="${plan}"]`)
+          .getByRole('link', { name: `Plan ${plan}`, exact: true }).count(),
+        `${plan} must be reachable from its plan row`).toBe(1);
+      }
     } finally {
       await page.close();
     }

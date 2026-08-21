@@ -827,8 +827,17 @@ export function waveGroupsFor(rows: AgentRow[], section: WaitingGroup): WaveGrou
   //
   // A wave holding several still folds — `expanded` is what the WaveRow does with
   // a set. What changed is that a wave of one is a wave, not a PR.
-  return groupByWave(rows.filter(claims))
-    .filter((wg) => wg.wave && wg.wave !== UNNAMED_WAVE);
+  // AN UNNAMED WAVE IS STILL A WAVE, and it still groups. This filtered
+  // `(unnamed)` out until 2026-08-21, which left its rows ungrouped — so the plan
+  // holding them got no `PlanRow` head and the branch led the row on its own,
+  // beside 51 plan-headed siblings. Reported from a screenshot of DONE.
+  //
+  // Same correction as `carriesWave` on the server: the wave's NAME is not the
+  // test for a wave. `MANIFESTO.md` — *"a plan with no subheadings is one wave"*
+  // — so a plan nobody cut has one wave, unnamed, and its branches are that
+  // wave's work. What it lacks is a label, and `waveLabel` still withholds that:
+  // printing `(unnamed)` beside a branch names nothing.
+  return groupByWave(rows.filter(claims)).filter((wg) => wg.wave);
 }
 
 /**
