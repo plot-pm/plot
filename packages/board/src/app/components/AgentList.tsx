@@ -4934,9 +4934,25 @@ function WaveRow({
         // inside a plan file. `title` and `aria-label` carry the name, and the
         // name is also in the accessible label so it is not hover-only for a
         // reader who cannot hover.
-        group.blockedBy ? (
-          <BlockedByMark plan={plan} wave={group.blockedBy} />
-        ) : null
+        <>
+          {/* THE DRAFT BADGE, where this wave stands in for one branch. A draft
+              and a check state are independent — a draft has CI like anything
+              else — so the status word cannot carry both, and `Row` renders the
+              badge beside it for that reason. Without it a wave row read
+              `CI running` for a draft PR and never said it was one. */}
+          {soleRow?.pr?.draft && (
+            <span
+              data-pr-draft
+              className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+              title="Draft — not yet offered for review"
+            >
+              draft
+            </span>
+          )}
+          {group.blockedBy ? (
+            <BlockedByMark plan={plan} wave={group.blockedBy} />
+          ) : null}
+        </>
       }
       // The verdict is the scan's, and the title says whose judgement it is —
       // the status word alone (`blocked`) does not say blocked BY WHAT, and the
