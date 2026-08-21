@@ -469,28 +469,35 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   // ── Rows group by plan inside each waiting-group ──────────────────────────
 
   it('shows a sub-heading per plan, ordered by each plan\'s most urgent row', async () => {
-    // Both plans hold TWO rows on purpose. A single-row plan earns no heading
-    // (see the mixed-section test below), so the default fixture would leave
-    // one heading here — and one heading is in the right order whatever the
-    // sort does. The ordering assertion needs two to mean anything.
+    // Both plans hold TWO rows on purpose, so the ordering assertion has two
+    // heads to order. (A one-row plan earns a head too now — the exception went
+    // with the heading it belonged to — but one head is in the right order
+    // whatever the sort does.)
+    //
+    // IN WAITING ON YOU, not in WORKING, and the move is the point rather than
+    // a convenience. `waveGroupsFor` returns [] for `working` and
+    // `waiting-on-machine` BY DESIGN: those sections ask what is HAPPENING to
+    // the work, so an agent or a run is the subject and a plan is not. This
+    // read `[]` because there are no plan heads there to read — the fixture was
+    // asking the one section that does not group.
     const page = await openAgents(fleet({
       rows: [
-        ...fleet().rows.filter((r) => r.group !== 'working'),
+        ...fleet().rows.filter((r) => r.group !== 'waiting-on-you'),
         row({ branch: 'feature/beans-old', plan: 'beans', planFile: 'p-beans.md',
-              group: 'working', ageMinutes: 200, note: 'last commit 200 min ago' }),
+              group: 'waiting-on-you', ageMinutes: 200, note: 'awaiting review' }),
         row({ branch: 'feature/beans-new', plan: 'beans', planFile: 'p-beans.md',
-              group: 'working', ageMinutes: 10, note: 'last commit 10 min ago' }),
+              group: 'waiting-on-you', ageMinutes: 10, note: 'awaiting review' }),
         row({ branch: 'feature/tom-a', plan: 'plant-tomatoes', planFile: 'p-tom.md',
-              group: 'working', ageMinutes: 50, note: 'last commit 50 min ago' }),
+              group: 'waiting-on-you', ageMinutes: 50, note: 'awaiting review' }),
         row({ branch: 'feature/tom-b', plan: 'plant-tomatoes', planFile: 'p-tom.md',
-              group: 'working', ageMinutes: 20, note: 'last commit 20 min ago' }),
+              group: 'waiting-on-you', ageMinutes: 20, note: 'awaiting review' }),
       ],
     }));
     try {
       // ONE PLAN ROW PER PLAN. A plan heads its group with a row rather than an
       // `h3`, so the slug is read from `data-plan-row`; the tally rendered
       // beside it belongs to the row and is asserted where the row is.
-      const heads = group(page, 'Working').locator('[data-plan-row]');
+      const heads = group(page, 'Waiting on you').locator('[data-plan-row]');
       // `beans` holds the 200-minute row, `plant-tomatoes` the 50-minute one —
       // so beans first. Ordering by anything else would let a plan with one
       // stale branch outrank one whose branch just moved.
