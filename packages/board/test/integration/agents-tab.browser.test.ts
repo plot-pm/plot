@@ -1263,9 +1263,24 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgentsWithBoard();
     try {
       const li = rowFor(page, 'feature/ghost-ready');
-      await expect.poll(() => li.textContent()).toContain(ELIGIBLE_NOTE);
+      await expect.poll(() => li.count()).toBe(1);
+      // THE ROW IS ELIGIBLE — read where the eligibility is now stated. The row
+      // carrying this branch is its WAVE, and a wave row's status is the wave's;
+      // the plan head above it reads `1 wave, first eligible`, which is the same
+      // fact summarised for the group. The branch's own note is what the wave
+      // replaced, so polling this row for `ELIGIBLE_NOTE` waited on a string
+      // that had moved rather than on the state the test needs.
+      await expect.poll(() => group(page, 'Not started').innerText())
+        .toMatch(/eligible/i);
+      // THE CLAIMS, unchanged and both still true: no menu, no Start button.
       expect(await menu(page, 'feature/ghost-ready').count()).toBe(0);
       expect(await li.getByRole('button', { name: 'Start work' }).count()).toBe(0);
+      // And the plan head has none either — the card is missing for the PLAN,
+      // so nothing under it can offer the action. Asserted because a menu that
+      // moved up a row would pass every assertion above while still handing the
+      // reader a control with nothing behind it.
+      expect(await page.locator('li[data-plan-row="ghost-plan"] [data-row-actions]').count())
+        .toBe(0);
     } finally {
       await page.close();
     }
