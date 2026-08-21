@@ -2189,6 +2189,53 @@ export function waveVerdict(verdict: string): WaveVerdict | null {
 }
 
 /**
+ * What `plot-dispatch.sh` names the worker's log inside the worktree it made.
+ *
+ * A SECOND SPELLING OF `worker-log.ts`'s `WORKER_LOG_NAME`, and importing that
+ * one instead would be the obvious move. It cannot be done: `worker-log.ts`
+ * imports `pulseFor` from THIS module, so the arrow already points that way and
+ * reversing it closes a cycle. The name is `plot-dispatch.sh`'s, fixed at the
+ * point the worktree is made, and both readers are describing the same shell
+ * constant rather than agreeing on a convention of their own.
+ *
+ * The duplication is therefore declared rather than hidden — `continue.ts:487`
+ * already spells it a third time inline. What must not drift is the SHELL,
+ * which is the source both sides read.
+ */
+const WORKER_LOG_FILENAME = '.plot-worker.log';
+
+/**
+ * Where to go and look, for the note of a worker that broke.
+ *
+ * **The log first, the worktree second, and that order is the reader's.** A
+ * crashed agent's log is what says WHY; the worktree is where the rest of the
+ * evidence sits and where the work is resumed. Naming the directory alone would
+ * make the reader guess the filename — and it is a dotfile, so a plain `ls`
+ * does not show it.
+ *
+ * NEITHER PATH IS PROBED, and that is not laziness. Deciding the clause on
+ * `existsSync` would make one sentence depend on a disk read taken at scan time
+ * and rendered later, so a log rotated between the two would silently drop the
+ * only pointer the row had. The clause says *where a log would be*, which is
+ * true whether or not the file survived, and `/api/worker-log` is what answers
+ * *is there one* — it already reports `no-log` and `no-worktree` as distinct
+ * outcomes precisely so that question has one owner. This is Principle 3 in the
+ * small: report the location, conclude nothing about it.
+ *
+ * Returns "" for an absent worktree, which the caller appends as nothing at all.
+ *
+ * Exported for test: an implementation that names the directory and forgets the
+ * log passes every assertion that only greps for the path.
+ */
+export function whereToLook(localWorktree: string): string {
+  if (!localWorktree) return '';
+  // `path.join` rather than a template, so a worktree the scan reported with a
+  // trailing slash does not produce a doubled separator in a path a person is
+  // about to paste into a shell.
+  return ` · log: ${path.join(localWorktree, WORKER_LOG_FILENAME)} (worktree ${localWorktree})`;
+}
+
+/**
  * What kind of row this branch is — its section and its sentence.
  *
  * The whole of the old `classify`, unchanged, and split out for one reason:
@@ -2366,6 +2413,40 @@ function classifyGroup(
    * statement.
    */
   held = false,
+  /**
+   * Where this branch is checked out on THIS machine, or "" — see
+   * `FleetBranchSchema.local_worktree`. Named in the note of a BROKEN worker
+   * (`failed`, `ended`, `stalled`) and read for nothing else.
+   *
+   * THE PATH, HERE, AFTER `held` DELIBERATELY DID NOT TAKE IT. `held` is the
+   * authoritative form of `local_worktree` *for the WORKING lift* — a boolean,
+   * because a lift needs a yes, and a path would invite deciding on the path's
+   * mere presence, which is the merged-leftover misread `held` exists to
+   * prevent. That argument is about DECIDING, and this parameter decides
+   * nothing: it lands in a sentence a person reads. So both are right and both
+   * are here — `held` for the lift, this for the errand — and neither derives
+   * from the other, since a merged leftover has a path and earns no lift, while
+   * a branch held on another machine has no path here at all.
+   *
+   * A BROKEN AGENT IS THE ONE ROW THAT NEEDS IT. Every other section either
+   * says what it means without a place (a PR is on the host, a wave is in a
+   * plan) or is not a row anyone opens a directory about. A reader told an
+   * agent crashed and not told where its log is has been informed, not helped —
+   * they must go find the worktree themselves, which is the work the row
+   * existed to save them.
+   *
+   * "" IS A STATED ABSENCE AND THE NOTE OMITS THE CLAUSE, never guessing a
+   * path. The path is true on this machine and meaningless on any other, so a
+   * reader elsewhere gets the evidence and no location — honest, where a
+   * reconstructed path would name a directory that does not exist where they
+   * are reading.
+   *
+   * LAST, BECAUSE IT IS THE NEWEST — the rule `held`, `workerQuestion` and
+   * `workerDirtyPaths` each record above, and for the reason recorded there:
+   * inserting a parameter mid-list shifts every spread-tuple caller in the
+   * suite silently past the compiler, and this file has paid that once already.
+   */
+  localWorktree = '',
 ): { group: WaitingGroup; note: string } {
   // A deferred branch is never `working` — the group is about the claim the row
   // makes, not about the age of its last commit, so a fresh commit does not
@@ -2819,12 +2900,44 @@ function classifyGroup(
           : 'worker waiting on you — reason unavailable, look in its worktree',
       };
     }
+    // A BROKEN AGENT IS THE ONE AGENT THIS SECTION HOLDS, and the three arms
+    // below are it: `failed`, `ended`, `stalled`. WAITING ON YOU is for what
+    // needs a person's DECISION, so its normal population is a PR, a branch, a
+    // plan, a release. An agent has no business here while it works — an agent
+    // IS the worker — and `running` and `waiting` are already gone above, into
+    // WORKING where they belong.
+    //
+    // So the presence of an agent here is ITSELF the signal, which is the
+    // property the exception is worth having and the reason it must stay rare.
+    // Rarity is a property of the RULE: only a problem state admits an agent,
+    // and the arms above are what keep a working one out.
+    //
+    // THE NOTES SAY WHAT WAS OBSERVED, NEVER WHAT TO DO. They read *restart it*
+    // and *resume it* until now, and both were verdicts about the schedule — a
+    // conclusion the row is not entitled to. Whether a crashed agent is worth
+    // restarting depends on what its log says and on what else is in flight,
+    // neither of which this function can see; and the board restarts nothing
+    // in any case, since relaunching is `/plot-dispatch`'s to do. Evidence is
+    // the estate's rule for exactly this reason — scripts collect, humans
+    // conclude (Manifesto Principle 3), the same discipline `HOST_ANSWER_HINT`
+    // and the changed-files modal already follow.
+    //
+    // AND EACH NAMES WHERE TO LOOK. A reader told an agent crashed and not told
+    // where its log is has been informed, not helped: they still have to find
+    // the worktree, which is the errand the row existed to save them. See
+    // `whereToLook` for why the path is never probed first.
     if (worker === 'failed') {
+      // THE EXIT CODE IS THE OBSERVATION, and it is what separates this arm
+      // from `stalled` below — a non-zero status is the process saying it died,
+      // which no amount of work left on the floor can tell you. Kept in the
+      // sentence for the same reason it is kept in the enum: `failed` and
+      // `finished` are opposite actions, and the number is the evidence for
+      // which one arrived.
       return {
         group: 'waiting-on-you',
         note: workerExit
-          ? `worker failed (exit ${workerExit}) — restart it`
-          : 'worker failed — restart it',
+          ? `worker crashed — exited ${workerExit}${whereToLook(localWorktree)}`
+          : `worker crashed${whereToLook(localWorktree)}`,
       };
     }
     if (worker === 'finished') {
@@ -2853,13 +2966,35 @@ function classifyGroup(
       const what = shown
         ? ` (${shown}${rest > 0 ? ` +${rest} more` : ''})`
         : '';
+      // *STOPPED WITHOUT FINISHING* AND *CRASHED* ARE DIFFERENT SENTENCES, and
+      // the reader does different things with them — which is the whole reason
+      // this arm and `failed` are not one label. This worker EXITED 0: the
+      // process ended normally and the tree says the task did not end with it,
+      // which is why `stalled` is a TASK state rather than a process one. So
+      // there is no exit code to report and nothing crashed; what is observable
+      // is that it stopped without finishing and without asking.
+      //
+      // WITHOUT ASKING is the half that earns the phrase, and it is not
+      // rhetorical: a worker that stopped to ask is `waiting` and left in
+      // WORKING by the arm far above — its question is its note. Reaching here
+      // means the scan found no marker, so nobody was asked anything. That
+      // distinction is exactly what a reader needs to know they are looking at
+      // an abandonment rather than a question they overlooked.
       return {
         group: 'waiting-on-you',
-        note: `worker stopped with work unfinished${what} — resume it`,
+        note: `worker stopped without finishing and without asking${what}${whereToLook(localWorktree)}`,
       };
     }
     if (worker === 'ended') {
-      return { group: 'waiting-on-you', note: 'worker ended, exit status unknown' };
+      // THE THIRD BROKEN CASE, and it says only what it knows. `ended` is the
+      // state that means *the status was not recorded* — so it names neither a
+      // crash nor a clean stop, because the record that would settle which is
+      // the thing that is missing. Guessing either way is the one answer that
+      // tells a reader to stop looking, and the log is where the answer is.
+      return {
+        group: 'waiting-on-you',
+        note: `worker stopped, exit status not recorded${whereToLook(localWorktree)}`,
+      };
     }
   }
 
@@ -3649,10 +3784,20 @@ export function rowsFromPulse(
           // Whether a worktree HOLDS this branch — the path with the merged tip
           // excluded, the AND the scan computed. It decides the WORKING lift, so
           // a leftover worktree on a merged branch stays in NOT STARTED instead
-          // of reading as somebody working. The PATH itself is not passed here —
-          // it names the place, which the row does through the pulse's
-          // `worktrees` list, not through classification.
-          b.held);
+          // of reading as somebody working.
+          b.held,
+          // WHERE TO LOOK when the worker broke — the path, which `held` above
+          // deliberately does not carry because a lift must not be decided on a
+          // path's presence. This decides nothing; it lands in the sentence of a
+          // `failed`, `ended` or `stalled` row so a reader can go read the log.
+          //
+          // The note above this line said the path was NOT passed here, and that
+          // it names the place through the pulse's `worktrees` list instead. That
+          // was true while no note needed it: the list serves the plan modal,
+          // which is a place a reader navigates TO. A broken agent's row has to
+          // carry the location itself — it is read in a list, often over a
+          // terminal, by someone deciding whether to open anything at all.
+          b.local_worktree);
         // Derived once, read twice below — and derived from `group` rather than
         // re-deciding it, so a row `classify` placed outside `not-started`
         // cannot pick up a waiting-state by a rule that drifted apart from it.
