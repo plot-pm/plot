@@ -2596,10 +2596,28 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       const truth = rowFor(page, 'feature/truth-a');       // WORKING
       await expect.poll(() => truth.locator('[data-wave]').textContent()).toBe('Truth');
-      const foldA = rowFor(page, 'feature/fold-a');        // NOT STARTED
-      await expect.poll(() => foldA.locator('[data-wave]').textContent()).toBe('Fold');
-      const foldB = rowFor(page, 'feature/fold-b');
-      await expect.poll(() => foldB.locator('[data-wave]').textContent()).toBe('Fold');
+      // IN NOT STARTED THE WAVE IS A ROW, not a badge — and the branch is
+      // reachable under it. Measured: `fold-a` renders with zero `[data-wave]`
+      // badges, and that is the design rather than a loss.
+      //
+      // A section that GROUPS states the wave once, in the row heading the
+      // branches; a section that does not (WORKING, WAITING ON A MACHINE — they
+      // ask what is HAPPENING, so an agent or a run is the subject) leaves the
+      // branch row to say it, which is where the badge still is. This asserted
+      // the badge "in EVERY section", written when every section rendered the
+      // same flat list.
+      //
+      // The claim that survives is the one the badge existed for: a branch's
+      // wave is REACHABLE beside it, whichever of the two shapes states it.
+      const foldWave = group(page, 'Not started').locator('li[data-wave-row="Fold"]');
+      await expect.poll(() => foldWave.count()).toBe(1);
+      for (const b of ['feature/fold-a', 'feature/fold-b']) {
+        const li = rowFor(page, b);
+        await expect.poll(() => li.count()).toBe(1);
+        // No badge, because the row above carries it — the same containment
+        // rule that drops a grouped row's plan link.
+        expect(await li.locator('[data-wave]').count(), `${b} repeats its wave`).toBe(0);
+      }
       // IN THE BRANCH CELL, not in slot 2 — the whole point of the move, and the
       // assertion that fails if the badge is rendered in the old place.
       const branchCell = truth.locator('[role="gridcell"]').nth(BRANCH_CELL);
@@ -2650,20 +2668,33 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   });
 
   it('groups a wave\'s consecutive rows without inventing a heading row', async () => {
-    // Unchanged: consecutive `Fold` rows read as one run because they are
-    // adjacent, not because a heading was drawn per wave. The name appears on
-    // BOTH rows, which is what a per-row mark does; what it must not do is add a
-    // wave HEADING row.
+    // THE DECISION REVERSED, and this test asserted the side it was on before.
+    // It read *the name appears on BOTH rows… what it must not do is add a wave
+    // HEADING row* — the per-row mark, defended while a wave had no row to be.
+    // A wave is a KIND now: it heads its branches with a row of its own, and
+    // the branches beneath drop the badge rather than repeating it twice.
+    //
+    // The claim underneath is unchanged and is what is asserted here: a wave's
+    // rows read as ONE RUN. Adjacency used to carry that on its own; the group
+    // states it, which is strictly more legible — and still no `h3`, because a
+    // wave is drawn as a ROW and not as chrome. That half never changed.
     const page = await openAgents(waveFleet());
     try {
       const notStarted = group(page, 'Not started');
-      const waves = await notStarted.locator('li[data-agent-row] [data-wave]')
-        .allTextContents();
-      // `Layout` joins them now that a single named wave prints — `flat-a` sits
-      // in NOT STARTED too. The Fold pair is still adjacent, which is the claim.
-      expect(waves.filter((w) => w === 'Fold')).toEqual(['Fold', 'Fold']);
-      expect(waves.indexOf('Fold') + 1).toBe(waves.lastIndexOf('Fold'));
+      const fold = notStarted.locator('li[data-wave-row="Fold"]');
+      await expect.poll(() => fold.count()).toBe(1);
+      // ONE RUN: both branches sit under that head, and nothing else does.
+      const under = notStarted.locator('li[data-wave-row="Fold"] ~ * [data-branch], '
+        + 'li[data-wave-row="Fold"] [data-branch]');
+      const names = await under.evaluateAll(
+        (els) => els.map((e) => e.getAttribute('data-branch')));
+      expect(new Set(names)).toEqual(new Set(['feature/fold-a', 'feature/fold-b']));
+      // NO HEADING ELEMENT — the half of the original claim that survives whole.
       expect(await notStarted.getByRole('heading', { name: /^Fold/ }).count()).toBe(0);
+      // And no branch beneath it repeats the wave as a badge.
+      for (const b of ['feature/fold-a', 'feature/fold-b']) {
+        expect(await rowFor(page, b).locator('[data-wave]').count()).toBe(0);
+      }
     } finally {
       await page.close();
     }
