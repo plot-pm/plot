@@ -677,8 +677,19 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // Read off the GRIDCELLS, which is what the tracks now are: the order of
       // the cells IS the order of the columns, and a swapped pair of tracks
       // would fail here rather than merely reordering two spans.
+      // THE ROW THAT HAS A BRANCH CELL, found by the branch rather than by
+      // position. `li[data-agent-row]` is stamped by the BRANCH-row renderer
+      // alone, and this section holds none: `beans` has one branch, so its wave
+      // row carries it directly and the only other row is the plan head. The
+      // selector read as *any row* and means *a branch row*, so it matched
+      // nothing and reported `-1` for a column that was never missing.
+      //
+      // Asked of whichever row wears `[data-branch]`, which is the row this
+      // test is about — the claim is the ORDER of the cells within it, and that
+      // is the same claim on a wave row as on a branch row.
       const cells = group(page, 'Waiting on you')
-        .locator('li[data-agent-row]').first()
+        .locator('li[data-tuple-kind]')
+        .filter({ has: page.locator('[data-branch]') }).first()
         .locator('[role="gridcell"]');
       const texts = await cells.allTextContents();
       const plan = texts.findIndex((t) => t.trim() === 'beans');
@@ -714,11 +725,20 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // implementation this must not accept.
       expect(branch).toBeGreaterThanOrEqual(0);
       expect(plan).toBe(-1);
-      let planLink = -1;
-      for (let i = 0; i < count; i++) {
-        if (await cells.nth(i).locator('a[data-tuple-link="plan"]').count()) { planLink = i; break; }
-      }
-      expect(planLink).toBeGreaterThan(branch);
+      // AND THE PLAN IS STILL REACHABLE — one row up, in the head of the group
+      // this row sits in, rather than one cell later on the row itself.
+      //
+      // The pairing is unchanged and so is the reason for it: `plan === -1`
+      // alone would also pass if the plan had been dropped from the view
+      // entirely, which is the weaker implementation this must not accept. What
+      // moved is WHERE the plan is asserted to be. A row inside a wave group
+      // drops its plan link deliberately — the head carries it once instead of
+      // once per branch — so demanding it in a LATER CELL of this row now
+      // demands the repetition the grouping exists to remove.
+      const head = group(page, 'Waiting on you').locator('li[data-plan-row="beans"]');
+      expect(await head.count()).toBe(1);
+      expect(await head.locator('a[data-tuple-link="plan"], a[href*="plan"]').count())
+        .toBeGreaterThanOrEqual(1);
     } finally {
       await page.close();
     }
