@@ -1125,7 +1125,26 @@ while IFS=$'\t' read -r wt_branch wt_path; do
   if worktree_locked "$wt_path"; then wt_locked=true; else wt_locked=false; fi
   # Exit code, never emptiness: `git status` on a vanished directory prints
   # nothing and fails, and "I could not look" must not read as "clean".
-  if wt_status=$(git -C "$wt_path" status --porcelain </dev/null 2>/dev/null); then
+  #
+  # `--untracked-files=no`, and the omission was a measured defect. `local_dirty`
+  # means SOMEBODY IS EDITING THIS WORK, and an untracked path is not that: it is
+  # most often a tool's leavings. Measured 2026-08-22 on the project directory —
+  # the one checkout that is worked in continuously and therefore accumulates
+  # them — `git status --porcelain` reported two entries, `.playwright-mcp/` and
+  # `.plot/agents/`, while `--untracked-files=no` reported none. The row for the
+  # branch checked out there pulsed the activity mark for hours with nothing
+  # being written, which is how it was found.
+  #
+  # The cost is stated rather than hidden: brand-new work is invisible here
+  # until it is staged. That is the right trade for a signal whose whole job is
+  # *someone is editing*, because the alternative is a checkout that reads dirty
+  # forever from a directory nobody will ever commit — a mark that is always on
+  # is a mark that says nothing.
+  #
+  # It also cleans `wt_changed` below, which derives the freshest mtime from
+  # these same paths: a tool writing into `.playwright-mcp/` was moving the
+  # *last changed* clock of work nobody had touched.
+  if wt_status=$(git -C "$wt_path" status --porcelain --untracked-files=no </dev/null 2>/dev/null); then
     if [ -n "$wt_status" ]; then wt_dirty=true; else wt_dirty=false; fi
   elif [ "$wt_locked" = true ]; then
     # Status could not answer, but the lock says WHY, and that is an answer
