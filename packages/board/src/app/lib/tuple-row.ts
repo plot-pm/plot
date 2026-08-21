@@ -457,13 +457,23 @@ export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow
       // that way) and carries `wave: ''`. So the slot is zero-or-more here too,
       // and the mock holds one of each.
       //
-      // Ordered plan → wave → branch, which is the chain narrowing: the plan
-      // holds the wave, the wave holds the branch. A reader scanning slot 4 gets
-      // the same nesting the wave rows draw one section over.
+      // NARROWEST FIRST, CONTAINER LAST — wave → branch → plan.
+      //
+      // This read plan → wave → branch until 2026-08-22, described as *the
+      // chain narrowing*. Both orders are internally coherent; what settled it
+      // is which end of the chain the reader is looking for. Slot 4 is read
+      // beside a NAME that is already the widest thing on the row, so opening
+      // with the plan spends the first position on context the row has given —
+      // and the plan is the one artifact every kind shares, so leading with it
+      // made the column start the same way on every row.
+      //
+      // The specific thing first means slot 4 differs where the rows differ,
+      // and the plan closes each list as the answer to *and what is this part
+      // of*. Applied to every arm, so the column reads one direction throughout.
       links: [
-        ...(plan ? [plan] : []),
         ...(row.wave ? [{ what: 'wave' as const, label: row.wave, href: '' }] : []),
         branchLink(row),
+        ...(plan ? [plan] : []),
       ],
     };
   }
@@ -509,8 +519,7 @@ export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow
     return {
       ...base,
       name: plan ?? branchLink(row),
-      // BRANCH THEN PR, which is the chain narrowing — the order every other
-      // kind on this board already uses, and the one this arm alone did not.
+      // PR THEN BRANCH — narrowest first, container last.
       //
       // Reported from the live board: *"Plan shows PR before Branch, but Wave
       // shows Branch before PR — how do we align that"*, on a screen holding
@@ -525,7 +534,7 @@ export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow
       // halves put the container before the thing it contains and the ACTION
       // at the end. This arm was the only one ordered against them, and no
       // argument for it was ever recorded.
-      links: [branchLink(row), ...(row.pr ? [prLink(row.pr)] : [])],
+      links: [...(row.pr ? [prLink(row.pr)] : []), branchLink(row)],
     };
   }
 
@@ -581,9 +590,12 @@ export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow
       //
       // The wave is the optional middle here as it is on a PR: a build on
       // `changeset-release/main` belongs to no wave.
+      // wave → PR → branch, narrowing outward-in like every other arm. The run
+      // itself is the NAME, so slot 4 opens with the slice it ran for, names
+      // the PR it reports to, and ends on the branch that was built.
       links: [
-        ...(row.pr ? [prLink(row.pr)] : []),
         ...(row.wave ? [{ what: 'wave' as const, label: row.wave, href: '' }] : []),
+        ...(row.pr ? [prLink(row.pr)] : []),
         branchLink(row),
       ],
     };
@@ -623,9 +635,10 @@ export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow
       name: agent?.session
         ? { what: 'ticket', label: shortSessionId(agent.session), href: '' }
         : branchLink(row),
+      // worktree → branch → wave → plan, narrowest first like every other arm.
+      // A worktree is one checkout OF a branch, a branch is one slice of a
+      // wave, and the plan closes the list.
       links: [
-        ...(row.wave ? [{ what: 'wave' as const, label: row.wave, href: '' }] : []),
-        branchLink(row),
         // THE WORKTREE — where the agent is actually working, and the one
         // artifact no other kind has. Text, not a link: it is a local path and
         // a browser cannot open one. Basename only, because the full path is
@@ -634,6 +647,8 @@ export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow
         ...(agent?.worktree
           ? [{ what: 'worktree' as const, label: worktreeName(agent.worktree), href: '' }]
           : []),
+        branchLink(row),
+        ...(row.wave ? [{ what: 'wave' as const, label: row.wave, href: '' }] : []),
         ...(plan ? [plan] : []),
       ],
     };
@@ -655,7 +670,9 @@ export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow
     //
     // It used to reach the reader as a badge in SLOT 5, beside the status — an
     // artifact in the status cell, which is the defect the tuple exists to end.
-    links: [...(plan ? [plan] : []), ...(row.pr ? [prLink(row.pr)] : [])],
+    // PR THEN PLAN — the narrow thing first, the container that answers *part
+    // of what* last, the order every arm here uses.
+    links: [...(row.pr ? [prLink(row.pr)] : []), ...(plan ? [plan] : [])],
   };
 }
 
@@ -1010,26 +1027,36 @@ export function tupleFromWave(facts: WaveRowFacts): TupleRow {
     // kind reads one direction. The blocker qualifies the NAME, so it goes
     // beside the name: *Moved, blocked by Relocated*. Same positional rule the
     // wave badge followed beside a branch — adjacent to the thing it is about.
+    // PR → branch → plan, narrowest first, like every other kind.
+    //
+    // The PR led this list until 2026-08-22 argued from the other end — *AND
+    // ITS PR, last, the destination a reader goes to in order to act*. That is
+    // true of the PR and does not settle the ORDER: acting is what the reader
+    // does after finding the row, and slot 4 is what they scan while finding
+    // it. Scanning wants the distinguishing thing first.
     links: [
-      // THE PLAN, where this wave stands in for a single branch that named one.
-      // Absent on a multi-branch wave: there the plan is the row above and the
-      // nesting states it, which is the rule this kind was built on.
-      ...(facts.solePlan ? [{
-        what: 'plan' as const,
-        label: facts.solePlan.slug,
-        href: facts.solePlan.file ? `/plan/${encodeURIComponent(facts.solePlan.file)}` : '',
-        internal: true,
+      // THE PR, where this wave stands in for a single branch that has one.
+      ...(facts.solePr ? [{
+        what: 'pr' as const,
+        label: `${facts.solePr.number}`,
+        href: facts.solePr.url,
       }] : []),
       ...facts.branches.map((b) => ({
         what: 'branch' as const,
         label: b.branch,
         href: b.branchUrl,
       })),
-      // AND ITS PR, last — the destination a reader goes to in order to act.
-      ...(facts.solePr ? [{
-        what: 'pr' as const,
-        label: `${facts.solePr.number}`,
-        href: facts.solePr.url,
+      // AND THE PLAN LAST, where this wave stands in for a single branch that
+      // named one. Absent on a multi-branch wave: there the plan is the row
+      // above and the nesting states it, which is the rule this kind was built
+      // on — and the reason the container closes the list rather than opening
+      // it, since a list that ENDS in the plan can simply stop where the
+      // nesting already answers.
+      ...(facts.solePlan ? [{
+        what: 'plan' as const,
+        label: facts.solePlan.slug,
+        href: facts.solePlan.file ? `/plan/${encodeURIComponent(facts.solePlan.file)}` : '',
+        internal: true,
       }] : []),
     ],
     // THE VERDICT THE SCAN ALREADY COMPUTED, and nothing derived beside it.

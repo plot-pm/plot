@@ -347,7 +347,11 @@ describe('slot 3 is the item and slot 4 is the vehicle', () => {
       branchUrl: 'https://host/tree/feature/x',
     }));
     expect(t.name).toMatchObject({ what: 'pr', label: '57', href: 'https://host/pr/57' });
-    expect(t.links.map((l) => l.what)).toEqual(['plan', 'branch']);
+    // NARROWEST FIRST, CONTAINER LAST — the order every arm uses since
+    // 2026-08-22. This read `['plan', 'branch']`, the reverse, and the two
+    // orders were mixed across the six arms until a reader spotted a plan row
+    // and a wave row on one screen naming the same two artifacts oppositely.
+    expect(t.links.map((l) => l.what)).toEqual(['branch', 'plan']);
     // DISTINCT DESTINATIONS. Interchangeable words are what the association
     // requirement exists to prevent.
     const targets = [t.name.href, ...t.links.map((l) => l.href)];
@@ -366,8 +370,8 @@ describe('slot 3 is the item and slot 4 is the vehicle', () => {
       pr: { number: 304, url: 'https://host/pr/304', draft: false, state: 'green' },
       branchUrl: 'https://host/tree/feature/x',
     }));
-    expect(t.links.map((l) => l.what)).toEqual(['plan', 'wave', 'branch']);
-    expect(t.links[1]).toMatchObject({ label: 'Modelled', href: '' });
+    expect(t.links.map((l) => l.what)).toEqual(['wave', 'branch', 'plan']);
+    expect(t.links[0]).toMatchObject({ label: 'Modelled', href: '' });
   });
 
   it('leads a branch row with the branch and links only its plan', () => {
@@ -769,7 +773,7 @@ describe('every kind fills all six slots', () => {
       branchUrl: 'https://host/tree/feature/a-build-is-running',
       pr: { number: 283, url: 'https://host/pull/283', draft: false, state: 'pending' },
     }));
-    expect(t.links.map((l) => l.what)).toEqual(['pr', 'wave', 'branch']);
+    expect(t.links.map((l) => l.what)).toEqual(['wave', 'pr', 'branch']);
   });
 
   it('gives an AGENT the worker state, never the branch state', () => {
