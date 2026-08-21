@@ -63,7 +63,18 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     row({
       branch: 'feature/blocked', plan: 'plant-tomatoes', group: 'not-started',
       state: 'open', phase: 'Design', ageMinutes: null,
-      waitingOn: 'time' as const, note: 'blocked by Truth', branchUrl: `${GH}feature/blocked`,
+      // THE FIELD, not the sentence. This row carried `note: 'blocked by Truth'`
+      // and the assertions below read the prose — what `AgentRowSchema` forbids:
+      // *"Nothing new may be built on matching this prose — `verdict` on the row
+      // is what a consumer reads, and `blockedBy` carries the name."* The server
+      // has populated `blockedBy` all along.
+      //
+      // It mattered once the row joined a wave group: a grouped row drops its
+      // note by design, so the sentence was the sole carrier of *blocked by which
+      // wave* and it vanished. The field is carried by the wave row heading the
+      // group, which is where a reader looks.
+      waitingOn: 'time' as const, blockedBy: 'Truth',
+      branchUrl: `${GH}feature/blocked`,
       waitingDays: 22,
     }),
     // A branch handed back: real commits inside the quiet window, under an
@@ -788,9 +799,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents();
     try {
       const li = rowFor(page, 'feature/reviewed');
-      // A branch with no PR is `Branch` — see `rowKind`, and the fixture's
-      // `kind` is what the server set, not something re-decided here.
-      await expect.poll(() => li.locator('[data-kind]').textContent()).toBe('Branch');
+      // `Wave`, and the comment here read *"a branch with no PR is Branch"* —
+      // wrong about this row twice over. It carries PR #130, and it carries the
+      // fixture's default `wave: 'w'` under plan `beans`, so it was never the
+      // no-PR no-plan case that yields `Branch`. Since 2026-08-21 the wave
+      // outranks the PR as well: the wave carries the plan forward and the PR is
+      // an event at its branch. The word is what this test is about, and it is
+      // still spelled in full.
+      await expect.poll(() => li.locator('[data-kind]').textContent()).toBe('Wave');
       const cell = li.locator('[data-kind]');
       const fits = await cell.evaluate(
         (el) => el.scrollWidth <= (el.parentElement as HTMLElement).clientWidth,
@@ -853,7 +869,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents();
     try {
       const li = rowFor(page, 'feature/reviewed');
-      await expect.poll(() => li.locator('[data-kind]').textContent()).toBe('Branch');
+      // `Wave` since 2026-08-21 — this row carries PR #130 and a plan, and the
+      // wave now outranks the PR. What this test is about is unaffected: the kind
+      // is named by its COLUMN and stated in no tooltip, whichever word it holds.
+      await expect.poll(() => li.locator('[data-kind]').textContent()).toBe('Wave');
       const headers = group(page, 'Waiting on you').getByRole('columnheader');
       // THE TUPLE'S SEVEN, and two of the old six could not be true of every
       // row beneath them: a plan has no branch and a ticket has no pull
@@ -1086,11 +1105,15 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgentsWithBoard();
     try {
       const li = rowFor(page, 'feature/blocked');
-      // NAMES THE WAVE — *blocked by which one?* is the reader's next
-      // question, and the fixture's row says `blocked by Truth`. This is the
-      // half that matters more now: with no control to carry a title, the ROW
-      // is where the explanation lives.
-      await expect.poll(() => li.textContent()).toContain('blocked by Truth');
+      // NAMES THE WAVE — and the answer is a MARK rather than a sentence:
+      // `BlockedByMark` renders an icon carrying `data-wave-blocked-by` plus the
+      // accessible name *Blocked by wave Truth — show it*, which scrolls to that
+      // wave. Asserted on the field's rendering, not on prose.
+      const blockedMark = group(page, 'Not started').locator('[data-wave-blocked-by="Truth"]');
+      await expect.poll(() => blockedMark.count()).toBeGreaterThan(0);
+      // AND IT SAYS SO TO A SCREEN READER — the half a mark loses in silence.
+      expect(await blockedMark.first().getAttribute('aria-label'))
+        .toBe('Blocked by wave Truth — show it');
       expect(await menu(page, 'feature/blocked').count()).toBe(0);
       expect(await li.getByRole('button', { name: 'Start work' }).count()).toBe(0);
     } finally {
@@ -1130,8 +1153,12 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // that is no longer there, and the note is visible without hovering.
     const page = await openAgentsWithBoard();
     try {
-      const blocked = rowFor(page, 'feature/blocked');
-      await expect.poll(() => blocked.textContent()).toContain('blocked by Truth');
+      // THE BLOCKED ROW SAYS IT WITH A MARK, read from `blockedBy` rather than
+      // from prose — the contract reserves the sentence for humans and the field
+      // for consumers, and this test is a consumer.
+      await expect.poll(() =>
+        group(page, 'Not started').locator('[data-wave-blocked-by="Truth"]').count())
+        .toBeGreaterThan(0);
       expect(await menu(page, 'feature/blocked').count()).toBe(0);
       // A different row, a different reason — so the words are read from the
       // row rather than being one string for every row with nothing to do.
