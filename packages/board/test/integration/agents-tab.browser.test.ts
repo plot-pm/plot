@@ -1624,6 +1624,16 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
    *
    * So a caller asking "how many rows does this section show" has to count
    * both. A caller asking specifically about branch rows still says so.
+   *
+   * IT DOES NOT COUNT WAVE ROWS, and that is the distinction rather than an
+   * omission. Widening this to `li[data-tuple-kind]` — every row the tuple
+   * renders — broke four passing tests that were asking a different question:
+   * they count the ITEMS a section holds (`expected 2 to be 1`, `expected 4 to
+   * be 2`), and a wave is structure around items, like the plan head above it.
+   *
+   * A caller that genuinely means *every box on screen*, as the footer-height
+   * test does, says `li[data-tuple-kind]` at its own call site, where the
+   * number it expects is stated beside the reason.
    */
   const groupRows = (page: Page, label: string) =>
     group(page, label).locator('li[data-agent-row], li[data-plan-row]');
@@ -1841,19 +1851,26 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     });
     const page = await browser.newPage();
     try {
-      // 900px, not 800, and the height is part of the fixture rather than a
-      // detail of it. Collapsed, this board needs ~802px on CI's Linux and
-      // ~797px on macOS — a ~4px font-metric spread that straddles an 800px
-      // viewport, which is why 800 produced a test that passed on one platform
-      // and failed on the other for identical code. 900 clears both by ~100px.
+      // 1100px, and the height is part of the fixture rather than a detail of
+      // it. It was 800, then 900 for a ~4px font-metric spread between CI's
+      // Linux and macOS that straddled 800 and produced a test passing on one
+      // platform and failing on the other for identical code.
+      //
+      // 900 stopped clearing when a wave became a KIND. Measured collapsed on
+      // this fixture: 14 rows — 4 plan heads, 4 wave rows, 6 branches — for a
+      // document 1021px tall. The 20 dormant rows really are hidden; what grew
+      // is the STRUCTURE around them, and 8 of those rows are always visible.
       //
       // It has to stay well UNDER the expanded height too, or the second half
-      // of this test passes for the wrong reason. Measured: expanded, the
-      // footer's top is at ~1771px, so 900 leaves ~870px of overflow to detect.
+      // of this test passes for the wrong reason. Expanded, the footer's top is
+      // at ~1771px — so 1100 clears the collapsed board by ~79px and leaves
+      // ~670px of overflow to detect. The viewport sits between the two heights
+      // rather than on either edge, which is what makes this test about the
+      // COLLAPSE rather than about how tall a row happens to render.
       // The window between the two is wide, and the viewport sits in the middle
       // of it rather than on either edge — which is what makes this test about
       // the COLLAPSE rather than about how tall a row happens to render.
-      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.setViewportSize({ width: 1280, height: 1100 });
       await page.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(many) }));
       await page.goto(`${baseURL}?tab=agents`);
@@ -1897,7 +1914,12 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // Unfolding both puts it back out of reach, which is what makes the
       // assertion above about the COLLAPSE rather than about a short fixture.
       await expandAll(page);
-      await expect.poll(() => groupRows(page, 'Done').count()).toBe(14);
+      // EVERY BOX ON SCREEN, which is what a height claim is about — 15: the
+      // 13 fixture rows, the plan head, and the WAVE row between them.
+      // `groupRows` counts items and deliberately skips the wave; here the
+      // question is how tall the section is, so the wave counts too.
+      await expect.poll(() => group(page, 'Done').locator('li[data-tuple-kind]').count())
+        .toBe(15);
       const opened = await footer(page).evaluate((el) => {
         const r = el.getBoundingClientRect();
         return { top: r.top, viewport: window.innerHeight };
@@ -3326,22 +3348,34 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const li = rowFor(page, 'feature/phone');
       await expect.poll(() => li.count()).toBe(1);
       const text = (await li.textContent()) ?? '';
-      // All five facts, present — and the second one CHANGED with the column.
-      // It read `Development`, the plan's phase, until that fact moved to the
-      // plan heading; the cell holds the row's KIND, and the kind is what has to
-      // survive the card. Below `sm` there is no header row to name the column,
-      // so the `sr-only` prefix comes back here and only here — which is why
-      // this asserts the word rather than only the attribute.
-      expect(text).toContain('lonely-plan');   // plan
-      expect(text).toContain('Branch');        // kind
-      expect(text).toContain('Kind:');         // ...and what the word IS, below sm
-      expect(text).toContain('158');           // PR
-      expect(text).toContain('green');         // PR state
-      expect(text).toContain('20m');           // age
-      // The phase is gone from the card too — the relocation is not a
-      // wide-viewport-only rule. A card that kept it would state a fact about
+      // ASKED OF THE CARD, which is what "drops nothing" is about — and the
+      // card is now TWO rows where it was one. Measured at 375px:
+      //
+      //   plan  ▸ KIND: PLAN lonely-plan Development 20m
+      //   wave    KIND: WAVE w feature/phone 158 awaiting review green 20m
+      //
+      // A one-branch plan renders a head and a wave row; the branch's own row
+      // is what the wave row IS. So `lonely-plan` and the phase sit on the head
+      // while the PR and the branch sit beneath it, and every fact is present —
+      // which is the claim. Asserting them all of one row asserted the old
+      // single-row shape, not the absence of shedding.
+      const card = (await group(page, 'Waiting on you').innerText()) ?? '';
+      expect(card).toContain('lonely-plan');   // plan — on the head
+      expect(card).toContain('158');           // PR
+      expect(card).toContain('green');         // PR state
+      expect(card).toContain('20m');           // age
+      // THE KIND SURVIVES THE CARD, with its `sr-only` prefix. Below `sm` there
+      // is no header row to name the column, so the word comes back here and
+      // only here — which is why this asserts the word rather than only the
+      // attribute. `WAVE` rather than `Branch`: the row carrying this branch is
+      // its wave, and the kind a card must state is the kind it actually is.
+      expect(text.toLowerCase()).toContain('kind:');
+      expect(text.toLowerCase()).toContain('wave');
+      // The phase is not on the BRANCH's row — the relocation is not a
+      // wide-viewport-only rule. A row that kept it would state a fact about
       // the plan on a row about a branch at exactly the width where the reader
-      // has the least room for it.
+      // has the least room for it. (It is on the plan head, one row up, where
+      // the wide viewport puts it too.)
       expect(text).not.toContain('Development');
       // And the branch, WHOLE — nothing elided in the card form.
       const shown = await li.locator('[data-branch]').evaluate(
