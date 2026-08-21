@@ -30,9 +30,15 @@ Plot's workflow commands are markdown skill instructions that an AI agent interp
 
 A single approved plan can spawn multiple implementation branches. Different people, different agents, different worktrees — all working on the same plan in parallel. Each branch merges independently on its own schedule.
 
-Parallelism needs exactly two things beyond that: a way to say which branches may run *at the same time*, and a way for one worker to take a branch without another taking it too. Both follow from Principle 1 rather than adding machinery.
+Parallelism needs exactly two things beyond that: a way to say what may run *at the same time*, and a way for one worker to take a branch without another taking it too. Both follow from Principle 1 rather than adding machinery.
 
-**Waves** answer the first. Branches grouped under a `### ` subheading of `## Branches` may run concurrently; a wave becomes eligible once every non-deferred branch in every prior wave is merged. This expresses the dependency teams actually have — a tracer bullet proves the seam, then the rest fan out — without a dependency graph nobody maintains correctly. A plan with no subheadings is one wave, so nothing about the original shape changes.
+**Waves** answer the first. A wave is a `### ` subheading of `## Branches`, and it carries **exactly one branch** — the unit a plan is sliced into, the unit `plot-dispatch` claims, and the unit one worktree and one worker exist for. Waves with no unmerged predecessor may run concurrently; a wave becomes eligible once every non-deferred branch in every prior wave is merged. This expresses the dependency teams actually have — a tracer bullet proves the seam, then the rest fan out — without a dependency graph nobody maintains correctly. A plan with no subheadings is one wave, so nothing about the original shape changes.
+
+> **Corrected 2026-08-21.** This paragraph read *"branches grouped under a `### ` subheading may run concurrently"* — a wave as a **group** of branches, with parallelism living inside it. It does not: parallelism lives *between* waves, and the grouping was never carrying its weight. `plot-dispatch` gives each branch its own worktree and its own worker, so a wave holding three branches is three desks and three agents under one heading that names one slice of work — and the wave's own completion, which is what opens the next one, then means three different things.
+>
+> Measured the same day on this repo: **49 of 57 waves already held exactly one branch**. The eight that did not are the repair case, not the design. `docs/plans/2026-08-21-a-wave-is-one-branch.md` carries that work.
+>
+> The published factsheet *Ein Team, ein Plan, viele Agenten* still describes a wave as *"Branches, die gleichzeitig laufen dürfen"* and needs the same correction; it is not corrected by this file.
 
 **Claim-by-ref** answers the second. A worker takes a branch by pushing a claim commit to it. Two independent claims diverge, so the loser's push is rejected as non-fast-forward and a race has exactly one winner: **git is the lock**. The commit is load-bearing — a branch merely pointing at the main branch does not diverge from it, and both pushes would succeed. There is no lock manager, no lease, and no coordination file, because a second store of who-has-what is precisely the drift Principle 1 exists to prevent. The plan may carry a `<!-- claimed: -->` note, but that is a reflection for humans and the board — where it and git disagree, git wins.
 

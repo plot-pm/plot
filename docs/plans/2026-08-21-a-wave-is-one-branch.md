@@ -82,6 +82,25 @@ agent**. That is what this plan builds.
 
 ## Design
 
+### The rule now has a home, and it is the manifesto
+
+Until 2026-08-21 this plan argued a rule that the design authority contradicted.
+`MANIFESTO.md` defined a wave as *"branches grouped under a `### ` subheading …
+may run concurrently"* — a wave as a **group**, with parallelism living inside
+it. That paragraph now reads *exactly one branch*, and carries the correction
+note and the 49-of-57 measurement.
+
+That changes what this plan is. It is no longer proposing a rule; it is
+implementing one that the manifesto states — which is the order the repo's own
+rule asks for, since a plan is not the place a design decision is made.
+
+**And it moves the detection question in.** With the rule stated, a `###`
+heading carrying two branch lines is a defect the estate should *report*, not a
+shape a reader has to notice. The plan format is unchanged — one heading, one or
+more branch lines is still what the file can express — so nothing in the parser
+or the board's contract moves. What has to exist is a check, and the repo's own
+`plot-reconcile-scan.sh` is where drift of this kind is already reported.
+
 ### A new spoke command, `/plot-reslice`
 
 The judgement is *"what is each of these branches about, and in what order must
@@ -126,6 +145,9 @@ same refusal-with-a-reason where the server will not act.
 
 ### Sliced
 - `feature/plot-reslice-proposes-one-wave-per-branch` — a new spoke command reads a plan with a multi-branch wave, reads those branches' diffs and PRs, and proposes one named wave each in an argued order; it asks before writing and declares `PLOT-UNASKED: <question> — stopped` unattended, because the order is the judgement it cannot make alone. Tests: a plan with a 5-branch wave yields 5 `###` headings and 5 branch lines, one per branch; branch NAMES are unchanged; a `complete` multi-branch wave is left untouched; the rest of the plan file is byte-identical; the skill declares an unattended shape and the all-skills sweep passes; no branch is dispatched and no PR is touched.
+
+### Counted
+- `feature/reconcile-counts-unsliced-waves` — `plot-reconcile-scan.sh` gains a section reporting every `### ` heading that carries more than one branch line, with a machine-countable footer entry the way its seven existing sections have one. It REPORTS and repairs nothing, which is the split Principle 3 states: this collects, `/plot-reslice` and a person conclude. Tests: a plan with a 5-branch wave is reported once with its plan file, its heading and its count; a plan whose waves each hold one branch is silent; a file with no `Phase:` is skipped, the same rule the scan already applies; the footer count matches the number of findings; the section does NOT gate — `attention=` is unchanged, because an unsliced wave is a shape to fix and not a branch that cannot move.
 
 ### Offered
 - `feature/the-board-offers-a-reslice` — the `unsliced-wave` row gains one menu item that spawns `/plot-reslice`, wrapping the agent the way `/api/idea` wraps `/plot-idea`. Tests: the item appears only on an `unsliced-wave` row; it is absent where the server would refuse and NAMES the refusal on the control; the click spawns the command and writes nothing itself; a `complete` wave offers nothing; the route refuses a non-localhost binding, like every other spawn.
