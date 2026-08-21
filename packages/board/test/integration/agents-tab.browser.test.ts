@@ -896,7 +896,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // LOWERCASED: slot 2 wears Tailwind's `uppercase`, and the accessible
       // name is what is RENDERED. Asserting `Branch` would make this a claim
       // about a CSS utility rather than about the column naming the kind.
-      expect(name.trim().toLowerCase()).toBe('branch');
+      //
+      // `wave`, because this row's branch belongs to a plan. What the test is
+      // about — the column NAMES the kind, in full and in no tooltip — does not
+      // depend on which kind that is.
+      expect(name.trim().toLowerCase()).toBe('wave');
       // The word is visible, and it is the label — not a tooltip.
       const word = li.locator('[data-kind]');
       expect((await word.boundingBox())?.width ?? 0).toBeGreaterThan(1);
@@ -3240,7 +3244,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const heard = (await kindCell.evaluate((el) => (el as HTMLElement).innerText))
         .toLowerCase();
       expect(heard).toContain('kind:');
-      expect(heard).toContain('branch');
+      // `wave` for the same reason as the desktop assertion: this row's branch
+      // is a plan's work. The card must NAME its kind where no column does,
+      // which is what this asserts and is unaffected by which word it is.
+      expect(heard).toContain('wave');
       // And NOT the plan's phase, which the fixture still carries — the card is
       // where a relocation is most tempting to skip, because the row is already
       // a stack of everything and one more word looks free.
