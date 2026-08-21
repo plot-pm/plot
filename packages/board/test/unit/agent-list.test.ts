@@ -30,7 +30,6 @@ import {
   ChangeMarks,
   changedRows,
   isActive,
-  showsActivity,
   isUnpushed,
   waitingTone,
   activityPace,
@@ -693,38 +692,44 @@ describe('activeRowKeys — this pulse\'s signals, widened by recent locks', () 
   });
 });
 
-describe('showsActivity — a section that contradicts the mark refuses it', () => {
-  it('allows the mark everywhere the section does not contradict it', () => {
-    // WORKING and WAITING ON A MACHINE are the obvious two. QUIET and DONE are
-    // the load-bearing ones: `group-activity` exists to put the mark on a
-    // COLLAPSED heading there, on the argument that *QUIET's own purpose is "go
-    // check whether this died"* — a dirty worktree in QUIET is somebody editing
-    // a branch everyone had written off, which is the thing that section is
-    // for. Excluding them broke 28 tests across two suites, and they were right.
-    expect(showsActivity({ group: 'working' })).toBe(true);
-    expect(showsActivity({ group: 'waiting-on-machine' })).toBe(true);
-    expect(showsActivity({ group: 'quiet' })).toBe(true);
-    expect(showsActivity({ group: 'done' })).toBe(true);
-    expect(showsActivity({ group: 'not-started' })).toBe(true);
+describe('local write activity outranks the section', () => {
+  it('marks a written-to row in EVERY group, WAITING ON YOU included', () => {
+    // THE RULE, and it replaced a `showsActivity` predicate that stood for one
+    // day. That one began as *WAITING ON YOU never carries an activity mark*,
+    // reported from the live board — a plan head and its wave pulsing while, it
+    // seemed, nothing was running.
+    //
+    // Measuring the pulse behind the report is what overturned it: exactly one
+    // row in the fleet had a local signal, `feature/a-wave-is-a-kind` with
+    // `localDirty: true` — the branch being committed to at that moment — and
+    // the plan head that pulsed was ITS head. The mark was telling the truth.
+    //
+    // Whichever worktree or main dir is being written to, and whatever section
+    // the row is in, the mark shows. A section says what the work is WAITING
+    // for, and writing is not waiting.
+    for (const group of ['working', 'waiting-on-machine', 'waiting-on-you',
+                         'quiet', 'done', 'not-started'] as const) {
+      const dirty = row({ branch: 'w', group, localDirty: true });
+      expect([...activeRowKeys([dirty], new Set())], `${group} withheld the mark`)
+        .toHaveLength(1);
+    }
   });
 
-  it('refuses it in WAITING ON YOU — the reported defect, and only there', () => {
-    // Reported from the live board: a plan head and its wave carrying a pulsing
-    // dot in WAITING ON YOU. Both halves were true — the branch's worktree was
-    // dirty, being the branch under commit — and the row still said two things
-    // that cannot both hold. The section PROMISES that nothing moves until the
-    // reader acts, and that promise is what makes the mark a contradiction here
-    // and in no other section.
-    expect(showsActivity({ group: 'waiting-on-you' })).toBe(false);
+  it('still refuses it where the ROW says nothing is being written', () => {
+    // The negative that keeps the positive meaning something: the question is
+    // the row's own three fields, not its group, and a row with no signal is
+    // unmarked in the liveliest section there is.
+    const idle = row({ branch: 'w', group: 'working', localDirty: false });
+    expect([...activeRowKeys([idle], new Set())]).toHaveLength(0);
   });
 
-  it('leaves activeRowKeys answering about the BRANCH, not the section', () => {
-    // The guard lives in `useActivity`, not here: this predicate is about a
-    // row's own signals, and a dirty row in QUIET is still a dirty row. Folding
-    // the section into it would make a local-signal question depend on grouping
-    // — and would have broken the three echo bounds asserted above.
-    const dirty = row({ branch: 'dirty', localDirty: true, group: 'quiet' });
-    expect([...activeRowKeys([dirty], new Set())]).toEqual(['plot/dirty/a-plan']);
+  it('leaves the MERGED exception standing — it is about the branch, not the section', () => {
+    // `isActive` refuses a merged branch whatever its worktree holds, measured
+    // on a row in DONE carrying the mark over one leftover `.plot-worker.exit`.
+    // That guard reads `state`, which is a fact about the BRANCH, so removing
+    // the section rule does not disturb it.
+    expect(isActive({ state: 'merged', localDirty: true, localLocked: false })).toBe(false);
+    expect(isActive({ state: 'wip', localDirty: true, localLocked: false })).toBe(true);
   });
 });
 

@@ -1492,50 +1492,32 @@ export function isLive(row: AgentRow): boolean {
  * half an implementation that kept reading the group gets wrong.
  */
 /**
- * May this row wear an activity mark AT ALL — asked of its SECTION.
+ * LOCAL WRITE ACTIVITY OUTRANKS THE SECTION — which is why there is no
+ * `showsActivity` predicate here any more.
  *
- * `isActive` answers *is something being written here* from three local fields
- * and cannot see the group; that is deliberate, and it is why the merged-branch
- * guard inside it is a PROXY for *not in DONE* rather than the question itself.
- * The proxy covered the section it was written for and no other.
+ * This file carried one from 2026-08-21 to 2026-08-22. It began as *WAITING ON
+ * YOU never carries an activity mark*, reported from the live board: a plan
+ * head and the wave beneath it pulsing while, it seemed, nothing was running.
+ * It was then narrowed once, because 28 tests across two suites showed QUIET
+ * and DONE need the mark most — *"QUIET's own purpose is 'go check whether this
+ * died'"*.
  *
- * Reported from the live board: `WAITING ON YOU` carrying a pulsing dot, on a
- * plan head and the wave beneath it. Both halves were true — the branch's
- * worktree was dirty, because it is the branch being committed to — and the row
- * still said two things that cannot both hold. WAITING ON YOU means *nothing
- * moves until you act*; an activity mark means *something is moving*. A reader
- * who sees both learns to trust neither.
+ * The premise was wrong, and measuring it is what showed that. On the pulse
+ * that prompted the report, exactly one row in the whole fleet had a local
+ * signal: `feature/a-wave-is-a-kind`, `localDirty: true` — the branch being
+ * committed to at that moment — and the plan head that pulsed was ITS head. The
+ * mark was telling the truth; the reader took a true statement for a false one
+ * because the section it appeared in reads as *nothing is happening here*.
  *
- * ONE SECTION REFUSES IT, and only one. The first cut allowed the mark in
- * WORKING and WAITING ON A MACHINE alone, on the reading that those are where
- * something is moving — and that broke 28 tests across two suites whose whole
- * subject is the mark in QUIET and DONE.
+ * The rule the operator stated, and the one that holds: *whichever worktree or
+ * main dir is being written to, and whatever section the row is in, local write
+ * activity always shows*. A signal that something is being WRITTEN is never
+ * contradicted by where the row is filed — the section describes what the work
+ * is waiting for, and writing is not waiting.
  *
- * They are right and the wider rule was wrong. `group-activity` states the case
- * exactly: *"QUIET's own purpose is 'go check whether this died', so the one
- * group whose job is surfacing possible deaths was folded shut showing a
- * number."* A dirty worktree in QUIET is somebody editing a branch everyone had
- * written off — precisely the thing that section exists to surface. DONE is the
- * same argument one step further: work landed, and something is still being
- * written to it.
- *
- * WAITING ON YOU is the section that genuinely contradicts the mark, because it
- * promises the reader that NOTHING MOVES until they act. That promise is what
- * makes the mark a contradiction there and nowhere else.
- *
- * Applied in `useActivity` — the hook every render site reads through, the plan
- * and wave HEADS included — rather than inside `activeRowKeys`, whose contract
- * is about the BRANCH's own signals and whose tests pin it as one.
- *
- * The echo memory is unaffected and still spans the whole fleet, so a row that
- * moves INTO WORKING while its echo is still running is marked on the pulse
- * that moves it. What this drops is the mark on a row sitting in a section that
- * contradicts it.
+ * So the question is asked of `isActive` alone, which reads the three local
+ * fields and nothing else. `useActivity` no longer filters by group.
  */
-export function showsActivity(row: Pick<AgentRow, 'group'>): boolean {
-  return row.group !== 'waiting-on-you';
-}
-
 export function isActive(
   row: Pick<AgentRow, 'localLocked' | 'localDirty' | 'state'>,
 ): boolean {
@@ -2532,7 +2514,7 @@ function useActivity(rows: readonly AgentRow[]): ReadonlySet<string> {
   const keys = new Set<string>();
   for (const row of rows) {
     const key = rowKey(row);
-    if (active.has(key) && showsActivity(row)) keys.add(key);
+    if (active.has(key)) keys.add(key);
   }
   return keys;
 }
