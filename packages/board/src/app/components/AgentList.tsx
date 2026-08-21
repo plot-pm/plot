@@ -4941,7 +4941,22 @@ function WaveRow({
       // The verdict is the scan's, and the title says whose judgement it is —
       // the status word alone (`blocked`) does not say blocked BY WHAT, and the
       // branches in slot 4 are what a reader opens to find out.
-      statusAttr={group.verdict ? { 'data-verdict': group.verdict, title: `The scan's verdict for this wave: ${group.verdict}` } : undefined}
+      // THE PR'S STATE WHERE THIS WAVE STANDS IN FOR ONE, and the wave's verdict
+      // otherwise.
+      //
+      // `soleStatus` already prints the PR's condition as the status WORD — but
+      // without `data-pr-state` beside it, nothing can tell which of the two
+      // facts that slot is showing. A test asserting `conflicts` cannot say
+      // whether it means the PR's mergeability or the branch's git state, which
+      // is the ambiguity `Row` documents at its own `statusAttr`.
+      //
+      // The verdict keeps the slot wherever a wave speaks for itself: several
+      // branches, or one with no PR.
+      statusAttr={soleRow?.pr
+        ? { 'data-pr-state': soleRow.pr.state }
+        : group.verdict
+          ? { 'data-verdict': group.verdict, title: `The scan's verdict for this wave: ${group.verdict}` }
+          : undefined}
       // NO BORDER, the same reason the plan row takes none: a wave with a fold
       // heads its own little group, and a rule here would fall between a wave
       // and its own first branch.
