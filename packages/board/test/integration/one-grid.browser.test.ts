@@ -194,11 +194,17 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // failing to state.
       expect(await ticket.locator('[data-phase]').count()).toBe(0);
       // CASE-INSENSITIVE, because slot 2 wears Tailwind's `uppercase` on the
-      // board and the authored word is `Story`. Asserting the styled form would
+      // board and the authored word is `Ticket`. Asserting the styled form would
       // make this a claim about a CSS utility rather than about the kind being
       // stated — the same reason the harness suite lowercases, arrived at from
-      // the other direction: there no stylesheet loads, so it reads `Story`.
-      expect((await ticket.locator('[data-kind]').innerText()).toLowerCase()).toBe('story');
+      // the other direction: there no stylesheet loads, so it reads `Ticket`.
+      //
+      // `Ticket`, not `Story` — the word this asserted until 2026-08-20, when
+      // `KIND_LABEL` was corrected. A story is a Plot artefact, an umbrella over
+      // several plans in `docs/stories`; this row is an ISSUE on the git host
+      // that no plan references yet. The test went on asserting the name of the
+      // other thing.
+      expect((await ticket.locator('[data-kind]').innerText()).toLowerCase()).toBe('ticket');
     } finally {
       await page.close();
     }
@@ -220,10 +226,21 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       const links = pr.locator('[role="gridcell"]').nth(3);
       expect(await links.locator('a[data-tuple-link="branch"]').count()).toBe(1);
       expect(await links.locator('[data-branch="feature/reviewed"]').count()).toBe(1);
-      // THREE DESTINATIONS, all different — the plan, the branch, the PR.
-      const hrefs = await pr.locator('a[data-tuple-link]').evaluateAll(
-        (els) => els.map((e) => e.getAttribute('href')));
-      expect(new Set(hrefs).size).toBe(3);
+      // TWO DESTINATIONS INSIDE A WAVE, both different — the branch and the PR.
+      //
+      // Three when the row stands alone, and the missing one is the PLAN, on
+      // purpose: this PR sits in a wave group whose header names the plan two
+      // rows up, so a third copy on the child says what the reader has already
+      // read. The branch is what a wave group must NOT drop — slot 3 wears the
+      // PR number here rather than the branch, so without it the row never
+      // names what it is a PR of.
+      //
+      // Both halves asserted, because the count alone passes on a row that kept
+      // the plan and lost the branch — which is the failure this pairs against.
+      const anchors = await pr.locator('a[data-tuple-link]').evaluateAll(
+        (els) => els.map((e) => ({ what: e.getAttribute('data-tuple-link'), href: e.getAttribute('href') })));
+      expect(new Set(anchors.map((l) => l.href)).size).toBe(2);
+      expect(new Set(anchors.map((l) => l.what))).toEqual(new Set(['pr', 'branch']));
     } finally {
       await page.close();
     }

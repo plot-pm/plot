@@ -5461,7 +5461,22 @@ function Row({
     // slot 3 names the branch, and the two rows above name its wave and its
     // plan. This is the same containment rule the wave row settled, applied one
     // level deeper.
-    ...(inWaveGroup ? { links: [] } : {}),
+    // MEASURED, and the emptying is per-kind rather than per-row. On a BRANCH
+    // row the argument above holds exactly: slot 3 names the branch, so nothing
+    // is left for slot 4 to say. On a PR row it does not — slot 3 names the
+    // PR (`58`), and emptying the slot took the branch with the plan, leaving a
+    // row that reads `PR 58 green` and never names what it is a PR OF.
+    //
+    // Dumped from the live DOM on the one-grid fixture: the PR row rendered
+    // `<span role="gridcell" class="…"></span>` — slot 4 present and entirely
+    // empty — while `tupleFromRow` had put three links in it.
+    //
+    // So the rule keeps its reason and loses its overreach: drop the links the
+    // rows above already carry (the plan, the wave), and keep the one that
+    // names this row's own vehicle where slot 3 is not already wearing it.
+    ...(inWaveGroup
+      ? { links: base.links.filter((l) => l.what === 'branch' && base.name.what !== 'branch') }
+      : {}),
   };
 
   return (
