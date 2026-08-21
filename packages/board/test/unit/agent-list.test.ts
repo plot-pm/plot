@@ -657,7 +657,9 @@ describe('activeRowKeys — this pulse\'s signals, widened by recent locks', () 
       row({ branch: 'idle', group: 'working' }),
     ];
     expect([...activeRowKeys(rows, new Set())].sort())
-      .toEqual(['plot/dirty', 'plot/locked']);
+      // KEYS CARRY THE PLAN since two plans can name one branch — the fixture's
+      // `plan: 'a-plan'` is the third segment.
+      .toEqual(['plot/dirty/a-plan', 'plot/locked/a-plan']);
   });
 
   it('adds rows still echoing a lock, without the pulse saying anything', () => {
@@ -665,14 +667,14 @@ describe('activeRowKeys — this pulse\'s signals, widened by recent locks', () 
     // no signals at all in this pulse and is marked purely because a lock it
     // was seen holding has not yet expired.
     const rows = [row({ branch: 'gone-quiet' })];
-    expect([...activeRowKeys(rows, new Set(['plot/gone-quiet']))])
-      .toEqual(['plot/gone-quiet']);
+    expect([...activeRowKeys(rows, new Set(['plot/gone-quiet/a-plan']))])
+      .toEqual(['plot/gone-quiet/a-plan']);
   });
 
   it('does not mark an echo for a row that is no longer in the fleet', () => {
     // The set is one entry per VISIBLE row, not a log. A stale key for a branch
     // that has left the pulse marks nothing.
-    expect([...activeRowKeys([row({ branch: 'here' })], new Set(['plot/vanished']))])
+    expect([...activeRowKeys([row({ branch: 'here' })], new Set(['plot/vanished/a-plan']))])
       .toEqual([]);
   });
 
@@ -682,8 +684,8 @@ describe('activeRowKeys — this pulse\'s signals, widened by recent locks', () 
     // the last pulse actually found — so a row echoing a lock while the pulse
     // says *claimed, no commits yet* keeps saying exactly that.
     const quiet = row({ branch: 'echoing', note: 'claimed, no commits yet' });
-    const active = activeRowKeys([quiet], new Set(['plot/echoing']));
-    expect(active.has('plot/echoing')).toBe(true);
+    const active = activeRowKeys([quiet], new Set(['plot/echoing/a-plan']));
+    expect(active.has('plot/echoing/a-plan')).toBe(true);
     expect(quiet.note).toBe('claimed, no commits yet');
     // And the row itself still reports no signals — the echo lives beside the
     // row's facts rather than rewriting them.
@@ -722,7 +724,7 @@ describe('showsActivity — a section that contradicts the mark refuses it', () 
     // the section into it would make a local-signal question depend on grouping
     // — and would have broken the three echo bounds asserted above.
     const dirty = row({ branch: 'dirty', localDirty: true, group: 'quiet' });
-    expect([...activeRowKeys([dirty], new Set())]).toEqual(['plot/dirty']);
+    expect([...activeRowKeys([dirty], new Set())]).toEqual(['plot/dirty/a-plan']);
   });
 });
 
@@ -1608,7 +1610,7 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
   it('marks a row whose state changed', () => {
     const prior = observed(withState('a', 'pending'));
     expect([...changedRows(prior, [withState('a', 'failing')]).changed])
-      .toEqual(['plot/a']);
+      .toEqual(['plot/a/a-plan']);
   });
 
   it('does NOT mark a row whose watched value held, however much else moved', () => {
@@ -1636,7 +1638,7 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     // `null → pending`: an agent has just delivered, and this is often the most
     // interesting transition a branch ever has.
     const prior = observed(withState('a', null));
-    expect([...changedRows(prior, [withState('a', 'pending')]).changed]).toEqual(['plot/a']);
+    expect([...changedRows(prior, [withState('a', 'pending')]).changed]).toEqual(['plot/a/a-plan']);
   });
 
   it('marks a PR GOING AWAY, the same as one arriving', () => {
@@ -1644,7 +1646,7 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     // asymmetry here would need a reason and there is none that survives *the
     // row's own state changed*.
     const prior = observed(withState('a', 'pending'));
-    expect([...changedRows(prior, [withState('a', null)]).changed]).toEqual(['plot/a']);
+    expect([...changedRows(prior, [withState('a', null)]).changed]).toEqual(['plot/a/a-plan']);
   });
 
   it('tells NEVER-SEEN apart from SEEN-WITH-NO-PR', () => {
@@ -1654,15 +1656,15 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     // row and the same state.
     const fresh = changedRows(new Map(), [withState('a', null)]);
     expect(fresh.changed.size).toBe(0);              // first sighting: silent
-    expect(fresh.next.has('plot/a')).toBe(true);     // but REMEMBERED,
+    expect(fresh.next.has('plot/a/a-plan')).toBe(true);     // but REMEMBERED,
     // …as a known `null` IN ITS PR SLOT. The memory holds a record now rather
     // than a lone state, so the assertion reads the slot instead of the whole
     // value — the distinction it protects (known-null vs never-seen) is the
     // same one, one field in.
-    expect(fresh.next.get('plot/a')!.pr).toBe(null);
+    expect(fresh.next.get('plot/a/a-plan')!.pr).toBe(null);
     // …so the PR that opens next is a change, not another first sighting.
     expect([...changedRows(fresh.next, [withState('a', 'pending')]).changed])
-      .toEqual(['plot/a']);
+      .toEqual(['plot/a/a-plan']);
   });
 
   it('marks every changed row — no threshold, no suppression', () => {
@@ -1688,7 +1690,7 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
       branch: 'a', group: 'waiting-on-you',
       pr: { number: 1, url: '', draft: false, state: 'conflicts' },
     });
-    expect([...changedRows(observed(before), [after]).changed]).toEqual(['plot/a']);
+    expect([...changedRows(observed(before), [after]).changed]).toEqual(['plot/a/a-plan']);
   });
 
   it('starts a returning row SILENT — absence erases the memory', () => {
@@ -1696,7 +1698,7 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     // It has no prior value at its return, so it records rather than marks.
     const first = observed(withState('a', 'green'));
     const withoutIt = changedRows(first, [withState('other', 'green')]);
-    expect(withoutIt.next.has('plot/a')).toBe(false);
+    expect(withoutIt.next.has('plot/a/a-plan')).toBe(false);
     // Back, with a DIFFERENT state than it left with — still silent.
     expect(changedRows(withoutIt.next, [withState('a', 'conflicts')]).changed.size).toBe(0);
   });
@@ -1741,7 +1743,7 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     const prior = observed(withState('a', 'green'));
     const outage = changedRows(prior, [withState('a', 'unknown')]);
     expect([...changedRows(outage.next, [withState('a', 'failing')]).changed])
-      .toEqual(['plot/a']);
+      .toEqual(['plot/a/a-plan']);
   });
 
   it('stays silent for a row that has ONLY ever been unknown', () => {
@@ -1761,8 +1763,8 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     //
     // What must stay true is the SILENCE, and it is asserted either side: no
     // flash on the first sighting, and none on the next unknown pulse.
-    expect(first.next.has('plot/a')).toBe(true);
-    expect(first.next.get('plot/a')!.pr).toBe('unknown');
+    expect(first.next.has('plot/a/a-plan')).toBe(true);
+    expect(first.next.get('plot/a/a-plan')!.pr).toBe('unknown');
     expect(changedRows(first.next, [withState('a', 'unknown')]).changed.size).toBe(0);
     // And a real state arriving after an unreadable one does not flash either —
     // that would be news about the host recovering, not about the branch.
@@ -1783,7 +1785,7 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     for (const [before, after] of pairs) {
       const prior = observed(withState('a', before));
       expect([...changedRows(prior, [withState('a', after)]).changed])
-        .toEqual(['plot/a']);
+        .toEqual(['plot/a/a-plan']);
     }
   });
 
@@ -2081,9 +2083,47 @@ describe('issueNote — the note never claims a check it did not run', () => {
 describe('rowKey', () => {
   it('keys a row by repo AND branch', () => {
     // Two repos can carry the same branch name, and one board can show both.
-    expect(rowKey({ repo: 'plot', branch: 'feature/x' })).toBe('plot/feature/x');
-    expect(rowKey({ repo: 'other', branch: 'feature/x' }))
-      .not.toBe(rowKey({ repo: 'plot', branch: 'feature/x' }));
+    expect(rowKey({ repo: 'plot', branch: 'feature/x', plan: 'p' })).toBe('plot/feature/x/p');
+    expect(rowKey({ repo: 'other', branch: 'feature/x', plan: 'p' }))
+      .not.toBe(rowKey({ repo: 'plot', branch: 'feature/x', plan: 'p' }));
+  });
+
+  it('separates two plans claiming ONE branch — the flashing board', () => {
+    // THE DEFECT, stated as the two rows that caused it. A branch named by two
+    // plans renders twice, once under each, and on `${repo}/${branch}` the two
+    // rows shared one memory: each pulse one overwrote the other's remembered
+    // facts, the detector saw a difference that was never a change, and the
+    // mark lit for hours on a branch nobody had touched.
+    //
+    // Reported twice — written up in `stuck.ts` when `double-claimed` was added
+    // to NAME the collision, and again on 2026-08-22 with
+    // `bug/one-row-one-truncation-rule` flashing under both of its plans.
+    // Naming it never stopped it, because the shared key is the cause and the
+    // state is the symptom.
+    const a = { repo: 'plot', branch: 'bug/one-row-one-truncation-rule',
+                plan: 'a-mock-row-shows-what-the-tuple-still-gets-wrong' };
+    const b = { repo: 'plot', branch: 'bug/one-row-one-truncation-rule',
+                plan: 'the-row-is-legible' };
+    expect(rowKey(a)).not.toBe(rowKey(b));
+  });
+
+  it('gives a planless row ONE stable key, not one per absent value', () => {
+    // An unplanned branch and a release branch legitimately carry no plan, and
+    // they must be remembered across pulses like anything else — so the absent
+    // value collapses to one key rather than distinguishing null from ''.
+    const noPlan = { repo: 'plot', branch: 'changeset-release/main', plan: '' };
+    expect(rowKey(noPlan)).toBe(rowKey({ ...noPlan, plan: '' }));
+    expect(rowKey(noPlan)).not.toBe(rowKey({ ...noPlan, plan: 'some-plan' }));
+  });
+
+  it('survives the move it was built to survive — a change of SECTION', () => {
+    // The property the key exists for: `pr.state` helps decide the group, so
+    // the changes worth marking are frequently the ones that MOVE the row. The
+    // group is derived from state, CI and age — none of which touch `plan` — so
+    // adding the plan cannot cost the memory a single one of those moves.
+    const before = { repo: 'plot', branch: 'feature/x', plan: 'beans' };
+    const afterMove = { ...before };
+    expect(rowKey(afterMove)).toBe(rowKey(before));
   });
 });
 

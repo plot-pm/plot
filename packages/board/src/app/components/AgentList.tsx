@@ -2061,14 +2061,39 @@ export const CHANGE_MARK_MS = 3_000;
 /**
  * The identity a row is remembered by, across pulses AND across sections.
  *
- * `${repo}/${branch}`, the same key `AgentList` already gives `<Row>`. Keyed on
- * IDENTITY rather than on position on purpose: `pr.state` helps decide the group
- * (`conflicts` sends a row to WAITING ON YOU, CI running to WAITING ON A
- * MACHINE), so the changes worth marking are frequently the ones that MOVE the
- * row — and a position-keyed memory loses the prior value in exactly that case.
+ * `${repo}/${branch}/${plan}`. Keyed on IDENTITY rather than on position on
+ * purpose: `pr.state` helps decide the group (`conflicts` sends a row to
+ * WAITING ON YOU, CI running to WAITING ON A MACHINE), so the changes worth
+ * marking are frequently the ones that MOVE the row — and a position-keyed
+ * memory loses the prior value in exactly that case.
+ *
+ * **THE PLAN IS PART OF THE IDENTITY, and leaving it out made the board
+ * flash.** Two plans can name one branch — a real state, which the estate
+ * reaches whenever work is handed from one plan to another and the giving plan
+ * has not yet dropped the name. The board then renders TWO ROWS for that
+ * branch, one under each plan, and on `${repo}/${branch}` they shared a memory:
+ * each pulse one row overwrote the other's remembered facts, the detector saw a
+ * difference that was never a change, and the mark lit — for hours, on a branch
+ * nobody had touched.
+ *
+ * That failure is written up in `stuck.ts`, where `double-claimed` was added to
+ * NAME the collision. Naming it did not stop the flashing, because the shared
+ * key is what causes it and the state is only its symptom: reported again on
+ * 2026-08-22 with `bug/one-row-one-truncation-rule` flashing under both
+ * `a-mock-row-shows-what-the-tuple-still-gets-wrong` and `the-row-is-legible`.
+ *
+ * Adding the plan is safe for the property the first paragraph protects. A row
+ * moving between sections keeps its plan — the group is derived from state, CI
+ * and age, none of which touch `plan` — so the memory still survives exactly
+ * the moves it was built to survive. What it no longer survives is a branch
+ * changing plans, which is not a move: it is a different row.
+ *
+ * `?? ''` because a row can legitimately have no plan (an unplanned branch, a
+ * release branch), and those must keep ONE stable key rather than one per
+ * absent value.
  */
-export function rowKey(row: Pick<AgentRow, 'repo' | 'branch'>): string {
-  return `${row.repo}/${row.branch}`;
+export function rowKey(row: Pick<AgentRow, 'repo' | 'branch' | 'plan'>): string {
+  return `${row.repo}/${row.branch}/${row.plan ?? ''}`;
 }
 
 /** The six PR states plus *no PR*, as one value — the row's PR slot. */
