@@ -145,16 +145,35 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
           kind: e.getAttribute('data-tuple-kind'),
           cols: getComputedStyle(e).gridTemplateColumns,
         })));
-      // All five board-emitted kinds are present, so the agreement below is
-      // about a real spread rather than about one row agreeing with itself.
+      // Every board-emitted kind is present, so the agreement below is about a
+      // real spread rather than about one row agreeing with itself. `wave` joined
+      // the list when a plan grew a head and its branches became waves under it.
       const kinds = new Set(templates.map((t) => t.kind));
-      expect([...kinds].sort()).toEqual(['branch', 'plan', 'pr', 'ticket']);
-      // ONE resolved template across every row on the page.
-      const distinct = new Set(templates.map((t) => t.cols));
-      expect([...distinct], `kinds: ${templates.map((t) => t.kind).join()}`).toHaveLength(1);
-      // And it is a SEVEN-track grid, not a one-column fallback that would make
-      // every row trivially agree — the weaker implementation this pairs against.
-      expect([...distinct][0].split(' ')).toHaveLength(7);
+      expect([...kinds].sort()).toEqual(['branch', 'plan', 'pr', 'ticket', 'wave']);
+      // SEVEN TRACKS on every row — the claim, and the form of it that nesting
+      // cannot falsify.
+      //
+      // The resolved pixel string CANNOT be compared across rows any more, and
+      // that is a fact about the layout rather than a weakening of the test.
+      // Measured on this fixture, column 4 resolves to 842px, 817px or 792px —
+      // 25px apart, which is `ml-6` plus the group's rule. Column 4 is the only
+      // FLEXIBLE track, so a row nested one level deeper spends 25px of it on
+      // the indent while the six fixed tracks stay exactly where they are. A row
+      // inside a wave group therefore reports a different string for the same
+      // template, and asserting `toHaveLength(1)` asserted that no row is ever
+      // nested — which the wave model makes permanently false.
+      //
+      // What a second grid smuggled in under another name would still fail:
+      // the track COUNT, and the six FIXED tracks, both checked below.
+      const tracks = templates.map((t) => ({ kind: t.kind, cols: t.cols.split(' ') }));
+      for (const t of tracks) {
+        expect(t.cols, `${t.kind} lays out on seven tracks`).toHaveLength(7);
+      }
+      // And the fixed tracks agree EXACTLY — every track but the flexible
+      // fourth. This is the pixel-level agreement the assertion above was
+      // reaching for, asked of the columns that carry it.
+      const fixed = new Set(tracks.map((t) => t.cols.filter((_, i) => i !== 3).join(' ')));
+      expect([...fixed], `kinds: ${tracks.map((t) => t.kind).join()}`).toHaveLength(1);
     } finally {
       await page.close();
     }
