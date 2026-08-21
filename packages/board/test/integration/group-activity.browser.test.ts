@@ -132,7 +132,11 @@ describe('a group heading carries the activity of the rows behind it', () => {
     // The row really is absent, which is what makes the heading's mark the
     // only signal. If the row were merely visually hidden this suite would be
     // asserting something much weaker than it claims.
-    expect(await sectionFor(page, 'quiet').locator('li[data-agent-row]').count()).toBe(0);
+    //
+    // EVERY KIND, because absence has to be. `li[data-agent-row]` is stamped by
+    // the branch-row renderer alone, so a collapsed group holding a plan head
+    // and a wave row would satisfy it while showing two rows.
+    expect(await sectionFor(page, 'quiet').locator('li[data-tuple-kind]').count()).toBe(0);
     await expect.poll(() => markInHeading(page, 'quiet').count()).toBe(1);
   });
 
@@ -157,7 +161,12 @@ describe('a group heading carries the activity of the rows behind it', () => {
     await expect.poll(() =>
       toggleFor(page, 'quiet').getAttribute('aria-expanded')).toBe('true');
     // The rows are now on the page AND the heading still carries the mark.
-    expect(await sectionFor(page, 'quiet').locator('li[data-agent-row]').count())
+    // EVERY ROW THE SECTION SHOWS, not its branch rows. QUIET's rows group
+    // under plan heads and wave rows, and a plan of one branch renders no
+    // branch row at all — so `li[data-agent-row]` counted 0 and this read as
+    // *expanding revealed nothing* when it had revealed a whole group. What
+    // the assertion is for is that the rows ARE on the page once opened.
+    expect(await sectionFor(page, 'quiet').locator('li[data-tuple-kind]').count())
       .toBeGreaterThan(0);
     expect(await markInHeading(page, 'quiet').count()).toBe(1);
   });
@@ -170,9 +179,12 @@ describe('a group heading carries the activity of the rows behind it', () => {
     const page = await open();
     await toggleFor(page, 'quiet').click();
     await expect.poll(() =>
-      sectionFor(page, 'quiet').locator('li[data-agent-row]').count()).toBeGreaterThan(0);
+      sectionFor(page, 'quiet').locator('li[data-tuple-kind]').count()).toBeGreaterThan(0);
+    // THE ROW THAT CARRIES THAT BRANCH, whatever kind of row states it — for a
+    // plan of one branch the wave row IS the branch's row, and there is no
+    // `li[data-agent-row]` in this section to find.
     const rowMark = sectionFor(page, 'quiet')
-      .locator('li[data-agent-row]')
+      .locator('li[data-tuple-kind]')
       .filter({ has: page.locator('[data-branch="feature/dying"]') })
       .locator('[data-activity-mark]');
     await expect.poll(() => rowMark.count()).toBe(1);
@@ -361,7 +373,7 @@ describe('a heading travels at the strongest pace its rows state', () => {
       locator.locator('[data-activity-dot]')
         .evaluate((el) => getComputedStyle(el).animationDuration);
     const heading = await durationOf(headingMark(page, 'working'));
-    const inRow = await page.locator('li[data-agent-row]')
+    const inRow = await page.locator('li[data-tuple-kind]')
       .filter({ has: page.locator('[data-branch="feature/writing"]') })
       .locator('[data-activity-mark]')
       .locator('[data-activity-dot]')

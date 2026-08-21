@@ -1506,10 +1506,22 @@ export function isLive(row: AgentRow): boolean {
  * moves until you act*; an activity mark means *something is moving*. A reader
  * who sees both learns to trust neither.
  *
- * So the question is asked once, of the group, for every section rather than
- * for the one that happened to be measured first. WORKING is where activity is
- * the subject; `waiting-on-machine` is where a machine is moving. Everywhere
- * else the mark is a claim the section contradicts.
+ * ONE SECTION REFUSES IT, and only one. The first cut allowed the mark in
+ * WORKING and WAITING ON A MACHINE alone, on the reading that those are where
+ * something is moving — and that broke 28 tests across two suites whose whole
+ * subject is the mark in QUIET and DONE.
+ *
+ * They are right and the wider rule was wrong. `group-activity` states the case
+ * exactly: *"QUIET's own purpose is 'go check whether this died', so the one
+ * group whose job is surfacing possible deaths was folded shut showing a
+ * number."* A dirty worktree in QUIET is somebody editing a branch everyone had
+ * written off — precisely the thing that section exists to surface. DONE is the
+ * same argument one step further: work landed, and something is still being
+ * written to it.
+ *
+ * WAITING ON YOU is the section that genuinely contradicts the mark, because it
+ * promises the reader that NOTHING MOVES until they act. That promise is what
+ * makes the mark a contradiction there and nowhere else.
  *
  * Applied in `useActivity` — the hook every render site reads through, the plan
  * and wave HEADS included — rather than inside `activeRowKeys`, whose contract
@@ -1521,7 +1533,7 @@ export function isLive(row: AgentRow): boolean {
  * contradicts it.
  */
 export function showsActivity(row: Pick<AgentRow, 'group'>): boolean {
-  return row.group === 'working' || row.group === 'waiting-on-machine';
+  return row.group !== 'waiting-on-you';
 }
 
 export function isActive(

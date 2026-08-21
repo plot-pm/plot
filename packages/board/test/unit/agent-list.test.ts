@@ -692,22 +692,28 @@ describe('activeRowKeys — this pulse\'s signals, widened by recent locks', () 
 });
 
 describe('showsActivity — a section that contradicts the mark refuses it', () => {
-  it('allows the mark only where something is actually moving', () => {
-    // WORKING is where an agent is at work; WAITING ON A MACHINE is where a run
-    // is. Those two sections are what an activity mark is FOR.
+  it('allows the mark everywhere the section does not contradict it', () => {
+    // WORKING and WAITING ON A MACHINE are the obvious two. QUIET and DONE are
+    // the load-bearing ones: `group-activity` exists to put the mark on a
+    // COLLAPSED heading there, on the argument that *QUIET's own purpose is "go
+    // check whether this died"* — a dirty worktree in QUIET is somebody editing
+    // a branch everyone had written off, which is the thing that section is
+    // for. Excluding them broke 28 tests across two suites, and they were right.
     expect(showsActivity({ group: 'working' })).toBe(true);
     expect(showsActivity({ group: 'waiting-on-machine' })).toBe(true);
+    expect(showsActivity({ group: 'quiet' })).toBe(true);
+    expect(showsActivity({ group: 'done' })).toBe(true);
+    expect(showsActivity({ group: 'not-started' })).toBe(true);
   });
 
-  it('refuses it in WAITING ON YOU — the reported defect', () => {
+  it('refuses it in WAITING ON YOU — the reported defect, and only there', () => {
     // Reported from the live board: a plan head and its wave carrying a pulsing
     // dot in WAITING ON YOU. Both halves were true — the branch's worktree was
     // dirty, being the branch under commit — and the row still said two things
-    // that cannot both hold. The section means *nothing moves until you act*.
+    // that cannot both hold. The section PROMISES that nothing moves until the
+    // reader acts, and that promise is what makes the mark a contradiction here
+    // and in no other section.
     expect(showsActivity({ group: 'waiting-on-you' })).toBe(false);
-    expect(showsActivity({ group: 'quiet' })).toBe(false);
-    expect(showsActivity({ group: 'done' })).toBe(false);
-    expect(showsActivity({ group: 'not-started' })).toBe(false);
   });
 
   it('leaves activeRowKeys answering about the BRANCH, not the section', () => {
