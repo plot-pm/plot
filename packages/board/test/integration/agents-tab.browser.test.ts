@@ -1818,8 +1818,20 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expand(page, 'quiet');
       await expect.poll(() => groupRows(page, 'Quiet').count()).toBe(1);
       quietened = true;
-      // Every working row lands in it — and it stays open, showing them.
-      await expect.poll(() => groupRows(page, 'Quiet').count(), { timeout: 15_000 }).toBe(4);
+      // EVERY WORKING ROW LANDS IN IT — counted as rows on screen rather than
+      // as items, because what arrives is three PLANS and the branches under
+      // them. Measured after the swap, QUIET holds six rows and not one of them
+      // is a branch row:
+      //
+      //   plan ghost-plan  → wave feature/ghost
+      //   plan beans       → wave
+      //   plan plant-tomatoes → wave feature/toms-a
+      //
+      // `groupRows` counts plan and branch rows, so it saw 3 and polled for 4
+      // until it timed out — fifteen seconds spent proving the section had
+      // regrouped rather than that it had folded.
+      await expect.poll(() => group(page, 'Quiet').locator('li[data-tuple-kind]').count(),
+        { timeout: 15_000 }).toBe(6);
       expect(await page.locator('[data-group-toggle="quiet"]').getAttribute('aria-expanded'))
         .toBe('true');
       // And WORKING, now empty, has lost its control rather than folding.
@@ -3229,8 +3241,22 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() => group(page, 'Waiting on you')
         .locator('li[data-agent-row]').count()).toBe(10);
       swap(many('conflicts'));
-      await expect.poll(() => page.locator('[data-change-mark]').count(),
+      // TEN CHANGED ROWS, TEN MARKS — counted per ROW, which is what "no
+      // threshold and no suppression" claims. The page total is ELEVEN:
+      // measured after the swap, each of the ten branch rows carries one and
+      // the WAVE row heading them carries one more.
+      //
+      // That eleventh is not a duplicate to be subtracted. A wave row
+      // aggregates its branches' marks (`rows.some(...)`), so a reader with the
+      // group folded still sees that something under it changed — the whole
+      // reason the mark exists. Asserting the raw page count made the test
+      // depend on how many levels of grouping the fixture happens to produce.
+      await expect.poll(
+        () => page.locator('li[data-tuple-kind="branch"] [data-change-mark]').count(),
         { timeout: 10_000 }).toBe(10);
+      // And the wave says so too, once, for the folded reader.
+      expect(await page.locator('li[data-tuple-kind="wave"] [data-change-mark]').count())
+        .toBe(1);
     } finally {
       await page.close();
     }
