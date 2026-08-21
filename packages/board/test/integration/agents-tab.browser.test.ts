@@ -2404,8 +2404,23 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }));
     try {
       await expect.poll(() => rowFor(page, 'feature/nophase').count()).toBe(1);
-      expect(await cellX(page, 'feature/nophase', BRANCH_CELL))
-        .toBe(await cellX(page, 'feature/reviewed', BRANCH_CELL));
+      // MEASURED WITHIN ONE NESTING, which is what "start at the same x" means.
+      // The two rows differ by 25px, and that is `ml-6` plus the group's rule:
+      // one sits inside a wave group and the other does not, so comparing them
+      // measures the INDENT rather than the alignment.
+      //
+      // The claim that survives is per-row: a row with no phase puts its branch
+      // cell where a row with one does, relative to its own row box.
+      const offsets = await page.evaluate(() => ['feature/nophase', 'feature/reviewed']
+        .map((b) => {
+          const li = document.querySelector(`[data-branch="${b}"]`)?.closest('li');
+          const cells = [...(li?.querySelectorAll('[role="gridcell"]') ?? [])];
+          const row = li?.getBoundingClientRect().x ?? 0;
+          const cell = cells[2]?.getBoundingClientRect().x ?? 0;
+          return Math.round(cell - row);
+        }));
+      expect(offsets[0], 'a phaseless row indents its branch cell like any other')
+        .toBe(offsets[1]);
     } finally {
       await page.close();
     }
