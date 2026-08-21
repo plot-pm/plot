@@ -487,12 +487,16 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       ],
     }));
     try {
-      const headings = group(page, 'Working').getByRole('heading', { level: 3 });
+      // ONE PLAN ROW PER PLAN. A plan heads its group with a row rather than an
+      // `h3`, so the slug is read from `data-plan-row`; the tally rendered
+      // beside it belongs to the row and is asserted where the row is.
+      const heads = group(page, 'Working').locator('[data-plan-row]');
       // `beans` holds the 200-minute row, `plant-tomatoes` the 50-minute one —
       // so beans first. Ordering by anything else would let a plan with one
       // stale branch outrank one whose branch just moved.
-      await expect.poll(() => headings.allTextContents())
-        .toEqual(['beans(2)', 'plant-tomatoes(2)']);
+      await expect.poll(() => heads.evaluateAll(
+        (els) => els.map((e) => e.getAttribute('data-plan-row')),
+      )).toEqual(['beans', 'plant-tomatoes']);
     } finally {
       await page.close();
     }
@@ -630,7 +634,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents(fleet({ rows }));
     try {
       await expand(page, 'done');
-      await expect.poll(() => group(page, 'Done').getByRole('heading', { level: 3 }).count())
+      // TWO PLAN ROWS, one per plan. A plan heads its group with a ROW now, not
+      // an `h3` — the row carries the phase, the age and the menu that a text
+      // heading cannot. What this test asserts is unchanged: DONE groups like
+      // every other section, and two plans mean two groups.
+      await expect.poll(() => group(page, 'Done').locator('[data-plan-row]').count())
         .toBe(2);
     } finally {
       await page.close();
@@ -1858,8 +1866,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       const working = group(page, 'Working');
       await expect.poll(() => groupRows(page, 'Working').count()).toBe(3);
-      // Only the multi-row plan earns a heading.
-      const headings = await working.getByRole('heading', { level: 3 }).allTextContents();
+      // Only the multi-row plan earns a group head — a plan ROW since the wave
+      // kind landed, which is where the slug lives.
+      const headings = await working.locator('[data-plan-row]')
+        .evaluateAll((els) => els.map((e) => e.getAttribute('data-plan-row') ?? ''));
       // No space before the count: the gap is a margin on the tally's span, so
       // it lives in CSS and never reaches textContent.
       expect(headings.map((t) => t.trim())).toEqual(['tomatoes(2)']);
@@ -2081,7 +2091,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // with two rows and `plant-tomatoes` with one, and a one-row plan earns
       // no heading. The point of the assertion is that the GROUPING survives a
       // failed poll — the number is whatever the payload happens to contain.
-      expect(await group(page, 'Working').getByRole('heading', { level: 3 }).count()).toBe(1);
+      expect(await group(page, 'Working').locator('[data-plan-row]').count()).toBe(1);
     } finally {
       await page.close();
     }
@@ -2362,9 +2372,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(await cellX(page, 'feature/solo', BRANCH_CELL))
         .toBe(await cellX(page, 'feature/beans-1', BRANCH_CELL));
       // And the fixture really is mixed, or the assertion above proves nothing.
-      const headings = await group(page, 'Waiting on you')
-        .getByRole('heading', { level: 3 }).allTextContents();
-      expect(headings.map((t) => t.trim())).toEqual(['beans(2)']);
+      const heads = await group(page, 'Waiting on you').locator('[data-plan-row]')
+        .evaluateAll((els) => els.map((e) => e.getAttribute('data-plan-row')));
+      expect(heads).toEqual(['beans']);
     } finally {
       await page.close();
     }
