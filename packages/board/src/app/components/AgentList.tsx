@@ -5471,11 +5471,18 @@ function Row({
     // `<span role="gridcell" class="…"></span>` — slot 4 present and entirely
     // empty — while `tupleFromRow` had put three links in it.
     //
-    // So the rule keeps its reason and loses its overreach: drop the links the
-    // rows above already carry (the plan, the wave), and keep the one that
-    // names this row's own vehicle where slot 3 is not already wearing it.
+    // So the rule keeps its reason and loses its overreach: drop exactly the
+    // links the rows above already carry — the PLAN and the WAVE — and keep
+    // every other artifact, which is by construction one this row alone holds.
+    //
+    // Stated as containment rather than as a list of kinds, because the list was
+    // where it went wrong twice: first dropping everything, then keeping only
+    // the branch, which erased the PR from a CONFLICTING branch row. That row's
+    // own source names the regression it repeats — *a branch started and then
+    // shelved read as never begun, with its age and its PR erased* — and the
+    // wave heading it cannot stand in, since a wave with two PRs names neither.
     ...(inWaveGroup
-      ? { links: base.links.filter((l) => l.what === 'branch' && base.name.what !== 'branch') }
+      ? { links: base.links.filter((l) => l.what !== 'plan' && l.what !== 'wave') }
       : {}),
   };
 
