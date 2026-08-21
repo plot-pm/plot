@@ -1569,7 +1569,25 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   // the live ones need.
 
   /** The rows a group is currently showing. */
-  const groupRows = (page: Page, label: string) => group(page, label).locator('li[data-agent-row]');
+  /**
+   * The ROWS a section shows, plan rows included.
+   *
+   * It counted `li[data-agent-row]` alone, and that undercounts by design since
+   * the wave kind landed: a plan heading a group renders as a PLAN ROW, and a
+   * plan with one branch renders as that row and nothing beneath it. Measured in
+   * QUIET with one plan of one branch: one `li[data-plan-row]`, zero
+   * `li[data-agent-row]`, and the fold already open — nothing left to expand and
+   * nothing for the old selector to find.
+   *
+   * So a caller asking "how many rows does this section show" has to count
+   * both. A caller asking specifically about branch rows still says so.
+   */
+  const groupRows = (page: Page, label: string) =>
+    group(page, label).locator('li[data-agent-row], li[data-plan-row]');
+
+  /** Branch rows only, for assertions that are about branches specifically. */
+  const branchRows = (page: Page, label: string) =>
+    group(page, label).locator('li[data-agent-row]');
 
   /** The header of one group, whose count must survive folding. */
   const heading = (page: Page, label: string) =>
