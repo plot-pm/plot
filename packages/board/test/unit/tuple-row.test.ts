@@ -60,10 +60,12 @@ describe('rowKind — the server\'s judgement about what a row is about', () => 
     expect(rowKind('idea/a-wave-is-a-thing-not-a-label', true, true)).toBe('plan');
   });
 
-  it('leaves an idea branch with NO PR a branch', () => {
-    // The plan is not under review until a PR asks for it — before that the row
-    // is a branch someone pushed, which is what it is.
-    expect(rowKind('idea/some-plan', false, false)).toBe('branch');
+  it('calls an idea branch a PLAN with no PR at all', () => {
+    // Reversed 2026-08-21: *"Ein plan Branch (idea/) mit oder ohne PR ist ein
+    // PLAN"*. The branch holds markdown and nothing else, so it IS a plan before
+    // anyone opens a draft PR on it. Whether a review has been asked for is the
+    // row's status; what the row IS is its kind.
+    expect(rowKind('idea/some-plan', false, false)).toBe('plan');
   });
 
   it('keeps a release a release, which the idea arm cannot outrank', () => {
@@ -174,12 +176,10 @@ describe('the server decides the kind, and the renderer reads it', () => {
     // The `pr` arm survives, one rank lower: it answers for a branch nobody has
     // sliced into a wave. Without this the change above would read as *the pr
     // kind was deleted*, and it was not.
-    const noWave = {
-      ...pulse,
-      plans: [{ ...pulse.plans[0], waves: [{ ...pulse.plans[0].waves[0], name: '' }] }],
-    };
-    const rows = rowsFromPulse(noWave, ages, 'plot', 30, new Map([['feature/plain', pr()]]));
-    expect(rows.find((r) => r.branch === 'feature/plain')!.kind).toBe('pr');
+    // *"Ein PR der einen Branch hat der zu keinem Plan gehört ist ein PR."* The
+    // test is the PLAN, so this asserts the arm directly rather than by emptying
+    // a wave's name — a branch under a plan is a wave whatever its wave is called.
+    expect(rowKind('feature/plain', true, false, '')).toBe('pr');
   });
 
   it('calls a CONFLICTING branch a branch, even with an open PR', () => {

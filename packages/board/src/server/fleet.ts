@@ -27,7 +27,6 @@ import {
   type WaitingOn,
   type WaveVerdict,
   type WorkerState,
-  UNNAMED_WAVE,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
 import { repairFor, startRepair } from './resolver.js';
@@ -3618,8 +3617,16 @@ export interface BranchFacts {
   hasPr: boolean;
   /** Whether the SCAN found a conflict — never *whether one was looked for*. */
   conflicts: boolean;
-  /** The wave it belongs to, or "" — `(unnamed)` counts as none. */
+  /** The wave it belongs to, or "" — a name only, never the test for one. */
   wave: string;
+  /**
+   * The plan this branch belongs to, or "" where none names it.
+   *
+   * THE TEST FOR A WAVE, and the wave's own name is not. A wave is the unit a
+   * plan is cut into, so a branch no plan names cannot be in one whatever the
+   * wave field says.
+   */
+  plan: string;
 }
 
 /** Is this the branch changesets cuts for a release? */
@@ -3628,25 +3635,58 @@ export function isReleaseBranch(f: Pick<BranchFacts, 'branch'>): boolean {
 }
 
 /**
- * Does it carry a plan still under review?
+ * Does it carry a plan?
  *
- * An `idea/<slug>` branch WITH a PR: `/plot-idea` names the branch after the
- * plan's own slug, and the PR is the review. The PR is required because a plan is
- * not under review until something asks for the review.
+ * An `idea/<slug>` branch — `/plot-idea` names the branch after the plan's own
+ * slug, so the prefix IS the statement that this branch carries a plan.
+ *
+ * **THE PR WAS REQUIRED UNTIL 2026-08-21**, on the reasoning that *a plan is not
+ * under review until something asks for the review*. That reads the kind as a
+ * phase, and it is not: the operator's rule is *"Ein plan Branch (idea/) mit oder
+ * ohne PR ist ein PLAN"*. A plan written and not yet opened for review is still a
+ * plan, and calling it a bare branch is exactly the confusion the kind exists to
+ * remove — the reader is told *a name somebody pushed* about the one row that is
+ * a document waiting for them.
+ *
+ * Where it is in its lifecycle belongs to the row's PHASE and its status, which
+ * carry Draft, Approved and the rest. The kind says what the row IS; the status
+ * says where it has got to. Same split as `release`, whose arm has always read
+ * the ref name alone.
  */
-export function carriesDraftPlan(f: Pick<BranchFacts, 'branch' | 'hasPr'>): boolean {
-  return IDEA_BRANCH.test(f.branch) && f.hasPr;
+export function carriesDraftPlan(f: Pick<BranchFacts, 'branch'>): boolean {
+  return IDEA_BRANCH.test(f.branch);
 }
 
 /**
- * Does it belong to a named wave?
+ * Does it belong to a wave — that is, does a plan name it?
  *
- * `(unnamed)` is NOT a wave for this purpose — a wave with no name cannot head a
- * row, so a branch in one is just a branch. Six of this estate's 71 waves are
- * unnamed, all in plans written before the naming convention.
+ * **THE PLAN IS THE TEST, and it replaced the wave's NAME on 2026-08-21.** This
+ * read `wave !== UNNAMED_WAVE`, on the reasoning that *a wave with no name
+ * cannot head a row, so a branch in one is just a branch*. That was true while a
+ * wave was a heading. It is not true of a carrier: `MANIFESTO.md` states *"a plan
+ * with no subheadings is one wave"*, so a plan nobody cut into `### ` sections
+ * still has exactly one wave — an unnamed one — and its branch is that wave's
+ * work.
+ *
+ * Measured when the operator caught it on the live board: a merged branch under
+ * plan `the-no-ref-arm-asks-once-too`, with PR #255, rendering as `BRANCH`. Its
+ * plan carries no `### ` heading, so its wave parsed as `(unnamed)` and the arm
+ * refused it. 23 of this repo's 83 plans with a `## Branches` section have no
+ * named wave — a template rule (*"EVERY wave gets a `### <Name>` heading"*) with
+ * no gate behind it, violated 27% of the time.
+ *
+ * The operator's two rules settle both halves:
+ *
+ *   *"Ein branch der zu keinem Plan gehört ist keine WAVE"* — no plan, no wave.
+ *   *"Ein PR der einen Branch hat der zu keinem Plan gehört ist ein PR"* — and
+ *   what such a row IS instead is decided by the arm below this one.
+ *
+ * So the unnamed wave is a naming defect in the plan file, repaired by
+ * `/plot-reslice`, and never a reason for the board to call a plan's work a bare
+ * branch.
  */
-export function carriesWave(f: Pick<BranchFacts, 'wave'>): boolean {
-  return Boolean(f.wave) && f.wave !== UNNAMED_WAVE;
+export function carriesWave(f: Pick<BranchFacts, 'plan'>): boolean {
+  return Boolean(f.plan);
 }
 
 export function rowKind(
@@ -3675,14 +3715,18 @@ export function rowKind(
    */
   conflicts: boolean,
   /**
-  /**
-   * The wave this branch belongs to, or "" — the fourth of the four tests.
+   * The PLAN this branch belongs to, or "" — the test for a wave.
+   *
+   * It took the wave's NAME until 2026-08-21, and a name cannot answer the
+   * question: a plan with no `### ` heading has one unnamed wave, and its branch
+   * is that wave's work. `carriesWave` states the operator's rule in full — no
+   * plan, no wave.
    *
    * Last in the parameter list because it is the newest, so every existing caller
-   * is unchanged and a caller that says nothing about a wave gets the behaviour
+   * is unchanged and a caller that says nothing about a plan gets the behaviour
    * it had.
    */
-  wave = '',
+  plan = '',
 ): RowKind {
   // ## A BRANCH ROW IS THE FALLBACK, and it takes four distinct negatives
   //
@@ -3706,7 +3750,7 @@ export function rowKind(
   // ABOVE the conflict arm on purpose: a conflicting plan PR is still a plan,
   // and the act it wants is approval rather than a rebase. It is BELOW the
   // release arm only because the two cannot both match.
-  if (carriesDraftPlan({ branch, hasPr })) return 'plan';
+  if (carriesDraftPlan({ branch })) return 'plan';
   // A RUN IN PROGRESS IS A BUILD, and this arm is why the `build` kind existed
   // for weeks with nothing ever assigned to it — `tupleFromBuild` was written,
   // tested, and unreachable, because this function's own docstring said *"a build
@@ -3760,7 +3804,7 @@ export function rowKind(
   // did not. Making the kind track the machine was one way to close the gap;
   // making the kind the WAVE closes it permanently, because a wave row cannot
   // contradict a section that is asking what is happening to a wave.
-  if (carriesWave({ wave })) return 'wave';
+  if (carriesWave({ plan })) return 'wave';
   if (hasPr) return 'pr';
   return 'branch';
 }
@@ -4169,12 +4213,12 @@ export function rowsFromPulse(
             // `classify` states — *the row's word and its sentence must not be
             // able to disagree*.
             b.conflicts_known && b.conflicts.length > 0 && pr?.state !== 'CLOSED',
-            // THE WAVE, and it now outranks the PR. A branch in a wave IS that
-            // wave's work whatever is happening to it — the run, the review and
-            // the agent are what a section asks about, not what the row is.
-            // `(unnamed)` is excluded: a wave with no name cannot head a row, the
-            // same reason `waveGroupsFor` skips it.
-            wave.name && wave.name !== UNNAMED_WAVE ? wave.name : '',
+            // THE PLAN, which is what says this branch is a wave's work. Not the
+            // wave's NAME: a plan with no `### ` heading has one unnamed wave and
+            // its branch belongs to it all the same. Passing the name here sent a
+            // merged branch under a real plan to `BRANCH`, which is the defect
+            // this replaced.
+            plan.file,
           ),
           branch: b.branch,
           plan: plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, ''),

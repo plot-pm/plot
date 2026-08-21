@@ -44,25 +44,32 @@ describe('the four tests a branch answers', () => {
       expect(carriesDraftPlan({ branch: 'idea/a-wave-is-a-kind', hasPr: true })).toBe(true);
     });
 
-    it('is false for an idea branch with NO PR', () => {
-      // Nothing has asked for the review yet, so nothing is under review.
-      expect(carriesDraftPlan({ branch: 'idea/a-wave-is-a-kind', hasPr: false })).toBe(false);
+    it('is TRUE for an idea branch with no PR — a plan need not be in review', () => {
+      // Reversed 2026-08-21. It read false, because *nothing has asked for the
+      // review yet*. But an `idea/` branch holds markdown and nothing else: it
+      // IS a plan, whether or not a draft PR has been opened on it. Review is a
+      // phase, and the phase is the row's status, not its kind.
+      expect(carriesDraftPlan({ branch: 'idea/a-wave-is-a-kind' })).toBe(true);
     });
 
     it('is false for any other prefix, PR or not', () => {
-      expect(carriesDraftPlan({ branch: 'feature/x', hasPr: true })).toBe(false);
+      expect(carriesDraftPlan({ branch: 'feature/x' })).toBe(false);
       // Not a match INSIDE the name — the prefix has to lead.
-      expect(carriesDraftPlan({ branch: 'feature/an-idea/x', hasPr: true })).toBe(false);
+      expect(carriesDraftPlan({ branch: 'feature/an-idea/x' })).toBe(false);
     });
   });
 
   describe('carriesWave', () => {
-    it('is true for a named wave', () => {
-      expect(carriesWave({ wave: 'Modelled' })).toBe(true);
+    it('is true for any branch a PLAN names, named wave or not', () => {
+      // The test is the plan, not the wave's name — a plan with no `### `
+      // heading has one unnamed wave, and its branch is that wave's work.
+      expect(carriesWave({ plan: 'a-wave-is-a-kind' })).toBe(true);
+      expect(carriesWave({ plan: 'the-no-ref-arm-asks-once-too' })).toBe(true);
     });
 
-    it('is false for no wave', () => {
-      expect(carriesWave({ wave: '' })).toBe(false);
+    it('is false where no plan names the branch', () => {
+      // *"Ein branch der zu keinem Plan gehört ist keine WAVE."*
+      expect(carriesWave({ plan: '' })).toBe(false);
     });
 
     it('is false for `(unnamed)`, which cannot head a row', () => {
@@ -77,12 +84,12 @@ describe('the four tests a branch answers', () => {
 describe('rowKind — a branch row is what is left when all four say no', () => {
   /** The arguments in the order `rowKind` takes them. */
   const kind = (o: {
-    branch?: string; hasPr?: boolean; conflicts?: boolean; wave?: string;
+    branch?: string; hasPr?: boolean; conflicts?: boolean; plan?: string; wave?: string;
   } = {}) => rowKind(
     o.branch ?? 'feature/x',
     o.hasPr ?? false,
     o.conflicts ?? false,
-    o.wave ?? '',
+    o.plan ?? (o.wave ? 'some-plan' : ''),
   );
 
   it('yields BRANCH when every test says no', () => {
@@ -96,6 +103,27 @@ describe('rowKind — a branch row is what is left when all four say no', () => 
     expect(kind({ branch: 'idea/a-plan', hasPr: true })).toBe('plan');
     expect(kind({ wave: 'Modelled' })).toBe('wave');
     expect(kind({ hasPr: true })).toBe('pr');
+  });
+
+  it('calls an idea/ branch a plan WITH or WITHOUT a PR', () => {
+    // *"Ein plan Branch (idea/) mit oder ohne PR ist ein PLAN"* — the operator's
+    // rule, 2026-08-21. `carriesDraftPlan` required the PR until then, on the
+    // reasoning that a plan is not under review until something asks for the
+    // review. That reads the KIND as a PHASE: where a plan has got to is its
+    // status, what it IS is the kind. A plan written and not yet opened is still
+    // a plan, and `BRANCH` tells the reader *a name somebody pushed* about the
+    // one row that is a document waiting for them.
+    expect(kind({ branch: 'idea/a-plan' })).toBe('plan');
+    expect(kind({ branch: 'idea/a-plan', hasPr: true })).toBe('plan');
+  });
+
+  it('calls a release branch a release WITH or WITHOUT a PR', () => {
+    // *"Ein release-branch mit oder ohne PR ist ein RELEASE"* — the operator's
+    // rule, 2026-08-21. `isReleaseBranch` reads the ref name and nothing else,
+    // which is what makes both halves true, and this pins it: a release cut but
+    // not yet opened is still the row nobody should merge by reflex.
+    expect(kind({ branch: 'changeset-release/main' })).toBe('release');
+    expect(kind({ branch: 'changeset-release/main', hasPr: true })).toBe('release');
   });
 
   it('lets a RELEASE outrank everything', () => {
@@ -141,10 +169,31 @@ describe('rowKind — a branch row is what is left when all four say no', () => 
     expect(kind({ hasPr: true, wave: 'Modelled' })).toBe('wave');
   });
 
-  it('still calls a PR a pr where no wave claims the branch', () => {
-    // The arm survives one rank lower, and this is the case it answers: a branch
-    // with a PR that nobody sliced into a wave.
+  it('still calls a PR a pr where NO PLAN claims the branch', () => {
+    // *"Ein PR der einen Branch hat der zu keinem Plan gehört ist ein PR"* — the
+    // operator's rule, 2026-08-21. The arm survives one rank lower and this is
+    // the case it answers.
     expect(kind({ hasPr: true })).toBe('pr');
+  });
+
+  it('calls a plan\'s branch a WAVE even where the wave has no name', () => {
+    // *"Ein branch der zu keinem Plan gehört ist keine WAVE"* — so the test is
+    // the PLAN, and the wave's name is not the test.
+    //
+    // Caught on the live board: a merged branch under plan
+    // `the-no-ref-arm-asks-once-too` with PR #255, rendering `BRANCH`. Its plan
+    // carries no `### ` heading, so the wave parsed as `(unnamed)` and the arm
+    // refused it — while `MANIFESTO.md` says *"a plan with no subheadings is one
+    // wave"*. 23 of this repo's 83 plans with a `## Branches` section are in that
+    // shape, so it is the common case rather than an edge.
+    expect(kind({ plan: 'the-no-ref-arm-asks-once-too', hasPr: true })).toBe('wave');
+    expect(kind({ plan: 'some-plan' })).toBe('wave');
+  });
+
+  it('calls a branch NO PLAN names a branch, whatever its wave field says', () => {
+    // The other half of the same rule, and the reason the field cannot be the
+    // test: a stray wave name on a branch no plan claims must not promote it.
+    expect(kind({ wave: '', plan: '' })).toBe('branch');
   });
 
   it('never returns a kind the contract does not declare', () => {
@@ -167,10 +216,12 @@ describe('rowKind — a branch row is what is left when all four say no', () => 
     }
   });
 
-  it('yields BRANCH for an unnamed wave with nothing else true', () => {
-    // The composition that matters: `(unnamed)` is not a wave for this decision,
-    // so a branch in one falls all the way through.
-    expect(kind({ wave: UNNAMED_WAVE })).toBe('branch');
+  it('yields WAVE for an unnamed wave, because a plan still names it', () => {
+    // Reversed 2026-08-21. It asserted `branch`, on the rule that `(unnamed)` is
+    // not a wave — which sent a plan's own merged work to the fallback kind. A
+    // plan with no `### ` heading has one wave and it has no name; the branch
+    // under it is that wave's work either way.
+    expect(kind({ plan: 'a-plan-nobody-sliced' })).toBe('wave');
   });
 });
 
