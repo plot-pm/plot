@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { startServer, expandAgentFolds } from '../helpers.mjs';
 import type { AgentRow, Fleet } from '../../src/contract/schema.js';
 
 /**
@@ -106,6 +106,7 @@ describe('a group heading carries the activity of the rows behind it', () => {
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet(rows)) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Working').first().waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     return page;
   }
 
@@ -304,6 +305,7 @@ describe('a heading travels at the strongest pace its rows state', () => {
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet(rows)) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Working').first().waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     return page;
   }
 

@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { startServer, expandAgentFolds } from '../helpers.mjs';
 import type { Fleet } from '../../src/contract/schema.js';
 
 /**
@@ -408,6 +408,7 @@ describe('the rows keep their own indicator, and it is not this one', () => {
       // its heading whether or not it holds rows, so this is the tab having
       // painted rather than this fixture having any particular content.
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
 
       const dot = page.locator('[data-live-dot]');
       await expect.poll(() => dot.count(), { timeout: 10_000 }).toBe(1);

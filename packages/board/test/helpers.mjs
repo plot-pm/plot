@@ -438,3 +438,36 @@ export function rmTree(target, { retries = 10, delayMs = 25 } = {}) {
     }
   }
 }
+
+/**
+ * Open every fold on the Agents tab, plans first and then waves.
+ *
+ * ## Why this is shared rather than copied
+ *
+ * Seventeen integration files open `?tab=agents`; fifteen of them opened no
+ * folds at all. That was harmless while rows arrived unfolded — and became 30s
+ * of locator timeout per assertion once the wave kind landed, because a branch
+ * row now arrives inside a wave inside a plan, shut twice over.
+ *
+ * Measured 2026-08-21 in CI: the suite stalled in
+ * `stuck-row-alignment.browser.test.ts`, four tests at 30000ms each, and the
+ * step hit its 15-minute bound having run no browser file to completion. The
+ * same file with this helper: 4 passed in 2.19s. The tests were never wrong;
+ * they were looking at rows nobody had opened.
+ *
+ * ORDER MATTERS. A wave's toggle does not exist in the DOM until the plan
+ * holding it is open, so a single pass over both selectors misses every wave
+ * under a folded plan.
+ *
+ * IDEMPOTENT, and silent where nothing folds: a group with one item renders no
+ * expander and its rows are visible already.
+ */
+export async function expandAgentFolds(page) {
+  for (const selector of ['[data-wave-toggle]', '[data-wave-branch-toggle]']) {
+    const toggles = page.locator(selector);
+    for (let i = 0; i < (await toggles.count()); i += 1) {
+      const toggle = toggles.nth(i);
+      if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+    }
+  }
+}

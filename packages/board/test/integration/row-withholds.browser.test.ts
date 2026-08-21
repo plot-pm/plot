@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { startServer, expandAgentFolds } from '../helpers.mjs';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../src/contract/schema.js';
 
 /**
@@ -142,6 +142,7 @@ describe('the row says what it knows', () => {
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Not started').first().waitFor({ timeout: 15_000 });
+    await expandAgentFolds(page);
     return page;
   }
 

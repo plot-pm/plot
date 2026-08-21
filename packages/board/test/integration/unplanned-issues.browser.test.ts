@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { startServer, expandAgentFolds } from '../helpers.mjs';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../src/contract/schema.js';
 
 /**
@@ -87,6 +87,7 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     return page;
   }
 

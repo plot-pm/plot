@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { startServer, expandAgentFolds } from '../helpers.mjs';
 import {
   BOARD_ARTIFACT_PATH, type AgentRow, type Fleet, type Stuck,
 } from '../../src/contract/schema.js';
@@ -159,6 +159,7 @@ describe('a stuck branch says so in its row', () => {
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
     await page.goto(`${opts.url ?? baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     return page;
   }
 
@@ -420,6 +421,7 @@ describe('a stuck branch says so in its row', () => {
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       // The stuck rows are on screen with their cues showing — the actions are
       // in their menus, unopened and therefore unrendered, which is if anything
       // a stronger form of the same claim.

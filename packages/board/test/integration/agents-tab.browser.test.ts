@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { startServer, expandAgentFolds } from '../helpers.mjs';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet } from '../../src/contract/schema.js';
 
 /**
@@ -152,6 +152,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     await expandPlans(page);
     return page;
   }
@@ -170,6 +171,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     await expandPlans(page);
     return page;
   }
@@ -218,6 +220,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         : route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     await expandPlans(page);
     return { page, fail: () => { failing = true; }, recover: () => { failing = false; } };
   }
@@ -247,6 +250,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     });
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     await expandPlans(page);
     return {
       page,
@@ -1291,6 +1295,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       // This test builds its own page rather than going through `openAgents`, so
       // it opens NOT STARTED's fold itself — the row it is about is a
       // not-started BRANCH row, which now sits one click in.
@@ -1422,6 +1427,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         }));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       await expect.poll(() => liveDot(page, 'feature/beans-a').count()).toBe(1);
       // DONE is where the row is going, and it starts folded — opened FIRST, so
       // the assertion below is about the indicator stopping rather than about
@@ -1600,6 +1606,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       // The default, on a context that has stored nothing.
       await expect.poll(() => groupRows(page, 'Quiet').count()).toBe(0);
       await expand(page, 'quiet');
@@ -1664,6 +1671,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         }));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       await expect.poll(() => heading(page, 'Quiet').textContent()).toContain('(1)');
       extra = true;
       // The count moves…
@@ -1699,6 +1707,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         }));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       // The reader opens QUIET deliberately.
       await expand(page, 'quiet');
       await expect.poll(() => groupRows(page, 'Quiet').count()).toBe(1);
@@ -1753,6 +1762,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(many) }));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       // The counts say the twenty rows are there and hidden.
       await expect.poll(() => heading(page, 'Quiet').textContent()).toContain('(8)');
       expect(await heading(page, 'Done').textContent()).toContain('(14)');
@@ -2091,6 +2101,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await page.route('**/api/fleet', (route) => route.abort('connectionrefused'));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Loading…').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       // No pulse ever arrived, so there is no "last heard" moment to report.
       expect(await staleBanner(page).count()).toBe(0);
       // And no rows are invented to be stale about.
@@ -2596,6 +2607,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       }));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       await expect.poll(() => group(page, 'Waiting on you')
         .locator('li[data-agent-row]').count()).toBe(4);
 
@@ -2835,6 +2847,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(current) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     return { page, swap: (next: Fleet) => { current = next; } };
   }
 
@@ -3042,6 +3055,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     return page;
   }
 

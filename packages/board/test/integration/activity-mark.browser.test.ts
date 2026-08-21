@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { startServer, expandAgentFolds } from '../helpers.mjs';
 import type { AgentRow, Fleet, Stuck } from '../../src/contract/schema.js';
 
 /**
@@ -121,6 +121,7 @@ describe('the activity mark glows, and travels without arriving', () => {
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet(rows)) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Working').first().waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     return page;
   }
 
@@ -638,6 +639,7 @@ describe('the dot travels at two speeds, and they are distinguishable', () => {
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet(ROWS)) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Working').first().waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     return page;
   }
 
@@ -828,6 +830,7 @@ describe('the activity mark aligns to the row\'s first line', () => {
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet(ROWS)) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     return page;
   }
 

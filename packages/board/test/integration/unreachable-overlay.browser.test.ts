@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { startServer, expandAgentFolds } from '../helpers.mjs';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet } from '../../src/contract/schema.js';
 // The threshold under test, IMPORTED rather than restated: a copy here would
 // drift in exactly the way that matters — raise it in App.tsx and a hard-coded
@@ -192,6 +192,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
     await page.goto(tab === 'agents' ? `${baseURL}?tab=agents` : baseURL);
     // Wait for real content, so there is a payload to degrade FROM.
     if (tab === 'agents') await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     else await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
     // The Agents tab needs the board's cards too — that is where Start work
     // and the restart command come from.
@@ -200,6 +201,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
       await page.getByRole('button', { name: 'Agents' }).click();
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     }
     return { page, set: (m: Mode) => { mode = m; } };
   }
