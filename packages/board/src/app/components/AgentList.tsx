@@ -5337,9 +5337,32 @@ export function AgentList({
           // `& > :not([hidden]) ~ :not([hidden])`, which outranks a plain
           // utility class and would silently win.
           //
-          // The heading keeps its `mb-1`. This is only about the space BETWEEN
-          // groups — the rows themselves stay at `py-2`, which is the density
-          // an operator watching a fleet wants.
+          // The rows themselves stay at `py-2`, which is the density an
+          // operator watching a fleet wants.
+          //
+          // A SECTION IS NOT A ROW, AND WAS DRAWN SMALLER THAN ONE.
+          //
+          // The gap above fixed the spacing and left the SIZE, and measured on
+          // 2026-08-20 the size was not merely equal to a row's — it was under
+          // it. `text-xs` is 12px; the row's `<li>` is `text-sm` and its branch
+          // name renders 13px. So the strongest structural break on the page
+          // was set two-thirds of a step BELOW the weakest thing inside it,
+          // which is the same finding as the gap, one property along.
+          //
+          // This branch proposed `text-sm` — 14px, one step above the 13px
+          // branch name, on the argument that a dense fleet view cannot afford
+          // a heading that shouts. While it waited, main answered the same
+          // defect at `text-base` and darkened the colour with it, and that is
+          // what stands here: a heading two steps clear of its rows rather
+          // than one. Two hands reading the same rendered board reached for
+          // the same property and only disagreed on how far, which is a
+          // stronger signal about the defect than either fix alone.
+          //
+          // `mb-2` because the heading grew — 4px under a 16px line reads
+          // tighter than 4px under 12px did, not the same. The space below a
+          // heading belongs to the heading; `space-y-8` separates one section
+          // from the next and says nothing about the distance from a heading
+          // to its own rows.
           <section key={key}>
             <h2 className="mb-2 flex items-baseline gap-2 px-3 text-base font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-300">
               {collapsible ? (
@@ -5358,10 +5381,27 @@ export function AgentList({
                   // without moving it — the label is part of the button
                   // already, so the target was never as small as the caret,
                   // but the caret is what a reader aims at.
+                  //
+                  // THAT REASONING IS ABOUT THE TARGET AND IT HOLDS: `py-1
+                  // -my-1` stays, and the button still measures 24px tall. The
+                  // operator's later complaint — *"expand / collapse icons
+                  // still too small"* — is about SEEING the glyph, which is a
+                  // different property of the same control. Easy to hit and
+                  // hard to read are not the same failure, so the glyph grows
+                  // and the target does not move. The test asserts both, or a
+                  // later hand shrinking the padding would pass it.
                   className="-my-1 flex items-center gap-2 py-1 uppercase tracking-wide hover:text-slate-900 dark:hover:text-slate-100"
                 >
                   {/* One glyph rotated, matching the plan row's fold — see
-                      there for why a rotation beats a second glyph. */}
+                      there for why a rotation beats a second glyph.
+
+                      The glyph tracks the heading's own size, because a
+                      caret is a shape rather than a letter: a triangle set at
+                      the text's size reads smaller than the text beside it,
+                      having no x-height or stem to fill the em. `w-4` because
+                      the box has to widen with the glyph — `w-3` was cut for a
+                      13px mark and would clip this one, or shift it off centre
+                      when it rotates. */}
                   <span
                     aria-hidden
                     className={`inline-block w-4 text-center text-base leading-none transition-transform ${isFolded ? '' : 'rotate-90'}`}
@@ -5608,7 +5648,43 @@ export function AgentList({
                         printed a bare "(3)", a label that labels nothing.
                         `showPlanHeading` already refuses those. */}
                     {headed && (
-                      <h3 className="border-b border-slate-200/60 bg-slate-50 px-3 py-1 text-[11px] font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
+                      // TWO SIZES FOR THREE LEVELS, decided from the rendered
+                      // board rather than from the table.
+                      //
+                      // The plan asked whether this heading needs a size of its
+                      // own, between the section's and the row's. It does not:
+                      // this heading sits INSIDE a tinted, outlined box that
+                      // holds exactly its own rows, and that container states
+                      // *inside a section* more plainly than a third type size
+                      // would. A distinction the layout already draws is not
+                      // worth spending a type step on.
+                      //
+                      // What it did need was to stop being the SMALLEST thing
+                      // on the page. At `text-[11px]` it was set under the
+                      // 13px branch names beneath it — a label smaller than
+                      // what it labels, the section's defect one level down.
+                      // `text-[13px]` puts it level with those names, where a
+                      // heading distinguished by weight and by its own tinted
+                      // band no longer has to be distinguished by shrinking.
+                      //
+                      // `py-0.5` because the TYPE grew and the padding did
+                      // not have to. 2px around a 13px label in a tinted band
+                      // holds the same proportion `py-1` held around an 11px
+                      // one; at 13px the band read loose.
+                      //
+                      // It also started as a 4px repayment. Growing the type
+                      // grew each heading's line box, twice over on a page with
+                      // a plan group in QUIET and in DONE, and the footer test
+                      // then bounded the page against a literal 800 — so 13px
+                      // headings at `py-1` failed it by 1.3px. That bound is
+                      // gone: the test now measures the footer against
+                      // `window.innerHeight`, having been found to pass on
+                      // macOS and fail on CI's Linux for the same code, a ~4px
+                      // font-metric difference no change here could control.
+                      // Nothing about this line is load-bearing for it any
+                      // more, which is why the reason above is the one stated
+                      // first.
+                      <h3 className="border-b border-slate-200/60 bg-slate-50 px-3 py-0.5 text-[13px] font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
                         {/* The heading CARRIES the link, because the rows below
                             no longer print the plan name. Grouping moved the
                             name up here; the way to reach the plan has to move

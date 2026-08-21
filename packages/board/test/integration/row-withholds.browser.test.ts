@@ -217,6 +217,142 @@ describe('the row says what it knows', () => {
     }
   });
 
+  // ─── A section is not a row, and is no longer drawn as one ───────────────
+  //
+  // The spacing half of this finding is above. This is the SIZE half, and it
+  // was measured on 2026-08-20 to be worse than reported: the section `<h2>`
+  // was `text-xs`, 12px, while a row's branch name renders 13px and the row's
+  // own `<li>` is `text-sm`. The strongest structural break on the page was set
+  // BELOW the weakest thing inside it, and the plan `<h3>` under it at 11px was
+  // smaller still — three levels ordered backwards.
+  //
+  // Read these together with the two above: spacing separates the sections,
+  // size distinguishes them, and each can be undone without touching the other.
+
+  /** The rendered font size of an element, in px, as a number. */
+  const fontSizes = (page: Page) =>
+    page.evaluate(() => {
+      const size = (el: Element | null) =>
+        el ? Number.parseFloat(getComputedStyle(el).fontSize) : null;
+      // A ROW'S OWN TEXT, taken as the LARGEST thing a row draws rather than
+      // the smallest. A row carries several sizes — 13px branch name, 12px
+      // supporting cells — and the heading has to clear the biggest of them or
+      // it is still smaller than something in the list it introduces. Asserting
+      // against the 12px cells would pass a heading the branch names overpower.
+      const rowText = Array.from(
+        document.querySelectorAll('ul[role="grid"] li[data-agent-row] *'),
+      )
+        .filter((el) => el.children.length === 0 && el.textContent?.trim())
+        .map((el) => Number.parseFloat(getComputedStyle(el).fontSize));
+      return {
+        section: size(document.querySelector('[data-sections] > section h2')),
+        sectionCaret: size(
+          document.querySelector('[data-group-toggle] span[aria-hidden]'),
+        ),
+        planHeading: size(document.querySelector('ul[role="grid"] h3')),
+        rowMax: rowText.length ? Math.max(...rowText) : null,
+      };
+    });
+
+  it('draws a section heading larger than the rows it introduces', async () => {
+    const page = await open();
+    try {
+      const px = await fontSizes(page);
+      expect(px.rowMax).toBeGreaterThan(0);
+      // THE PROPERTY, not one implementation of it: a section reads as the
+      // stronger level. Stated as a comparison so re-tuning the scale later
+      // does not have to re-tune this test.
+      expect(px.section!).toBeGreaterThan(px.rowMax!);
+      // And above the 12px measured, which was the defect itself. Without this
+      // the comparison alone would pass if a row ever SHRANK to meet a heading
+      // that never moved — the wrong repair for this finding, and the one that
+      // costs the rows their scan.
+      expect(px.section!).toBeGreaterThan(12);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('draws the section fold caret larger than a row, without shrinking its target', async () => {
+    const page = await open();
+    try {
+      const px = await fontSizes(page);
+      // THE GLYPH GROWS. The caret was 13px against a 13px branch name — the
+      // control that answers *is there more here?*, drawn at the size of the
+      // thing it hides.
+      expect(px.sectionCaret!).toBeGreaterThan(px.rowMax!);
+
+      // AND THE TARGET DOES NOT MOVE. This is the assertion that keeps the
+      // earlier fix's work: `py-1 -my-1` made the heading line a 24px target
+      // deliberately, and a "bigger caret" that reached the glyph by trimming
+      // the padding would pass the line above while undoing it. Legible and
+      // hittable are separate properties of one control, so both are measured.
+      const target = await page
+        .locator('[data-group-toggle]')
+        .first()
+        .evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          return { h: Math.round(r.height), w: Math.round(r.width) };
+        });
+      expect(target.h).toBeGreaterThanOrEqual(MIN_TARGET);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('stops the plan heading being the smallest text on the page', async () => {
+    const page = await open();
+    try {
+      const px = await fontSizes(page);
+      expect(px.planHeading).toBeGreaterThan(0);
+      // A LABEL NOT SMALLER THAN WHAT IT LABELS. At `text-[11px]` this heading
+      // sat under the 13px branch names it introduces — the section's defect
+      // one level down.
+      expect(px.planHeading!).toBeGreaterThanOrEqual(px.rowMax!);
+      // AND STILL BELOW THE SECTION. Two sizes for three levels was the
+      // decision — this heading sits in a tinted, outlined box that already
+      // says *inside a section* — so it must not climb to the section's size
+      // and flatten the one distinction this branch draws.
+      expect(px.planHeading!).toBeLessThan(px.section!);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('keeps a section foldable, with aria-expanded tracking the fold', async () => {
+    const page = await open();
+    try {
+      // The heading is a BUTTON, and growing its type is exactly the kind of
+      // change that turns one into a `<span>` by accident. The fold is the
+      // reason the heading is interactive at all.
+      const toggle = page.locator('[data-group-toggle]').first();
+      await expect.poll(() => toggle.count()).toBe(1);
+      const rows = () =>
+        page
+          .locator('section')
+          .filter({ has: page.locator('[data-group-toggle]') })
+          .first()
+          .locator('ul[role="grid"]')
+          .count();
+
+      // From a KNOWN state: the fold is remembered across sessions, so a test
+      // that assumes open passes or fails on what a previous run left behind.
+      if ((await toggle.getAttribute('aria-expanded')) === 'false') {
+        await toggle.click();
+      }
+      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('true');
+      await expect.poll(rows).toBe(1);
+
+      await toggle.click();
+      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('false');
+      // The BODY GOES, not merely the attribute — a fold that flips a label and
+      // leaves the rows on screen is the state this assertion exists to catch.
+      await expect.poll(rows).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
   // ─── A plan group has an edge, so it stops absorbing what follows ────────
 
   it('closes the plan group after its last branch, with the issue rows outside it', async () => {
@@ -379,11 +515,39 @@ describe('the row says what it knows', () => {
       // AND THE BRANCH NAME SURVIVES IT. This is the half the first
       // implementation lost: the branch is the row's primary key and the only
       // cell that flexes, so a sentence sharing it wins and the name is what
-      // pays. Asserted on the rendered width against the scroll width, which is
-      // what "truncated" actually means.
-      const crushed = await branchRow.locator('[data-branch]').evaluate((el) =>
-        el.scrollWidth > el.clientWidth + 1);
-      expect(crushed).toBe(false);
+      // pays.
+      //
+      // MEASURED ON THE TAIL, because the name is two spans and only one of
+      // them is allowed to yield. `BranchLabel` folds a long name in the
+      // MIDDLE — a `truncate` head that gives up width and a `shrink-0` tail
+      // that never does — so the tail is where "the name survived" is decided.
+      // `splitBranch` states the reason: six branches here share twenty-four
+      // characters of prefix, so the suffix is what tells them apart and a
+      // reader who loses it loses the row's identity.
+      //
+      // This assertion replaced one on the OUTER span's `scrollWidth >
+      // clientWidth`, which was correct for a single-span name and reports
+      // every folded name as crushed. Measured 2026-08-21 for this row in its
+      // 81px slot: outer scroll 94 against client 81 — *because* the head
+      // collapsed to 0 and handed its width to a 94px tail that clipped
+      // nothing. The old measure called the mechanism working as designed a
+      // failure, and would go on doing so for every name long enough to fold.
+      //
+      // The clipped head is deliberately NOT asserted. It is the give in the
+      // design, and pinning it would forbid the fold this row depends on.
+      const tail = branchRow.locator('[data-branch] > span > span').last();
+      const clipped = await tail.evaluate((el) => ({
+        text: el.textContent ?? '',
+        overflowing: el.scrollWidth > el.clientWidth + 1,
+      }));
+      // The tail renders whole: no ellipsis of its own, at its full width.
+      expect(clipped.overflowing).toBe(false);
+      // AND IT IS THE HALF THAT DISTINGUISHES. A tail that survived by being
+      // empty passes the line above and identifies nothing, which is the same
+      // defect one step along — so the surviving text has to be the end of the
+      // name a reader would search for.
+      expect(clipped.text.length).toBeGreaterThan(0);
+      expect('feature/give-them-away'.endsWith(clipped.text)).toBe(true);
     } finally {
       await page.close();
     }
