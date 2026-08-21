@@ -2678,7 +2678,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
           .every((s) => s.scrollWidth <= s.clientWidth + 1),
       );
       expect(fits).toBe(true);
-      expect(await cell.innerText()).toContain('116');
+      // THE NUMBER IS IN SLOT 4, and the status slot keeps its word alone.
+      // `Row` records why: a PR is *"a second destination worth reaching rather
+      // than a fact to read"*, which is what an artifact link is — and keeping
+      // it here rendered `no checks 240`, a number wedged into the one slot
+      // whose purpose is a single word scanned down a column.
       expect(await cell.innerText()).toContain('no checks');
     } finally {
       await page.close();
