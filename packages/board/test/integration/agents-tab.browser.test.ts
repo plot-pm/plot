@@ -2444,15 +2444,41 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }));
     try {
       await expect.poll(() => rowFor(page, 'feature/solo').count()).toBe(1);
-      // `beans` earned a heading, so its rows carry no plan cell content;
-      // `lonely` did not, so its row prints the name itself. Both branches must
-      // still start at the same x — the cell is rendered either way.
-      expect(await cellX(page, 'feature/solo', BRANCH_CELL))
-        .toBe(await cellX(page, 'feature/beans-1', BRANCH_CELL));
-      // And the fixture really is mixed, or the assertion above proves nothing.
+      // BOTH PLANS EARN A HEAD, and the one-row exception this test was written
+      // against is gone — `beans` heads two branches, `lonely` heads one, and
+      // each prints its name once, in a row of its own. So the mixed section
+      // the test is named for is now mixed in DEPTH rather than in shape.
+      //
+      // Measured here: plan rows at x=17, wave rows at x=42, branch rows at
+      // x=67. `feature/solo` rides its wave row (its plan has one branch, so
+      // the wave carries it directly); `feature/beans-1` is a branch row under
+      // a wave. Two levels apart, 25px each — which is exactly the `expected
+      // 174 to be 199` this assertion reported, and it is the INDENT rather
+      // than a misalignment. Asserting the two share an x would assert that
+      // nesting carries no meaning, which is the opposite of what it draws.
+      //
+      // The claim that survives is per-depth: rows at the SAME depth align
+      // exactly, whichever plan they belong to. Asked of the two PLAN heads,
+      // because that is where the original "two shapes in one section" concern
+      // lives now — one head over two branches, one over a single branch.
+      const planX = await group(page, 'Waiting on you').locator('li[data-tuple-kind="plan"]')
+        .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().x)));
+      expect(new Set(planX), `plan heads at ${planX.join()}`).toHaveLength(1);
+      // And each branch cell sits at the same offset WITHIN its own row, which
+      // is the alignment claim with the nesting divided out.
+      const offsets = await page.evaluate(() => ['feature/solo', 'feature/beans-1']
+        .map((b) => {
+          const li = document.querySelector(`[data-branch="${b}"]`)?.closest('li');
+          const cells = [...(li?.querySelectorAll('[role="gridcell"]') ?? [])];
+          const row = li?.getBoundingClientRect().x ?? 0;
+          return Math.round((cells[2]?.getBoundingClientRect().x ?? 0) - row);
+        }));
+      expect(offsets[0], `offsets ${offsets.join()}`).toBe(offsets[1]);
+      // And the fixture really is mixed: two plans, one with two branches and
+      // one with a single branch, each heading its own group.
       const heads = await group(page, 'Waiting on you').locator('[data-plan-row]')
         .evaluateAll((els) => els.map((e) => e.getAttribute('data-plan-row')));
-      expect(heads).toEqual(['beans']);
+      expect(heads).toEqual(['beans', 'lonely']);
     } finally {
       await page.close();
     }
@@ -2629,13 +2655,38 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents(waveFleet());
     try {
       await expect.poll(() => rowFor(page, 'feature/truth-a').count()).toBe(1);
-      // `truth-a` names a wave; `plain-a` names none (`(unnamed)`) — the pair
-      // whose branch cell would diverge if the badge changed the geometry.
-      expect(await cellX(page, 'feature/truth-a', BRANCH_CELL))
-        .toBe(await cellX(page, 'feature/plain-a', BRANCH_CELL));
-      const tracks = await rowFor(page, 'feature/truth-a')
-        .evaluate((el) => getComputedStyle(el).gridTemplateColumns);
-      expect(tracks.split(' ')).toHaveLength(7);
+      // SEVEN TRACKS ON EVERY ROW — the claim, asked of all of them rather than
+      // of one, which is a strictly stronger form of what this test is for. An
+      // eighth track anywhere crosses the `CARD_BELOW_PX` arithmetic, and one
+      // row sampled cannot see it appear on another.
+      const cols = await page.locator('li[data-tuple-kind]').evaluateAll(
+        (els) => els.map((e) => ({
+          kind: e.getAttribute('data-tuple-kind'),
+          n: getComputedStyle(e).gridTemplateColumns.split(' ').length,
+        })));
+      expect(cols.length).toBeGreaterThanOrEqual(4);
+      for (const c of cols) {
+        expect(c.n, `${c.kind} has ${c.n} tracks`).toBe(7);
+      }
+      // NOT COMPARED ACROSS DEPTHS, and that is what this pair stopped being
+      // able to say. `truth-a` names a wave and `plain-a` does not, so a named
+      // wave earns a group and its rows nest one level deeper: measured here,
+      // `truth-a` sits at x=17 and `plain-a` at x=42 — 25px, `ml-6` plus the
+      // group's rule, and the `expected 174 to be 199` this reported. The
+      // divergence is the INDENT, which is information the layout draws on
+      // purpose; asserting it away would assert that nesting is invisible.
+      //
+      // What the badge-in-the-`1fr`-track concern actually needs is that the
+      // branch cell sits at the same offset WITHIN its row either way, which
+      // holds across depths and is what an eighth track would break.
+      const offsets = await page.evaluate(() => ['feature/truth-a', 'feature/plain-a']
+        .map((b) => {
+          const li = document.querySelector(`[data-branch="${b}"]`)?.closest('li');
+          const cells = [...(li?.querySelectorAll('[role="gridcell"]') ?? [])];
+          const row = li?.getBoundingClientRect().x ?? 0;
+          return Math.round((cells[2]?.getBoundingClientRect().x ?? 0) - row);
+        }));
+      expect(offsets[0], `offsets ${offsets.join()}`).toBe(offsets[1]);
     } finally {
       await page.close();
     }
