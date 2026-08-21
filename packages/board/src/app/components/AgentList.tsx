@@ -5667,19 +5667,23 @@ export function AgentList({
                       // heading distinguished by weight and by its own tinted
                       // band no longer has to be distinguished by shrinking.
                       //
-                      // `py-0.5` PAYS FOR THAT SIZE, and is not free polish.
-                      // Growing the type grew each heading's line box, and
-                      // this page can hold two of them — one per plan group in
-                      // QUIET and DONE. Measured at 1280x800 with the footer
-                      // fixture: `py-1` at 13px put the page bottom at
-                      // 801.3125px, 1.3px past a viewport the footer test
-                      // bounds at 800, where main sits inside it. The heading
-                      // keeps the size it argued for and gives back the
-                      // padding, because the size is the finding and the
-                      // padding is not. A later hand restoring `py-1` here
-                      // fails `leaves the footer reachable without scrolling
-                      // past a collapsed group` — which is the point of
-                      // measuring it in a test rather than asserting it here.
+                      // `py-0.5` because the TYPE grew and the padding did
+                      // not have to. 2px around a 13px label in a tinted band
+                      // holds the same proportion `py-1` held around an 11px
+                      // one; at 13px the band read loose.
+                      //
+                      // It also started as a 4px repayment. Growing the type
+                      // grew each heading's line box, twice over on a page with
+                      // a plan group in QUIET and in DONE, and the footer test
+                      // then bounded the page against a literal 800 — so 13px
+                      // headings at `py-1` failed it by 1.3px. That bound is
+                      // gone: the test now measures the footer against
+                      // `window.innerHeight`, having been found to pass on
+                      // macOS and fail on CI's Linux for the same code, a ~4px
+                      // font-metric difference no change here could control.
+                      // Nothing about this line is load-bearing for it any
+                      // more, which is why the reason above is the one stated
+                      // first.
                       <h3 className="border-b border-slate-200/60 bg-slate-50 px-3 py-0.5 text-[13px] font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
                         {/* The heading CARRIES the link, because the rows below
                             no longer print the plan name. Grouping moved the

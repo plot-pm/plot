@@ -129,21 +129,42 @@ name column became a fixed `12rem` track on main while this test waited, so main
 carries the narrow slot without the corrected measure and has been failing on it
 since. The rebase is what put the two together; the fix travels with it.
 
-**The 13px heading costs 4px of viewport, and it pays them back out of its own
-padding.** Growing the type grew each plan heading's line box, and a collapsed
-board can hold two of them — one per plan group in QUIET and DONE. Measured at
-1280x800 against the footer fixture: at `py-1` the page bottom landed at
-**801.3125px**, 1.3px past the 800 the footer test bounds, where main sits
-inside it. This was caught only by running the branch against a pristine main
-worktree — the failure looked like one of main's own until main was measured and
-found to pass it.
+**The heading's padding goes `py-1` → `py-0.5`, and the reason changed twice
+before it was right.** 2px around a 13px label holds the proportion `py-1` held
+around an 11px one; at the new size the tinted band read loose. That is the
+reason it keeps.
 
-`py-1` → `py-0.5` on that heading recovers **4px**, putting the bottom at
-797.3125px. The heading keeps the size it argued for and gives back the padding,
-because the size is the finding and the padding is not. The footer test is what
-holds that: restoring `py-1` here fails *leaves the footer reachable without
-scrolling past a collapsed group*, so the trade is enforced rather than
-remembered.
+It arrived, though, as a repayment. Growing the type grew each plan heading's
+line box, twice on a page with a group in QUIET and in DONE, and at `py-1` the
+footer test failed at **801.3125px** against a bound of 800. Chasing that 1.3px
+is what exposed the assertion underneath it.
+
+**The footer assertion was measuring the wrong quantity, and passing for the
+wrong reason.** It compared a document coordinate against a literal `800` — the
+viewport height, restated three lines below where `setViewportSize` had already
+set it. Two independent defects hid in that:
+
+- **It contradicted itself across platforms.** `main` fails it on CI's Linux at
+  802.3125 and passes it on macOS: this page renders ~4px taller there, which no
+  change in this branch can control. A test a runner moves as easily as a change
+  does reports on the runner. The local A/B that first pinned the failure on this
+  branch was itself misled by this — main *does* fail it, in CI.
+- **It was green over a page that scrolled.** Asked directly, the document runs
+  to **813px** in an 800px viewport while the footer bottoms at 797. The footer
+  was reachable and the page still scrolled, and the assertion could not tell
+  those apart.
+
+It now asks the footer's own box against `window.innerHeight`, with the `± 1`
+that every fractional `.3125` in these measurements was asking for. Both halves
+are mutation-verified: a 400px viewport fails the *reachable* half, a 4000px one
+fails the *back out of reach* half.
+
+**The 13px is a real defect and it is not this one.** The page wrapper carries
+`min-h-screen` and starts 13px down the document, so it ends 13px past the fold
+by construction on every board. Asserting `scrollHeight <= clientHeight` here
+would fail this test for a layout box nobody can see and no collapse can fix, so
+the test says in a comment why it does not — and the defect gets its own plan,
+`2026-08-21-the-page-is-as-tall-as-the-screen.md`.
 
 <!--
 bumps:

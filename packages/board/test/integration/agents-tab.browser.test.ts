@@ -1658,15 +1658,47 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() => heading(page, 'Quiet').textContent()).toContain('(8)');
       expect(await heading(page, 'Done').textContent()).toContain('(14)');
       // And the footer is inside the viewport — the assertion the complaint was
-      // actually about, stated in pixels rather than in row counts.
-      const box = await footer(page).boundingBox();
-      expect(box!.y + box!.height).toBeLessThanOrEqual(800);
+      // actually about.
+      //
+      // ASKED OF THE VIEWPORT, not of a literal 800. The bound was written as
+      // the number set three lines above, which reads as the same claim and is
+      // not: it hard-codes what `setViewportSize` already decided, so changing
+      // the viewport silently changes what the test means while it goes on
+      // passing. `window.innerHeight` is the same fact, asked of the runtime
+      // that has it.
+      //
+      // THE `+ 1` IS THE FINDING BEHIND THAT REWRITE. Every measurement here
+      // carries a fractional .3125, and this page renders ~4px taller on CI's
+      // Linux than on macOS — enough that `main` reads 802.3125 on CI and
+      // passes locally, and enough that a 1px change of a heading's padding
+      // flips the result. A test a runner can move as easily as a change can
+      // reports on the runner, so the tolerance is stated rather than
+      // accidental.
+      const seen = await footer(page).evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return { bottom: r.bottom, viewport: window.innerHeight };
+      });
+      expect(seen.bottom, `footer bottom ${seen.bottom} in ${seen.viewport}px`)
+        .toBeLessThanOrEqual(seen.viewport + 1);
+      // MEASURED, and it is the FOOTER's box rather than the document's. The
+      // document scrolls 13px here whatever this section does: the page wrapper
+      // carries `min-h-screen` and starts 13px down, so it ends 13px past the
+      // fold by construction. That is a real defect and a different one — it
+      // moves no content out of reach, and asserting on `scrollHeight` here
+      // would fail this test for a layout box nobody can see and no collapse
+      // can fix. The complaint was that the FOOTER left the screen; the footer
+      // is what gets measured.
+      //
       // Unfolding both puts it back out of reach, which is what makes the
       // assertion above about the COLLAPSE rather than about a short fixture.
       await expandAll(page);
       await expect.poll(() => groupRows(page, 'Done').count()).toBe(14);
-      const opened = await footer(page).boundingBox();
-      expect(opened!.y).toBeGreaterThan(800);
+      const opened = await footer(page).evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return { top: r.top, viewport: window.innerHeight };
+      });
+      expect(opened.top, `expanded footer top ${opened.top} in ${opened.viewport}px`)
+        .toBeGreaterThan(opened.viewport + 1);
     } finally {
       await page.close();
     }
