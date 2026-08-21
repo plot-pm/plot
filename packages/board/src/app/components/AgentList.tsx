@@ -4652,6 +4652,7 @@ function WaveRow({
   expanded,
   onToggle,
   active,
+  marked = false,
   card = null,
   dispatch,
   pulse,
@@ -4671,6 +4672,8 @@ function WaveRow({
   onToggle?: () => void;
   /** Something is being written to one of this wave's branches. */
   active?: boolean;
+  /** Whether this wave changed on the last pulse — see `ChangeMark`. */
+  marked?: boolean;
   /** The PLAN's card — what `StartWorkButton` acts on. Null off-board. */
   card?: Card | null;
   /** Whether this server will dispatch, and why not. */
@@ -4959,9 +4962,17 @@ function WaveRow({
         // A wave holding several branches is the state's entire subject, and the
         // branch rows now suppress it (see `StuckCell` in `Row`) precisely so it
         // is stated once, here, where it is true.
-        (soleRow ?? group.rows[0])?.stuck?.state === 'unsliced-wave'
-          ? <StuckCell row={group.rows[0]} cue={false} />
-          : soleRow?.stuck ? <StuckCell row={soleRow} cue={false} /> : null
+        <>
+          {/* THE CHANGE MARK, for the reason a branch row carries one: a wave
+              row IS the row a branch gets, so it changes when that branch does —
+              a PR turning red, a row moving section — and said nothing about it.
+              `extra` is the slot whose positioning parent is the row itself,
+              which is what `inset-0` needs to tint the whole line. */}
+          {marked && <ChangeMark />}
+          {(soleRow ?? group.rows[0])?.stuck?.state === 'unsliced-wave'
+            ? <StuckCell row={group.rows[0]} cue={false} />
+            : soleRow?.stuck ? <StuckCell row={soleRow} cue={false} /> : null}
+        </>
       }
       // START WORK, ON THE WAVE THAT CAN BE STARTED — and it went missing when
       // the branch rows did.
@@ -6766,6 +6777,7 @@ export function AgentList({
                                     expanded={waveOpen}
                                     onToggle={many ? () => toggleWave(group.plan, wg.wave) : undefined}
                                     active={wg.rows.some((r) => active.has(rowKey(r)))}
+                                    marked={wg.rows.some((r) => marked.has(rowKey(r)))}
                                     // THE PLAN'S CARD, looked up by the group's
                                     // own plan file — dispatch is a plan-level
                                     // act, so the card is the plan's, exactly as
@@ -7084,6 +7096,7 @@ export function AgentList({
                               expanded={waveOpen}
                               onToggle={many ? () => toggleWave(group.plan, wg.wave) : undefined}
                               active={wg.rows.some((r) => active.has(rowKey(r)))}
+                              marked={wg.rows.some((r) => marked.has(rowKey(r)))}
                               // NO `Start work` HERE: these branches are already
                               // started. The card and dispatch binding are what
                               // that control needs, and withholding them is how
