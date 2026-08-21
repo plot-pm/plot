@@ -5666,7 +5666,21 @@ export function AgentList({
                       // `text-[13px]` puts it level with those names, where a
                       // heading distinguished by weight and by its own tinted
                       // band no longer has to be distinguished by shrinking.
-                      <h3 className="border-b border-slate-200/60 bg-slate-50 px-3 py-1 text-[13px] font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
+                      //
+                      // `py-0.5` PAYS FOR THAT SIZE, and is not free polish.
+                      // Growing the type grew each heading's line box, and
+                      // this page can hold two of them — one per plan group in
+                      // QUIET and DONE. Measured at 1280x800 with the footer
+                      // fixture: `py-1` at 13px put the page bottom at
+                      // 801.3125px, 1.3px past a viewport the footer test
+                      // bounds at 800, where main sits inside it. The heading
+                      // keeps the size it argued for and gives back the
+                      // padding, because the size is the finding and the
+                      // padding is not. A later hand restoring `py-1` here
+                      // fails `leaves the footer reachable without scrolling
+                      // past a collapsed group` — which is the point of
+                      // measuring it in a test rather than asserting it here.
+                      <h3 className="border-b border-slate-200/60 bg-slate-50 px-3 py-0.5 text-[13px] font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
                         {/* The heading CARRIES the link, because the rows below
                             no longer print the plan name. Grouping moved the
                             name up here; the way to reach the plan has to move

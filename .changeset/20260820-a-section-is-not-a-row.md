@@ -52,14 +52,29 @@ smallest text on the page — a label set under the branch names it labels is th
 section's defect one level down — so it moves to 13px, level with those names
 and still below the section.
 
-**The changes, all in `AgentList.tsx`.** The section `<h2>` goes `text-xs` →
-`text-sm` (14px) with `mb-1` → `mb-2`, because 4px under a 14px line reads
-tighter than 4px under a 12px one and the space below a heading belongs to the
-heading. The section fold caret goes `text-[13px]` → `text-[15px]` — a step
-above the heading it opens, because a triangle has no x-height or stem to fill
-the em and reads smaller than text at its own size — in a `w-3` → `h-4 w-4` box,
-since a box cut for a 13px mark clips a 15px one and can shift its pivot when it
-rotates. The plan `<h3>` goes `text-[11px]` → `text-[13px]`.
+**Two of the three changes landed on main while this branch waited, and what
+remains is the third.** This branch proposed `text-sm` (14px) for the section
+`<h2>` and `text-[15px]` for its caret. Before it could merge, `main` answered
+the same defect at `text-base` (16px) for both and darkened the heading colour
+with it. That is what ships: a heading two type steps clear of its rows rather
+than one, and `mb-2` under it either way, because 4px under a 16px line reads
+tighter still than 4px under 12px did. The `w-3` → `w-4` widening of the caret's
+box is on main for the same reason it was proposed here — a box cut for a 13px
+mark clips a larger glyph and can shift its pivot when it rotates.
+
+**So the surviving change is the plan `<h3>`: `text-[11px]` → `text-[13px]`.**
+Main fixed the section and left the level below it, which was the smallest text
+on the page — a label set under the branch names it labels. It now sits level
+with them.
+
+**Two hands reached for the same property and differed only on distance.** The
+convergence is worth recording: this branch measured a rendered board and
+concluded the section heading was set below its own rows; main measured the same
+board and concluded the same thing, then moved one step further. Neither fix
+knew about the other. A defect that two independent readings find, and find in
+the same direction, is a defect rather than a preference — and the tests below
+are what keep it fixed, since they assert the *ordering* of the levels and not
+any of the three numbers proposed for it.
 
 **What deliberately did not change, each of them measured after the fact.** Row
 height, at 37–38px, which #290 states explicitly and a reader's scan depends on.
@@ -67,15 +82,16 @@ The `space-y-8` section separation, still 32px between sections. The `py-1
 -my-1` padding and the 24px floor on the fold target. Nothing in the contract —
 this is CSS, no payload field moved.
 
-**The heading line is 4px taller, and that is the change rather than a side
-effect of it.** The button measures 28px where it measured 24px, because the
-label's line box follows its font size. `-my-1` cannot absorb that and was never
-meant to: it cancels the `py-1` beside it, not growth in the content itself. The
-floor the earlier work established is *at least* 24px and it is still cleared;
-the rows, which are what the density argument protects, are untouched.
+**The heading line is taller, and that is the change rather than a side effect
+of it.** The button grew past its former 24px because the label's line box
+follows its font size. `-my-1` cannot absorb that and was never meant to: it
+cancels the `py-1` beside it, not growth in the content itself. The floor the
+earlier work established is *at least* 24px and it is still cleared; the rows,
+which are what the density argument protects, are untouched.
 
 **The tests fail against the old code.** All three sizing assertions were run
-against the pre-fix classes and failed; the fold assertion passes on both, being
+against the pre-fix classes and failed, and all three still pass against main's
+larger step, being comparisons rather than constants; the fold assertion passes on both, being
 a guard rather than a defect-catcher — growing a heading's type is exactly the
 kind of edit that turns a `<button>` into a `<span>` by accident. Each size
 assertion is stated twice over: as a comparison, so re-tuning the scale later
@@ -83,6 +99,51 @@ does not require re-tuning the test, and against the measured number, so the
 comparison cannot be satisfied by a row *shrinking* to meet a heading that never
 moved — the wrong repair for this finding, and the one that costs the board its
 density.
+
+**One assertion was rewritten in the rebase, and it was measuring the wrong
+thing.** The row's *"the branch name survives the sentence beside it"* check read
+`scrollWidth > clientWidth` on the name's outer span. That was correct when a
+name was one span. It is not any more: `BranchLabel` folds a long name in the
+middle — a `truncate` head that gives up width beside a `shrink-0` tail that
+never does — so a clipped head is the *mechanism*, and the outer span overflows
+by design whenever a name is long enough to fold. Measured for
+`feature/give-them-away` in its 81px slot: outer scroll 94 against client 81,
+because the head collapsed to 0px and handed every pixel to a 94px tail that
+clipped nothing at all. The old measure reported a working fold as a crushed
+name, and would have gone on reporting it for every name long enough to need
+one.
+
+It now asserts on the **tail**: that it clips nothing, that it is non-empty, and
+that it really is the end of the name — because a tail that survives by being
+empty passes the width check and identifies nothing, which is the same defect one
+step along. The clipped head is deliberately left unasserted; it is the give in
+the design, and pinning it would forbid the fold. Verified by mutation: giving
+the tail `min-w-0 truncate` fails the check, so it bites rather than passing on
+the DOM's shape alone.
+
+This is a cross-branch finding neither branch's CI could see, and main is red
+from it **now**. Measured on 2026-08-21 with both suites run concurrently under
+the same load: main fails two tests (`one-grid`'s `kinds:` assertion and this
+deferral row), this branch fails one — the `kinds:` assertion it inherits. The
+name column became a fixed `12rem` track on main while this test waited, so main
+carries the narrow slot without the corrected measure and has been failing on it
+since. The rebase is what put the two together; the fix travels with it.
+
+**The 13px heading costs 4px of viewport, and it pays them back out of its own
+padding.** Growing the type grew each plan heading's line box, and a collapsed
+board can hold two of them — one per plan group in QUIET and DONE. Measured at
+1280x800 against the footer fixture: at `py-1` the page bottom landed at
+**801.3125px**, 1.3px past the 800 the footer test bounds, where main sits
+inside it. This was caught only by running the branch against a pristine main
+worktree — the failure looked like one of main's own until main was measured and
+found to pass it.
+
+`py-1` → `py-0.5` on that heading recovers **4px**, putting the bottom at
+797.3125px. The heading keeps the size it argued for and gives back the padding,
+because the size is the finding and the padding is not. The footer test is what
+holds that: restoring `py-1` here fails *leaves the footer reachable without
+scrolling past a collapsed group*, so the trade is enforced rather than
+remembered.
 
 <!--
 bumps:

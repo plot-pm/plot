@@ -515,11 +515,39 @@ describe('the row says what it knows', () => {
       // AND THE BRANCH NAME SURVIVES IT. This is the half the first
       // implementation lost: the branch is the row's primary key and the only
       // cell that flexes, so a sentence sharing it wins and the name is what
-      // pays. Asserted on the rendered width against the scroll width, which is
-      // what "truncated" actually means.
-      const crushed = await branchRow.locator('[data-branch]').evaluate((el) =>
-        el.scrollWidth > el.clientWidth + 1);
-      expect(crushed).toBe(false);
+      // pays.
+      //
+      // MEASURED ON THE TAIL, because the name is two spans and only one of
+      // them is allowed to yield. `BranchLabel` folds a long name in the
+      // MIDDLE — a `truncate` head that gives up width and a `shrink-0` tail
+      // that never does — so the tail is where "the name survived" is decided.
+      // `splitBranch` states the reason: six branches here share twenty-four
+      // characters of prefix, so the suffix is what tells them apart and a
+      // reader who loses it loses the row's identity.
+      //
+      // This assertion replaced one on the OUTER span's `scrollWidth >
+      // clientWidth`, which was correct for a single-span name and reports
+      // every folded name as crushed. Measured 2026-08-21 for this row in its
+      // 81px slot: outer scroll 94 against client 81 — *because* the head
+      // collapsed to 0 and handed its width to a 94px tail that clipped
+      // nothing. The old measure called the mechanism working as designed a
+      // failure, and would go on doing so for every name long enough to fold.
+      //
+      // The clipped head is deliberately NOT asserted. It is the give in the
+      // design, and pinning it would forbid the fold this row depends on.
+      const tail = branchRow.locator('[data-branch] > span > span').last();
+      const clipped = await tail.evaluate((el) => ({
+        text: el.textContent ?? '',
+        overflowing: el.scrollWidth > el.clientWidth + 1,
+      }));
+      // The tail renders whole: no ellipsis of its own, at its full width.
+      expect(clipped.overflowing).toBe(false);
+      // AND IT IS THE HALF THAT DISTINGUISHES. A tail that survived by being
+      // empty passes the line above and identifies nothing, which is the same
+      // defect one step along — so the surviving text has to be the end of the
+      // name a reader would search for.
+      expect(clipped.text.length).toBeGreaterThan(0);
+      expect('feature/give-them-away'.endsWith(clipped.text)).toBe(true);
     } finally {
       await page.close();
     }
