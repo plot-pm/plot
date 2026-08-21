@@ -133,6 +133,31 @@ function valueAttr(link: TupleLink): Record<string, string> {
   // lets a test assert *the blocker is a REFERENCE* rather than matching the
   // sentence `blocked by Relocated` that this replaced.
   if (link.what === 'wave') return { 'data-wave-link': link.label };
+  // A PR QUALIFIES ON THE SAME TEST, and the docstring above already said so —
+  // *a `pr` link's identity is its number, which `data-pr-link` marked on the
+  // anchor rather than on the row*. The stamp was missing while the sentence
+  // describing it was not, which is the shape of a hook that used to be
+  // supplied somewhere else.
+  //
+  // It was: the PR number lived on BRANCH rows, which stamp their own hooks at
+  // the call site. A plan with one branch renders a plan head and a WAVE row
+  // carrying that branch — no branch row at all — so the call site left the
+  // path and took the hook with it. Measured: the wave row rendered `pr 157`
+  // as text with `[data-pr-number]` and `[data-pr-link]` both absent.
+  //
+  // TWO HOOKS, and they answer different questions. `data-pr-number` says WHICH
+  // PR and belongs on the element either way — a test asking that should not
+  // have to know whether this one had an address. `data-pr-link` says the
+  // number IS a link, which is a claim about the address and false when there
+  // is none: a PR with no URL renders as TEXT through the branch below, and
+  // *plain text, never a guessed address* is the rule the branch cell follows
+  // for a merged branch.
+  //
+  // So only the identity is answered here, where the address is not in view.
+  // The anchor's own call site adds `data-pr-link`, which is what makes the
+  // pair mean *this is PR 157* and *157 is clickable* rather than one hook
+  // saying both.
+  if (link.what === 'pr') return { 'data-pr-number': link.label };
   // ONLY `branch`, and the omission of `ticket` is deliberate rather than an
   // oversight. `what: 'ticket'` is worn by TWO different things — an issue's
   // number-and-title, and an AGENT's session id — so a hook keyed on it would
@@ -355,6 +380,11 @@ export function TupleLinkView({
     <a
       href={link.href}
       data-tuple-link={link.what}
+      // THE NUMBER IS A LINK — said here and only here, because this branch is
+      // the one with an address. `valueAttr` stamps `data-pr-number` on both
+      // shapes (which PR), and this adds the second half (it is clickable) to
+      // the shape that earned it.
+      {...(link.what === 'pr' ? { 'data-pr-link': link.label } : {})}
       // THE WHOLE NAME, where the label is FOLDED. `BranchLabel` renders two
       // `aria-hidden` spans, so without this a branch link has no accessible
       // name at all — which is worse than the defect the hiding prevents.

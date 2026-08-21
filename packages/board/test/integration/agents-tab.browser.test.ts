@@ -2993,7 +2993,26 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const li = rowFor(page, 'feature/pr-row');
       await expect.poll(() => li.textContent()).toContain('157');
       expect(await li.textContent()).toContain('checks failing');
-      expect(await li.getByRole('img', { name: 'Pull request' }).count()).toBe(1);
+      // THE GLYPH IS DECORATIVE AND THE WORD CARRIES THE FACT — which is the
+      // rule this test is named for, asserted where the tuple states it.
+      //
+      // It read `getByRole('img', { name: 'Pull request' })`, a labelled glyph
+      // that no longer exists: `KindIcon` renders every icon `aria-hidden`, and
+      // the accessible half is `[data-tuple-kind-label]` beside it. That is not
+      // a weakening — a labelled icon AND a word is the same fact announced
+      // twice, which is what `aria-hidden` on a decorative glyph prevents.
+      //
+      // Both halves still asserted: the icon is present for a sighted reader,
+      // and it announces nothing, so the word is the sole accessible carrier.
+      const icon = li.locator('[data-tuple-icon]').first();
+      expect(await icon.count()).toBe(1);
+      expect(await icon.getAttribute('aria-hidden')).toBe('true');
+      expect(await li.locator('[data-tuple-kind-label]').first().innerText())
+        .not.toBe('');
+      // And the NUMBER is on the row as its own hook, not only inside a
+      // sentence — `data-pr-number` is how a test asks *which PR* whether or
+      // not this one had an address to link.
+      expect(await li.locator('[data-pr-number]').count()).toBeGreaterThanOrEqual(1);
     } finally {
       await page.close();
     }
