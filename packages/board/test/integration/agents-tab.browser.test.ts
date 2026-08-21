@@ -1649,7 +1649,19 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     });
     const page = await browser.newPage();
     try {
-      await page.setViewportSize({ width: 1280, height: 800 });
+      // 900px, not 800, and the height is part of the fixture rather than a
+      // detail of it. Collapsed, this board needs ~802px on CI's Linux and
+      // ~797px on macOS — a ~4px font-metric spread that straddles an 800px
+      // viewport, which is why 800 produced a test that passed on one platform
+      // and failed on the other for identical code. 900 clears both by ~100px.
+      //
+      // It has to stay well UNDER the expanded height too, or the second half
+      // of this test passes for the wrong reason. Measured: expanded, the
+      // footer's top is at ~1771px, so 900 leaves ~870px of overflow to detect.
+      // The window between the two is wide, and the viewport sits in the middle
+      // of it rather than on either edge — which is what makes this test about
+      // the COLLAPSE rather than about how tall a row happens to render.
+      await page.setViewportSize({ width: 1280, height: 900 });
       await page.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(many) }));
       await page.goto(`${baseURL}?tab=agents`);

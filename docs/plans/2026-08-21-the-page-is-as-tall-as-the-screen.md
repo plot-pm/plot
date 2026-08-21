@@ -19,19 +19,24 @@
 
 ## Motivation
 
-Measured 2026-08-21 at 1280x800 while rewriting the footer assertion in
-`agents-tab.browser.test.ts`:
+Measured 2026-08-21 on macOS at 1280x800, while rewriting the footer assertion
+in `agents-tab.browser.test.ts`:
 
     document.scrollHeight  813
     document.clientHeight  800
     footer bottom          797
     wrapper bottom         813   DIV.mx-auto min-h-screen max-w-[1600px] px-4
 
-The footer is inside the viewport. The **wrapper** is not, and it is the wrapper
-that makes the document scroll. `min-h-screen` is `min-height: 100vh` — a full
-viewport's worth of height — applied to an element that does not start at the
-top of the document. It starts 13px down, so it ends 13px past the fold by
-construction, on every board, regardless of how many rows are in it.
+The footer's own position is platform-dependent and is not what this plan is
+about — at that viewport it is inside the fold on macOS and 1.3px outside it on
+CI's Linux. The **wrapper** is outside on both, by 13px.
+
+`min-h-screen` is `min-height: 100vh` — a full viewport's worth of height —
+applied to an element that does not start at the top of the document. It starts
+13px down, so it ends 13px past the fold by construction: on every board, at
+every viewport, regardless of how many rows are in it and regardless of which
+platform renders it. That last part is what separates it from everything else
+measured that day.
 
 Nobody reported this, and that is itself informative: 13px of scroll on a page
 whose content already fits reads as a slightly loose page rather than as a
@@ -39,11 +44,18 @@ defect. It surfaced only because a test asked the document its height instead of
 asking one element for its position.
 
 **It was also hiding behind a test that could not see it.** The footer
-assertion compared a document coordinate against a hard-coded `800`. That
-passed at 797 while the document ran to 813 — green for the wrong reason, on a
-page that genuinely scrolled. The same assertion failed on CI's Linux at
-802.3125 where it passed on macOS, a ~4px font-metric difference. One
-measurement, two wrong answers, for two unrelated reasons.
+assertion compared a document coordinate against a hard-coded `800`, and passed
+at 797 while the document ran to 813 — green for the wrong reason, on a page
+that genuinely scrolled.
+
+That test has since been rewritten to measure the footer against
+`window.innerHeight` at a 900px viewport, which is what makes this plan's
+finding visible and separable. Two distinct facts were tangled in the old
+number: the footer's own position, which depends on content and on ~4px of
+font-metric spread between macOS and CI's Linux, and this 13px, which depends on
+neither. At 900px the footer clears the fold on both platforms by ~100px — and
+the document still scrolls by 13px, because that overflow has nothing to do with
+the content or the viewport. It is the wrapper's own geometry.
 
 ## Design
 

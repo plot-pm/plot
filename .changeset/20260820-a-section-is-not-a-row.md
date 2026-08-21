@@ -154,10 +154,24 @@ set it. Two independent defects hid in that:
   was reachable and the page still scrolled, and the assertion could not tell
   those apart.
 
-It now asks the footer's own box against `window.innerHeight`, with the `± 1`
-that every fractional `.3125` in these measurements was asking for. Both halves
-are mutation-verified: a 400px viewport fails the *reachable* half, a 4000px one
-fails the *back out of reach* half.
+It now asks the footer's own box against `window.innerHeight`, with a stated
+`± 1` for subpixel rounding. Both halves are mutation-verified: a 400px viewport
+fails the *reachable* half, a 4000px one fails the *back out of reach* half.
+
+**That rewrite fixed the instrument and not the failure, which is worth
+recording as the order it happened in.** Read correctly, CI reported `footer
+bottom 801.3125 in 800px` — the footer really is past the fold there, by 1.3px,
+and `main` is past it by 2.3px. The platform spread was never a measurement
+artifact: a collapsed board of this size does not fit an 800px viewport on
+Linux, and does on macOS.
+
+**So the fixture gets headroom instead: 900px.** The viewport is part of what
+this test fixes, not a detail of it. Collapsed, the board needs ~797px on macOS
+and ~802px on CI; expanded, the footer's top is at ~1771px. 900 sits in the
+middle of that window with ~100px of slack on the near side and ~870px on the
+far one, so neither half can flip on a font metric. Absorbing the 1.3px in the
+tolerance was the alternative and was refused: `± 2` would have tuned the
+assertion to the runner, which is the defect this rewrite exists to remove.
 
 **The 13px is a real defect and it is not this one.** The page wrapper carries
 `min-h-screen` and starts 13px down the document, so it ends 13px past the fold
