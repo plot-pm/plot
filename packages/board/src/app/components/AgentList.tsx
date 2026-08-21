@@ -1491,6 +1491,39 @@ export function isLive(row: AgentRow): boolean {
  * Exported for test: the negative — a WORKING row with neither signal — is the
  * half an implementation that kept reading the group gets wrong.
  */
+/**
+ * May this row wear an activity mark AT ALL — asked of its SECTION.
+ *
+ * `isActive` answers *is something being written here* from three local fields
+ * and cannot see the group; that is deliberate, and it is why the merged-branch
+ * guard inside it is a PROXY for *not in DONE* rather than the question itself.
+ * The proxy covered the section it was written for and no other.
+ *
+ * Reported from the live board: `WAITING ON YOU` carrying a pulsing dot, on a
+ * plan head and the wave beneath it. Both halves were true — the branch's
+ * worktree was dirty, because it is the branch being committed to — and the row
+ * still said two things that cannot both hold. WAITING ON YOU means *nothing
+ * moves until you act*; an activity mark means *something is moving*. A reader
+ * who sees both learns to trust neither.
+ *
+ * So the question is asked once, of the group, for every section rather than
+ * for the one that happened to be measured first. WORKING is where activity is
+ * the subject; `waiting-on-machine` is where a machine is moving. Everywhere
+ * else the mark is a claim the section contradicts.
+ *
+ * Applied in `useActivity` — the hook every render site reads through, the plan
+ * and wave HEADS included — rather than inside `activeRowKeys`, whose contract
+ * is about the BRANCH's own signals and whose tests pin it as one.
+ *
+ * The echo memory is unaffected and still spans the whole fleet, so a row that
+ * moves INTO WORKING while its echo is still running is marked on the pulse
+ * that moves it. What this drops is the mark on a row sitting in a section that
+ * contradicts it.
+ */
+export function showsActivity(row: Pick<AgentRow, 'group'>): boolean {
+  return row.group === 'working' || row.group === 'waiting-on-machine';
+}
+
 export function isActive(
   row: Pick<AgentRow, 'localLocked' | 'localDirty' | 'state'>,
 ): boolean {
@@ -2445,7 +2478,26 @@ function useActivity(rows: readonly AgentRow[]): ReadonlySet<string> {
   // setState against a gone component.
   useEffect(() => () => echo.current?.dispose(), []);
 
-  return activeRowKeys(rows, echoing);
+  // THE SECTION HAS THE LAST WORD — here rather than inside `activeRowKeys`,
+  // and rather than at the eight places the set is read.
+  //
+  // `activeRowKeys` answers *is something being written to this row*, from the
+  // row's own signals and the echo. That is a question about the BRANCH, its
+  // tests pin it as one, and the echo's three bounds are stated in those terms.
+  // Whether the mark may be DRAWN is a second question, about the section, and
+  // folding it into the first would have made a predicate about local signals
+  // silently depend on grouping.
+  //
+  // Applied here because this hook is what every render site reads through —
+  // including the plan and wave HEADS, which aggregate with `rows.some(...)`
+  // and would otherwise need the guard spelled twice more.
+  const active = activeRowKeys(rows, echoing);
+  const keys = new Set<string>();
+  for (const row of rows) {
+    const key = rowKey(row);
+    if (active.has(key) && showsActivity(row)) keys.add(key);
+  }
+  return keys;
 }
 
 /**

@@ -30,6 +30,7 @@ import {
   ChangeMarks,
   changedRows,
   isActive,
+  showsActivity,
   isUnpushed,
   waitingTone,
   activityPace,
@@ -687,6 +688,35 @@ describe('activeRowKeys — this pulse\'s signals, widened by recent locks', () 
     // And the row itself still reports no signals — the echo lives beside the
     // row's facts rather than rewriting them.
     expect(isActive(quiet)).toBe(false);
+  });
+});
+
+describe('showsActivity — a section that contradicts the mark refuses it', () => {
+  it('allows the mark only where something is actually moving', () => {
+    // WORKING is where an agent is at work; WAITING ON A MACHINE is where a run
+    // is. Those two sections are what an activity mark is FOR.
+    expect(showsActivity({ group: 'working' })).toBe(true);
+    expect(showsActivity({ group: 'waiting-on-machine' })).toBe(true);
+  });
+
+  it('refuses it in WAITING ON YOU — the reported defect', () => {
+    // Reported from the live board: a plan head and its wave carrying a pulsing
+    // dot in WAITING ON YOU. Both halves were true — the branch's worktree was
+    // dirty, being the branch under commit — and the row still said two things
+    // that cannot both hold. The section means *nothing moves until you act*.
+    expect(showsActivity({ group: 'waiting-on-you' })).toBe(false);
+    expect(showsActivity({ group: 'quiet' })).toBe(false);
+    expect(showsActivity({ group: 'done' })).toBe(false);
+    expect(showsActivity({ group: 'not-started' })).toBe(false);
+  });
+
+  it('leaves activeRowKeys answering about the BRANCH, not the section', () => {
+    // The guard lives in `useActivity`, not here: this predicate is about a
+    // row's own signals, and a dirty row in QUIET is still a dirty row. Folding
+    // the section into it would make a local-signal question depend on grouping
+    // — and would have broken the three echo bounds asserted above.
+    const dirty = row({ branch: 'dirty', localDirty: true, group: 'quiet' });
+    expect([...activeRowKeys([dirty], new Set())]).toEqual(['plot/dirty']);
   });
 });
 
