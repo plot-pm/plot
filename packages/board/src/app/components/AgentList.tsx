@@ -2990,43 +2990,21 @@ function ChangeMark() {
 }
 
 /**
- * The live indicator: a small dot breathing between two opacities.
+ * `LiveDot` stood here until 2026-08-22 — a static green dot at `left-1`,
+ * rendered on every row whose group was `working`.
  *
- * Tailwind's own `animate-pulse` with `motion-reduce:animate-none`. This is the
- * board's FIRST animation, so the smallest possible introduction is the right
- * one — no new CSS file, no keyframe of our own, and the reduced-motion variant
- * arrives with the utility rather than needing its own media query.
+ * It went for two reasons, and the screenshot that reported it shows both. It
+ * sat one pixel from `ActivityMark`'s travelling dot, so a WORKING row drew TWO
+ * dots side by side and the eye read one smudge rather than two marks. And what
+ * it said — *this row is in WORKING* — is what the section heading above it
+ * already says, once, instead of once per row.
  *
- * A pulse rather than a spinner, on a plain count: WORKING regularly holds
- * several rows — four agents ran in parallel on 2026-08-16 — and four rotating
- * spinners in a column is flicker, not information. Rotation also implies
- * *progress toward completion*, which nothing here measures; a pulse implies
- * *aliveness*, which is the claim being made.
- *
- * BEFORE the row rather than inside the note, because the note is where the row
- * states its facts and motion there competes with reading them. A leading dot
- * needs no column of its own and scales from one row to eight.
- *
- * `aria-hidden`, because it is decoration on top of information and never the
- * carrier of it. A screen reader already gets the group heading and the row's
- * own text; the same rule the contract sets for colour — *carried as a symbol
- * AND a word, never as colour alone* — and this passes it by design rather than
- * by luck. Under reduced motion the dot STAYS and only the animation stops:
- * removing the element would lose the marker along with the movement.
+ * What it was FOR survives in the mark that replaced it: `ActivityMark` is
+ * drawn when `isActive` finds a process, which is the question a reader
+ * scanning WORKING actually has. `isLive` remains, and still answers *which
+ * section is this row in* for `groupPace`; it no longer licenses a mark.
  */
-function LiveDot() {
-  return (
-    <span
-      aria-hidden
-      data-live-dot
-      // `sm:absolute` keeps it out of the track list: the grid has six columns
-      // and this is a seventh thing, so it hangs in the row's left padding
-      // rather than pushing every real column in from the edge to reserve a
-      // place most rows never use. Below `sm` it flows inline with the rest.
-      className="h-1.5 w-1.5 shrink-0 self-center animate-pulse rounded-full bg-emerald-500 motion-reduce:animate-none sm:absolute sm:left-1 sm:top-1/2 sm:-translate-y-1/2 dark:bg-emerald-400"
-    />
-  );
-}
+
 
 /**
  * The cue: a marker that MOVES, on a row whose request is unanswered.
@@ -5790,15 +5768,25 @@ function Row({
               travels FAST. `isLive` adds the rows the fleet places in WORKING
               while observing no local signal: claimed, and nobody knows. Those
               travel SLOW. */}
-          {(active || isLive(row)) && (
-            <ActivityMark pace={active ? 'fast' : activityPace(row)} inTrack />
-          )}
+          {/* ONE BAR, ONE DOT — and the dot is the mark's own, riding its track.
+              `LiveDot` used to sit beside it at `left-1`, so every WORKING row
+              drew two dots a pixel apart: a static green one saying *this row is
+              in WORKING*, and a travelling one saying *a process is on it*.
+              Reported from a screenshot of exactly that overlap.
+              `LiveDot` is gone; the section heading already says which section a
+              row is in, once, instead of once per row.
+
+              `isLive` is gone from this condition too, for the same reason it
+              stopped licensing a mark: WORKING is an ADDRESS, not a process. A
+              row sits there for hours while an agent works, while an agent has
+              crashed, or while it waits on a human — `isActive` is what
+              distinguishes those, and `active` is that answer. */}
+          {active && <ActivityMark pace={activityPace(row)} inTrack />}
           {/* FINISHED WORK NOBODY ELSE CAN SEE — a separate question, asked
               separately. Not an `else`: a row can be written to AND hold
               unpushed commits at the same moment, and either shape would lose
               whichever it tested second. */}
           {isUnpushed(row) && <UnpushedMark ahead={row.localAhead} inTrack />}
-          {isLive(row) && <LiveDot />}
         </>
       }
       aside={

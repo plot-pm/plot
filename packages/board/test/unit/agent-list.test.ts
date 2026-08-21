@@ -725,18 +725,28 @@ describe('the activity marker leaves the other marks alone', () => {
     expect(isLive(row({ group: 'working', localDirty: false }))).toBe(true);
   });
 
-  it('renders three distinct marks, none defined in terms of another', () => {
+  it('renders two distinct marks, neither defined in terms of the other', () => {
     // Read out of the source: each hook exists and is its own element. An
-    // implementation that made activity a variant of the live dot would still
-    // pass every predicate assertion above.
-    expect(source).toContain('data-live-dot');
+    // implementation that made activity a variant of the flash would still pass
+    // every predicate assertion above.
     expect(source).toContain('data-change-mark');
     expect(source).toContain('data-activity-mark');
-    // The change mark keeps its own channel — full-row wash, amber, pulsing —
-    // untouched by this wave.
+    // The change mark keeps its own channel — full-row wash, amber, pulsing.
     expect(source).toContain('absolute inset-0 animate-pulse bg-amber-300/25');
-    // And the live dot keeps its own: a 6px emerald dot that pulses.
-    expect(source).toContain('h-1.5 w-1.5 shrink-0 self-center animate-pulse rounded-full');
+    // ONE BAR, ONE DOT, and no third mark beside it. `data-live-dot` was a
+    // static green dot on every WORKING row, drawn at `left-1` — one pixel from
+    // the travelling dot at `left-0`, so a WORKING row showed two dots and read
+    // as one smudge. Reported from a screenshot of that overlap, and what it
+    // said (*this row is in WORKING*) is what the section heading says once.
+    // Asked of the ATTRIBUTE as JSX writes it, not of the word: three comments
+    // still name `[data-live-dot]` to say what they are deliberately NOT, and a
+    // bare `not.toContain` would fail on the prose that explains the removal.
+    expect(source).not.toMatch(/^\s*data-live-dot$/m);
+    // The activity mark's own dot rides its own track — the pairing that keeps
+    // "one bar, one dot" honest, since a bar with no dot and a dot with no bar
+    // would each pass a hook-existence check.
+    expect(source).toContain('data-activity-track');
+    expect(source).toContain('data-activity-dot');
   });
 
   it('names its own limit in the accessible description', () => {
@@ -1036,11 +1046,16 @@ describe('the activity mark is a track with a travelling dot', () => {
 
   it('reads each mark\'s OWN class list, not the next one in the file', () => {
     // The helper's own guard, and the reason it exists. Every assertion below
-    // is worthless if this walks into a neighbour: the four marks are adjacent
-    // in the source and each names the others in its comment. Two marks whose
-    // geometry cannot be confused pin it.
-    expect(classesOf('live-dot')).toContain('h-1.5 w-1.5');
+    // is worthless if this walks into a neighbour: the marks are adjacent in
+    // the source and each names the others in its comment. Two marks whose
+    // geometry cannot be confused pin it — a full-row wash and a 12px track.
+    //
+    // `live-dot` was the third of these until 2026-08-22 and is gone: a static
+    // dot beside the travelling one made a WORKING row show two dots a pixel
+    // apart. The remaining pair still cannot be confused, which is all this
+    // guard needs.
     expect(classesOf('change-mark')).toContain('absolute inset-0');
+    expect(classesOf('activity-track')).toContain('w-full');
     expect(classesOf('activity-mark')).not.toContain('inset-0');
     // The template-literal case, which is where this helper failed once: the
     // activity dot's class list is built from the pace, and a matcher that only
@@ -1202,7 +1217,12 @@ describe('the activity mark is a track with a travelling dot', () => {
     // reach is a fraction of the track, and a track that were not the
     // containing block would decouple the two.
     expect(track).toContain('relative');
-    expect(classesOf('live-dot')).toContain('h-1.5 w-1.5');
+    // AND THE DOT IS THE TRACK'S OWN, not a second mark beside it. `LiveDot`
+    // used to sit one pixel away at `left-1`; the screenshot that reported the
+    // overlap is why it is gone. What rides the track is `data-activity-dot`,
+    // and nothing else is drawn next to it.
+    expect(classesOf('activity-dot')).toContain('h-1.5 w-1.5');
+    expect(classesOf('activity-dot')).toContain('absolute');
   });
 
   it('gives the mark the FIRST LINE\'S OWN BOX rather than a computed offset', () => {
