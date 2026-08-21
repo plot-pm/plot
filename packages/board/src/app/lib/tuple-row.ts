@@ -509,7 +509,23 @@ export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow
     return {
       ...base,
       name: plan ?? branchLink(row),
-      links: [...(row.pr ? [prLink(row.pr)] : []), branchLink(row)],
+      // BRANCH THEN PR, which is the chain narrowing — the order every other
+      // kind on this board already uses, and the one this arm alone did not.
+      //
+      // Reported from the live board: *"Plan shows PR before Branch, but Wave
+      // shows Branch before PR — how do we align that"*, on a screen holding
+      // both. `PLAN the-plan-is-the-wave  305  idea/the-plan-is-the-wave` sat
+      // four rows above `WAVE Modelled  feature/a-wave-is-a-kind  304`, the
+      // same two artifacts in opposite orders.
+      //
+      // The rule is stated on the `pr` arm — *"ordered plan → wave → branch,
+      // which is the chain narrowing: the plan holds the wave, the wave holds
+      // the branch"* — and the `wave` arm adds where the PR falls: *"AND ITS
+      // PR, last — the destination a reader goes to in order to act"*. Both
+      // halves put the container before the thing it contains and the ACTION
+      // at the end. This arm was the only one ordered against them, and no
+      // argument for it was ever recorded.
+      links: [branchLink(row), ...(row.pr ? [prLink(row.pr)] : [])],
     };
   }
 
