@@ -318,8 +318,15 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // four-meanings column failed at, where the cell read a wave name, a plan
       // phase, nothing, or a plan phase on a ticket depending on a wave count
       // the reader cannot see.
-      expect(new Set(words).size).toBeLessThanOrEqual(4);
-      const KINDS = ['plan', 'branch', 'pr', 'story', 'release', 'build', 'agent'];
+      //
+      // MEMBERSHIP CARRIES THAT CLAIM, and a count never did. This asserted
+      // `size <= 4` beside the check below, which is the number of kinds this
+      // fixture happened to render rather than a property of the column; a
+      // plan growing a head and its branches becoming waves pushed it to 5
+      // without changing anything the assertion was about. Every word being a
+      // KIND is the whole claim — the failure it pairs against is a cell
+      // holding a wave NAME or a plan PHASE, and neither is in the list.
+      const KINDS = ['plan', 'branch', 'pr', 'ticket', 'wave', 'release', 'build', 'agent'];
       for (const w of new Set(words)) {
         expect(KINDS, `kind word: ${w}`).toContain(w.toLowerCase());
       }
@@ -372,11 +379,24 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       expect(await waiting.locator('li[data-tuple-kind="branch"]').count()).toBe(1);
       expect(await waiting.locator('li[data-tuple-kind="pr"]').count()).toBe(1);
       expect(await waiting.locator('li[data-tuple-kind="ticket"]').count()).toBe(1);
-      // And the plan row is in NOT STARTED, where plan rows are drawn — not in
-      // the section its branch's group would put it.
-      expect(await waiting.locator('li[data-tuple-kind="plan"]').count()).toBe(0);
+      // A PLAN ROW HEADS ITS OWN GROUP, in whichever section that group falls.
+      //
+      // This asserted the opposite — no plan row in WAITING ON YOU, the one
+      // plan row only ever in NOT STARTED — and that was true while a plan row
+      // was a thing the SERVER emitted for an unstarted `idea/` branch. Plan
+      // heads are drawn wherever groups are now, so the two branches sharing
+      // `a-plan` get a head here and `plant-tomatoes` gets one over there.
+      //
+      // The membership claim is unweakened, and it is the one this test is
+      // named for: every branch, PR and ticket is in the section its group put
+      // it in, and a head appears beside the rows it heads rather than in a
+      // section of its own.
+      expect(await waiting.locator('li[data-tuple-kind="plan"]').count()).toBe(1);
       const notStarted = page.locator('ul[role="grid"][aria-label^="Not started"]');
       expect(await notStarted.locator('li[data-tuple-kind="plan"]').count()).toBe(1);
+      // And no row CROSSED: the branches stayed where their groups put them.
+      expect(await notStarted.locator('li[data-tuple-kind="branch"]').count()).toBe(0);
+      expect(await notStarted.locator('li[data-tuple-kind="ticket"]').count()).toBe(0);
     } finally {
       await page.close();
     }
