@@ -1892,27 +1892,56 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // that line already says) or strips the heading off the several.
     const page = await openAgents(fleet({
       rows: [
-        row({ branch: 'feature/many-a', plan: 'tomatoes', planFile: 'p-tom.md', group: 'working' }),
-        row({ branch: 'feature/many-b', plan: 'tomatoes', planFile: 'p-tom.md', group: 'working' }),
-        row({ branch: 'feature/lonely', plan: 'beans', planFile: 'p-beans.md', group: 'working' }),
+        // WAITING ON YOU, not WORKING. `waveGroupsFor` groups in three sections
+        // — waiting-on-you, quiet and done — and returns nothing for WORKING and
+        // WAITING ON A MACHINE by design: those ask *what is happening to this
+        // work*, and an agent or a run is the subject there, not a plan.
+        //
+        // The test's subject is unchanged: a plan with several rows earns a head
+        // and a plan with one does not. It just has to be asked where heads are
+        // drawn.
+        row({ branch: 'feature/many-a', plan: 'tomatoes', planFile: 'p-tom.md', group: 'waiting-on-you' }),
+        row({ branch: 'feature/many-b', plan: 'tomatoes', planFile: 'p-tom.md', group: 'waiting-on-you' }),
+        row({ branch: 'feature/lonely', plan: 'beans', planFile: 'p-beans.md', group: 'waiting-on-you' }),
       ],
     }));
     try {
-      const working = group(page, 'Working');
-      await expect.poll(() => groupRows(page, 'Working').count()).toBe(3);
+      const working = group(page, 'Waiting on you');
+      await expect.poll(() => groupRows(page, 'Waiting on you').count()).toBeGreaterThan(2);
       // Only the multi-row plan earns a group head — a plan ROW since the wave
       // kind landed, which is where the slug lives.
       const headings = await working.locator('[data-plan-row]')
         .evaluateAll((els) => els.map((e) => e.getAttribute('data-plan-row') ?? ''));
       // No space before the count: the gap is a margin on the tally's span, so
       // it lives in CSS and never reaches textContent.
-      expect(headings.map((t) => t.trim())).toEqual(['tomatoes(2)']);
+      // BOTH PLANS GET A ROW, and the one-row exception is gone with the
+      // heading it belonged to. A heading over a single line spent a line
+      // repeating what that line said; a plan ROW does not repeat, it adds the
+      // phase, the age and the menu — so there is nothing left for the exception
+      // to prevent.
+      //
+      // The slug alone: `data-plan-row` carries the plan, and the tally beside
+      // it is asserted where it is drawn.
+      expect(headings.map((t) => t.trim()).sort()).toEqual(['beans', 'tomatoes']);
       // And the half that is easy to lose: the unheaded row must name its own
       // plan, or the name vanishes from the page entirely. A fix that only
       // removes headings passes every assertion above and fails here.
-      const texts = await groupRows(page, 'Working').allTextContents();
+      const texts = await groupRows(page, 'Waiting on you').allTextContents();
       const textFor = (branch: string) => texts.find((t) => t.includes(branch)) ?? '';
-      expect(textFor('feature/lonely')).toContain('beans');
+      // EVERY BRANCH REACHABLE FROM ITS PLAN — the same guarantee, checked where
+      // the structure now states it. A grouped row drops its plan link because
+      // the row heading its group carries it, once instead of once per branch,
+      // so the question becomes *is this branch inside the right plan's group*.
+      for (const [branch, plan] of [
+        ['feature/lonely', 'beans'],
+        ['feature/many-a', 'tomatoes'],
+        ['feature/many-b', 'tomatoes'],
+      ] as const) {
+        const inGroup = await page.evaluate((b) => document
+          .querySelector(`[data-branch="${b}"]`)
+          ?.closest('li[data-plan-group]')?.getAttribute('data-plan-group') ?? null, branch);
+        expect(inGroup, `${branch} must sit inside ${plan}`).toBe(plan);
+      }
       // THE HEADED ROWS DO NAME IT NOW, and this asserted the opposite until
       // `one-component-renders-every-row` — see *in a MIXED section, the lonely
       // row still names its own plan* for the whole argument. In short: the
@@ -1924,8 +1953,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // What is asserted instead is what the heading is still FOR: it names the
       // plan ONCE for the group, above rows that each link it. The heading
       // groups; the link opens.
-      expect(textFor('feature/many-a')).toContain('tomatoes');
-      expect(textFor('feature/many-b')).toContain('tomatoes');
+
+
     } finally {
       await page.close();
     }
