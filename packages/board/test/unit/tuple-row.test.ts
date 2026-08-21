@@ -169,9 +169,18 @@ describe('the server decides the kind, and the renderer reads it', () => {
     expect(rows.find((r) => r.branch === 'feature/clashing')!.kind).toBe('branch');
   });
 
-  it('calls a branch with no PR a branch', () => {
+  it('calls a branch in a NAMED WAVE a wave, even with no PR', () => {
+    // THE FOURTH TEST, added 2026-08-21: *"we should only see a branch row if the
+    // branch does not carry a wave, and … does not carry a draft plan, and …
+    // does not have a PR, and … is not a release branch."*
+    //
+    // This asserted `branch`, written when a wave was a string on a row rather
+    // than a kind. `feature/plain` sits in the wave `Shaped` in this fixture, so
+    // the wave is what the row is ABOUT — a branch cut for a wave is that wave's
+    // work, and the count of branches in it is a fact about how the plan was
+    // written.
     const rows = rowsFromPulse(pulse, ages, 'plot', 30);
-    expect(rows.find((r) => r.branch === 'feature/plain')!.kind).toBe('branch');
+    expect(rows.find((r) => r.branch === 'feature/plain')!.kind).toBe('wave');
   });
 
   it('marks the release branch, which reaches the board as one more open PR', () => {

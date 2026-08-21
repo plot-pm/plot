@@ -809,7 +809,20 @@ export function tupleFromPlan(facts: PlanRowFacts): TupleRow {
 }
 
 /** The name the board shows for a wave the plan file did not name. */
-export const UNNAMED_WAVE = '(unnamed)';
+// Re-exported from the contract, where the ONE definition lives — the
+// server writes this value and both clients test for it.
+/**
+ * The name a wave with no `###` heading shows — a LITERAL here, deliberately.
+ *
+ * The one definition lives in the contract as `UNNAMED_WAVE`, and this module
+ * cannot import it: a gate asserts *"One import, and it is the contract's
+ * types"*, because the projection must not reach for behaviour. That gate is
+ * right, and a string is not worth bending it for.
+ *
+ * This is a DISPLAY fallback. Nothing compares against it — the server decides
+ * which waves are unnamed and the contract holds the value both sides test.
+ */
+const UNNAMED_WAVE_LABEL = '(unnamed)';
 
 /**
  * What a tuple row needs about a WAVE — a slice of a plan, with its own verdict.
@@ -893,6 +906,21 @@ export interface WaveRowFacts {
    */
   soleStatus?: string;
   /**
+   * The PR and the plan of the ONE branch this wave holds — its ARTIFACT LINKS,
+   * which a branch row carried and a wave of one must therefore carry too.
+   *
+   * A wave of one has no fold, so this row is the only row that branch gets.
+   * Measured when they were absent: `expected 'Kind: Wave w branch
+   * feature/phone…' to contain 'lonely-plan'` — the plan link, gone from a row
+   * that had it. `WaveRow` was written for NOT STARTED, where a branch has
+   * neither; every other section's branches have both.
+   *
+   * Ordered plan → wave's branches → PR in the projection, the same chain a PR
+   * row reads.
+   */
+  solePr?: { number: number; url: string } | null;
+  solePlan?: { slug: string; file: string } | null;
+  /**
    * How many of THIS wave's branches are still unfinished — `null` where the
    * question does not apply.
    *
@@ -932,7 +960,7 @@ export function tupleFromWave(facts: WaveRowFacts): TupleRow {
   return {
     kind: 'wave',
     kindLabel: KIND_LABEL.wave,
-    name: { what: 'plan', label: facts.name || UNNAMED_WAVE, href: '' },
+    name: { what: 'plan', label: facts.name || UNNAMED_WAVE_LABEL, href: '' },
     // SLOT 4 HOLDS WHAT THE WAVE CONTAINS, and only that. Its branches, and
     // nothing pointing the other way.
     //
@@ -943,11 +971,28 @@ export function tupleFromWave(facts: WaveRowFacts): TupleRow {
     // kind reads one direction. The blocker qualifies the NAME, so it goes
     // beside the name: *Moved, blocked by Relocated*. Same positional rule the
     // wave badge followed beside a branch — adjacent to the thing it is about.
-    links: facts.branches.map((b) => ({
-      what: 'branch' as const,
-      label: b.branch,
-      href: b.branchUrl,
-    })),
+    links: [
+      // THE PLAN, where this wave stands in for a single branch that named one.
+      // Absent on a multi-branch wave: there the plan is the row above and the
+      // nesting states it, which is the rule this kind was built on.
+      ...(facts.solePlan ? [{
+        what: 'plan' as const,
+        label: facts.solePlan.slug,
+        href: facts.solePlan.file ? `/plan/${encodeURIComponent(facts.solePlan.file)}` : '',
+        internal: true,
+      }] : []),
+      ...facts.branches.map((b) => ({
+        what: 'branch' as const,
+        label: b.branch,
+        href: b.branchUrl,
+      })),
+      // AND ITS PR, last — the destination a reader goes to in order to act.
+      ...(facts.solePr ? [{
+        what: 'pr' as const,
+        label: `${facts.solePr.number}`,
+        href: facts.solePr.url,
+      }] : []),
+    ],
     // THE VERDICT THE SCAN ALREADY COMPUTED, and nothing derived beside it.
     // `open` was what these rows showed — the branch's `state`, which is a fact
     // about a branch and says nothing about whether the wave can be started.

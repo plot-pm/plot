@@ -608,6 +608,17 @@ export const RowKindSchema = z.enum([
 ]);
 export type RowKind = z.infer<typeof RowKindSchema>;
 
+/**
+ * What the server writes where a plan divides its work into no named waves.
+ *
+ * IN THE CONTRACT because three modules need it and it was defined **twice** —
+ * `AgentList.tsx` and `tuple-row.ts` each held a copy, and the server was about
+ * to need a third. Three copies of one string is how the kind icons came to
+ * disagree; the server writes this value (`fleet.ts`, `wave.name || …`) and both
+ * clients test for it, so it belongs where both already import from.
+ */
+export const UNNAMED_WAVE = '(unnamed)';
+
 export const WaveVerdictSchema = z.enum(['complete', 'eligible', 'blocked']);
 export type WaveVerdict = z.infer<typeof WaveVerdictSchema>;
 

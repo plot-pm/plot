@@ -27,6 +27,7 @@ import {
   type WaitingOn,
   type WaveVerdict,
   type WorkerState,
+  UNNAMED_WAVE,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
 import { repairFor, startRepair } from './resolver.js';
@@ -3540,6 +3541,68 @@ export const IDEA_BRANCH = /^idea\//;
  *
  * Exported for test.
  */
+/**
+ * WHAT A BRANCH CARRIES — the facts that decide what its row is about.
+ *
+ * ## The branch abstraction
+ *
+ * The operator's rule, 2026-08-21: *"the branch is carrying the information, but
+ * we should only see a branch row if the branch does not carry a wave, and the
+ * branch does not carry a draft plan, and the branch does not have a PR, and the
+ * branch is not a release branch. These are distinct tests."*
+ *
+ * So a branch row is the FALLBACK, reached by answering no four times — and each
+ * test is a property of the branch, named here rather than spelled as a
+ * condition at a call site. `carriesWave` and `carriesDraftPlan` are the two that
+ * were previously implicit: the wave test lived in the CLIENT (`waveGroupsFor`
+ * grouping rows per section), and the draft-plan test was an inline regex.
+ *
+ * Splitting the decision across server and client is what cost tonight: a
+ * wave-grouped branch lost its plan link, its stuck cell and its accessible name
+ * one at a time, because the client was deciding a kind the server did not know
+ * about. `RowKindSchema` states the rule this restores — the kind is the server's
+ * judgement and must not be remade in the renderer.
+ */
+export interface BranchFacts {
+  /** The ref's short name — `feature/x`, `idea/y`, `changeset-release/main`. */
+  branch: string;
+  /** Whether an open PR names it. NOT what condition the PR is in. */
+  hasPr: boolean;
+  /** Whether the SCAN found a conflict — never *whether one was looked for*. */
+  conflicts: boolean;
+  /** Whether CI is running for its PR (`pr.checks === 'pending'`). */
+  ciRunning: boolean;
+  /** The wave it belongs to, or "" — `(unnamed)` counts as none. */
+  wave: string;
+}
+
+/** Is this the branch changesets cuts for a release? */
+export function isReleaseBranch(f: Pick<BranchFacts, 'branch'>): boolean {
+  return RELEASE_BRANCH.test(f.branch);
+}
+
+/**
+ * Does it carry a plan still under review?
+ *
+ * An `idea/<slug>` branch WITH a PR: `/plot-idea` names the branch after the
+ * plan's own slug, and the PR is the review. The PR is required because a plan is
+ * not under review until something asks for the review.
+ */
+export function carriesDraftPlan(f: Pick<BranchFacts, 'branch' | 'hasPr'>): boolean {
+  return IDEA_BRANCH.test(f.branch) && f.hasPr;
+}
+
+/**
+ * Does it belong to a named wave?
+ *
+ * `(unnamed)` is NOT a wave for this purpose — a wave with no name cannot head a
+ * row, so a branch in one is just a branch. Six of this estate's 71 waves are
+ * unnamed, all in plans written before the naming convention.
+ */
+export function carriesWave(f: Pick<BranchFacts, 'wave'>): boolean {
+  return Boolean(f.wave) && f.wave !== UNNAMED_WAVE;
+}
+
 export function rowKind(
   branch: string,
   /**
@@ -3574,13 +3637,38 @@ export function rowKind(
    * exactly one, so it takes exactly one boolean.
    */
   ciRunning = false,
+  /**
+   * The wave this branch belongs to, or "" — the fourth of the four tests.
+   *
+   * Last in the parameter list because it is the newest, so every existing caller
+   * is unchanged and a caller that says nothing about a wave gets the behaviour
+   * it had.
+   */
+  wave = '',
 ): RowKind {
-  if (RELEASE_BRANCH.test(branch)) return 'release';
+  // ## A BRANCH ROW IS THE FALLBACK, and it takes four distinct negatives
+  //
+  // The operator's rule, 2026-08-21: *"we should only see a branch row if the
+  // branch does not carry a wave, and the branch does not carry a draft plan, and
+  // the branch does not have a PR, and the branch is not a release branch. These
+  // are distinct tests."*
+  //
+  // Each arm below is one of those tests, in the order a stronger claim outranks
+  // a weaker one. Everything that answers no to all four is a branch — a name
+  // somebody pushed and nothing else is true of yet.
+  //
+  // **The WAVE test was being made in the CLIENT** until now, by `waveGroupsFor`
+  // grouping rows per section. That split the one decision across two places, and
+  // the client's half could not see what the server had decided — which is why a
+  // wave-grouped branch lost its plan link, its stuck cell and its accessible
+  // name one at a time. `RowKindSchema` says this judgement is the server's and
+  // must not be remade in the renderer; the wave arm belongs here with the rest.
+  if (isReleaseBranch({ branch })) return 'release';
   // A PLAN AWAITING APPROVAL, not code awaiting review — see arm 1b. Ordered
   // ABOVE the conflict arm on purpose: a conflicting plan PR is still a plan,
   // and the act it wants is approval rather than a rebase. It is BELOW the
   // release arm only because the two cannot both match.
-  if (IDEA_BRANCH.test(branch) && hasPr) return 'plan';
+  if (carriesDraftPlan({ branch, hasPr })) return 'plan';
   // A RUN IN PROGRESS IS A BUILD, and this arm is why the `build` kind existed
   // for weeks with nothing ever assigned to it — `tupleFromBuild` was written,
   // tested, and unreachable, because this function's own docstring said *"a build
@@ -3595,8 +3683,19 @@ export function rowKind(
   // ABOVE the conflict arm, because a run in progress is what the reader is
   // waiting on — the conflict is what they will find when it finishes.
   if (ciRunning && hasPr) return 'build';
+  // A CONFLICT MAKES IT A BRANCH even with an open PR, because no PR resolves a
+  // conflict: the reader has to go to the branch and rebase. This is the one arm
+  // that answers *yes* to a later test and still returns `branch`, and it is
+  // deliberate — see the rule `the-row-leads-with-its-subject` settled.
   if (conflicts) return 'branch';
-  return hasPr ? 'pr' : 'branch';
+  if (hasPr) return 'pr';
+  // THE WAVE, and it is the LAST of the four because it is the weakest claim: a
+  // wave says which slice of a plan the branch belongs to, while the three above
+  // each say something has HAPPENED to it. A branch in a wave that nothing has
+  // happened to is the wave's work and nothing more, which is exactly what NOT
+  // STARTED shows.
+  if (carriesWave({ wave })) return 'wave';
+  return 'branch';
 }
 
 /** The PR fields a row carries: the link, and the two independent conditions. */
@@ -3996,6 +4095,11 @@ export function rowsFromPulse(
             // put the row in WAITING ON A MACHINE, so the kind and the section
             // now agree instead of the section knowing alone.
             pr?.checks === 'pending',
+            // THE WAVE — the fourth test. A branch in a wave that nothing else is
+            // true of IS that wave's work, which is what NOT STARTED shows.
+            // `(unnamed)` is excluded: a wave with no name cannot head a row, the
+            // same reason `waveGroupsFor` skips it.
+            wave.name && wave.name !== UNNAMED_WAVE ? wave.name : '',
           ),
           branch: b.branch,
           plan: plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, ''),

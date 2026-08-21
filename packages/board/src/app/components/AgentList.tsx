@@ -15,6 +15,7 @@ import {
   type WaveVerdict,
   type AgentEntry,
   type RowKind,
+  UNNAMED_WAVE,
 } from '../../contract/schema.js';
 import { ApproveButton } from './ApproveButton.js';
 import { CommissionDesignButton } from './CommissionDesignButton.js';
@@ -984,7 +985,10 @@ export function waveLabel(row: AgentRow): string | null {
  * than inlined: it is a value the SERVER writes (`wave.name || '(unnamed)'`),
  * so the client is matching a protocol constant and not a display choice.
  */
-export const UNNAMED_WAVE = '(unnamed)';
+// The ONE definition lives in the contract — the server writes this value and
+// both clients test for it. Imported for local use and re-exported, because
+// modules already import it from here.
+export { UNNAMED_WAVE };
 
 /**
  * Seconds until the next refresh, given how many have passed and how many the
@@ -4715,6 +4719,19 @@ function WaveRow({
         // THE SOLE BRANCH'S OWN CONDITION, where the wave holds one. `prStatus`
         // is what a PR row would have shown, and this row stands in for it.
         soleStatus: soleRow?.pr ? prStatus(soleRow.pr) : (soleRow ? stateStatus(soleRow) : ''),
+        // AND ITS PR AND PLAN, for the same reason: a wave of one has no fold, so
+        // this row is the ONLY row that branch gets and everything reachable from
+        // a branch row has to be reachable from here.
+        //
+        // Measured as two separate losses when it was not:
+        //   `expected 'Kind: Wave w branch feature/phone…' to contain 'lonely-plan'`
+        //   — the plan link, gone from a row that had it.
+        // `WaveRow` was written for NOT STARTED, where a branch has no PR and no
+        // plan link to lose. Every other section's branches have both.
+        solePr: soleRow?.pr ?? null,
+        solePlan: soleRow?.plan ? {
+          slug: soleRow.plan, file: soleRow.planFile,
+        } : null,
         // ITS BRANCHES, and they are slot 4. Not its plan: the plan is what
         // this row sits under, and the nesting is the statement — a `PLAN x`
         // link on a row already nested under `x` is what the mock showed three
@@ -4804,6 +4821,18 @@ function WaveRow({
       // heads its own little group, and a rule here would fall between a wave
       // and its own first branch.
       bordered={false}
+      extra={
+        // THE STUCK CELL, where this wave stands in for one branch — *"why this
+        // branch cannot move"*, which is a fact about the BRANCH and one no
+        // verdict carries.
+        //
+        // Measured when it was missing: `feature/collides rendered no stuck cell`.
+        // A wave of one has no fold, so without this the conflicting paths, the
+        // failing check and the unpushed count are unreachable — the same class
+        // of loss as the deleted accessible name, and exactly what `stuck-rows`
+        // exists to catch.
+        soleRow?.stuck ? <StuckCell row={soleRow} cue={false} /> : null
+      }
       // START WORK, ON THE WAVE THAT CAN BE STARTED — and it went missing when
       // the branch rows did.
       //
