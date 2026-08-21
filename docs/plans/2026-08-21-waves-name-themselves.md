@@ -102,7 +102,9 @@ name for someone else's plan.
 ### What must not change
 
 - **The emitted fields.** `plot-plan-meta.sh` must produce the same `branches`,
-  `prs` and `waves` arrays from the new shape as from the old. Every consumer
+  `prs` and `waves` arrays from the new shape as from the old. This is what
+  makes a one-move migration safe to verify: every plan's JSON before and after
+  must match byte for byte, so the migration is provably a re-spelling. Every consumer
   reads its JSON, so a faithful parser change is invisible to all of them —
   and any consumer that breaks was reading the file directly, which is itself
   the finding.
@@ -112,15 +114,20 @@ name for someone else's plan.
 
 ### Open Questions
 
-- [ ] The 23 unnamed-wave plans: leave them parsing as today (parser accepts
-      both shapes indefinitely), migrate them with a generated name, or convert
-      only when someone next edits them?
-- [ ] Two accepted shapes is a second source of truth, which Principle 1
-      refuses. Is the transition period bounded — a release, a date — or does
-      the old shape stay readable forever?
-- [ ] Does `## Branches` stay accepted as an alias? 83 plans and ten scripts
-      name it, and a plan written against the old docs would otherwise parse as
-      having no waves at all — silently, since an empty section is legal.
+- [x] **ONE SHAPE, no transition period** — decided 2026-08-21. `## Branches`
+      is not kept as an alias, and all 83 plans migrate in one move. Two
+      accepted shapes is the second source of truth Principle 1 refuses, and a
+      deprecation window is that second source with a date attached.
+
+      It makes the third wave a hard migration rather than an optional one, and
+      it means the 23 plans with no `### ` heading must be given wave names —
+      naming somebody else's work, which the wave that does it has to answer
+      for. The alternative was worse: a plan written against old docs parsing
+      as *no waves at all*, silently, because an empty section is legal.
+
+- [ ] What names do the 23 unnamed waves get? A generated one (`Wave 1`) says
+      nothing and defeats the naming rule; a derived one (from the branch)
+      repeats what the heading already carries; a human one costs 23 readings.
 - [ ] `the-plan-is-the-wave` proposes hiding the wave row for one-wave plans.
       If a plan's waves are named in headings, does a one-wave plan still write
       `## Waves` with one `### `, or does the plan-level metadata carry it?
@@ -153,8 +160,10 @@ name for someone else's plan.
   skill still instructs a writer to put the branch in the list line.
 
 ### Migrated
-- `infra/the-estate-speaks-waves` — the 60 plans with named waves are
-  converted, and the 23 without are handled per the Open Question above. Tests:
+- `infra/the-estate-speaks-waves` — all 83 plans convert in one move, and
+  `## Branches` stops parsing. One shape, no alias, no window: 60 plans have
+  named waves and convert mechanically; the 23 with none must be given names,
+  which is the judgement this wave cannot avoid and must not automate. Tests:
   every converted plan yields byte-identical `plot-plan-meta.sh` output to its
   pre-migration self; `plot-reconcile-scan.sh` reports no new drift; the ten
   scripts naming `## Branches` are updated or documented as accepting both;
