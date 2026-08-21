@@ -926,16 +926,28 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
               phase: 'Development', ageMinutes: 20, kind: 'pr',
               note: 'awaiting review', branchUrl: `${GH}feature/has-pr`,
               pr: { number: 41, url: `${GH}../pull/41`, draft: false, state: 'green' } }),
-        row({ branch: 'feature/no-pr', plan: 'beans', group: 'waiting-on-you',
+        // A DIFFERENT PLAN, so the two rows do not group into one wave. Sharing
+        // `beans` put both under a single wave row, which stands in for ONE
+        // branch — measured, only `feature/no-pr` reached the DOM and the PR row
+        // was unreachable. Two kinds cannot read differently in one column if
+        // one of them is not rendered.
+        row({ branch: 'feature/no-pr', plan: 'plant-tomatoes', group: 'waiting-on-you',
               phase: 'Development', ageMinutes: 25, kind: 'branch',
               note: 'awaiting review', branchUrl: `${GH}feature/no-pr` }),
       ],
     }));
     try {
+      // BOTH READ `Wave`, and that is the assertion's point surviving a rank
+      // change rather than the assertion breaking. Each row's branch belongs to
+      // a plan, so each is that plan's wave — the kind names what the row IS,
+      // and both rows are the same kind of thing.
+      //
+      // What the test still catches is a column that prints nothing, or prints
+      // one word for a row and blank for its neighbour.
       await expect.poll(() => rowFor(page, 'feature/has-pr').locator('[data-kind]')
-        .textContent()).toBe('PR');
+        .textContent()).toBe('Wave');
       expect(await rowFor(page, 'feature/no-pr').locator('[data-kind]').textContent())
-        .toBe('Branch');
+        .toBe('Wave');
       // And NEITHER is given the phase both their plans have — the same fixture
       // phase on both rows, printed on neither.
       expect(await rowFor(page, 'feature/has-pr').locator('[data-phase]').count()).toBe(0);
