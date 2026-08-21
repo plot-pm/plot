@@ -592,16 +592,58 @@ export type BranchState = z.infer<typeof BranchStateSchema>;
  * remade in the renderer, where only some of them arrive.
  */
 /**
- * `wave` is the eighth, and it is the one kind that is not a row the SERVER
- * emits — the client assembles it from the branches grouped under a plan, the
- * same way `plan` is assembled by `groupByPlan` and stated at `tupleFromPlan`.
+ * `wave` is the eighth, and since 2026-08-21 it is the kind a branch row REACHES
+ * FOR FIRST once anything at all is true of it.
  *
- * It is in this enum anyway, and the reason is the two `Record<RowKind, …>`
- * tables the tuple keeps: `KIND_LABEL` and `KIND_ICON_PATH`. A kind absent from
- * the enum gets its word and its icon from nowhere and has to invent both at
- * its construction site, which is how a kind ends up rendering a branch's
- * glyph. Being in the enum makes both tables a compile error until they answer
- * for it — a gate rather than a rule.
+ * It began as a client-side grouping — assembled from the branches under a plan,
+ * the way `plan` is assembled by `groupByPlan` — and it was ranked last in
+ * `rowKind` on the argument that a wave is *"the weakest claim"*, saying only
+ * which slice of a plan a branch fell into. That was a mis-classification of the
+ * model rather than a mis-ordering within it.
+ *
+ * **A wave is the process construct that carries a plan forward**, and the
+ * published method says so in the words this kind should have been built on.
+ * *Ein Team, ein Plan, viele Agenten* (Quatico factsheet, 2026) states the defect
+ * directly: *"Pull Request und Branch stehen in dieser Liste an der falschen
+ * Stelle: **Sie sind nicht der Gegenstand, sie sind das Vehikel.** … Wer die
+ * Zeile mit dem Branchnamen führt, zeigt allen dreien dasselbe Gesicht — und der
+ * Mensch muss jedes Mal erst herausfinden, was von ihm verlangt wird."*
+ *
+ * Its table of what a person waits on names five subjects — ticket, plan, wave,
+ * branch-in-flight, release — and for the wave it names the vehicle separately:
+ * a wave *"fährt auf einem Branch mit Pull Request und eigenem Worktree auf"*.
+ * Subject and vehicle are different columns of that table, and `rowKind` had them
+ * in one.
+ *
+ * Plot's model is `plan → wave → branch`: the wave is what a plan is sliced into,
+ * what `plot-dispatch` claims by ref push, what a worktree is created for, and
+ * what has to complete before the next wave becomes eligible — *"Eine Welle
+ * öffnet erst, wenn jeder Branch aller früheren Wellen gemerged ist."* Work
+ * advances one wave at a time. A PR, a CI run, a review and an agent are EVENTS
+ * at a branch while its wave is being carried out: each can appear and vanish
+ * without the wave changing, and the wave cannot change without the plan's
+ * progress changing with it. So the row is about the carrier, and the events are
+ * its status, its links and its notes.
+ *
+ * **The one exception is deliberate and the factsheet argues for it too.** The
+ * conflict arm still outranks the wave, because there the vehicle IS the subject:
+ * *"Branch in Flug — fährt auf sich selbst — das Vehikel ist das Problem"*, the
+ * only row in that table needing no decision about content and still costing a
+ * person their attention.
+ *
+ * That is why `build` and `agent` below no longer have arms in `rowKind`. Both
+ * existed to make a row's kind track what a machine or an agent was doing, and a
+ * wave row states the same fact without a second kind: *CI is running* and
+ * *worked on by X* are things happening to a wave. `build` never rendered outside
+ * `mock-fleet.ts`, and `agent` named a branch and printed the branch's state,
+ * which its own comment admits *"says nothing about an agent"*.
+ *
+ * The enum keeps every kind regardless of whether an arm returns it, and the
+ * reason is the two `Record<RowKind, …>` tables the tuple keeps: `KIND_LABEL`
+ * and `KIND_ICON_PATH`. A kind absent from the enum gets its word and its icon
+ * from nowhere and has to invent both at its construction site, which is how a
+ * kind ends up rendering a branch's glyph. Being in the enum makes both tables a
+ * compile error until they answer for it — a gate rather than a rule.
  */
 export const RowKindSchema = z.enum([
   'ticket', 'plan', 'pr', 'build', 'agent', 'branch', 'release', 'wave',

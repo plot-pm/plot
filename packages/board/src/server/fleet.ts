@@ -3618,8 +3618,6 @@ export interface BranchFacts {
   hasPr: boolean;
   /** Whether the SCAN found a conflict — never *whether one was looked for*. */
   conflicts: boolean;
-  /** Whether CI is running for its PR (`pr.checks === 'pending'`). */
-  ciRunning: boolean;
   /** The wave it belongs to, or "" — `(unnamed)` counts as none. */
   wave: string;
 }
@@ -3677,14 +3675,6 @@ export function rowKind(
    */
   conflicts: boolean,
   /**
-   * Whether CI is RUNNING for this row's PR — `pr.checks === 'pending'`.
-   *
-   * The fact that makes a row a `build`, and the reason it has to be passed
-   * rather than read from a PR record: `hasPr` above records the deliberate
-   * choice not to hand this function a condition no arm reads. This arm reads
-   * exactly one, so it takes exactly one boolean.
-   */
-  ciRunning = false,
   /**
    * The wave this branch belongs to, or "" — the fourth of the four tests.
    *
@@ -3727,22 +3717,51 @@ export function rowKind(
   // a row labelled `PR`, with a note reading `CI is running for PR #304`.
   // Reported from a screenshot; the section knew, the kind did not.
   //
-  // BELOW the plan arm: a plan PR under CI is still a plan awaiting approval, and
-  // ABOVE the conflict arm, because a run in progress is what the reader is
-  // waiting on — the conflict is what they will find when it finishes.
-  if (ciRunning && hasPr) return 'build';
   // A CONFLICT MAKES IT A BRANCH even with an open PR, because no PR resolves a
   // conflict: the reader has to go to the branch and rebase. This is the one arm
   // that answers *yes* to a later test and still returns `branch`, and it is
   // deliberate — see the rule `the-row-leads-with-its-subject` settled.
   if (conflicts) return 'branch';
-  if (hasPr) return 'pr';
-  // THE WAVE, and it is the LAST of the four because it is the weakest claim: a
-  // wave says which slice of a plan the branch belongs to, while the three above
-  // each say something has HAPPENED to it. A branch in a wave that nothing has
-  // happened to is the wave's work and nothing more, which is exactly what NOT
-  // STARTED shows.
+  // ## THE WAVE IS WHAT CARRIES THE PLAN, so it outranks what happens to it
+  //
+  // This arm was LAST until 2026-08-21, on the argument that a wave is *"the
+  // weakest claim"* because it only says *which slice of a plan* a branch belongs
+  // to. That was a mis-classification rather than a mis-ranking, and the method
+  // this board serves had already written down why.
+  //
+  // *Ein Team, ein Plan, viele Agenten* — the published factsheet — names the
+  // defect in the row: *"Sie sind nicht der Gegenstand, sie sind das Vehikel …
+  // Wer die Zeile mit dem Branchnamen führt, zeigt allen dreien dasselbe
+  // Gesicht."* Its table of what a person waits on keeps subject and vehicle in
+  // separate columns: a WAVE is the subject, and it *"fährt auf einem Branch mit
+  // Pull Request und eigenem Worktree auf"*. `rowKind` had the two in one column
+  // and let the vehicle win.
+  //
+  // The model says the same: `plan → wave → branch`. A wave is what a plan is cut
+  // into, what `plot-dispatch` claims, what a worktree exists for, and what must
+  // finish before the next one opens. A PR, a run, a review are EVENTS at a
+  // branch while its wave is carried out — each comes and goes without the wave
+  // changing, and the wave cannot change without the plan's progress changing.
+  // So the row is about the carrier; the events are its status, links and notes.
+  //
+  // The conflict arm above is the deliberate exception, and the same table argues
+  // for it: *"Branch in Flug — fährt auf sich selbst — das Vehikel ist das
+  // Problem"*. There the vehicle IS the subject.
+  //
+  // Two measurements corroborate and decide nothing, which is the right weight
+  // for them: 67 of 76 rows on this repo's board are already `wave` and `build`
+  // is 0 of 76, rendering in `mock-fleet.ts` and nowhere else. The count once
+  // cited FOR `pr` inverts on reading — *67 of 80 rows carry BOTH a branch and a
+  // PR* — so `pr` separated almost nothing.
+  //
+  // This is also the structural fix for a defect the `build` arm was patching.
+  // That arm was added because WAITING ON A MACHINE showed a row labelled `PR`
+  // whose note read *"CI is running for PR #304"* — the section knew and the kind
+  // did not. Making the kind track the machine was one way to close the gap;
+  // making the kind the WAVE closes it permanently, because a wave row cannot
+  // contradict a section that is asking what is happening to a wave.
   if (carriesWave({ wave })) return 'wave';
+  if (hasPr) return 'pr';
   return 'branch';
 }
 
@@ -4150,12 +4169,9 @@ export function rowsFromPulse(
             // `classify` states — *the row's word and its sentence must not be
             // able to disagree*.
             b.conflicts_known && b.conflicts.length > 0 && pr?.state !== 'CLOSED',
-            // CI RUNNING makes it a build — the same fact `classify` reads to
-            // put the row in WAITING ON A MACHINE, so the kind and the section
-            // now agree instead of the section knowing alone.
-            pr?.checks === 'pending',
-            // THE WAVE — the fourth test. A branch in a wave that nothing else is
-            // true of IS that wave's work, which is what NOT STARTED shows.
+            // THE WAVE, and it now outranks the PR. A branch in a wave IS that
+            // wave's work whatever is happening to it — the run, the review and
+            // the agent are what a section asks about, not what the row is.
             // `(unnamed)` is excluded: a wave with no name cannot head a row, the
             // same reason `waveGroupsFor` skips it.
             wave.name && wave.name !== UNNAMED_WAVE ? wave.name : '',
@@ -4434,7 +4450,7 @@ export function rowsFromPulse(
       // this loop therefore reads as `pr` — the PR is still where its checks
       // and its reviewers are, and the row says `conflicts` in its status slot
       // either way.
-      kind: rowKind(branch, true, false, pr.checks === 'pending'),
+      kind: rowKind(branch, true, false),
       plan: ideaSlug,
       // Resolvable since the plan viewer learned to read branch plans: before
       // that this was deliberately blank, because linking to a file the route

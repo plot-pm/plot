@@ -48,7 +48,7 @@ import { agoLabel } from './AgentPanelFacts.js';
 // slots are answered once, in `tuple-row.ts`, for every kind. So a new kind
 // costs a projection and no rendering at all, which is what the deleted three
 // could never do.
-import { splitBranch, tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave, prStatus, stateStatus, tupleAgeText} from '../lib/tuple-row.js';
+import { splitBranch, tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave, prStatus, stateStatus, workerStatus, tupleAgeText} from '../lib/tuple-row.js';
 // RE-EXPORTED, not redefined. `splitBranch` moved to the module that owns the
 // slot rules when the collapse deleted `BranchName`; the unit suite imports it
 // from here, and a second definition is exactly the drift this wave removed.
@@ -972,6 +972,19 @@ export function groupByWave(rows: AgentRow[]): WaveGroup[] {
  * A `branch` row is deliberately NOT here — its artifact slot holds the plan and
  * the PR, so the badge is the only place its wave appears.
  */
+/**
+ * The worker states that outrank a PR in a wave row's status slot.
+ *
+ * Three of the eight, and the split is *is anybody on this now* rather than
+ * *did a process run*. `finished`, `failed`, `ended`, `none` and `elsewhere` all
+ * describe a run that is over or absent; a reader scanning for what needs them
+ * is served by the PR's condition instead. Measured on this repo's board:
+ * 4 rows carry `finished` and every one is a merged PR in DONE, where `delivered`
+ * is the word that belongs.
+ */
+export const LIVE_WORKERS: ReadonlySet<AgentRow['worker']> =
+  new Set(['running', 'waiting', 'stalled']);
+
 export const WAVE_LINKING_KINDS: ReadonlySet<RowKind> = new Set(['agent', 'pr', 'build']);
 
 export function waveLabel(row: AgentRow): string | null {
@@ -4743,7 +4756,24 @@ function WaveRow({
         groupedWord: groupedWord ?? '',
         // THE SOLE BRANCH'S OWN CONDITION, where the wave holds one. `prStatus`
         // is what a PR row would have shown, and this row stands in for it.
-        soleStatus: soleRow?.pr ? prStatus(soleRow.pr) : (soleRow ? stateStatus(soleRow) : ''),
+        //
+        // A WORKER OUTRANKS BOTH, because it is the only one of the three that
+        // says somebody is on it right now. *Worked on by X* answers *what is
+        // happening to this wave*; `open` and `green` answer *what condition is
+        // its branch in*, which a reader in WORKING did not ask. This is what the
+        // `agent` kind was for, and the reason it never worked: an agent row named
+        // its branch and showed `open` — the branch's state, which as its own
+        // comment says *"says nothing about an agent"*. The wave keeps the
+        // identity, the worker becomes the status, and no second kind is needed.
+        // Only a LIVE worker, and that bound is measured. On this repo's board
+        // 4 rows read `worker: 'finished'` and all four sit in DONE behind merged
+        // PRs, where `delivered` is the honest word and `finished` would replace
+        // it with a fact about a process nobody is waiting on. `running`,
+        // `waiting` and `stalled` are the three that mean *somebody is on this,
+        // or should be* — the rest are history, and history loses to the PR.
+        soleStatus: soleRow && LIVE_WORKERS.has(soleRow.worker)
+          ? workerStatus(soleRow.worker)
+          : soleRow?.pr ? prStatus(soleRow.pr) : (soleRow ? stateStatus(soleRow) : ''),
         // AND ITS PR AND PLAN, for the same reason: a wave of one has no fold, so
         // this row is the ONLY row that branch gets and everything reachable from
         // a branch row has to be reachable from here.

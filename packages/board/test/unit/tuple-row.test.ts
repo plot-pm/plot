@@ -151,12 +151,34 @@ describe('the server decides the kind, and the renderer reads it', () => {
     mergeable: 'mergeable', review: '', url: 'https://host/pr/57', ...over,
   }) as never;
 
-  it('calls a branch with an open PR a pr — the normal case, not an edge', () => {
-    // Measured 2026-08-20: 67 of 80 live rows carry BOTH a branch and a PR and
-    // only 13 a branch alone. So `branch` and `pr` are not two kinds of thing —
-    // they are two roles one row can be in, and `kind` picks the one the reader
-    // is deciding about.
+  it('calls a branch in a wave a WAVE, open PR or not', () => {
+    // THE RANK CHANGED ON 2026-08-21, because a wave is the SUBJECT and a PR is
+    // the vehicle it rides on — *"Sie sind nicht der Gegenstand, sie sind das
+    // Vehikel"*, Ein Team, ein Plan, viele Agenten (Quatico, 2026). A wave is the
+    // process construct that carries a plan forward, `plan → wave → branch`; the
+    // PR is an event at the branch while that wave is carried out.
+    //
+    // `feature/plain` sits in the wave `Shaped` AND carries an open PR, which is
+    // exactly the collision the rank decides. The PR has not gone anywhere — it
+    // is a link in slot 4 and a status in slot 5. What changed is which of the
+    // two the row is ABOUT.
+    //
+    // Corroborating, not deciding: the measurement once cited FOR `pr` inverts on
+    // reading — *67 of 80 rows carry BOTH a branch and a PR*, so `pr` separates
+    // almost nothing.
     const rows = rowsFromPulse(pulse, ages, 'plot', 30, new Map([['feature/plain', pr()]]));
+    expect(rows.find((r) => r.branch === 'feature/plain')!.kind).toBe('wave');
+  });
+
+  it('still calls a branch with a PR and NO wave a pr', () => {
+    // The `pr` arm survives, one rank lower: it answers for a branch nobody has
+    // sliced into a wave. Without this the change above would read as *the pr
+    // kind was deleted*, and it was not.
+    const noWave = {
+      ...pulse,
+      plans: [{ ...pulse.plans[0], waves: [{ ...pulse.plans[0].waves[0], name: '' }] }],
+    };
+    const rows = rowsFromPulse(noWave, ages, 'plot', 30, new Map([['feature/plain', pr()]]));
     expect(rows.find((r) => r.branch === 'feature/plain')!.kind).toBe('pr');
   });
 
