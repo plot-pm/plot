@@ -1941,12 +1941,21 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // Unfolding both puts it back out of reach, which is what makes the
       // assertion above about the COLLAPSE rather than about a short fixture.
       await expandAll(page);
-      // EVERY BOX ON SCREEN, which is what a height claim is about — 15: the
-      // 13 fixture rows, the plan head, and the WAVE row between them.
-      // `groupRows` counts items and deliberately skips the wave; here the
-      // question is how tall the section is, so the wave counts too.
+      // EVERY BOX ON SCREEN, which is what a height claim is about, and the
+      // number is the fixture's arithmetic rather than a constant to re-measure
+      // whenever the layout shifts: 13 merged rows, plus a plan head and a wave
+      // row for EACH plan they belong to. They span two — `beans` and
+      // `plant-tomatoes` — which a flat list rendered without comment and a
+      // grouped one spends four rows stating.
+      //
+      // `groupRows` counts items and deliberately skips wave rows; here the
+      // question is how tall the section is, so every box counts.
+      const DONE_ROWS = 13, DONE_PLANS = 2;
       await expect.poll(() => group(page, 'Done').locator('li[data-tuple-kind]').count())
-        .toBe(15);
+        .toBe(DONE_ROWS + DONE_PLANS * 2);
+      // And the parts, so a wrong TOTAL says which half moved.
+      expect(await group(page, 'Done').locator('li[data-plan-row]').count()).toBe(DONE_PLANS);
+      expect(await group(page, 'Done').locator('li[data-wave-row]').count()).toBe(DONE_PLANS);
       const opened = await footer(page).evaluate((el) => {
         const r = el.getBoundingClientRect();
         return { top: r.top, viewport: window.innerHeight };
@@ -2917,16 +2926,29 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       await expandAll(page);
       for (const label of ['Waiting on you', 'Working', 'Not started', 'Quiet', 'Done']) {
-        const rows = group(page, label).locator('li[data-agent-row]');
+        // EVERY ROW THE SECTION SHOWS, not its branch rows. A section whose
+        // plans each hold one branch renders a plan head and a wave row and no
+        // branch row at all, so `li[data-agent-row]` counted 0 and the poll
+        // below failed for the section having nothing of ONE KIND rather than
+        // for laying anything out differently.
+        //
+        // The claim does not depend on the kind: it is that every section lays
+        // its rows on the same tracks, which is stronger asked of all of them.
+        const rows = group(page, label).locator('li[data-tuple-kind]');
         await expect.poll(() => rows.count()).toBeGreaterThan(0);
         // Same tracks, read off the browser rather than off the class name: a
         // group given its own class list would pass a `toContain('grid-cols')`
         // assertion and lay out differently.
-        const tracks = await rows.first().evaluate(
-          (el) => getComputedStyle(el).gridTemplateColumns,
-        );
-        // SEVEN since the marks earned a track of their own at the front.
-      expect(tracks.split(' ')).toHaveLength(7);
+        //
+        // SEVEN on every row in the section — the fixed tracks are identical
+        // across kinds and only the flexible fourth resolves differently with
+        // nesting depth, which is why the COUNT is what agrees. (`one-grid`
+        // asserts the six fixed tracks match exactly, per track.)
+        const counts = await rows.evaluateAll((els) => els.map(
+          (e) => getComputedStyle(e).gridTemplateColumns.split(' ').length));
+        for (const n of counts) {
+          expect(n, `${label} lays a row on ${n} tracks`).toBe(7);
+        }
       }
     } finally {
       await page.close();

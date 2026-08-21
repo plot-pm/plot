@@ -3521,6 +3521,98 @@ function StuckCell({
  * That path is still reached — a row whose only act is refused by the server
  * keeps its button and names the refusal, because a refusal is not an absence.
  */
+/**
+ * A branch's MENU and the panels it opens, as one unit.
+ *
+ * Extracted so a WAVE ROW can carry it. A wave row is not decoration beside a
+ * branch row — where a plan divides into one wave of one branch, the wave row
+ * IS that branch's row, and it already renders the branch's status, note, PR
+ * and plan through `soleRow`. Its menu was the one thing left behind.
+ *
+ * Measured on the mock before this existed: every wave row had zero menus of
+ * any kind (`data-row-actions`, `data-wave-actions` and `data-op` all absent),
+ * while every branch row had one. So for a one-branch plan — which is most of
+ * them — Review, Open and the worker log were unreachable, and the reader's
+ * only route to the PR was the artifact link.
+ *
+ * `WaveActions` beside it is NOT the same control and does not substitute for
+ * it: that one dispatches the WAVE, and its own call site is gated on
+ * `verdict === 'eligible'` for a good reason. This one acts on the BRANCH.
+ * Two subjects, two menus, and a row that is both wears both.
+ *
+ * The three panels are mounted HERE rather than by the caller because the menu
+ * that opens them unmounts on the click — the state and the mount have to live
+ * on something that survives it, which is the note the branch row already
+ * carried and the reason this could not be a bare `<RowActions>`.
+ */
+function BranchMenu({
+  row,
+  card,
+  dispatch,
+  approve,
+  commission,
+  pulse,
+  onStarting,
+  onTaken,
+  continueWith,
+  onOpenPlan,
+  onRevealBranch,
+}: {
+  row: AgentRow;
+  card: Card | null;
+  dispatch?: DispatchInfo;
+  approve?: DispatchInfo;
+  commission?: DispatchInfo;
+  pulse: number;
+  onStarting?: (active: boolean) => void;
+  /** The row's cue is extinguished by acting, and the flag lives on the ROW —
+      one cell away from this menu — so it is passed in rather than held here. */
+  onTaken?: () => void;
+  continueWith?: DispatchInfo;
+  onOpenPlan?: (planFile: string) => boolean | void;
+  onRevealBranch?: (branch: string) => void;
+}) {
+  const [logOpen, setLogOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(false);
+  return (
+    <>
+      <RowActions
+        row={row}
+        card={card}
+        dispatch={dispatch}
+        approve={approve}
+        commission={commission}
+        pulse={pulse}
+        onStarting={onStarting}
+        onTaken={onTaken}
+        onOpenLog={() => setLogOpen(true)}
+        onOpenStatus={() => setStatusOpen(true)}
+        onOpenChangedFiles={() => setFilesOpen(true)}
+      />
+      {logOpen && (
+        <WorkerLogModal
+          branch={row.branch}
+          onClose={() => setLogOpen(false)}
+          canContinue={continueWith}
+          onOpenPlan={onOpenPlan ? (planFile) => void onOpenPlan(planFile) : undefined}
+          onRevealBranch={onRevealBranch}
+        />
+      )}
+      {statusOpen && card && (
+        <DispatchLogModal slug={card.slug} onClose={() => setStatusOpen(false)} />
+      )}
+      {filesOpen && row.stuck && (
+        <ChangedFilesModal
+          branch={row.branch}
+          paths={row.stuck.changedPaths}
+          onClose={() => setFilesOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
 function RowActions({
   row,
   card,
@@ -4712,6 +4804,14 @@ function WaveRow({
   groupedCount,
   groupedWord,
   soleRow,
+  // The branch-level bindings a SOLE-BRANCH wave row needs for its menu. Absent
+  // on a wave of several branches, where each branch keeps its own row and its
+  // own menu, and the wave row's only act is dispatch.
+  approve,
+  commission,
+  continueWith,
+  onOpenPlan,
+  onRevealBranch,
   planHeaded = false,
 }: {
   group: WaveGroup;
@@ -4762,6 +4862,11 @@ function WaveRow({
    * YOU hold one branch, so this is the ordinary case rather than an edge.
    */
   soleRow?: AgentRow;
+  approve?: DispatchInfo;
+  commission?: DispatchInfo;
+  continueWith?: DispatchInfo;
+  onOpenPlan?: (planFile: string) => boolean | void;
+  onRevealBranch?: (branch: string) => void;
   /**
    * Whether a PLAN ROW heads this wave's group — set by the caller, which is the
    * only place that knows.
@@ -5075,16 +5180,45 @@ function WaveRow({
       // at all rather than a disabled one — `isStartable`'s own rule: *"a button
       // whose usual state is 'you cannot' teaches people to ignore buttons"*,
       // and the note beside it already says an earlier wave has to land first.
+      // AND THE BRANCH'S MENU WHERE THIS ROW IS A BRANCH'S ROW.
+      //
+      // `WaveActions` above dispatches the WAVE and is gated on
+      // `verdict === 'eligible'` for its own good reason. That gate was also,
+      // accidentally, the gate on whether this row had ANY menu — so a wave of
+      // one branch, which is what most plans are, lost Review, Open and the
+      // worker log entirely. Measured: every wave row had zero menus of any
+      // kind while every branch row had one.
+      //
+      // Only for a SOLE branch. Where a wave holds several, each keeps its own
+      // row and its own menu, and a branch menu here would have to guess which
+      // branch it meant — the same argument that keeps dispatch off the plan
+      // row one level up.
       menu={
-        group.verdict === 'eligible' && card && dispatch ? (
-          <WaveActions
-            wave={group.wave || '(unnamed)'}
-            card={card}
-            dispatch={dispatch}
-            pulse={pulse}
-            onStarting={onStarting}
-          />
-        ) : null
+        <>
+          {group.verdict === 'eligible' && card && dispatch ? (
+            <WaveActions
+              wave={group.wave || '(unnamed)'}
+              card={card}
+              dispatch={dispatch}
+              pulse={pulse}
+              onStarting={onStarting}
+            />
+          ) : null}
+          {soleRow ? (
+            <BranchMenu
+              row={soleRow}
+              card={card ?? null}
+              dispatch={dispatch}
+              approve={approve}
+              commission={commission}
+              pulse={pulse}
+              onStarting={onStarting}
+              continueWith={continueWith}
+              onOpenPlan={onOpenPlan}
+              onRevealBranch={onRevealBranch}
+            />
+          ) : null}
+        </>
       }
       marks={
         <>
@@ -5759,7 +5893,7 @@ function Row({
         </>
       }
       menu={
-        <RowActions
+        <BranchMenu
           row={row}
           card={card}
           dispatch={dispatch}
@@ -5768,9 +5902,9 @@ function Row({
           pulse={pulse}
           onStarting={onStarting}
           onTaken={() => setActionTaken(true)}
-          onOpenLog={() => setLogOpen(true)}
-          onOpenStatus={() => setStatusOpen(true)}
-          onOpenChangedFiles={() => setFilesOpen(true)}
+          continueWith={continueWith}
+          onOpenPlan={onOpenPlan}
+          onRevealBranch={onRevealBranch}
         />
       }
       extra={
@@ -7229,6 +7363,15 @@ export function AgentList({
                                   : wg.rows.some(isReviewable) ? 'to review'
                                     : 'to approve'}
                               soleRow={wg.rows.length > 1 ? undefined : wg.rows[0]}
+                              // THE BRANCH BINDINGS, for the menu a sole-branch
+                              // wave row carries. They go unused where the wave
+                              // holds several — `soleRow` is undefined there and
+                              // each branch keeps its own row and its own menu.
+                              approve={approve}
+                              commission={commission}
+                              continueWith={continueWith}
+                              onOpenPlan={onOpenPlan}
+                              onRevealBranch={onRevealBranch}
                               planHeaded={planHeads}
                             />
                             {many && waveOpen && (
