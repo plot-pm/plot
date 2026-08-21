@@ -2235,11 +2235,24 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await staleBanner(page).waitFor({ timeout: 10_000 });
       await expect.poll(() => page.getByRole('link', { name: 'feature/reviewed' }).count()).toBe(1);
       expect(await page.getByRole('link', { name: 'Pull request 130' }).count()).toBe(1);
-      // One heading, not two: the default fixture's WORKING group holds `beans`
-      // with two rows and `plant-tomatoes` with one, and a one-row plan earns
-      // no heading. The point of the assertion is that the GROUPING survives a
-      // failed poll — the number is whatever the payload happens to contain.
-      expect(await group(page, 'Working').locator('[data-plan-row]').count()).toBe(1);
+      // THE STRUCTURE SURVIVES A FAILED POLL, which is what this half is for —
+      // asked of a section that HAS structure.
+      //
+      // It counted plan heads in WORKING and expected one. Two premises under
+      // that have since changed: a one-row plan earns a head now, and — the
+      // reason the count is 0 rather than 2 — WORKING does not group at all.
+      // `waveGroupsFor` returns [] for it by design, because that section asks
+      // what is HAPPENING to the work, so an agent is the subject and a plan is
+      // not. Measured after the failed poll: three flat branch rows, no heads.
+      //
+      // So the claim moves to WAITING ON YOU, where heads are drawn, and gains
+      // the half it was reaching for: the rows are still THERE, grouped as they
+      // were, rather than a section that survived by being empty.
+      expect(await group(page, 'Working').locator('li[data-tuple-kind]').count())
+        .toBeGreaterThan(0);
+      const waiting = group(page, 'Waiting on you');
+      expect(await waiting.locator('[data-plan-row]').count()).toBeGreaterThan(0);
+      expect(await waiting.locator('[data-branch]').count()).toBeGreaterThan(0);
     } finally {
       await page.close();
     }
