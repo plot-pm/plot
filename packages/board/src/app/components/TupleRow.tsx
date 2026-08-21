@@ -677,6 +677,16 @@ export function TupleRowView({
             unit, not two items in a row. */}
         <KindIcon kind={tuple.kind} tone={iconTone} />
         <TupleLinkView link={tuple.name} onOpenPlan={onOpenPlan} extraAttr={nameAttr} onActivate={onNameClick} />
+        {/* THE TALLY, beside the name and outside the link. `(3)` says how many
+            rows this head covers — the fact a folded group otherwise withholds.
+            Outside the anchor on purpose: inside it, `linkLabel` would fold the
+            count into the link's accessible name and a reader would hear it as
+            part of the destination. */}
+        {tuple.tally ? (
+          <span className="ml-1.5 font-normal text-slate-400 dark:text-slate-600">
+            {tuple.tally}
+          </span>
+        ) : null}
         {beside}
       </span>
       {/* SLOT 4 — THE ARTIFACT LINKS, zero or more. Each says what it points at,

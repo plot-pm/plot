@@ -412,8 +412,14 @@ describe('the row says what it knows', () => {
       const group = section.locator('li[data-plan-group="zucchini-glut"]');
       await expect.poll(() => group.count()).toBe(1);
       const inside = await group.locator('li[data-agent-row]').count();
-      const heading = await group.locator('h3').textContent();
-      expect(heading).toContain(`(${inside})`);
+      // THE COUNT IS ON THE PLAN ROW, not in an `h3`. A plan heads its group
+      // with a row since the wave kind landed, and the tally moved with it.
+      // `li[data-plan-row]`, not the bare attribute: the fold button inside the
+      // row carries it too, and `.first()` on the attribute alone reads the
+      // caret — measured, it returned `▸`.
+      const head = await group.locator('li[data-plan-row]').first().innerText();
+      expect(head, `${inside} rows inside, head reads: ${head}`)
+        .toContain(`(${inside})`);
     } finally {
       await page.close();
     }
@@ -583,7 +589,16 @@ describe('the row says what it knows', () => {
       //
       // The sweep runs over the SELECTORS the plan measured, so a target that
       // regresses is named rather than counted.
-      await page.locator('[data-wave-toggle="strawberry-netting"]').click();
+      // OPEN WHATEVER FOLDS, rather than one named plan. This clicked
+      // `[data-wave-toggle="strawberry-netting"]`, and that plan draws no fold:
+      // measured, only `zucchini-glut` and `fix-leaky-hose` carry one, because a
+      // fold is drawn per foldable GROUP and these four plans sit in different
+      // sections. The click waited out its 30s timeout on a control that was
+      // never going to exist.
+      //
+      // What this test needs is any folded thing opened, so more targets are on
+      // screen to measure — not a particular plan's.
+      await expandAgentFolds(page);
       const small = await page.evaluate((min) => {
         const selectors = [
           '[data-wave-toggle]',
@@ -615,6 +630,10 @@ describe('the row says what it knows', () => {
   it('distinguishes the two fold states without reading five pixels of glyph', async () => {
     const page = await open();
     try {
+      // `zucchini-glut`, because it HAS a fold. This read `strawberry-netting`,
+      // which draws none — a fold is drawn per foldable group, and these plans
+      // sit in different sections. Every locator here then waited out its 30s
+      // timeout on a control that does not exist.
       // The reason a reader could not tell a folded plan from an empty one was
       // not the wording of the summary: it was that the ONLY difference between
       // `▸` and `▾` was five pixels of caret, in two shapes of near-equal mass.
@@ -625,12 +644,12 @@ describe('the row says what it knows', () => {
       // the standalone `rotate` property, and asserting on only one of the two
       // would make this test pass for the wrong reason if that ever changes.
       const orientation = () =>
-        page.locator('[data-wave-toggle="strawberry-netting"] span[aria-hidden]')
+        page.locator('[data-wave-toggle="zucchini-glut"] span[aria-hidden]')
           .evaluate((el) => {
             const s = getComputedStyle(el);
             return `${s.rotate}|${s.transform}`;
           });
-      const toggle = page.locator('[data-wave-toggle="strawberry-netting"]');
+      const toggle = page.locator('[data-wave-toggle="zucchini-glut"]');
       // Start from a KNOWN state rather than from whichever one the page
       // happens to be in — the fold is remembered across sessions, so a test
       // that assumes "shut" asserts on the wrong half whenever it is not.
@@ -648,7 +667,7 @@ describe('the row says what it knows', () => {
       // `transition-transform` means the quarter turn takes a frame or two, and
       // reading mid-flight reports an angle nobody designed.
       await page.waitForFunction(() => {
-        const el = document.querySelector('[data-wave-toggle="strawberry-netting"] span[aria-hidden]');
+        const el = document.querySelector('[data-wave-toggle="zucchini-glut"] span[aria-hidden]');
         return !!el && getComputedStyle(el).rotate === '90deg';
       }, undefined, { timeout: 5_000 });
       const turned = await orientation();
@@ -657,7 +676,7 @@ describe('the row says what it knows', () => {
       // And `aria-expanded` still carries it for a reader who sees no geometry
       // at all.
       await expect.poll(() =>
-        page.locator('[data-wave-toggle="strawberry-netting"]').getAttribute('aria-expanded'))
+        page.locator('[data-wave-toggle="zucchini-glut"]').getAttribute('aria-expanded'))
         .toBe('true');
     } finally {
       await page.close();

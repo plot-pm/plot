@@ -111,6 +111,20 @@ export interface TupleRow {
    * vehicle* by construction rather than as a table of cases per kind.
    */
   name: TupleLink;
+  /**
+   * A tally rendered BESIDE the name, never inside it — `(3)` for a plan row
+   * heading three branches.
+   *
+   * Its own field rather than text appended to `name.label`, because the label
+   * becomes the link's accessible name through `linkLabel`: a screen reader
+   * would announce *Plan zucchini-glut (3)* as the destination, and the count is
+   * a fact about the group rather than part of where the link goes.
+   *
+   * The `h3` this replaced kept it in a sibling `<span>` for the same reason.
+   * Empty where there is nothing to count — a group of one states its size by
+   * being one line.
+   */
+  tally?: string;
   /** Slot 4 — the related things, each linked and each saying what it is. */
   links: TupleLink[];
   /** Slot 5 — where this stands. One slot, whatever the kind. */
@@ -767,6 +781,8 @@ export function tupleFromIssue(issue: IssueRow): TupleRow {
  * declared where the row is created, never sniffed from another row's fields.
  */
 export interface PlanRowFacts {
+  /** How many rows this plan heads, where it heads more than one. */
+  rowCount?: number;
   plan: string;
   planFile: string;
   /** The plan's phase, which is slot 5 — this is the object it belongs to. */
@@ -804,6 +820,9 @@ export function tupleFromPlan(facts: PlanRowFacts): TupleRow {
     links: facts.branch
       ? [{ what: 'branch', label: facts.branch, href: facts.branchUrl ?? '' }]
       : [],
+    ...(facts.rowCount != null && facts.rowCount > 1
+      ? { tally: `(${facts.rowCount})` }
+      : {}),
     status: facts.phase,
     age: {
       text: facts.waitingDays === null ? '' : tupleWaitText(facts.waitingDays),

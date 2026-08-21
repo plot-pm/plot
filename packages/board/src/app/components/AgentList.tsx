@@ -4284,6 +4284,10 @@ function PlanRow({
           planFile: group.planFile,
           phase,
           waitingDays: waiting,
+          // HOW MANY IT HEADS. The `h3` this row replaced carried `(3)` beside
+          // the plan name, and the count went missing with it — leaving a folded
+          // group that does not say how much it hides.
+          rowCount: group.rows.length,
         });
         // The BRANCH clock overrides the approval one where the caller has it and
         // the approval clock is absent — see `ageMinutes`. Unlabelled, because
