@@ -141,6 +141,7 @@ decision record; plans carry the approved, actionable units.
 | [plot-board](docs/stories/plot-board/STORY-plot-board.md) | active | Making parallel work visible — the board, the fleet, and the agent view |
 | [plot-gates](docs/stories/plot-gates/STORY-plot-gates.md) | active | Rules that do not enforce themselves — converting Plot's stated requirements into checkable ones |
 | [plot-planning-model](docs/stories/plot-planning-model/STORY-plot-planning-model.md) | active | How Plot cuts work into pieces — stories, plans, waves, sprints and what each one answers |
+| [plot-in-a-customer-team](docs/stories/plot-in-a-customer-team/STORY-plot-in-a-customer-team.md) | draft | The board sees one repository — a four-repo customer estate, and what it could not show |
 
 ## Design
 
