@@ -1775,7 +1775,16 @@ export const AgentRowSchema = z.object({
      * unknown is the honest answer for a payload that predates the field —
      * absent is not clean.
      */
-    state: z.enum(['green', 'pending', 'failing', 'none', 'conflicts', 'unknown'])
+    // `closed` is the seventh, and it is not a check result — it is the PR's own
+    // standing, which outranks every check. A closed PR is ABANDONED work, and
+    // reporting `green` about it says *ready* where the truth is *given up*.
+    //
+    // Measured 2026-08-21: PRs #51-#55, closed as drafts 26 days earlier, all
+    // rendered `green` + `draft`, so the board read *five reviews are waiting on
+    // you* about a wave somebody deliberately dropped. They reach a row because
+    // `prsByHead` keeps finished PRs on purpose — right about the LINK, and it
+    // was silently deciding the STATUS too.
+    state: z.enum(['green', 'pending', 'failing', 'none', 'conflicts', 'unknown', 'closed'])
       .default('unknown'),
   }).nullable().default(null),
   /**

@@ -340,6 +340,10 @@ export function prStatus(pr: NonNullable<AgentRow['pr']>): string {
     case 'failing': return 'checks failing';
     case 'none': return 'no checks';
     case 'conflicts': return 'conflicts';
+    // ABANDONED, and the word says what happened rather than what the checks
+    // said when it stopped. `green` on a closed PR is the row claiming *ready*
+    // about work somebody decided against.
+    case 'closed': return 'closed';
     default: return '';
   }
 }

@@ -7,6 +7,7 @@ import {
 } from '../../src/server/fleet.js';
 import { RowKindSchema, UNNAMED_WAVE, isSpikeWave } from '../../src/contract/schema.js';
 import { stuckState } from '../../src/server/stuck.js';
+import { prState } from '../../src/server/fleet.js';
 
 /**
  * THE BRANCH ABSTRACTION — a branch row is the fallback, and it takes four
@@ -229,5 +230,54 @@ describe('stuckState — an unsliced wave is invalid', () => {
       waveSiblings: ['feature/a', 'feature/b'],
     });
     expect(s?.state).toBe('unsliced-wave');
+  });
+});
+
+describe('a CLOSED pr is abandoned work, not work awaiting review', () => {
+  it('reports `closed`, outranking every check', () => {
+    // Measured 2026-08-21: PRs #51-#55 were closed as drafts 26 days earlier and
+    // all five rendered `green` + `draft` — the board reading *five reviews are
+    // waiting on you* about a wave somebody deliberately dropped.
+    //
+    // They reach a row at all because `prsByHead` keeps finished PRs on purpose:
+    // `prOutranks` says *"MERGED IS NOT RANKED ABOVE CLOSED … both are finished,
+    // both are worth linking"*. Right about the LINK; it was silently deciding
+    // the STATUS too.
+    expect(prState({
+      number: 53, state: 'CLOSED', draft: true,
+      mergeable: 'mergeable', checks: 'green',
+    } as never)).toBe('closed');
+  });
+
+  it('still reports an OPEN pr by its checks', () => {
+    // The arm is narrow: only the PR's own standing short-circuits, and an open
+    // PR reads exactly as before.
+    expect(prState({
+      number: 304, state: 'OPEN', draft: false,
+      mergeable: 'mergeable', checks: 'green',
+    } as never)).toBe('green');
+  });
+
+  it('gives an abandoned branch NO stuck cue', () => {
+    // `stuckState`'s first arm already excludes `merged` and `deferred` as
+    // *"finished work and work nobody wants"* — a closed PR is the third case in
+    // that same sentence.
+    //
+    // Measured: three of the five branches reported `conflict` with real
+    // conflicting paths, on PRs closed 26 days earlier. The paths are true and
+    // the cue is not — nobody rebases abandoned work.
+    expect(stuckState({
+      state: 'wip', conflicts: ['a.ts', 'b.ts'], conflictsKnown: true,
+      localAhead: 0, prState: 'closed',
+    })).toBeNull();
+  });
+
+  it('still cues an OPEN pr that conflicts', () => {
+    // The negative that keeps the arm honest: the same inputs with an open PR
+    // still report, because somebody IS going to rebase that one.
+    expect(stuckState({
+      state: 'wip', conflicts: ['a.ts'], conflictsKnown: true,
+      localAhead: 0, prState: 'conflicts',
+    })?.state).toBe('conflict');
   });
 });

@@ -4910,7 +4910,15 @@ function WaveRow({
         // failing check and the unpushed count are unreachable — the same class
         // of loss as the deleted accessible name, and exactly what `stuck-rows`
         // exists to catch.
-        soleRow?.stuck ? <StuckCell row={soleRow} cue={false} /> : null
+        // THE SOLE BRANCH'S STUCK CELL, or the WAVE'S OWN — and `unsliced-wave`
+        // is the wave's, so it renders here whatever the branch count.
+        //
+        // A wave holding several branches is the state's entire subject, and the
+        // branch rows now suppress it (see `StuckCell` in `Row`) precisely so it
+        // is stated once, here, where it is true.
+        (soleRow ?? group.rows[0])?.stuck?.state === 'unsliced-wave'
+          ? <StuckCell row={group.rows[0]} cue={false} />
+          : soleRow?.stuck ? <StuckCell row={soleRow} cue={false} /> : null
       }
       // START WORK, ON THE WAVE THAT CAN BE STARTED — and it went missing when
       // the branch rows did.
@@ -5620,7 +5628,20 @@ function Row({
               renders BENEATH them rather than inside one: the evidence is three
               lines on a `ci-failing` row, and a track sized for that would push
               every real column in from the edge across the whole fleet. */}
-          <StuckCell row={row} cue={cue} />
+          {/* NOT A WAVE-LEVEL STUCK STATE, which is a fact about the WAVE and
+              would print once per branch.
+              
+              Measured 2026-08-21: `wave not sliced` and its five-branch list
+              rendered on all FIVE branches of `opus5 :: Implementation` — the
+              same sentence five times, naming the same five branches each time.
+              Exactly the defect `blockedNote` had, one level down.
+              
+              `unsliced-wave` belongs on the wave's own row, or on a branch row
+              that has no wave row above it. The two other wave-scoped states
+              (`double-claimed` is per-branch, the rest are per-branch) are
+              unaffected: only this one describes the container. */}
+          {row.stuck?.state === 'unsliced-wave' && inWaveGroup
+            ? null : <StuckCell row={row} cue={cue} />}
           {/* THE DEFERRAL'S REASON, on the row's OWN SECOND LINE.
 
               Two homes were tried and both were wrong, and the reason is the

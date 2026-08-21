@@ -132,7 +132,30 @@ const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
  * URL already renders as no link. A number large enough to be wrong slowly is
  * better here than a page-walking loop on a 5 s timer.
  */
-const PR_LIMIT = 300;
+/**
+ * How many PRs the board asks the host for, across every state.
+ *
+ * **1000, and 300 was three PRs from silently truncating.** Measured 2026-08-21:
+ * this repo holds **297** PRs, `--state all` returns the newest first, and the
+ * oldest — #49-#55, from July — sat at the very end of a 300-wide window. Opening
+ * four more PRs would have pushed them out, and the symptom is not an error: a
+ * branch simply loses its PR link and its status, reading as though no PR had ever
+ * existed. It was watched happening between two board restarts.
+ *
+ * `plot-host.sh` warns about exactly this in its own header — *"--limit raises the
+ * host CLI's default page of 30, which `--state all` exhausts immediately"* — and
+ * the caution was applied to the CLI's default without being carried through to
+ * the board's own ceiling.
+ *
+ * 1000 buys years at this repo's rate rather than months. The cost is one host
+ * query per PR-refresh cycle, already the whole bill this refresh pays for, and a
+ * larger page does not add a round trip.
+ *
+ * A REAL CEILING, not `Infinity`: an unbounded query against a repo with tens of
+ * thousands of PRs would be a different defect, and the number is what makes the
+ * next reader ask whether it is still enough.
+ */
+const PR_LIMIT = 1000;
 
 /**
  * How many open issues to ask for.
@@ -2619,6 +2642,12 @@ function classifyGroup(
     // been the author's errand — and a conflict is the strongest possible
     // version of that errand. Adding a draft exemption here would move rows
     // this change is not about, in the direction of saying less.
+    // NO `CLOSED` ARM HERE, and the reason is one screen up: *"A merged or
+    // declined PR must NOT reach `classify` by head: it would answer for a
+    // branch whose git state has already answered."* The `byHead` map is
+    // open-only, so a closed PR never arrives — an arm for it would be dead code.
+    // I wrote one on 2026-08-21 before reading that line; `prState` is where the
+    // closed case belongs, and it is handled there.
     if (pr.mergeable === 'conflicting') {
       return { group: 'waiting-on-you', note: withNote(`PR #${pr.number}, conflicts`, note) };
     }
@@ -3417,7 +3446,26 @@ export function draftNote(pr: PrRecord): string {
  * `AgentPr` states: a draft has CI like anything else, and answering both
  * questions with one value is what kept WAITING ON A MACHINE empty.
  */
-export function prState(pr: PrRecord): 'green' | 'pending' | 'failing' | 'none' | 'conflicts' | 'unknown' {
+export function prState(pr: PrRecord): 'green' | 'pending' | 'failing' | 'none' | 'conflicts' | 'unknown' | 'closed' {
+  // CLOSED OUTRANKS EVERY CHECK, and it has to come first.
+  //
+  // A closed PR is ABANDONED work — somebody decided against it. Its checks are
+  // whatever they were when it was closed, and reporting `green` about it says
+  // *this is ready* when the truth is *this was given up*.
+  //
+  // Measured on the live board 2026-08-21: PRs #51-#55, all CLOSED as drafts 26
+  // days ago, rendered `green` + `draft` on five rows — the board reading *five
+  // reviews are waiting on you* about a wave that was deliberately dropped.
+  //
+  // They reach a row at all because `prsByHead` keeps finished PRs on purpose:
+  // `prOutranks` states *"MERGED IS NOT RANKED ABOVE CLOSED … both are finished,
+  // both are worth linking"*. That is right about the LINK — the number is still
+  // where you read what happened — and it was silently also deciding the STATUS.
+  //
+  // `merged` is deliberately NOT given a state here: a merged PR's row is already
+  // `merged` via the branch state, and the two vocabularies would then disagree
+  // about the same row.
+  if (pr.state === 'CLOSED') return 'closed';
   if (pr.mergeable === 'conflicting') return 'conflicts';
   // BELOW `conflicting`, never above it: a host that knows the branch conflicts
   // must still say so, and reordering these two lines loses the cause.
@@ -4090,7 +4138,18 @@ export function rowsFromPulse(
           kind: rowKind(
             b.branch,
             pr !== null,
-            b.conflicts_known && b.conflicts.length > 0,
+            // A CLOSED PR'S CONFLICT DOES NOT MAKE IT A BRANCH.
+            //
+            // The conflict arm exists because *no PR resolves a conflict — the
+            // reader has to go to the branch and rebase*. Nobody rebases
+            // abandoned work, so on a closed PR the arm sends the row to a kind
+            // that promises an act no one will perform.
+            //
+            // `stuckState` reaches the same conclusion one file over and drops
+            // the cue; this keeps the KIND agreeing with it, which is the rule
+            // `classify` states — *the row's word and its sentence must not be
+            // able to disagree*.
+            b.conflicts_known && b.conflicts.length > 0 && pr?.state !== 'CLOSED',
             // CI RUNNING makes it a build — the same fact `classify` reads to
             // put the row in WAITING ON A MACHINE, so the kind and the section
             // now agree instead of the section knowing alone.

@@ -78,7 +78,7 @@ export interface StuckInput {
    * evidence*, never *this is broken* — the row states facts and a person
    * concludes. Every other value leaves the branch unstuck.
    */
-  prState?: 'green' | 'pending' | 'failing' | 'none' | 'conflicts' | 'unknown' | null;
+  prState?: 'green' | 'pending' | 'failing' | 'none' | 'conflicts' | 'unknown' | 'closed' | null;
   /** The branch's changed paths — evidence carried onto a `ci-failing` row. */
   changedPaths?: readonly string[];
   /**
@@ -177,6 +177,20 @@ export function stuckState(input: StuckInput): Stuck | null {
   // a cue on finished work and on work nobody wants, which is the "flags
   // everything" failure in its two purest forms.
   if (state === 'merged' || state === 'deferred') return null;
+
+  // AND A CLOSED PR IS THE THIRD CASE, by this arm's own words: *"work nobody
+  // wants"*. Somebody decided against it, so nothing here is waiting on anybody.
+  //
+  // Measured 2026-08-21 on `opus5-longhorizon-hardening :: Implementation`: three
+  // of its five branches reported `conflict` with real conflicting paths, all on
+  // PRs closed 26 days earlier. The paths are true and the cue is not — nobody is
+  // going to rebase abandoned work, so the row was sending a reader to fix
+  // something no one wants fixed.
+  //
+  // The row still SAYS `closed` in slot 5 and links the PR, which is where the
+  // reader goes to read what happened. What goes is the second line urging an
+  // act.
+  if (input.prState === 'closed') return null;
 
   // TWO PLANS CLAIM IT — and this comes FIRST, because *order is meaning* and
   // nothing outranks not knowing which plan governs a branch.
