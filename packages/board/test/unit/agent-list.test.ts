@@ -37,6 +37,7 @@ import {
   ACTIVITY_MARK_PLACE,
   ActivityEcho,
   activeRowKeys,
+  groupByWave,
   LOCK_ECHO_MS,
   rowKey,
   watchedState,
@@ -730,6 +731,58 @@ describe('local write activity outranks the section', () => {
     // the section rule does not disturb it.
     expect(isActive({ state: 'merged', localDirty: true, localLocked: false })).toBe(false);
     expect(isActive({ state: 'wip', localDirty: true, localLocked: false })).toBe(true);
+  });
+});
+
+describe('a wave name is not a wave — the mark must not cross plans', () => {
+  it('never merges same-named waves from DIFFERENT plans', () => {
+    // THE HAZARD the operator named: *make sure other waves are not shown by
+    // mistake*. `groupByWave` keys on `row.wave` ALONE, so two plans that both
+    // call a wave `Sized` would land in one group — and one written-to branch
+    // would then mark rows belonging to a plan nobody had touched.
+    //
+    // Measured on the live estate: EIGHT wave names are shared across plans,
+    // `Sized` by four of them. So this is the normal case, not a contrivance.
+    //
+    // What makes it safe is the CALL SITE, and this pins it: every caller
+    // passes one plan's rows (`group.rows`, where `group` carries `plan` and
+    // `planFile`), so two plans' waves never meet inside this function. The
+    // test states it from the outside — group each plan's rows separately, as
+    // the board does, and the same name stays two groups.
+    // Two BRANCHES, and on this estate that means two separate worktrees — the
+    // fleet cuts one per branch (14 live while this was written). So the
+    // `localDirty` below is one worktree's real state and cannot leak to the
+    // other by construction; what could leak is the RENDERING, if the two rows
+    // were grouped together.
+    const mine = row({ branch: 'feature/a', plan: 'plan-one', wave: 'Sized' });
+    const theirs = row({ branch: 'feature/b', plan: 'plan-two', wave: 'Sized' });
+
+    const perPlan = [
+      groupByWave([mine]),
+      groupByWave([theirs]),
+    ];
+    expect(perPlan[0]).toHaveLength(1);
+    expect(perPlan[1]).toHaveLength(1);
+    expect(perPlan[0][0].rows).toEqual([mine]);
+    expect(perPlan[1][0].rows).toEqual([theirs]);
+
+    // And the aggregation the board performs — `wg.rows.some(...)` — therefore
+    // cannot reach across: only the plan whose branch is being written to is
+    // marked.
+    const active = activeRowKeys([{ ...mine, localDirty: true }, theirs], new Set());
+    expect(perPlan[0][0].rows.some((r) => active.has(rowKey({ ...r, localDirty: true }))))
+      .toBe(true);
+    expect(perPlan[1][0].rows.some((r) => active.has(rowKey(r)))).toBe(false);
+  });
+
+  it('DOES merge one plan\'s own same-named rows, which is the point', () => {
+    // The positive that keeps the negative honest: within one plan, a wave is
+    // exactly the branches that name it, and they group.
+    const a = row({ branch: 'feature/a', plan: 'plan-one', wave: 'Sized' });
+    const b = row({ branch: 'feature/b', plan: 'plan-one', wave: 'Sized' });
+    const groups = groupByWave([a, b]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].rows).toHaveLength(2);
   });
 });
 
