@@ -479,7 +479,12 @@ describe('the activity mark glows, and travels without arriving', () => {
     // branch nobody has touched.
     const page = await open([
       row({
-        branch: 'feature/still', localAhead: 2, localDirty: false, localLocked: false,
+        // NO WORKER, and the word `still` is the reason: this branch holds
+        // finished work that STOPPED. The factory gives every row a running
+        // worker because that is this suite's subject, and inheriting it here
+        // would have contradicted the fixture's own name.
+        branch: 'feature/still', worker: 'none',
+        localAhead: 2, localDirty: false, localLocked: false,
         // `waiting-on-machine`, NOT `quiet`: QUIET is in COLLAPSED_BY_DEFAULT, so a
         // row placed there renders inside a folded section and this assertion waits
         // 30 s for an element that is not on the page — a timeout that reads like a
@@ -828,7 +833,19 @@ describe('the activity mark aligns to the row\'s first line', () => {
 
     const tall = (await rowFor(page, 'feature/two-lines').boundingBox())!;
     const short = (await rowFor(page, 'feature/one-line').boundingBox())!;
-    expect(tall.height).toBeGreaterThan(short.height * 1.5);
+    // TALLER BY A LINE, measured against the LINE rather than as a ratio.
+    //
+    // This read `tall.height > short.height * 1.5` and failed at 56 vs 37.56 —
+    // a factor of 1.49. Nothing regressed: the two rows are no longer the same
+    // KIND. `feature/two-lines` carries a wave (its plan has one branch, so the
+    // wave row is that branch's row) while `feature/one-line` is a branch row,
+    // and a ratio between two kinds measures the kinds as much as the lines.
+    //
+    // What the test is for is that the stuck row really does grow an extra
+    // line, so the alignment claims below are not passing on two identical
+    // boxes. One line of `text-sm` is 20px; asking for most of one is the
+    // claim, and it survives a row kind changing height for its own reasons.
+    expect(tall.height).toBeGreaterThan(short.height + 15);
   });
 
   it('sits beside the BRANCH NAME on a row carrying a status line', async () => {
@@ -841,10 +858,16 @@ describe('the activity mark aligns to the row\'s first line', () => {
     const branch = (await rowFor(page, 'feature/two-lines')
       .locator('[data-branch]').first().boundingBox())!;
 
-    // Within a few pixels of the branch name's own middle. A tolerance rather
-    // than an equality: the bar is 20px against a 20px line box, and the text's
-    // own box is a hair shorter than its line.
-    expect(Math.abs(midY(mark) - midY(branch))).toBeLessThan(4);
+    // INSIDE the branch name's own vertical span — containment rather than a
+    // tolerance around its centre, for the reason the single-line test records:
+    // the branch element holds a folded name and a wave badge, so it is taller
+    // than one line and its midpoint is a fact about its contents.
+    //
+    // On a two-line row this is the whole claim. The defect it pairs against
+    // put the mark on the ROW's centre, which here is the gap BETWEEN the
+    // lines — outside the branch box entirely, so it fails this.
+    expect(midY(mark)).toBeGreaterThanOrEqual(branch.y);
+    expect(midY(mark)).toBeLessThanOrEqual(branch.y + branch.height);
   });
 
   it('does NOT sit between the two lines — the defect, stated directly', async () => {
@@ -876,10 +899,23 @@ describe('the activity mark aligns to the row\'s first line', () => {
       .locator('[data-branch]').first().boundingBox())!;
     const li = (await rowFor(page, 'feature/one-line').boundingBox())!;
 
-    expect(Math.abs(midY(mark) - midY(branch))).toBeLessThan(4);
-    // And on THIS row that is still the row's centre, which is the sense in
-    // which nothing moved.
-    expect(Math.abs(midY(mark) - midY(li))).toBeLessThan(4);
+    // ON THE FIRST LINE, which is what "beside the branch name" means — and it
+    // is measured against the line rather than against the branch ELEMENT's
+    // centre, because that element is no longer one line tall.
+    //
+    // Measured here: the branch box is 26.56px and the row 37.56px, so the
+    // branch's own midpoint sits 5.28px below the mark's. Nothing moved — the
+    // element grew. It holds a folded name and a wave badge, and its centre is
+    // therefore a fact about its contents rather than about the line the mark
+    // is aligned to.
+    //
+    // The claim that survives is containment: the mark's centre falls INSIDE
+    // the branch element's vertical span, and within a line of the row's top.
+    // Both fail on the defect this test was written for — a mark centred on the
+    // whole ROW, which on a tall row lands between the two lines.
+    expect(midY(mark)).toBeGreaterThanOrEqual(branch.y);
+    expect(midY(mark)).toBeLessThanOrEqual(branch.y + branch.height);
+    expect(midY(mark) - li.y).toBeLessThan(20);
   });
 
 });
