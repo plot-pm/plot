@@ -1410,31 +1410,17 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   // was not coming.
 
   /** The live indicator inside one row, by the branch that row names. */
-  const liveDot = (page: Page, branch: string) =>
-    rowFor(page, branch).locator('[data-live-dot]');
-
-  /** Whether an element is actually running an animation, per the browser. */
-  const animating = (page: Page, branch: string) =>
-    liveDot(page, branch).evaluate((el) => {
-      const name = getComputedStyle(el).animationName;
-      return name !== 'none' && name !== '';
-    });
-
-  it('animates a WORKING row, and rows in every other group hold still', async () => {
-    const page = await openAgents();
-    try {
-      await expect.poll(() => liveDot(page, 'feature/beans-a').count()).toBe(1);
-      expect(await animating(page, 'feature/beans-a')).toBe(true);
-      // The negative, across every other group — a blanket indicator passes a
-      // test that only looks at a working row.
-      for (const branch of ['feature/reviewed', 'feature/untaken', 'feature/blocked',
-        'feature/shelved', 'feature/landed', 'feature/ghost']) {
-        expect(await liveDot(page, branch).count()).toBe(0);
-      }
-    } finally {
-      await page.close();
-    }
-  });
+  // `liveDot` and `animating` stood here until 2026-08-22, reading
+  // `[data-live-dot]` — a static emerald dot drawn on every WORKING row. It is
+  // gone: it sat a pixel from `ActivityMark`'s travelling dot, so a WORKING row
+  // showed two dots and read as one smudge, and what it said (*this row is in
+  // WORKING*) the section heading already says once.
+  //
+  // Six tests went with it. What they guarded — a mark that appears on the
+  // right rows and on no others, animates, survives `motion-reduce`, and
+  // announces nothing — is asserted of `ActivityMark` in
+  // `activity-mark.browser.test.ts`, against a mark that reports a PROCESS
+  // rather than an address.
 
   it('leaves a QUIET row still even when it carries a fresh claim', async () => {
     // The near-miss: a quiet row can hold a claim and a recent-looking note and
@@ -1455,106 +1441,13 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // reason entirely.
       await expand(page, 'quiet');
       await expect.poll(() => rowFor(page, 'feature/claimed-but-quiet').count()).toBe(1);
-      expect(await liveDot(page, 'feature/claimed-but-quiet').count()).toBe(0);
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('gives all three WORKING notes the SAME indicator', async () => {
-    // The assertion a confidence-graded implementation fails. WORKING has three
-    // entrances of differing strength, and grading the animation by which one
-    // applied would pass a test that checks only the dirty worktree. Membership
-    // is the statement, and the note already says which reason.
-    const notes = [
-      'uncommitted work in a local worktree',
-      'last commit 3 min ago',
-      'claimed, no commits yet',
-    ];
-    const rows = notes.map((note, i) =>
-      row({
-        branch: `feature/live-${i}`, plan: 'beans', group: 'working',
-        ageMinutes: i === 2 ? null : 3, note, branchUrl: `${GH}feature/live-${i}`,
-      }));
-    const page = await openAgents(fleet({ rows }));
-    try {
-      await expect.poll(() => liveDot(page, 'feature/live-0').count()).toBe(1);
-      // Identical, not merely present: same rendered box and same animation, so
-      // a graded speed or a graded size would fail here rather than pass.
-      const seen: string[] = [];
-      for (const i of [0, 1, 2]) {
-        const dot = liveDot(page, `feature/live-${i}`);
-        expect(await dot.count()).toBe(1);
-        seen.push(await dot.evaluate((el) => {
-          const s = getComputedStyle(el);
-          const box = el.getBoundingClientRect();
-          return [s.animationName, s.animationDuration, s.animationIterationCount,
-            s.backgroundColor, box.width, box.height].join('|');
-        }));
-      }
-      expect(seen[0]).not.toContain('none');
-      expect(new Set(seen).size).toBe(1);
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('drops the indicator when the row LEAVES the group', async () => {
-    // Asserted across a state change rather than on a static fixture: the whole
-    // honesty of this animation is that it stops on its own, and a fixture-only
-    // test passes on an implementation that never re-evaluates.
-    let moved = false;
-    const working = fleet();
-    const done = fleet({
-      rows: fleet().rows.map((r) =>
-        r.branch === 'feature/beans-a'
-          ? { ...r, group: 'done' as const, state: 'merged' as const, note: 'merged' }
-          : r),
-    });
-    const page = await browser.newPage();
-    try {
-      await page.route('**/api/fleet', (route) =>
-        route.fulfill({
-          contentType: 'application/json',
-          body: JSON.stringify(moved ? done : working),
-        }));
-      await page.goto(`${baseURL}?tab=agents`);
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
-    await expandAgentFolds(page);
-      await expect.poll(() => liveDot(page, 'feature/beans-a').count()).toBe(1);
-      // DONE is where the row is going, and it starts folded — opened FIRST, so
-      // the assertion below is about the indicator stopping rather than about
-      // the row being hidden.
-      await expand(page, 'done');
-      moved = true;
-      // The row survives — it is the same branch — and only the motion goes.
-      await expect.poll(() => liveDot(page, 'feature/beans-a').count(), { timeout: 15_000 })
-        .toBe(0);
-      expect(await rowFor(page, 'feature/beans-a').count()).toBe(1);
-      await expect.poll(() => group(page, 'Done').getByText('feature/beans-a').count()).toBe(1);
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('stops the animation under prefers-reduced-motion, and keeps the dot', async () => {
-    // BOTH halves. Removing the element entirely would satisfy "no motion" and
-    // lose the marker along with it — and motion triggers nausea for some
-    // readers, so this is not politeness, it is whether they can leave the view
-    // open beside their work at all.
-    const page = await openAgentsReducedMotion();
-    try {
-      await expect.poll(() => liveDot(page, 'feature/beans-a').count()).toBe(1);
-      expect(await animating(page, 'feature/beans-a')).toBe(false);
-      // Still drawn: a visible box, not a collapsed one.
-      const box = await liveDot(page, 'feature/beans-a').boundingBox();
-      expect(box?.width ?? 0).toBeGreaterThan(0);
-      expect(box?.height ?? 0).toBeGreaterThan(0);
-      // And still at full opacity rather than frozen mid-pulse at 0.5, which
-      // would read as a disabled row.
-      const opacity = await liveDot(page, 'feature/beans-a')
-        .evaluate((el) => Number(getComputedStyle(el).opacity));
-      expect(opacity).toBe(1);
+      // STILL MEANS NO PROCESS, which is what the mark says since 2026-08-22.
+      // It read `[data-live-dot]` — a mark meaning *this row is in WORKING*,
+      // and the row's group is exactly what this test is about, so the check
+      // was nearly a tautology. `[data-activity-mark]` asks the harder
+      // question: nothing is RUNNING here, claim or no claim.
+      expect(await rowFor(page, 'feature/claimed-but-quiet')
+        .locator('[data-activity-mark]').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -1580,24 +1473,6 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(await group(still, 'Working').getByText('feature/beans-a').count()).toBe(1);
     } finally {
       await still.close();
-    }
-  });
-
-  it('hides the dot from a screen reader — it carries nothing the text does not', async () => {
-    // The group heading and the row's own words already say everything. A dot
-    // announced beside them is noise, and this is the same rule the sr-only
-    // phase label follows from the other direction.
-    const page = await openAgents();
-    try {
-      const dot = liveDot(page, 'feature/beans-a');
-      await expect.poll(() => dot.count()).toBe(1);
-      expect(await dot.getAttribute('aria-hidden')).toBe('true');
-      // The row's text is unchanged by its presence: nothing was added to the
-      // accessible name.
-      expect(await rowFor(page, 'feature/beans-a').textContent())
-        .toContain('last commit 3 min ago');
-    } finally {
-      await page.close();
     }
   });
 
@@ -3365,26 +3240,6 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(await el.getAttribute('aria-hidden')).toBe('true');
       // And no live region was introduced anywhere on the page to carry it.
       expect(await page.locator('[aria-live]').count()).toBe(0);
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('leaves the LIVE DOT alone — two marks, two meanings', async () => {
-    // #176 settled that distinction and keeping them separate is a requirement:
-    // the dot means *something is alive, end unknown* and lives for hours; this
-    // means *this just changed* and lives for seconds.
-    const { page, swap } = await openAgentsSwappable(
-      oneRow('pending', { group: 'working' }));
-    try {
-      await expect.poll(() => rowFor(page, 'feature/watched').count()).toBe(1);
-      const li = rowFor(page, 'feature/watched');
-      expect(await li.locator('[data-live-dot]').count()).toBe(1);
-      swap(oneRow('conflicts', { group: 'working' }));
-      await expect.poll(() => mark(page, 'feature/watched').count(),
-        { timeout: 10_000 }).toBe(1);
-      // Both present, and they are different elements.
-      expect(await li.locator('[data-live-dot]').count()).toBe(1);
     } finally {
       await page.close();
     }
