@@ -8,7 +8,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Sprint:**
@@ -17,6 +17,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — six findings measured on the live board; PID 58282 was the dispatcher, the agent was 5501
 - **Delivered:** 2026-08-22, jwloka, PRs #268, #276, #277, #279, #281, #285
+- **Released:** 2026-08-22, v2.7.0
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-panel-names-the-working-process`
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-button-claims-only-what-it-knows`
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-overlay-keeps-its-place`

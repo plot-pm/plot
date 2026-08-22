@@ -8,7 +8,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Sprint:**
@@ -17,6 +17,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20, jwloka, in-session
 - **Delivered:** 2026-08-22, jwloka, PRs #259, #265, #289
+- **Released:** 2026-08-22, v2.7.0
 - **Started:** 2026-08-20, Jan Wloka, `feature/the-gates-know-design`
 - **Started:** 2026-08-20, Jan Wloka, `feature/the-design-column-means-design`
 

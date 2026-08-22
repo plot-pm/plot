@@ -9,7 +9,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Sprint:**
@@ -18,6 +18,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — the board reported `WORKING: none` while four agents worked; finding 1+2 already fixed in #258
 - **Delivered:** 2026-08-22, jwloka, PRs #260, #261, #266, #269, #274
+- **Released:** 2026-08-22, v2.7.0
 - **Started:** 2026-08-20, Jan Wloka, `feature/a-worktree-holds-its-branch`
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-board-says-who-holds-a-branch`
 

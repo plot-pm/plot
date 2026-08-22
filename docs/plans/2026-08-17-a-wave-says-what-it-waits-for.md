@@ -2,14 +2,14 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-08-19, Jan Wloka, plan-PR #197 merged
 - **Started:** 2026-08-20, Jan Wloka, `feature/a-branch-row-names-its-wave`
 - **Delivered:** 2026-08-22, jwloka, PRs #257, #275, #286
-- **Released:**
+- **Released:** 2026-08-22, v2.7.0
 - **Started:** 2026-08-20, Jan Wloka, `feature/a-blocked-wave-names-its-blocker`
 
 ## Approval

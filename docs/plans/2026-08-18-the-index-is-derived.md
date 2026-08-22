@@ -4,13 +4,14 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Story:** plot-planning-model
 - **Review:** in-session
 - **Impl:** own branches
 - **Started:** 2026-08-20, Jan Wloka, `feature/the-lifecycle-does-not-need-the-symlink`
 - **Delivered:** 2026-08-22, jwloka, PRs #254, #256, #296
+- **Released:** 2026-08-22, v2.7.0
 
 ## Changelog
 

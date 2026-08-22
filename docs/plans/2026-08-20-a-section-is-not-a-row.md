@@ -10,7 +10,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
@@ -18,6 +18,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — reported from a screenshot; the sizes are measured and the caret comment defends the click target, which this does not touch
 - **Delivered:** 2026-08-22, jwloka, PRs #302
+- **Released:** 2026-08-22, v2.7.0
 - **Started:** 2026-08-20, Jan Wloka, `bug/a-section-is-not-a-row`
 
 ## Problem

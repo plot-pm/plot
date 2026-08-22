@@ -9,7 +9,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Sprint:**
@@ -18,6 +18,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — 459 git spawns measured at 56 ms each; pruning 33 worktrees took the scan 105 s to 63 s and proved the second multiplier
 - **Delivered:** 2026-08-22, jwloka, PRs #262, #273, #278
+- **Released:** 2026-08-22, v2.7.0
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-scan-walks-history-in-one-call`
 - **Started:** 2026-08-20, Jan Wloka, `feature/the-scan-says-what-it-is-paying-for`
 

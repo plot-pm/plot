@@ -9,7 +9,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Sprint:**
@@ -18,6 +18,7 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — six display findings measured on the live board
 - **Delivered:** 2026-08-22, jwloka, PRs #290, #297
+- **Released:** 2026-08-22, v2.7.0
 
 ## Problem
 

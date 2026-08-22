@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:** working-shows-the-agent
 - **Review:** pr
@@ -10,7 +10,7 @@
 - **Approved:** 2026-08-19, Jan Wloka, plan-PR #203 merged
 - **Started:** 2026-08-19, Jan Wloka, `feature/the-worker-log-is-readable`
 - **Delivered:** 2026-08-22, jwloka, PRs #239, #241, #244, #246, #270, #295
-- **Released:**
+- **Released:** 2026-08-22, v2.7.0
 - **Started:** 2026-08-19, Jan Wloka, `feature/a-waiting-agent-stays-working`
 - **Started:** 2026-08-19, Jan Wloka, `feature/the-agent-panel`
 - **Started:** 2026-08-19, Jan Wloka, `feature/continue-with-an-answer`
