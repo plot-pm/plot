@@ -1,9 +1,9 @@
 ---
 title: The board sees one repository
 author: jwloka
-status: draft
+status: active
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-22
 ---
 
 # The board sees one repository
