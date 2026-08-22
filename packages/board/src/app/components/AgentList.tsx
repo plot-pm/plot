@@ -4545,7 +4545,17 @@ function PlanRow({
         // `extra` rather than `marks`, because the mark tints the whole line
         // with `inset-0` and that needs the row itself as its positioning
         // parent. The wave row carries it in the same slot for the same reason.
-        marked ? <ChangeMark /> : null
+        //
+        // ONLY WHILE FOLDED, and that is the whole of the head's licence. With
+        // the branches on screen they flash for themselves, and a head flashing
+        // alongside them tints two lines for one event — the reader sees a
+        // second change that never happened. Folded, the head is the only thing
+        // that can report it; open, it is a duplicate.
+        //
+        // `expanded === false`, not `!expanded`: the prop is `boolean | null`
+        // and null means *this plan has no fold* — a head with nothing to hide
+        // hides nothing, so its branch is right there flashing.
+        marked && expanded === false ? <ChangeMark /> : null
       }
       marks={
         // Always the FAST pace, because `active` is the only thing that reaches

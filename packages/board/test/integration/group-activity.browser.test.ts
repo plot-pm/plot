@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
@@ -151,6 +152,24 @@ describe('a group heading carries the activity of the rows behind it', () => {
     // The head is present and the branch row is not — which is what makes the
     // head the only thing that can report the change.
     expect(await page.locator('[data-branch="feature/deep"]').count()).toBe(0);
+  });
+
+  it('does NOT flash the head once the branches are on screen', async () => {
+    // THE OTHER HALF, and it is what keeps the first honest. Open, the rows
+    // flash for themselves; a head flashing alongside them tints two lines for
+    // one event, and the reader sees a second change that never happened.
+    //
+    // Asserted through the SOURCE rather than through a pulse, because the
+    // claim is a condition rather than a timing: the head's mark is gated on
+    // `expanded === false`. A browser assertion would have to catch a 3s flash
+    // inside an 18s scan window, which measures the scan.
+    //
+    // `=== false`, not `!expanded`: the prop is `boolean | null` and null means
+    // *this plan has no fold*. A head with nothing to hide hides nothing, so
+    // its branch is right there flashing and the head must stay quiet.
+    const source = readFileSync(
+      new URL('../../src/app/components/AgentList.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('marked && expanded === false ? <ChangeMark /> : null');
   });
 
   // ── The reported case ──────────────────────────────────────────────────────
