@@ -38,6 +38,7 @@ enterable where the question is shown.
 - [x] [working-shows-the-agent] Wave *Asking* — a `waiting` worker keeps its place in WORKING with what it waits on, instead of being filed as finished
 - [x] [working-shows-the-agent] Wave *Log* — the board serves a worker's log from its deterministic path; a WORKING row offers it
 - [x] [the-pulse-measures-progress-not-elapsed-time] `changed_ago_seconds` — a row says when work last changed, so a long job and a dead one stop reading alike
+- [ ] [a-startable-wave-says-so] An eligible wave takes the actionable tone — statusTone colours what a reader acts on, and starting work is the most actionable thing on the board
 - [ ] [an-interrogation-leaves-a-record] The round count reaches the plan file — the board has the field, the parser reads it, and nothing has written it since 2026-08-17
 - [ ] [a-plan-moves-through-the-sections] Approve and Commission design on the plan row, the plan appears in NOT STARTED, Start work takes it — one lifecycle path, two waves
 

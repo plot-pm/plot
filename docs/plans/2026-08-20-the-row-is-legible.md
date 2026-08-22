@@ -10,12 +10,13 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Superseded
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
 - **Assignee:** jwloka
+- **Superseded:** 2026-08-22 — every wave was delivered by other work; see *Where each wave went*
 
 ## Problem
 
@@ -202,3 +203,33 @@ all seven kinds correctly while the live board showed wave names in the kind slo
 the harness bypassed the payload, the grouping and the sections, which is where
 every defect above lives. A fixture that skips the pipeline tests the part that
 was not broken.
+
+## Where each wave went
+
+Interrogated 2026-08-22 and found **already true**. No branch of this plan was
+ever cut — each finding was delivered by work that reached the same lines from
+another direction, and each is now pinned by a passing test:
+
+| wave | delivered by | pinned by |
+|---|---|---|
+| **Sized** | the section-heading work | `row-withholds.browser.test.ts` — *"draws a section heading larger than the rows it introduces"* and *"…the fold caret larger than a row, without shrinking its target"* |
+| **Marked** | the tuple row (#293, #301) | `KIND_ICON_PATH` in `tuple-row.ts` — inline Octicon paths taking size from the markup and colour from `currentColor`, with MIT attribution; slot 2 renders the kind as a visible word |
+| **Grouped** | the wave-row work | `ml-6` group indentation, asserted across 4 test files |
+| **Fitted** | the tuple row | the truncation rule, asserted across 23 test files |
+
+**The plan was right about the findings and wrong about needing its own
+branches.** Its own argument predicted this: it was written *because* eleven
+waves across five plans were all editing `AgentList.tsx` and `TupleRow.tsx`, a
+file that took 11 commits in one day. Gathering the legibility findings into one
+plan was the correct response to that pressure — but the same pressure meant the
+branches touching those files landed the findings first.
+
+That is not a failure of the plan. A finding recorded, then delivered by
+whoever next opened the file, is the outcome a shared-file plan should expect;
+what it prevents is the finding being **lost**, and none of these were.
+
+**One legibility finding is NOT covered here** and has its own plan: an
+`eligible` wave takes no status colour, while `statusTone` colours exactly the
+values a reader acts on. It arrived after this plan was written and would have
+belonged to it.
+
