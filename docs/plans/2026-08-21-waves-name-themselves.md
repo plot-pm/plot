@@ -89,15 +89,50 @@ same rule `Issue:` follows in `## Status`.
 
 ### Migration, measured
 
-    plans with `## Branches`            83
-    of those, with `### ` waves         60
+Re-counted 2026-08-22; the estate grew since the first count:
+
+    plans with `## Branches`            85
+    of those, with `### ` waves         62
     with no subheading (unnamed wave)   23
-    branch lines to move               185
+    branch lines to move               192
 
 The 23 without a subheading are the case that needs deciding, not the 60:
 they parse today as one unnamed wave, and the new shape has nowhere to put a
-branch without a heading to hang it on. Giving them one means inventing a wave
-name for someone else's plan.
+branch without a heading to hang it on. **All 23 are finished work** — every one Released or
+Delivered, and not one open plan has an unnamed wave (measured 2026-08-22). So
+the question is not what to invent for someone else's live plan, but what
+heading a historical one gets: a derived name, since nobody reads those to
+decide anything. An open plan in this set would be named by reading it.
+
+### The parser goes first, and reads both
+
+**The proposed shape parses to nothing today.** Measured against the current
+`plot-plan-meta.sh`:
+
+    ## Waves
+    ### Removed (Branch: bug/one, PR: #300)
+    - work here
+
+    -> branches: 0   prs: 0   waves: 0   error: null
+
+Silently — and the consumers inherit the silence rather than catching it. The
+fleet scan prints `(no branches)` and moves to the next plan
+(`plot-fleet-scan.sh:2645`); `/plot-deliver`'s unaccounted-branches gate has an
+empty list and passes. A plan migrated one commit before the parser learns the
+shape does not fail, it **disappears** — an approved plan reading as having no
+branches at all, which is the silent-empty failure the first Open Question
+already refused.
+
+So the ordering is a property of this plan rather than an implementation
+detail, and it is the branch order below: the parser learns the new shape while
+still reading the old one, THEN the estate moves, THEN the template stops
+writing the old spelling. Nothing in between reads as empty, and a file that
+moves wrongly can move back.
+
+Two spellings exist while 85 files are being moved, and that does not
+contradict *one shape*: the decision is about what Plot **writes and
+documents**, never about what a parser tolerates during a migration it is
+performing.
 
 ### What must not change
 
@@ -114,23 +149,25 @@ name for someone else's plan.
 
 ### Open Questions
 
-- [x] **ONE SHAPE, no transition period** — decided 2026-08-21. `## Branches`
-      is not kept as an alias, and all 83 plans migrate in one move. Two
-      accepted shapes is the second source of truth Principle 1 refuses, and a
-      deprecation window is that second source with a date attached.
+- [x] **ONE SHAPE, no transition period** — decided 2026-08-21, refined
+      2026-08-22. Plot **writes and documents** one shape: `## Waves`, facts in
+      the heading. The parser keeps **reading** the old spelling, which is not a
+      second source of truth but the compatibility a format change owes to
+      estates it does not control. What was decided stands — no alias in the
+      template, no deprecation window in the docs; what changed is that a
+      parser refusing the old spelling would make 85 files invisible between
+      two commits.
 
-      It makes the third wave a hard migration rather than an optional one, and
-      it means the 23 plans with no `### ` heading must be given wave names —
-      naming somebody else's work, which the wave that does it has to answer
-      for. The alternative was worse: a plan written against old docs parsing
-      as *no waves at all*, silently, because an empty section is legal.
+- [x] What names do the 23 unnamed waves get? **Derived.** All 23 are Released
+      or Delivered — zero open plans have an unnamed wave — so no heading here
+      will be read to decide anything. An open plan in that set would be named
+      by reading it.
 
-- [ ] What names do the 23 unnamed waves get? A generated one (`Wave 1`) says
-      nothing and defeats the naming rule; a derived one (from the branch)
-      repeats what the heading already carries; a human one costs 23 readings.
-- [ ] `the-plan-is-the-wave` proposes hiding the wave row for one-wave plans.
-      If a plan's waves are named in headings, does a one-wave plan still write
-      `## Waves` with one `### `, or does the plan-level metadata carry it?
+- [x] How does this interact with `the-plan-is-the-wave`? **Different layers.**
+      That plan governs RENDERING — whether the board draws a wave row, by the
+      wave COUNT, named or not. This governs the FILE. A one-wave plan still
+      writes `## Waves` with one `### ` heading; the board draws no row for it.
+      Neither rule needs to know the other.
 
 ## Branches
 
@@ -160,10 +197,13 @@ name for someone else's plan.
   skill still instructs a writer to put the branch in the list line.
 
 ### Migrated
-- `infra/the-estate-speaks-waves` — all 83 plans convert in one move, and
-  `## Branches` stops parsing. One shape, no alias, no window: 60 plans have
-  named waves and convert mechanically; the 23 with none must be given names,
-  which is the judgement this wave cannot avoid and must not automate. Tests:
+- `infra/the-estate-speaks-waves` — all 85 plans convert in one move. 62 have
+  named waves and convert mechanically; the 23 with none take a derived name,
+  defensible because all 23 are Released or Delivered, so no live work is given
+  an invented name. `## Branches` keeps PARSING and stops being WRITTEN: a repo
+  that pulls Plot mid-migration must not have its estate go invisible, and
+  retiring the old spelling from the parser is a later decision with its own
+  timing. Tests:
   every converted plan yields byte-identical `plot-plan-meta.sh` output to its
   pre-migration self; `plot-reconcile-scan.sh` reports no new drift; the ten
   scripts naming `## Branches` are updated or documented as accepting both;
@@ -186,3 +226,22 @@ the only one that changes the FILE; the others change what the board does with
 it. Sequence matters: this one should land before `the-plan-is-the-wave`, since
 that plan asks what a one-wave plan writes, and this one decides what any plan
 writes.
+
+**Interrogated 2026-08-22.** The finding was an ordering hazard the plan's own
+one-move decision created: the proposed shape parses to `branches: 0, prs: 0,
+waves: 0, error: null` under today's parser, and every consumer treats that as
+*a plan with no branches* rather than as a parse failure. The fleet scan prints
+`(no branches)` and continues; the delivery gate checks an empty list and
+passes. So a plan migrated a commit early does not break — it vanishes.
+
+The plan already ordered its waves parser-first, which is why the hazard is a
+sharpening rather than a redesign: what was missing is that the ordering is
+load-bearing and that the parser must read BOTH spellings while the estate
+moves. `## Branches` therefore keeps parsing and stops being written, which
+turns out not to weaken the one-shape decision at all — that decision is about
+what Plot writes and documents.
+
+All three Open Questions closed. The naming one closed cheaply once measured:
+all 23 unnamed waves belong to Released or Delivered plans, so the judgement the
+plan feared — inventing a wave name for someone else's live work — does not
+arise.
