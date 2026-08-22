@@ -1144,8 +1144,21 @@ while IFS=$'\t' read -r wt_branch wt_path; do
   # It also cleans `wt_changed` below, which derives the freshest mtime from
   # these same paths: a tool writing into `.playwright-mcp/` was moving the
   # *last changed* clock of work nobody had touched.
-  if wt_status=$(git -C "$wt_path" status --porcelain --untracked-files=no </dev/null 2>/dev/null); then
-    if [ -n "$wt_status" ]; then wt_dirty=true; else wt_dirty=false; fi
+  if wt_status=$(git -C "$wt_path" status --porcelain </dev/null 2>/dev/null); then
+    # DIRTY IS WHAT THE FILTER LEAVES, not what git prints.
+    #
+    # The first cut passed `--untracked-files=no`, which fixed the reported case
+    # — a checkout reading dirty for hours over `.playwright-mcp/` — and broke
+    # the one `fleet.test.mjs` states in as many words: *an untracked source
+    # file IS work and must reset the clock*. A new `new-module.ts` is the most
+    # interesting thing a worktree can hold.
+    #
+    # So the exclusion is per-PATH and lives in `plot_worker_dirty_filter`,
+    # beside the editor leftovers it already drops for the same reason. Both
+    # questions this block answers — *is anyone editing* and *when did the work
+    # last change* — then read one list, which is what stopped them drifting
+    # apart the last time.
+    if [ -n "$(plot_worker_dirty_filter "$wt_status")" ]; then wt_dirty=true; else wt_dirty=false; fi
   elif [ "$wt_locked" = true ]; then
     # Status could not answer, but the lock says WHY, and that is an answer
     # rather than the absence of one: a write is in progress in this worktree at

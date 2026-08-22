@@ -98,6 +98,24 @@ PLOT_WORKER_RECORD='\.plot-worker\.'
 # stop, recorded four lines from here.
 PLOT_EDITOR_LEFTOVER='\.(tmp[0-9]*|swp|orig|rej|bak)$'
 
+# WHAT A TOOL LEAVES BEHIND, which is not work either — and the second list for
+# the same reason the first exists.
+#
+# `PLOT_EDITOR_LEFTOVER` names files an editor drops beside real work.  These
+# are whole DIRECTORIES a tool creates and nobody commits: a browser driver's
+# scratch, an agent runner's state. Measured on the project directory —
+# the one checkout worked in continuously, and therefore the one that
+# accumulates them — `.playwright-mcp/` and `.plot/agents/` were its only
+# untracked entries, and they made the row read `local_dirty` for hours with
+# nothing being written.
+#
+# Excluded HERE rather than by dropping untracked files wholesale, which is
+# what the first cut did: `test/reconcile/fleet.test.mjs` refuses that in as
+# many words — *an untracked source file IS work and must reset the clock* — and
+# it is right. A new `new-module.ts` is the most interesting thing a worktree
+# can hold; what it is not is a directory nobody will ever commit.
+PLOT_TOOL_SCRATCH='(^|/)\.(playwright-mcp|plot/agents|omc/state)(/|$)'
+
 # Where the worker's log lives in this worktree, when one is there at all.
 #
 # THIS FILE OWNS THE RECORD'S FILENAMES, and that ownership is enforced rather
@@ -222,7 +240,8 @@ plot_worker_dirty_filter() { # $1=`git status --porcelain` output → the real w
   printf '%s' "$1" \
     | cut -c4- \
     | grep -vE "(^|/)$PLOT_WORKER_RECORD" \
-    | grep -vE "$PLOT_EDITOR_LEFTOVER" || true
+    | grep -vE "$PLOT_EDITOR_LEFTOVER" \
+    | grep -vE "$PLOT_TOOL_SCRATCH" || true
 }
 
 # Refine a clean exit into finished / waiting / stalled.
