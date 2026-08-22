@@ -19,6 +19,7 @@ import {
   isSpikeWave,
 } from '../../contract/schema.js';
 import { ApproveButton } from './ApproveButton.js';
+import { AutoDispatchSwitch, ParallelAgentsStepper } from './FleetControls.js';
 import { CommissionDesignButton } from './CommissionDesignButton.js';
 import { CreatePlanButton } from './CreatePlanButton.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
@@ -6799,6 +6800,23 @@ export function AgentList({
                   {tally}
                   {groupMark}
                 </>
+              )}
+              {/* THE TWO FLEET CONTROLS, each on the section it is ABOUT and
+                  OUTSIDE the collapse button above — a control nested in the
+                  fold's `<button>` would be a button inside a button, invalid
+                  markup that swallows its own clicks. Placed here they sit in the
+                  same header flex row whether or not the section folds, and the
+                  spinbutton keeps its own keyboard handling clear of the fold's.
+
+                  The switch belongs to NOT STARTED (*is the queue served?*) and
+                  the stepper to WORKING (*how many at once?*). Both read the
+                  SHARED state off `fleet.fleetControls` and write it back through
+                  /api/fleet-controls; neither dispatches anything in this wave. */}
+              {key === 'not-started' && (
+                <AutoDispatchSwitch value={fleet.fleetControls.autoDispatch} />
+              )}
+              {key === 'working' && (
+                <ParallelAgentsStepper value={fleet.fleetControls.parallelAgents} />
               )}
             </h2>
             {/* The body goes, the header stays — including its count. Removed

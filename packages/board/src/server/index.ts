@@ -10,6 +10,7 @@ import { buildAttention } from './attention.js';
 import { dispatchAvailability, dispatchLog, handleDispatch, SLUG_RE } from './dispatch.js';
 import { continueAvailability, handleContinue } from './continue.js';
 import { handleClaim } from './claim.js';
+import { handleFleetControls } from './fleet-controls.js';
 import { handleTransition } from './transition.js';
 import { refuseIfGated } from './write-gate.js';
 import { agentPanel } from './agent-panel.js';
@@ -172,6 +173,24 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     // spoke's own reason. An API that could approve an unreviewed draft would be
     // a bypass of the lifecycle rather than an interface to it.
     { path: '/api/transition', verb: 'transitioning', handle: handleTransition },
+    // POST /api/fleet-controls — set the shared switch and cap, return the result.
+    //
+    // The ODD ONE OUT among these routes: it spawns no process and touches no
+    // git. It writes one small JSON file under `.plot/state/`, the shared home
+    // for the two section-header controls (auto-dispatch, parallel-agent cap).
+    // It is allow-listed here anyway, and that is the point of the table rather
+    // than an exception to it: every state-changing route inherits the loopback
+    // gate by construction, so a control that decides whether a fleet runs is
+    // gated exactly as the fleet's dispatch is — the binding is the permission
+    // for both. It reuses /api/dispatch's same-origin guard and bounded body
+    // reader rather than growing its own, the same discipline /api/claim keeps.
+    //
+    // A PARTIAL WRITE, returning STATE. The switch and the stepper post
+    // independently; the body names only the field it changes, and the response
+    // is the resulting controls — never a bare acknowledgement, the /api/claim
+    // contract. This wave dispatches NOTHING: the switch records an intention
+    // wave 3 reads, and turning it on here starts no agent.
+    { path: '/api/fleet-controls', verb: 'setting fleet controls', handle: handleFleetControls },
   ] as const;
 
   const writeRoute = WRITE_ROUTES.find((r) => r.path === url.pathname);

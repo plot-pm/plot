@@ -2532,6 +2532,30 @@ export const FleetSchema = z.object({
   issueAnswer: IssueAnswerSchema.default('unsupported'),
   /** The failure, when `issueAnswer` is `failed` — shown, never swallowed. */
   issueError: z.string().nullable().default(null),
+  /**
+   * The two fleet controls, SHARED across every board reading this repo.
+   *
+   * The switch belongs to NOT STARTED (*is the queue being served?*) and the
+   * cap to WORKING (*how many agents at once?*), each rendered on the section it
+   * is about. They ride here rather than in `localStorage` on purpose: they
+   * spawn agents that write code, so two people reading one board must not
+   * disagree about whether the fleet is running — the board's one departure from
+   * *view state in the URL, convenience in localStorage*. The server reads them
+   * from `.plot/state/fleet-controls.json` on every render, seeded from
+   * `## Plot Config`; the client renders these values and POSTs a change to
+   * `/api/fleet-controls`, holding no authoritative copy of its own.
+   *
+   * Defaults `{ autoDispatch: false, parallelAgents: 3 }` so a payload from a
+   * server predating this wave still validates and reads as a fleet that is not
+   * serving its queue — the safe direction, since this wave dispatches nothing
+   * and wave 3 acts only while the switch is on.
+   */
+  fleetControls: z
+    .object({
+      autoDispatch: z.boolean(),
+      parallelAgents: z.number().int(),
+    })
+    .default({ autoDispatch: false, parallelAgents: 3 }),
 });
 export type Fleet = z.infer<typeof FleetSchema>;
 
