@@ -250,7 +250,11 @@ describe('the row says what it knows', () => {
         sectionCaret: size(
           document.querySelector('[data-group-toggle] span[aria-hidden]'),
         ),
-        planHeading: size(document.querySelector('ul[role="grid"] h3')),
+        // THE PLAN'S NAME, read off the plan ROW — it stopped being an `h3` when
+        // a plan head became a row rather than chrome. `ul[role="grid"] h3`
+        // matched nothing, so this read 0 and the comparison below was between
+        // a real number and an absence.
+        planHeading: size(document.querySelector('li[data-plan-row] [data-tuple-link="plan"], li[data-plan-row] [data-tuple-text="plan"]')),
         rowMax: rowText.length ? Math.max(...rowText) : null,
       };
     });
@@ -381,14 +385,28 @@ describe('the row says what it knows', () => {
       });
       expect(Math.max(edge.outline, edge.border)).toBeGreaterThan(0);
       expect(edge.outline > 0 ? edge.style : 'solid').not.toBe('none');
-      // AND IT COSTS NO ALIGNMENT. The rows inside a group must sit at the same
-      // x as a row outside one, or the edge was bought with the property the
-      // tracks exist for.
-      const insideX = await group.locator('li[data-agent-row] [role="gridcell"]')
-        .first().boundingBox();
-      const outsideX = await grid(page, 'Not started')
-        .locator('li[data-plan-row] [role="gridcell"]').first().boundingBox();
-      expect(Math.abs((insideX?.x ?? 0) - (outsideX?.x ?? -99))).toBeLessThanOrEqual(1);
+      // AND IT COSTS NO ALIGNMENT — measured WITHIN each row, which is what
+      // that claim can mean once rows nest.
+      //
+      // It compared absolute x: a cell inside the group against a plan head
+      // outside it, expecting the same pixel. Measured, they differ by 50 —
+      // two levels of `ml-6` plus each group's rule, because one row sits two
+      // folds deep and the other at the top. That is the INDENT, drawn on
+      // purpose, and asserting it away would assert that nesting is invisible.
+      //
+      // The property the tracks exist for is that a row's cells land on the
+      // same offsets whatever the row's depth, so it is asked of the offsets.
+      const offsets = await page.evaluate(() => {
+        const first = (sel: string) => {
+          const cell = document.querySelector(`${sel} [role="gridcell"]`);
+          const li = cell?.closest('li');
+          if (!cell || !li) return null;
+          return Math.round(cell.getBoundingClientRect().x - li.getBoundingClientRect().x);
+        };
+        return { inside: first('li[data-agent-row]'), outside: first('li[data-plan-row]') };
+      });
+      expect(offsets.inside, `inside ${offsets.inside} outside ${offsets.outside}`)
+        .toBe(offsets.outside);
       // AND THE ISSUE ROWS ARE OUTSIDE IT. This is the half a border alone does
       // not buy: #227 and #228 belong to no plan, and the layout must place
       // them where nothing claims they do.
@@ -654,6 +672,12 @@ describe('the row says what it knows', () => {
       // happens to be in — the fold is remembered across sessions, so a test
       // that assumes "shut" asserts on the wrong half whenever it is not.
       if ((await toggle.getAttribute('aria-expanded')) === 'true') await toggle.click();
+      // WAITED FOR, because `transition-transform` animates the glyph: reading
+      // `rotate` in the same tick as the click catches the transition mid-flight
+      // and reports the state being LEFT. Measured: `aria-expanded="false"` on
+      // the button and `90deg` on the glyph inside it, which no render produces
+      // — both read the same `expanded` prop.
+      await expect.poll(orientation, { timeout: 5_000 }).not.toContain('90deg');
       const shut = await orientation();
       expect(shut).not.toContain('90deg');
       await toggle.click();
