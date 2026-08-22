@@ -199,7 +199,7 @@ cap; they are not one, and nothing here should honour them.)
 
 ### Switched
 
-- `feature/the-sections-carry-the-fleet-controls` — the two controls and their
+- `feature/the-sections-carry-the-fleet-controls` → #329 — the two controls and their
   shared state, dispatching nothing yet. A checkbox in the NOT STARTED header
   and a `− N +` stepper in the WORKING header, both read from `.plot/state/`,
   defaulted from `## Plot Config` (switch off, agents 3), written through a new
