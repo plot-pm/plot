@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   PlanMetaSchema, CardSchema, FleetBranchSchema, AgentRowSchema, AgentEntrySchema,
+  FleetSchema,
 } from '../../src/contract/schema';
 
 describe('AgentEntrySchema — liveness on the wire', () => {
@@ -251,5 +252,36 @@ describe('rounds — absent is not zero, on both sides of the contract', () => {
     // 0 means the skill ran, an absent key means it never did.
     expect(PlanMetaSchema.parse({ ...meta, rounds: 0 }).rounds).toBe(0);
     expect(CardSchema.parse({ ...card, rounds: 0 }).rounds).toBe(0);
+  });
+});
+
+describe('FleetSchema — the two shared fleet controls', () => {
+  // The minimum a Fleet needs, so the `fleetControls` field is what varies.
+  const base = {
+    generatedAt: '2026-08-22T00:00:00.000Z',
+    ageSeconds: 1,
+    ready: true,
+    error: null,
+    rows: [],
+    summary: { plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+    prAgeSeconds: null,
+    prError: null,
+  } as const;
+
+  it('carries the switch and the cap the server emitted', () => {
+    const fleet = FleetSchema.parse({ ...base, fleetControls: { autoDispatch: true, parallelAgents: 5 } });
+    expect(fleet.fleetControls.autoDispatch).toBe(true);
+    expect(fleet.fleetControls.parallelAgents).toBe(5);
+  });
+
+  it('defaults to switch off / cap 3 for a payload predating this wave', () => {
+    // The safe direction: a server that never heard of the controls reads as a
+    // fleet that is NOT serving its queue, since wave 3 acts only while the
+    // switch is on. Note the client CASTS this payload rather than parsing it,
+    // so the server also emits the field unconditionally — this default is the
+    // contract's honesty, not the client's fallback.
+    const fleet = FleetSchema.parse(base);
+    expect(fleet.fleetControls.autoDispatch).toBe(false);
+    expect(fleet.fleetControls.parallelAgents).toBe(3);
   });
 });

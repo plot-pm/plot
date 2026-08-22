@@ -50,6 +50,12 @@ const WRITE_ROUTES = [
   { path: '/api/commission', body: { slug: 'ship-the-widget' } },
   { path: '/api/claim', body: { slug: 'ship-the-widget' } },
   { path: '/api/transition', body: { slug: 'ship-the-widget', transition: 'approve' } },
+  // Sets the two shared fleet controls (auto-dispatch switch, parallel-agent
+  // cap). It spawns nothing and only writes a small JSON file under
+  // `.plot/state/`, but it is a write all the same and gated by the same
+  // loopback boundary: a control that decides whether a fleet runs must not be
+  // reachable by a phone reading the board over Tailscale.
+  { path: '/api/fleet-controls', body: { autoDispatch: true } },
 ];
 
 /** Give a spawn that should NOT have happened time to leave its mark. */
