@@ -19,6 +19,15 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 
+## Changelog
+
+- A dispatched worker is handed its brief before it starts: the board asks
+  `/plot-implement` for one and waits, instead of launching an agent to read a
+  file that does not exist.
+- `plot-dispatch.sh` refuses to start a worker for a branch with no brief —
+  preparing the worktree and pushing the claim, but not launching — with
+  `--no-brief` as the named escape for a person at a terminal.
+
 ## Problem
 
 ### Three ways to start a worker, one writes a brief
@@ -34,6 +43,26 @@ step 4 composes the brief from the plan: it selects what applies to *this* branc
 states the scope guards, and names what was already settled. That is judgement,
 and `/api/idea` already has the sentence for it — *"creating a plan runs the
 /plot-idea **SKILL**, which no script can do."*
+
+### What briefless dispatch leaves behind
+
+Re-measured 2026-08-22, across the eight live worktree branches:
+
+    with a brief     4
+    without          4
+
+Three of the four briefless ones — `bug/one-column-one-kind-of-fact`,
+`bug/the-kind-is-labelled-not-hovered` and
+`feature/the-row-leads-with-its-subject` — hold **uncommitted work that was
+never pushed**: 190, 131 and ~315 lines respectively, against a file since
+rewritten twice. The fourth is a plan branch with no worker. Every branch that
+*did* have a brief either landed or is in flight.
+
+Eight branches is a correlation and not a proof, and the plan claims it as no
+more than that. But it is precisely the outcome the thesis predicts: an agent
+handed no specification improvises, and improvised work is the kind nobody
+finishes or lands. The 2:12 run above is the mechanism caught live; this is
+what the estate looks like afterwards.
 
 ### The board already has the mechanism
 
@@ -57,9 +86,17 @@ detection exists; only the consequence is absent.**
 
 ## Design
 
-### 1. `Implement command` — the board asks the skill for the brief
+### 1. The board asks the skill for the brief — using a key it already has
 
-A new optional config key, exactly parallel to `Idea command`:
+**`Implement command` and `/api/implement` are `an-approved-plan-offers-its-two-starts`'s
+to build** (PR #313, wave *Run*), where they back its Implement button. That
+plan and this one were written four days apart and arrived at the same
+mechanism from different directions — a button that prepares a plan, and a
+dispatch that must prepare one before it starts a worker. One key, one route,
+one place to configure.
+
+So this plan **consumes** them and contributes what #313 does not: the
+**sequencing** and the **gate**. It depends on #313 landing first.
 
     - **Implement command:** PLOT_UNATTENDED=1 claude -p --permission-mode bypassPermissions
 
@@ -83,7 +120,9 @@ should not pre-empt that choice.
 
 **Absent key = the button refuses and names it**, the `Idea command` rule. Not
 *accepts the click and starts an agent without a brief*, which is today's
-behaviour and the whole complaint.
+behaviour and the whole complaint. That refusal is #313's to implement on the
+route; what this plan adds is that `/api/dispatch` must not proceed past a
+failed or absent implement step.
 
 ### 2. A missing brief is a gate, not a note
 
@@ -96,6 +135,14 @@ same shape as the existing `worker=unconfigured` outcome.
 **`--no-brief` is the named escape**, for the case that must stay possible: a
 human at a terminal who has read the plan and wants a worker now. Explicit, in
 the log, and impossible to reach by clicking.
+
+**A gate rather than a warning, by this repo's own rule.** CLAUDE.md's *Gates
+Over Rules* asks whether you can answer *did I complete this?* without doing the
+work — and `plot-dispatch.sh` today computes `brief=missing` and launches
+anyway, which is the definition of a rule nobody enforces. The gate binds the
+CLI too, not only the board: on 2026-08-22 a dispatch was prepared by hand and
+the brief written manually before starting the worker, which is exactly the
+sequence the gate makes mandatory rather than remembered.
 
 Two properties this must keep:
 - **Fails closed.** A brief that cannot be read is treated as missing. The plan
@@ -139,7 +186,7 @@ Two properties this must keep:
 - `bug/a-dispatch-without-a-brief-refuses` — `plot-dispatch.sh` refuses to launch a worker for a branch with no brief, with `--no-brief` as the named escape. Tests: a branch with no brief is prepared and **not started**, and the message names the file and the two ways forward; a branch **with** a brief starts as before; `--no-brief` starts it and says so in the log; an unreadable brief is treated as missing, not as present; the footer still reports `brief=` and now agrees with what happened; the plan gate and the held-branch refusal are unchanged.
 
 ### Handed over
-- `feature/the-board-asks-for-a-brief` — `/api/dispatch` spawns `Implement command` for `/plot-implement <slug>` and waits for the brief before running the script; with no key configured the button refuses and names it. Tests: the brief exists before the worker starts; the two spawns are ordered, never concurrent; the slug is passed and the branch is not; a missing `Implement command` refuses with the key named, rather than starting a briefless agent; a failing `/plot-implement` does not start a worker; nothing about `/api/idea` changes.
+- `feature/the-board-asks-for-a-brief` — `/api/dispatch` calls the `/api/implement` route that `an-approved-plan-offers-its-two-starts` (PR #313) builds, and waits for the brief before running the script; with no `Implement command` configured the button refuses and names it. **Depends on #313**: this branch adds the ordering, not the route or the key. Tests: the brief exists before the worker starts; the two spawns are ordered, never concurrent; the slug is passed and the branch is not; a missing `Implement command` refuses with the key named, rather than starting a briefless agent; a failing `/plot-implement` does not start a worker; nothing about `/api/idea` changes.
 
 ## Notes
 
@@ -155,3 +202,26 @@ without consequence reads as coverage.
 The refusal for `Create story` is the counter-example worth keeping in view: there
 the absence of a route **is** the answer, argued and documented on the control
 itself. Not every unwired action is a gap.
+
+**Interrogated 2026-08-22.** The defect is confirmed and its cost is now
+visible in the estate. `plot-dispatch.sh` hardcodes `brief=missing` at both
+exit points and launches regardless — it does not compute the field, it asserts
+it — and four of the eight live worktree branches have no brief, three of them
+holding uncommitted work nobody landed.
+
+The finding was an overlap, the third of the day. This plan introduces an
+`Implement command` key and a spawn to run `/plot-implement` from the board;
+`an-approved-plan-offers-its-two-starts` (PR #313, written four days later)
+introduces the same key and an `/api/implement` route for its Implement button.
+Two plans reaching one mechanism from opposite directions — a button that
+prepares a plan, and a dispatch that must prepare one before it starts a
+worker. #313 owns the key and the route; this plan consumes them and
+contributes the **sequencing** and the **gate**, which is what it was always
+about.
+
+The gate stands as written, and the repo's own rule is why: `brief=missing` is
+computed today and acted on by nobody, which is a rule rather than a gate. It
+binds the CLI as well as the board — the manual dispatch performed on
+2026-08-22 wrote its brief first, and the gate makes that sequence mandatory
+rather than remembered.
+
