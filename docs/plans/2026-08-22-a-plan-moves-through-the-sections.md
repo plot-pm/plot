@@ -16,6 +16,9 @@
 
 - The board's Approve action is reachable again: a Draft plan's head offers it
   in WAITING ON YOU, and no branch row pretends to.
+- **Commission design** is reachable for the first time since the routing
+  changed — it moves to the plan head beside Approve, the two answers to one
+  question.
 - NOT STARTED holds approved plans only — a Draft plan's shelved branch no
   longer appears there.
 - An approved plan in NOT STARTED offers Start work, which dispatches it.
@@ -66,6 +69,19 @@ row whose available act is not its own. That is the very defect the
 `waitingOn === 'you'` clause was added to fix, and repeating it one gate later
 is not progress.
 
+**A second control is dead from the same cause, and worse.**
+`canCommissionDesign` reads `waitingOn === 'you' && state === 'open'` — and
+`'you'` is returned only alongside `state === 'deferred'`, so the two clauses
+cannot both hold. It is not merely unreachable but **self-contradictory**,
+proven here by evaluating it over every (group, state, phase) the board can
+produce: satisfied by none of them. Its docstring describes the row half as
+*"a Draft plan's first wave, or a shelved branch"*, the same sentence
+`waitingOn` stopped being able to say.
+
+Approve at least survives on the plan head. Commission design does not:
+`PlanActions` takes no `commission` prop, and the plan-head call site passes
+only `approve`, so deleting the row control would remove the feature outright.
+
 **NOT STARTED admits unapproved plans.** The section's own hint reads
 *"approved — nobody has taken it"*, and its `open` path honours that. The
 `deferred` path does not — line 2590's allowlist names `'draft'` explicitly:
@@ -105,6 +121,15 @@ an Approve button back on a row whose available act is not its own. A row-level
 control for a plan-level act has no gate that makes it correct — which is the
 argument for deleting it rather than narrowing it.
 
+**Commission design follows Approve to the plan head.** It is *"the twin of
+Approve for the other answer"* — approve the plan, or commission a design when
+the question is one approval cannot settle — so the two belong on the same row
+for the same reason: both are decisions about the PLAN. That means threading
+`commission` to the plan-head call site, which today passes `approve` alone,
+and gating it on `isDraft(card)` as `PlanActions` already gates Approve. The
+row-level predicate is deleted with the row-level control; nothing narrows it,
+because no narrowing makes a plan-level act correct on a branch row.
+
 **The deferred allowlist loses `'draft'` in the same wave.** A Draft plan's
 shelved branch reaches NOT STARTED because the deferred path's allowlist names
 `'draft'` where the open path's does not. It is a two-line change with no
@@ -131,6 +156,10 @@ end, and builds a control only if the walk finds one missing.
 
 ### Open Questions
 
+- [ ] Should a property test assert that no row-menu predicate is
+      unsatisfiable over (group, state, phase)? Both defects here were of that
+      exact shape, and such a test would have caught both — but it pins the
+      predicates' inputs, which may be more coupling than it is worth.
 - [ ] Should an unrecognised plan phase reach NOT STARTED? Today `''` falls
       through by the compatibility rule (*absent is not a guess*) while every
       named-but-unknown phase goes to `done`. This plan leaves both as they are.
@@ -139,15 +168,30 @@ end, and builds a control only if the walk finds one missing.
 
 ### Reachable
 
-- `bug/approve-belongs-to-the-plan-row` — delete the branch-row Approve
-  (`RowActions`), whose gate is unsatisfiable for a Draft row, and drop
-  `'draft'` from the deferred allowlist in `classify` so NOT STARTED holds
-  approved plans only. Tests: a Draft plan's head in `waiting-on-you` offers
-  Approve; **no branch or wave row offers it**, including one blocked by an
-  earlier wave; `draft/deferred` lands in `waiting-on-you` for both verdicts;
-  `approved/deferred` is unmoved in `not-started`; `delivered`/`released` stay
-  in `done`; a pulse reporting no phase is unchanged. `fleet.test.ts:1122` is
-  rewritten, carrying the superseded argument and why it was superseded.
+- `bug/the-plan-row-carries-the-plan-decisions` — move both plan-level acts to
+  the plan head and delete their row-level twins. Approve already works there;
+  Commission design needs the `commission` prop threaded to that call site and
+  the same `isDraft(card)` gate. `canCommissionDesign` and the row's
+  `canApprove` are deleted rather than narrowed. In the same wave, `'draft'`
+  leaves the deferred allowlist in `classify` so NOT STARTED holds approved
+  plans only. The branch row keeps everything genuinely branch-level — Start
+  work, Open/Review — and loses only the two plan decisions.
+
+  **Written test-first, and the first run must FAIL.** A control that cannot
+  render is exactly what twelve green browser tests missed: every one asserted
+  the CARD while the row was dead. So the plan-head assertions are written
+  against today's code and watched to fail for the stated reason before
+  anything is deleted; a test that passes before the fix is evidence of
+  nothing.
+
+  Tests: a Draft plan's head in `waiting-on-you` offers Approve **and**
+  Commission design; **no branch or wave row offers either**, including a row
+  blocked by an earlier wave; a Draft row's menu still offers Start work and
+  Open/Review, so the deletion did not empty it; `draft/deferred` lands in
+  `waiting-on-you` for both verdicts; `approved/deferred` is unmoved in
+  `not-started`; `delivered`/`released` stay in `done`; a pulse reporting no
+  phase is unchanged. `fleet.test.ts:1122` is rewritten, carrying the
+  superseded argument and why it was superseded.
 
 ### Started
 
@@ -177,6 +221,21 @@ two lines with no visible effect today; `fleet.test.ts:1122` is rewritten
 carrying both arguments rather than quietly flipped; and the end-to-end walk
 stays a wave of its own, because a plan claiming a path works is only verified
 by walking it.
+
+Interrogated a second time the same day, and it found a second dead control.
+`canCommissionDesign` fails the same way Approve does and one step worse: its
+two clauses contradict each other, so it is satisfied by no row the board can
+build. It was found by evaluating the predicate over every (group, state,
+phase) rather than by reading it — the same method that corrected round one,
+and the reason both rounds changed the plan rather than confirming it.
+
+Three further decisions: Commission design moves to the plan head beside
+Approve rather than being deleted or deferred, since the two are the answers to
+one question; the branch row keeps its genuinely branch-level items, so the
+deletion does not leave an empty menu that opens on nothing; and wave 1 is
+written test-first with the first run required to FAIL, because a control that
+cannot render is precisely what a suite of passing tests failed to notice for
+weeks.
 
 Two waves, ordered by dependency: approved plans must reach NOT STARTED before
 Start work has anything to act on.
