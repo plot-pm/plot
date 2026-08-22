@@ -6,13 +6,14 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-08-22, Jan Wloka, plan-PR #307 merged
 - **Started:** 2026-08-22, Jan Wloka, `feature/a-folded-plan-says-what-it-hides`
 - **Started:** 2026-08-22, Jan Wloka, `feature/a-folded-plan-says-what-it-hides`
+- **Delivered:** 2026-08-22, jwloka, PRs #319
 
 ## Changelog
 

@@ -8,7 +8,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Story:** plot-board
 - **Sprint:**
@@ -22,6 +22,7 @@
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-kind-is-labelled-not-hovered`
 - **Started:** 2026-08-20, Jan Wloka, `bug/a-failure-is-shown-not-dumped`
 - **Started:** 2026-08-20, Jan Wloka, `bug/plans-of-equal-age-order-by-name`
+- **Delivered:** 2026-08-22, jwloka, PRs #280, #287, #288
 
 ## Problem
 
