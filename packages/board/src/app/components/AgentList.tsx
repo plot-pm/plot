@@ -48,7 +48,7 @@ import { agoLabel } from './AgentPanelFacts.js';
 // slots are answered once, in `tuple-row.ts`, for every kind. So a new kind
 // costs a projection and no rendering at all, which is what the deleted three
 // could never do.
-import { splitBranch, tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave, prStatus, stateStatus, workerStatus, tupleAgeText} from '../lib/tuple-row.js';
+import { splitBranch, tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave, prStatus, planPrAggregate, statusTone, stateStatus, workerStatus, tupleAgeText} from '../lib/tuple-row.js';
 // RE-EXPORTED, not redefined. `splitBranch` moved to the module that owns the
 // slot rules when the collapse deleted `BranchName`; the unit suite imports it
 // from here, and a second definition is exactly the drift this wave removed.
@@ -4396,6 +4396,24 @@ function PlanRow({
   // what carries `phase` — and they agree by construction, all being branches
   // of one plan.
   const phase = group.rows[0]?.phase ?? '';
+  // THE FOLD OF ITS BRANCHES' PR STATES — one worst-case word beside the phase.
+  //
+  // DERIVED HERE, from the `group` this component receives, and NOT at either
+  // call site. `PlanRow` has two, and they are asymmetric: the NOT STARTED path
+  // folds `active`/`marked` at the call site, while the `planHeads` path over
+  // WAVE groups passes neither. An aggregate computed the way `marked` is would
+  // land on one kind of plan head and not the other — and a folded wave-grouped
+  // plan is exactly the case this exists for. Both sites already pass `group`;
+  // computing from it here reaches both by construction, which is the property
+  // the split at the call site cannot give. (Adding `marked` to one site and not
+  // the other already cost a fix on 2026-08-22 that rendered nothing.)
+  //
+  // STAYS WHEN EXPANDED, unlike the change mark beside it: a long group scrolls
+  // its head off screen either way, so hiding it removes the fact exactly when
+  // the reader has scrolled past the rows that would restate it. No
+  // `expanded`-dependent behaviour — the rule the change mark's own docstring
+  // calls the shape it should have had.
+  const prFold = planPrAggregate(group.rows.map((r) => r.pr?.state));
   return (
     <TupleRowView
       tuple={(() => {
@@ -4519,6 +4537,33 @@ function PlanRow({
       // phase TRACK; the attribute names the fact, not the cell that happened
       // to print it, so every assertion that reads it keeps an owner.
       statusAttr={phase ? { 'data-phase': phase, title: `Phase: ${phase}` } : undefined}
+      // THE PR FOLD, BESIDE THE PHASE — `statusExtra` adds to slot 5, never
+      // replaces its word. The phase keeps slot 5 by construction: this is a
+      // second element in the same cell, so `tupleFromPlan`'s phase is never at
+      // risk — the defect this must not re-open from the other direction, where
+      // 71 branch rows once printed their plan's phase.
+      //
+      // The WORD carries, colour only reinforces it — the rule `StuckCell`
+      // records failing under colour alone. `conflicts`/`checks failing` take
+      // the actionable rose tone from `statusTone`; `CI running` (pending) takes
+      // an explicit DIMMER slate, marking the difference between *something is
+      // happening* and *do something*. A count rides only where more than one
+      // branch carries the state — a single branch says its own size by being
+      // one row once opened.
+      statusExtra={prFold ? (
+        <span
+          data-plan-pr-fold={prFold.state}
+          data-plan-pr-count={prFold.count > 1 ? prFold.count : undefined}
+          title={`${prFold.count > 1 ? `${prFold.count} branches` : 'A branch'} of this plan: ${prFold.word}`}
+          className={`min-w-0 shrink-0 truncate ${
+            prFold.state === 'pending'
+              ? 'text-slate-400 dark:text-slate-600'
+              : statusTone(prFold.word)
+          }`}
+        >
+          {prFold.word}{prFold.count > 1 ? ` (${prFold.count})` : ''}
+        </span>
+      ) : null}
       aside={
         // THE WAVE SUMMARY — *3 waves, first eligible*. It answers *which slice
         // of this plan* in the plan's own terms, which are the only terms this

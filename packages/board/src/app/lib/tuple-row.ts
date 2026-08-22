@@ -363,6 +363,74 @@ export function prStatus(pr: NonNullable<AgentRow['pr']>): string {
 }
 
 /**
+ * The state a PR object reports, as the wire carries it — `AgentRow.pr.state`.
+ *
+ * Named so the fold below can take a list of them without spelling the enum
+ * twice; `PrStateSchema` in the contract is the one authority for the values.
+ */
+export type PrState = NonNullable<AgentRow['pr']>['state'];
+
+/**
+ * What a FOLDED PLAN says about the PR states beneath it — one worst-case word,
+ * with a count where more than one branch carries it.
+ *
+ * A collapsed plan head shows its phase and nothing about the branches under it,
+ * so a folded group gives a reader no reason to open it even when a PR two rows
+ * down is red. Reported from the live board as *"Wo ist 304?"* — a failing PR
+ * sitting under a plan row that read only `Discovery`. This is that orientation:
+ * the plan is canonical and slot 5 keeps its phase; this rides BESIDE it.
+ *
+ * ## The precedence — `conflicts > failing > pending > (green/quiet)`
+ *
+ * `conflicts` outranks `failing` for the reason `rowKind` already gives it
+ * precedence: no PR resolves a conflict, so the errand is a REBASE and it is the
+ * reader's, where a failing check is the machine's report on work already
+ * pushed. A plan carrying both should send the reader to the harder errand.
+ *
+ * `pending` is included — a running build is not an errand, but *a machine is
+ * working here* is worth a folded reader knowing. The consumer renders it
+ * DIMMER than the two actionable words; this function only reports which word.
+ *
+ * ## What earns NO word — the quiet states, and why they are one set here
+ *
+ * `green`, `none`, `unknown` and `closed` all return `null`: nothing to act on.
+ * A badge on every plan is a badge nobody reads, and *green plans get no badge*
+ * is the decision this enforces. `none`/`unknown` are the host declining to
+ * answer — a row printing its own ignorance in a slot a reader scans has said
+ * nothing, the rule `prStatus` states for `unknown`. `closed` is abandoned
+ * work, not a state a reader chases.
+ *
+ * A branch with NO PR at all contributes no state — a plan of unstarted
+ * branches folds to nothing, which is right: there is no PR errand to hide.
+ *
+ * ## The WORD, not `pr.state`
+ *
+ * It returns `prStatus`'s vocabulary (`conflicts`, `checks failing`, `CI
+ * running`) rather than the raw enum, so slot 5 reads ONE vocabulary whether the
+ * word came from a single branch or a fold of five — the collapse's own argument
+ * for `statusTone` being keyed on the word.
+ */
+export function planPrAggregate(
+  states: readonly (PrState | null | undefined)[],
+): { word: string; count: number; state: PrState } | null {
+  // The order IS the precedence — the first state present in the fold wins, and
+  // its count is how many branches carry exactly it. `green`/`none`/`unknown`/
+  // `closed` are absent from this list on purpose: they earn no word, so a fold
+  // of only those states falls through and returns null.
+  const RANKED: PrState[] = ['conflicts', 'failing', 'pending'];
+  for (const state of RANKED) {
+    const count = states.filter((s) => s === state).length;
+    if (count > 0) {
+      // The WORD from the same table a single-row plan reads, so the fold and a
+      // lone branch say the same thing for the same state. `prStatus` takes a PR
+      // object; only `state` decides the word, so a minimal one suffices.
+      return { word: prStatus({ number: 0, url: '', draft: false, state }), count, state };
+    }
+  }
+  return null;
+}
+
+/**
  * The plan link a row carries, or null where it names no plan.
  *
  * INTERNAL, and the address is the board's own `/plan/<file>` route. `planFile`
