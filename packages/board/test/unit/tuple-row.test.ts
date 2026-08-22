@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   KIND_ICON_PATH,
   prStatus,
+  planPrAggregate,
   KIND_LABEL,
   SESSION_ID_CHARS,
   releaseVersion,
@@ -329,6 +330,70 @@ describe('slot 5 says where a PR stands, and draft is not a state', () => {
     // above and still print a word where there is no answer.
     expect(prStatus({ number: 1, url: 'u', draft: false, state: 'unknown' })).toBe('');
     expect(prStatus({ number: 1, url: 'u', draft: true, state: 'unknown' })).toBe('');
+  });
+});
+
+describe('a folded plan folds its branches PR states into one word', () => {
+  // The DATA half of the fold. Whether the badge stays on both plan-head paths
+  // and stays while expanded is what only a rendered page can settle — see
+  // `test/integration/folded-plan-pr-fold.browser.test.ts`. Everything here is
+  // the precedence and the count, which are pure.
+
+  it('takes the WORST-CASE word, conflicts over failing', () => {
+    // `conflicts` outranks `failing` because no PR resolves a conflict — the
+    // errand is a rebase and it is the reader's — while a failing check is the
+    // machine's report on work already pushed. A plan carrying both sends the
+    // reader to the harder errand.
+    expect(planPrAggregate(['failing', 'conflicts'])?.word).toBe('conflicts');
+    expect(planPrAggregate(['conflicts', 'failing'])?.word).toBe('conflicts');
+    expect(planPrAggregate(['conflicts', 'failing'])?.state).toBe('conflicts');
+  });
+
+  it('orders failing above pending, and pending above the quiet states', () => {
+    expect(planPrAggregate(['pending', 'failing'])?.word).toBe('checks failing');
+    expect(planPrAggregate(['green', 'pending'])?.word).toBe('CI running');
+    expect(planPrAggregate(['pending', 'green', 'none'])?.state).toBe('pending');
+  });
+
+  it('counts only the branches carrying the WINNING state', () => {
+    // The count is how many branches carry exactly the word shown — a plan of
+    // two conflicts and one failing says `conflicts (2)`, not `(3)`: the count
+    // qualifies the errand the badge names, not the size of the fold.
+    const fold = planPrAggregate(['conflicts', 'conflicts', 'failing']);
+    expect(fold?.word).toBe('conflicts');
+    expect(fold?.count).toBe(2);
+  });
+
+  it('reports a count of ONE where a single branch carries the state', () => {
+    // The renderer suppresses `(1)` — a lone branch says its own size by being
+    // one row. The function reports the true count and leaves that to the
+    // consumer, which is the split the brief draws: *a count appears only where
+    // more than one branch is affected*.
+    expect(planPrAggregate(['failing', 'green'])?.count).toBe(1);
+  });
+
+  it('says NOTHING for a plan whose branches are green, quiet, or PR-less', () => {
+    // Green plans get no badge — nothing to act on, and a badge on every row is
+    // a badge nobody reads. `none`/`unknown` are the host declining to answer,
+    // `closed` is abandoned work, and a branch with no PR contributes no state:
+    // a plan of unstarted branches folds to nothing, which is right.
+    expect(planPrAggregate(['green', 'green'])).toBeNull();
+    expect(planPrAggregate(['none', 'unknown', 'closed'])).toBeNull();
+    expect(planPrAggregate([null, undefined])).toBeNull();
+    expect(planPrAggregate([])).toBeNull();
+    // A green plan beside quiet states is still silent — green does not earn a
+    // word even when it is the only thing to say.
+    expect(planPrAggregate(['green', 'none', 'closed'])).toBeNull();
+  });
+
+  it('speaks the SAME word a single-row plan would for that state', () => {
+    // The fold reuses `prStatus`'s vocabulary, so slot 5 reads one language
+    // whether the word came from one branch or five — the carried-over rule
+    // that a state is a WORD, unchanged by aggregation.
+    for (const state of ['conflicts', 'failing', 'pending'] as const) {
+      expect(planPrAggregate([state])?.word)
+        .toBe(prStatus({ number: 0, url: '', draft: false, state }));
+    }
   });
 });
 
