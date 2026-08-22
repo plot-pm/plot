@@ -17,6 +17,7 @@
 #   pr-create --title T [--body B] [--base BR] [--head BR] [--draft]
 #                                 create a PR, print its URL
 #   pr-merge <number> [--squash] [--delete-branch]
+#   pr-ready <number>              take a PR out of draft
 #                                 merge the PR
 #   pr-list [--state open|merged|closed|all] [--limit N] [--rich]
 #                                 JSON lines: {"number":N,"title":"...",
@@ -351,6 +352,24 @@ case "$op" in
       [ "$squash" = 1 ] && args+=(--squash)
       [ "$delbranch" = 1 ] && args+=(--delete-branch)
       bb "${args[@]}"
+    fi
+    ;;
+
+  pr-ready)
+    # TAKE A PR OUT OF DRAFT. One call, and the ONE place that talks to the host
+    # CLI keeps that property — `plot-approve.sh` needs this before it merges,
+    # and reaching for `gh` there would put a second host caller in the estate.
+    #
+    # Bitbucket's support depends on the bb CLI version (see the caveat list at
+    # the top of this file, which already names `--draft`/`--ready`), so a
+    # failure here surfaces as the CLI's own message rather than being
+    # swallowed: the caller must be able to tell *the host refused* from *the
+    # PR is now ready*.
+    num="${1:?pr-ready needs a PR number}"; shift
+    if [ "$be" = "github" ]; then
+      gh pr ready "$num"
+    else
+      bb pr update "$num" --ready
     fi
     ;;
 

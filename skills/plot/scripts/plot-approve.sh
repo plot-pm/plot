@@ -223,10 +223,7 @@ pr_draft=$(printf '%s' "$pr_json" | jq -r '.draft // false' 2>/dev/null)
 # --- refusal 3: the PR ------------------------------------------------------
 case "$pr_state" in
   MERGED) ;;
-  OPEN)
-    if [ "$pr_draft" = "true" ]; then
-      die "plan '$slug' is still a draft PR (#$pr_number). Mark it ready for review first."
-    fi ;;
+  OPEN) ;;
   CLOSED)
     die "the plan PR for '$slug' (#$pr_number) is closed. Reopen it or create a new one." ;;
   NONE|*)
@@ -235,10 +232,27 @@ esac
 
 echo "step: plan $plan_file — phase=$phase review=${review} impl=${impl} pr=#$pr_number($pr_state)"
 
+# --- a DRAFT is taken out of draft, not refused ------------------------------
+#
+# This refused until 2026-08-22 — *"still a draft PR. Mark it ready for review
+# first"* — on the argument the skill states: the approval IS the PR's non-draft
+# state, so approving a draft would approve something declaring itself unfinished.
+#
+# The argument holds between two people and costs the author a detour: they
+# opened the plan, read it, and the one control that should conclude that is
+# refusing. So the gate is not removed, it is PASSED BY THE SAME ACT: taking the
+# PR out of draft is the first half of approving it, and the click that approves
+# is the reader saying they have read.
+#
+# Ordered ready-then-merge because the reverse cannot exist — a draft PR is not
+# mergeable on either host — and stated as its own `step:` line so a caller
+# reading the output can see which half happened if the second one fails.
+
 who="${who_override:-${PLOT_APPROVE_WHO:-$(git config user.name 2>/dev/null || echo plot)}}"
 today=$(date +%Y-%m-%d)
 
 if [ "$dry_run" = 1 ]; then
+  [ "$pr_draft" = "true" ] && echo "step: would mark PR #$pr_number ready for review"
   echo "step: would merge PR #$pr_number"
   echo "step: would flip Phase → Approved and fill Approved: $today, $who, plan-PR #$pr_number merged"
   echo "step: would clear .plot/hold entries for: $(printf '%s' "$plan_branches" | tr '\n' ' ')"
@@ -265,6 +279,21 @@ if [ "$same_branch" = 1 ]; then
 elif [ "$pr_state" = "MERGED" ]; then
   echo "step: PR #$pr_number is already merged — the approval already happened"
 else
+  # OUT OF DRAFT FIRST, where it is one — see the note above refusal 3. Its own
+  # step line, and its own refusal: a `pr-ready` that fails must not be read as
+  # a merge that failed, because the repairs differ (a permission or a CLI too
+  # old, against a conflict or a branch protection).
+  #
+  # Nothing is written before this point, so dying here leaves the estate
+  # exactly as it was found — the same property the merge failure below relies
+  # on, and the reason both refusals say so in the same words.
+  if [ "$pr_draft" = "true" ]; then
+    if bash "$script_dir/plot-host.sh" pr-ready "$pr_number" >/dev/null 2>&1; then
+      echo "step: marked PR #$pr_number ready for review"
+    else
+      die "could not take PR #$pr_number out of draft. Nothing else was written; mark it ready on the host and re-run."
+    fi
+  fi
   if bash "$script_dir/plot-host.sh" pr-merge "$pr_number" --delete-branch >/dev/null 2>&1; then
     merged_report="yes"
     echo "step: merged PR #$pr_number"
