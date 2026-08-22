@@ -212,3 +212,19 @@ and it is precisely the defect `waves-name-themselves` argues from — meta and
 content sharing a line — reproduced inside the plan this one is about to slice.
 The line is de-backticked here; the general fix belongs to that plan.
 
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": false, "implementation": false},
+    "domain": {"rules": false, "workflows": false, "data": false},
+    "ux": {"happyPath": false, "edgeCases": false, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": false
+  },
+  "_note": "Back-filled 2026-08-22: this plan was interrogated once on 2026-08-22 (see ## Notes). The round count is recorded, but the questionHistory could not be reconstructed from prose after the fact, so it is left empty rather than invented."
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
