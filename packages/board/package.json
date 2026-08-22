@@ -57,5 +57,8 @@
     "vite-plugin-singlefile": "^2.3.0",
     "vitest": "^4.1.10",
     "zod": "^4.4.0"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }
