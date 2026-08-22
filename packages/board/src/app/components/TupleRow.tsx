@@ -25,7 +25,10 @@
 // remove.
 import type { MouseEvent, ReactNode } from 'react';
 import type { TupleLink, TupleRow as TupleRowData } from '../lib/tuple-row.js';
-import { splitBranch, KIND_ICON_PATH } from '../lib/tuple-row.js';
+import { splitBranch, KIND_ICON_PATH,
+  LINK_ICON_PATH,
+  statusTone,
+} from '../lib/tuple-row.js';
 import type { RowKind } from '../../contract/schema.js';
 
 /**
@@ -84,12 +87,22 @@ export const TUPLE_TRACKS =
  *     here made every row as tall as a two-line one — measured, a plain row and
  *     a row with a status line both came out at 60px, which would have made
  *     every alignment assertion hold on the defect too.
- *   - **`self-stretch`** takes the row's full height, so the marks centre
- *     against whatever the row grew to. The height comes from the row's
- *     content, never from this cell.
+ *   - **`self-stretch`** takes the row's full height, so the height comes from
+ *     the row's content and never from this cell.
+ *   - **`justify-start`, not `justify-center`.** With `self-stretch` the cell is
+ *     as tall as the row, and centring inside it floats the mark to the middle
+ *     of a row that WRAPPED — measured 2026-08-20, an agent row at 56px against
+ *     37px for the others, its activity dot half a line below the name it
+ *     belongs to. The docstring defended centring as *"the marks centre against
+ *     whatever the row grew to"*, which is right for a row that grew because its
+ *     own content is two lines tall and wrong for one whose slot 4 wrapped: the
+ *     mark marks the ROW, and the row starts at its first line.
+ *   - **`pt-0.5`** so the glyph's box sits on the first line's baseline rather
+ *     than a hair above it. The row is `items-baseline` and this cell is not
+ *     (it is a flex column), so the optical alignment is bought back here.
  */
 export const MARKS_CELL =
-  'relative flex w-full shrink-0 flex-col items-start justify-center gap-1 self-stretch';
+  'relative flex w-full shrink-0 flex-col items-start justify-start gap-1 self-stretch pt-0.5';
 
 /**
  * The VALUE-carrying attribute a link keeps, beyond `data-tuple-link`.
@@ -114,6 +127,37 @@ export const MARKS_CELL =
  */
 function valueAttr(link: TupleLink): Record<string, string> {
   if (link.what === 'branch') return { 'data-branch': link.label };
+  // `wave` qualifies on the same test `branch` does: every `what: 'wave'` link
+  // is a wave, on every kind, with no second thing wearing the value. Today it
+  // has one producer — the wave a blocked wave waits on — and the hook is what
+  // lets a test assert *the blocker is a REFERENCE* rather than matching the
+  // sentence `blocked by Relocated` that this replaced.
+  if (link.what === 'wave') return { 'data-wave-link': link.label };
+  // A PR QUALIFIES ON THE SAME TEST, and the docstring above already said so —
+  // *a `pr` link's identity is its number, which `data-pr-link` marked on the
+  // anchor rather than on the row*. The stamp was missing while the sentence
+  // describing it was not, which is the shape of a hook that used to be
+  // supplied somewhere else.
+  //
+  // It was: the PR number lived on BRANCH rows, which stamp their own hooks at
+  // the call site. A plan with one branch renders a plan head and a WAVE row
+  // carrying that branch — no branch row at all — so the call site left the
+  // path and took the hook with it. Measured: the wave row rendered `pr 157`
+  // as text with `[data-pr-number]` and `[data-pr-link]` both absent.
+  //
+  // TWO HOOKS, and they answer different questions. `data-pr-number` says WHICH
+  // PR and belongs on the element either way — a test asking that should not
+  // have to know whether this one had an address. `data-pr-link` says the
+  // number IS a link, which is a claim about the address and false when there
+  // is none: a PR with no URL renders as TEXT through the branch below, and
+  // *plain text, never a guessed address* is the rule the branch cell follows
+  // for a merged branch.
+  //
+  // So only the identity is answered here, where the address is not in view.
+  // The anchor's own call site adds `data-pr-link`, which is what makes the
+  // pair mean *this is PR 157* and *157 is clickable* rather than one hook
+  // saying both.
+  if (link.what === 'pr') return { 'data-pr-number': link.label };
   // ONLY `branch`, and the omission of `ticket` is deliberate rather than an
   // oversight. `what: 'ticket'` is worn by TWO different things — an issue's
   // number-and-title, and an AGENT's session id — so a hook keyed on it would
@@ -183,11 +227,41 @@ function BranchLabel({ name }: { name: string }) {
   );
 }
 
+/**
+ * What a link ANNOUNCES — the kind of thing, then its name.
+ *
+ * `Pull request 158`, `Branch feature/x`, `Plan a-row-is-a-tuple`, `Wave Shaped`.
+ *
+ * Restoring an accessible name the collapse dropped, and it is an accessibility
+ * loss rather than a test detail. `PrGlyph` carried `aria-label="Pull request"`
+ * beside the number in slot 5; when the PR became an artifact link in slot 4 the
+ * glyph went with it, and the link's accessible name became the bare number —
+ * `158`, which tells a screen-reader user nothing about what it opens. Measured:
+ * 15 browser tests looked for `link, name: "Pull request 158"` and found nothing,
+ * which is what a reader using a screen reader would also have found.
+ *
+ * The `what` word is what SIGHTED readers get from the icon beside the label, so
+ * this is the same two-channel rule slot 2 follows — the label says the kind and
+ * the icon repeats it, neither alone.
+ *
+ * A branch announces its name ALONE, without the word, because `BranchLabel`
+ * folds it into two `aria-hidden` spans and the label is the only thing left to
+ * announce — the reason that case existed before this function did.
+ */
+export function linkLabel(link: TupleLink): string {
+  const kind = link.what === 'pr' ? 'Pull request'
+    : link.what === 'ticket' ? 'Ticket'
+      : link.what === 'worktree' ? 'Worktree'
+        : link.what.charAt(0).toUpperCase() + link.what.slice(1);
+  return link.what === 'branch' ? link.label : `${kind} ${link.label}`;
+}
+
 export function TupleLinkView({
   link,
   showWhat = false,
   onOpenPlan,
   extraAttr,
+  onActivate,
 }: {
   link: TupleLink;
   /** Whether to print what the link points at beside it. */
@@ -204,16 +278,51 @@ export function TupleLinkView({
    * link and the attribute for the same name with no address.
    */
   extraAttr?: { link?: Record<string, string>; text?: Record<string, string> };
+  /**
+   * Makes a name with NO ADDRESS into a control.
+   *
+   * An agent's name is its session id, and the thing it opens is a local panel
+   * rather than a URL — so it cannot be an anchor, and it must not be inert
+   * either. Given this, the hrefless branch below renders a `<button>` instead
+   * of a `<span>`: keyboard-reachable, announced as a control, and still not a
+   * fabricated link.
+   *
+   * Only ever passed for a name, never for an artifact link — an artifact either
+   * has an address or is text.
+   */
+  onActivate?: () => void;
 }) {
   const label = (
     <>
       {showWhat && (
-        <span
+        // THE ICON SAYS WHAT IT POINTS AT, where a 10px uppercase word used to.
+        //
+        // `link.what` is `plan | branch | pr | ticket` — and every one of those
+        // is a `RowKind` with a glyph in `KIND_ICON_PATH` already. So slot 4
+        // borrows the vocabulary slot 3 established rather than keeping a second
+        // one: a reader who learns the fork means *branch* learns it ONCE and
+        // reads it in both columns. `BRANCH` the word and the fork the glyph were
+        // two spellings of one fact, and the word was the one costing a reader
+        // horizontal space on every link of every row.
+        //
+        // `data-tuple-what` is the hook, replacing an assertion on the rendered
+        // word. The TITLE keeps the word, because that is the channel a glyph
+        // cannot be the only carrier of — the same argument slot 2 wins with:
+        // recognition must not DEPEND on decoding a symbol. Slot 2 states the
+        // row's own kind in a word regardless, so the row is never iconography
+        // alone.
+        <svg
           aria-hidden
-          className="shrink-0 text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500"
+          data-tuple-what={link.what}
+          viewBox="0 0 16 16"
+          width="12"
+          height="12"
+          fill="currentColor"
+          className="shrink-0 self-center text-slate-400 dark:text-slate-500"
         >
-          {link.what}
-        </span>
+          <title>{link.what}</title>
+          <path d={LINK_ICON_PATH[link.what]} />
+        </svg>
       )}
       {link.what === 'branch' ? <BranchLabel name={link.label} /> : (
         <span className="min-w-0 truncate">{link.label}</span>
@@ -223,6 +332,25 @@ export function TupleLinkView({
   // NO ADDRESS, so no anchor. `data-tuple-text` is what a test asserts is not
   // an `<a>` — the assertion that a name without a URL stays a name.
   if (!link.href) {
+    // A BUTTON where the name opens something that is not a URL — see
+    // `onActivate`. Still `data-tuple-text`, because the assertion that matters
+    // is *this is not an anchor*: no address was invented, and a test reading
+    // that hook keeps its meaning.
+    if (onActivate) {
+      return (
+        <button
+          type="button"
+          data-tuple-text={link.what}
+          {...valueAttr(link)}
+          {...extraAttr?.text}
+          onClick={(e) => { e.stopPropagation(); onActivate(); }}
+          title={`${link.what}: ${link.label}`}
+          className="flex min-w-0 items-baseline gap-1 text-left text-blue-600 hover:underline dark:text-blue-400"
+        >
+          {label}
+        </button>
+      );
+    }
     return (
       <span
         data-tuple-text={link.what}
@@ -230,7 +358,7 @@ export function TupleLinkView({
         {...extraAttr?.text}
         // The same reason as on the anchor above: a folded branch name is two
         // `aria-hidden` spans, and this is where the unfolded one rides.
-        aria-label={link.what === 'branch' ? link.label : undefined}
+        aria-label={linkLabel(link)}
         title={`${link.what}: ${link.label}`}
         className="flex min-w-0 items-baseline gap-1 text-slate-600 dark:text-slate-300"
       >
@@ -252,6 +380,11 @@ export function TupleLinkView({
     <a
       href={link.href}
       data-tuple-link={link.what}
+      // THE NUMBER IS A LINK — said here and only here, because this branch is
+      // the one with an address. `valueAttr` stamps `data-pr-number` on both
+      // shapes (which PR), and this adds the second half (it is clickable) to
+      // the shape that earned it.
+      {...(link.what === 'pr' ? { 'data-pr-link': link.label } : {})}
       // THE WHOLE NAME, where the label is FOLDED. `BranchLabel` renders two
       // `aria-hidden` spans, so without this a branch link has no accessible
       // name at all — which is worse than the defect the hiding prevents.
@@ -262,7 +395,7 @@ export function TupleLinkView({
       // no host would recognise and one no reader could search for. Hiding the
       // halves fixes that and takes the name with it; the label puts it back,
       // whole, on the element that carries the destination.
-      aria-label={link.what === 'branch' ? link.label : undefined}
+      aria-label={linkLabel(link)}
       {...valueAttr(link)}
       {...extraAttr?.link}
       onClick={handle}
@@ -354,7 +487,7 @@ export function TupleLinkView({
  * 14px, larger than the 13px the old glyphs used, because the icon is the mark a
  * reader finds the row by.
  */
-function KindIcon({ kind }: { kind: RowKind }) {
+function KindIcon({ kind, tone }: { kind: RowKind; tone?: string }) {
   return (
     <svg
       aria-hidden
@@ -363,7 +496,14 @@ function KindIcon({ kind }: { kind: RowKind }) {
       width="14"
       height="14"
       fill="currentColor"
-      className="shrink-0 self-center text-slate-400 dark:text-slate-500"
+      // `tone` COLOURS THE GLYPH where a kind has a variant worth telling apart —
+      // today only a SPIKE wave, which is amber against the ordinary slate.
+      //
+      // Never the only channel: the row also carries the word (`spike` beside the
+      // wave's name), because colour alone fails a reader who cannot see it and
+      // the two-channel rule slot 2 established applies to a variant as much as
+      // to a kind.
+      className={`shrink-0 self-center ${tone ?? 'text-slate-400 dark:text-slate-500'}`}
     >
       <path d={KIND_ICON_PATH[kind]} />
     </svg>
@@ -380,6 +520,8 @@ export function TupleRowView({
   beside = null,
   ageTitle,
   statusExtra = null,
+  onNameClick,
+  iconTone,
   statusAttr,
   nameAttr,
   id,
@@ -441,6 +583,10 @@ export function TupleRowView({
   ageTitle?: string;
   /** What a kind adds beside its status word — a draft badge, a note. */
   statusExtra?: ReactNode;
+  /** Makes slot 3's name a control, where it opens a panel rather than a URL. */
+  onNameClick?: () => void;
+  /** Colours the kind glyph, for a variant worth telling apart — see `KindIcon`. */
+  iconTone?: string;
   /** Attributes for slot 3's name — see `TupleLinkView.extraAttr`. */
   nameAttr?: { link?: Record<string, string>; text?: Record<string, string> };
   /**
@@ -559,8 +705,18 @@ export function TupleRowView({
             the marks track on 2026-08-20 so that track could hold activity
             alone. `gap-1.5` rather than `gap-2`: the icon and the name are one
             unit, not two items in a row. */}
-        <KindIcon kind={tuple.kind} />
-        <TupleLinkView link={tuple.name} onOpenPlan={onOpenPlan} extraAttr={nameAttr} />
+        <KindIcon kind={tuple.kind} tone={iconTone} />
+        <TupleLinkView link={tuple.name} onOpenPlan={onOpenPlan} extraAttr={nameAttr} onActivate={onNameClick} />
+        {/* THE TALLY, beside the name and outside the link. `(3)` says how many
+            rows this head covers — the fact a folded group otherwise withholds.
+            Outside the anchor on purpose: inside it, `linkLabel` would fold the
+            count into the link's accessible name and a reader would hear it as
+            part of the destination. */}
+        {tuple.tally ? (
+          <span className="ml-1.5 font-normal text-slate-400 dark:text-slate-600">
+            {tuple.tally}
+          </span>
+        ) : null}
         {beside}
       </span>
       {/* SLOT 4 — THE ARTIFACT LINKS, zero or more. Each says what it points at,
@@ -598,7 +754,14 @@ export function TupleRowView({
         className="flex min-w-0 items-baseline gap-2 truncate text-xs text-slate-500 dark:text-slate-400"
       >
         {tuple.status && (
-          <span {...statusAttr} className="min-w-0 truncate">{tuple.status}</span>
+          // COLOUR REINFORCES THE WORD, never replaces it — see `statusTone`,
+          // whose palette this restores from the `PrCell` the collapse deleted.
+          <span
+            {...statusAttr}
+            className={`min-w-0 truncate ${statusTone(tuple.status)}`}
+          >
+            {tuple.status}
+          </span>
         )}
         {statusExtra}
       </span>

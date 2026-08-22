@@ -55,6 +55,21 @@ export interface StuckInput {
   /** Commits this machine holds that the remote does not. */
   localAhead: number;
   /**
+   * The plans that claim this branch, where MORE THAN ONE does — otherwise empty.
+   *
+   * Passed in rather than derived, because only the caller walks every plan: this
+   * function is given one branch and cannot see the estate around it.
+   */
+  claimedBy?: readonly string[];
+  /**
+   * The other branches sharing this branch's wave, where the wave holds more than
+   * one — otherwise empty.
+   *
+   * Passed in for the reason `claimedBy` is: only the caller walks the wave, and
+   * this function is given one branch.
+   */
+  waveSiblings?: readonly string[];
+  /**
    * What the host says about the PR, or null where there is none.
    *
    * TWO of the six values mean anything here, and they mean different things.
@@ -63,7 +78,7 @@ export interface StuckInput {
    * evidence*, never *this is broken* — the row states facts and a person
    * concludes. Every other value leaves the branch unstuck.
    */
-  prState?: 'green' | 'pending' | 'failing' | 'none' | 'conflicts' | 'unknown' | null;
+  prState?: 'green' | 'pending' | 'failing' | 'none' | 'conflicts' | 'unknown' | 'closed' | null;
   /** The branch's changed paths — evidence carried onto a `ci-failing` row. */
   changedPaths?: readonly string[];
   /**
@@ -86,8 +101,19 @@ export interface StuckInput {
  * or pushing in place would reach into every other result. Fresh arrays cost
  * nothing here and cannot be aliased.
  */
-function noCiEvidence(): Pick<Stuck, 'changedPaths' | 'failingChecks' | 'runHistory'> {
-  return { changedPaths: [], failingChecks: [], runHistory: [] };
+function noCiEvidence(): Pick<
+  Stuck,
+  'changedPaths' | 'failingChecks' | 'runHistory' | 'claimedBy' | 'waveSiblings'
+> {
+  // `claimedBy: []` rides along here rather than being repeated in four arms:
+  // every state but `double-claimed` has exactly one plan, so an empty list is
+  // the honest answer and stating it once keeps the arms readable.
+  return {
+    changedPaths: [], failingChecks: [], runHistory: [],
+    // Empty on every state but the one it names — stated once here rather than
+    // repeated in five arms.
+    claimedBy: [], waveSiblings: [],
+  };
 }
 
 /**
@@ -152,6 +178,69 @@ export function stuckState(input: StuckInput): Stuck | null {
   // everything" failure in its two purest forms.
   if (state === 'merged' || state === 'deferred') return null;
 
+  // AND A CLOSED PR IS THE THIRD CASE, by this arm's own words: *"work nobody
+  // wants"*. Somebody decided against it, so nothing here is waiting on anybody.
+  //
+  // Measured 2026-08-21 on `opus5-longhorizon-hardening :: Implementation`: three
+  // of its five branches reported `conflict` with real conflicting paths, all on
+  // PRs closed 26 days earlier. The paths are true and the cue is not — nobody is
+  // going to rebase abandoned work, so the row was sending a reader to fix
+  // something no one wants fixed.
+  //
+  // The row still SAYS `closed` in slot 5 and links the PR, which is where the
+  // reader goes to read what happened. What goes is the second line urging an
+  // act.
+  if (input.prState === 'closed') return null;
+
+  // TWO PLANS CLAIM IT — and this comes FIRST, because *order is meaning* and
+  // nothing outranks not knowing which plan governs a branch.
+  //
+  // Every other arm answers *what is wrong with this work*; this one answers
+  // *whose work is it*, and until that is settled a conflict set and a check
+  // rollup are facts about a branch nobody can act on. `plot-dispatch` would
+  // hand an agent one of two briefs with no way to choose.
+  //
+  // Found because the board FLASHED: two rows for one branch share a `rowKey`
+  // (`repo/branch`, no plan), so each pulse one overwrote the other's remembered
+  // `wave`, saw a difference, and lit the change mark — for hours, on a branch
+  // nobody had touched.
+  if ((input.claimedBy?.length ?? 0) > 1) {
+    return {
+      ...noCiEvidence(),
+      state: 'double-claimed',
+      waveSiblings: [],
+      // NAMED, and sorted so the row reads the same on every pulse — the same
+      // stability rule `conflicts` follows one arm down. AFTER the spread, which
+      // supplies `claimedBy: []` for the four states that have one plan.
+      claimedBy: [...input.claimedBy!].sort(),
+      conflicts: [],
+      localAhead: 0,
+    };
+  }
+
+  // A WAVE HOLDING SEVERAL BRANCHES — the plan was never sliced.
+  //
+  // AFTER the double claim (which plan owns this branch at all outranks how that
+  // plan is shaped) and BEFORE the conflict arm, because this is a defect in the
+  // PLAN rather than in the work: the branches cannot be dispatched one-per-wave
+  // as the model expects until somebody slices it, and a conflict inside an
+  // unsliced wave is a symptom of that rather than a separate thing to fix.
+  //
+  // Reported and never repaired: slicing needs NAMES for the new waves, which is
+  // judgement — so it is neither a licensed deterministic repair nor a script to
+  // wrap. See `StuckStateSchema`.
+  if ((input.waveSiblings?.length ?? 0) > 1) {
+    return {
+      ...noCiEvidence(),
+      state: 'unsliced-wave',
+      // SORTED, so the row reads the same on every pulse — the stability rule
+      // `conflicts` follows one arm down.
+      waveSiblings: [...input.waveSiblings!].sort(),
+      conflicts: [],
+      localAhead: 0,
+    };
+  }
+
   // ABSENT IS NOT CLEAN. An unobserved conflict set is empty, exactly like a
   // clean one, so the flag is what separates them — and consulting the list
   // without it would report every branch on an old git as mergeable.
@@ -201,6 +290,10 @@ export function stuckState(input: StuckInput): Stuck | null {
   if (input.prState === 'failing') {
     return {
       state: 'ci-failing',
+      // One plan claims it and its wave is its own, like every state but the two
+      // that name those conditions.
+      claimedBy: [],
+      waveSiblings: [],
       conflicts: [],
       localAhead: 0,
       // THE THREE LINES, AND NO FOURTH. What failed, what the branch touches,

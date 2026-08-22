@@ -75,7 +75,7 @@ const pulse = (branch = BRANCH): FleetPulse => ({
 const rowFor = (repoRoot: string, branch = BRANCH): AgentRow =>
   rowsFromPulse(
     pulse(branch), new Map(), 'plot', QUIET,
-    null, '', null, Date.now(), null, null, null, null, repoRoot,
+    null, '', null, Date.now(), null, null, null, null, null, repoRoot,
   ).find((r) => r.branch === branch)!;
 
 describe('briefState answers three things, not two', () => {
@@ -175,7 +175,7 @@ describe('the row carries whether it can be started', () => {
         }],
       } as unknown as FleetPulse,
       new Map(), 'plot', QUIET,
-      null, '', null, Date.now(), null, null, null, null, root,
+      null, '', null, Date.now(), null, null, null, null, null, root,
     ).find((r) => r.branch === BRANCH)!;
     expect(claimed.brief).toBe('missing');
     // …and the renderer still says nothing, because this row's move is not

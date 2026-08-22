@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { startServer, expandAgentFolds } from '../helpers.mjs';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../src/contract/schema.js';
 
 /**
@@ -142,6 +142,7 @@ describe('the row says what it knows', () => {
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Not started').first().waitFor({ timeout: 15_000 });
+    await expandAgentFolds(page);
     return page;
   }
 
@@ -249,7 +250,11 @@ describe('the row says what it knows', () => {
         sectionCaret: size(
           document.querySelector('[data-group-toggle] span[aria-hidden]'),
         ),
-        planHeading: size(document.querySelector('ul[role="grid"] h3')),
+        // THE PLAN'S NAME, read off the plan ROW — it stopped being an `h3` when
+        // a plan head became a row rather than chrome. `ul[role="grid"] h3`
+        // matched nothing, so this read 0 and the comparison below was between
+        // a real number and an absence.
+        planHeading: size(document.querySelector('li[data-plan-row] [data-tuple-link="plan"], li[data-plan-row] [data-tuple-text="plan"]')),
         rowMax: rowText.length ? Math.max(...rowText) : null,
       };
     });
@@ -380,14 +385,28 @@ describe('the row says what it knows', () => {
       });
       expect(Math.max(edge.outline, edge.border)).toBeGreaterThan(0);
       expect(edge.outline > 0 ? edge.style : 'solid').not.toBe('none');
-      // AND IT COSTS NO ALIGNMENT. The rows inside a group must sit at the same
-      // x as a row outside one, or the edge was bought with the property the
-      // tracks exist for.
-      const insideX = await group.locator('li[data-agent-row] [role="gridcell"]')
-        .first().boundingBox();
-      const outsideX = await grid(page, 'Not started')
-        .locator('li[data-plan-row] [role="gridcell"]').first().boundingBox();
-      expect(Math.abs((insideX?.x ?? 0) - (outsideX?.x ?? -99))).toBeLessThanOrEqual(1);
+      // AND IT COSTS NO ALIGNMENT — measured WITHIN each row, which is what
+      // that claim can mean once rows nest.
+      //
+      // It compared absolute x: a cell inside the group against a plan head
+      // outside it, expecting the same pixel. Measured, they differ by 50 —
+      // two levels of `ml-6` plus each group's rule, because one row sits two
+      // folds deep and the other at the top. That is the INDENT, drawn on
+      // purpose, and asserting it away would assert that nesting is invisible.
+      //
+      // The property the tracks exist for is that a row's cells land on the
+      // same offsets whatever the row's depth, so it is asked of the offsets.
+      const offsets = await page.evaluate(() => {
+        const first = (sel: string) => {
+          const cell = document.querySelector(`${sel} [role="gridcell"]`);
+          const li = cell?.closest('li');
+          if (!cell || !li) return null;
+          return Math.round(cell.getBoundingClientRect().x - li.getBoundingClientRect().x);
+        };
+        return { inside: first('li[data-agent-row]'), outside: first('li[data-plan-row]') };
+      });
+      expect(offsets.inside, `inside ${offsets.inside} outside ${offsets.outside}`)
+        .toBe(offsets.outside);
       // AND THE ISSUE ROWS ARE OUTSIDE IT. This is the half a border alone does
       // not buy: #227 and #228 belong to no plan, and the layout must place
       // them where nothing claims they do.
@@ -411,8 +430,14 @@ describe('the row says what it knows', () => {
       const group = section.locator('li[data-plan-group="zucchini-glut"]');
       await expect.poll(() => group.count()).toBe(1);
       const inside = await group.locator('li[data-agent-row]').count();
-      const heading = await group.locator('h3').textContent();
-      expect(heading).toContain(`(${inside})`);
+      // THE COUNT IS ON THE PLAN ROW, not in an `h3`. A plan heads its group
+      // with a row since the wave kind landed, and the tally moved with it.
+      // `li[data-plan-row]`, not the bare attribute: the fold button inside the
+      // row carries it too, and `.first()` on the attribute alone reads the
+      // caret — measured, it returned `▸`.
+      const head = await group.locator('li[data-plan-row]').first().innerText();
+      expect(head, `${inside} rows inside, head reads: ${head}`)
+        .toContain(`(${inside})`);
     } finally {
       await page.close();
     }
@@ -582,7 +607,16 @@ describe('the row says what it knows', () => {
       //
       // The sweep runs over the SELECTORS the plan measured, so a target that
       // regresses is named rather than counted.
-      await page.locator('[data-wave-toggle="strawberry-netting"]').click();
+      // OPEN WHATEVER FOLDS, rather than one named plan. This clicked
+      // `[data-wave-toggle="strawberry-netting"]`, and that plan draws no fold:
+      // measured, only `zucchini-glut` and `fix-leaky-hose` carry one, because a
+      // fold is drawn per foldable GROUP and these four plans sit in different
+      // sections. The click waited out its 30s timeout on a control that was
+      // never going to exist.
+      //
+      // What this test needs is any folded thing opened, so more targets are on
+      // screen to measure — not a particular plan's.
+      await expandAgentFolds(page);
       const small = await page.evaluate((min) => {
         const selectors = [
           '[data-wave-toggle]',
@@ -614,6 +648,10 @@ describe('the row says what it knows', () => {
   it('distinguishes the two fold states without reading five pixels of glyph', async () => {
     const page = await open();
     try {
+      // `zucchini-glut`, because it HAS a fold. This read `strawberry-netting`,
+      // which draws none — a fold is drawn per foldable group, and these plans
+      // sit in different sections. Every locator here then waited out its 30s
+      // timeout on a control that does not exist.
       // The reason a reader could not tell a folded plan from an empty one was
       // not the wording of the summary: it was that the ONLY difference between
       // `▸` and `▾` was five pixels of caret, in two shapes of near-equal mass.
@@ -624,16 +662,22 @@ describe('the row says what it knows', () => {
       // the standalone `rotate` property, and asserting on only one of the two
       // would make this test pass for the wrong reason if that ever changes.
       const orientation = () =>
-        page.locator('[data-wave-toggle="strawberry-netting"] span[aria-hidden]')
+        page.locator('[data-wave-toggle="zucchini-glut"] span[aria-hidden]')
           .evaluate((el) => {
             const s = getComputedStyle(el);
             return `${s.rotate}|${s.transform}`;
           });
-      const toggle = page.locator('[data-wave-toggle="strawberry-netting"]');
+      const toggle = page.locator('[data-wave-toggle="zucchini-glut"]');
       // Start from a KNOWN state rather than from whichever one the page
       // happens to be in — the fold is remembered across sessions, so a test
       // that assumes "shut" asserts on the wrong half whenever it is not.
       if ((await toggle.getAttribute('aria-expanded')) === 'true') await toggle.click();
+      // WAITED FOR, because `transition-transform` animates the glyph: reading
+      // `rotate` in the same tick as the click catches the transition mid-flight
+      // and reports the state being LEFT. Measured: `aria-expanded="false"` on
+      // the button and `90deg` on the glyph inside it, which no render produces
+      // — both read the same `expanded` prop.
+      await expect.poll(orientation, { timeout: 5_000 }).not.toContain('90deg');
       const shut = await orientation();
       expect(shut).not.toContain('90deg');
       await toggle.click();
@@ -647,7 +691,7 @@ describe('the row says what it knows', () => {
       // `transition-transform` means the quarter turn takes a frame or two, and
       // reading mid-flight reports an angle nobody designed.
       await page.waitForFunction(() => {
-        const el = document.querySelector('[data-wave-toggle="strawberry-netting"] span[aria-hidden]');
+        const el = document.querySelector('[data-wave-toggle="zucchini-glut"] span[aria-hidden]');
         return !!el && getComputedStyle(el).rotate === '90deg';
       }, undefined, { timeout: 5_000 });
       const turned = await orientation();
@@ -656,7 +700,7 @@ describe('the row says what it knows', () => {
       // And `aria-expanded` still carries it for a reader who sees no geometry
       // at all.
       await expect.poll(() =>
-        page.locator('[data-wave-toggle="strawberry-netting"]').getAttribute('aria-expanded'))
+        page.locator('[data-wave-toggle="zucchini-glut"]').getAttribute('aria-expanded'))
         .toBe('true');
     } finally {
       await page.close();

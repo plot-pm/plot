@@ -131,7 +131,30 @@ const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
  * URL already renders as no link. A number large enough to be wrong slowly is
  * better here than a page-walking loop on a 5 s timer.
  */
-const PR_LIMIT = 300;
+/**
+ * How many PRs the board asks the host for, across every state.
+ *
+ * **1000, and 300 was three PRs from silently truncating.** Measured 2026-08-21:
+ * this repo holds **297** PRs, `--state all` returns the newest first, and the
+ * oldest — #49-#55, from July — sat at the very end of a 300-wide window. Opening
+ * four more PRs would have pushed them out, and the symptom is not an error: a
+ * branch simply loses its PR link and its status, reading as though no PR had ever
+ * existed. It was watched happening between two board restarts.
+ *
+ * `plot-host.sh` warns about exactly this in its own header — *"--limit raises the
+ * host CLI's default page of 30, which `--state all` exhausts immediately"* — and
+ * the caution was applied to the CLI's default without being carried through to
+ * the board's own ceiling.
+ *
+ * 1000 buys years at this repo's rate rather than months. The cost is one host
+ * query per PR-refresh cycle, already the whole bill this refresh pays for, and a
+ * larger page does not add a round trip.
+ *
+ * A REAL CEILING, not `Infinity`: an unbounded query against a repo with tens of
+ * thousands of PRs would be a different defect, and the number is what makes the
+ * next reader ask whether it is still enough.
+ */
+const PR_LIMIT = 1000;
 
 /**
  * How many open issues to ask for.
@@ -285,6 +308,8 @@ interface CacheEntry {
   approvedAt: Map<string, number>;
   /** Plan filename per idea branch — see `ideaPlanFiles`. */
   ideaPlans: Map<string, string>;
+  /** The version each release branch would ship — see `releaseVersions`. */
+  versions: Map<string, string>;
   /**
    * What each `waiting` worker asked, by branch — see `workerQuestions`.
    *
@@ -833,6 +858,64 @@ async function ideaPlanFiles(opts: BuildBoardOptions): Promise<Map<string, strin
       .map((l) => l.trim())
       .find((l) => l.endsWith(`${slug}.md`));
     if (hit) found.set(branch, path.basename(hit));
+  }
+  return found;
+}
+
+/**
+ * The version a release branch would ship, read from its own `package.json`.
+ *
+ * **Read, never derived** — see `AgentRow.version` for why that distinction is
+ * the licence for this at all. Changesets consumes the `.changeset/*.md` files
+ * and writes the bumped version into `package.json` **on the release branch**,
+ * so the sum this board refuses to compute has already been computed by the
+ * tool whose job it is. Verified 2026-08-20:
+ * `origin/changeset-release/main:package.json` reads `2.7.0` where `main` reads
+ * `2.6.0`.
+ *
+ * ONE `git show` for the whole pulse, not one per row: release branches are rare
+ * (this estate has exactly one) and the map is built from the refs already in
+ * hand. The scan's cost discipline is the reason — `for-each-ref` earned its
+ * comment for the same trade.
+ *
+ * "" on anything unreadable — a ref that has gone, a repo whose root package
+ * carries no version, malformed JSON. The row then names its PR number, which is
+ * the honest fallback rather than an invented tag: the same rule the board
+ * applies to a missing URL.
+ */
+async function releaseVersions(opts: BuildBoardOptions): Promise<Map<string, string>> {
+  const found = new Map<string, string>();
+  // THE REFS, not the plans — and the first version of this read the plans,
+  // which is why it found nothing on the live board while the mock looked right.
+  //
+  // `changeset-release/main` belongs to NO plan; that is precisely why it reaches
+  // the board through the planless-PR loop. Feeding this function
+  // `plans.flatMap(...waves...branches)` therefore passed a list that could never
+  // contain the one branch it exists to read, and the filter matched nothing.
+  //
+  // The mock HID it: `version` was set there by hand, so the fixture built to
+  // expose this shape was the reason it went unseen. Measured on the live board —
+  // `version: ""` on the only release row.
+  const refs = await run('git',
+    ['for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin/changeset-release/*'],
+    opts.repoRoot).catch(() => '');
+  const branches = refs.split('\n')
+    .map((l) => l.trim().replace(/^origin\//, ''))
+    .filter(Boolean);
+  for (const branch of branches) {
+    // `?? ''` because `run` rejects on a missing ref, and a release branch that
+    // vanished between the ref listing and this read is a race rather than a
+    // defect — it reads as *no version*, which is what the row then says.
+    const raw = await run('git', ['show', `origin/${branch}:package.json`], opts.repoRoot)
+      .catch(() => '');
+    if (!raw) continue;
+    try {
+      const version = (JSON.parse(raw) as { version?: unknown }).version;
+      if (typeof version === 'string' && version) found.set(branch, version);
+    } catch {
+      // Malformed JSON on a release branch is not this board's problem to
+      // report, and a partially-parsed version would be worse than none.
+    }
   }
   return found;
 }
@@ -1795,6 +1878,10 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // that one. Two clocks, one dependency: the same shape that pinned the
     // countdown at zero earlier today.
     entry.ideaPlans = await ideaPlanFiles(opts);
+    // THE RELEASE VERSION, from the release branch's own `package.json`. From
+    // the REFS for the reason stated one line up: the PR map is on its own
+    // timer and is still null at the first git refresh.
+    entry.versions = await releaseVersions(opts);
     // WHAT THE WAITING WORKERS ASKED, read here and nowhere else.
     //
     // After `entry.pulse` is assigned, because the pulse is what says WHICH
@@ -1876,6 +1963,7 @@ export function freshCacheEntry(): CacheEntry {
     terminal: '',
     approvedAt: new Map(),
     ideaPlans: new Map(),
+    versions: new Map(),
     questions: new Map(),
     // `unsupported` before the first lookup, never `answered`: a board that
     // has not asked must not render an empty inbox as a clear one.
@@ -2553,6 +2641,12 @@ function classifyGroup(
     // been the author's errand — and a conflict is the strongest possible
     // version of that errand. Adding a draft exemption here would move rows
     // this change is not about, in the direction of saying less.
+    // NO `CLOSED` ARM HERE, and the reason is one screen up: *"A merged or
+    // declined PR must NOT reach `classify` by head: it would answer for a
+    // branch whose git state has already answered."* The `byHead` map is
+    // open-only, so a closed PR never arrives — an arm for it would be dead code.
+    // I wrote one on 2026-08-21 before reading that line; `prState` is where the
+    // closed case belongs, and it is handled there.
     if (pr.mergeable === 'conflicting') {
       return { group: 'waiting-on-you', note: withNote(`PR #${pr.number}, conflicts`, note) };
     }
@@ -3351,7 +3445,26 @@ export function draftNote(pr: PrRecord): string {
  * `AgentPr` states: a draft has CI like anything else, and answering both
  * questions with one value is what kept WAITING ON A MACHINE empty.
  */
-export function prState(pr: PrRecord): 'green' | 'pending' | 'failing' | 'none' | 'conflicts' | 'unknown' {
+export function prState(pr: PrRecord): 'green' | 'pending' | 'failing' | 'none' | 'conflicts' | 'unknown' | 'closed' {
+  // CLOSED OUTRANKS EVERY CHECK, and it has to come first.
+  //
+  // A closed PR is ABANDONED work — somebody decided against it. Its checks are
+  // whatever they were when it was closed, and reporting `green` about it says
+  // *this is ready* when the truth is *this was given up*.
+  //
+  // Measured on the live board 2026-08-21: PRs #51-#55, all CLOSED as drafts 26
+  // days ago, rendered `green` + `draft` on five rows — the board reading *five
+  // reviews are waiting on you* about a wave that was deliberately dropped.
+  //
+  // They reach a row at all because `prsByHead` keeps finished PRs on purpose:
+  // `prOutranks` states *"MERGED IS NOT RANKED ABOVE CLOSED … both are finished,
+  // both are worth linking"*. That is right about the LINK — the number is still
+  // where you read what happened — and it was silently also deciding the STATUS.
+  //
+  // `merged` is deliberately NOT given a state here: a merged PR's row is already
+  // `merged` via the branch state, and the two vocabularies would then disagree
+  // about the same row.
+  if (pr.state === 'CLOSED') return 'closed';
   if (pr.mergeable === 'conflicting') return 'conflicts';
   // BELOW `conflicting`, never above it: a host that knows the branch conflicts
   // must still say so, and reordering these two lines loses the cause.
@@ -3420,6 +3533,20 @@ export function prOutranks(candidate: PrRecord, held: PrRecord): boolean {
 export const RELEASE_BRANCH = /^changeset-release\//;
 
 /**
+ * The branch `/plot-idea` cuts for a plan under review — `idea/<slug>`.
+ *
+ * A CONVENTION PLOT WRITES, which is what makes reading it sound rather than a
+ * guess: the same argument the row-building site makes when it recovers the plan
+ * slug from this name. The prefix is configurable per repo (`Branch prefixes` in
+ * `## Plot Config`), and `idea/` is the default every Plot repo starts from —
+ * a repo that renames it loses the mark and gets a `pr` row, which is the
+ * pre-2026-08-20 behaviour rather than a wrong answer.
+ *
+ * Exported for test.
+ */
+export const IDEA_BRANCH = /^idea\//;
+
+/**
  * WHICH OF THE SEVEN a row is — the judgement `AgentRow.kind` carries.
  *
  * Made HERE because this is where all the facts are in hand at once. See
@@ -3430,6 +3557,17 @@ export const RELEASE_BRANCH = /^changeset-release\//;
  *   1. **A release is a release**, whatever else is true of it. It is the one
  *      row nobody should merge by reflex, and the mark exists to stop that — so
  *      it cannot be outranked by the PR arm that would otherwise claim it.
+ *   1b. **An `idea/` branch's PR is a `plan`**, for the same reason and by the
+ *      same test: what the reader is deciding about is the PLAN, not the code.
+ *      Technically it is a pull request — and that is exactly why the mark is
+ *      needed, since without it a plan awaiting APPROVAL renders as one more
+ *      open PR awaiting review, and the two ask for different acts. Merging it
+ *      is `plot-approve.sh`'s job, which takes a plan and no branch.
+ *
+ *      The branch name is the whole detection, and it is a convention **Plot
+ *      itself writes** (`/plot-idea` names the branch after the plan's slug) —
+ *      not a guess about one, which is the argument the row-building site one
+ *      screen down already makes for reading the slug out of the same name.
  *   2. **A merge conflict makes it a `branch`**, even with an open PR, because
  *      no PR resolves a conflict: the reader has to go to the branch and rebase.
  *      This is the rule `the-row-leads-with-its-subject` settled, applied here
@@ -3442,13 +3580,115 @@ export const RELEASE_BRANCH = /^changeset-release\//;
  * a merged branch whose PR has gone. `branch` is the fallback rather than a
  * fourth arm, because a row with no PR has nothing else it could be about.
  *
- * `build`, `agent`, `plan` and `ticket` are NOT decided here. A build and an
- * agent have no row yet; a plan row and a ticket row are built elsewhere and
- * each says its own kind at its own site, which is the same rule — the kind is
- * stated where the row is created.
+ * `build`, `agent` and `ticket` are NOT decided here — each is built elsewhere
+ * and says its own kind at its own site, which is the same rule: the kind is
+ * stated where the row is created. `plan` used to be in that list and now has
+ * one arm here, because an idea branch's PR is a row this loop DOES build and
+ * the fact that identifies it (the branch name) is in hand at this site.
  *
  * Exported for test.
  */
+/**
+ * WHAT A BRANCH CARRIES — the facts that decide what its row is about.
+ *
+ * ## The branch abstraction
+ *
+ * The operator's rule, 2026-08-21: *"the branch is carrying the information, but
+ * we should only see a branch row if the branch does not carry a wave, and the
+ * branch does not carry a draft plan, and the branch does not have a PR, and the
+ * branch is not a release branch. These are distinct tests."*
+ *
+ * So a branch row is the FALLBACK, reached by answering no four times — and each
+ * test is a property of the branch, named here rather than spelled as a
+ * condition at a call site. `carriesWave` and `carriesDraftPlan` are the two that
+ * were previously implicit: the wave test lived in the CLIENT (`waveGroupsFor`
+ * grouping rows per section), and the draft-plan test was an inline regex.
+ *
+ * Splitting the decision across server and client is what cost tonight: a
+ * wave-grouped branch lost its plan link, its stuck cell and its accessible name
+ * one at a time, because the client was deciding a kind the server did not know
+ * about. `RowKindSchema` states the rule this restores — the kind is the server's
+ * judgement and must not be remade in the renderer.
+ */
+export interface BranchFacts {
+  /** The ref's short name — `feature/x`, `idea/y`, `changeset-release/main`. */
+  branch: string;
+  /** Whether an open PR names it. NOT what condition the PR is in. */
+  hasPr: boolean;
+  /** Whether the SCAN found a conflict — never *whether one was looked for*. */
+  conflicts: boolean;
+  /** The wave it belongs to, or "" — a name only, never the test for one. */
+  wave: string;
+  /**
+   * The plan this branch belongs to, or "" where none names it.
+   *
+   * THE TEST FOR A WAVE, and the wave's own name is not. A wave is the unit a
+   * plan is cut into, so a branch no plan names cannot be in one whatever the
+   * wave field says.
+   */
+  plan: string;
+}
+
+/** Is this the branch changesets cuts for a release? */
+export function isReleaseBranch(f: Pick<BranchFacts, 'branch'>): boolean {
+  return RELEASE_BRANCH.test(f.branch);
+}
+
+/**
+ * Does it carry a plan?
+ *
+ * An `idea/<slug>` branch — `/plot-idea` names the branch after the plan's own
+ * slug, so the prefix IS the statement that this branch carries a plan.
+ *
+ * **THE PR WAS REQUIRED UNTIL 2026-08-21**, on the reasoning that *a plan is not
+ * under review until something asks for the review*. That reads the kind as a
+ * phase, and it is not: the operator's rule is *"Ein plan Branch (idea/) mit oder
+ * ohne PR ist ein PLAN"*. A plan written and not yet opened for review is still a
+ * plan, and calling it a bare branch is exactly the confusion the kind exists to
+ * remove — the reader is told *a name somebody pushed* about the one row that is
+ * a document waiting for them.
+ *
+ * Where it is in its lifecycle belongs to the row's PHASE and its status, which
+ * carry Draft, Approved and the rest. The kind says what the row IS; the status
+ * says where it has got to. Same split as `release`, whose arm has always read
+ * the ref name alone.
+ */
+export function carriesDraftPlan(f: Pick<BranchFacts, 'branch'>): boolean {
+  return IDEA_BRANCH.test(f.branch);
+}
+
+/**
+ * Does it belong to a wave — that is, does a plan name it?
+ *
+ * **THE PLAN IS THE TEST, and it replaced the wave's NAME on 2026-08-21.** This
+ * read `wave !== UNNAMED_WAVE`, on the reasoning that *a wave with no name
+ * cannot head a row, so a branch in one is just a branch*. That was true while a
+ * wave was a heading. It is not true of a carrier: `MANIFESTO.md` states *"a plan
+ * with no subheadings is one wave"*, so a plan nobody cut into `### ` sections
+ * still has exactly one wave — an unnamed one — and its branch is that wave's
+ * work.
+ *
+ * Measured when the operator caught it on the live board: a merged branch under
+ * plan `the-no-ref-arm-asks-once-too`, with PR #255, rendering as `BRANCH`. Its
+ * plan carries no `### ` heading, so its wave parsed as `(unnamed)` and the arm
+ * refused it. 23 of this repo's 83 plans with a `## Branches` section have no
+ * named wave — a template rule (*"EVERY wave gets a `### <Name>` heading"*) with
+ * no gate behind it, violated 27% of the time.
+ *
+ * The operator's two rules settle both halves:
+ *
+ *   *"Ein branch der zu keinem Plan gehört ist keine WAVE"* — no plan, no wave.
+ *   *"Ein PR der einen Branch hat der zu keinem Plan gehört ist ein PR"* — and
+ *   what such a row IS instead is decided by the arm below this one.
+ *
+ * So the unnamed wave is a naming defect in the plan file, repaired by
+ * `/plot-reslice`, and never a reason for the board to call a plan's work a bare
+ * branch.
+ */
+export function carriesWave(f: Pick<BranchFacts, 'plan'>): boolean {
+  return Boolean(f.plan);
+}
+
 export function rowKind(
   branch: string,
   /**
@@ -3474,10 +3714,99 @@ export function rowKind(
    * has produced no evidence for the branch arm.
    */
   conflicts: boolean,
+  /**
+   * The PLAN this branch belongs to, or "" — the test for a wave.
+   *
+   * It took the wave's NAME until 2026-08-21, and a name cannot answer the
+   * question: a plan with no `### ` heading has one unnamed wave, and its branch
+   * is that wave's work. `carriesWave` states the operator's rule in full — no
+   * plan, no wave.
+   *
+   * Last in the parameter list because it is the newest, so every existing caller
+   * is unchanged and a caller that says nothing about a plan gets the behaviour
+   * it had.
+   */
+  plan = '',
 ): RowKind {
-  if (RELEASE_BRANCH.test(branch)) return 'release';
+  // ## A BRANCH ROW IS THE FALLBACK, and it takes four distinct negatives
+  //
+  // The operator's rule, 2026-08-21: *"we should only see a branch row if the
+  // branch does not carry a wave, and the branch does not carry a draft plan, and
+  // the branch does not have a PR, and the branch is not a release branch. These
+  // are distinct tests."*
+  //
+  // Each arm below is one of those tests, in the order a stronger claim outranks
+  // a weaker one. Everything that answers no to all four is a branch — a name
+  // somebody pushed and nothing else is true of yet.
+  //
+  // **The WAVE test was being made in the CLIENT** until now, by `waveGroupsFor`
+  // grouping rows per section. That split the one decision across two places, and
+  // the client's half could not see what the server had decided — which is why a
+  // wave-grouped branch lost its plan link, its stuck cell and its accessible
+  // name one at a time. `RowKindSchema` says this judgement is the server's and
+  // must not be remade in the renderer; the wave arm belongs here with the rest.
+  if (isReleaseBranch({ branch })) return 'release';
+  // A PLAN AWAITING APPROVAL, not code awaiting review — see arm 1b. Ordered
+  // ABOVE the conflict arm on purpose: a conflicting plan PR is still a plan,
+  // and the act it wants is approval rather than a rebase. It is BELOW the
+  // release arm only because the two cannot both match.
+  if (carriesDraftPlan({ branch })) return 'plan';
+  // A RUN IN PROGRESS IS A BUILD, and this arm is why the `build` kind existed
+  // for weeks with nothing ever assigned to it — `tupleFromBuild` was written,
+  // tested, and unreachable, because this function's own docstring said *"a build
+  // and an agent have no row yet"* while `classify` was already routing these
+  // rows to WAITING ON A MACHINE.
+  //
+  // The result was a section whose subject is *what is a machine doing* holding
+  // a row labelled `PR`, with a note reading `CI is running for PR #304`.
+  // Reported from a screenshot; the section knew, the kind did not.
+  //
+  // A CONFLICT MAKES IT A BRANCH even with an open PR, because no PR resolves a
+  // conflict: the reader has to go to the branch and rebase. This is the one arm
+  // that answers *yes* to a later test and still returns `branch`, and it is
+  // deliberate — see the rule `the-row-leads-with-its-subject` settled.
   if (conflicts) return 'branch';
-  return hasPr ? 'pr' : 'branch';
+  // ## THE WAVE IS WHAT CARRIES THE PLAN, so it outranks what happens to it
+  //
+  // This arm was LAST until 2026-08-21, on the argument that a wave is *"the
+  // weakest claim"* because it only says *which slice of a plan* a branch belongs
+  // to. That was a mis-classification rather than a mis-ranking, and the method
+  // this board serves had already written down why.
+  //
+  // *Ein Team, ein Plan, viele Agenten* — the published factsheet — names the
+  // defect in the row: *"Sie sind nicht der Gegenstand, sie sind das Vehikel …
+  // Wer die Zeile mit dem Branchnamen führt, zeigt allen dreien dasselbe
+  // Gesicht."* Its table of what a person waits on keeps subject and vehicle in
+  // separate columns: a WAVE is the subject, and it *"fährt auf einem Branch mit
+  // Pull Request und eigenem Worktree auf"*. `rowKind` had the two in one column
+  // and let the vehicle win.
+  //
+  // The model says the same: `plan → wave → branch`. A wave is what a plan is cut
+  // into, what `plot-dispatch` claims, what a worktree exists for, and what must
+  // finish before the next one opens. A PR, a run, a review are EVENTS at a
+  // branch while its wave is carried out — each comes and goes without the wave
+  // changing, and the wave cannot change without the plan's progress changing.
+  // So the row is about the carrier; the events are its status, links and notes.
+  //
+  // The conflict arm above is the deliberate exception, and the same table argues
+  // for it: *"Branch in Flug — fährt auf sich selbst — das Vehikel ist das
+  // Problem"*. There the vehicle IS the subject.
+  //
+  // Two measurements corroborate and decide nothing, which is the right weight
+  // for them: 67 of 76 rows on this repo's board are already `wave` and `build`
+  // is 0 of 76, rendering in `mock-fleet.ts` and nowhere else. The count once
+  // cited FOR `pr` inverts on reading — *67 of 80 rows carry BOTH a branch and a
+  // PR* — so `pr` separated almost nothing.
+  //
+  // This is also the structural fix for a defect the `build` arm was patching.
+  // That arm was added because WAITING ON A MACHINE showed a row labelled `PR`
+  // whose note read *"CI is running for PR #304"* — the section knew and the kind
+  // did not. Making the kind track the machine was one way to close the gap;
+  // making the kind the WAVE closes it permanently, because a wave row cannot
+  // contradict a section that is asking what is happening to a wave.
+  if (carriesWave({ plan })) return 'wave';
+  if (hasPr) return 'pr';
+  return 'branch';
 }
 
 /** The PR fields a row carries: the link, and the two independent conditions. */
@@ -3631,6 +3960,36 @@ export function briefState(repoRoot: string, branch: string): BriefState {
   }
 }
 
+/**
+ * Which plans claim each branch — the index that finds a double claim.
+ *
+ * Built once per pulse over the whole estate, because the question is about the
+ * ESTATE and not about any one plan: a branch listed in two plans' `## Branches`
+ * sections looks perfectly ordinary from inside either one.
+ *
+ * Only collisions are kept. The common answer is one plan, and a map holding
+ * every branch would be a map nobody reads — the same rule `stuckState` follows
+ * in returning null for a branch that is not stuck.
+ */
+export function doubleClaimedBranches(pulse: FleetPulse): Map<string, string[]> {
+  const byBranch = new Map<string, Set<string>>();
+  for (const plan of pulse.plans) {
+    const slug = plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
+    for (const wave of plan.waves) {
+      for (const b of wave.branches) {
+        const seen = byBranch.get(b.branch) ?? new Set<string>();
+        seen.add(slug);
+        byBranch.set(b.branch, seen);
+      }
+    }
+  }
+  const collisions = new Map<string, string[]>();
+  for (const [branch, plans] of byBranch) {
+    if (plans.size > 1) collisions.set(branch, [...plans].sort());
+  }
+  return collisions;
+}
+
 export function rowsFromPulse(
   pulse: FleetPulse,
   ages: Map<string, number | null>,
@@ -3641,6 +4000,13 @@ export function rowsFromPulse(
   approvedAt?: Map<string, number> | null,
   now = Date.now(),
   ideaPlans?: Map<string, string> | null,
+  /**
+   * The version each release branch would ship, by branch — see
+   * `releaseVersions`. Threaded like `ideaPlans` and for the same reason: this
+   * function is SYNCHRONOUS and cannot read git, so anything from a ref arrives
+   * as a map the caller built.
+   */
+  versions?: Map<string, string> | null,
   /**
    * Recent CI runs per branch, for the failing ones — see `refreshRuns`. Last in
    * the parameter list because it is the newest, so every existing caller is
@@ -3697,6 +4063,9 @@ export function rowsFromPulse(
   repoRoot = '',
 ): AgentRow[] {
   const rows: AgentRow[] = [];
+  // ONE PASS OVER THE ESTATE, before the plan loop — a double claim cannot be
+  // seen from inside either plan that makes it.
+  const doubleClaimed = doubleClaimedBranches(pulse);
   for (const plan of pulse.plans) {
     // WHICH earlier wave is blocking — the plan's FIRST incomplete one, read
     // once per plan rather than searched per row.
@@ -3832,11 +4201,33 @@ export function rowsFromPulse(
           kind: rowKind(
             b.branch,
             pr !== null,
-            b.conflicts_known && b.conflicts.length > 0,
+            // A CLOSED PR'S CONFLICT DOES NOT MAKE IT A BRANCH.
+            //
+            // The conflict arm exists because *no PR resolves a conflict — the
+            // reader has to go to the branch and rebase*. Nobody rebases
+            // abandoned work, so on a closed PR the arm sends the row to a kind
+            // that promises an act no one will perform.
+            //
+            // `stuckState` reaches the same conclusion one file over and drops
+            // the cue; this keeps the KIND agreeing with it, which is the rule
+            // `classify` states — *the row's word and its sentence must not be
+            // able to disagree*.
+            b.conflicts_known && b.conflicts.length > 0 && pr?.state !== 'CLOSED',
+            // THE PLAN, which is what says this branch is a wave's work. Not the
+            // wave's NAME: a plan with no `### ` heading has one unnamed wave and
+            // its branch belongs to it all the same. Passing the name here sent a
+            // merged branch under a real plan to `BRANCH`, which is the defect
+            // this replaced.
+            plan.file,
           ),
           branch: b.branch,
           plan: plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, ''),
           planFile: plan.file,
+          // NEVER A RELEASE, so never a version: this loop walks the branches a
+          // PLAN names, and `changeset-release/*` belongs to no plan — it
+          // reaches the board through the planless-PR loop below, which is where
+          // the version is read.
+          version: '',
           wave: wave.name || '(unnamed)',
           state: b.state,
           // WHY it was deferred, carried through from the plan's annotation.
@@ -3907,6 +4298,9 @@ export function rowsFromPulse(
           // hours as though someone were writing to it. Three fields, two
           // meanings, and the row renders them as two marks.
           localDirty: b.local_dirty,
+          // HOW LONG SINCE THE LAST WRITE, which is what makes a write an EVENT
+          // rather than a standing condition — see `changed_ago_seconds`.
+          changedAgo: b.changed_ago_seconds ?? null,
           localLocked: b.local_locked,
           localAhead: b.local_ahead,
           // WHAT THIS ROW IS WAITING FOR, as a value — computed from the same
@@ -3972,6 +4366,16 @@ export function rowsFromPulse(
             changedPaths: b.changed_paths,
             failingChecks: pr?.failing_checks ?? [],
             runHistory: runs?.get(b.branch) ?? [],
+            // TWO PLANS CLAIMING ONE BRANCH — from the estate-wide index, since
+            // the collision is invisible from inside either plan.
+            claimedBy: doubleClaimed.get(b.branch) ?? [],
+            // AND THE WAVE'S OTHER BRANCHES, where it holds more than one. A wave
+            // is carried out in ONE branch and one worktree, so several means the
+            // plan was never sliced after its spike. Read from the wave in hand —
+            // no index needed, unlike the double claim.
+            waveSiblings: wave.branches.length > 1
+              ? wave.branches.map((x) => x.branch)
+              : [],
           }),
           // WHAT THE MACHINE DID ABOUT IT — beside the state, never folded into
           // it. A silent automatic write is indistinguishable from a defect, so
@@ -4101,6 +4505,9 @@ export function rowsFromPulse(
       // now, so the caution is obsolete — and leaving it in cost the grouped
       // rows their only way to open the plan.
       planFile: ideaPlans?.get(branch) ?? '',
+      // THE VERSION a release branch would ship, read from its own
+      // `package.json` — "" on every other branch. See `releaseVersions`.
+      version: versions?.get(branch) ?? '',
       wave: '',
       state: 'wip',
       // No plan, so no deferral and nothing to explain.
@@ -4134,6 +4541,10 @@ export function rowsFromPulse(
       // FALSE` the row simply carries no activity marker. Guessing one from the
       // PR's age would invent an observation this machine never made.
       localDirty: false,
+      // NO WORKTREE, so no write to time. These rows reach the board from the
+      // host's PR list rather than from a checkout — the same reason
+      // `localDirty` is false one line up.
+      changedAgo: null,
       localLocked: false,
       // 0 here means UNOBSERVED, exactly as `false` does above — this row was
       // built from the PR map, so no worktree was ever inspected for it. The
@@ -4237,7 +4648,8 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
   const ageSeconds = entry.at === null ? 0 : Math.round((now - entry.at) / 1000);
   const rows = entry.pulse
     ? rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, entry.prs,
-      entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans, entry.runs,
+      entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans, entry.versions,
+      entry.runs,
       // The root, so each row can be asked whether its brief exists. Read HERE
       // on the render clock rather than carried on the pulse: the check is one
       // `existsSync` and a brief written between two scans is visible on the

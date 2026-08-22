@@ -3,8 +3,6 @@ import {
   stuckWord,
   stuckEvidence,
   offersAction,
-  showsCue,
-  actionReachable,
   changedFilesLabel,
   offersChangedFiles,
 } from '../../src/app/components/AgentList.js';
@@ -33,6 +31,15 @@ const stuck = (over: Partial<Stuck> = {}): Stuck => ({
   changedPaths: [],
   failingChecks: [],
   runHistory: [],
+  // `double-claimed` names the plans, and this default is what the state-sweep
+  // below renders when it reaches the fifth state — the sweep whose comment says
+  // *"so a fifth one cannot slip past"*, and which duly caught it.
+  claimedBy: [],
+  // `unsliced-wave` names the entangled branches; the state-sweep below renders
+  // this default when it reaches the sixth state — the sweep whose comment says
+  // *"so a fifth one cannot slip past"*, and which caught the fifth and the sixth
+  // in turn.
+  waveSiblings: [],
   ...over,
 });
 
@@ -288,98 +295,3 @@ describe('offersAction — only two of the four', () => {
   });
 });
 
-describe('showsCue — motion marks an unanswered request', () => {
-  // `showsCue` takes REACHABILITY rather than a state, because a state that
-  // usually offers an action is not the same claim as a row that actually does
-  // — see `actionReachable` and the suite below it. These helpers say which row
-  // each assertion is about, and keep every claim this block already made.
-  const CARD = {} as Card;
-  const DISPATCH = {} as DispatchInfo;
-  const reachable = (state: StuckState) =>
-    actionReachable(
-      stuck({ state, runHistory: [{ workflow: 'CI', conclusion: 'failure', startedAt: '', url: 'https://run' }] }),
-      CARD,
-      DISPATCH,
-    );
-
-  it('shows no cue where no action is offered', () => {
-    // A cue on every row makes the stuck ones invisible, and a branch with
-    // nothing to offer has made no request.
-    expect(showsCue(reachable('unpushed'), false)).toBe(false);
-    expect(showsCue(reachable('artifact-conflict'), false)).toBe(false);
-  });
-
-  it('shows the cue on a row with a waiting action', () => {
-    expect(showsCue(reachable('conflict'), false)).toBe(true);
-    expect(showsCue(reachable('ci-failing'), false)).toBe(true);
-  });
-
-  it('clears the cue when the action is TAKEN, not when the branch unsticks', () => {
-    // The request has been answered; whether the answer worked is what the
-    // row's other marks report. A cue tied to the branch's own recovery keeps
-    // moving through the whole repair, at the reader who already did the one
-    // thing it was asking for — and it passes every "the cue animates"
-    // assertion while doing so.
-    expect(showsCue(reachable('conflict'), true)).toBe(false);
-    expect(showsCue(reachable('ci-failing'), true)).toBe(false);
-  });
-
-  it('never lets a taken action revive a state that offers none', () => {
-    // Both bounds hold independently: taking is not what suppresses `unpushed`.
-    expect(showsCue(reachable('unpushed'), true)).toBe(false);
-  });
-});
-
-describe('actionReachable — the ROW, not the state', () => {
-  const CARD = {} as Card;
-  const DISPATCH = {} as DispatchInfo;
-  const withRun = (state: StuckState) => stuck({
-    state,
-    runHistory: [{ workflow: 'CI', conclusion: 'failure', startedAt: '', url: 'https://run' }],
-  });
-
-  // THE DEFECT THIS EXISTS AGAINST, found in a screenshot of the running board:
-  // the amber `animate-ping` dot sat immediately before the words *no dispatch
-  // available for this plan*. Motion marks an UNANSWERED REQUEST, and where
-  // nothing can be asked there is no request — so the cue must follow what the
-  // row can actually ask, not what its state usually offers. An implementation
-  // keyed on the state alone passes every assertion in the block above.
-  it('a conflict row with no dispatch shows the words and NO cue', () => {
-    expect(actionReachable(stuck({ state: 'conflict' }), null, DISPATCH)).toBe(false);
-    expect(actionReachable(stuck({ state: 'conflict' }), CARD, undefined)).toBe(false);
-    expect(actionReachable(stuck({ state: 'conflict' }), null, undefined)).toBe(false);
-    // And therefore no cue, which is the assertion that would have caught it.
-    expect(showsCue(actionReachable(stuck({ state: 'conflict' }), null, DISPATCH), false))
-      .toBe(false);
-  });
-
-  it('a failing-CI row with no run URL shows the words and NO cue', () => {
-    // `[]` is *no run listing available* (Bitbucket has none), never *this
-    // branch has never failed* — the row says so in words, and there is no
-    // address to navigate to.
-    const noUrl = stuck({ state: 'ci-failing', runHistory: [] });
-    expect(actionReachable(noUrl, CARD, DISPATCH)).toBe(false);
-    expect(showsCue(actionReachable(noUrl, CARD, DISPATCH), false)).toBe(false);
-  });
-
-  it('still reaches the action where the row really offers one', () => {
-    expect(actionReachable(withRun('conflict'), CARD, DISPATCH)).toBe(true);
-    expect(actionReachable(withRun('ci-failing'), CARD, DISPATCH)).toBe(true);
-  });
-
-  // A REFUSAL IS NOT AN ABSENCE, and this is the half that must not regress.
-  // Over a non-localhost binding the row still has a card and a dispatch
-  // verdict: `StartWorkButton` renders disabled and NAMES the reason, so the
-  // request is real and still unanswered. Hiding the cue there would let a
-  // phone report a healthy fleet while branches sit stuck.
-  it('keeps the cue where the action is present but REFUSED', () => {
-    const refusing = { available: false, reason: 'bound to 0.0.0.0' } as unknown as DispatchInfo;
-    expect(actionReachable(withRun('conflict'), CARD, refusing)).toBe(true);
-    expect(showsCue(actionReachable(withRun('conflict'), CARD, refusing), false)).toBe(true);
-  });
-
-  it('never reaches an action for the two states that offer none', () => {
-    expect(actionReachable(withRun('unpushed'), CARD, DISPATCH)).toBe(false);
-    expect(actionReachable(withRun('artifact-conflict'), CARD, DISPATCH)).toBe(false);
-  });
-});

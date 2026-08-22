@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { startServer, expandAgentFolds } from '../helpers.mjs';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../src/contract/schema.js';
 
 /**
@@ -127,6 +127,7 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.locator('li[data-tuple-kind]').first().waitFor({ timeout: 15_000 });
+    await expandAgentFolds(page);
     return page;
   }
 
@@ -144,16 +145,35 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
           kind: e.getAttribute('data-tuple-kind'),
           cols: getComputedStyle(e).gridTemplateColumns,
         })));
-      // All five board-emitted kinds are present, so the agreement below is
-      // about a real spread rather than about one row agreeing with itself.
+      // Every board-emitted kind is present, so the agreement below is about a
+      // real spread rather than about one row agreeing with itself. `wave` joined
+      // the list when a plan grew a head and its branches became waves under it.
       const kinds = new Set(templates.map((t) => t.kind));
-      expect([...kinds].sort()).toEqual(['branch', 'plan', 'pr', 'ticket']);
-      // ONE resolved template across every row on the page.
-      const distinct = new Set(templates.map((t) => t.cols));
-      expect([...distinct], `kinds: ${templates.map((t) => t.kind).join()}`).toHaveLength(1);
-      // And it is a SEVEN-track grid, not a one-column fallback that would make
-      // every row trivially agree — the weaker implementation this pairs against.
-      expect([...distinct][0].split(' ')).toHaveLength(7);
+      expect([...kinds].sort()).toEqual(['branch', 'plan', 'pr', 'ticket', 'wave']);
+      // SEVEN TRACKS on every row — the claim, and the form of it that nesting
+      // cannot falsify.
+      //
+      // The resolved pixel string CANNOT be compared across rows any more, and
+      // that is a fact about the layout rather than a weakening of the test.
+      // Measured on this fixture, column 4 resolves to 842px, 817px or 792px —
+      // 25px apart, which is `ml-6` plus the group's rule. Column 4 is the only
+      // FLEXIBLE track, so a row nested one level deeper spends 25px of it on
+      // the indent while the six fixed tracks stay exactly where they are. A row
+      // inside a wave group therefore reports a different string for the same
+      // template, and asserting `toHaveLength(1)` asserted that no row is ever
+      // nested — which the wave model makes permanently false.
+      //
+      // What a second grid smuggled in under another name would still fail:
+      // the track COUNT, and the six FIXED tracks, both checked below.
+      const tracks = templates.map((t) => ({ kind: t.kind, cols: t.cols.split(' ') }));
+      for (const t of tracks) {
+        expect(t.cols, `${t.kind} lays out on seven tracks`).toHaveLength(7);
+      }
+      // And the fixed tracks agree EXACTLY — every track but the flexible
+      // fourth. This is the pixel-level agreement the assertion above was
+      // reaching for, asked of the columns that carry it.
+      const fixed = new Set(tracks.map((t) => t.cols.filter((_, i) => i !== 3).join(' ')));
+      expect([...fixed], `kinds: ${tracks.map((t) => t.kind).join()}`).toHaveLength(1);
     } finally {
       await page.close();
     }
@@ -174,11 +194,17 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // failing to state.
       expect(await ticket.locator('[data-phase]').count()).toBe(0);
       // CASE-INSENSITIVE, because slot 2 wears Tailwind's `uppercase` on the
-      // board and the authored word is `Story`. Asserting the styled form would
+      // board and the authored word is `Ticket`. Asserting the styled form would
       // make this a claim about a CSS utility rather than about the kind being
       // stated — the same reason the harness suite lowercases, arrived at from
-      // the other direction: there no stylesheet loads, so it reads `Story`.
-      expect((await ticket.locator('[data-kind]').innerText()).toLowerCase()).toBe('story');
+      // the other direction: there no stylesheet loads, so it reads `Ticket`.
+      //
+      // `Ticket`, not `Story` — the word this asserted until 2026-08-20, when
+      // `KIND_LABEL` was corrected. A story is a Plot artefact, an umbrella over
+      // several plans in `docs/stories`; this row is an ISSUE on the git host
+      // that no plan references yet. The test went on asserting the name of the
+      // other thing.
+      expect((await ticket.locator('[data-kind]').innerText()).toLowerCase()).toBe('ticket');
     } finally {
       await page.close();
     }
@@ -200,10 +226,21 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       const links = pr.locator('[role="gridcell"]').nth(3);
       expect(await links.locator('a[data-tuple-link="branch"]').count()).toBe(1);
       expect(await links.locator('[data-branch="feature/reviewed"]').count()).toBe(1);
-      // THREE DESTINATIONS, all different — the plan, the branch, the PR.
-      const hrefs = await pr.locator('a[data-tuple-link]').evaluateAll(
-        (els) => els.map((e) => e.getAttribute('href')));
-      expect(new Set(hrefs).size).toBe(3);
+      // TWO DESTINATIONS INSIDE A WAVE, both different — the branch and the PR.
+      //
+      // Three when the row stands alone, and the missing one is the PLAN, on
+      // purpose: this PR sits in a wave group whose header names the plan two
+      // rows up, so a third copy on the child says what the reader has already
+      // read. The branch is what a wave group must NOT drop — slot 3 wears the
+      // PR number here rather than the branch, so without it the row never
+      // names what it is a PR of.
+      //
+      // Both halves asserted, because the count alone passes on a row that kept
+      // the plan and lost the branch — which is the failure this pairs against.
+      const anchors = await pr.locator('a[data-tuple-link]').evaluateAll(
+        (els) => els.map((e) => ({ what: e.getAttribute('data-tuple-link'), href: e.getAttribute('href') })));
+      expect(new Set(anchors.map((l) => l.href)).size).toBe(2);
+      expect(new Set(anchors.map((l) => l.what))).toEqual(new Set(['pr', 'branch']));
     } finally {
       await page.close();
     }
@@ -281,8 +318,15 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // four-meanings column failed at, where the cell read a wave name, a plan
       // phase, nothing, or a plan phase on a ticket depending on a wave count
       // the reader cannot see.
-      expect(new Set(words).size).toBeLessThanOrEqual(4);
-      const KINDS = ['plan', 'branch', 'pr', 'story', 'release', 'build', 'agent'];
+      //
+      // MEMBERSHIP CARRIES THAT CLAIM, and a count never did. This asserted
+      // `size <= 4` beside the check below, which is the number of kinds this
+      // fixture happened to render rather than a property of the column; a
+      // plan growing a head and its branches becoming waves pushed it to 5
+      // without changing anything the assertion was about. Every word being a
+      // KIND is the whole claim — the failure it pairs against is a cell
+      // holding a wave NAME or a plan PHASE, and neither is in the list.
+      const KINDS = ['plan', 'branch', 'pr', 'ticket', 'wave', 'release', 'build', 'agent'];
       for (const w of new Set(words)) {
         expect(KINDS, `kind word: ${w}`).toContain(w.toLowerCase());
       }
@@ -335,11 +379,24 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       expect(await waiting.locator('li[data-tuple-kind="branch"]').count()).toBe(1);
       expect(await waiting.locator('li[data-tuple-kind="pr"]').count()).toBe(1);
       expect(await waiting.locator('li[data-tuple-kind="ticket"]').count()).toBe(1);
-      // And the plan row is in NOT STARTED, where plan rows are drawn — not in
-      // the section its branch's group would put it.
-      expect(await waiting.locator('li[data-tuple-kind="plan"]').count()).toBe(0);
+      // A PLAN ROW HEADS ITS OWN GROUP, in whichever section that group falls.
+      //
+      // This asserted the opposite — no plan row in WAITING ON YOU, the one
+      // plan row only ever in NOT STARTED — and that was true while a plan row
+      // was a thing the SERVER emitted for an unstarted `idea/` branch. Plan
+      // heads are drawn wherever groups are now, so the two branches sharing
+      // `a-plan` get a head here and `plant-tomatoes` gets one over there.
+      //
+      // The membership claim is unweakened, and it is the one this test is
+      // named for: every branch, PR and ticket is in the section its group put
+      // it in, and a head appears beside the rows it heads rather than in a
+      // section of its own.
+      expect(await waiting.locator('li[data-tuple-kind="plan"]').count()).toBe(1);
       const notStarted = page.locator('ul[role="grid"][aria-label^="Not started"]');
       expect(await notStarted.locator('li[data-tuple-kind="plan"]').count()).toBe(1);
+      // And no row CROSSED: the branches stayed where their groups put them.
+      expect(await notStarted.locator('li[data-tuple-kind="branch"]').count()).toBe(0);
+      expect(await notStarted.locator('li[data-tuple-kind="ticket"]').count()).toBe(0);
     } finally {
       await page.close();
     }

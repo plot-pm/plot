@@ -591,10 +591,110 @@ export type BranchState = z.infer<typeof BranchStateSchema>;
  * it once, where it holds both facts — which is exactly why it must not be
  * remade in the renderer, where only some of them arrive.
  */
+/**
+ * `wave` is the eighth, and since 2026-08-21 it is the kind a branch row REACHES
+ * FOR FIRST once anything at all is true of it.
+ *
+ * It began as a client-side grouping — assembled from the branches under a plan,
+ * the way `plan` is assembled by `groupByPlan` — and it was ranked last in
+ * `rowKind` on the argument that a wave is *"the weakest claim"*, saying only
+ * which slice of a plan a branch fell into. That was a mis-classification of the
+ * model rather than a mis-ordering within it.
+ *
+ * **A wave is the process construct that carries a plan forward**, and the
+ * published method says so in the words this kind should have been built on.
+ * *Ein Team, ein Plan, viele Agenten* (Quatico factsheet, 2026) states the defect
+ * directly: *"Pull Request und Branch stehen in dieser Liste an der falschen
+ * Stelle: **Sie sind nicht der Gegenstand, sie sind das Vehikel.** … Wer die
+ * Zeile mit dem Branchnamen führt, zeigt allen dreien dasselbe Gesicht — und der
+ * Mensch muss jedes Mal erst herausfinden, was von ihm verlangt wird."*
+ *
+ * Its table of what a person waits on names five subjects — ticket, plan, wave,
+ * branch-in-flight, release — and for the wave it names the vehicle separately:
+ * a wave *"fährt auf einem Branch mit Pull Request und eigenem Worktree auf"*.
+ * Subject and vehicle are different columns of that table, and `rowKind` had them
+ * in one.
+ *
+ * Plot's model is `plan → wave → branch`: the wave is what a plan is sliced into,
+ * what `plot-dispatch` claims by ref push, what a worktree is created for, and
+ * what has to complete before the next wave becomes eligible — *"Eine Welle
+ * öffnet erst, wenn jeder Branch aller früheren Wellen gemerged ist."* Work
+ * advances one wave at a time. A PR, a CI run, a review and an agent are EVENTS
+ * at a branch while its wave is being carried out: each can appear and vanish
+ * without the wave changing, and the wave cannot change without the plan's
+ * progress changing with it. So the row is about the carrier, and the events are
+ * its status, its links and its notes.
+ *
+ * **The one exception is deliberate and the factsheet argues for it too.** The
+ * conflict arm still outranks the wave, because there the vehicle IS the subject:
+ * *"Branch in Flug — fährt auf sich selbst — das Vehikel ist das Problem"*, the
+ * only row in that table needing no decision about content and still costing a
+ * person their attention.
+ *
+ * That is why `build` and `agent` below no longer have arms in `rowKind`. Both
+ * existed to make a row's kind track what a machine or an agent was doing, and a
+ * wave row states the same fact without a second kind: *CI is running* and
+ * *worked on by X* are things happening to a wave. `build` never rendered outside
+ * `mock-fleet.ts`, and `agent` named a branch and printed the branch's state,
+ * which its own comment admits *"says nothing about an agent"*.
+ *
+ * The enum keeps every kind regardless of whether an arm returns it, and the
+ * reason is the two `Record<RowKind, …>` tables the tuple keeps: `KIND_LABEL`
+ * and `KIND_ICON_PATH`. A kind absent from the enum gets its word and its icon
+ * from nowhere and has to invent both at its construction site, which is how a
+ * kind ends up rendering a branch's glyph. Being in the enum makes both tables a
+ * compile error until they answer for it — a gate rather than a rule.
+ */
 export const RowKindSchema = z.enum([
-  'ticket', 'plan', 'pr', 'build', 'agent', 'branch', 'release',
+  'ticket', 'plan', 'pr', 'build', 'agent', 'branch', 'release', 'wave',
 ]);
 export type RowKind = z.infer<typeof RowKindSchema>;
+
+/**
+ * What the server writes where a plan divides its work into no named waves.
+ *
+ * IN THE CONTRACT because three modules need it and it was defined **twice** —
+ * `AgentList.tsx` and `tuple-row.ts` each held a copy, and the server was about
+ * to need a third. Three copies of one string is how the kind icons came to
+ * disagree; the server writes this value (`fleet.ts`, `wave.name || …`) and both
+ * clients test for it, so it belongs where both already import from.
+ */
+export const UNNAMED_WAVE = '(unnamed)';
+
+/**
+ * The wave names that mean a SPIKE — a wave whose product may be a changed plan.
+ *
+ * ## Why a tracer is a different kind of wave
+ *
+ * `tracer-bullets` Step 4 states the two outcomes: *"if validating a design,
+ * **refine the plan**. If implementing, merge the tracer and build on it."* So a
+ * tracer is **pre-planning**: a spike that informs how the plan is sliced, and a
+ * failure sends the reader back to the plan rather than to a rebase.
+ *
+ * An implementation wave carries out a slice a tracer has already de-risked. The
+ * two differ in the KIND of outcome, not merely in their order — and the board
+ * showed them identically until 2026-08-21: measured, `Tracer` read `green` and
+ * `Implementation` read `5 stalled`, with nothing saying which failure means
+ * *rethink the plan*.
+ *
+ * ## Why a name list rather than a contract field
+ *
+ * `### Tracer` is a documented convention `plot-approve` Step 2b recommends by
+ * name — *"Add a `### Tracer` subsection"* — and `plot-plan-meta.sh` already
+ * carries the heading through as the wave's name. The signal is free; three plans
+ * in this estate use it today.
+ *
+ * `Spike` is the same idea under the name most teams use. Matching is
+ * case-insensitive on the WHOLE name, so `Tracer bullet` and `spike` read as one
+ * and `Tracer-adjacent refactor` does not.
+ */
+export const SPIKE_WAVES = ['tracer', 'spike'] as const;
+
+/** Is this wave a spike — one whose outcome may be a refined plan? */
+export function isSpikeWave(wave: string): boolean {
+  const w = wave.trim().toLowerCase();
+  return SPIKE_WAVES.some((s) => w === s || w === `${s} bullet` || w === `${s} bullets`);
+}
 
 export const WaveVerdictSchema = z.enum(['complete', 'eligible', 'blocked']);
 export type WaveVerdict = z.infer<typeof WaveVerdictSchema>;
@@ -849,6 +949,24 @@ export const FleetBranchSchema = z.object({
    * "no worktree here" are the same statement, and both mean "answer from refs".
    */
   local_dirty: z.boolean().default(false),
+  /**
+   * Seconds since the newest write in this worktree, or null where none was
+   * observed — `changed_ago_seconds` on the wire.
+   *
+   * THE FIELD THAT MAKES A WRITE AN EVENT. `local_dirty` is a SWITCH: it flips
+   * once and stays flipped for as long as anything is uncommitted, so a change
+   * detector watching it fires on the first keystroke of a session and never
+   * again. Measured on the live board: three modified files, zero flashes in
+   * 40 seconds.
+   *
+   * A timestamp does not have that shape. Every save moves it, so `true → true`
+   * is still a change when the number beneath it moved — which is what the
+   * reader means by *show me that writing is happening*.
+   *
+   * The scan has computed this per worktree all along (`changed_ago_of`); the
+   * board simply never read it.
+   */
+  changed_ago_seconds: z.number().nullable().default(null),
   /**
    * A local worktree for this branch is holding `.git/index.lock` — a write is
    * in progress THIS INSTANT.
@@ -1282,6 +1400,39 @@ export type WaitingGroup = z.infer<typeof WaitingGroupSchema>;
  */
 export const StuckStateSchema = z.enum([
   'artifact-conflict', 'conflict', 'unpushed', 'ci-failing',
+  // TWO PLANS CLAIM THIS BRANCH — a fifth reason a branch cannot move, and it
+  // belongs here for the reason the other four do: nobody can act on it until a
+  // person decides. `plot-dispatch` would hand an agent one of two briefs and
+  // there is no way to know which, so the branch is stuck in the strict sense.
+  //
+  // The same shape as `conflict` one level up: that one is *two branches
+  // disagree about a file*, this is *two plans disagree about a branch*.
+  //
+  // Found because the board FLASHED. Two rows for one branch shared a
+  // `rowKey` (`repo/branch`, no plan), so each pulse one overwrote the other's
+  // remembered `wave`, saw a difference, and lit the change mark — for hours,
+  // on a branch nobody had touched. Reported as *"why do always the same two
+  // waves flash if no one is changing them"*.
+  'double-claimed',
+  // A WAVE HOLDING SEVERAL BRANCHES — invalid, and the sixth reason a branch
+  // cannot move cleanly.
+  //
+  // The model, settled with the operator 2026-08-21: a tracer or spike produces a
+  // REFINED PLAN; that plan is sliced into waves; and **each wave is carried out
+  // in exactly one branch and one worktree**. So `plan → * wave → 1 branch`, and a
+  // wave with five branches means the plan was never re-sliced after its spike.
+  //
+  // Measured on this estate: **49 waves hold one branch, 8 hold more** — and 7 of
+  // those 8 are already `complete`, so they shipped before the model was stated.
+  // The one unfinished case is `opus5-longhorizon-hardening :: Implementation`:
+  // five branches, `blocked`, 26 days, behind a tracer whose PR is green and
+  // unmerged. Exactly the failure the tracer exists to prevent.
+  //
+  // REPORTED, never repaired here. Re-slicing needs NAMES for the new waves, and
+  // naming is judgement — so the repair cannot be the licensed deterministic kind
+  // (`plot-resolve-artifact.sh`, whose permission *is* judgement's absence) and
+  // there is no script to wrap. It is its own plan.
+  'unsliced-wave',
 ]);
 export type StuckState = z.infer<typeof StuckStateSchema>;
 
@@ -1311,6 +1462,25 @@ export const BOARD_ARTIFACT_PATH = 'skills/plot/scripts/board/board-server.mjs';
  */
 export const StuckSchema = z.object({
   state: StuckStateSchema,
+  /**
+   * The plans that each claim this branch — two or more on `double-claimed`,
+   * empty on every other state.
+   *
+   * NAMED rather than counted, for the reason `shrinkNote` states about the
+   * pulse: *"3 plans became 2 makes the reader open a terminal to find out
+   * which"*. Resolving this means editing one of the two plan files, so the row
+   * has to say which two.
+   */
+  claimedBy: z.array(z.string()).default([]),
+  /**
+   * The sibling branches sharing this branch's wave — two or more on
+   * `unsliced-wave`, empty on every other state.
+   *
+   * NAMED rather than counted, for the reason `claimedBy` states: repairing this
+   * means slicing the wave into one per branch, so the row has to say which
+   * branches are entangled.
+   */
+  waveSiblings: z.array(z.string()).default([]),
   /**
    * The conflicting paths, for the two conflict states — [] for the other two.
    *
@@ -1530,6 +1700,28 @@ export const AgentRowSchema = z.object({
    * renders its plan as plain text.
    */
   planFile: z.string().default(''),
+  /**
+   * The version a RELEASE row is about — `2.7.0` — or "" on every other row.
+   *
+   * **Read from `package.json` on the release branch, never derived.** That
+   * distinction is the whole licence for this field. `releaseVersion` used to
+   * refuse the question, and its reason was exact: *"deriving 2.7.0 from a
+   * changeset file would mean reading and summing pending bumps, which is what
+   * would this ship — the question the plan explicitly refuses to answer on a
+   * board."*
+   *
+   * On a `changeset-release/*` branch that sum is **already computed**:
+   * changesets has consumed the `.changeset/*.md` files and written the new
+   * version into `package.json` on that branch. Verified 2026-08-20 —
+   * `origin/changeset-release/main:package.json` reads `2.7.0` where `main`
+   * reads `2.6.0`. Reading a file the release tool wrote is reading a FACT; the
+   * refusal stands against the board computing what a release would contain.
+   *
+   * "" where the file cannot be read — an unreadable ref, a repo whose root
+   * package carries no version — and the row then names its PR number, which is
+   * the honest fallback rather than an invented tag.
+   */
+  version: z.string().default(''),
   wave: z.string(),
   state: BranchStateSchema,
   /**
@@ -1643,7 +1835,16 @@ export const AgentRowSchema = z.object({
      * unknown is the honest answer for a payload that predates the field —
      * absent is not clean.
      */
-    state: z.enum(['green', 'pending', 'failing', 'none', 'conflicts', 'unknown'])
+    // `closed` is the seventh, and it is not a check result — it is the PR's own
+    // standing, which outranks every check. A closed PR is ABANDONED work, and
+    // reporting `green` about it says *ready* where the truth is *given up*.
+    //
+    // Measured 2026-08-21: PRs #51-#55, closed as drafts 26 days earlier, all
+    // rendered `green` + `draft`, so the board read *five reviews are waiting on
+    // you* about a wave somebody deliberately dropped. They reach a row because
+    // `prsByHead` keeps finished PRs on purpose — right about the LINK, and it
+    // was silently deciding the STATUS too.
+    state: z.enum(['green', 'pending', 'failing', 'none', 'conflicts', 'unknown', 'closed'])
       .default('unknown'),
   }).nullable().default(null),
   /**
@@ -1705,6 +1906,9 @@ export const AgentRowSchema = z.object({
    * FALSE`, both leave the row UNMARKED rather than marked clean.
    */
   localDirty: z.boolean().default(false),
+  /** Seconds since the newest write in this row's worktree — see
+      `changed_ago_seconds`. Null where no write was observed. */
+  changedAgo: z.number().nullable().default(null),
   /**
    * A local worktree for this branch is holding `.git/index.lock` — a write is
    * in progress THIS INSTANT.

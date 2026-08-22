@@ -91,8 +91,18 @@ if (argv[0] === 'pr' && argv[1] === 'view') {
     number: state.number, state: state.state, isDraft: state.draft,
     url: 'https://example.invalid/pr/' + state.number, mergeCommit: null,
   }));
+} else if (argv[0] === 'pr' && argv[1] === 'ready') {
+  // TAKING A PR OUT OF DRAFT, modelled as the host really behaves: the flag
+  // clears and the PR stays OPEN. Without this the call fell to the catch-all
+  // below, which exits 0 and changes nothing — so a merge-after-ready would
+  // have looked fine while the PR was still a draft.
+  if (state.readyFails) { process.stderr.write('ready refused'); process.exit(1); }
+  state.draft = false;
+  fs.writeFileSync(${JSON.stringify(statePath)}, JSON.stringify(state));
+  process.stdout.write('ready');
 } else if (argv[0] === 'pr' && argv[1] === 'merge') {
   if (state.mergeFails) { process.stderr.write('merge refused'); process.exit(1); }
+  if (state.draft) { process.stderr.write('cannot merge a draft'); process.exit(1); }
   state.state = 'MERGED';
   fs.writeFileSync(${JSON.stringify(statePath)}, JSON.stringify(state));
   process.stdout.write('merged');
@@ -247,11 +257,36 @@ test('approve: refuses an unrecognised Review: rather than treating it as pr', (
   assert.notEqual(hostState().state, 'MERGED');
 });
 
-test('approve: refuses a draft PR, a closed PR, and a missing PR', () => {
+test('approve: takes a DRAFT out of draft and then merges it', () => {
+  // THE GATE IS PASSED, NOT REMOVED. This refused a draft PR until 2026-08-22
+  // — *"still a draft. Mark it ready for review first"* — on the argument the
+  // skill states: the approval IS the PR's non-draft state.
+  //
+  // That argument holds between two people and costs the author a detour: they
+  // opened the plan, read it, and the one control that should conclude that
+  // was refusing. Taking the PR out of draft is the first half of approving
+  // it, so the click that approves does both.
+  //
+  // The ORDER is what this pins, and the stub enforces it the way the host
+  // does: `pr merge` on a draft exits non-zero. A ready step that ran after
+  // the merge, or not at all, fails here rather than passing quietly.
   makeRepo();
   setHostState({ number: 42, state: 'OPEN', draft: true });
-  assert.match(run(['approve-me'], { expectFail: true }).err, /still a draft/i);
+  const out = run(['approve-me']);
+  assert.match(out.out, /marked PR #42 ready for review/i);
+  assert.match(out.out, /merged PR #42/i);
+  assert.match(out.out, /merged=yes/);
 
+  // AND A PR THAT IS ALREADY READY IS NOT TOUCHED — no ready call, one merge.
+  makeRepo();
+  setHostState({ number: 42, state: 'OPEN', draft: false });
+  const plain = run(['approve-me']);
+  assert.doesNotMatch(plain.out, /ready for review/i);
+  assert.match(plain.out, /merged PR #42/i);
+});
+
+test('approve: refuses a closed PR and a missing PR', () => {
+  makeRepo();
   setHostState({ number: 42, state: 'CLOSED', draft: false });
   assert.match(run(['approve-me'], { expectFail: true }).err, /closed/i);
 

@@ -224,14 +224,33 @@ permanent is a track that cannot show a moment.
 
 ## Branches
 
+> **Two branches were removed from this section on 2026-08-20** — the truncation
+> rule and the one-icon-set work; their names are deliberately left UNBACKTICKED
+> below, because `plot-plan-meta.sh` collects every backticked name in this
+> section and a note explaining a removal would re-declare exactly what it
+> removed. (Measured: it did, and the collision survived the edit.)
+>
+> They were bug/one-row-one-truncation-rule and
+> feature/one-icon-set-one-place. Both
+> were also declared by `the-row-is-legible`, which was written later to
+> consolidate the legibility work and carries the same specifications in nearly
+> the same words.
+>
+> A branch named by two plans is a **double claim**: `plot-dispatch` would hand an
+> agent one of two briefs with no way to choose which. The board now reports it as
+> a `double-claimed` stuck state — and it was the board that found this one, by
+> flashing. Two rows for one branch shared a `rowKey` (`repo/branch`, no plan), so
+> each pulse one overwrote the other's remembered wave and lit the change mark for
+> hours on a branch nobody had touched.
+>
+> `the-row-is-legible` keeps them.
+
 ### Sized
-- `bug/one-row-one-truncation-rule` — a name truncates at the end, a status does not truncate, an artifact link truncates and never wraps; row height stays one line for every kind. Tests: a long branch name keeps its head and loses its tail; a status renders whole or not at all — **never one character**; a PR's two artifact links stay on one line; row height is identical across all seven kinds; the rule is asserted through the mock payload, so it is reproducible without an estate.
 
 ### Placed
 - `bug/the-wave-leaves-the-kind-alone` — the wave renders beside the branch name only, and never beside the kind slot. Tests: a branch row's wave is adjacent to its branch name; **no `data-wave` element sits in the kind's track**; a plan row shows no wave; the kind slot's column contains only kind labels, asserted by reading every cell in it.
 
 ### Marked
-- `feature/one-icon-set-one-place` — the seven icons become inline SVG in one size and one colour, the kind word moves to the first column, and the icon moves next to the item's name. Tests: every kind's icon is an `<svg>`, never an emoji or a text glyph; all seven render at the same size; all seven take their colour from `currentColor` and change with the theme; the first column holds the kind word for every kind; the icon is adjacent to the name, not in the marks track; the activity mark no longer competes with the icon for a track; **the marks track contains nothing but activity** — asserted by reading that cell on a row with no activity and finding it empty; no asset is fetched — the artifact stays self-contained; Octicon attribution is present.
 
 ### Named
 - `bug/a-release-is-its-version` — a release's name is the version being cut, read from the PR title through a new contract field; its PR and its branch are **artifact links in slot 4**, never in the status column; a ticket's artifact link carries the same prefix every other kind's does. Tests: `PrSchema` carries the PR title and the row passes it through; a release row's name is `2.7.0`, not `240`; **the status column of a release contains no link** — asserted by looking for anchors in that cell, not by matching text; the PR and the branch both appear as labelled artifact links; a release whose PR title names no version falls back to the PR number **and says so**, rather than showing a number that reads like a version; a ticket's artifact link renders a `PLAN` prefix; every kind with an artifact link labels it.

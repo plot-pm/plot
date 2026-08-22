@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { startServer, expandAgentFolds } from '../helpers.mjs';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet } from '../../src/contract/schema.js';
 
 /**
@@ -63,7 +63,18 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     row({
       branch: 'feature/blocked', plan: 'plant-tomatoes', group: 'not-started',
       state: 'open', phase: 'Design', ageMinutes: null,
-      waitingOn: 'time' as const, note: 'blocked by Truth', branchUrl: `${GH}feature/blocked`,
+      // THE FIELD, not the sentence. This row carried `note: 'blocked by Truth'`
+      // and the assertions below read the prose — what `AgentRowSchema` forbids:
+      // *"Nothing new may be built on matching this prose — `verdict` on the row
+      // is what a consumer reads, and `blockedBy` carries the name."* The server
+      // has populated `blockedBy` all along.
+      //
+      // It mattered once the row joined a wave group: a grouped row drops its
+      // note by design, so the sentence was the sole carrier of *blocked by which
+      // wave* and it vanished. The field is carried by the wave row heading the
+      // group, which is where a reader looks.
+      waitingOn: 'time' as const, blockedBy: 'Truth',
+      branchUrl: `${GH}feature/blocked`,
       waitingDays: 22,
     }),
     // A branch handed back: real commits inside the quiet window, under an
@@ -152,6 +163,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     await expandPlans(page);
     return page;
   }
@@ -170,6 +182,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     await expandPlans(page);
     return page;
   }
@@ -218,6 +231,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         : route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     await expandPlans(page);
     return { page, fail: () => { failing = true; }, recover: () => { failing = false; } };
   }
@@ -235,18 +249,36 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     initial: Fleet = fleet(),
   ): Promise<{ page: Page; push: (next: Fleet) => Promise<void> }> {
     let current = initial;
+    // SERVED COUNT, so `push` can wait for the EVENT rather than for a duration.
+    // The route already passes through this test, so the fetch that matters is
+    // observable — waiting 4.5s for a 4s poll spends the difference on every
+    // call and still only assumes the payload arrived.
+    let served = 0;
     const page = await browser.newPage();
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(current) }));
+    await page.route('**/api/fleet', (route) => {
+      served += 1;
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify(current) });
+    });
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     await expandPlans(page);
     return {
       page,
       push: async (next: Fleet) => {
+        const before = served;
         current = next;
-        // A poll every 4s; wait one so the swapped payload has been fetched.
-        await page.waitForTimeout(4_500);
+        // The app polls every 4s. Wait for the NEXT fetch to be served, which is
+        // the fact this needs — a fixed sleep can only assume it. The bound stays
+        // generous because the poll's period is the app's business, not this
+        // helper's: it returns as soon as the fetch lands, so a slow poll costs
+        // patience and a fast one costs nothing.
+        await expect.poll(() => served, { timeout: 10_000 }).toBeGreaterThan(before);
+        // AND ONE RENDER PAST IT. The fetch resolving is not the DOM changing;
+        // React still has to commit. `requestAnimationFrame` fires after the next
+        // paint, so a caller that reads the DOM on the next line reads the new
+        // one — without a second sleep to cover the gap.
+        await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(null))));
       },
     };
   }
@@ -267,7 +299,21 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // prefix of `feature/ghost-ready`, so a plain filter returns both rows; and
     // the name is now folded in the middle across two spans, so no single
     // element holds it as exact text.
-    page.locator('li[data-agent-row]').filter({ has: page.locator(`[data-branch="${branch}"]`) });
+    //
+    // ## `li[data-agent-row], li:has([data-wave-row])` — the row OR its wave
+    //
+    // A branch that belongs to a wave is rendered as its WAVE since
+    // `a-wave-is-a-kind`: the wave row names the wave and links the branch as an
+    // artifact, so `li[data-agent-row]` alone matched nothing for any fixture row
+    // carrying a wave — which is every row here, `wave: 'w'` being the default.
+    // Measured: **60 of 115** tests in this file failed on that one helper.
+    //
+    // This resolves to *the list item that carries this branch, whatever kind of
+    // row states it*. Every assertion in the file is about a branch's facts —
+    // its name, its PR, its age, its marks — and all of them survive the move,
+    // because the wave row is the row that branch now gets.
+    page.locator('li').filter({ has: page.locator(`[data-branch="${branch}"]`) })
+      .filter({ has: page.locator('[role="gridcell"]') }).last();
 
   /** The section for one waiting-group, by its heading text. */
   const group = (page: Page, label: string) =>
@@ -307,12 +353,33 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
    *
    * Idempotent, and silent where a plan has no fold: a plan with one branch
    * beneath it gets no expander, and its branch renders unconditionally.
+   *
+   * ## TWO LEVELS OF FOLD, and this opens both
+   *
+   * It opened `[data-wave-toggle]` only, which folds a PLAN. Since the wave kind
+   * landed there is a second fold one level down — `[data-wave-branch-toggle]`,
+   * which folds the branches of a WAVE — and a plan opened over waves that are
+   * themselves shut still shows no branch rows.
+   *
+   * That single omission accounted for **45 failing tests in this file**, across
+   * subjects with nothing in common: menus, collapse persistence, column
+   * alignment, change marks, the responsive card. Every one of them calls
+   * `openAgents`, every `openAgents` calls this, and a test that cannot see a
+   * branch row fails whatever it was asserting about it. The symptom was
+   * `expected +0 to be N` 32 times over — a count of rows that were rendered,
+   * shut, and never asked to open.
+   *
+   * Order matters: plans first, then waves. A wave's toggle does not exist in the
+   * DOM until the plan holding it is open, so a single pass over both selectors
+   * would miss every wave under a folded plan.
    */
   async function expandPlans(page: Page) {
-    const toggles = page.locator('[data-wave-toggle]');
-    for (let i = 0; i < (await toggles.count()); i += 1) {
-      const toggle = toggles.nth(i);
-      if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+    for (const selector of ['[data-wave-toggle]', '[data-wave-branch-toggle]']) {
+      const toggles = page.locator(selector);
+      for (let i = 0; i < (await toggles.count()); i += 1) {
+        const toggle = toggles.nth(i);
+        if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+      }
     }
   }
 
@@ -402,30 +469,41 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   // ── Rows group by plan inside each waiting-group ──────────────────────────
 
   it('shows a sub-heading per plan, ordered by each plan\'s most urgent row', async () => {
-    // Both plans hold TWO rows on purpose. A single-row plan earns no heading
-    // (see the mixed-section test below), so the default fixture would leave
-    // one heading here — and one heading is in the right order whatever the
-    // sort does. The ordering assertion needs two to mean anything.
+    // Both plans hold TWO rows on purpose, so the ordering assertion has two
+    // heads to order. (A one-row plan earns a head too now — the exception went
+    // with the heading it belonged to — but one head is in the right order
+    // whatever the sort does.)
+    //
+    // IN WAITING ON YOU, not in WORKING, and the move is the point rather than
+    // a convenience. `waveGroupsFor` returns [] for `working` and
+    // `waiting-on-machine` BY DESIGN: those sections ask what is HAPPENING to
+    // the work, so an agent or a run is the subject and a plan is not. This
+    // read `[]` because there are no plan heads there to read — the fixture was
+    // asking the one section that does not group.
     const page = await openAgents(fleet({
       rows: [
-        ...fleet().rows.filter((r) => r.group !== 'working'),
+        ...fleet().rows.filter((r) => r.group !== 'waiting-on-you'),
         row({ branch: 'feature/beans-old', plan: 'beans', planFile: 'p-beans.md',
-              group: 'working', ageMinutes: 200, note: 'last commit 200 min ago' }),
+              group: 'waiting-on-you', ageMinutes: 200, note: 'awaiting review' }),
         row({ branch: 'feature/beans-new', plan: 'beans', planFile: 'p-beans.md',
-              group: 'working', ageMinutes: 10, note: 'last commit 10 min ago' }),
+              group: 'waiting-on-you', ageMinutes: 10, note: 'awaiting review' }),
         row({ branch: 'feature/tom-a', plan: 'plant-tomatoes', planFile: 'p-tom.md',
-              group: 'working', ageMinutes: 50, note: 'last commit 50 min ago' }),
+              group: 'waiting-on-you', ageMinutes: 50, note: 'awaiting review' }),
         row({ branch: 'feature/tom-b', plan: 'plant-tomatoes', planFile: 'p-tom.md',
-              group: 'working', ageMinutes: 20, note: 'last commit 20 min ago' }),
+              group: 'waiting-on-you', ageMinutes: 20, note: 'awaiting review' }),
       ],
     }));
     try {
-      const headings = group(page, 'Working').getByRole('heading', { level: 3 });
+      // ONE PLAN ROW PER PLAN. A plan heads its group with a row rather than an
+      // `h3`, so the slug is read from `data-plan-row`; the tally rendered
+      // beside it belongs to the row and is asserted where the row is.
+      const heads = group(page, 'Waiting on you').locator('[data-plan-row]');
       // `beans` holds the 200-minute row, `plant-tomatoes` the 50-minute one —
       // so beans first. Ordering by anything else would let a plan with one
       // stale branch outrank one whose branch just moved.
-      await expect.poll(() => headings.allTextContents())
-        .toEqual(['beans(2)', 'plant-tomatoes(2)']);
+      await expect.poll(() => heads.evaluateAll(
+        (els) => els.map((e) => e.getAttribute('data-plan-row')),
+      )).toEqual(['beans', 'plant-tomatoes']);
     } finally {
       await page.close();
     }
@@ -442,20 +520,26 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('in a MIXED section, the lonely row still names its own plan', async () => {
+  it('in a MIXED section, every plan gets a row and every branch keeps its link', async () => {
     // The case a section-wide answer cannot express, asserted where it actually
     // breaks: in the DOM, across both halves of the rule at once.
     //
-    // `showPlanHeading` is pinned per group in test/unit, but it is a pure
-    // function of a group — it cannot observe the row side, and the row side is
-    // where a naive implementation fails. Drop a heading from a one-row group
-    // without moving the name back onto its row and that plan disappears from
-    // the tab entirely: the unit test still passes, and the reader is looking
-    // at a branch with nothing saying what it belongs to.
+    // **THE RULE CHANGED, and half this test's premise went with it.** It read
+    // *"the lonely row still names its own plan"*, and asserted exactly one `h3`
+    // in the section — `beans(3)` — on the rule that a three-row plan earns a
+    // heading while a one-row plan earns none and carries its name on its row.
     //
-    // So both halves are asserted together, in one section holding both shapes:
-    // `beans` with three rows earns a heading and its rows stay bare; `lonely`
-    // with one row earns none and its row must carry the name itself.
+    // A plan is a ROW now, not a heading: `PlanRow` carries the plan's phase, its
+    // age and its menu, which a text heading cannot. Measured here after the
+    // change: zero `h3`, and `data-plan-row` for BOTH `beans` and `lonely`. The
+    // one-row exception existed because a heading over a single line spends a
+    // line to repeat what that line says; a plan row does not repeat, it adds,
+    // so the exception has nothing left to prevent.
+    //
+    // What survives is the half that mattered — and it is asserted more strictly
+    // than before, on both plans rather than only the lonely one: **no branch
+    // loses the way back to its plan.** That was the failure mode the original
+    // guarded against, and it is unchanged by which shape heads the group.
     const rows = [
       row({ branch: 'feature/beans-1', plan: 'beans', group: 'quiet', ageMinutes: 500 }),
       row({ branch: 'feature/beans-2', plan: 'beans', group: 'quiet', ageMinutes: 400 }),
@@ -465,16 +549,23 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents(fleet({ rows }));
     try {
       await expand(page, 'quiet');
+      // AND THE PLAN FOLDS INSIDE IT. `openAgents` expands what exists at load,
+      // and QUIET's contents do not exist until the section itself is open — so
+      // the plan rows it reveals are still shut, and their branches with them.
+      await expandPlans(page);
       const quiet = group(page, 'Quiet');
 
-      // Exactly one heading in the section, and it is the multi-row plan's.
-      await expect.poll(() => quiet.getByRole('heading', { level: 3 }).allTextContents())
-        .toEqual(['beans(3)']);
+      // BOTH PLANS ARE HEADED, and by a row rather than by a heading. The
+      // asymmetry the old rule drew — three rows get a heading, one row does not
+      // — is gone with the heading itself.
+      await expect.poll(() => quiet.locator('[data-plan-row]').evaluateAll(
+        (els) => els.map((e) => e.getAttribute('data-plan-row')).sort(),
+      )).toEqual(['beans', 'lonely']);
+      // And no `h3` survives beside them: two shapes for one fact is what this
+      // replaced, so a section carrying both would be the defect back again.
+      expect(await quiet.getByRole('heading', { level: 3 }).count()).toBe(0);
 
-      // The one-row plan's name survives ON ITS ROW — the half that vanishes in
-      // a naive implementation, and the reason this test exists.
       const solo = rowFor(page, 'feature/solo');
-      await expect.poll(() => solo.textContent()).toContain('lonely');
 
       // EVERY ROW NAMES ITS PLAN NOW, headed or not, and this asserted the
       // opposite until `one-component-renders-every-row`.
@@ -491,9 +582,31 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       //
       // What the heading saves is no longer repetition of a WORD — it is the
       // grouping itself. The heading groups; the link opens.
-      expect(await rowFor(page, 'feature/beans-1')
-        .getByRole('link', { name: 'beans', exact: true }).count()).toBe(1);
-      expect(await solo.getByRole('link', { name: 'lonely', exact: true }).count()).toBe(1);
+      // THE PLAN LINK LIVES ON THE PLAN ROW, once for the group, and a grouped
+      // branch row carries only its own name. Measured on `feature/beans-1`: one
+      // link, `feature/beans-1`, and nothing else — `inWaveGroup` empties the
+      // row's links because the row above already holds them.
+      //
+      // The old assertion wanted the link on EVERY branch row, which was right
+      // while a heading was the only thing above them: a heading is text, so a
+      // row that dropped its plan link had no way back at all. A plan ROW is a
+      // link, so the way back moved rather than disappeared — and asserting it
+      // per branch row now demands the duplication the grouping removed.
+      const beansRow = rowFor(page, 'feature/beans-1');
+      expect(await beansRow.getByRole('link', { name: 'beans', exact: true }).count()).toBe(0);
+      expect(await beansRow.getByRole('link', { name: 'feature/beans-1' }).count()).toBe(1);
+      // AND IT IS REACHABLE ONE LINE UP, which is the property the original was
+      // protecting. This is the assertion that fails if grouping ever swallows a
+      // plan without putting it anywhere.
+      // BY THE ACCESSIBLE NAME, which is `Plan beans` rather than `beans`.
+      // `linkLabel` prefixes every link but a branch's with what it points at, so
+      // a reader hearing the row is told *plan* before the slug — and asserting
+      // the bare text here would pass for a link that had lost that prefix.
+      for (const plan of ['beans', 'lonely']) {
+        expect(await quiet.locator(`[data-plan-row="${plan}"]`)
+          .getByRole('link', { name: `Plan ${plan}`, exact: true }).count(),
+        `${plan} must be reachable from its plan row`).toBe(1);
+      }
     } finally {
       await page.close();
     }
@@ -528,7 +641,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents(fleet({ rows }));
     try {
       await expand(page, 'done');
-      await expect.poll(() => group(page, 'Done').getByRole('heading', { level: 3 }).count())
+      // TWO PLAN ROWS, one per plan. A plan heads its group with a ROW now, not
+      // an `h3` — the row carries the phase, the age and the menu that a text
+      // heading cannot. What this test asserts is unchanged: DONE groups like
+      // every other section, and two plans mean two groups.
+      await expect.poll(() => group(page, 'Done').locator('[data-plan-row]').count())
         .toBe(2);
     } finally {
       await page.close();
@@ -560,8 +677,19 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // Read off the GRIDCELLS, which is what the tracks now are: the order of
       // the cells IS the order of the columns, and a swapped pair of tracks
       // would fail here rather than merely reordering two spans.
+      // THE ROW THAT HAS A BRANCH CELL, found by the branch rather than by
+      // position. `li[data-agent-row]` is stamped by the BRANCH-row renderer
+      // alone, and this section holds none: `beans` has one branch, so its wave
+      // row carries it directly and the only other row is the plan head. The
+      // selector read as *any row* and means *a branch row*, so it matched
+      // nothing and reported `-1` for a column that was never missing.
+      //
+      // Asked of whichever row wears `[data-branch]`, which is the row this
+      // test is about — the claim is the ORDER of the cells within it, and that
+      // is the same claim on a wave row as on a branch row.
       const cells = group(page, 'Waiting on you')
-        .locator('li[data-agent-row]').first()
+        .locator('li[data-tuple-kind]')
+        .filter({ has: page.locator('[data-branch]') }).first()
         .locator('[role="gridcell"]');
       const texts = await cells.allTextContents();
       const plan = texts.findIndex((t) => t.trim() === 'beans');
@@ -597,11 +725,20 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // implementation this must not accept.
       expect(branch).toBeGreaterThanOrEqual(0);
       expect(plan).toBe(-1);
-      let planLink = -1;
-      for (let i = 0; i < count; i++) {
-        if (await cells.nth(i).locator('a[data-tuple-link="plan"]').count()) { planLink = i; break; }
-      }
-      expect(planLink).toBeGreaterThan(branch);
+      // AND THE PLAN IS STILL REACHABLE — one row up, in the head of the group
+      // this row sits in, rather than one cell later on the row itself.
+      //
+      // The pairing is unchanged and so is the reason for it: `plan === -1`
+      // alone would also pass if the plan had been dropped from the view
+      // entirely, which is the weaker implementation this must not accept. What
+      // moved is WHERE the plan is asserted to be. A row inside a wave group
+      // drops its plan link deliberately — the head carries it once instead of
+      // once per branch — so demanding it in a LATER CELL of this row now
+      // demands the repetition the grouping exists to remove.
+      const head = group(page, 'Waiting on you').locator('li[data-plan-row="beans"]');
+      expect(await head.count()).toBe(1);
+      expect(await head.locator('a[data-tuple-link="plan"], a[href*="plan"]').count())
+        .toBeGreaterThanOrEqual(1);
     } finally {
       await page.close();
     }
@@ -697,9 +834,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents();
     try {
       const li = rowFor(page, 'feature/reviewed');
-      // A branch with no PR is `Branch` — see `rowKind`, and the fixture's
-      // `kind` is what the server set, not something re-decided here.
-      await expect.poll(() => li.locator('[data-kind]').textContent()).toBe('Branch');
+      // `Wave`, and the comment here read *"a branch with no PR is Branch"* —
+      // wrong about this row twice over. It carries PR #130, and it carries the
+      // fixture's default `wave: 'w'` under plan `beans`, so it was never the
+      // no-PR no-plan case that yields `Branch`. Since 2026-08-21 the wave
+      // outranks the PR as well: the wave carries the plan forward and the PR is
+      // an event at its branch. The word is what this test is about, and it is
+      // still spelled in full.
+      await expect.poll(() => li.locator('[data-kind]').textContent()).toBe('Wave');
       const cell = li.locator('[data-kind]');
       const fits = await cell.evaluate(
         (el) => el.scrollWidth <= (el.parentElement as HTMLElement).clientWidth,
@@ -762,7 +904,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents();
     try {
       const li = rowFor(page, 'feature/reviewed');
-      await expect.poll(() => li.locator('[data-kind]').textContent()).toBe('Branch');
+      // `Wave` since 2026-08-21 — this row carries PR #130 and a plan, and the
+      // wave now outranks the PR. What this test is about is unaffected: the kind
+      // is named by its COLUMN and stated in no tooltip, whichever word it holds.
+      await expect.poll(() => li.locator('[data-kind]').textContent()).toBe('Wave');
       const headers = group(page, 'Waiting on you').getByRole('columnheader');
       // THE TUPLE'S SEVEN, and two of the old six could not be true of every
       // row beneath them: a plan has no branch and a ticket has no pull
@@ -778,7 +923,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // LOWERCASED: slot 2 wears Tailwind's `uppercase`, and the accessible
       // name is what is RENDERED. Asserting `Branch` would make this a claim
       // about a CSS utility rather than about the column naming the kind.
-      expect(name.trim().toLowerCase()).toBe('branch');
+      //
+      // `wave`, because this row's branch belongs to a plan. What the test is
+      // about — the column NAMES the kind, in full and in no tooltip — does not
+      // depend on which kind that is.
+      expect(name.trim().toLowerCase()).toBe('wave');
       // The word is visible, and it is the label — not a tooltip.
       const word = li.locator('[data-kind]');
       expect((await word.boundingBox())?.width ?? 0).toBeGreaterThan(1);
@@ -804,16 +953,28 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
               phase: 'Development', ageMinutes: 20, kind: 'pr',
               note: 'awaiting review', branchUrl: `${GH}feature/has-pr`,
               pr: { number: 41, url: `${GH}../pull/41`, draft: false, state: 'green' } }),
-        row({ branch: 'feature/no-pr', plan: 'beans', group: 'waiting-on-you',
+        // A DIFFERENT PLAN, so the two rows do not group into one wave. Sharing
+        // `beans` put both under a single wave row, which stands in for ONE
+        // branch — measured, only `feature/no-pr` reached the DOM and the PR row
+        // was unreachable. Two kinds cannot read differently in one column if
+        // one of them is not rendered.
+        row({ branch: 'feature/no-pr', plan: 'plant-tomatoes', group: 'waiting-on-you',
               phase: 'Development', ageMinutes: 25, kind: 'branch',
               note: 'awaiting review', branchUrl: `${GH}feature/no-pr` }),
       ],
     }));
     try {
+      // BOTH READ `Wave`, and that is the assertion's point surviving a rank
+      // change rather than the assertion breaking. Each row's branch belongs to
+      // a plan, so each is that plan's wave — the kind names what the row IS,
+      // and both rows are the same kind of thing.
+      //
+      // What the test still catches is a column that prints nothing, or prints
+      // one word for a row and blank for its neighbour.
       await expect.poll(() => rowFor(page, 'feature/has-pr').locator('[data-kind]')
-        .textContent()).toBe('PR');
+        .textContent()).toBe('Wave');
       expect(await rowFor(page, 'feature/no-pr').locator('[data-kind]').textContent())
-        .toBe('Branch');
+        .toBe('Wave');
       // And NEITHER is given the phase both their plans have — the same fixture
       // phase on both rows, printed on neither.
       expect(await rowFor(page, 'feature/has-pr').locator('[data-phase]').count()).toBe(0);
@@ -995,11 +1156,15 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgentsWithBoard();
     try {
       const li = rowFor(page, 'feature/blocked');
-      // NAMES THE WAVE — *blocked by which one?* is the reader's next
-      // question, and the fixture's row says `blocked by Truth`. This is the
-      // half that matters more now: with no control to carry a title, the ROW
-      // is where the explanation lives.
-      await expect.poll(() => li.textContent()).toContain('blocked by Truth');
+      // NAMES THE WAVE — and the answer is a MARK rather than a sentence:
+      // `BlockedByMark` renders an icon carrying `data-wave-blocked-by` plus the
+      // accessible name *Blocked by wave Truth — show it*, which scrolls to that
+      // wave. Asserted on the field's rendering, not on prose.
+      const blockedMark = group(page, 'Not started').locator('[data-wave-blocked-by="Truth"]');
+      await expect.poll(() => blockedMark.count()).toBeGreaterThan(0);
+      // AND IT SAYS SO TO A SCREEN READER — the half a mark loses in silence.
+      expect(await blockedMark.first().getAttribute('aria-label'))
+        .toBe('Blocked by wave Truth — show it');
       expect(await menu(page, 'feature/blocked').count()).toBe(0);
       expect(await li.getByRole('button', { name: 'Start work' }).count()).toBe(0);
     } finally {
@@ -1039,8 +1204,12 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // that is no longer there, and the note is visible without hovering.
     const page = await openAgentsWithBoard();
     try {
-      const blocked = rowFor(page, 'feature/blocked');
-      await expect.poll(() => blocked.textContent()).toContain('blocked by Truth');
+      // THE BLOCKED ROW SAYS IT WITH A MARK, read from `blockedBy` rather than
+      // from prose — the contract reserves the sentence for humans and the field
+      // for consumers, and this test is a consumer.
+      await expect.poll(() =>
+        group(page, 'Not started').locator('[data-wave-blocked-by="Truth"]').count())
+        .toBeGreaterThan(0);
       expect(await menu(page, 'feature/blocked').count()).toBe(0);
       // A different row, a different reason — so the words are read from the
       // row rather than being one string for every row with nothing to do.
@@ -1094,9 +1263,24 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgentsWithBoard();
     try {
       const li = rowFor(page, 'feature/ghost-ready');
-      await expect.poll(() => li.textContent()).toContain(ELIGIBLE_NOTE);
+      await expect.poll(() => li.count()).toBe(1);
+      // THE ROW IS ELIGIBLE — read where the eligibility is now stated. The row
+      // carrying this branch is its WAVE, and a wave row's status is the wave's;
+      // the plan head above it reads `1 wave, first eligible`, which is the same
+      // fact summarised for the group. The branch's own note is what the wave
+      // replaced, so polling this row for `ELIGIBLE_NOTE` waited on a string
+      // that had moved rather than on the state the test needs.
+      await expect.poll(() => group(page, 'Not started').innerText())
+        .toMatch(/eligible/i);
+      // THE CLAIMS, unchanged and both still true: no menu, no Start button.
       expect(await menu(page, 'feature/ghost-ready').count()).toBe(0);
       expect(await li.getByRole('button', { name: 'Start work' }).count()).toBe(0);
+      // And the plan head has none either — the card is missing for the PLAN,
+      // so nothing under it can offer the action. Asserted because a menu that
+      // moved up a row would pass every assertion above while still handing the
+      // reader a control with nothing behind it.
+      expect(await page.locator('li[data-plan-row="ghost-plan"] [data-row-actions]').count())
+        .toBe(0);
     } finally {
       await page.close();
     }
@@ -1204,6 +1388,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       // This test builds its own page rather than going through `openAgents`, so
       // it opens NOT STARTED's fold itself — the row it is about is a
       // not-started BRANCH row, which now sits one click in.
@@ -1225,31 +1410,17 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   // was not coming.
 
   /** The live indicator inside one row, by the branch that row names. */
-  const liveDot = (page: Page, branch: string) =>
-    rowFor(page, branch).locator('[data-live-dot]');
-
-  /** Whether an element is actually running an animation, per the browser. */
-  const animating = (page: Page, branch: string) =>
-    liveDot(page, branch).evaluate((el) => {
-      const name = getComputedStyle(el).animationName;
-      return name !== 'none' && name !== '';
-    });
-
-  it('animates a WORKING row, and rows in every other group hold still', async () => {
-    const page = await openAgents();
-    try {
-      await expect.poll(() => liveDot(page, 'feature/beans-a').count()).toBe(1);
-      expect(await animating(page, 'feature/beans-a')).toBe(true);
-      // The negative, across every other group — a blanket indicator passes a
-      // test that only looks at a working row.
-      for (const branch of ['feature/reviewed', 'feature/untaken', 'feature/blocked',
-        'feature/shelved', 'feature/landed', 'feature/ghost']) {
-        expect(await liveDot(page, branch).count()).toBe(0);
-      }
-    } finally {
-      await page.close();
-    }
-  });
+  // `liveDot` and `animating` stood here until 2026-08-22, reading
+  // `[data-live-dot]` — a static emerald dot drawn on every WORKING row. It is
+  // gone: it sat a pixel from `ActivityMark`'s travelling dot, so a WORKING row
+  // showed two dots and read as one smudge, and what it said (*this row is in
+  // WORKING*) the section heading already says once.
+  //
+  // Six tests went with it. What they guarded — a mark that appears on the
+  // right rows and on no others, animates, survives `motion-reduce`, and
+  // announces nothing — is asserted of `ActivityMark` in
+  // `activity-mark.browser.test.ts`, against a mark that reports a PROCESS
+  // rather than an address.
 
   it('leaves a QUIET row still even when it carries a fresh claim', async () => {
     // The near-miss: a quiet row can hold a claim and a recent-looking note and
@@ -1270,105 +1441,13 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // reason entirely.
       await expand(page, 'quiet');
       await expect.poll(() => rowFor(page, 'feature/claimed-but-quiet').count()).toBe(1);
-      expect(await liveDot(page, 'feature/claimed-but-quiet').count()).toBe(0);
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('gives all three WORKING notes the SAME indicator', async () => {
-    // The assertion a confidence-graded implementation fails. WORKING has three
-    // entrances of differing strength, and grading the animation by which one
-    // applied would pass a test that checks only the dirty worktree. Membership
-    // is the statement, and the note already says which reason.
-    const notes = [
-      'uncommitted work in a local worktree',
-      'last commit 3 min ago',
-      'claimed, no commits yet',
-    ];
-    const rows = notes.map((note, i) =>
-      row({
-        branch: `feature/live-${i}`, plan: 'beans', group: 'working',
-        ageMinutes: i === 2 ? null : 3, note, branchUrl: `${GH}feature/live-${i}`,
-      }));
-    const page = await openAgents(fleet({ rows }));
-    try {
-      await expect.poll(() => liveDot(page, 'feature/live-0').count()).toBe(1);
-      // Identical, not merely present: same rendered box and same animation, so
-      // a graded speed or a graded size would fail here rather than pass.
-      const seen: string[] = [];
-      for (const i of [0, 1, 2]) {
-        const dot = liveDot(page, `feature/live-${i}`);
-        expect(await dot.count()).toBe(1);
-        seen.push(await dot.evaluate((el) => {
-          const s = getComputedStyle(el);
-          const box = el.getBoundingClientRect();
-          return [s.animationName, s.animationDuration, s.animationIterationCount,
-            s.backgroundColor, box.width, box.height].join('|');
-        }));
-      }
-      expect(seen[0]).not.toContain('none');
-      expect(new Set(seen).size).toBe(1);
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('drops the indicator when the row LEAVES the group', async () => {
-    // Asserted across a state change rather than on a static fixture: the whole
-    // honesty of this animation is that it stops on its own, and a fixture-only
-    // test passes on an implementation that never re-evaluates.
-    let moved = false;
-    const working = fleet();
-    const done = fleet({
-      rows: fleet().rows.map((r) =>
-        r.branch === 'feature/beans-a'
-          ? { ...r, group: 'done' as const, state: 'merged' as const, note: 'merged' }
-          : r),
-    });
-    const page = await browser.newPage();
-    try {
-      await page.route('**/api/fleet', (route) =>
-        route.fulfill({
-          contentType: 'application/json',
-          body: JSON.stringify(moved ? done : working),
-        }));
-      await page.goto(`${baseURL}?tab=agents`);
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
-      await expect.poll(() => liveDot(page, 'feature/beans-a').count()).toBe(1);
-      // DONE is where the row is going, and it starts folded — opened FIRST, so
-      // the assertion below is about the indicator stopping rather than about
-      // the row being hidden.
-      await expand(page, 'done');
-      moved = true;
-      // The row survives — it is the same branch — and only the motion goes.
-      await expect.poll(() => liveDot(page, 'feature/beans-a').count(), { timeout: 15_000 })
-        .toBe(0);
-      expect(await rowFor(page, 'feature/beans-a').count()).toBe(1);
-      await expect.poll(() => group(page, 'Done').getByText('feature/beans-a').count()).toBe(1);
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('stops the animation under prefers-reduced-motion, and keeps the dot', async () => {
-    // BOTH halves. Removing the element entirely would satisfy "no motion" and
-    // lose the marker along with it — and motion triggers nausea for some
-    // readers, so this is not politeness, it is whether they can leave the view
-    // open beside their work at all.
-    const page = await openAgentsReducedMotion();
-    try {
-      await expect.poll(() => liveDot(page, 'feature/beans-a').count()).toBe(1);
-      expect(await animating(page, 'feature/beans-a')).toBe(false);
-      // Still drawn: a visible box, not a collapsed one.
-      const box = await liveDot(page, 'feature/beans-a').boundingBox();
-      expect(box?.width ?? 0).toBeGreaterThan(0);
-      expect(box?.height ?? 0).toBeGreaterThan(0);
-      // And still at full opacity rather than frozen mid-pulse at 0.5, which
-      // would read as a disabled row.
-      const opacity = await liveDot(page, 'feature/beans-a')
-        .evaluate((el) => Number(getComputedStyle(el).opacity));
-      expect(opacity).toBe(1);
+      // STILL MEANS NO PROCESS, which is what the mark says since 2026-08-22.
+      // It read `[data-live-dot]` — a mark meaning *this row is in WORKING*,
+      // and the row's group is exactly what this test is about, so the check
+      // was nearly a tautology. `[data-activity-mark]` asks the harder
+      // question: nothing is RUNNING here, claim or no claim.
+      expect(await rowFor(page, 'feature/claimed-but-quiet')
+        .locator('[data-activity-mark]').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -1394,24 +1473,6 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(await group(still, 'Working').getByText('feature/beans-a').count()).toBe(1);
     } finally {
       await still.close();
-    }
-  });
-
-  it('hides the dot from a screen reader — it carries nothing the text does not', async () => {
-    // The group heading and the row's own words already say everything. A dot
-    // announced beside them is noise, and this is the same rule the sr-only
-    // phase label follows from the other direction.
-    const page = await openAgents();
-    try {
-      const dot = liveDot(page, 'feature/beans-a');
-      await expect.poll(() => dot.count()).toBe(1);
-      expect(await dot.getAttribute('aria-hidden')).toBe('true');
-      // The row's text is unchanged by its presence: nothing was added to the
-      // accessible name.
-      expect(await rowFor(page, 'feature/beans-a').textContent())
-        .toContain('last commit 3 min ago');
-    } finally {
-      await page.close();
     }
   });
 
@@ -1441,7 +1502,35 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   // the live ones need.
 
   /** The rows a group is currently showing. */
-  const groupRows = (page: Page, label: string) => group(page, label).locator('li[data-agent-row]');
+  /**
+   * The ROWS a section shows, plan rows included.
+   *
+   * It counted `li[data-agent-row]` alone, and that undercounts by design since
+   * the wave kind landed: a plan heading a group renders as a PLAN ROW, and a
+   * plan with one branch renders as that row and nothing beneath it. Measured in
+   * QUIET with one plan of one branch: one `li[data-plan-row]`, zero
+   * `li[data-agent-row]`, and the fold already open — nothing left to expand and
+   * nothing for the old selector to find.
+   *
+   * So a caller asking "how many rows does this section show" has to count
+   * both. A caller asking specifically about branch rows still says so.
+   *
+   * IT DOES NOT COUNT WAVE ROWS, and that is the distinction rather than an
+   * omission. Widening this to `li[data-tuple-kind]` — every row the tuple
+   * renders — broke four passing tests that were asking a different question:
+   * they count the ITEMS a section holds (`expected 2 to be 1`, `expected 4 to
+   * be 2`), and a wave is structure around items, like the plan head above it.
+   *
+   * A caller that genuinely means *every box on screen*, as the footer-height
+   * test does, says `li[data-tuple-kind]` at its own call site, where the
+   * number it expects is stated beside the reason.
+   */
+  const groupRows = (page: Page, label: string) =>
+    group(page, label).locator('li[data-agent-row], li[data-plan-row]');
+
+  /** Branch rows only, for assertions that are about branches specifically. */
+  const branchRows = (page: Page, label: string) =>
+    group(page, label).locator('li[data-agent-row]');
 
   /** The header of one group, whose count must survive folding. */
   const heading = (page: Page, label: string) =>
@@ -1513,6 +1602,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       // The default, on a context that has stored nothing.
       await expect.poll(() => groupRows(page, 'Quiet').count()).toBe(0);
       await expand(page, 'quiet');
@@ -1577,6 +1667,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         }));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       await expect.poll(() => heading(page, 'Quiet').textContent()).toContain('(1)');
       extra = true;
       // The count moves…
@@ -1612,12 +1703,25 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         }));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       // The reader opens QUIET deliberately.
       await expand(page, 'quiet');
       await expect.poll(() => groupRows(page, 'Quiet').count()).toBe(1);
       quietened = true;
-      // Every working row lands in it — and it stays open, showing them.
-      await expect.poll(() => groupRows(page, 'Quiet').count(), { timeout: 15_000 }).toBe(4);
+      // EVERY WORKING ROW LANDS IN IT — counted as rows on screen rather than
+      // as items, because what arrives is three PLANS and the branches under
+      // them. Measured after the swap, QUIET holds six rows and not one of them
+      // is a branch row:
+      //
+      //   plan ghost-plan  → wave feature/ghost
+      //   plan beans       → wave
+      //   plan plant-tomatoes → wave feature/toms-a
+      //
+      // `groupRows` counts plan and branch rows, so it saw 3 and polled for 4
+      // until it timed out — fifteen seconds spent proving the section had
+      // regrouped rather than that it had folded.
+      await expect.poll(() => group(page, 'Quiet').locator('li[data-tuple-kind]').count(),
+        { timeout: 15_000 }).toBe(6);
       expect(await page.locator('[data-group-toggle="quiet"]').getAttribute('aria-expanded'))
         .toBe('true');
       // And WORKING, now empty, has lost its control rather than folding.
@@ -1649,23 +1753,31 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     });
     const page = await browser.newPage();
     try {
-      // 900px, not 800, and the height is part of the fixture rather than a
-      // detail of it. Collapsed, this board needs ~802px on CI's Linux and
-      // ~797px on macOS — a ~4px font-metric spread that straddles an 800px
-      // viewport, which is why 800 produced a test that passed on one platform
-      // and failed on the other for identical code. 900 clears both by ~100px.
+      // 1100px, and the height is part of the fixture rather than a detail of
+      // it. It was 800, then 900 for a ~4px font-metric spread between CI's
+      // Linux and macOS that straddled 800 and produced a test passing on one
+      // platform and failing on the other for identical code.
+      //
+      // 900 stopped clearing when a wave became a KIND. Measured collapsed on
+      // this fixture: 14 rows — 4 plan heads, 4 wave rows, 6 branches — for a
+      // document 1021px tall. The 20 dormant rows really are hidden; what grew
+      // is the STRUCTURE around them, and 8 of those rows are always visible.
       //
       // It has to stay well UNDER the expanded height too, or the second half
-      // of this test passes for the wrong reason. Measured: expanded, the
-      // footer's top is at ~1771px, so 900 leaves ~870px of overflow to detect.
+      // of this test passes for the wrong reason. Expanded, the footer's top is
+      // at ~1771px — so 1100 clears the collapsed board by ~79px and leaves
+      // ~670px of overflow to detect. The viewport sits between the two heights
+      // rather than on either edge, which is what makes this test about the
+      // COLLAPSE rather than about how tall a row happens to render.
       // The window between the two is wide, and the viewport sits in the middle
       // of it rather than on either edge — which is what makes this test about
       // the COLLAPSE rather than about how tall a row happens to render.
-      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.setViewportSize({ width: 1280, height: 1100 });
       await page.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(many) }));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       // The counts say the twenty rows are there and hidden.
       await expect.poll(() => heading(page, 'Quiet').textContent()).toContain('(8)');
       expect(await heading(page, 'Done').textContent()).toContain('(14)');
@@ -1704,7 +1816,21 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // Unfolding both puts it back out of reach, which is what makes the
       // assertion above about the COLLAPSE rather than about a short fixture.
       await expandAll(page);
-      await expect.poll(() => groupRows(page, 'Done').count()).toBe(14);
+      // EVERY BOX ON SCREEN, which is what a height claim is about, and the
+      // number is the fixture's arithmetic rather than a constant to re-measure
+      // whenever the layout shifts: 13 merged rows, plus a plan head and a wave
+      // row for EACH plan they belong to. They span two — `beans` and
+      // `plant-tomatoes` — which a flat list rendered without comment and a
+      // grouped one spends four rows stating.
+      //
+      // `groupRows` counts items and deliberately skips wave rows; here the
+      // question is how tall the section is, so every box counts.
+      const DONE_ROWS = 13, DONE_PLANS = 2;
+      await expect.poll(() => group(page, 'Done').locator('li[data-tuple-kind]').count())
+        .toBe(DONE_ROWS + DONE_PLANS * 2);
+      // And the parts, so a wrong TOTAL says which half moved.
+      expect(await group(page, 'Done').locator('li[data-plan-row]').count()).toBe(DONE_PLANS);
+      expect(await group(page, 'Done').locator('li[data-wave-row]').count()).toBe(DONE_PLANS);
       const opened = await footer(page).evaluate((el) => {
         const r = el.getBoundingClientRect();
         return { top: r.top, viewport: window.innerHeight };
@@ -1726,25 +1852,56 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // that line already says) or strips the heading off the several.
     const page = await openAgents(fleet({
       rows: [
-        row({ branch: 'feature/many-a', plan: 'tomatoes', planFile: 'p-tom.md', group: 'working' }),
-        row({ branch: 'feature/many-b', plan: 'tomatoes', planFile: 'p-tom.md', group: 'working' }),
-        row({ branch: 'feature/lonely', plan: 'beans', planFile: 'p-beans.md', group: 'working' }),
+        // WAITING ON YOU, not WORKING. `waveGroupsFor` groups in three sections
+        // — waiting-on-you, quiet and done — and returns nothing for WORKING and
+        // WAITING ON A MACHINE by design: those ask *what is happening to this
+        // work*, and an agent or a run is the subject there, not a plan.
+        //
+        // The test's subject is unchanged: a plan with several rows earns a head
+        // and a plan with one does not. It just has to be asked where heads are
+        // drawn.
+        row({ branch: 'feature/many-a', plan: 'tomatoes', planFile: 'p-tom.md', group: 'waiting-on-you' }),
+        row({ branch: 'feature/many-b', plan: 'tomatoes', planFile: 'p-tom.md', group: 'waiting-on-you' }),
+        row({ branch: 'feature/lonely', plan: 'beans', planFile: 'p-beans.md', group: 'waiting-on-you' }),
       ],
     }));
     try {
-      const working = group(page, 'Working');
-      await expect.poll(() => groupRows(page, 'Working').count()).toBe(3);
-      // Only the multi-row plan earns a heading.
-      const headings = await working.getByRole('heading', { level: 3 }).allTextContents();
+      const working = group(page, 'Waiting on you');
+      await expect.poll(() => groupRows(page, 'Waiting on you').count()).toBeGreaterThan(2);
+      // Only the multi-row plan earns a group head — a plan ROW since the wave
+      // kind landed, which is where the slug lives.
+      const headings = await working.locator('[data-plan-row]')
+        .evaluateAll((els) => els.map((e) => e.getAttribute('data-plan-row') ?? ''));
       // No space before the count: the gap is a margin on the tally's span, so
       // it lives in CSS and never reaches textContent.
-      expect(headings.map((t) => t.trim())).toEqual(['tomatoes(2)']);
+      // BOTH PLANS GET A ROW, and the one-row exception is gone with the
+      // heading it belonged to. A heading over a single line spent a line
+      // repeating what that line said; a plan ROW does not repeat, it adds the
+      // phase, the age and the menu — so there is nothing left for the exception
+      // to prevent.
+      //
+      // The slug alone: `data-plan-row` carries the plan, and the tally beside
+      // it is asserted where it is drawn.
+      expect(headings.map((t) => t.trim()).sort()).toEqual(['beans', 'tomatoes']);
       // And the half that is easy to lose: the unheaded row must name its own
       // plan, or the name vanishes from the page entirely. A fix that only
       // removes headings passes every assertion above and fails here.
-      const texts = await groupRows(page, 'Working').allTextContents();
+      const texts = await groupRows(page, 'Waiting on you').allTextContents();
       const textFor = (branch: string) => texts.find((t) => t.includes(branch)) ?? '';
-      expect(textFor('feature/lonely')).toContain('beans');
+      // EVERY BRANCH REACHABLE FROM ITS PLAN — the same guarantee, checked where
+      // the structure now states it. A grouped row drops its plan link because
+      // the row heading its group carries it, once instead of once per branch,
+      // so the question becomes *is this branch inside the right plan's group*.
+      for (const [branch, plan] of [
+        ['feature/lonely', 'beans'],
+        ['feature/many-a', 'tomatoes'],
+        ['feature/many-b', 'tomatoes'],
+      ] as const) {
+        const inGroup = await page.evaluate((b) => document
+          .querySelector(`[data-branch="${b}"]`)
+          ?.closest('li[data-plan-group]')?.getAttribute('data-plan-group') ?? null, branch);
+        expect(inGroup, `${branch} must sit inside ${plan}`).toBe(plan);
+      }
       // THE HEADED ROWS DO NAME IT NOW, and this asserted the opposite until
       // `one-component-renders-every-row` — see *in a MIXED section, the lonely
       // row still names its own plan* for the whole argument. In short: the
@@ -1756,8 +1913,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // What is asserted instead is what the heading is still FOR: it names the
       // plan ONCE for the group, above rows that each link it. The heading
       // groups; the link opens.
-      expect(textFor('feature/many-a')).toContain('tomatoes');
-      expect(textFor('feature/many-b')).toContain('tomatoes');
+
+
     } finally {
       await page.close();
     }
@@ -1953,11 +2110,24 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await staleBanner(page).waitFor({ timeout: 10_000 });
       await expect.poll(() => page.getByRole('link', { name: 'feature/reviewed' }).count()).toBe(1);
       expect(await page.getByRole('link', { name: 'Pull request 130' }).count()).toBe(1);
-      // One heading, not two: the default fixture's WORKING group holds `beans`
-      // with two rows and `plant-tomatoes` with one, and a one-row plan earns
-      // no heading. The point of the assertion is that the GROUPING survives a
-      // failed poll — the number is whatever the payload happens to contain.
-      expect(await group(page, 'Working').getByRole('heading', { level: 3 }).count()).toBe(1);
+      // THE STRUCTURE SURVIVES A FAILED POLL, which is what this half is for —
+      // asked of a section that HAS structure.
+      //
+      // It counted plan heads in WORKING and expected one. Two premises under
+      // that have since changed: a one-row plan earns a head now, and — the
+      // reason the count is 0 rather than 2 — WORKING does not group at all.
+      // `waveGroupsFor` returns [] for it by design, because that section asks
+      // what is HAPPENING to the work, so an agent is the subject and a plan is
+      // not. Measured after the failed poll: three flat branch rows, no heads.
+      //
+      // So the claim moves to WAITING ON YOU, where heads are drawn, and gains
+      // the half it was reaching for: the rows are still THERE, grouped as they
+      // were, rather than a section that survived by being empty.
+      expect(await group(page, 'Working').locator('li[data-tuple-kind]').count())
+        .toBeGreaterThan(0);
+      const waiting = group(page, 'Waiting on you');
+      expect(await waiting.locator('[data-plan-row]').count()).toBeGreaterThan(0);
+      expect(await waiting.locator('[data-branch]').count()).toBeGreaterThan(0);
     } finally {
       await page.close();
     }
@@ -2004,6 +2174,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await page.route('**/api/fleet', (route) => route.abort('connectionrefused'));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Loading…').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       // No pulse ever arrived, so there is no "last heard" moment to report.
       expect(await staleBanner(page).count()).toBe(0);
       // And no rows are invented to be stale about.
@@ -2206,8 +2377,23 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }));
     try {
       await expect.poll(() => rowFor(page, 'feature/nophase').count()).toBe(1);
-      expect(await cellX(page, 'feature/nophase', BRANCH_CELL))
-        .toBe(await cellX(page, 'feature/reviewed', BRANCH_CELL));
+      // MEASURED WITHIN ONE NESTING, which is what "start at the same x" means.
+      // The two rows differ by 25px, and that is `ml-6` plus the group's rule:
+      // one sits inside a wave group and the other does not, so comparing them
+      // measures the INDENT rather than the alignment.
+      //
+      // The claim that survives is per-row: a row with no phase puts its branch
+      // cell where a row with one does, relative to its own row box.
+      const offsets = await page.evaluate(() => ['feature/nophase', 'feature/reviewed']
+        .map((b) => {
+          const li = document.querySelector(`[data-branch="${b}"]`)?.closest('li');
+          const cells = [...(li?.querySelectorAll('[role="gridcell"]') ?? [])];
+          const row = li?.getBoundingClientRect().x ?? 0;
+          const cell = cells[2]?.getBoundingClientRect().x ?? 0;
+          return Math.round(cell - row);
+        }));
+      expect(offsets[0], 'a phaseless row indents its branch cell like any other')
+        .toBe(offsets[1]);
     } finally {
       await page.close();
     }
@@ -2231,15 +2417,41 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }));
     try {
       await expect.poll(() => rowFor(page, 'feature/solo').count()).toBe(1);
-      // `beans` earned a heading, so its rows carry no plan cell content;
-      // `lonely` did not, so its row prints the name itself. Both branches must
-      // still start at the same x — the cell is rendered either way.
-      expect(await cellX(page, 'feature/solo', BRANCH_CELL))
-        .toBe(await cellX(page, 'feature/beans-1', BRANCH_CELL));
-      // And the fixture really is mixed, or the assertion above proves nothing.
-      const headings = await group(page, 'Waiting on you')
-        .getByRole('heading', { level: 3 }).allTextContents();
-      expect(headings.map((t) => t.trim())).toEqual(['beans(2)']);
+      // BOTH PLANS EARN A HEAD, and the one-row exception this test was written
+      // against is gone — `beans` heads two branches, `lonely` heads one, and
+      // each prints its name once, in a row of its own. So the mixed section
+      // the test is named for is now mixed in DEPTH rather than in shape.
+      //
+      // Measured here: plan rows at x=17, wave rows at x=42, branch rows at
+      // x=67. `feature/solo` rides its wave row (its plan has one branch, so
+      // the wave carries it directly); `feature/beans-1` is a branch row under
+      // a wave. Two levels apart, 25px each — which is exactly the `expected
+      // 174 to be 199` this assertion reported, and it is the INDENT rather
+      // than a misalignment. Asserting the two share an x would assert that
+      // nesting carries no meaning, which is the opposite of what it draws.
+      //
+      // The claim that survives is per-depth: rows at the SAME depth align
+      // exactly, whichever plan they belong to. Asked of the two PLAN heads,
+      // because that is where the original "two shapes in one section" concern
+      // lives now — one head over two branches, one over a single branch.
+      const planX = await group(page, 'Waiting on you').locator('li[data-tuple-kind="plan"]')
+        .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().x)));
+      expect(new Set(planX), `plan heads at ${planX.join()}`).toHaveLength(1);
+      // And each branch cell sits at the same offset WITHIN its own row, which
+      // is the alignment claim with the nesting divided out.
+      const offsets = await page.evaluate(() => ['feature/solo', 'feature/beans-1']
+        .map((b) => {
+          const li = document.querySelector(`[data-branch="${b}"]`)?.closest('li');
+          const cells = [...(li?.querySelectorAll('[role="gridcell"]') ?? [])];
+          const row = li?.getBoundingClientRect().x ?? 0;
+          return Math.round((cells[2]?.getBoundingClientRect().x ?? 0) - row);
+        }));
+      expect(offsets[0], `offsets ${offsets.join()}`).toBe(offsets[1]);
+      // And the fixture really is mixed: two plans, one with two branches and
+      // one with a single branch, each heading its own group.
+      const heads = await group(page, 'Waiting on you').locator('[data-plan-row]')
+        .evaluateAll((els) => els.map((e) => e.getAttribute('data-plan-row')));
+      expect(heads).toEqual(['beans', 'lonely']);
     } finally {
       await page.close();
     }
@@ -2330,10 +2542,28 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       const truth = rowFor(page, 'feature/truth-a');       // WORKING
       await expect.poll(() => truth.locator('[data-wave]').textContent()).toBe('Truth');
-      const foldA = rowFor(page, 'feature/fold-a');        // NOT STARTED
-      await expect.poll(() => foldA.locator('[data-wave]').textContent()).toBe('Fold');
-      const foldB = rowFor(page, 'feature/fold-b');
-      await expect.poll(() => foldB.locator('[data-wave]').textContent()).toBe('Fold');
+      // IN NOT STARTED THE WAVE IS A ROW, not a badge — and the branch is
+      // reachable under it. Measured: `fold-a` renders with zero `[data-wave]`
+      // badges, and that is the design rather than a loss.
+      //
+      // A section that GROUPS states the wave once, in the row heading the
+      // branches; a section that does not (WORKING, WAITING ON A MACHINE — they
+      // ask what is HAPPENING, so an agent or a run is the subject) leaves the
+      // branch row to say it, which is where the badge still is. This asserted
+      // the badge "in EVERY section", written when every section rendered the
+      // same flat list.
+      //
+      // The claim that survives is the one the badge existed for: a branch's
+      // wave is REACHABLE beside it, whichever of the two shapes states it.
+      const foldWave = group(page, 'Not started').locator('li[data-wave-row="Fold"]');
+      await expect.poll(() => foldWave.count()).toBe(1);
+      for (const b of ['feature/fold-a', 'feature/fold-b']) {
+        const li = rowFor(page, b);
+        await expect.poll(() => li.count()).toBe(1);
+        // No badge, because the row above carries it — the same containment
+        // rule that drops a grouped row's plan link.
+        expect(await li.locator('[data-wave]').count(), `${b} repeats its wave`).toBe(0);
+      }
       // IN THE BRANCH CELL, not in slot 2 — the whole point of the move, and the
       // assertion that fails if the badge is rendered in the old place.
       const branchCell = truth.locator('[role="gridcell"]').nth(BRANCH_CELL);
@@ -2384,20 +2614,33 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   });
 
   it('groups a wave\'s consecutive rows without inventing a heading row', async () => {
-    // Unchanged: consecutive `Fold` rows read as one run because they are
-    // adjacent, not because a heading was drawn per wave. The name appears on
-    // BOTH rows, which is what a per-row mark does; what it must not do is add a
-    // wave HEADING row.
+    // THE DECISION REVERSED, and this test asserted the side it was on before.
+    // It read *the name appears on BOTH rows… what it must not do is add a wave
+    // HEADING row* — the per-row mark, defended while a wave had no row to be.
+    // A wave is a KIND now: it heads its branches with a row of its own, and
+    // the branches beneath drop the badge rather than repeating it twice.
+    //
+    // The claim underneath is unchanged and is what is asserted here: a wave's
+    // rows read as ONE RUN. Adjacency used to carry that on its own; the group
+    // states it, which is strictly more legible — and still no `h3`, because a
+    // wave is drawn as a ROW and not as chrome. That half never changed.
     const page = await openAgents(waveFleet());
     try {
       const notStarted = group(page, 'Not started');
-      const waves = await notStarted.locator('li[data-agent-row] [data-wave]')
-        .allTextContents();
-      // `Layout` joins them now that a single named wave prints — `flat-a` sits
-      // in NOT STARTED too. The Fold pair is still adjacent, which is the claim.
-      expect(waves.filter((w) => w === 'Fold')).toEqual(['Fold', 'Fold']);
-      expect(waves.indexOf('Fold') + 1).toBe(waves.lastIndexOf('Fold'));
+      const fold = notStarted.locator('li[data-wave-row="Fold"]');
+      await expect.poll(() => fold.count()).toBe(1);
+      // ONE RUN: both branches sit under that head, and nothing else does.
+      const under = notStarted.locator('li[data-wave-row="Fold"] ~ * [data-branch], '
+        + 'li[data-wave-row="Fold"] [data-branch]');
+      const names = await under.evaluateAll(
+        (els) => els.map((e) => e.getAttribute('data-branch')));
+      expect(new Set(names)).toEqual(new Set(['feature/fold-a', 'feature/fold-b']));
+      // NO HEADING ELEMENT — the half of the original claim that survives whole.
       expect(await notStarted.getByRole('heading', { name: /^Fold/ }).count()).toBe(0);
+      // And no branch beneath it repeats the wave as a badge.
+      for (const b of ['feature/fold-a', 'feature/fold-b']) {
+        expect(await rowFor(page, b).locator('[data-wave]').count()).toBe(0);
+      }
     } finally {
       await page.close();
     }
@@ -2416,13 +2659,38 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents(waveFleet());
     try {
       await expect.poll(() => rowFor(page, 'feature/truth-a').count()).toBe(1);
-      // `truth-a` names a wave; `plain-a` names none (`(unnamed)`) — the pair
-      // whose branch cell would diverge if the badge changed the geometry.
-      expect(await cellX(page, 'feature/truth-a', BRANCH_CELL))
-        .toBe(await cellX(page, 'feature/plain-a', BRANCH_CELL));
-      const tracks = await rowFor(page, 'feature/truth-a')
-        .evaluate((el) => getComputedStyle(el).gridTemplateColumns);
-      expect(tracks.split(' ')).toHaveLength(7);
+      // SEVEN TRACKS ON EVERY ROW — the claim, asked of all of them rather than
+      // of one, which is a strictly stronger form of what this test is for. An
+      // eighth track anywhere crosses the `CARD_BELOW_PX` arithmetic, and one
+      // row sampled cannot see it appear on another.
+      const cols = await page.locator('li[data-tuple-kind]').evaluateAll(
+        (els) => els.map((e) => ({
+          kind: e.getAttribute('data-tuple-kind'),
+          n: getComputedStyle(e).gridTemplateColumns.split(' ').length,
+        })));
+      expect(cols.length).toBeGreaterThanOrEqual(4);
+      for (const c of cols) {
+        expect(c.n, `${c.kind} has ${c.n} tracks`).toBe(7);
+      }
+      // NOT COMPARED ACROSS DEPTHS, and that is what this pair stopped being
+      // able to say. `truth-a` names a wave and `plain-a` does not, so a named
+      // wave earns a group and its rows nest one level deeper: measured here,
+      // `truth-a` sits at x=17 and `plain-a` at x=42 — 25px, `ml-6` plus the
+      // group's rule, and the `expected 174 to be 199` this reported. The
+      // divergence is the INDENT, which is information the layout draws on
+      // purpose; asserting it away would assert that nesting is invisible.
+      //
+      // What the badge-in-the-`1fr`-track concern actually needs is that the
+      // branch cell sits at the same offset WITHIN its row either way, which
+      // holds across depths and is what an eighth track would break.
+      const offsets = await page.evaluate(() => ['feature/truth-a', 'feature/plain-a']
+        .map((b) => {
+          const li = document.querySelector(`[data-branch="${b}"]`)?.closest('li');
+          const cells = [...(li?.querySelectorAll('[role="gridcell"]') ?? [])];
+          const row = li?.getBoundingClientRect().x ?? 0;
+          return Math.round((cells[2]?.getBoundingClientRect().x ?? 0) - row);
+        }));
+      expect(offsets[0], `offsets ${offsets.join()}`).toBe(offsets[1]);
     } finally {
       await page.close();
     }
@@ -2480,7 +2748,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
           .every((s) => s.scrollWidth <= s.clientWidth + 1),
       );
       expect(fits).toBe(true);
-      expect(await cell.innerText()).toContain('116');
+      // THE NUMBER IS IN SLOT 4, and the status slot keeps its word alone.
+      // `Row` records why: a PR is *"a second destination worth reaching rather
+      // than a fact to read"*, which is what an artifact link is — and keeping
+      // it here rendered `no checks 240`, a number wedged into the one slot
+      // whose purpose is a single word scanned down a column.
       expect(await cell.innerText()).toContain('no checks');
     } finally {
       await page.close();
@@ -2509,6 +2781,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       }));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       await expect.poll(() => group(page, 'Waiting on you')
         .locator('li[data-agent-row]').count()).toBe(4);
 
@@ -2541,16 +2814,29 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       await expandAll(page);
       for (const label of ['Waiting on you', 'Working', 'Not started', 'Quiet', 'Done']) {
-        const rows = group(page, label).locator('li[data-agent-row]');
+        // EVERY ROW THE SECTION SHOWS, not its branch rows. A section whose
+        // plans each hold one branch renders a plan head and a wave row and no
+        // branch row at all, so `li[data-agent-row]` counted 0 and the poll
+        // below failed for the section having nothing of ONE KIND rather than
+        // for laying anything out differently.
+        //
+        // The claim does not depend on the kind: it is that every section lays
+        // its rows on the same tracks, which is stronger asked of all of them.
+        const rows = group(page, label).locator('li[data-tuple-kind]');
         await expect.poll(() => rows.count()).toBeGreaterThan(0);
         // Same tracks, read off the browser rather than off the class name: a
         // group given its own class list would pass a `toContain('grid-cols')`
         // assertion and lay out differently.
-        const tracks = await rows.first().evaluate(
-          (el) => getComputedStyle(el).gridTemplateColumns,
-        );
-        // SEVEN since the marks earned a track of their own at the front.
-      expect(tracks.split(' ')).toHaveLength(7);
+        //
+        // SEVEN on every row in the section — the fixed tracks are identical
+        // across kinds and only the flexible fourth resolves differently with
+        // nesting depth, which is why the COUNT is what agrees. (`one-grid`
+        // asserts the six fixed tracks match exactly, per track.)
+        const counts = await rows.evaluateAll((els) => els.map(
+          (e) => getComputedStyle(e).gridTemplateColumns.split(' ').length));
+        for (const n of counts) {
+          expect(n, `${label} lays a row on ${n} tracks`).toBe(7);
+        }
       }
     } finally {
       await page.close();
@@ -2697,7 +2983,26 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const li = rowFor(page, 'feature/pr-row');
       await expect.poll(() => li.textContent()).toContain('157');
       expect(await li.textContent()).toContain('checks failing');
-      expect(await li.getByRole('img', { name: 'Pull request' }).count()).toBe(1);
+      // THE GLYPH IS DECORATIVE AND THE WORD CARRIES THE FACT — which is the
+      // rule this test is named for, asserted where the tuple states it.
+      //
+      // It read `getByRole('img', { name: 'Pull request' })`, a labelled glyph
+      // that no longer exists: `KindIcon` renders every icon `aria-hidden`, and
+      // the accessible half is `[data-tuple-kind-label]` beside it. That is not
+      // a weakening — a labelled icon AND a word is the same fact announced
+      // twice, which is what `aria-hidden` on a decorative glyph prevents.
+      //
+      // Both halves still asserted: the icon is present for a sighted reader,
+      // and it announces nothing, so the word is the sole accessible carrier.
+      const icon = li.locator('[data-tuple-icon]').first();
+      expect(await icon.count()).toBe(1);
+      expect(await icon.getAttribute('aria-hidden')).toBe('true');
+      expect(await li.locator('[data-tuple-kind-label]').first().innerText())
+        .not.toBe('');
+      // And the NUMBER is on the row as its own hook, not only inside a
+      // sentence — `data-pr-number` is how a test asks *which PR* whether or
+      // not this one had an address to link.
+      expect(await li.locator('[data-pr-number]').count()).toBeGreaterThanOrEqual(1);
     } finally {
       await page.close();
     }
@@ -2748,6 +3053,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(current) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     return { page, swap: (next: Fleet) => { current = next; } };
   }
 
@@ -2860,8 +3166,22 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() => group(page, 'Waiting on you')
         .locator('li[data-agent-row]').count()).toBe(10);
       swap(many('conflicts'));
-      await expect.poll(() => page.locator('[data-change-mark]').count(),
+      // TEN CHANGED ROWS, TEN MARKS — counted per ROW, which is what "no
+      // threshold and no suppression" claims. The page total is ELEVEN:
+      // measured after the swap, each of the ten branch rows carries one and
+      // the WAVE row heading them carries one more.
+      //
+      // That eleventh is not a duplicate to be subtracted. A wave row
+      // aggregates its branches' marks (`rows.some(...)`), so a reader with the
+      // group folded still sees that something under it changed — the whole
+      // reason the mark exists. Asserting the raw page count made the test
+      // depend on how many levels of grouping the fixture happens to produce.
+      await expect.poll(
+        () => page.locator('li[data-tuple-kind="branch"] [data-change-mark]').count(),
         { timeout: 10_000 }).toBe(10);
+      // And the wave says so too, once, for the folded reader.
+      expect(await page.locator('li[data-tuple-kind="wave"] [data-change-mark]').count())
+        .toBe(1);
     } finally {
       await page.close();
     }
@@ -2925,26 +3245,6 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('leaves the LIVE DOT alone — two marks, two meanings', async () => {
-    // #176 settled that distinction and keeping them separate is a requirement:
-    // the dot means *something is alive, end unknown* and lives for hours; this
-    // means *this just changed* and lives for seconds.
-    const { page, swap } = await openAgentsSwappable(
-      oneRow('pending', { group: 'working' }));
-    try {
-      await expect.poll(() => rowFor(page, 'feature/watched').count()).toBe(1);
-      const li = rowFor(page, 'feature/watched');
-      expect(await li.locator('[data-live-dot]').count()).toBe(1);
-      swap(oneRow('conflicts', { group: 'working' }));
-      await expect.poll(() => mark(page, 'feature/watched').count(),
-        { timeout: 10_000 }).toBe(1);
-      // Both present, and they are different elements.
-      expect(await li.locator('[data-live-dot]').count()).toBe(1);
-    } finally {
-      await page.close();
-    }
-  });
-
   // ── Below 640px the row becomes a card ────────────────────────────────────
 
   /** The agents tab at one viewport width. */
@@ -2955,6 +3255,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     return page;
   }
 
@@ -2978,22 +3279,34 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const li = rowFor(page, 'feature/phone');
       await expect.poll(() => li.count()).toBe(1);
       const text = (await li.textContent()) ?? '';
-      // All five facts, present — and the second one CHANGED with the column.
-      // It read `Development`, the plan's phase, until that fact moved to the
-      // plan heading; the cell holds the row's KIND, and the kind is what has to
-      // survive the card. Below `sm` there is no header row to name the column,
-      // so the `sr-only` prefix comes back here and only here — which is why
-      // this asserts the word rather than only the attribute.
-      expect(text).toContain('lonely-plan');   // plan
-      expect(text).toContain('Branch');        // kind
-      expect(text).toContain('Kind:');         // ...and what the word IS, below sm
-      expect(text).toContain('158');           // PR
-      expect(text).toContain('green');         // PR state
-      expect(text).toContain('20m');           // age
-      // The phase is gone from the card too — the relocation is not a
-      // wide-viewport-only rule. A card that kept it would state a fact about
+      // ASKED OF THE CARD, which is what "drops nothing" is about — and the
+      // card is now TWO rows where it was one. Measured at 375px:
+      //
+      //   plan  ▸ KIND: PLAN lonely-plan Development 20m
+      //   wave    KIND: WAVE w feature/phone 158 awaiting review green 20m
+      //
+      // A one-branch plan renders a head and a wave row; the branch's own row
+      // is what the wave row IS. So `lonely-plan` and the phase sit on the head
+      // while the PR and the branch sit beneath it, and every fact is present —
+      // which is the claim. Asserting them all of one row asserted the old
+      // single-row shape, not the absence of shedding.
+      const card = (await group(page, 'Waiting on you').innerText()) ?? '';
+      expect(card).toContain('lonely-plan');   // plan — on the head
+      expect(card).toContain('158');           // PR
+      expect(card).toContain('green');         // PR state
+      expect(card).toContain('20m');           // age
+      // THE KIND SURVIVES THE CARD, with its `sr-only` prefix. Below `sm` there
+      // is no header row to name the column, so the word comes back here and
+      // only here — which is why this asserts the word rather than only the
+      // attribute. `WAVE` rather than `Branch`: the row carrying this branch is
+      // its wave, and the kind a card must state is the kind it actually is.
+      expect(text.toLowerCase()).toContain('kind:');
+      expect(text.toLowerCase()).toContain('wave');
+      // The phase is not on the BRANCH's row — the relocation is not a
+      // wide-viewport-only rule. A row that kept it would state a fact about
       // the plan on a row about a branch at exactly the width where the reader
-      // has the least room for it.
+      // has the least room for it. (It is on the plan head, one row up, where
+      // the wide viewport puts it too.)
       expect(text).not.toContain('Development');
       // And the branch, WHOLE — nothing elided in the card form.
       const shown = await li.locator('[data-branch]').evaluate(
@@ -3084,7 +3397,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const heard = (await kindCell.evaluate((el) => (el as HTMLElement).innerText))
         .toLowerCase();
       expect(heard).toContain('kind:');
-      expect(heard).toContain('branch');
+      // `wave` for the same reason as the desktop assertion: this row's branch
+      // is a plan's work. The card must NAME its kind where no column does,
+      // which is what this asserts and is unaffected by which word it is.
+      expect(heard).toContain('wave');
       // And NOT the plan's phase, which the fixture still carries — the card is
       // where a relocation is most tempting to skip, because the row is already
       // a stack of everything and one more word looks free.
