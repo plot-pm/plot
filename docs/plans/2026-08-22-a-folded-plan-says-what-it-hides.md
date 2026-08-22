@@ -172,7 +172,7 @@ familiar rather than new.
   `pending` renders in the dimmer tone rather than the actionable one; the
   aggregate is still shown when the group is expanded; the phase remains in slot
   5 and is never replaced; a count appears only where more than one branch is
-  affected; the aggregate is a word and not colour alone.
+  affected; the aggregate is a word and not colour alone. → #319
 
 ## Notes
 
