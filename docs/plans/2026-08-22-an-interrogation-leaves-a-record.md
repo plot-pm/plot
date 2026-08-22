@@ -189,7 +189,7 @@ anyway.
   second round reports 2 rather than replacing the block with a fresh one; a
   round that changes no decision still increments; a plan with no block still
   omits the key entirely rather than reporting 0; a malformed block is reported
-  as absent, which is the parser's existing behaviour and must not regress.
+  as absent, which is the parser's existing behaviour and must not regress. → #323
 
 ### Recorded
 
