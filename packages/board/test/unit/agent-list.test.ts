@@ -2272,18 +2272,32 @@ describe('the change marker costs nothing outside the client', () => {
     expect(fleetSrc).toContain('PR_BACKOFF_MAX_MS = 120_000');
   });
 
-  it('adds no contract field — the memory is the CLIENT\'s', () => {
-    // The whole change is that the client remembers one value. Putting it in
-    // the server would give it a notion of *event* where it has only ever had
-    // *state*, and would grow the payload to carry it.
+  it('adds no MEMORY field to the contract — remembering is the CLIENT\'s job', () => {
+    // The whole change is that the client remembers one value. Putting the
+    // MEMORY in the server would give it a notion of *event* where it has only
+    // ever had *state*, and would grow the payload to carry a prior reading.
+    //
+    // MEASUREMENTS ARE NOT MEMORY, and the distinction is what this test is
+    // about. `changed_ago_seconds` joined the contract on 2026-08-22: the
+    // seconds since the newest write in a worktree, computed by the scan the
+    // way `ageMinutes` beside it is. The server states it and forgets it; the
+    // client compares consecutive readings and decides whether that is news.
+    //
+    // The old pattern caught it on the word `changed` alone and would have
+    // refused any field with that syllable — including one describing the
+    // present. Named terms only, so the claim is *no field carries a PRIOR
+    // value* rather than *no field mentions change*.
     const row = AgentRowSchema.parse({
       repo: 'plot', branch: 'feature/x', plan: 'p', planFile: 'f.md', wave: 'w',
       state: 'wip', phase: null, group: 'quiet', ageMinutes: 1, note: '', pr: null,
       branchUrl: '', waitingDays: null,
     });
     for (const key of Object.keys(row)) {
-      expect(key).not.toMatch(/prior|previous|changed|mark|flash/i);
+      expect(key, `${key} looks like a remembered value`)
+        .not.toMatch(/prior|previous|was[A-Z]|lastSeen|mark|flash/i);
     }
+    // And the measurement IS there, stated in the present tense.
+    expect(Object.keys(row)).toContain('changedAgo');
   });
 });
 

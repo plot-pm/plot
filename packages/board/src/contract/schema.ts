@@ -950,6 +950,24 @@ export const FleetBranchSchema = z.object({
    */
   local_dirty: z.boolean().default(false),
   /**
+   * Seconds since the newest write in this worktree, or null where none was
+   * observed — `changed_ago_seconds` on the wire.
+   *
+   * THE FIELD THAT MAKES A WRITE AN EVENT. `local_dirty` is a SWITCH: it flips
+   * once and stays flipped for as long as anything is uncommitted, so a change
+   * detector watching it fires on the first keystroke of a session and never
+   * again. Measured on the live board: three modified files, zero flashes in
+   * 40 seconds.
+   *
+   * A timestamp does not have that shape. Every save moves it, so `true → true`
+   * is still a change when the number beneath it moved — which is what the
+   * reader means by *show me that writing is happening*.
+   *
+   * The scan has computed this per worktree all along (`changed_ago_of`); the
+   * board simply never read it.
+   */
+  changed_ago_seconds: z.number().nullable().default(null),
+  /**
    * A local worktree for this branch is holding `.git/index.lock` — a write is
    * in progress THIS INSTANT.
    *
@@ -1888,6 +1906,9 @@ export const AgentRowSchema = z.object({
    * FALSE`, both leave the row UNMARKED rather than marked clean.
    */
   localDirty: z.boolean().default(false),
+  /** Seconds since the newest write in this row's worktree — see
+      `changed_ago_seconds`. Null where no write was observed. */
+  changedAgo: z.number().nullable().default(null),
   /**
    * A local worktree for this branch is holding `.git/index.lock` — a write is
    * in progress THIS INSTANT.

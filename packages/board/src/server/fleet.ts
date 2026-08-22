@@ -4298,6 +4298,9 @@ export function rowsFromPulse(
           // hours as though someone were writing to it. Three fields, two
           // meanings, and the row renders them as two marks.
           localDirty: b.local_dirty,
+          // HOW LONG SINCE THE LAST WRITE, which is what makes a write an EVENT
+          // rather than a standing condition — see `changed_ago_seconds`.
+          changedAgo: b.changed_ago_seconds ?? null,
           localLocked: b.local_locked,
           localAhead: b.local_ahead,
           // WHAT THIS ROW IS WAITING FOR, as a value — computed from the same
@@ -4538,6 +4541,10 @@ export function rowsFromPulse(
       // FALSE` the row simply carries no activity marker. Guessing one from the
       // PR's age would invent an observation this machine never made.
       localDirty: false,
+      // NO WORKTREE, so no write to time. These rows reach the board from the
+      // host's PR list rather than from a checkout — the same reason
+      // `localDirty` is false one line up.
+      changedAgo: null,
       localLocked: false,
       // 0 here means UNOBSERVED, exactly as `false` does above — this row was
       // built from the PR map, so no worktree was ever inspected for it. The

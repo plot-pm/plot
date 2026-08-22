@@ -2142,6 +2142,8 @@ export interface WatchedState {
   localDirty: boolean;
   localLocked: boolean;
   localAhead: number;
+  /** Seconds since the newest write — the field that makes `true → true` a change. */
+  changedAgo: number | null;
   /** Serialised, because `stuck` is an object and this map is compared by value. */
   stuck: string | null;
 }
@@ -2188,6 +2190,24 @@ export function watchedState(row: AgentRow): WatchedState {
     localDirty: row.localDirty,
     localLocked: row.localLocked,
     localAhead: row.localAhead,
+    // TRUE → TRUE IS STILL A CHANGE, and this is the field that can say so.
+    //
+    // `localDirty` is a SWITCH: it flips on the first keystroke of a session
+    // and stays flipped for as long as anything is uncommitted. A detector
+    // watching it therefore fires once and never again — measured on the live
+    // board, three modified files and ZERO flashes across 40 seconds, because
+    // the value had not moved since the morning.
+    //
+    // A timestamp has the shape the reader means. Every save moves it, so a row
+    // that was already dirty and is written to again is a row whose watched
+    // value changed. The scan has computed this per worktree all along
+    // (`changed_ago_of`); nothing new is measured, it is only read.
+    //
+    // It is NOT one of the clocks this map excludes. `ageMinutes` ticks because
+    // time passes and would flash an idle row once a minute; this moves only
+    // when a file is written. *A fact changes because the world changed* — a
+    // save is the world changing.
+    changedAgo: row.changedAgo,
     stuck: row.stuck === null ? null : JSON.stringify(row.stuck),
   };
 }
@@ -2336,6 +2356,12 @@ export function sameWatched(a: WatchedState, b: WatchedState): boolean {
     && a.wave === b.wave
     && a.phase === b.phase
     && a.localDirty === b.localDirty
+    // AND THE WRITE CLOCK, which is what makes `true → true` a change. Every
+    // comparison here is spelled out one field at a time (see the note above),
+    // so a field added to the map and not added HERE travels with the row and
+    // is never compared — which is exactly what happened: `changedAgo` reached
+    // the row, moved on every save, and changed nothing.
+    && a.changedAgo === b.changedAgo
     && a.localLocked === b.localLocked
     && a.localAhead === b.localAhead
     && a.stuck === b.stuck;
