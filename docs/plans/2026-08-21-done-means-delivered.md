@@ -8,6 +8,7 @@
 
 - **Phase:** Draft
 - **Type:** bug
+- **Story:** plot-board
 - **Review:** pr
 - **Impl:** own branches
 

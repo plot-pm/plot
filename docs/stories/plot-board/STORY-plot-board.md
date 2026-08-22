@@ -17,6 +17,11 @@ story was written; **seventy-one** claim it as of 2026-08-22, sixty of them
 released. The frame held — that growth is the story working, not outgrowing
 itself — and the objective stays open while nine plans are still unanswered.
 
+> Two of those nine had no `Story:` field until 2026-08-22 and were invisible to
+> every reader that groups by story — a board-rendering bug and the lifecycle
+> gap that leaves delivered work reading `Approved`. Both are board work by
+> subject; the field was simply never filled.
+
 ## Why Now
 
 The parallel fleet landed in August. Agents can now be dispatched across waves,
