@@ -15,6 +15,7 @@
 - **Approved:** 2026-08-22, Jan Wloka, in-session
 - **Started:** 2026-08-22, Jan Wloka, `feature/the-registry-knows-which-agents-live`
 - **Started:** 2026-08-22, Jan Wloka, `feature/the-registry-knows-which-agents-live`
+- **Started:** 2026-08-22, Jan Wloka, `feature/the-sections-carry-the-fleet-controls`
 
 ## Approval
 
