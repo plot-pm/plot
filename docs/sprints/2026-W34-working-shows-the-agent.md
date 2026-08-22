@@ -38,7 +38,7 @@ enterable where the question is shown.
 - [x] [working-shows-the-agent] Wave *Asking* — a `waiting` worker keeps its place in WORKING with what it waits on, instead of being filed as finished
 - [x] [working-shows-the-agent] Wave *Log* — the board serves a worker's log from its deterministic path; a WORKING row offers it
 - [x] [the-pulse-measures-progress-not-elapsed-time] `changed_ago_seconds` — a row says when work last changed, so a long job and a dead one stop reading alike
-- [ ] [a-plan-moves-through-the-sections] Approve in WAITING ON YOU, the plan appears in NOT STARTED, Start work takes it — three breaks in one lifecycle path
+- [ ] [a-plan-moves-through-the-sections] Approve on the plan row, the plan appears in NOT STARTED, Start work takes it — one lifecycle path, two waves
 
 ### Should Have
 
