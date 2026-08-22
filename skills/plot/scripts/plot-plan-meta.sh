@@ -75,8 +75,15 @@
 #                  `<!-- deferred -->` (bare, no colon) sets the flag with no
 #                  reason; `waves[].branches[].deferred_reason` carries the
 #                  sentence after the colon, "" where none was written.
-#   prs            PR numbers from `→ #NNN` links in the `## Branches`
-#                  section (sorted, unique)
+#   prs            PR numbers from `→ #NNN` and `→ owner/repo#NNN` links in
+#                  the `## Branches` section (sorted, unique). The repo part is
+#                  matched but not retained: callers ask which PRs are a plan's
+#                  evidence, and plot-host.sh resolves where each one lives.
+#   malformed_prs  near-miss annotations, verbatim — currently `→#NNN` with no
+#                  space. Reported rather than dropped: "no annotation" is a
+#                  claim the sweep acts on, so a typo that reads as absence
+#                  sends a human to add an annotation already present. [] when
+#                  the plan has none.
 #   changelog      the plan's `## Changelog` entries, one string per bullet, in
 #                  document order; [] when the plan has no changelog or an
 #                  unfilled one. This is the one field that says WHAT A PLAN
@@ -168,7 +175,7 @@ if [ ${#files[@]} -eq 0 ] && [ ${#missing[@]} -eq 0 ]; then
 fi
 
 for f in ${missing[@]+"${missing[@]}"}; do
-  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"issues":[],"changelog":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","started_raw":[]}\n' \
+  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"issues":[],"malformed_prs":[],"changelog":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","started_raw":[]}\n' \
     "$(printf '%s' "$f" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 done
 
@@ -254,6 +261,7 @@ function reset_state() {
   in_fm = 0; section = ""; in_comment = 0; in_challenge = 0; branches_seen = 0
   delete branches; n_branches = 0
   delete prs; n_prs = 0
+  delete malformed_prs; n_malformed_prs = 0
   fm_issue = ""; canon_issue = ""
   delete issues; n_issues = 0
   delete wave_names; delete wave_of; delete wave_seq; delete wave_count
@@ -334,6 +342,8 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   for (i = 1; i <= np; i++) out = out (i > 1 ? "," : "") sorted_p[i]
   out = out "],\"issues\":["
   for (i = 1; i <= ni; i++) out = out (i > 1 ? "," : "") sorted_i[i]
+  out = out "],\"malformed_prs\":["
+  for (i = 1; i <= n_malformed_prs; i++) out = out (i > 1 ? "," : "") "\"" jesc(malformed_prs[i]) "\""
   out = out "]"
   # Document order, never sorted: a changelog is a narrative sequence, and the
   # first entry is the headline. Front matter wins, as it does for every other
@@ -581,10 +591,24 @@ section == "branches" {
     line = substr(line, RSTART + RLENGTH)
   }
   line = $0
-  while (match(line, /→ #[0-9]+/)) {
+  # `→ #N` and `→ owner/repo#N` are both annotations: /plot-deliver instructs
+  # implementers to write the second for `Impl: other repo` plans, and a parser
+  # that dropped it reported `prs: []` for a plan whose only PR was written
+  # exactly as documented. The repo part is matched but not retained — callers
+  # ask which PRs are the evidence, and plot-host.sh resolves where each lives.
+  while (match(line, /→ ([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)?#[0-9]+/)) {
     p = substr(line, RSTART, RLENGTH)
-    gsub(/[^0-9]/, "", p)
+    sub(/^.*#/, "", p)
     prs[++n_prs] = p
+    line = substr(line, RSTART + RLENGTH)
+  }
+  # A near-miss is REPORTED, never silently dropped. `→#44` (no space) is the
+  # obvious hand-typo, and treating it as absence makes the sweep advise adding
+  # an annotation the plan already carries. Accepting it would widen the
+  # contract on a guess; reporting it leaves the judgement with a person.
+  line = $0
+  while (match(line, /→#[0-9]+/)) {
+    malformed_prs[++n_malformed_prs] = substr(line, RSTART, RLENGTH)
     line = substr(line, RSTART + RLENGTH)
   }
   next
