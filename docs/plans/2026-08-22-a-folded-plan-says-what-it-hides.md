@@ -90,14 +90,29 @@ conflicts > failing > pending > none/unknown > green
 
 `conflicts` outranks `failing` for the reason `rowKind` already gives it
 precedence: no PR resolves a conflict, so the errand is a rebase and it is the
-reader's. A plan whose branches are all green says nothing extra — the phase is
+reader's. **`pending` is included, rendered dimmer than the two actionable
+states** — a running build is not an errand, but *a machine is working here* is
+a fact worth a folded reader knowing, and it is the reason WAITING ON A MACHINE
+exists as a section at all. Dimmer is the distinction: it says *something is
+happening*, not *do something*. A plan whose branches are all green says nothing extra — the phase is
 the whole answer there, and a `green` badge on 19 rows is chrome.
 
-**Aggregated from the rows the head already has.** `PlanRow` receives
-`group.rows`; the state is `Math.min`-style folding over `row.pr?.state`, the
-same shape as `marked` and `active` beside it. No new server field, no new
-fetch — `AgentRow.pr.state` is already on the wire, which is why this is a
-client-side projection change and nothing more.
+**Aggregated INSIDE `PlanRow`, not at its call sites — and that placement is
+load-bearing.** `PlanRow` has two call sites and they are asymmetric: the
+plan-group path folds `group.rows` for `active` and `marked`; the `planHeads`
+path — the plan head drawn over WAVE groups — passes neither. An aggregate
+computed at the call site the way `marked` is would appear on one kind of plan
+head and not the other, and a folded wave-grouped plan is exactly the case this
+plan is about.
+
+The asymmetry is not hypothetical: adding `marked` to one site and not the other
+cost a fix on 2026-08-22 that rendered nothing and read as a broken predicate.
+`PlanRow` already receives `group`, so it derives the worst state from
+`group.rows` itself — one derivation, both sites, and a third call site cannot
+forget it.
+
+No new server field and no new fetch: `AgentRow.pr.state` is already on the
+wire, which is why this is a client-side projection change and nothing more.
 
 **Symbol AND word**, per the repo's rule: the aggregate renders as a WORD, in
 the tone the single-row plan uses for the same state. A colour alone would fail
@@ -115,25 +130,29 @@ familiar rather than new.
   status is what slot 5 is for.
 - **Not mark green plans.** Nothing to act on, and a badge on every row is a
   badge nobody reads.
-- **Not double-state an expanded group.** When the group is open the branch
-  rows say it themselves; the head's aggregate is for the FOLDED reader. Decide
-  whether it hides on expand or stays — see Open Questions.
+- **Not vanish on expand.** The aggregate STAYS when the group is open. A long
+  group scrolls its head off screen either way, so hiding it trades a small
+  repetition for a fact that disappears exactly when the reader has scrolled
+  past the rows that would have restated it. It also keeps the rule free of
+  expand-dependent behaviour, which is how the change mark already works.
 - **Not reach past PR state.** Worker state, staleness and stuck-ness are
   separate facts with their own marks; folding them into one word rebuilds the
   one-label-many-states defect the contract names.
 
 ### Open Questions
 
-- [ ] Does the aggregate stay visible when the group is EXPANDED, or hide once
-      the branch rows state it themselves? Staying is simpler and matches the
-      change mark; hiding is less repetitive. Lean: stay, because a long group
-      scrolls its head off screen either way.
+- [x] Does the aggregate stay visible when the group is EXPANDED? **Stays.** A
+      long group scrolls its head off screen either way, so hiding it removes
+      the fact exactly when the reader has scrolled past the rows that restate
+      it — and it keeps the rule free of expand-dependent behaviour.
 - [ ] Does a WAVE row need the same treatment? It aggregates marks already, and
-      a wave of several branches has the same fold. Probably yes, and by the
-      same helper — but it is a second branch of work, not this one.
-- [ ] Should `pending` count at all, or only the two states a reader can act
-      on? A running build is not an errand. Lean: include it, dimmer — *"a
-      machine is working here"* is why WAITING ON A MACHINE exists as a section.
+      a wave of several branches has the same fold. Probably yes, by the same
+      helper — deliberately left open: it is a second branch of work, and the
+      helper's shape is easier to judge once this one exists.
+- [x] Should `pending` count? **Yes, dimmer.** A running build is not an errand,
+      but *a machine is working here* is worth a folded reader knowing — it is
+      why WAITING ON A MACHINE exists. Dimmer marks the difference between
+      *something is happening* and *do something*.
 
 ## Branches
 
@@ -141,8 +160,16 @@ familiar rather than new.
 
 - `feature/a-folded-plan-says-what-it-hides` — Fold the branches' PR states into
   one worst-case word on the plan head, beside the phase, with a count where
-  more than one branch is affected. Browser test: a folded plan over a red
-  branch says so; a folded plan over green branches says only its phase.
+  more than one branch is affected. The fold happens **inside `PlanRow`**, from
+  the `group` it already receives, so both call sites get it. Tests: a folded
+  plan over a red branch says so, and says it on BOTH plan-head paths — the
+  plan-group one and the `planHeads` one over wave groups, which is the
+  asymmetry that would otherwise hide it; a folded plan over green branches says
+  only its phase; `conflicts` wins over `failing` on a plan carrying both;
+  `pending` renders in the dimmer tone rather than the actionable one; the
+  aggregate is still shown when the group is expanded; the phase remains in slot
+  5 and is never replaced; a count appears only where more than one branch is
+  affected; the aggregate is a word and not colour alone.
 
 ## Notes
 
@@ -153,3 +180,25 @@ reason to look."*
 Deliberately NOT folded into #304. That branch is at 114/115 and its subject is
 the wave model; this is a new statement on a row, with its own test and its own
 review. Same reasoning that kept the wave-menu fix scoped to sole branches.
+
+**Interrogated 2026-08-22.** The defect is intact and currently invisible, and
+both halves of that matter. `tupleFromPlan` still sets `status: facts.phase`
+with no PR aggregate, so the mechanism is unchanged — but measured on the live
+board this afternoon, **zero** plans hide a bad PR, because PRs #305, #306 and
+#307 were rebased green an hour earlier. The condition is transient and the
+defect is not; a plan judged by today's estate would have been dropped for
+lack of a symptom it will reproduce the next time anything goes red.
+
+The finding was in the render path rather than the design. `PlanRow` has two
+call sites and they are **asymmetric**: the plan-group path folds `group.rows`
+for `active` and `marked`, the `planHeads` path over wave groups passes
+neither. An aggregate added the way `marked` is added would have appeared on
+one kind of plan head and not the other — and the folded wave-grouped plan is
+precisely the case this plan exists for. The fold moved inside `PlanRow`, which
+already receives the group.
+
+That asymmetry is a live defect in its own right: a wave-grouped plan head
+today never flashes on change and never pulses on activity, because neither
+prop reaches it. Not folded into this plan, which is one projection change, but
+it is the same two-call-site shape and worth its own fix.
+
