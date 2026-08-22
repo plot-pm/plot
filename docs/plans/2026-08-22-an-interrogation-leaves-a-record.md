@@ -14,6 +14,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-22, Jan Wloka, in-session
 - **Started:** 2026-08-22, Jan Wloka, `bug/the-skill-records-its-rounds`
+- **Started:** 2026-08-22, Jan Wloka, `bug/the-skill-records-its-rounds`
 
 ## Approval
 
