@@ -124,6 +124,7 @@ export function mockFleet(): Fleet {
       pr: {
         number: 304, url: 'https://example.invalid/pull/304', draft: false,
         state: 'green',
+        states: ['green'],
       },
     }),
     // A SECOND PR IN THE SAME WAVE, so `Modelled` has a SET to name and earns a
@@ -142,6 +143,7 @@ export function mockFleet(): Fleet {
       pr: {
         number: 307, url: 'https://example.invalid/pull/307', draft: false,
         state: 'failing',
+        states: ['failing'],
       },
     }),
     // AND ONE THAT BELONGS TO NONE. `opus5-longhorizon-hardening` reaches the
@@ -158,6 +160,7 @@ export function mockFleet(): Fleet {
       pr: {
         number: 57, url: 'https://example.invalid/pull/57', draft: false,
         state: 'conflicts',
+        states: ['conflicts'],
       },
     }),
     row({
@@ -181,6 +184,7 @@ export function mockFleet(): Fleet {
       pr: {
         number: 283, url: 'https://example.invalid/pull/283', draft: false,
         state: 'pending',
+        states: ['pending'],
       },
     }),
     // AND ONE ON A BRANCH THAT BELONGS TO NO WAVE — the release branch, whose CI
@@ -195,6 +199,7 @@ export function mockFleet(): Fleet {
       pr: {
         number: 240, url: 'https://example.invalid/pull/240', draft: false,
         state: 'pending',
+        states: ['pending'],
       },
     }),
     // A PLAN WITH WAVES IN QUIET — two branches of one wave that stopped moving.
@@ -233,6 +238,7 @@ export function mockFleet(): Fleet {
       pr: {
         number: 271, url: 'https://example.invalid/pull/271', draft: false,
         state: 'green',
+        states: ['green'],
       },
     }),
     row({
@@ -246,6 +252,7 @@ export function mockFleet(): Fleet {
       pr: {
         number: 272, url: 'https://example.invalid/pull/272', draft: false,
         state: 'green',
+        states: ['green'],
       },
     }),
     row({
@@ -287,6 +294,7 @@ export function mockFleet(): Fleet {
       pr: {
         number: 305, url: 'https://example.invalid/pull/305', draft: true,
         state: 'none',
+        states: ['none'],
       },
     }),
     // THE SAME KIND, READY FOR REVIEW — the half that proves the kind does not
@@ -304,6 +312,7 @@ export function mockFleet(): Fleet {
       pr: {
         number: 306, url: 'https://example.invalid/pull/306', draft: false,
         state: 'green',
+        states: ['green'],
       },
     }),
     row({
@@ -319,6 +328,7 @@ export function mockFleet(): Fleet {
       pr: {
         number: 240, url: 'https://example.invalid/pull/240', draft: false,
         state: 'none',
+        states: ['none'],
       },
     }),
   ];

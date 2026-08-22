@@ -424,7 +424,7 @@ export function planPrAggregate(
       // The WORD from the same table a single-row plan reads, so the fold and a
       // lone branch say the same thing for the same state. `prStatus` takes a PR
       // object; only `state` decides the word, so a minimal one suffices.
-      return { word: prStatus({ number: 0, url: '', draft: false, state }), count, state };
+      return { word: prStatus({ number: 0, url: '', draft: false, state, states: [state] }), count, state };
     }
   }
   return null;
