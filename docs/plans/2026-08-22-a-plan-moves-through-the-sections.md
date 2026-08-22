@@ -75,6 +75,20 @@ row whose available act is not its own. That is the very defect the
 `waitingOn === 'you'` clause was added to fix, and repeating it one gate later
 is not progress.
 
+**Measured on the live board, twice, months apart.** On 2026-08-20 a reader
+reported the actions missing — *"Hier fehlen immer noch die Plan Actions"* — and
+the measurement then was that **every row in WAITING ON YOU carried
+`waitingOn: null`**. This plan reaches the same conclusion from the other
+direction, by evaluating `waitingOnFor` over its whole input space rather than
+by reading one board. Two independent measurements, one defect.
+
+(That earlier plan, `the-plan-actions-read-a-field-that-is-always-null`, is
+superseded by this one and rejected. Its proposed fix — read the section's
+membership instead of `waitingOn` — is the one this plan disproves: a branch
+blocked by an earlier wave is in `waiting-on-you` too. Its claim of *exactly one
+assignment at `fleet.ts:4003`* has also gone stale; there are two writers today,
+a computed one and the planless `null`, and neither is at that line.)
+
 **A second control is dead from the same cause, and worse.**
 `canCommissionDesign` reads `waitingOn === 'you' && state === 'open'` — and
 `'you'` is returned only alongside `state === 'deferred'`, so the two clauses
