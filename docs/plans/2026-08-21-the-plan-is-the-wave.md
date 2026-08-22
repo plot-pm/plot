@@ -6,11 +6,12 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Story:** plot-planning-model
 - **Review:** pr
 - **Impl:** own branches
+- **Approved:** 2026-08-22, Jan Wloka, plan-PR #305 merged
 
 ## Changelog
 
