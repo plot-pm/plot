@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Story:** plot-board
 - **Sprint:** working-shows-the-agent
@@ -14,6 +14,7 @@
 - **Started:** 2026-08-18, Jan Wloka, `feature/plot-board-probe`
 - **Started:** 2026-08-18, Jan Wloka, `feature/plot-board-verify`
 - **Delivered:** 2026-08-19, jwloka, PRs #208, #209, #237
+- **Released:** 2026-08-22, v2.7.0
 
 ## Changelog
 

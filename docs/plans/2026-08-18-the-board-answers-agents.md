@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Story:** plot-board
 - **Sprint:** working-shows-the-agent
@@ -15,6 +15,7 @@
 - **Started:** 2026-08-18, Jan Wloka, `feature/api-attention-says-what-needs-you`
 - **Started:** 2026-08-19, Jan Wloka, `feature/api-claim-and-transition`
 - **Delivered:** 2026-08-19, jwloka, PRs #212, #235, #251
+- **Released:** 2026-08-22, v2.7.0
 
 ## Changelog
 

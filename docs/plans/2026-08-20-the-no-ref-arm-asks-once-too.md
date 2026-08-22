@@ -9,7 +9,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Sprint:**
@@ -17,6 +17,7 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Delivered:** 2026-08-20 by jwloka — PR #255; the only branch this plan had
+- **Released:** 2026-08-22, v2.7.0
 
 ## Problem
 
