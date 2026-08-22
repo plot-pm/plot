@@ -36,6 +36,27 @@
 # Front matter wins when both are present (it is the machine-facing surface).
 # A file with neither is reported as format "none" (pre-plot / legacy plan).
 #
+# The IMPLEMENTATION section (which branches, in which waves, with which PRs)
+# has TWO spellings, and this parser reads both:
+#
+#   ## Branches  (old)   the branch rides the list line, meta mixed with prose:
+#                            ### Removed
+#                            - `bug/foo` — loses its half → #300
+#
+#   ## Waves     (new)   the `### ` heading carries the meta, the line is prose:
+#                            ### Removed (Branch: bug/foo, PR: #300)
+#                            - loses its half
+#
+# Both emit the SAME branches/prs/waves arrays. The new shape is the format Plot
+# writes and documents; the old one is kept readable because a format change owes
+# its estate a migration that moves files one at a time, and a plan moved one
+# commit before the parser learns the shape must not read as silently empty —
+# the failure that makes a plan disappear from the fleet scan and pass the
+# delivery gate. In the new shape the branch comes from the HEADING, so a
+# backticked name in a description cannot be mistaken for a branch — the defect
+# the old shape invited (a second path-shaped token on a line read as a phantom
+# branch) is structurally impossible.
+#
 # Phase values are normalized by scanning whitespace-separated tokens for the
 # first known phase word — so decorated real-world values like
 # "Delivered (2026-06-29) — split done" normalize to "delivered". A non-empty
@@ -66,8 +87,13 @@
 #                  front matter `story:`); "" if absent or a placeholder
 #   assignee       github handle from the `## Approval` `Assignee:` line or
 #                  front matter `assignee:`; "" if absent
-#   branches       branch names from the `## Branches` section (backtick-
-#                  quoted, matching the known prefixes; sorted, unique)
+#   branches       branch names, sorted and unique, read from EITHER spelling:
+#                  the old `## Branches` section (backtick-quoted in the list
+#                  line, matching the known prefixes) OR the new `## Waves`
+#                  section (`Branch:` in a `### ` heading — see below). Both
+#                  spellings emit the same array; a plan carries one or the
+#                  other, and the parser reads both so a migration that moves
+#                  files one at a time never makes a plan silently empty.
 #                  NOTE: per-branch annotations (`<!-- deferred: ... -->`,
 #                  `<!-- claimed: ... -->`) bind to the LINE carrying the
 #                  backticked branch name. An annotation on a wrapped
@@ -75,10 +101,13 @@
 #                  `<!-- deferred -->` (bare, no colon) sets the flag with no
 #                  reason; `waves[].branches[].deferred_reason` carries the
 #                  sentence after the colon, "" where none was written.
-#   prs            PR numbers from `→ #NNN` and `→ owner/repo#NNN` links in
-#                  the `## Branches` section (sorted, unique). The repo part is
-#                  matched but not retained: callers ask which PRs are a plan's
-#                  evidence, and plot-host.sh resolves where each one lives.
+#   prs            PR numbers, sorted and unique, read from EITHER spelling:
+#                  `→ #NNN` / `→ owner/repo#NNN` links in the `## Branches`
+#                  section, OR `PR: #NNN` in a `## Waves` `### ` heading. The
+#                  repo part is matched but not retained: callers ask which PRs
+#                  are a plan's evidence, and plot-host.sh resolves where each
+#                  one lives. An absent PR contributes nothing — not "", not 0 —
+#                  the same rule `Issue:` follows.
 #   malformed_prs  near-miss annotations, verbatim — currently `→#NNN` with no
 #                  space. Reported rather than dropped: "no annotation" is a
 #                  claim the sweep acts on, so a typo that reads as absence
@@ -258,7 +287,7 @@ function reset_state() {
   # the field, so a consumer cannot mistake "never interrogated" for "asked
   # nothing".
   rounds = ""
-  in_fm = 0; section = ""; in_comment = 0; in_challenge = 0; branches_seen = 0
+  in_fm = 0; section = ""; in_comment = 0; in_challenge = 0; in_fence = 0; branches_seen = 0; waves_seen = 0
   delete branches; n_branches = 0
   delete prs; n_prs = 0
   delete malformed_prs; n_malformed_prs = 0
@@ -442,6 +471,22 @@ in_comment {
   in_challenge = ($0 ~ /CHALLENGE-THE-PLAN-METADATA/) ? 1 : 0
   next
 }
+# A fenced code block is illustration, never contract — the same standing rule
+# comment interiors and repeated headings already follow. A plan that documents
+# the plan format shows a `## Waves` or `## Branches` block inside a ``` fence,
+# and those example headings must contribute no section, no branch and no PR.
+#
+# Measured need: waves-name-themselves shows its `## Waves` example in a fenced
+# block whose `### Removed (Branch: bug/an-agent…)` headings are realistic. With
+# no fence tracking the parser read them as real branches of the plan — and the
+# same trick already fooled the OLD `## Branches` path (a fenced `## Branches`
+# example won its first-heading-wins guard and hid the real section). Toggling on
+# a fence fence-marker line closes both.
+#
+# A fence marker is a line whose first non-space run is ``` or ~~~ (an info
+# string like ```markdown may follow). The marker line itself is never content.
+/^[ \t]*(```|~~~)/ { in_fence = !in_fence; next }
+in_fence { next }
 # First H1 is the title fallback (front matter title: still wins in emit).
 /^#[ \t]/ && h1_title == "" { h1_title = trim(substr($0, 2)) }
 /^## / {
@@ -449,6 +494,12 @@ in_comment {
   # First `## Branches` wins: a plan documenting the plan format quotes the
   # section in prose, and those later headings are illustration, not contract.
   else if ($0 ~ /^## Branches/) { section = branches_seen ? "" : "branches"; branches_seen = 1 }
+  # `## Waves` is the new spelling: the branch and PR live in the `### ` heading,
+  # the line below is prose. First one wins, for the same reason `## Branches`
+  # does. A plan carries one or the other — but the parser reads both while the
+  # migration moves 85 files, so a file moved one commit early never reads
+  # as silently empty.
+  else if ($0 ~ /^## Waves/) { section = waves_seen ? "" : "waves"; waves_seen = 1 }
   else if ($0 ~ /^## Approval/) section = "approval"
   # First `## Changelog` wins, for the same reason `## Branches` does: a plan
   # about the plan format quotes the section in prose, and the later heading is
@@ -610,6 +661,83 @@ section == "branches" {
   while (match(line, /→#[0-9]+/)) {
     malformed_prs[++n_malformed_prs] = substr(line, RSTART, RLENGTH)
     line = substr(line, RSTART + RLENGTH)
+  }
+  next
+}
+# `## Waves` — the new spelling. The `### ` heading carries the meta (which
+# branch, which PR) and the line below is prose. This is the inverse of
+# `## Branches`, where the branch rides the list line: here the branch comes
+# from the HEADING, so a backticked name in a description cannot be mistaken for
+# a branch — the defect the old shape invited is structurally impossible.
+#
+# The emitted arrays (branches, prs, waves) must be byte-identical to what the
+# old shape produces for the same plan. So this shares every accumulation
+# variable with the branches handler above; only the EXTRACTION differs.
+section == "waves" {
+  # Only the `### ` heading carries meta. Body lines are prose — never scanned
+  # for a branch or a PR, which is the whole point of the new shape.
+  if ($0 !~ /^###[ \t]/) next
+
+  # A heading opens a wave whose NAME is the heading text with the
+  # `(Branch: …, PR: …)` parenthetical and any trailing annotation stripped, so
+  # `### Removed (Branch: bug/foo, PR: #300)` names the wave `Removed` — exactly
+  # what the old shape (bare `### Removed`) produced, which is what keeps the two
+  # spellings byte-identical.
+  wname = trim(substr($0, 4))
+  # Drop a trailing HTML comment (claimed/deferred ride the heading line now).
+  sub(/[ \t]*<!--.*$/, "", wname)
+  # Drop the `(Branch: …)` meta parenthetical. Anchored to `(Branch:` so a
+  # parenthetical in a genuine wave name — none exist, but the grammar must not
+  # assume it — is not eaten unless it is the meta block.
+  sub(/[ \t]*\(Branch:.*$/, "", wname)
+  wname = trim(wname)
+  wave_names[++n_waves] = wname
+
+  # Claim/deferral annotations bind to the line carrying the branch name, which
+  # is the heading. Read before any match() below, which clobbers RSTART/RLENGTH.
+  claim_note = ""
+  if (index($0, "claimed:") > 0) {
+    _c = $0
+    sub(/^.*<!--[ \t]*claimed:[ \t]*/, "", _c)
+    sub(/[ \t]*-->.*$/, "", _c)
+    claim_note = trim(_c)
+  }
+  defer_note = ""
+  if (index($0, "deferred:") > 0) {
+    _d = $0
+    sub(/^.*<!--[ \t]*deferred:[ \t]*/, "", _d)
+    sub(/[ \t]*-->.*$/, "", _d)
+    defer_note = trim(_d)
+  }
+
+  # The branch is the `Branch:` value, matched against the known prefixes exactly
+  # as the old shape matched the backticked name. Written unquoted in the heading
+  # (`Branch: bug/foo`), so the match is on a bare token, not on backticks. A
+  # heading with no readable branch still opened a wave above — so a `## Waves`
+  # section is never silently empty, which is the failure this plan refuses: a
+  # consumer sees a wave it could not extract a branch from, not an absence.
+  hmeta = $0
+  if (match(hmeta, "Branch:[ \t]*(" PREFIXES ")/[^ \t,)]+")) {
+    b = substr(hmeta, RSTART, RLENGTH)
+    sub(/^Branch:[ \t]*/, "", b)
+    branches[++n_branches] = b
+    wave_of[n_branches] = n_waves
+    wave_seq[n_branches] = ++wave_count[n_waves]
+    # Bare `<!-- deferred -->` sets the flag with no reason, same as the old
+    # shape; `deferred:` carries the reason.
+    deferred_of[n_branches] = ($0 ~ /<!--[ \t]*deferred[ \t]*(:|-->)/) ? "true" : "false"
+    deferred_why[n_branches] = defer_note
+    claimed_of[n_branches] = claim_note
+    ordered_b[n_branches] = b
+  }
+
+  # The PR is the `PR: #NNN` value in the heading. Absent PR: contributes
+  # nothing — not "", not 0 — the same rule `Issue:` follows. Only a heading
+  # that carries the field adds to prs.
+  if (match($0, /PR:[ \t]*#[0-9]+/)) {
+    p = substr($0, RSTART, RLENGTH)
+    sub(/^.*#/, "", p)
+    prs[++n_prs] = p
   }
   next
 }
