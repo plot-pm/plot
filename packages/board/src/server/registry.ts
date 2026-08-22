@@ -1,7 +1,51 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
 import { transcriptDir, transcriptFile, readTranscriptFacts } from './transcript.js';
+
+/**
+ * What the registry can say about an agent's liveness — one fact, computed once
+ * per pulse, read by three consumers (the concurrency cap, WORKING's rows, the
+ * stale-manifest problem).
+ *
+ * - `running` — the pid answers `kill -0`; the agent is on the machine now.
+ * - `finished` — the pid is gone and the tree shows the work reached review or
+ *   nothing was left behind. The stale-manifest cure: an entry corrects itself
+ *   here on the next pulse rather than persisting.
+ * - `waiting` — the pid is gone and a `PLOT-BLOCKED:` marker sits in the tree; a
+ *   person owes the branch an answer.
+ * - `stalled` — the pid is gone and uncommitted or unpushed work is on the
+ *   floor, with no PR to show for it.
+ * - `unknown` — the registry could not decide, and says so rather than guessing.
+ *   An older manifest with no pid, an agent between branches with no worktree to
+ *   look in, or a liveness check that could not run. Absent is not a guess — the
+ *   rule this contract follows everywhere.
+ *
+ * The first four are exactly the states `plot-worker-state.sh` distinguishes,
+ * carried onto the entry unchanged; `unknown` is the registry's own honest
+ * fifth for the cases the shell is never asked about.
+ */
+export type AgentState = 'running' | 'finished' | 'waiting' | 'stalled' | 'unknown';
+
+/**
+ * The four states `plot-worker-state.sh` can hand back that this registry keeps.
+ * Anything else the shell might print (`none`, `ended`, `failed`, `elsewhere`)
+ * is not a state the registry claims to understand and becomes `unknown` — the
+ * same not-a-guess answer an unreadable check gets.
+ */
+const KNOWN_STATES = new Set<AgentState>(['running', 'finished', 'waiting', 'stalled']);
+
+/**
+ * Resolve liveness for a batch of worktrees, in the same order.
+ *
+ * A BATCH, not one call per entry: the default resolver forks bash ONCE per
+ * pulse and lets the shell loop, because the registry is re-read on the scan's
+ * 5 s timer and a fork per agent would put the scan's cost back — the exact
+ * thing the "count in one pass" criterion guards against. Injected in tests so
+ * they need not spawn a live process to assert on `running`.
+ */
+export type LivenessResolver = (worktrees: string[]) => string[];
 
 /**
  * An agent as the board can name it: a process with an identity that outlives
@@ -27,6 +71,23 @@ export interface AgentEntry {
   command: string;
   /** ISO-8601, written by the dispatcher at launch. */
   startedAt: string;
+  /**
+   * The AGENT's pid, written into the manifest by the wrapper the instant it
+   * learns its own child — the same value that lands in `.plot-worker.pid`.
+   *
+   * `''` on an older manifest that carried none, and on a pid that cannot be
+   * one: `0` (`kill -0 0` signals the whole process group and succeeds) or
+   * non-numeric junk. It is a launch fact, so the registry can check liveness in
+   * one pass without a per-entry worktree lookup — but a pid alone never means
+   * `running`: {@link state} is what says the process still answers.
+   */
+  pid: string;
+  /**
+   * Whether this agent is still running — the fact the registry exists to
+   * answer, refreshed on every pulse from {@link AgentState}. `unknown` where it
+   * could not be decided; never a guess.
+   */
+  state: AgentState;
   /** From the transcript. Absent when it could not be read — never guessed. */
   model?: string;
   contextTokens?: number;
@@ -66,7 +127,29 @@ export function parseManifest(json: string): AgentEntry | null {
     worktree: typeof o.worktree === 'string' ? o.worktree : '',
     command: typeof o.command === 'string' ? o.command : '',
     startedAt: typeof o.startedAt === 'string' ? o.startedAt : '',
+    pid: readPid(o.pid),
+    // A launch fact carries no liveness. State is decided per pulse in
+    // `readAgentRegistry`; a manifest never asserts it, so it starts `unknown`.
+    state: 'unknown',
   };
+}
+
+/**
+ * The pid off a manifest, as a validated string — or `''` when there is none to
+ * trust.
+ *
+ * Written as a JSON string by the dispatcher, but an older manifest may carry a
+ * number or nothing. `0` and non-numeric junk are refused for the reasons
+ * `plot-worker-state.sh` refuses them: `kill -0 0` signals the whole process
+ * group and reads as running forever, and junk is not a pid at all. The one
+ * rejection point, so a bad value fails as absent rather than as a `running`
+ * later.
+ */
+function readPid(raw: unknown): string {
+  const s = typeof raw === 'string' ? raw.trim() : typeof raw === 'number' ? String(raw) : '';
+  if (!/^\d+$/.test(s)) return '';
+  if (Number(s) <= 0) return '';
+  return s;
 }
 
 /**
@@ -88,8 +171,40 @@ export function parseManifest(json: string): AgentEntry | null {
  * `.plot/agents` directory (no dispatch has run), an unreadable directory, an
  * unparseable file. The board renders this on the scan's timer and a crash here
  * would cost the whole pulse.
+ *
+ * **Every entry carries a pulse-refreshed {@link AgentEntry.state}.** After the
+ * manifests are read, the entries that have both a pid and a worktree are asked
+ * — in ONE batch, once — whether their process is still alive; the answer lands
+ * on the entry. An entry the check cannot cover (no pid, no worktree) stays
+ * `unknown`, and a check that throws leaves every entry `unknown` rather than
+ * failing the read. Liveness never blocks the listing: an agent invisible during
+ * an outage is one that gets restarted into work it already holds.
  */
-export function readAgentRegistry(repoRoot: string, home?: string): AgentEntry[] {
+export interface ReadRegistryOptions {
+  /**
+   * The runtime's home, where transcripts live. Injectable so tests need not
+   * write into a developer's real `~/.claude`.
+   */
+  home?: string;
+  /**
+   * Where Plot's helper scripts live — needed by the default liveness resolver
+   * to find `plot-worker-state.sh`. When absent, liveness is never checked and
+   * every entry stays `unknown`: the registry lists agents even where it cannot
+   * find the script to classify them.
+   */
+  scriptsDir?: string;
+  /**
+   * Resolve liveness for a batch of worktrees. Injected in tests; in production
+   * the default {@link bashLiveness} reuses `plot-worker-state.sh`.
+   */
+  liveness?: LivenessResolver;
+}
+
+export function readAgentRegistry(
+  repoRoot: string,
+  home?: string,
+  opts: ReadRegistryOptions = {},
+): AgentEntry[] {
   const dir = path.join(repoRoot, AGENT_MANIFEST_DIR);
   let names: string[];
   try {
@@ -121,7 +236,85 @@ export function readAgentRegistry(repoRoot: string, home?: string): AgentEntry[]
     }
     out.push(entry);
   }
+  refreshStates(out, opts.liveness ?? defaultLiveness(opts.scriptsDir));
   // Newest first, by launch time. A manifest with no `startedAt` sorts last
   // rather than first: an unknown time must not claim to be the most recent.
   return out.sort((a, b) => (b.startedAt || '').localeCompare(a.startedAt || ''));
+}
+
+/**
+ * Refresh each entry's {@link AgentEntry.state} from liveness, in place.
+ *
+ * Only entries with BOTH a pid and a worktree are checkable — a pid says there
+ * was a process, a worktree says where to look for what it left behind. The rest
+ * stay `unknown`, and are never handed to the resolver: there is nothing to ask
+ * about, and asking would let a resolver's guess become a state.
+ *
+ * ONE batch call for all checkable entries, so the default resolver forks bash
+ * once per pulse rather than once per agent. A resolver that throws, or returns
+ * the wrong number of answers, leaves every entry `unknown`: the registry must
+ * list its agents even when it cannot classify them.
+ */
+function refreshStates(entries: AgentEntry[], liveness: LivenessResolver): void {
+  const checkable = entries.filter((e) => e.pid !== '' && e.worktree !== '');
+  if (checkable.length === 0) return;
+  let answers: string[];
+  try {
+    answers = liveness(checkable.map((e) => e.worktree));
+  } catch {
+    return; // Every entry stays `unknown`.
+  }
+  if (answers.length !== checkable.length) return;
+  checkable.forEach((entry, i) => {
+    const answer = answers[i] as AgentState;
+    entry.state = KNOWN_STATES.has(answer) ? answer : 'unknown';
+  });
+}
+
+/**
+ * The default liveness resolver, or a no-op when no scripts directory is known.
+ *
+ * Kept separate from {@link bashLiveness} so the "no scriptsDir → every entry
+ * `unknown`" path is a plain empty-answer resolver rather than a special case
+ * threaded through the batch call.
+ */
+function defaultLiveness(scriptsDir?: string): LivenessResolver {
+  if (!scriptsDir) return () => [];
+  return (worktrees) => bashLiveness(scriptsDir, worktrees);
+}
+
+/**
+ * Reuse `plot-worker-state.sh` to classify a batch of worktrees, in order.
+ *
+ * ONE bash process for the whole batch. It sources the shared helper — the same
+ * function `plot-fleet-scan.sh` and `plot-dispatch.sh` source, so liveness has a
+ * single definition — and prints one state per worktree, NUL-separated in the
+ * same order they arrived. The registry reimplements none of it.
+ *
+ * The PR fact is deliberately empty. `plot_worker_state` accepts an empty
+ * second argument and its own contract says so: *a caller that cannot know says
+ * nothing, and a branch with work on the floor then reads `stalled`*. The
+ * registry cannot afford the host call that would fill it — the registry must
+ * not be behind anything that can fail — so it reads liveness from local signals
+ * only and lets `finished`-vs-`stalled` be the honest local answer.
+ *
+ * A failure — bash absent, the script unreadable, a worktree path that upsets
+ * it — throws, and `refreshStates` catches it into `unknown` for the batch. The
+ * listing is never at risk.
+ */
+function bashLiveness(scriptsDir: string, worktrees: string[]): string[] {
+  const script = path.join(scriptsDir, 'plot-worker-state.sh');
+  // Source the helper, then loop the worktrees passed as positional arguments,
+  // emitting only the state field (the first tab-separated column) NUL-delimited.
+  const program =
+    `. "$1"; shift; for wt in "$@"; do ` +
+    `printf '%s\\0' "$(plot_worker_state "$wt" '' | cut -f1)"; done`;
+  const out = execFileSync('bash', ['-c', program, 'bash', script, ...worktrees], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  // Trailing NUL leaves an empty final element; drop it. One answer per worktree.
+  const parts = out.split('\0');
+  if (parts.length > 0 && parts[parts.length - 1] === '') parts.pop();
+  return parts;
 }

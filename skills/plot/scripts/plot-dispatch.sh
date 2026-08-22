@@ -762,13 +762,14 @@ json_escape() {
     | awk 'BEGIN{ORS=""} {if (NR>1) print "\\n"; print}'
 }
 
-# Write one agent manifest: launch-time facts only, keyed on the session id.
+# Write one agent manifest: launch-time facts, keyed on the session id.
 #
-# Every field here is something `start_worker` holds at the moment of the call.
-# There is deliberately no model, no context and no pid: the first two belong to
-# the runtime and are read from the transcript, and the pid describes the PROCESS
-# rather than the agent — it is meaningless once that process exits, which is the
-# defect this manifest exists to fix.
+# Model and context are still absent on purpose: they belong to the runtime and
+# are read from the transcript, so a manifest that named them would be a guess.
+# The `pid` starts EMPTY here and is stamped by the wrapper the instant it learns
+# its own child — see `stamp_manifest_pid`. The dispatcher does not know the
+# agent pid at this line (only the wrapper does, from its `$!`), so it writes the
+# field as a placeholder the wrapper fills rather than guessing it now.
 #
 # Written to a temp file and moved into place, so a scan reading the directory
 # never sees a half-written manifest. `mv` within one directory is atomic.
@@ -780,11 +781,19 @@ write_agent_manifest() { # $1=path $2=session $3=branch $4=worktree $5=command
     printf '  "branch": "%s",\n' "$(json_escape "$3")"
     printf '  "worktree": "%s",\n' "$(json_escape "$4")"
     printf '  "command": "%s",\n' "$(json_escape "$5")"
+    printf '  "pid": "",\n'
     printf '  "startedAt": "%s"\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf '}\n'
   } > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
   mv "$tmp" "$out" 2>/dev/null || { rm -f "$tmp"; return 1; }
 }
+
+# THE MANIFEST PID IS STAMPED BY THE WRAPPER, NOT HERE. The agent's pid is
+# knowable only to the wrapper (`$!` of its own backgrounded child), so the stamp
+# is inline in the wrapper's `sh -c` below — a fresh shell that cannot reach a
+# function defined in this bash script, the same isolation that makes the wrapper
+# own `.plot-worker.pid`. The write above leaves `"pid": ""` as a placeholder the
+# wrapper replaces; the mechanics and their safety are documented at that call.
 
 # Start one DETACHED worker per worktree. Detached is the whole point: the
 # fleet must outlive the dispatching session. Logs go beside the worktree so a
@@ -879,10 +888,26 @@ start_worker() {
   # `$!` and `wait` for it. There is a sub-millisecond window after the wrapper
   # starts and before it writes `.plot-worker.pid`; a scan landing in it reads an
   # absent pid file as `none` — honest, never "running" off a stale value.
+  #
+  # THE WRAPPER ALSO STAMPS THE MANIFEST PID, for the same reason it writes the
+  # pid file: it is the one process that knows the agent's own pid. The manifest
+  # path travels as `PLOT_MANIFEST_FILE`, beside the exit/pid paths, so no quoting
+  # level inside the single-quoted `sh -c` mangles a path with spaces. The stamp
+  # is inline `awk` rather than a bash helper, because a helper would live in this
+  # bash script and the detached `sh -c` is a fresh shell with no access to it —
+  # the same isolation that makes the wrapper own the pid.
+  #
+  # It replaces exactly the placeholder line `  "pid": "",` this script wrote — a
+  # full-line match on bytes we control, so nothing in the command value can be
+  # mistaken for it (the command is one escaped JSON string on its own line, and
+  # can never equal that line). A pid is digits, so no JSON escaping is needed.
+  # Rewritten through a temp file and `mv`, atomic like the original write. Any
+  # failure leaves the empty pid the registry already reads as `unknown`.
   ( cd "$wt" && PLOT_BRANCH="$branch" PLOT_WORKTREE="$wt" \
       PLOT_SESSION_ID="$session" \
+      PLOT_MANIFEST_FILE="$manifest_dir/$session.json" \
       PLOT_EXIT_FILE="$wt/.plot-worker.exit" PLOT_PID_FILE="$wt/.plot-worker.pid" \
-      nohup sh -c '( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; wait "$agent"; rc=$?; printf "%s" "$rc" > "$PLOT_EXIT_FILE"' \
+      nohup sh -c '( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" '"'"'$0 == "  \"pid\": \"\"," { print "  \"pid\": \"" pid "\","; next } { print }'"'"' "$PLOT_MANIFEST_FILE" > "$PLOT_MANIFEST_FILE.plot-pid-tmp" 2>/dev/null && mv "$PLOT_MANIFEST_FILE.plot-pid-tmp" "$PLOT_MANIFEST_FILE" 2>/dev/null || rm -f "$PLOT_MANIFEST_FILE.plot-pid-tmp"; fi; wait "$agent"; rc=$?; printf "%s" "$rc" > "$PLOT_EXIT_FILE"' \
       >"$log" 2>&1 </dev/null & echo $! >"$wt/.plot-worker.wrapper.pid" )
   echo "    started worker (log: $log)"
   return 0
