@@ -1,0 +1,1 @@
+../2026-08-21-the-plan-is-the-wave.md
