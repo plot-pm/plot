@@ -50,7 +50,16 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     // this whole plan exists to withdraw.
     row({
       branch: 'feature/untaken', plan: 'plant-tomatoes', group: 'not-started',
-      state: 'open', phase: 'Design', ageMinutes: null, waitingOn: 'click' as const, note: ELIGIBLE_NOTE,
+      // `verdict: 'eligible'`, said in the FIELD and not only in the note.
+      //
+      // The row describes a startable branch — `ELIGIBLE_NOTE`, `waitingOn:
+      // 'click'` — and the menu that offers `Start work` is gated on the wave's
+      // VERDICT, which was absent. A wave with no verdict offers no control at
+      // all (`isStartable`'s rule: a button whose usual state is *you cannot*
+      // teaches people to ignore buttons), so the whole suite was asserting
+      // against a row that could never have had the menu it looks for.
+      state: 'open', phase: 'Design', ageMinutes: null, waitingOn: 'click' as const,
+      verdict: 'eligible' as const, note: ELIGIBLE_NOTE,
       branchUrl: `${GH}feature/untaken`, waitingDays: 22,
     }),
   ];
@@ -118,8 +127,13 @@ describe('tiny-garden: a frozen board stops inviting', () => {
     // was the branch row's hook; `data-wave-actions` is the wave's, and this
     // accepts either so the test asks *is the menu reachable* rather than *which
     // component drew it*.
+    // FOUND BY `data-branch`, not by exact text. A branch name is folded in the
+    // middle across two `aria-hidden` spans — `splitBranch` keeps the last
+    // twelve characters visible — so no single element holds the whole name as
+    // text and `getByText(exact)` matches nothing at all. The attribute carries
+    // the name whole, which is what it is for.
     page.locator('li')
-      .filter({ has: page.getByText('feature/untaken', { exact: true }) })
+      .filter({ has: page.locator('[data-branch="feature/untaken"]') })
       .locator('[data-row-actions], [data-wave-actions]')
       .last();
 
@@ -192,8 +206,11 @@ describe('tiny-garden: a frozen board stops inviting', () => {
     await page.goto(tab === 'agents' ? `${baseURL}?tab=agents` : baseURL);
     // Wait for real content, so there is a payload to degrade FROM.
     if (tab === 'agents') await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
-    await expandAgentFolds(page);
     else await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
+    // AFTER the branch, not inside it: a line inserted between `if` and `else`
+    // is a parse error, and this file carried one — the whole suite failed to
+    // load rather than failing an assertion.
+    if (tab === 'agents') await expandAgentFolds(page);
     // The Agents tab needs the board's cards too — that is where Start work
     // and the restart command come from.
     if (tab === 'agents') {
