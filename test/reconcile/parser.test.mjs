@@ -649,3 +649,177 @@ test('plan-meta: a deferral reason with a quote survives as JSON', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ---------------------------------------------------------------------------
+// `prs` — the field four gates read, and the one nothing tested.
+//
+// /plot-deliver's merged check, /plot-release's version resolution, the sweep's
+// section 6 and the fleet scan all decide from `prs`. Until 2026-08-22 no test
+// in this file took it as its subject: the two existing mentions are incidental
+// assertions inside `issues` tests. The measured cost was a back-fill that
+// "already referenced the PR" on four plans and left every one of them
+// invisible to the parser, because the reference it found was human-readable
+// prose rather than the annotation.
+// ---------------------------------------------------------------------------
+
+/** Parse a plan written to a temp file, returning its JSON. */
+function parseSource(src, name = '2026-08-22-prs.md') {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-prs-'));
+  const f = path.join(dir, name);
+  writeFileSync(f, src);
+  try {
+    return JSON.parse(execFileSync('bash', [parser, f], { encoding: 'utf8' }));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('plan-meta: only `→ #N` is a PR annotation — a citation is not', () => {
+  // THE STRICTNESS IS THE FEATURE, and it is load-bearing enough to pin.
+  //
+  // Plans cite PR numbers constantly as history: this repo's
+  // a-plan-row-is-not-a-branch-row names #175 and #191 in prose as prior art,
+  // and neither delivered it. A parser that scanned the body for `#NNN` would
+  // record those as delivery evidence — which is why `prs` reads ONE form and
+  // refuses every lookalike. The four cases below are the lookalikes that
+  // actually occur in this repo's plans.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Delivered
+- **Type:** bug
+
+## Branches
+
+- \`bug/annotated\` — the real form → #100
+- \`bug/cited\` — carries (#101) and nothing else
+- \`bug/prose\` — mentions #102 mid-sentence, then annotates → #103
+
+## Notes
+
+Prose citing #999, and a table row: | \`bug/table\` | → #998 |
+`);
+  assert.deepEqual(meta.prs, [100, 103], 'only the two arrow-annotated numbers');
+  assert.ok(!meta.prs.includes(101), '(#101) is a citation, not an annotation');
+  assert.ok(!meta.prs.includes(102), 'a bare #102 in prose is not an annotation');
+  assert.ok(!meta.prs.includes(999), '#999 outside ## Branches never counts');
+  assert.ok(!meta.prs.includes(998), 'an arrow outside ## Branches never counts');
+});
+
+test('plan-meta: a branch with no annotation is still a branch, and adds no PR', () => {
+  // THE ASYMMETRY THAT HID THE FAILURE. A plan can list five branches and
+  // report two PRs, and nothing in the JSON pairs them — so "this plan has
+  // branches" and "this plan has PR evidence" are separate questions. A
+  // delivery gate that checks only `branches` sees a full plan; one that reads
+  // `prs` sees the truth. Both fields are asserted together here so the gap
+  // between them stays visible to whoever changes this next.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+
+## Branches
+
+- \`bug/with\` — annotated → #200
+- \`bug/without\` — no annotation at all
+`);
+  assert.deepEqual(meta.branches, ['bug/with', 'bug/without'], 'both are branches');
+  assert.deepEqual(meta.prs, [200], 'only the annotated one contributes a PR');
+});
+
+test('plan-meta: `→ owner/repo#N` is a PR annotation — split-home plans have one', () => {
+  // THE DOCUMENTED FORM THE PARSER USED TO DROP. /plot-deliver step 4 tells
+  // implementers to write `→ owner/repo#N` for `Impl: other repo` plans, and
+  // names it again in its split-home clause — but `prs` matched `→ #[0-9]+`
+  // only, so the annotation vanished and `error` stayed null. A split-home
+  // plan therefore reported `prs: []` with `impl: other-repo` beside it: the
+  // delivery gate would read "no PRs" for a plan whose only PR was written
+  // exactly as instructed. No plan in this repo used the form yet, so the
+  // defect was latent and would have struck the first adopter.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+- **Impl:** other repo
+
+## Branches
+
+- \`feature/x\` — lands in the code repo → acme/api#42
+- \`feature/y\` — and one here → #43
+`);
+  assert.deepEqual(meta.prs, [42, 43], 'the cross-repo PR counts as a PR');
+  assert.equal(meta.impl, 'other-repo', 'and the plan is still split-home');
+});
+
+test('plan-meta: `→#N` without the space is reported, never silently dropped', () => {
+  // A TYPO MUST NOT READ AS AN ABSENCE. The annotation is written by hand, and
+  // `→#44` is the obvious slip. Accepting it would widen the contract on a
+  // guess about intent; dropping it silently is worse, because "no annotation"
+  // is a claim the sweep acts on — it prints "cannot resolve a version" and a
+  // human adds an annotation that is already there. So the parser reports it:
+  // `malformed_prs` carries the offending text, and `prs` stays strict.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+
+## Branches
+
+- \`bug/typo\` — missing the space →#44
+- \`bug/fine\` — correct → #45
+`);
+  assert.deepEqual(meta.prs, [45], 'the strict form is unchanged');
+  assert.deepEqual(meta.malformed_prs, ['→#44'], 'and the typo is reported, not lost');
+});
+
+test('plan-meta: prs are sorted, unique, and several may share one line', () => {
+  // THE SHAPE THE HEADER PROMISES ("sorted, unique"), asserted rather than
+  // assumed. A wave line carrying two PRs is ordinary — a branch reworked
+  // after review — and a plan repeating a number across waves must not report
+  // it twice, since callers use the list's length as a count of evidence.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Delivered
+- **Type:** feature
+
+## Branches
+
+### Wave one
+
+- \`feature/a\` — reworked → #50 → #48
+- \`feature/b\` — one → #49
+
+### Wave two
+
+- \`feature/c\` — repeats the first → #48
+`);
+  assert.deepEqual(meta.prs, [48, 49, 50], 'sorted ascending, duplicates collapsed');
+});
+
+test('plan-meta: a plan with no Branches section reports no prs and no malformed ones', () => {
+  // THE EMPTY CASE, pinned so "absent" and "malformed" stay distinguishable.
+  // Draft plans and knowledge plans have no branches at all; they must report
+  // [] for both, never null and never an error.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Draft
+- **Type:** docs
+
+## Problem
+
+Nothing to build yet — and #123 in prose stays prose.
+`);
+  assert.deepEqual(meta.prs, [], 'no branches, no prs');
+  assert.deepEqual(meta.malformed_prs, [], 'and nothing malformed either');
+});
