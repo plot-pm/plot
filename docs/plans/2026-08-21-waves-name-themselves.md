@@ -190,7 +190,7 @@ performing.
   still parses, so no existing plan changes meaning; a heading with no `PR:`
   yields no PR rather than an empty string; a backticked branch name in a
   PARAGRAPH is not a branch, which is the defect the old shape invited; the
-  format contract tests cover both shapes.
+  format contract tests cover both shapes. → #321
 
 ### Written
 - `infra/the-template-writes-waves` — the plan template and `/plot-idea` write
