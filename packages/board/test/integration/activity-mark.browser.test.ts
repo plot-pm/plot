@@ -39,6 +39,18 @@ const row =(over: Partial<AgentRow> = {}): AgentRow => ({
   planFile: '2026-03-01-plant-tomatoes.md', wave: 'w', state: 'wip',
   phase: 'Development', group: 'working', ageMinutes: 3, note: 'last commit 3 min ago',
   pr: null, branchUrl: `${GH}feature/x`, waitingDays: null,
+  // A RUNNING WORKER BY DEFAULT, because that is what this suite is about.
+  //
+  // Every row here used to say `localDirty: true` to mean *this row is active*,
+  // and that was the definition until 2026-08-22: the dot read the WORKTREE.
+  // It now reads the PROCESS — a live worker, or CI running — because a person
+  // editing files is not a machine, and the row for the branch being committed
+  // to pulsed for hours while nothing but a person typed in it.
+  //
+  // So the fixture states the process, and the local fields keep their own
+  // meaning: they set the PACE. A row with a worker and a clean worktree
+  // travels slow; the same row with `localDirty` travels fast.
+  worker: 'running',
   localDirty: false, localLocked: false, localAhead: 0, stuck: null, repair: null, ...over,
 });
 
@@ -73,7 +85,11 @@ const fleet = (rows: AgentRow[]): Fleet => ({
  */
 const PAIR = [
   row({ branch: 'feature/writing', localDirty: true, branchUrl: `${GH}feature/writing` }),
-  row({ branch: 'feature/idle', group: 'waiting-on-machine', branchUrl: `${GH}feature/idle` }),
+  // IDLE MEANS NO PROCESS, stated rather than inherited. The factory gives every
+  // row a running worker because that is what this suite is about; this one row
+  // says otherwise, which is what makes it the negative case.
+  row({ branch: 'feature/idle', group: 'waiting-on-machine', worker: 'none',
+        branchUrl: `${GH}feature/idle` }),
 ];
 
 describe('the activity mark glows, and travels without arriving', () => {
@@ -393,97 +409,48 @@ describe('the activity mark glows, and travels without arriving', () => {
       expect(tracks.split(' ')).toHaveLength(7);
   });
 
-  it('sits at the row\'s edge, clear of the live dot beside it', async () => {
-    // A row in WORKING that is being written to carries BOTH, and they must
-    // read as two marks rather than one thickened one. The mark is at `left-0`
-    // and the dot at `left-1`, so their boxes never overlap.
+  it('is ONE bar carrying ONE dot, with nothing beside it', async () => {
+    // THE SCREENSHOT THAT ENDED `LiveDot`. This asserted the mark sat *clear of
+    // the live dot beside it* — mark at `left-0`, dot at `left-1`, boxes never
+    // overlapping. On screen those two dots read as one smudge, and what the
+    // static one said (*this row is in WORKING*) the section heading already
+    // says once. So the row draws one mark now, and this test says so.
     const page = await open([
       row({ branch: 'feature/both', localDirty: true, group: 'working', branchUrl: `${GH}feature/both` }),
     ]);
     await expect.poll(() => markIn(page, 'feature/both').count()).toBe(1);
     const li = rowFor(page, 'feature/both');
-    expect(await li.locator('[data-live-dot]').count()).toBe(1);
-    const mark = await rectOf(markIn(page, 'feature/both'));
-    const dot = await rectOf(li.locator('[data-live-dot]'));
-    // The track starts at the row's edge, outside the live dot.
-    expect(mark.x).toBeLessThan(dot.x);
+    expect(await li.locator('[data-live-dot]').count()).toBe(0);
+    expect(await li.locator('[data-activity-dot]').count()).toBe(1);
     // A horizontal TRACK, in the geometry the browser resolved: wider than it
-    // is tall, which is the axis the bar used to run along. Stated because the
-    // travel needs a track to happen on, and a mark that stayed a vertical
-    // stroke would have nowhere to go.
+    // is tall, which is the axis the bar runs along. Stated because the travel
+    // needs a track to happen on, and a mark that stayed a vertical stroke
+    // would have nowhere to go.
     //
     // Measured on `[data-activity-track]`, not on the mark: the OUTER element
     // is the first line's box (12x20) and exists to place the mark on that
     // line, so its own proportions say nothing about the track's shape.
     const track = await rectOf(li.locator('[data-activity-track]'));
     expect(track.width).toBeGreaterThan(track.height);
-    // The travelling dot is the same size as the live dot it passes near, and
-    // stays INSIDE its track at both ends of the journey — a dot that overran
-    // would collide with the live dot and read as one smeared mark.
+    // And the dot stays INSIDE its track at both ends of the journey — a dot
+    // that overran would leave the bar and read as a mark of its own.
     const travelling = await rectOf(dotIn(page, 'feature/both'));
     expect(travelling.x).toBeGreaterThanOrEqual(track.x - 0.5);
     expect(travelling.x + travelling.width).toBeLessThanOrEqual(track.x + track.width + 0.5);
   });
 
-  // ── Four marks, four meanings ─────────────────────────────────────────────
-
-  it('leaves the live dot pulsing exactly as it was', async () => {
-    // No mark implemented by modifying another — the standard
-    // `[data-change-mark]` set when it shipped. The dot means *in the WORKING
-    // group* and still pulses on its own `animate-pulse`; this wave gave the
-    // activity mark a `travel` of its own rather than reaching for the dot.
-    const page = await open([
-      row({ branch: 'feature/live', group: 'working', branchUrl: `${GH}feature/live` }),
-      row({
-        branch: 'feature/writing', localDirty: true, group: 'working',
-        branchUrl: `${GH}feature/writing`,
-      }),
-    ]);
-    await expect.poll(() => markIn(page, 'feature/writing').count()).toBe(1);
-
-    const dot = rowFor(page, 'feature/live').locator('[data-live-dot]');
-    expect(await dot.count()).toBe(1);
-    // Its OWN animation, and not the one this wave introduced. `not 'none'`
-    // alone would pass if the dot had been given `travel` — which is exactly
-    // the "implemented by modifying another" failure this test exists for.
-    const live = await dot.evaluate((el) => getComputedStyle(el).animationName);
-    expect(live).not.toBe('none');
-    expect(live).not.toBe('travel');
-    // The unwritten WORKING row still carries a mark — at the SLOW pace, which
-    // is this wave's addition and is asserted in its own block below. What
-    // matters here is that the two elements remain two.
-    expect(await markIn(page, 'feature/live').count()).toBe(1);
-    expect(await dotIn(page, 'feature/live')
-      .evaluate((el) => getComputedStyle(el).animationName)).toBe('travel');
-  });
-
-  it('holds the mark and the live dot on ONE row, as distinct elements', async () => {
-    // A row can be in WORKING and be written to this instant, and then it says
-    // both. The failure this guards is a mark implemented by repainting
-    // another: that would still show "a mark" and lose a meaning.
-    //
-    // The STUCK CUE is deliberately not in this pairing, and its absence is a
-    // fixture limit rather than a claim: `showsCue` requires an action that is
-    // actually reachable, which needs a dispatch card this fixture's synthetic
-    // branches have none of — `stuck-row-alignment.browser.test.ts` documents
-    // the same fallback. The cue's own channel (amber, `animate-ping`) is
-    // pinned against the source in `test/unit/agent-list.test.ts`, and its
-    // rendering is owned by `stuck-rows.browser.test.ts`.
-    const page = await open([
-      row({
-        branch: 'feature/everything', localDirty: true, localLocked: true,
-        group: 'working', branchUrl: `${GH}feature/everything`,
-      }),
-    ]);
-    const li = rowFor(page, 'feature/everything');
-    await expect.poll(() => li.locator('[data-activity-mark]').count()).toBe(1);
-    expect(await li.locator('[data-live-dot]').count()).toBe(1);
-    // Two ELEMENTS, not one node answering to both hooks.
-    const distinct = await li.evaluate((el) => new Set(
-      ['[data-activity-mark]', '[data-live-dot]']
-        .map((s) => el.querySelector(s))).size);
-    expect(distinct).toBe(2);
-  });
+  // ── Three marks, three meanings ───────────────────────────────────────────
+  //
+  // It was FOUR until 2026-08-22. `LiveDot` — a static emerald dot on every
+  // WORKING row — is gone, and three tests went with it: *leaves the live dot
+  // pulsing exactly as it was*, *holds the mark and the live dot on ONE row as
+  // distinct elements*, and *keeps the live dot beside it on the row's first
+  // line too*. Each asserted that two marks a pixel apart stayed distinct; on
+  // screen they read as one smudge, which is the screenshot that ended it.
+  //
+  // What they were guarding survives in the test above: ONE bar, ONE dot, and
+  // `[data-live-dot]` asserted absent so a later wave cannot quietly bring the
+  // overlap back.
 
   it('renders the unpushed mark beside the activity mark, both distinct', async () => {
     // The measured shape of a working agent: uncommitted edits AND commits it
@@ -915,20 +882,4 @@ describe('the activity mark aligns to the row\'s first line', () => {
     expect(Math.abs(midY(mark) - midY(li))).toBeLessThan(4);
   });
 
-  it('keeps the live dot beside it on the row\'s first line too', async () => {
-    // `LiveDot` centres on the row by the same `top-1/2` this mark just left,
-    // so on a two-line WORKING row it has the same defect. NOT fixed here —
-    // this wave owns one element — but pinned as a KNOWN difference so the next
-    // reader finds it stated rather than discovering it from a screenshot. See
-    // the report accompanying this branch.
-    const page = await open();
-    await expect.poll(() => markIn(page, 'feature/one-line').count()).toBe(1);
-    const li = rowFor(page, 'feature/one-line');
-    // On a single-line row the two agree, which is all this wave asserts.
-    if (await li.locator('[data-live-dot]').count()) {
-      const dot = (await li.locator('[data-live-dot]').boundingBox())!;
-      const mark = (await markIn(page, 'feature/one-line').boundingBox())!;
-      expect(Math.abs(midY(dot) - midY(mark))).toBeLessThan(4);
-    }
-  });
 });
