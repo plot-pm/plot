@@ -352,60 +352,15 @@ describe('the acting buttons carry a spinner while they act', () => {
  * hours with no known end. The dot must be untouched, and the two markers must
  * be TELLABLE APART.
  */
-describe('the rows keep their own indicator, and it is not this one', () => {
-  let server: { port: number; kill: () => void };
-  let browser: Browser;
-  let baseURL: string;
-  let garden: string;
-
-  beforeAll(async () => {
-    garden = detachedGarden();
-    server = await startServer(garden);
-    baseURL = `http://localhost:${server.port}/`;
-    browser = await chromium.launch();
-  });
-  afterAll(async () => {
-    await browser?.close();
-    server?.kill();
-    if (garden) fs.rmSync(garden, { recursive: true, force: true });
-  });
-
-  /**
-   * One WORKING row, which is all this question needs.
-   *
-   * Typed as the real `Fleet` rather than a loose literal: the first draft here
-   * carried only `rows`, the payload failed the contract, and the tab rendered
-   * nothing at all — a stub that is wrong in that direction fails as a timeout
-   * rather than as a claim about the dot, which is a slow way to learn nothing.
-   */
-  const FLEET: Fleet = {
-    generatedAt: '2026-08-17T09:00:00Z',
-    ageSeconds: 2,
-    ready: true,
-    error: null,
-    rows: [{
-      repo: 'garden', branch: 'feature/beans-a', plan: 'beans',
-      planFile: '2026-03-01-plant-tomatoes.md', wave: 'w', state: 'wip',
-      phase: 'Development', group: 'working', ageMinutes: 3,
-      note: 'last commit 3 min ago', pr: null,
-      branchUrl: 'https://github.com/tiny/garden/tree/feature/beans-a',
-      waitingDays: null,
-    }],
-    summary: { plans: 1, waves: 1, branches: 1, claimed: 1, eligible: 0, blocked: 0, deferred: 0 },
-    prAgeSeconds: null,
-    prNextInSeconds: null,
-    scanNextInSeconds: null,
-    prError: null,
-  };
-
-  // *The WORKING dot is still there, still pulsing, and is NOT the button
-  // marker* stood here until 2026-08-22. That dot — `[data-live-dot]` — is
-  // gone: it sat a pixel from `ActivityMark`'s travelling dot, so a WORKING row
-  // showed two dots and read as one smudge, and what it said (*this row is in
-  // WORKING*) the section heading already says once.
-  //
-  // The claim it made survives above and in `acting-spinner.test.ts`: the ROW's
-  // marker and the BUTTON's spinner are never unified, because a click ends in
-  // seconds and a row does not.
-
-});
+// `the rows keep their own indicator, and it is not this one` stood here and
+// held one test: the WORKING dot — `[data-live-dot]`, a static emerald mark on
+// every such row — was present, pulsing, and not the button's marker.
+//
+// That dot went on 2026-08-22. It sat a pixel from `ActivityMark`'s travelling
+// dot, so a WORKING row showed two and read as one smudge, and what it said
+// (*this row is in WORKING*) the section heading already says once.
+//
+// Its claim survives whole in `acting-spinner.test.ts`, which reads the source:
+// the ROW's marker and the BUTTON's spinner must never be unified, because a
+// click ends in seconds and a row does not — and `ActivityMark` measures no end
+// either, so the argument transfers intact.
