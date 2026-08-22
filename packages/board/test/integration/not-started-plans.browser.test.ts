@@ -116,7 +116,17 @@ describe('NOT STARTED renders one row per plan', () => {
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Not started').first().waitFor({ timeout: 10_000 });
-    await expandAgentFolds(page);
+    // NO `expandAgentFolds` HERE, and its absence is the point of this suite.
+    //
+    // The helper opens every fold on the page, which is right for a suite that
+    // needs to see inside one — and self-defeating for this one, whose whole
+    // subject is what a plan shows while FOLDED. It was added when fifteen test
+    // files were failing for want of an open fold, and it reached this file
+    // too: three tests then asserted that a branch was hidden inside a fold the
+    // setup had just opened.
+    //
+    // The tests that DO need the branches open (the fold/unfold pair below)
+    // click the plan's own toggle, which is what a reader does.
     return page;
   }
 
