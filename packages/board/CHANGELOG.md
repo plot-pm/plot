@@ -1,5 +1,324 @@
 # @plot-pm/board
 
+## 0.7.0
+
+### Minor Changes
+
+- [#319](https://github.com/plot-pm/plot/pull/319) [`afd725f`](https://github.com/plot-pm/plot/commit/afd725faa527c4aa99e5a7b468be83ef98618a7e) Thanks [@jwloka](https://github.com/jwloka)! - board: a folded plan says what its branches' PRs are doing
+
+  A collapsed plan head showed its phase and nothing about the branches beneath
+  it, so a folded group gave a reader no reason to open it even when a PR two rows
+  down was red. Reported from the live board as _"Wo ist 304?"_ — PR 304 was
+  there the whole time, under a plan row reading `Discovery` with `checks failing`
+  inside the fold.
+
+  The plan head now folds its branches' PR states into one worst-case word beside
+  the phase, with a count where more than one branch carries it. The plan stays
+  canonical; this is orientation.
+
+  Decided and enforced:
+
+  - **Derived inside `PlanRow`, from the `group` it receives — never at a call
+    site.** `PlanRow` has two, and they are asymmetric: NOT STARTED folds
+    `active`/`marked` at the call site while the `planHeads` path over wave groups
+    passes neither. Computing the aggregate the way `marked` is computed would put
+    it on one kind of plan head and not the other — the exact shape of a fix on
+    2026-08-22 that rendered nothing. A browser test asserts the badge on BOTH
+    paths.
+  - Precedence `conflicts > failing > pending`, quiet states silent: `green`,
+    `none`, `unknown`, `closed` and a PR-less branch earn no word.
+  - `pending` is included, rendered in a dimmer tone than the two actionable
+    states — _something is happening_ against _do something_.
+  - The aggregate STAYS when the group is expanded, unlike the change mark beside
+    it: a long group scrolls its head off screen either way.
+  - The phase keeps slot 5 and is never replaced — the badge rides beside it via
+    `statusExtra`.
+  - The word comes from `prStatus`, so a fold of five says the same word a lone
+    branch does for that state, colour reinforcing but never carrying it.
+
+  Client-side only: `AgentRow.pr.state` was already on the wire.
+
+  <!--
+  bumps:
+    skills:
+      plot: minor
+  -->
+
+- [#327](https://github.com/plot-pm/plot/pull/327) [`864f8ac`](https://github.com/plot-pm/plot/commit/864f8ac9c1fedf3d3f7e0f47aee902201c740932) Thanks [@jwloka](https://github.com/jwloka)! - plot: the registry knows which agents are alive
+
+  The agent registry now answers _is this agent still running?_ — which nothing
+  did before. `plot-dispatch.sh` wrote one manifest per agent recording a **launch**
+  (session, branch, worktree, command, startedAt) and nothing updated it after the
+  spawn: no pid, no state. Measured 2026-08-22, the gap showed from three
+  directions at once — seven worktrees carrying a `.plot-worker.pid` with all seven
+  processes dead, seven registry manifests, and two agents actually alive. Three
+  numbers, none of them _agents alive now_.
+
+  Each manifest now carries the agent's **pid**, and each registry entry a
+  **state** the pulse refreshes. The pid is a launch fact stamped by the wrapper
+  the instant it learns its own child — the same value that lands in
+  `.plot-worker.pid`, written the same way and for the same reason (the wrapper is
+  the one process that knows the agent's pid). The state is decided on every pulse
+  by reusing `plot-worker-state.sh` — the fleet's single liveness definition,
+  sourced not reimplemented — so an entry whose process is gone reads `finished`
+  on the next scan **without anyone deleting the file**. That is the stale-manifest
+  cure: four entries outlived their processes because the record could not correct
+  itself.
+
+  **One derivation, three consumers.** The state lands on the registry entry
+  instead of being recomputed per caller, so the concurrency cap (wave 2), WORKING's
+  rows (a later plan) and the stale-manifest problem are all answered by one fact.
+  The count of live entries is one filter over the `agents` array — no per-entry
+  shell-out, because the cap will ask it every pulse.
+
+  The states are exactly the four `plot-worker-state.sh` distinguishes —
+  `running`, `finished`, `waiting`, `stalled` — carried onto the entry unchanged,
+  plus the registry's own honest `unknown` for what it cannot decide: an older
+  manifest with no pid, an agent between branches with no worktree to look in, or a
+  liveness check that could not run. **Absent is not a guess.** A pid of `0` or
+  junk reads as absent for the reasons the shell refuses them, and the wire schema
+  defaults `pid` to `""` and `state` to `unknown` so a client holding an open page
+  across a server upgrade still validates.
+
+  The registry reads liveness from local signals only — it passes an empty PR fact
+  to `plot_worker_state`, exactly as that function's contract permits — because the
+  registry must not be behind a host call that can fail: an agent invisible during
+  an outage is one that gets restarted into work it already holds.
+
+  Scope: this is wave 1 of _approval hands the work to agents_. It teaches the
+  registry to answer liveness and nothing more — it does not build the concurrency
+  stepper (wave 2) or the auto-dispatch switch (wave 3), and it does not change
+  WORKING's rendering.
+
+  <!--
+  bumps:
+    skills:
+      plot-dispatch: minor
+  -->
+
+### Patch Changes
+
+- [#308](https://github.com/plot-pm/plot/pull/308) [`a25862c`](https://github.com/plot-pm/plot/commit/a25862c1b15f3b1f45e7b595b406658934246c12) Thanks [@jwloka](https://github.com/jwloka)! - infra: Node 24 everywhere, declared where a tool will read it
+
+  The repo pinned nothing: no `.nvmrc`, no `engines` block, and CI validating on
+  **20** while the release workflow built on **24**. So the gate was not testing
+  the version that ships, and every fresh shell picked up whatever `nvm` had
+  last — which on this machine is **26**, where `pnpm` crashes outright.
+
+  The failure mode is what makes it worth fixing rather than remembering: a
+  background job under Node 26 exits having written a zero-byte log, which reads
+  exactly like a hung test run. Diagnosing that costs more than the version
+  mismatch ever does.
+
+  Now: `.nvmrc` at 24, `engines: { node: ">=24" }` in both `package.json` files
+  so a wrong interpreter is refused by the tool rather than discovered later, CI
+  raised 20 → 24, and CLAUDE.md's Testing section leads with `nvm use`.
+
+  Verified on 24 before raising CI, running the same steps the workflow does:
+  `pnpm test`, `pnpm run validate`, `test:reconcile` (606/606), `test:e2e`
+  (15/15), `typecheck` clean.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#321](https://github.com/plot-pm/plot/pull/321) [`d113840`](https://github.com/plot-pm/plot/commit/d1138409938f79cd304d06602a03c17c6ce4b536) Thanks [@jwloka](https://github.com/jwloka)! - plot: the parser reads a wave heading
+
+  `plot-plan-meta.sh` now reads a second spelling of a plan's implementation
+  section. The old `## Branches` shape puts the branch in the list line, mixing
+  meta with prose:
+
+      ### Removed
+      - `bug/foo` — loses its half → [#300](https://github.com/plot-pm/plot/issues/300)
+
+  The new `## Waves` shape moves the meta into the `### ` heading, leaving the
+  line as pure description:
+
+      ### Removed (Branch: bug/foo, PR: [#300](https://github.com/plot-pm/plot/issues/300))
+      - loses its half
+
+  Both spellings emit **byte-identical** `branches`, `prs` and `waves` arrays —
+  the property that makes the estate migration provably a re-spelling rather than
+  a change of meaning. A new-shape fixture and its old-shape twin are asserted
+  equal across the whole record.
+
+  **The parser reads BOTH while the migration runs.** The new shape is what Plot
+  will write and document, but the old spelling stays readable: a format change
+  owes its estate a migration that moves 85 files one at a time, and a plan moved
+  one commit before the parser learns the shape must not read as silently empty.
+  Measured against the pre-change parser, the new shape yielded `branches: 0`,
+  `prs: 0`, `waves: 0`, `error: null` — silently, so the fleet scan would print
+  `(no branches)` and `/plot-deliver`'s branch gate would pass on an empty list.
+  A migrated plan would not fail; it would disappear.
+
+  **A backticked name in a description is no longer a branch.** Under the old
+  shape a second path-shaped token on a branch line was read as a phantom branch —
+  on 2026-08-22 a wave of five reported six because a description cited a doc
+  path. In the new shape the branch is extracted from the heading, anchored to the
+  `Branch:` label, so a name in prose, in the wave title, or in a trailing
+  citation cannot masquerade as a branch. The property is delivered, not merely
+  permitted.
+
+  `PR:` is omitted where none exists yet: an absent field contributes nothing to
+  `prs` — not `""`, not `0` — the same rule `Issue:` follows. A `## Waves`
+  section whose heading names no branch still opens a wave, so the section is
+  never silently empty: a consumer can tell "a wave I could not parse" from "no
+  waves".
+
+  Scope: this teaches the parser and its contract tests only. The template still
+  writes the old shape (wave 2) and no plan file is migrated (wave 3). The
+  `<!-- claimed: -->` / `<!-- deferred: -->` comments still ride the branch line —
+  now the heading line that carries the branch — and moving them is a separate
+  question this wave does not answer.
+
+  <!--
+  bumps:
+    skills:
+      plot: minor
+  -->
+
+- [#309](https://github.com/plot-pm/plot/pull/309) [`105b2c8`](https://github.com/plot-pm/plot/commit/105b2c84c4e0a473b38d30e4b3ca5c49132a8cb8) Thanks [@jwloka](https://github.com/jwloka)! - plot: the parser reads every documented PR form, and reports the near-miss
+
+  `prs` is the field four gates read — `/plot-deliver`'s merged check,
+  `/plot-release`'s version resolution, the sweep's section 6, the fleet scan —
+  and until now no test in `parser.test.mjs` took it as its subject. The two
+  existing mentions are incidental assertions inside `issues` tests. Six tests
+  now pin it, and they found two defects.
+
+  **`→ owner/repo#N` was dropped.** `/plot-deliver` step 4 instructs
+  implementers to write it for `Impl: other repo` plans and names it again in
+  its split-home clause, but `prs` matched `→ #[0-9]+` only. A split-home plan
+  therefore reported `prs: []` beside `impl: other-repo` and `error: null` — a
+  delivery gate reading "no PRs" for a plan whose only PR was written exactly as
+  documented. No plan in this repo uses the form yet, so the defect was latent
+  and would have struck the first adopter. The repo part is matched but not
+  retained: callers ask which PRs are the evidence, and `plot-host.sh` resolves
+  where each one lives.
+
+  **`→#N` without the space was dropped silently.** The annotation is written by
+  hand and that is the obvious slip. Accepting it would widen the contract on a
+  guess about intent; dropping it is worse, because _no annotation_ is a claim
+  the sweep acts on — it prints "cannot resolve a version" and sends a human to
+  add an annotation the plan already carries. It is now reported in a new
+  `malformed_prs` field, verbatim, and `prs` stays strict.
+
+  **The strictness itself is now pinned as intended rather than accidental.**
+  Plans cite PR numbers constantly as history — this repo's
+  `a-plan-row-is-not-a-branch-row` names [#175](https://github.com/plot-pm/plot/issues/175) and [#191](https://github.com/plot-pm/plot/issues/191) in prose as prior art,
+  and neither delivered it — so a body scan cannot tell a signal from a
+  citation. The tests assert that `([#101](https://github.com/plot-pm/plot/issues/101))`, a bare `[#102](https://github.com/plot-pm/plot/issues/102)` in prose, and an
+  arrow outside `## Branches` all contribute nothing.
+
+  Measured additive: every one of the 84 plans in `docs/plans/` was parsed
+  through the old and new script and compared on `prs`. Zero differ.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#325](https://github.com/plot-pm/plot/pull/325) [`a20de9b`](https://github.com/plot-pm/plot/commit/a20de9be6c06eb75965330bade2b772c082d9f22) Thanks [@jwloka](https://github.com/jwloka)! - plot: the plan's acts live on the plan head, and NOT STARTED holds approved plans only
+
+  Three breaks in one path — read a plan, approve it, start the work — none of
+  which connected, all from the same confusion between a PLAN act and a BRANCH
+  row.
+
+  **The branch-row Approve could not render for any row, ever.** Its gate was
+  `isDraft(card) && row.waitingOn === 'you'`, but `waitingOnFor` returns non-null
+  only for `group === 'not-started'` while `classify` routes every Draft plan to
+  `waiting-on-you` — the two clauses excluded each other by construction.
+  Measured by executing the function rather than reading it: `'you'` is returned
+  for exactly one input, `not-started` + `deferred`. No narrowing makes a
+  plan-level act correct on a branch row — a branch BLOCKED by an earlier wave is
+  in `waiting-on-you` too when its plan is Draft — so the row-level control is
+  deleted, not re-gated, and Approve lives on the plan head (`PlanActions`, gated
+  on the card's `isDraft` alone), where it always worked.
+
+  **Commission design was worse: self-contradictory.** `canCommissionDesign` read
+  `waitingOn === 'you' && state === 'open'`, and `'you'` only ever arrives with
+  `state === 'deferred'` — satisfied by no board-producible input. Deleting its
+  row twin would have removed the feature outright, because `PlanActions` took no
+  `commission` prop. The prop is now threaded through (an extension of a chain
+  already reaching five components), and the plan head offers Commission design
+  beside Approve — the two answers to one question.
+
+  **NOT STARTED admitted Draft plans.** The `deferred` arm of `classify` kept
+  `'draft'` in its unknown-phase allowlist, so a Draft plan's shelved branch fell
+  through to `not-started` — the section whose hint reads _approved, nobody has
+  taken it_, offering work no phase gate would let an agent start. `draft` now
+  answers on its own line, WAITING ON YOU for both verdicts, exactly as the
+  `open` arm already answered it. `''` still falls through untouched: absent is
+  not a phase, and a scan predating the field says nothing about the plan.
+
+  The two plan-level acts left the branch menu entirely — `menuState`, `RowActions`
+  and the prop chain down to them no longer carry them — so the branch row's menu
+  holds only branch-level acts (Start work, Open/Review, the conflict dispatch,
+  the reads), which a browser test pins against the emptied-menu regression. A
+  new browser test exercises the plan HEAD, the render twelve green card tests
+  never mounted, and it fails against the pre-fix code for the stated reason:
+  the Commission design item is absent without the prop.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+  ## And a wave said _nobody has taken it_ over finished work
+
+  Reported from a screenshot: PR [#323](https://github.com/plot-pm/plot/issues/323) rendering `green` beside `approved — nobody
+has taken it`. The server was right on every field — the row sat in
+  `waiting-on-you` with `note: "PR [#323](https://github.com/plot-pm/plot/issues/323) green"` — and the client's fallback chain
+  was not.
+
+  `waveNote` guarded on `soleNote`, which is the sole row's note **with its PR
+  fact stripped**. Where the note is only that fact — the ordinary shape for a
+  finished branch — the strip leaves `''`, and empty is falsy, so the chain fell
+  through to a verdict sentence about starting work that had already been done.
+
+  The guard now asks `soleRow`, which says _this wave has one branch and the
+  branch speaks for it_ — the same condition the sibling `waveWaitingOn` ternary
+  already tested three lines above. The comment beside it had described the
+  intended behaviour correctly since it was written; only the predicate was wrong.
+
+  Every single-branch wave that reaches review hit this, which is the common case
+  rather than an edge.
+
+- [#323](https://github.com/plot-pm/plot/pull/323) [`6436a3a`](https://github.com/plot-pm/plot/commit/6436a3aa105b2c9b406fa47b7369ae5c7cdbfb58) Thanks [@jwloka](https://github.com/jwloka)! - challenge-the-plan: the skill writes the round count it was always read for
+
+  Every layer that surfaces a plan's interrogation count was built —
+  `plot-plan-meta.sh` parses `rounds` from the `CHALLENGE-THE-PLAN-METADATA`
+  block, `PlanMetaSchema` carries it, `PlanCard.tsx` renders the badge — except
+  the one that produces the value. Measured 2026-08-22 across 90 plans: 24 report
+  a count, every one written 2026-08-15 to 2026-08-17, none since, and on the live
+  board all 24 badges sit in Released — the field is present only where it can no
+  longer inform a decision. The count stopped exactly when the work moved from the
+  slash command (which specifies the block) to the skill (which never wrote it).
+
+  `challenge-the-plan/SKILL.md` gains **Phase 5b: Record the round** — a
+  read-modify-write of the metadata block at the end of every round, including a
+  round that changed no decision, because `0 rounds` (interrogated, found nothing)
+  and an absent block (nobody looked) are deliberately different and want opposite
+  reactions from a reader. The block is updated in place, never appended, since
+  the parser reads only the first `"round":` line it finds.
+
+  **One specification, two entrances.** The slash command stops duplicating the
+  block's description and points at the skill, where the interrogation happens and
+  the block is written — the same drift `/plot-approve` warns about with its own
+  two entrances.
+
+  The parser is untouched: it reads the block correctly today and 24 plans prove
+  it. `rounds` stays optional and un-defaulted all the way through.
+
+  <!--
+  bumps:
+    skills:
+      challenge-the-plan: minor
+  -->
+
 ## 0.6.0
 
 ### Minor Changes
@@ -799,10 +1118,10 @@
   Nothing new reads the prose: `verdict` and `blockedBy` remain the fields a
   consumer reads, and this only sharpens the sentence a person sees.
 
-  <!--
-  bumps:
-    skills:
-  -->
+    <!--
+    bumps:
+      skills:
+    -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched. `blockedNote` gains an optional argument, so every existing caller is
@@ -892,10 +1211,10 @@ story, waveSummary`, and a branch row carried `branch, path`. Zero of seven
   PR for this branch_, which was never a decision about the contract so much as
   this cache filter leaking into it.
 
-  <!--
-  bumps:
-    skills:
-  -->
+    <!--
+    bumps:
+      skills:
+    -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched, and `plot-fleet-scan.sh` already resolves each branch's PR to decide
@@ -1105,10 +1424,10 @@ story, waveSummary`, and a branch row carried `branch, path`. Zero of seven
   order, a new status flashes then sorts in, the panel is absent when there is
   nothing to report, and the footer line stays at the foot and unchanged.
 
-  <!--
-  bumps:
-    skills:
-  -->
+    <!--
+    bumps:
+      skills:
+    -->
 
 - [#287](https://github.com/plot-pm/plot/pull/287) [`50ef368`](https://github.com/plot-pm/plot/commit/50ef3681fb332ecc2b862af18a6722d1ca9dd9f6) Thanks [@jwloka](https://github.com/jwloka)! - board: a failing check shows its step and its age, and its file list moves to the menu
 
@@ -1507,10 +1826,10 @@ bottom 801.3125 in 800px` — the footer really is past the fold there, by 1.3px
   the test says in a comment why it does not — and the defect gets its own plan,
   `2026-08-21-the-page-is-as-tall-as-the-screen.md`.
 
-  <!--
-  bumps:
-    skills:
-  -->
+    <!--
+    bumps:
+      skills:
+    -->
 
   No skill version bumps: this is a board-side rendering change only. No helper
   script decides how a section is drawn, `/api/fleet` loses and gains no field,
@@ -1858,11 +2177,11 @@ null` on every row in this section while `ageMinutes` read real values. A plan i
   by construction (a plan's branches move through the lifecycle together), so the
   predicate can demand that every row be wave-grouped rather than handle a mixture.
 
-  <!--
-  bumps:
-    skills:
-      plot: patch
-  -->
+    <!--
+    bumps:
+      skills:
+        plot: patch
+    -->
 
 - [#300](https://github.com/plot-pm/plot/pull/300) [`93a1e41`](https://github.com/plot-pm/plot/commit/93a1e415ca5903a50280ade19899bb21ecb06b98) Thanks [@jwloka](https://github.com/jwloka)! - board: an agent is the machine, so it never appears in WAITING ON A MACHINE
 
@@ -2054,10 +2373,10 @@ null` on every row in this section while `ageMinutes` read real values. A plan i
   on the pulse, so a brief written between two scans shows up on the next pulse
   instead of waiting out the scan's cadence.
 
-  <!--
-  bumps:
-    skills:
-  -->
+    <!--
+    bumps:
+      skills:
+    -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched, and the `/api/fleet` payload gains a field rather than changing one —
@@ -2560,10 +2879,10 @@ spawn`. Every number is measured, not estimated — the worktree count and the
   field — the estate is appended to the existing `error` string, which the tab
   already renders as `Last scan failed: …`.
 
-  <!--
-  bumps:
-    skills:
-  -->
+    <!--
+    bumps:
+      skills:
+    -->
 
   The estate report is board-side only. `plot-fleet-scan.sh` is deliberately not
   changed: a SIGKILLed scan cannot append its own diagnosis, so the measurement is
@@ -3193,10 +3512,10 @@ at startup; pruning stale worktrees cuts both the count and the per-spawn cost`.
   as the follow-up: this change's job is to stop asserting a false cause, not to
   find the true one.
 
-  <!--
-  bumps:
-    skills:
-  -->
+    <!--
+    bumps:
+      skills:
+    -->
 
   Board-side only, and no schema change: the estate rides the existing `error`
   string. `plot-fleet-scan.sh` is untouched for the same reason it was untouched
@@ -3482,12 +3801,12 @@ at startup; pruning stale worktrees cuts both the count and the per-spawn cost`.
   a row's `⋯` menu holds — so no skill's behaviour changed.
 
 - [#219](https://github.com/plot-pm/plot/pull/219) [`a4ecf36`](https://github.com/plot-pm/plot/commit/a4ecf3632db03b9c40f7062a304eabcd742f481e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-      bumps:
-        skills:
-          plot: minor
-          plot-dispatch: minor
-          plot-fleet: minor
-      -->
+        bumps:
+          skills:
+            plot: minor
+            plot-dispatch: minor
+            plot-fleet: minor
+        -->
 
   plot: `finished` is not a verdict
 
@@ -3637,10 +3956,10 @@ failing` since the previous day, and [#203](https://github.com/plot-pm/plot/issu
   than a review comment — the window where rows are git-fresh and host-unfetched
   is not an edge case, it is most of every minute.
 
-      <!--
-      bumps:
-        skills:
-      -->
+        <!--
+        bumps:
+          skills:
+        -->
 
   No skill version bumps: this is a board-side change only. Nothing under
   `skills/` reads or documents what the Agents tab prints in an empty section,
@@ -4147,11 +4466,11 @@ time`), computed server-side where the wave verdict and the plan phase
   here, because this same change reworded a neighbouring note. The client
   no longer imports any note constant.
 
-          <!--
-          bumps:
-            skills:
-              plot: patch
-          -->
+            <!--
+            bumps:
+              skills:
+                plot: patch
+            -->
 
 - [#182](https://github.com/plot-pm/plot/pull/182) [`07eeceb`](https://github.com/plot-pm/plot/commit/07eecebe6b1d915e1d05fe8d35391c1bbb02f903) Thanks [@jwloka](https://github.com/jwloka)! - A row on the Agents tab now marks itself when something is actually being written to it, rather than when it happens to sit in the WORKING group.
 
