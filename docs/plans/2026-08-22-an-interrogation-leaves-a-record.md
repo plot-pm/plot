@@ -16,6 +16,7 @@
 - **Started:** 2026-08-22, Jan Wloka, `bug/the-skill-records-its-rounds`
 - **Started:** 2026-08-22, Jan Wloka, `bug/the-skill-records-its-rounds`
 - **Started:** 2026-08-22, Jan Wloka, `docs/the-six-say-they-were-challenged`
+- **Started:** 2026-08-22, Jan Wloka, `docs/the-six-say-they-were-challenged`
 
 ## Approval
 
