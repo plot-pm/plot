@@ -32,6 +32,7 @@ import { stuckState, summarizeStuck } from './stuck.js';
 import { repairFor, startRepair } from './resolver.js';
 import type { BuildBoardOptions } from './board.js';
 import { readBridge, writeBridge } from './pulse-bridge.js';
+import { readFleetControls } from './fleet-controls.js';
 import { readAgentRegistry } from './registry.js';
 import type { AgentEntry } from './registry.js';
 import { workerQuestions } from './worker-question.js';
@@ -4751,5 +4752,12 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
     // in both and is not duplicated — the entities differ.
     agents: entry.agents,
     issueError: entry.issueError,
+    // The two fleet controls, read fresh from `.plot/state/` on this render
+    // clock — NOT off the cached pulse — so a write through /api/fleet-controls
+    // is visible on the very next poll. Read here, unconditionally, because the
+    // client casts this payload rather than parsing it: a Zod `.default` never
+    // fires client-side, so a field the server left off would reach the renderer
+    // as `undefined`. It is emitted every time, cold cache included.
+    fleetControls: readFleetControls(opts),
   };
 }
