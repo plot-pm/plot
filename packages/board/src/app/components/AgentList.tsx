@@ -808,9 +808,22 @@ export function waveGroupsFor(rows: AgentRow[], section: WaitingGroup): WaveGrou
     // what must be EXCLUDED: a merged branch is done, and `done` wants only
     // those.
     section === 'waiting-on-you' ? ((r: AgentRow) => r.state !== 'merged')
-      : section === 'quiet' ? ((r: AgentRow) => r.state !== 'merged')
-        : section === 'done' ? ((r: AgentRow) => r.state === 'merged')
-          : null;
+      // NOT STARTED, and its absence was an omission rather than a decision.
+      // The paragraph above explains why WORKING and WAITING ON A MACHINE are
+      // excluded — an agent and a build are not waves — and says nothing
+      // whatever about this one, because nothing was meant by it.
+      //
+      // The section renders waves regardless: measured, `activity-shows-itself`
+      // draws a plan head and three wave rows there. What `[]` cost was the
+      // FOLD DEFAULT, which asks this function how many waves a plan has — so
+      // a plan of three waves counted zero, fell to the one-wave branch, and
+      // opened. A plan of four is five lines, and the crowding the fold exists
+      // to answer was answered nowhere in the one section that is nothing but
+      // unstarted plans.
+      : section === 'not-started' ? ((r: AgentRow) => r.state !== 'merged')
+        : section === 'quiet' ? ((r: AgentRow) => r.state !== 'merged')
+          : section === 'done' ? ((r: AgentRow) => r.state === 'merged')
+            : null;
   if (!claims) return [];
   // NO `length > 1` THRESHOLD, and its removal is the correction that matters.
   //
@@ -1782,88 +1795,7 @@ export function offersAction(state: StuckState): boolean {
   return state === 'conflict' || state === 'ci-failing';
 }
 
-/**
- * Is an action ACTUALLY reachable on this row — not merely usual for its state?
- *
- * **`offersAction` answers about the state; this answers about the row.** The
- * distinction is not pedantic, and a screenshot found it: `conflict` is a state
- * that offers an action, but the row has nothing to offer when it has no card
- * or the board has not said whether it will act. The cue rendered anyway, so an
- * animated dot sat pointing at a sentence saying nothing could be asked.
- *
- * Since the actions moved into the menu (`one-place-for-what-a-row-can-do`) the
- * same question decides whether the MENU holds a stuck row's item, so this is
- * now asked in two places and must keep giving one answer. A cue pointing at a
- * menu without the item is the same defect in its second form.
- *
- * That breaks the rule the cue exists under: **motion marks an unanswered
- * request, and where nothing can be asked there is no request.** It is the same
- * reasoning that keeps `unpushed` and `artifact-conflict` still — this is simply
- * a third way an action can be absent, and unlike those two it depends on the
- * row rather than on the state, which is why the state alone could not see it.
- *
- * A refusal is NOT an absence, and the difference decides the two arms below. A
- * `conflict` row over a non-localhost binding has a card and a dispatch verdict
- * — `StartWorkButton` renders, disabled, and NAMES the reason — so the request
- * is real, still unanswered, and still yours to answer from another machine.
- * Hiding the cue there would let a phone report a healthy fleet while branches
- * sit stuck. Absent means there is nothing to click at all.
- *
- * Exported for test: an implementation keyed on the state alone passes every
- * assertion about a normal stuck row and animates at a dead end.
- */
-export function actionReachable(
-  stuck: Pick<Stuck, 'state' | 'runHistory'>,
-  card: Card | null,
-  dispatch?: DispatchInfo,
-): boolean {
-  if (!offersAction(stuck.state)) return false;
-  // `ci-failing` offers a LINK, and an absent URL is a real answer (Bitbucket
-  // has no run listing) that the row states in words. No address, no
-  // navigation, nothing to ask.
-  if (stuck.state === 'ci-failing') return stuck.runHistory.some((r) => r.url);
-  // `conflict` dispatches through the guarded route, which needs a card to name
-  // the plan and a dispatch verdict to say whether the server will act. Without
-  // either the row says so instead of rendering a control.
-  return Boolean(card && dispatch);
-}
 
-/**
- * Does this row wear the animated cue?
- *
- * **Only where an action is OFFERED, and only until it is TAKEN.** Both bounds
- * are the plan's, and each removes a way the cue becomes wallpaper.
- *
- * The first: motion here marks an UNANSWERED REQUEST, not a state. A branch with
- * nothing to offer has made no request, so it gets no motion — which is why
- * `unpushed` is reported in words and `artifact-conflict` (this wave) is too.
- *
- * The second: **it stops when the action is taken, not when the branch
- * unsticks.** The request has been answered; whether the answer worked is what
- * the row's other marks report. A cue tied to the branch's own recovery would
- * keep moving through the whole repair — the reader having already done the one
- * thing it was asking for.
- *
- * This is also the one place on this board where motion is right, and the reason
- * is recorded because a neighbouring wave settled the opposite: *a thing true
- * for hours has less claim on motion than a thing true for three seconds*, which
- * is why the activity mark is static. A stuck branch is neither — it is true
- * UNTIL SOMEONE ACTS, and the acting is the point.
- *
- * **The first bound is about the ROW, not the state**, and a screenshot is what
- * settled it. This used to read `offersAction(state)`, which is the state's
- * usual behaviour rather than this row's actual one — so a `conflict` row whose
- * action had fallen back to *no dispatch available for this plan* wore an
- * animated dot pointing at a sentence saying nothing could be asked. See
- * {@link actionReachable}: where nothing can be asked, no request was made.
- *
- * Exported for test: a cue that survives the click passes every "the cue
- * animates" assertion, and one keyed on the state alone passes every assertion
- * about a row whose action is present.
- */
-export function showsCue(reachable: boolean, actionTaken: boolean): boolean {
-  return reachable && !actionTaken;
-}
 
 /**
  * What the row says about the one repair this system performs by itself.
@@ -3033,46 +2965,20 @@ function ChangeMark() {
 
 
 /**
- * The cue: a marker that MOVES, on a row whose request is unanswered.
+ * `StuckCue` stood here until 2026-08-22 — a pinging amber dot trailing the
+ * stuck evidence, saying *there is an action here and you have not taken it*.
  *
- * **This is the one animation on this board that is not a state.** `LiveDot`
- * says *something is alive here*; `ChangeMark` says *this just changed*; both
- * describe the branch. This says *something is waiting FOR YOU, and it will keep
- * waiting until you do something* — which is why it is bounded by the action
- * rather than by the branch, and why it stops on the click rather than on the
- * repair.
+ * Removed on the operator's call. The row already says what is wrong in words
+ * (`CI failed`, `conflict`, the run history beside it) and offers the action in
+ * its own menu; the dot pointed at a control it did not contain, and it pinged
+ * on every row that had one. The board's other marks each report a FACT — a
+ * process running, files changed, work unpushed — and this one reported an
+ * absence of a click.
  *
- * **`motion-reduce` keeps the cue and stops the animation, and both halves are
- * required.** Hiding the element under reduced motion passes a motion-only
- * assertion and takes the MARKER along with the movement — the defect that rule
- * exists to prevent, and the third time this repo has written it down. Under
- * `motion-reduce:animate-none` the dot stays exactly where it is, in colour and
- * in place; only the pulsing stops.
- *
- * **`aria-hidden`, and that is not a shortcut.** The action beside it carries a
- * word and the reason reaches the accessible name, so a screen reader gets the
- * fact through text. An animation announced as well would be the same statement
- * twice, and motion is never this board's carrier of information — never motion
- * alone, and never colour alone.
- *
- * Deliberately NOT `[data-live-dot]`, NOT `[data-change-mark]` and NOT
- * `[data-activity-mark]`: four marks, four meanings, and no mark implemented by
- * modifying another. A row can carry several, and then it carries several.
+ * `showsCue` and `actionReachable` went with it: both existed to decide when
+ * this dot appeared and answered no other question.
  */
-function StuckCue() {
-  return (
-    <span
-      aria-hidden
-      data-stuck-cue
-      // Amber rather than the emerald the live marks use: those say *this is
-      // moving*, and this says the opposite. Larger than the live dot and
-      // smaller than a badge — it sits beside the word it belongs to rather
-      // than competing with the row's other marks in the left padding, because
-      // the thing it points at is the ACTION, not the row.
-      className="inline-block h-2 w-2 shrink-0 animate-ping rounded-full bg-amber-500 motion-reduce:animate-none dark:bg-amber-400"
-    />
-  );
-}
+
 
 /**
  * Why this row offers no action — in the row's own words.
@@ -3405,19 +3311,8 @@ export function menuState(items: {
  */
 function StuckCell({
   row,
-  cue,
 }: {
   row: AgentRow;
-  /**
-   * Whether this row's request is still unanswered — see `showsCue`.
-   *
-   * A PROP rather than state of its own, and the reason is that the action left
-   * this cell. The click that answers the request now happens in the row's
-   * menu, one cell away, so the `actionTaken` flag has to live somewhere both
-   * can reach: the row itself. This cell renders the mark; it no longer owns
-   * the question.
-   */
-  cue: boolean;
 }) {
   const stuck = row.stuck;
   const repairLine = repairWord(row.repair);
@@ -3512,7 +3407,6 @@ function StuckCell({
           Rendered LAST so it trails the evidence — the mark that says *unanswered*
           reads as a qualifier on the whole statement rather than as a bullet in
           front of it. */}
-      {cue && <StuckCue />}
     </span>
   );
 }
@@ -5264,8 +5158,8 @@ function WaveRow({
               which is what `inset-0` needs to tint the whole line. */}
           {marked && <ChangeMark />}
           {(soleRow ?? group.rows[0])?.stuck?.state === 'unsliced-wave'
-            ? <StuckCell row={group.rows[0]} cue={false} />
-            : soleRow?.stuck ? <StuckCell row={soleRow} cue={false} /> : null}
+            ? <StuckCell row={group.rows[0]} />
+            : soleRow?.stuck ? <StuckCell row={soleRow} /> : null}
         </>
       }
       // START WORK, ON THE WAVE THAT CAN BE STARTED — and it went missing when
@@ -5625,12 +5519,10 @@ function Row({
     row.pr,
   );
 
-  // **Taken, not resolved.** The cue answers a REQUEST, and the request is
-  // answered by the click — whether the click worked is what the row's other
-  // marks report on the next pulse. Local to the row and not persisted: a
-  // reload starts the cue again, which is the honest answer to *is this still
-  // waiting on me* when the board has only just started looking.
-  const [actionTaken, setActionTaken] = useState(false);
+  // `actionTaken` stood here until 2026-08-22, remembering whether the reader
+  // had answered this row's request so `StuckCue` could stop pinging. The cue
+  // is gone and so is the flag; `onTaken` still travels to the menu, where the
+  // click it reports is a fact worth having even with nothing reading it yet.
   // ROW-LOCAL, unlike the plan and story overlays App owns. Those two are
   // lifted because they are mutually exclusive and open from several places; a
   // worker log opens from one place, belongs to one branch, and coordinates
@@ -5642,12 +5534,6 @@ function Row({
   const [statusOpen, setStatusOpen] = useState(false);
   // The changed-file panel, ROW-LOCAL for the same reasons as the two above it.
   const [filesOpen, setFilesOpen] = useState(false);
-  // The cue follows what this ROW can actually ask, not what its state usually
-  // offers — an animated dot pointing at a menu with nothing in it marks a
-  // request nobody can make.
-  const cue = row.stuck
-    ? showsCue(actionReachable(row.stuck, card, dispatch), actionTaken)
-    : false;
 
   // IN A PLAN GROUP THE WAITING CLOCK BELONGS TO THE PLAN ROW, which states it
   // once. Every branch of a plan shares one `waitingDays` — it dates the plan's
@@ -6017,8 +5903,7 @@ function Row({
           commission={commission}
           pulse={pulse}
           onStarting={onStarting}
-          onTaken={() => setActionTaken(true)}
-          continueWith={continueWith}
+                    continueWith={continueWith}
           onOpenPlan={onOpenPlan}
           onRevealBranch={onRevealBranch}
         />
@@ -6050,7 +5935,7 @@ function Row({
               (`double-claimed` is per-branch, the rest are per-branch) are
               unaffected: only this one describes the container. */}
           {row.stuck?.state === 'unsliced-wave' && inWaveGroup
-            ? null : <StuckCell row={row} cue={cue} />}
+            ? null : <StuckCell row={row} />}
           {/* THE DEFERRAL'S REASON, on the row's OWN SECOND LINE.
 
               Two homes were tried and both were wrong, and the reason is the

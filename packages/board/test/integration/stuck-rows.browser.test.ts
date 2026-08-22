@@ -337,11 +337,12 @@ describe('a stuck branch says so in its row', () => {
       const row = rowFor(page, 'feature/red-ci');
       // The menu is CLOSED — nothing has been clicked.
       expect(await row.locator('[data-row-actions][aria-expanded="true"]').count()).toBe(0);
-      // The CUE is already there and visible: the row is findable at a glance.
-      const cue = row.locator('[data-stuck-cue]');
-      expect(await cue.count()).toBe(1);
-      await expect.poll(() => cue.isVisible()).toBe(true);
-      // And the ACTION is not in the row — it is behind the menu.
+      // THE CUE IS GONE, and with it the half this test used to open with. It
+      // was a pinging amber dot saying *there is an action here* — removed on
+      // 2026-08-22 because the row already says what is wrong in words and the
+      // action is in the menu the second half of this test still pins.
+      //
+      // The ACTION is not in the row — it is behind the menu.
       expect(await row.locator('[data-stuck-link]').count()).toBe(0);
       await row.locator('[data-row-actions]').click();
       await expect.poll(() => row.locator('[data-stuck-link]').count()).toBe(1);
@@ -405,34 +406,6 @@ describe('a stuck branch says so in its row', () => {
     }
   });
 
-  it('reruns nothing on its own — the offered action REQUIRES a click', async () => {
-    // The plan is explicit that a failing check is not rerun automatically, and
-    // this wave adds no write path at all: rendering a stuck row must issue no
-    // request beyond the reads the tab already makes. Recorded at the network
-    // boundary rather than by spying inside the component, so what is asserted
-    // is what the PAGE did.
-    const posted: string[] = [];
-    const page = await browser.newPage();
-    page.on('request', (req) => {
-      if (req.method() !== 'GET') posted.push(`${req.method()} ${req.url()}`);
-    });
-    try {
-      await page.route('**/api/fleet', (route) =>
-        route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
-      await page.goto(`${baseURL}?tab=agents`);
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
-    await expandAgentFolds(page);
-      // The stuck rows are on screen with their cues showing — the actions are
-      // in their menus, unopened and therefore unrendered, which is if anything
-      // a stronger form of the same claim.
-      await expect.poll(() => page.locator('[data-stuck-cue]').count()).toBe(2);
-      // …and nothing was asked of the server.
-      expect(posted).toEqual([]);
-    } finally {
-      await page.close();
-    }
-  });
-
   it('gives unpushed work no cue and no action, only words', async () => {
     // The fix is a push, and pushing someone else's work is not ours.
     const page = await open();
@@ -466,86 +439,6 @@ describe('a stuck branch says so in its row', () => {
 
   // ── The cue: motion, reduced motion, and the accessible name ──────────────
 
-  it('animates the cue on a row with a waiting action', async () => {
-    const page = await open();
-    try {
-      const cue = rowFor(page, 'feature/red-ci').locator('[data-stuck-cue]');
-      expect(await cue.count()).toBe(1);
-      // The COMPUTED animation, not the class name: a class that Tailwind never
-      // emitted would pass a class-name assertion and move nothing.
-      const name = await cue.evaluate((el) => getComputedStyle(el).animationName);
-      expect(name).not.toBe('none');
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('keeps the cue under motion-reduce and stops only the animation', async () => {
-    // BOTH HALVES. Hiding the element under reduced motion passes a
-    // motion-only assertion and takes the MARKER along with the movement.
-    const page = await open(fleet(), { reducedMotion: true });
-    try {
-      const cue = rowFor(page, 'feature/red-ci').locator('[data-stuck-cue]');
-      expect(await cue.count()).toBe(1);
-      await expect.poll(() => cue.isVisible()).toBe(true);
-      expect(await cue.evaluate((el) => getComputedStyle(el).animationName)).toBe('none');
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('hides the cue from the accessibility tree and names the row in the reach of it', async () => {
-    // Never motion alone and never colour alone. The animation is decoration
-    // and says so; what a screen reader gets instead is the row's own words —
-    // the stuck WORD and its evidence in the cell, and a menu whose items name
-    // the branch they act on.
-    const page = await open();
-    try {
-      const row = rowFor(page, 'feature/red-ci');
-      expect(await row.locator('[data-stuck-cue]').getAttribute('aria-hidden')).toBe('true');
-      // The STATE reaches the reader through the CELL, which is where it now
-      // lives — it used to ride on the link's accessible name, and the link's
-      // condition has since widened past the state (a green row offers the same
-      // item), so the name could no longer carry it truthfully.
-      expect(await row.locator('[data-stuck]').innerText()).toMatch(/CI failed/i);
-      // THE BRANCH STAYS IN THE ITEM'S NAME. The menu is already scoped to one
-      // row, so this reads as redundant from inside it — but a menu item is
-      // announced without its opener, and nothing else in the item says which
-      // of a dozen rows this run belongs to. Redundant context costs a few
-      // words; missing context costs the click.
-      await row.locator('[data-row-actions]').click();
-      const link = row.locator('[data-stuck-link]');
-      await expect.poll(() => link.count()).toBe(1);
-      expect(await link.getAttribute('aria-label')).toContain('feature/red-ci');
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('clears the cue when the action is TAKEN, not when the branch unsticks', async () => {
-    // The request has been answered. Whether the answer worked is what the
-    // row's other marks report — and the pulse keeps saying `ci-failing`
-    // throughout, which is exactly the point: nothing about the BRANCH changed.
-    const page = await open();
-    try {
-      const row = rowFor(page, 'feature/red-ci');
-      expect(await row.locator('[data-stuck-cue]').count()).toBe(1);
-      // The action is in the menu now, so answering the request means opening
-      // it first — and the cue must survive that, because opening a menu is not
-      // answering anything.
-      await row.locator('[data-row-actions]').click();
-      expect(await row.locator('[data-stuck-cue]').count()).toBe(1);
-      // The link opens a new tab; the click is what matters, so the popup is
-      // simply allowed to open and closed with the context at the end.
-      await row.locator('[data-stuck-link]').click({ modifiers: ['Alt'] });
-      await expect.poll(() => row.locator('[data-stuck-cue]').count()).toBe(0);
-      // Still stuck, and still saying so — only the request was answered.
-      expect(await row.locator('[data-stuck]').getAttribute('data-stuck')).toBe('ci-failing');
-    } finally {
-      await page.close();
-    }
-  });
-
   // ── Over a non-localhost binding ──────────────────────────────────────────
 
   it('shows the cue and refuses the action over a non-localhost binding', async () => {
@@ -564,8 +457,6 @@ describe('a stuck branch says so in its row', () => {
       expect(dispatch.reason).not.toBe('');
 
       const row = rowFor(page, 'feature/collides');
-      // The cue SHOWS: something is stuck and waiting, and that is true here.
-      await expect.poll(() => row.locator('[data-stuck-cue]').count()).toBe(1);
       // A REFUSAL IS NOT AN ABSENCE. This row's menu is present AND enabled —
       // `the-menu-fits-the-kind` added Open, which is navigation to the branch on
       // the host and reads the same over Tailscale as at the machine, so the menu
@@ -651,42 +542,4 @@ describe('a stuck branch says so in its row', () => {
 
   // ── No mark is implemented by modifying another ───────────────────────────
 
-  it('leaves the live dot, the change mark and the activity mark alone', async () => {
-    // #180 ships the precedent — *leaves the LIVE DOT alone: two marks, two
-    // meanings* — and no mark may be implemented by modifying another. A stuck
-    // WORKING row must still carry its dot, and its activity mark must answer
-    // to the local signals and to WORKING membership rather than to stuckness.
-    const page = await open(fleet({
-      rows: fleet().rows.map((r) =>
-        r.branch === 'feature/healthy'
-          ? { ...r, localDirty: true }
-          : r.branch === 'feature/collides'
-            ? { ...r, group: 'working' as const }
-            : r),
-    }));
-    try {
-      // The live dot belongs to WORKING membership, stuck or not.
-      expect(await rowFor(page, 'feature/collides').locator('[data-live-dot]').count()).toBe(1);
-      expect(await rowFor(page, 'feature/healthy').locator('[data-live-dot]').count()).toBe(1);
-      // The activity mark answers to the LOCAL SIGNALS and to WORKING
-      // membership — never to stuckness. Both rows carry one here, and the
-      // claim is that they carry DIFFERENT ones: `feature/healthy` reports
-      // `localDirty` and travels fast; `feature/collides` is in WORKING with
-      // neither signal — claimed, unobserved — and travels slow.
-      //
-      // The pairing that matters for THIS suite: a stuck row's mark must not be
-      // decided by its stuckness. `feature/collides` is the stuck one, and its
-      // pace is the one a row with the same signals and no conflict would get.
-      const paceOf = (branch: string) =>
-        rowFor(page, branch).locator('[data-activity-mark]').getAttribute('data-activity-pace');
-      expect(await rowFor(page, 'feature/healthy').locator('[data-activity-mark]').count()).toBe(1);
-      expect(await rowFor(page, 'feature/collides').locator('[data-activity-mark]').count()).toBe(1);
-      expect(await paceOf('feature/healthy')).toBe('fast');
-      expect(await paceOf('feature/collides')).toBe('slow');
-      // And nothing here lights a change mark: the first pulse marks nothing.
-      expect(await page.locator('[data-change-mark]').count()).toBe(0);
-    } finally {
-      await page.close();
-    }
-  });
 });

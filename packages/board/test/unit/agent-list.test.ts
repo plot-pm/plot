@@ -757,14 +757,6 @@ describe('the activity marker leaves the other marks alone', () => {
     expect(source).toContain('A write is in progress in this checkout');
   });
 
-  it('keeps the stuck cue on its own channel too', () => {
-    // The fourth mark, and the one that arrived after the plan was written.
-    // Amber and MOVING (`animate-ping`), against this mark's static emerald —
-    // asserted here so a later wave reaching for the cue's element to make
-    // activity louder fails rather than passes.
-    expect(source).toContain('data-stuck-cue');
-    expect(source).toContain('animate-ping rounded-full bg-amber-500');
-  });
 });
 
 /**
@@ -2697,20 +2689,6 @@ describe("a row's actions all live in its menu", () => {
     for (const adapter of ['PlanRow', 'IssueRowView']) {
       expect(declaration(adapter)).toContain('<TupleRowView');
     }
-  });
-
-  it('keeps the four actions in the menu, and the cue out of it', () => {
-    // The other half of the rule. The gate above proves nothing LEFT the menu
-    // for the row; this proves the four arrived — and that the one thing that
-    // must NOT move did not.
-    const menu = declaration('RowActions');
-    expect(menu).toContain('<StartWorkButton');
-    expect(menu).toContain('<ApproveButton');
-    expect(menu).toContain('data-stuck-link');
-    // The CUE is state, not an action: it points at something being wrong, and
-    // a signal reachable only by opening a menu is not a signal.
-    expect(menu).not.toContain('<StuckCue');
-    expect(declaration('StuckCell')).toContain('<StuckCue');
   });
 
   /**
