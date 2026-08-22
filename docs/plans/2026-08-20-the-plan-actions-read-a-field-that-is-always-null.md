@@ -11,12 +11,13 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Superseded
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
 - **Assignee:** jwloka
+- **Superseded:** 2026-08-22, by `a-plan-moves-through-the-sections` — same defect, and this plan's fix is disproved
 
 ## Problem
 
@@ -130,3 +131,29 @@ field that cannot carry the meaning asked of it.** `isReadyToStart` read
 `inMachineSection` admitted any process because an agent is a process; this reads
 `waitingOn === 'you'` where the contract says null. Each was correct when written
 and each was read one level too literally afterwards.
+
+## Why this plan is superseded
+
+`a-plan-moves-through-the-sections` (PR #310) covers the same defect and was
+interrogated twice before approval. Two of this plan's conclusions did not
+survive that:
+
+**The proposed fix is wrong.** This plan would have `canApprove` and
+`canCommissionDesign` *"read the section's membership instead"*. Measured while
+interrogating the successor: a branch **blocked by an earlier wave** is in
+`waiting-on-you` too when its plan is Draft (`open/blocked` + `draft` →
+`waiting-on-you`), so that predicate puts Approve back on a row whose available
+act is not its own — the very defect the `waitingOn === 'you'` clause was added
+to prevent. The successor deletes the row-level controls instead, because no
+gate makes a plan-level act correct on a branch row.
+
+**The count of writers has gone stale.** *"Exactly one assignment of the field
+in the server — `fleet.ts:4003`"* no longer holds: there are two today, a
+computed one and the planless `null`, and neither sits at that line.
+
+**What survives is the measurement**, and it has been carried into the
+successor's Motivation: on 2026-08-20 every row in WAITING ON YOU carried
+`waitingOn: null`, reported by a reader as *"Hier fehlen immer noch die Plan
+Actions"*. The successor reaches the same conclusion from the other direction,
+by evaluating `waitingOnFor` over its whole input space. Two independent
+measurements, one defect.
