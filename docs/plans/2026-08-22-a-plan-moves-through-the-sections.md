@@ -5,12 +5,17 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** working-shows-the-agent
 - **Story:** plot-planning-model
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-22, Jan Wloka, in-session
+
+## Approval
+
+- **Assignee:** jwloka
 
 ## Changelog
 
