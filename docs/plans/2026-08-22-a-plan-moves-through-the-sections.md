@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-22, Jan Wloka, in-session
+- **Started:** 2026-08-22, Jan Wloka, `bug/the-plan-row-carries-the-plan-decisions`
 
 ## Approval
 
