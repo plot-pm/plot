@@ -761,7 +761,7 @@ Additionally, self-imposed for this plan:
 - `feature/opus5-hardening-deliver-gates` — Subagent evidence citation in `plot-deliver` Step 5; re-query rule in Step 4 → #52
 - `docs/opus5-hardening-invariants` — `plot-reconcile` read-only invariant; `MANIFESTO.md` Principle 10 → #53
 - `feature/opus5-hardening-approve-tracer` — Tracer bullets as default recommendation in `plot-approve` Step 2b → #54
-- `docs/opus5-hardening-model-provenance` — `docs/model-provenance.md` and the `intro-to-using-plot.md` section → #55
+- `docs/opus5-hardening-model-provenance` — the new docs/model-provenance.md file and the intro-to-using-plot.md section → #55
 
 Every branch needs a `.changeset/*.md` with a `bumps: skills:` block. Six branches,
 five of them small text edits gated behind one tracer.
