@@ -22,8 +22,10 @@
 
 - NOT STARTED carries an **auto-dispatch** switch: while it is on, the eligible
   waves of approved plans start by themselves.
-- WORKING carries a **parallel-agents** stepper bounding how many agents run at
-  once. Default 3.
+- WORKING carries a **parallel-agents** stepper bounding how many dispatched
+  agents run at once. Default 3.
+- The agent registry says which of its agents are still alive, so the board —
+  and WORKING's own rows — can tell a running agent from a finished one.
 - The switch is a shared setting, not a per-browser one: everyone reading the
   board sees the same answer to *are agents taking work right now*.
 - Turning it off stops further dispatches immediately and never kills a worker
@@ -115,14 +117,44 @@ every agent is slow. So the guard is a number on WORKING, with `−` and
 `+`, defaulting to **3**: low enough that a machine stays usable, high enough
 to be worth automating, and changeable the moment the operator sees otherwise.
 
-**That number is a concurrency cap, which Plot does not yet have.**
+**The registry answers how many agents are running, and it is the only thing
+that can.** `plot-dispatch.sh` already writes one manifest per agent into
+`.plot/agents/` — session, branch, worktree, command, startedAt — and
+`registry.ts` already reads them. What the manifest records is a **launch**,
+never a process: no pid, no exit, no state, and nothing updates it after the
+spawn. Measured 2026-08-22, the gap shows from three directions at once — seven
+worktrees carry a `.plot-worker.pid` and **all seven processes are dead**, the
+registry holds four entries, the board reports zero running. Three numbers, none
+of them *agents alive now*.
+
+So the registry learns to answer it. Each entry gains the agent's **pid** at
+spawn — `plot-dispatch.sh` already knows it and writes it to `.plot-worker.pid`
+a few lines below the manifest write — and a **state** the pulse refreshes:
+alive where `kill -0` answers, otherwise finished, keeping the
+`waiting`/`stalled` distinctions `plot-worker-state.sh` already computes. That
+function is the liveness check; what is new is that its answer lands on the
+registry entry instead of being re-derived per branch by every caller.
+
+**One derivation, three consumers.** The cap asks the registry how many entries
+are alive. WORKING renders agents and needs the same fact — its rows carry
+`session, branch, worktree, command, startedAt` today and cannot tell a running
+agent from a finished one. And a stale manifest becomes self-correcting: an
+entry whose pid is gone reads `finished` on the next pulse rather than sitting
+there indefinitely, which is why four entries outlived their processes.
+
+**This caps DISPATCHED agents**, and the plan says so rather than promising
+more. A `claude -p` a person runs in a worktree by hand writes no manifest and
+no pid file, so it is invisible here — and counting every Claude process on the
+machine would sweep in the operator's own session. *This many dispatched agents
+at once* is the population this board starts, and therefore the one it can bound.
+
+**The number is also not `--max`.**
 `plot-dispatch.sh --max N` bounds ONE fan-out, not the agents alive at the
-time: running it twice with `--max 3` yields six workers. A cap on *how many
-agents exist* has to be computed at dispatch time — count the workers reporting
-`running`, which `plot-worker-state.sh` already answers via `kill -0`, and
-dispatch at most the difference. Lowering the number never kills anything: it
-stops the next dispatch until enough workers have finished, the same promise
-the switch itself makes.
+time: running it twice with `--max 3` yields six workers. So auto-dispatch asks
+the registry for the live count and passes the difference as `--max`, making the
+existing flag the mechanism rather than adding a second one. Lowering the number
+never kills anything: it stops the next dispatch until enough agents have
+finished, the same promise the switch itself makes.
 
 (`IN_FLIGHT_MAX_FILES` and `IN_FLIGHT_MAX_BRANCHES` in `plot-dispatch.sh` are
 not this. They truncate a *report* — "…and N more branches" — and touch no
@@ -139,12 +171,28 @@ cap; they are not one, and nothing here should honour them.)
 - [ ] Does the switch survive a board restart? Persisting it in `.plot/state/`
       says yes; that also means a machine can start dispatching moments after
       `pnpm board`, before anyone has looked at it.
-- [ ] Should the cap count workers this board started, or every worker on the
-      machine? Counting all of them respects a machine shared with a hand-run
-      `/plot-dispatch`; counting only its own makes the number mean *what this
-      board is doing*, which is what the operator set it to.
+- [x] Should the cap count workers this board started, or every worker on the
+      machine? **The ones it started** — they are the ones with a registry
+      manifest and a pid file. A hand-run `claude -p` writes neither, and
+      counting every Claude process would sweep in the operator's own session.
+      The control says *dispatched agents*, which is what it can enforce.
 
 ## Branches
+
+### Alive
+
+- `feature/the-registry-knows-which-agents-live` — the registry answers
+  liveness, which nothing does today. `plot-dispatch.sh` writes the agent's pid
+  into its manifest beside the identity it already records; the pulse refreshes
+  each entry's state from `plot-worker-state.sh`, so an entry whose process is
+  gone reads `finished` instead of persisting. The state reaches the board on
+  the existing `agents` array. Tests: a manifest carries a pid at spawn; an
+  entry whose pid is alive reads `running` and one whose pid is gone reads
+  `finished`; the four states `plot-worker-state.sh` distinguishes survive onto
+  the entry; a manifest written by an older dispatch (no pid) does not crash
+  the read and reports an unknown state rather than a guessed one; the count of
+  live entries is derivable in one pass, since the cap will ask for it every
+  pulse.
 
 ### Switched
 
@@ -165,9 +213,9 @@ cap; they are not one, and nothing here should honour them.)
   waves of approved plans dispatch, honouring `plot-dispatch.sh`'s existing
   caps. Tests: an eligible wave of an approved plan dispatches with no click;
   a **blocked** wave does not; a **draft** plan's wave does not; a branch
-  already claimed is not dispatched twice; **the number of workers reporting
-  `running` never exceeds the stepper's value**, across repeated pulses and not
-  merely within one fan-out; lowering the number mid-flight stops the next
+  already claimed is not dispatched twice; **the number of live registry
+  entries never exceeds the stepper's value**, across repeated pulses and not
+  merely within one fan-out, which is what `--max` alone cannot promise; lowering the number mid-flight stops the next
   dispatch and leaves every running worker alive; turning the switch off does
   the same; a wave that becomes eligible when its predecessor merges is picked
   up on a later pulse.
@@ -185,3 +233,19 @@ allowlist, so a switch built now would dispatch branches of plans nobody has
 approved — the handover happening without the decision, which is precisely what
 the column model forbids. The dependency is real and not merely tidy: the guard
 that makes auto-dispatch safe is *the section contains only approved work*.
+
+**Interrogated 2026-08-22.** The cap had no source of truth. Measured: seven
+worktrees carrying a `.plot-worker.pid` with all seven processes dead, four
+registry manifests, and a board reporting zero running — three numbers, none of
+them the one a cap needs. The first draft proposed counting workers via
+`plot-worker-state.sh` at dispatch time, which is a derivation each caller
+repeats and which cannot see an agent whose worktree has gone.
+
+The operator's correction is the design: **the registry owns liveness.** It
+already records every dispatched agent; it gains the pid and a pulse-refreshed
+state, and then the cap, WORKING's rows and the stale-manifest problem are all
+answered by one fact instead of three derivations. That became wave 1, ahead of
+the controls — a stepper that cannot count is a number with no meaning.
+
+It also settled the scope question: the cap binds the agents this board
+dispatched, because those are the ones that leave a manifest behind.
