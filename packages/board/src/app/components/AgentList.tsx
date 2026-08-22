@@ -3088,29 +3088,6 @@ export function offersOpen(row: Pick<AgentRow, 'pr' | 'branchUrl' | 'group'>): b
 }
 
 /**
- * Does this row offer Commission design — the Approve twin for a Draft plan that
- * needs design work first?
- *
- * **The same row Approve is offered on**, and deliberately the same predicate:
- * `isDraft(card) && waitingOn === 'you'` is the plan-level decision, and this is
- * the OTHER answer to it. Approve says *this is ready to hand to development*;
- * Commission design says *this needs a spec, a spike or a tracer bullet first*,
- * and creates a plan in phase `Design` to hold that work.
- *
- * Reads the ROW, not the card, because the card gate lives in `RowActions`
- * beside Approve's — this answers the row half (a Draft plan's first wave, or a
- * shelved branch, says `waitingOn: 'you'`; a blocked wave says `time` and is
- * excluded here exactly as it is for Approve). The card's `isDraft` is applied
- * at the call site, so the two items agree on which rows are plan decisions.
- *
- * Exported for test: the negative — a blocked or started branch offers nothing —
- * is the half a predicate keyed on the group alone gets wrong.
- */
-export function canCommissionDesign(row: Pick<AgentRow, 'waitingOn' | 'state'>): boolean {
-  return row.waitingOn === 'you' && row.state === 'open';
-}
-
-/**
  * What the Open item says — *Review* for a PR, *Open* for a branch.
  *
  * Opening a PR IS reviewing it: the reader lands on the page where the diff, the
@@ -3213,7 +3190,6 @@ export function storyRefusal(): string {
  */
 export function menuState(items: {
   canStart: boolean;
-  canApprove: boolean;
   canResolve: boolean;
   hasRun: boolean;
   /**
@@ -3256,31 +3232,29 @@ export function menuState(items: {
    * do: opening a page the row already names is not an act the server refuses.
    */
   hasOpen: boolean;
-  /**
-   * A Draft plan a person must decide about — the Commission design twin of
-   * Approve. It WRITES (spawns a plot agent to create a Design-phase plan), so
-   * it asks whether the server will act, exactly as Approve and the dispatches
-   * do.
-   */
-  canCommission: boolean;
+  // APPROVE AND COMMISSION DESIGN ARE NOT HERE, and their absence is the point.
+  // Both are PLAN-level acts — approving a plan, or sending it to design — and a
+  // branch row is never the honest place for either: a branch BLOCKED by an
+  // earlier wave is in `waiting-on-you` when its plan is Draft, so any gate that
+  // put them on a row would put them on a row whose own available act is not its
+  // own. They live on the plan head (`PlanActions`), gated on the card's
+  // `isDraft` alone. So this menu — the BRANCH row's menu — no longer carries
+  // their flags: a disjunct that can never be true is a second rule asserting
+  // the row offers a plan act, which is exactly the drift this file removes
+  // rather than leaves unreachable.
   serverWillAct: boolean;
-  approveWillAct: boolean;
-  /** Whether the server will act on Commission design — its own binding. */
-  commissionWillAct: boolean;
 }): { present: boolean; enabled: boolean } {
   const {
-    canStart, canApprove, canResolve, hasRun, hasLog, hasStatus, hasOpen, canCommission,
-    hasChangedFiles, serverWillAct, approveWillAct, commissionWillAct,
+    canStart, canResolve, hasRun, hasLog, hasStatus, hasOpen,
+    hasChangedFiles, serverWillAct,
   } = items;
   return {
     present:
-      canStart || canApprove || canResolve || hasRun || hasLog || hasStatus || hasOpen ||
-      canCommission || hasChangedFiles,
+      canStart || canResolve || hasRun || hasLog || hasStatus || hasOpen ||
+      hasChangedFiles,
     enabled:
       (canStart && serverWillAct) ||
-      (canApprove && approveWillAct) ||
       (canResolve && serverWillAct) ||
-      (canCommission && commissionWillAct) ||
       hasRun ||
       hasLog ||
       hasStatus ||
@@ -3510,8 +3484,6 @@ function BranchMenu({
   row,
   card,
   dispatch,
-  approve,
-  commission,
   pulse,
   onStarting,
   onTaken,
@@ -3522,8 +3494,8 @@ function BranchMenu({
   row: AgentRow;
   card: Card | null;
   dispatch?: DispatchInfo;
-  approve?: DispatchInfo;
-  commission?: DispatchInfo;
+  // No `approve`/`commission`: the two plan-level acts left the branch menu for
+  // the plan head (`PlanActions`), so this wrapper no longer forwards them.
   pulse: number;
   onStarting?: (active: boolean) => void;
   /** The row's cue is extinguished by acting, and the flag lives on the ROW —
@@ -3542,8 +3514,6 @@ function BranchMenu({
         row={row}
         card={card}
         dispatch={dispatch}
-        approve={approve}
-        commission={commission}
         pulse={pulse}
         onStarting={onStarting}
         onTaken={onTaken}
@@ -3578,8 +3548,6 @@ function RowActions({
   row,
   card,
   dispatch,
-  approve,
-  commission,
   pulse,
   onStarting,
   onTaken,
@@ -3590,18 +3558,10 @@ function RowActions({
   row: AgentRow;
   card: Card | null;
   dispatch?: DispatchInfo;
-  /** Whether this server will act on Approve, and why not — the plan-PR half. */
-  approve?: DispatchInfo;
-  /**
-   * Whether this server will act on Commission design, and why not.
-   *
-   * The SAME binding as `idea` — spawning a plot agent to write a plan is one
-   * authority, whether the plan comes from an issue (Create plan) or from a
-   * Draft plan that needs design work (Commission design). Passed under its own
-   * name so the item states its own refusal, and so a later split of the two
-   * authorities changes one prop rather than every call site.
-   */
-  commission?: DispatchInfo;
+  // NO `approve` OR `commission` HERE. Both were the branch row's twins of
+  // plan-level acts, and both moved to the plan head (`PlanActions`). A branch
+  // row's menu now carries only branch-level acts, so it neither takes the two
+  // plan bindings nor names their refusals.
   pulse: number;
   onStarting?: (active: boolean) => void;
   /**
@@ -3643,27 +3603,18 @@ function RowActions({
   // THE OTHER ACT A ROW CAN OFFER, and the reason this menu had to stop asking
   // only about starting.
   //
-  // Measured: `enabled` was `canStart && serverWillAct`, so the menu opened
-  // only where `Start work` was possible — and a Draft plan's row is never
-  // startable, by construction. Its one available act is approving, and the
-  // menu was therefore dead on exactly the rows that had something to do. The
-  // same plan's CARD offered the button all along: one board, two answers.
+  // APPROVE IS NOT HERE ANY LONGER — it belongs to the PLAN, and a branch row is
+  // never the honest place for it. Every gate tried on this row failed the same
+  // way: `isDraft(card)` alone put Approve on a branch BLOCKED by an earlier
+  // wave (its plan is genuinely Draft, so the card said yes) and adding
+  // `waitingOn === 'you'` did not fix it — a blocked branch of a Draft plan
+  // reads `waiting-on-you` too, so the button came back on a row whose own
+  // available act is not its own. No narrowing makes a plan-level act correct on
+  // a branch row, so the act moved to the plan head (`PlanActions`, gated on the
+  // card's `isDraft` alone) and the row-level twin is deleted rather than
+  // repaired. The plan's head is *one board, two answers*: the plan row offers
+  // Approve, the branch row beneath it does not.
   //
-  // `isDraft(card)` is the card's own gate, reused rather than re-derived from
-  // the row's phase — `plot-approve.sh` accepts phase `draft` and refuses every
-  // other one, and two spellings of that rule would drift.
-  // THE ROW MUST AGREE WITH THE CARD, and this is where forgetting that shows.
-  //
-  // `isDraft(card)` alone put an Approve button on a branch BLOCKED by an
-  // earlier wave: its plan is genuinely Draft, so the card said yes — while the
-  // row itself is waiting on time and has nothing a person can act on. That is
-  // the plan-level answer applied to a branch-level row, which is the confusion
-  // this section spent the evening separating.
-  //
-  // `waitingOn === 'you'` is the row's own word for *a person must act*: a
-  // Draft plan's FIRST wave, or a shelved branch. A blocked row says `time` and
-  // is excluded by construction rather than by a second rule that could drift.
-  const canApprove = Boolean(card && approve && isDraft(card) && row.waitingOn === 'you');
   // The menu opens only if something inside it could ACT.
   //
   // `canStart` answers "is this row startable"; it does not answer "will the
@@ -3677,7 +3628,6 @@ function RowActions({
   // rather than reading as a bug. Same pattern the row already uses for a row
   // with nothing to do.
   const serverWillAct = dispatch?.available ?? false;
-  const approveWillAct = approve?.available ?? false;
   // THE RUN THIS ROW LAST HAD, and the one condition this move deliberately
   // WIDENED. It used to be reachable only while `stuck.state === 'ci-failing'`,
   // so the route to a run existed exactly as long as the row was red and was
@@ -3730,16 +3680,10 @@ function RowActions({
   // url) there is no item either, and the row falls back to whatever else it
   // offers.
   const openUrl = offersOpen(row) ? openTarget(row) : '';
-  // COMMISSION DESIGN — the Approve twin for a Draft plan that needs design work
-  // first. Same card gate as Approve (`isDraft`), same row gate
-  // (`canCommissionDesign` reads `waitingOn === 'you'`), so the two items appear
-  // together on exactly the plan-decision rows and never on a blocked wave. It
-  // WRITES — it spawns a plot agent to create a Design-phase plan — so it asks
-  // its own binding whether the server will act, exactly as Approve does.
-  const canCommission = Boolean(
-    card && commission && isDraft(card) && canCommissionDesign(row),
-  );
-  const commissionWillAct = commission?.available ?? false;
+  // COMMISSION DESIGN IS NOT HERE EITHER — it is a plan decision, the OTHER
+  // answer to a Draft plan beside Approve, and it left the branch row for the
+  // same reason Approve did. It now lives on the plan head (`PlanActions`), so
+  // the branch row neither computes it nor renders it.
   // ANY item, not one named item. The menu opens if something inside it could
   // act; which something it is, is the menu's own business.
   //
@@ -3773,20 +3717,15 @@ function RowActions({
   // the answer.
   const hasChangedFiles = offersChangedFiles(row.stuck);
   const { present: hasItems, enabled } = menuState({
-    canStart, canApprove, canResolve, hasRun: Boolean(runUrl), hasLog, hasStatus,
-    hasOpen: Boolean(openUrl), canCommission, hasChangedFiles,
-    serverWillAct, approveWillAct, commissionWillAct,
+    canStart, canResolve, hasRun: Boolean(runUrl), hasLog, hasStatus,
+    hasOpen: Boolean(openUrl), hasChangedFiles, serverWillAct,
   });
   const reason =
     canStart && !serverWillAct && dispatch?.reason
       ? dispatch.reason
       : canResolve && !serverWillAct && dispatch?.reason
         ? dispatch.reason
-        : // Commission design carries its own binding's words when it is the row's
-          // one refused act — the same shape Approve's refusal takes on its card.
-          canCommission && !commissionWillAct && commission?.reason
-          ? commission.reason
-          : noActionReason(row);
+        : noActionReason(row);
 
   // Close on Escape and on any click outside. A menu that survives a click
   // elsewhere on a view that repaints every five seconds is a menu that ends up
@@ -3926,34 +3865,15 @@ function RowActions({
               />
             </div>
           )}
-          {/* Approving a plan and starting a branch are MUTUALLY EXCLUSIVE by
-              construction — `isStartable` needs `waitingOn: 'click'`, which a
-              Draft plan's row never has, and `isDraft` needs phase Discovery,
-              which a startable row never has. They are written as two
-              independent items rather than as an if/else so that neither
-              becomes the other's fallback: if that ever changes, the menu shows
-              both instead of silently picking one. */}
-          {canApprove && approve && card && (
-            <div role="menuitem" className="px-2 py-1 text-left">
-              <ApproveButton card={card} approve={approve} onApproving={onStarting} />
-            </div>
-          )}
-          {/* COMMISSION DESIGN — the OTHER answer to a Draft plan, beside
-              Approve. Approve hands the plan to development; this says it needs a
-              spec, a spike or a tracer bullet first, and creates a plan in phase
-              `Design` to hold that work. It ships minimally rather than as a
-              refusal: the `Design` phase landed in #259 and nothing filled it,
-              and a menu entry that only explained why it could not act would
-              leave the phase unreachable for longer.
-
-              Its own binding (`commission`) and its own armed-confirm button, so
-              the click that spawns an agent is as deliberate as Approve's — and
-              where the server refuses, it names the reason on the control. */}
-          {canCommission && commission && card && (
-            <div role="menuitem" className="px-2 py-1 text-left">
-              <CommissionDesignButton card={card} commission={commission} onActing={onStarting} />
-            </div>
-          )}
+          {/* APPROVE AND COMMISSION DESIGN ARE NOT RENDERED HERE — both are
+              PLAN decisions and live on the plan head (`PlanActions`), not on a
+              branch row. A branch BLOCKED by an earlier wave reads
+              `waiting-on-you` when its plan is Draft, so any gate that kept
+              either here would put a plan-level act on a row whose own available
+              act is not its own — the very defect the row-level gates chased and
+              never caught. The plan head is *one board, two answers*: the plan
+              row offers Approve and Commission design; the branch rows beneath
+              keep Start work, Open/Review, the conflict dispatch and the reads. */}
           {/* THE CONFLICT DISPATCH, moved here on 2026-08-18 from the stuck
               cell. Same route, same button, same guard — only its home changed.
 
@@ -4347,6 +4267,7 @@ function PlanRow({
   marked = false,
   card = null,
   approve,
+  commission,
   onApproving,
   ageMinutes,
 }: {
@@ -4385,6 +4306,9 @@ function PlanRow({
   card?: Card | null;
   /** Whether this server will act on Approve, and why not. */
   approve?: DispatchInfo;
+  /** Whether this server will act on Commission design — the plan head's OTHER
+      act, threaded through to `PlanActions` beside Approve. */
+  commission?: DispatchInfo;
   /** A click is outstanding (true) or has settled (false). */
   onApproving?: (active: boolean) => void;
 }) {
@@ -4590,7 +4514,7 @@ function PlanRow({
       // stands: a `plot-dispatch` control would have to guess which of the
       // plan's waves it meant, so the branch rows in the fold keep their own
       // menus, where the row has already decided.
-      menu={<PlanActions plan={group.plan} card={card} approve={approve} onApproving={onApproving} />}
+      menu={<PlanActions plan={group.plan} card={card} approve={approve} commission={commission} onApproving={onApproving} />}
     />
   );
 }
@@ -4849,11 +4773,6 @@ function WaveRow({
   groupedCount,
   groupedWord,
   soleRow,
-  // The branch-level bindings a SOLE-BRANCH wave row needs for its menu. Absent
-  // on a wave of several branches, where each branch keeps its own row and its
-  // own menu, and the wave row's only act is dispatch.
-  approve,
-  commission,
   continueWith,
   onOpenPlan,
   onRevealBranch,
@@ -4907,8 +4826,6 @@ function WaveRow({
    * YOU hold one branch, so this is the ordinary case rather than an edge.
    */
   soleRow?: AgentRow;
-  approve?: DispatchInfo;
-  commission?: DispatchInfo;
   continueWith?: DispatchInfo;
   onOpenPlan?: (planFile: string) => boolean | void;
   onRevealBranch?: (branch: string) => void;
@@ -4959,7 +4876,22 @@ function WaveRow({
     // A REVIEWABLE WAVE says what it is waiting for, and it is a person. The
     // verdict's sentences are both about starting — and these branches are
     // started, so neither is true here.
-    soleNote ? soleNote
+    //
+    // GUARDED ON `soleRow`, NOT ON `soleNote`, and the difference is a bug this
+    // guard was written to prevent and did not. `soleNote` is the sole row's
+    // note with its PR fact stripped, and where the note is ONLY that fact —
+    // `PR #323 green`, the ordinary shape for a finished branch — stripping it
+    // leaves `''`. Empty is falsy, so the chain fell through to a verdict
+    // sentence about starting work that had already been done: measured
+    // 2026-08-22, PR #323 rendered `green` beside `approved — nobody has taken
+    // it`. Every single-branch wave that reaches review hit this, which is the
+    // common case rather than an edge.
+    //
+    // `soleRow` says *this wave has one branch and the branch speaks for it*.
+    // That is the condition the verdict sentences must yield to, whether or not
+    // anything survives the strip — and it is what the sibling `waveWaitingOn`
+    // ternary above already tests.
+    soleRow ? soleNote
       : groupedCount !== undefined ? groupedNote(groupedWord)
       : group.verdict === 'eligible' ? 'approved — nobody has taken it'
         : group.verdict === 'blocked' ? 'an earlier wave has to land first'
@@ -5254,8 +5186,6 @@ function WaveRow({
               row={soleRow}
               card={card ?? null}
               dispatch={dispatch}
-              approve={approve}
-              commission={commission}
               pulse={pulse}
               onStarting={onStarting}
               continueWith={continueWith}
@@ -5302,14 +5232,22 @@ function WaveRow({
 }
 
 /**
- * The plan row's `⋯` menu — one item, and the reason it is a menu at all.
+ * The plan row's `⋯` menu — the plan's own acts, and the reason it is a menu.
+ *
+ * **Two answers to one question, both plan-level.** A Draft plan awaits a
+ * person's decision, and there are exactly two: Approve hands it to development,
+ * Commission design says it needs a spec, a spike or a tracer bullet first and
+ * creates a Design-phase plan to hold that work. Both belong to the PLAN, and
+ * the plan row — the row that NAMES the plan — is the only honest place for
+ * either. Neither was ever right on a branch row: a branch BLOCKED by an earlier
+ * wave reads `waiting-on-you` when its plan is Draft, so any branch-row gate put
+ * a plan act on a row whose own available act is not its own. That is why the
+ * two row-level twins are deleted, not merely re-gated, and why they live here.
  *
  * `ApproveButton` arms itself on the first click and its armed label names the
  * consequence (`Approve — merges PR #146?`), which is 25 characters in a cell
- * `1.25rem` wide. On a branch row the same button lives inside `RowActions`'s
- * popup for exactly that reason. So the plan row borrows the pattern rather
- * than inventing a second one: same glyph, same `aria-haspopup`, same
- * close-on-outside-click, same fixed-width cell.
+ * `1.25rem` wide, so both acts live in a popup rather than inline: same glyph,
+ * same `aria-haspopup`, same close-on-outside-click, same fixed-width cell.
  *
  * NOT `RowActions` itself. That component is typed on `AgentRow` and asks four
  * questions about a branch (startable? resolvable? a run? a log?), none of
@@ -5317,21 +5255,30 @@ function WaveRow({
  * from. Sharing it would mean making every one of those optional to serve one
  * caller that wants none of them.
  *
- * **The absence states its reason.** Where the server has refused
- * (`approve.available === false`) the button renders dim with the refusal on
- * it, because a refusal is not an absence — the same rule `RowActions` follows.
- * Where the plan is simply not Draft there is nothing to refuse and no button
- * at all.
+ * **Each act states its own refusal, and the button opens if EITHER can act.**
+ * Approve and Commission design carry separate bindings (`approve`,
+ * `commission`), so one may act while the other is refused — the menu shows both
+ * and each names its own reason where declined, because a refusal is not an
+ * absence. Where the plan is simply not Draft there is no button at all.
  */
 function PlanActions({
   plan,
   card,
   approve,
+  commission,
   onApproving,
 }: {
   plan: string;
   card: Card | null;
   approve?: DispatchInfo;
+  /**
+   * Whether the server will act on Commission design, and why not — the OTHER
+   * answer to a Draft plan, gated here exactly as Approve is. The same binding
+   * as `idea` (spawning a plot agent to write a plan is one authority), passed
+   * under its own name so the item states its own refusal and a later split of
+   * the two authorities changes one prop.
+   */
+  commission?: DispatchInfo;
   onApproving?: (active: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -5340,8 +5287,22 @@ function PlanActions({
   // accepts phase `draft` and refuses every other one, and the card's own gate
   // is the single spelling of that rule. Two spellings drift — which is how the
   // branch menu and the card came to disagree in the first place.
-  const canApprove = Boolean(card && approve && isDraft(card));
-  const willAct = approve?.available ?? false;
+  //
+  // BOTH acts share this one gate. A Draft plan is what a person decides about,
+  // and Approve and Commission design are the two answers; each then asks its
+  // OWN binding whether the server will act, below.
+  const isDraftPlan = Boolean(card && isDraft(card));
+  const canApprove = Boolean(isDraftPlan && approve);
+  const canCommission = Boolean(isDraftPlan && commission);
+  const approveWillAct = approve?.available ?? false;
+  const commissionWillAct = commission?.available ?? false;
+  // The `⋯` opens if EITHER act can act — one refused binding must not hide the
+  // other's live item. Each item still answers to its own verdict inside.
+  const willAct = (canApprove && approveWillAct) || (canCommission && commissionWillAct);
+  // The dim button's tooltip names a refusal only when there IS one to name —
+  // both acts present and both declined. Approve's reason leads where it is the
+  // one refused, else commission's, so the sentence points at a real binding.
+  const refusalReason = approve?.reason || commission?.reason || `Cannot act on ${plan} from here`;
 
   useEffect(() => {
     if (!open) return;
@@ -5371,7 +5332,7 @@ function PlanActions({
       className="relative w-5 shrink-0 text-right"
       onClick={(e) => e.stopPropagation()}
     >
-      {canApprove && (
+      {isDraftPlan && (
         <button
           type="button"
           data-plan-actions={plan}
@@ -5380,8 +5341,8 @@ function PlanActions({
           // Never the native attribute — a natively disabled control leaves the
           // tab order and takes the explanation with it.
           aria-disabled={!willAct || undefined}
-          aria-label={willAct ? `Actions for ${plan}` : (approve?.reason ?? `Cannot approve ${plan} from here`)}
-          title={willAct ? `Actions for ${plan}` : (approve?.reason ?? `Cannot approve ${plan} from here`)}
+          aria-label={willAct ? `Actions for ${plan}` : refusalReason}
+          title={willAct ? `Actions for ${plan}` : refusalReason}
           onClick={() => { if (willAct) setOpen((v) => !v); }}
           className={`inline-flex h-6 w-5 items-center justify-center leading-none ${
             willAct
@@ -5392,15 +5353,25 @@ function PlanActions({
           <span aria-hidden className="text-xs">⋯</span>
         </button>
       )}
-      {open && willAct && card && approve && (
+      {open && willAct && card && (
         <div
           role="menu"
           ref={menu}
           className="absolute right-0 z-10 mt-1 min-w-max rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
         >
-          <div role="menuitem" className="px-2 py-1 text-left">
-            <ApproveButton card={card} approve={approve} onApproving={onApproving} />
-          </div>
+          {/* Each act renders only where its OWN binding will act — one refused
+              binding leaves the other's item alone. The menu opens only when at
+              least one can act (`willAct`), so it is never empty. */}
+          {canApprove && approveWillAct && approve && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <ApproveButton card={card} approve={approve} onApproving={onApproving} />
+            </div>
+          )}
+          {canCommission && commissionWillAct && commission && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <CommissionDesignButton card={card} commission={commission} onActing={onApproving} />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -5438,8 +5409,6 @@ function Row({
   onOpenPlan,
   card = null,
   dispatch,
-  approve,
-  commission,
   continueWith,
   pulse = 0,
   onStarting,
@@ -5504,10 +5473,9 @@ function Row({
   card?: Card | null;
   /** Whether this server will act on Start work, and why not. */
   dispatch?: DispatchInfo;
-  /** Whether this server will act on Approve, and why not. */
-  approve?: DispatchInfo;
-  /** Whether this server will act on Commission design, and why not. */
-  commission?: DispatchInfo;
+  // No `approve`/`commission`: those are plan-level acts on the plan head
+  // (`PlanActions`), not on a branch/PR/release row. This row's menu carries
+  // only branch-level acts, so it needs neither binding.
   /** Whether this server will act on Continue with an answer. */
   continueWith?: DispatchInfo;
   /** The pulse counter, so a started row can watch for its own change. */
@@ -5944,11 +5912,9 @@ function Row({
           row={row}
           card={card}
           dispatch={dispatch}
-          approve={approve}
-          commission={commission}
           pulse={pulse}
           onStarting={onStarting}
-                    continueWith={continueWith}
+          continueWith={continueWith}
           onOpenPlan={onOpenPlan}
           onRevealBranch={onRevealBranch}
         />
@@ -6989,6 +6955,7 @@ export function AgentList({
                           // the plan's act and the card is the plan's record.
                           card={cardForPlanFile?.(group.planFile) ?? null}
                           approve={approve}
+                          commission={commission}
                           onApproving={onStarting}
                         />
                         {/* The branches, folded. Removed from the tree rather
@@ -7100,8 +7067,6 @@ export function AgentList({
                                           inWaveGroup
                                           card={cardForPlanFile?.(r.planFile) ?? null}
                                           dispatch={dispatch}
-                                          approve={approve}
-                                          commission={commission}
                                           continueWith={continueWith}
                                           pulse={pulse}
                                           onStarting={onStarting}
@@ -7135,8 +7100,6 @@ export function AgentList({
                                 inPlanGroup
                                 card={cardForPlanFile?.(r.planFile) ?? null}
                                 dispatch={dispatch}
-                                approve={approve}
-                                commission={commission}
                                 continueWith={continueWith}
                                 pulse={pulse}
                                 onStarting={onStarting}
@@ -7276,6 +7239,7 @@ export function AgentList({
                         marked={group.rows.some((r) => marked.has(rowKey(r)))}
                         card={cardForPlanFile?.(group.planFile) ?? null}
                         approve={approve}
+                        commission={commission}
                         onApproving={onStarting}
                       />
                     )}
@@ -7411,12 +7375,6 @@ export function AgentList({
                                   : wg.rows.some(isReviewable) ? 'to review'
                                     : 'to approve'}
                               soleRow={wg.rows.length > 1 ? undefined : wg.rows[0]}
-                              // THE BRANCH BINDINGS, for the menu a sole-branch
-                              // wave row carries. They go unused where the wave
-                              // holds several — `soleRow` is undefined there and
-                              // each branch keeps its own row and its own menu.
-                              approve={approve}
-                              commission={commission}
                               continueWith={continueWith}
                               onOpenPlan={onOpenPlan}
                               onRevealBranch={onRevealBranch}
@@ -7437,8 +7395,6 @@ export function AgentList({
                                     inWaveGroup
                                     card={cardForPlanFile?.(r.planFile) ?? null}
                                     dispatch={dispatch}
-                                    approve={approve}
-                                    commission={commission}
                                     continueWith={continueWith}
                                     pulse={pulse}
                                     onStarting={onStarting}
@@ -7468,8 +7424,6 @@ export function AgentList({
                           // are startable ever use it.
                           card={cardForPlanFile?.(r.planFile) ?? null}
                           dispatch={dispatch}
-                          approve={approve}
-                          commission={commission}
                           continueWith={continueWith}
                           pulse={pulse}
                           onStarting={onStarting}

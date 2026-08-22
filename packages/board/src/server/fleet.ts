@@ -2229,11 +2229,14 @@ export function waitingOnFor(
   // as well, so a finished plan's shelf leaves the section entirely and the
   // group guard above returns null before this line can run.
   //
-  // So the answer is UNCHANGED and its scope is narrower: every row still
-  // reaching here belongs to a plan that can move — `approved` or `draft` — and
-  // for those the hand-back is real. Somebody shelved this branch and somebody
-  // may un-shelve it, which is a person, with no clock running. The note beside
-  // the colour says which action.
+  // So the answer is UNCHANGED and its scope is narrower: every deferred row
+  // still reaching here belongs to an APPROVED plan — the only phase whose
+  // shelved branch stays in NOT STARTED. A DRAFT plan's shelf leaves for WAITING
+  // ON YOU in the deferred arm, and a finished plan's leaves for DONE, so both
+  // are gone before the group guard above lets this run. For an approved plan
+  // the hand-back is real: somebody shelved this branch and somebody may
+  // un-shelve it, which is a person, with no clock running. The note beside the
+  // colour says which action.
   if (state === 'deferred') return 'you';
   if (state !== 'open') return null;
   // An earlier wave, WITHIN an approved plan — which is now the only kind of
@@ -2567,9 +2570,10 @@ function classifyGroup(
     // of an APPROVED plan genuinely waits on a person: somebody shelved it,
     // somebody may un-shelve it, and `waitingOnFor` still colours it `you`. A
     // deferred branch of a RELEASED plan waits on nobody — the plan shipped and
-    // the shelf is part of its history. `draft` keeps the old answer for the
-    // same reason it does in the `open` arm: a plan under review is not finished,
-    // and a shelved branch of one waits on a person twice over.
+    // the shelf is part of its history. A `draft` branch is not finished either,
+    // but it does not stay in this section: it leaves for WAITING ON YOU on the
+    // line below, the same answer the `open` arm gives a draft branch, because
+    // the act it waits on is the plan's approval and that lives on the plan head.
     //
     // ABOVE the three exits below rather than beside one of them. A shelved
     // branch of a shipped plan is finished whether it was shelved with no
@@ -2579,6 +2583,25 @@ function classifyGroup(
     if (planPhase === 'delivered' || planPhase === 'released') {
       return { group: 'done', note: FINISHED_PLAN_NOTE };
     }
+    // A DRAFT plan's shelved branch waits on a person, and it belongs in WAITING
+    // ON YOU — the same answer, and the same note, the `open` arm gives a draft
+    // branch a few dozen lines below. It USED to fall through to `not-started`,
+    // because `'draft'` sat in the allowlist below beside `''`; that put an
+    // unapproved plan's branch in the section whose hint reads *approved —
+    // nobody has taken it*, offering work no phase gate would let an agent take.
+    //
+    // The wait it once described — approve the plan, un-shelve the branch — is
+    // real, but it is one wait on one person for one next act: the approval. So
+    // it goes where the approval lives, beside the plan head that now carries
+    // the act, rather than pretending to be startable in NOT STARTED.
+    //
+    // Above the allowlist and stated as its own inclusion, exactly as the `open`
+    // arm states it, so the two arms answer a draft branch the same way and
+    // neither has to remember to exclude it from a list meant for phases the
+    // board cannot read.
+    if (planPhase === 'draft') {
+      return { group: 'waiting-on-you', note: DRAFT_PLAN_NOTE };
+    }
     // The allowlist, as in the `open` arm and for its reason: a phase the board
     // has not been taught is not startable, and the sentence NAMES it rather
     // than inventing a placement. `''` falls through untouched — a scan
@@ -2587,11 +2610,16 @@ function classifyGroup(
     // NONE` in the same measurement, its plan unresolvable from the branch name;
     // filing that under DONE would be the same guess in the other direction.
     //
+    // `'draft'` is NO LONGER excepted here — it answers above, on its own line,
+    // rather than by being kept off this list. A plan under review is not a
+    // phase the board fails to recognise, and treating it as one is how the two
+    // arms came to disagree about where its shelved branch belongs.
+    //
     // No worktree check sits between this and the terminal arm above, unlike in
     // the `open` arm where one deliberately does. There is nothing here for it
     // to protect: a deferred row never reads `working`, because the group is
     // about the claim the row makes and shelved work is not work in progress.
-    if (planPhase !== '' && planPhase !== 'approved' && planPhase !== 'draft') {
+    if (planPhase !== '' && planPhase !== 'approved') {
       return { group: 'done', note: unknownPhaseNote(planPhase) };
     }
     // BELOW THE PHASE, THE SHELF STILL SPEAKS — and the note is not the word
