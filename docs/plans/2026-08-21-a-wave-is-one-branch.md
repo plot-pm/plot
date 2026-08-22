@@ -14,6 +14,14 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 
+## Changelog
+
+- A wave holds exactly one branch, and the board can say when one does not:
+  an unsliced wave is named as invalid rather than sitting blocked without a
+  reason.
+- An unsliced wave can be repaired from the board, with the naming left to a
+  person — slicing needs names, and naming is judgement.
+
 ## Problem
 
 ### The model, and the one shape that violates it
@@ -26,19 +34,30 @@ A tracer or spike produces a **refined plan**; that plan is sliced into waves;
 each wave is carried out in exactly one branch. A wave is therefore the unit of
 **ordering** and a branch the unit of **work**, and the two are one-to-one.
 
-Measured over `last-pulse.json` — 35 plans, 57 waves:
+Re-measured 2026-08-22 with `plot-plan-meta.sh` over every plan file — 84
+plans, 157 waves:
 
 | branches in the wave | waves |
 |---|---|
-| 1 | **49** |
-| 2 | 4 |
-| 3 | 1 |
+| 1 | **137** |
+| 2 | 13 |
+| 3 | 4 |
 | 4 | 1 |
-| 5 | 2 |
+| 5 | 1 |
+| 6 | 1 |
 
-**Seven of the eight multi-branch waves are already `complete`.** They shipped
-before the model was stated, which is why this is a repair rather than a
-migration: the estate's only live violation is one wave.
+**Eighteen of the twenty multi-branch waves are Released.** They shipped before
+the model was stated, which is why this is a repair rather than a migration.
+
+**Two are live, and only one needs slicing.** `opus5-longhorizon-hardening ::
+Implementation` holds five unmerged branches — the case below. The other,
+`waiting-on-you-says-what-kind-of-waiting :: Shaped`, holds two branches that
+are **both merged** (#287, #288): slicing a wave whose work has landed
+re-orders nothing and rewrites history to no reader's benefit.
+
+So the rule binds **waves with unlanded work**. A wave whose branches have all
+merged is a record of how something shipped, not an instruction about what may
+start — and the ordering the rule protects has already happened there.
 
 ### The live violation is the failure a tracer exists to prevent
 
@@ -166,3 +185,30 @@ The operator's statement made them one: a wave holds one branch, so per-branch a
 per-wave dispatch are the same sentence. The 49-of-57 measurement was sitting in
 my own notes from earlier the same evening, describing the rule I had just argued
 against.
+
+**Interrogated 2026-08-22.** The model held; the numbers and the scope moved.
+
+Re-measured across all 84 plans rather than one pulse snapshot: 157 waves, 137
+of them single-branch, 20 multi-branch — and **18 of the 20 Released**. The
+"repair, not migration" framing survives that intact, which is the strongest
+thing an interrogation can say about a premise.
+
+Two live violations rather than one, and the second sharpened the rule. A wave
+whose branches have all merged has already done the ordering the rule exists to
+protect, so the rule binds waves with **unlanded work**. Without that
+qualification the plan would have proposed rewriting the history of everything
+the estate has shipped.
+
+**A phantom branch, found while counting and fixed in this branch.** The target
+wave reported SIX branches; the sixth was `docs/model-provenance.md`, a file
+path cited in a branch line's description:
+
+    - `docs/opus5-hardening-model-provenance` — `docs/model-provenance.md` and …
+
+`plot-plan-meta.sh` takes the first backticked name as the branch and then reads
+the second path-shaped token as another one. `plot-dispatch` would have tried to
+create a worktree for a markdown file. It is the only such phantom in 84 plans,
+and it is precisely the defect `waves-name-themselves` argues from — meta and
+content sharing a line — reproduced inside the plan this one is about to slice.
+The line is de-backticked here; the general fix belongs to that plan.
+
