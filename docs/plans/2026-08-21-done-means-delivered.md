@@ -30,6 +30,17 @@ the estate:
     plot-reconcile-scan.sh → merged_not_delivered=16
     DONE section          → 15 plans reading `Development`, 2 reading `Endgame`
 
+**Re-measured 2026-08-22: `merged_not_delivered=2`.** Fourteen of the sixteen
+were delivered by hand that morning — each one needing its phase flipped, its
+`Delivered:` record written, its symlink moved, and in most cases its PR
+annotations back-filled first. That drain is not a refutation of this plan; it
+is its argument, performed. Detection worked the whole time and nothing acted
+on it, so clearing the backlog cost a person a morning, and the count will
+refill the next time a fleet lands work.
+
+The two that remain are the same shape as the sixteen: both read
+`PRs: none-linked`, so both would still refuse the button this plan proposes.
+
 `toBoardPhase` maps `approved → Development` and `delivered → Endgame`
 (`packages/board/src/contract/schema.ts:512-520`), so the board is telling the
 truth: those plans really are still `Approved`. The two showing Endgame are the
@@ -78,8 +89,16 @@ not after. `/plot-deliver` already verifies PRs (step 4), completeness (5),
 carries its own Delivery-Landed gate (7b) and updates the board (8). A reconcile
 run after it would confirm a disappearance, not cause one.
 
-**3. Endgame → Testing.** A rename across a contract enum, 55 source
-occurrences and 13 plan files.
+**3. Endgame → Testing.** A rename across a contract enum: measured
+2026-08-22, **17 occurrences in `packages/board/src`, 37 in its tests** and 13
+plan files. `Endgame` is a value in `BOARD_PHASES`, so this is a wire-format
+change rather than a label change, and the client compares the literal
+(`Board.tsx:198` gates the checklist on `column.phase === 'Endgame'`).
+
+**Nothing persists the word**, which is what makes it safe: it appears in no
+pulse file and no stored state, so old and new never meet and no migration is
+needed. It is therefore a single-commit sweep — but a wide one, which is why it
+goes last and alone.
 
 ### What blocks the Deliver action today
 
@@ -93,16 +112,29 @@ So the button would refuse on 15 of 16 rows. The scan does not need them — it
 matches merged PR heads to branch names, which is why its output says
 `PRs: none-linked` and lists the PRs anyway.
 
-Two ways out, and the plan should argue for the second:
+Two ways out, and the second is the one taken:
 
-- Repair the annotations, then the button works. Fixes today's 16 and nothing
-  about tomorrow's.
-- Teach `/plot-deliver` the scan's method — match merged PR heads to branch
-  names where annotations are absent. Then the button works on any plan, and the
-  annotations become a convenience rather than a precondition.
+- Repair the annotations, then the button works. Fixes today's plans and
+  nothing about tomorrow's.
+- **Teach `/plot-deliver` the scan's method** — match merged PR heads to branch
+  names where annotations are absent. The button then works on any plan, and
+  the annotations become a convenience rather than a precondition.
 
-The annotation gap itself is the third *rule-without-a-gate* found today: a
-worker is told to annotate and did not, in 12 of 16 cases.
+**Both halves of that were demonstrated on 2026-08-22.** Delivering the
+fourteen by hand required back-filling **21 annotations** first, because
+`/plot-deliver` reads only `→ #N` and several plans cited their PRs as
+`(#302)` — a form the parser does not recognise. So the first way out was
+walked, at exactly the cost it predicts, and it fixed nothing about the next
+plan a worker forgets to annotate.
+
+The scan needs none of this: it matches merged PR heads to branch names, which
+is why its output says `PRs: none-linked` and then lists the PRs anyway. One
+derivation exists and `/plot-deliver` should use it.
+
+The annotation gap itself is a *rule without a gate*: a worker is told to
+annotate and did not, in 12 of 16 cases. Making it a gate is a real fix and a
+different one — recorded in Notes rather than folded in here, because a gate on
+PR creation is not a change to the delivery path.
 
 ### Open Questions
 
@@ -117,6 +149,12 @@ worker is told to annotate and did not, in 12 of 16 cases.
 
 ## Branches
 
+> **Order matters twice here.** The annotation fix comes BEFORE the button,
+> because without it `/plot-deliver` refuses on any plan whose worker never
+> annotated — which is most of them. The rename comes LAST and alone: it is
+> mechanical but touches 54 occurrences across source and tests, so it would
+> rebase-collide with every sibling branch if it went earlier.
+
 ### Reached
 
 - `feature/merged-waves-reach-testing` — a plan whose every wave holds a merged
@@ -125,13 +163,14 @@ worker is told to annotate and did not, in 12 of 16 cases.
   does not block it, matching the scan's own rule; a plan already `delivered`
   is untouched; the derivation is the server's and is not remade in the renderer.
 
-### Named
+### Verified
 
-- `feature/the-phase-after-development-is-testing` — `Endgame` becomes `Testing`
-  through `BOARD_PHASES`, its mapping and every reader. Tests: the contract enum
-  carries `Testing` and not `Endgame`; `toBoardPhase('delivered')` returns it;
-  the board column header reads it; no source file under `packages/board/src`
-  matches `Endgame`; the 13 plan files are handled per the Open Question above.
+- `feature/deliver-finds-prs-without-annotations` — `/plot-deliver` matches
+  merged PR heads to branch names where a plan carries no `→ #N` annotation,
+  which is what `plot-reconcile-scan.sh` already does. Tests: a plan with zero
+  annotations and all branches merged verifies; one with an unmerged branch
+  refuses and names it; annotations, where present, still win; the host is asked
+  through `plot-host.sh` and never directly.
 
 ### Offered
 
@@ -142,14 +181,13 @@ worker is told to annotate and did not, in 12 of 16 cases.
   control; the click spawns and writes nothing itself; a `delivered` plan offers
   nothing; the route refuses a non-localhost binding, like every other spawn.
 
-### Verified
+### Named
 
-- `feature/deliver-finds-prs-without-annotations` — `/plot-deliver` matches
-  merged PR heads to branch names where a plan carries no `→ #N` annotation,
-  which is what `plot-reconcile-scan.sh` already does. Tests: a plan with zero
-  annotations and all branches merged verifies; one with an unmerged branch
-  refuses and names it; annotations, where present, still win; the host is asked
-  through `plot-host.sh` and never directly.
+- `feature/the-phase-after-development-is-testing` — `Endgame` becomes `Testing`
+  through `BOARD_PHASES`, its mapping and every reader. Tests: the contract enum
+  carries `Testing` and not `Endgame`; `toBoardPhase('delivered')` returns it;
+  the board column header reads it; no source file under `packages/board/src`
+  matches `Endgame`; the 13 plan files are handled per the Open Question above.
 
 ## Notes
 
@@ -161,3 +199,25 @@ The operator settled the target phase and the action in one message: *"Wir
 sollten die Phase Endgame nach Testing umbenennen und wenn alle WAVES eines
 Planes gemerged sind müssen wir in TESTING sein. Falls das Testing gut läuft
 brauchen wir eine neue Action für Plan Row 'Deliver'."*
+
+**Interrogated 2026-08-22.** The headline number moved between writing and
+review — `merged_not_delivered` 16 → 2 — and the reason is the plan's own
+thesis: a person drained fourteen by hand that morning, flipping phases,
+writing `Delivered:` records, moving symlinks and back-filling 21 PR
+annotations. Detection had worked the whole time; only action was missing. The
+motivation now argues from the recurrence rather than from a backlog that no
+longer exists.
+
+Two orderings changed. The annotation fix moves ahead of the Deliver button,
+because a button that refuses on most rows is not a feature — and the manual
+delivery proved the refusal is real, not theoretical. The rename moves last and
+alone: measured at 17 source and 37 test occurrences of a **contract enum
+value**, it would rebase-collide with every sibling branch if it went earlier,
+and it is safe alone precisely because nothing persists the word — no pulse
+file, no stored state, so old and new never meet.
+
+Recorded, not folded in: gating the `→ #N` annotation at PR creation. Twelve of
+sixteen workers ignored the instruction, which makes it a rule without a gate —
+but a gate on PR creation is not a change to the delivery path, and this plan
+should not grow one.
+
