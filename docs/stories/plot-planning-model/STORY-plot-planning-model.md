@@ -125,6 +125,7 @@ and unused, which is a different thing from wrong.
 | [a-plan-moves-through-the-sections](../../plans/2026-08-22-a-plan-moves-through-the-sections.md) | Approved | The lifecycle a board reader walks: approve a plan, see it where work is taken, start it |
 | [approval-hands-the-work-to-agents](../../plans/2026-08-22-approval-hands-the-work-to-agents.md) | Draft | Approval as the handover: eligible waves dispatch themselves, bounded by a cap the operator holds |
 | [an-approved-plan-offers-its-two-starts](../../plans/2026-08-22-an-approved-plan-offers-its-two-starts.md) | Draft | The two ways to begin an approved plan — a person implements it, or a fleet dispatches it |
+| [an-interrogation-leaves-a-record](../../plans/2026-08-22-an-interrogation-leaves-a-record.md) | Draft | A challenged plan says so: the round count reaches the file, so interrogated and unexamined stop looking alike |
 
 > Three of these arrived on 2026-08-22 and they are one line of work: the
 > vocabulary this story keeps coherent is no longer only *what the words mean*
