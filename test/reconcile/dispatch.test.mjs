@@ -1914,9 +1914,72 @@ test('dispatch: the launch writes an agent manifest keyed on a session id', () =
   assert.equal(m.command, 'echo "with a quote"; exit 0',
     'the command survives its quotes into valid JSON');
   assert.match(m.startedAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+  // The pid is the ONE process fact the manifest now carries — the wrapper knows
+  // the agent's own pid and stamps it here so the registry can answer liveness
+  // in one pass. Model and context are still absent: those the dispatcher cannot
+  // know, and a manifest that claimed them would be a guess.
   assert.deepEqual(Object.keys(m).sort(),
-    ['branch', 'command', 'session', 'startedAt', 'worktree'],
-    'no field the dispatcher could only have guessed: no pid, no model, no context');
+    ['branch', 'command', 'pid', 'session', 'startedAt', 'worktree'],
+    'launch-time facts plus the agent pid: no model, no context the dispatcher could only guess');
+});
+
+test('dispatch: the manifest pid is the AGENT pid, matching .plot-worker.pid', () => {
+  // A manifest carries a pid at spawn — the wave's first acceptance criterion.
+  // It must be the AGENT's pid, the same value `.plot-worker.pid` records, not
+  // the wrapper's: the registry checks liveness against it, so a wrapper pid
+  // would answer about the wrong process exactly as the old panel bug did.
+  //
+  // The agent proves its own pid the way the `.plot-worker.pid` test does:
+  // `exec sleep` replaces the shell without changing the pid, so `$$` captured a
+  // line earlier IS the running agent's pid — stable even when the detached
+  // process is reaped as the dispatcher exits under the test harness.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-mpid-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, 'repo');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  const sentinel = path.join(t, 'agent.pid');
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n'
+    + `- **Worker command:** sh -c 'echo $$ > ${sentinel}; exec sleep 20'\n`);
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-mp.md'),
+    '# MP\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/mpid` — one\n');
+  fs.symlinkSync('../2026-01-01-mp.md', path.join(r, 'plans', 'active', 'mp.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  execFileSync('bash', [dispatch, '--offline', 'mp'],
+    { encoding: 'utf8', cwd: r, timeout: 30_000 });
+
+  const wt = path.join(path.dirname(r), 'plot-wt-feature-mpid');
+  const dir = path.join(r, '.plot', 'agents');
+  const [name] = fs.readdirSync(dir).filter((n) => n.endsWith('.json'));
+  // The wrapper writes both the pid file and the manifest pid; wait for both.
+  const deadline = Date.now() + 10_000;
+  const manifestHasPid = () => {
+    try { return JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')).pid !== ''; }
+    catch { return false; }
+  };
+  while (Date.now() < deadline
+    && !(fs.existsSync(sentinel) && fs.existsSync(path.join(wt, '.plot-worker.pid')) && manifestHasPid())) {
+    execFileSync('sleep', ['0.1']);
+  }
+
+  const agentPid = fs.readFileSync(sentinel, 'utf8').trim();
+  const pidFile = fs.readFileSync(path.join(wt, '.plot-worker.pid'), 'utf8').trim();
+  const m = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
+  assert.equal(pidFile, agentPid, '.plot-worker.pid names the agent (sanity)');
+  assert.equal(m.pid, agentPid,
+    `the manifest pid must name the agent (${agentPid}), got ${m.pid}`);
+
+  try { process.kill(Number(agentPid), 'SIGTERM'); } catch { /* already gone */ }
+  fs.rmSync(t, { recursive: true, force: true });
+  fs.rmSync(wt, { recursive: true, force: true });
 });
 
 test('dispatch: the session id reaches the worker as PLOT_SESSION_ID', () => {

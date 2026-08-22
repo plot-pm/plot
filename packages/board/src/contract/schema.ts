@@ -2280,20 +2280,41 @@ export const IssueAnswerSchema = z.enum(['answered', 'unsupported', 'failed']);
 export type IssueAnswer = z.infer<typeof IssueAnswerSchema>;
 
 /**
+ * How the registry answers *is this agent still running?* — one fact per pulse.
+ *
+ * The first four are exactly the states `plot-worker-state.sh` distinguishes,
+ * carried onto the entry unchanged: `running` where the pid answers `kill -0`,
+ * `finished` where it is gone and the work reached review or left nothing
+ * behind, `waiting` where a `PLOT-BLOCKED:` marker sits in the tree, `stalled`
+ * where uncommitted or unpushed work is on the floor with no PR.
+ *
+ * `unknown` is the registry's own honest fifth: an older manifest with no pid,
+ * an agent between branches with no worktree to look in, or a check that could
+ * not run. Absent is not a guess — the rule this contract follows everywhere,
+ * and the reason a stale record can never masquerade as a live one.
+ */
+export const AgentStateSchema = z.enum(['running', 'finished', 'waiting', 'stalled', 'unknown']);
+export type AgentState = z.infer<typeof AgentStateSchema>;
+
+/**
  * One agent from the dispatcher's registry — a process with an identity that
  * outlives the branch it was launched on.
  *
  * The first five fields are LAUNCH-TIME facts, written by `plot-dispatch.sh`
- * before the worker starts; they can never be wrong about the past. The last
- * three are read from the session transcript and are **optional on purpose**: a
- * transcript that is missing, still empty, or in a format this board does not
- * recognise costs those fields and never the entry. The transcript format is the
- * runtime's private business.
+ * before the worker starts; they can never be wrong about the past. `model`,
+ * `contextTokens` and `lastActivity` are read from the session transcript and
+ * are **optional on purpose**: a transcript that is missing, still empty, or in
+ * a format this board does not recognise costs those fields and never the entry.
+ * The transcript format is the runtime's private business.
  *
- * There is deliberately no `pid`. A pid describes the PROCESS, is meaningless
- * once it exits, and was measured on 2026-08-20 still being shown for a worker
- * gone for hours — the defect this registry exists to fix. Liveness belongs to
- * whatever is asking `ps` right now, not to a record of a launch.
+ * `pid` and `state` are what let the registry answer liveness. The manifest now
+ * carries the agent's pid — a launch fact, written by the wrapper the instant it
+ * learns its own child — and `state` is refreshed on EVERY pulse from
+ * `plot-worker-state.sh`, so a stale manifest reads `finished` on the next scan
+ * rather than persisting. An earlier design refused a pid outright, having
+ * measured one shown for a worker gone hours; the cure was not to drop the pid
+ * but to stop reading liveness OFF it — `state` is the liveness, decided per
+ * pulse, and `pid` is only the launch fact and the value a reader can go check.
  */
 export const AgentEntrySchema = z.object({
   /** The session id, minted at launch. The identity, and the transcript's name. */
@@ -2304,6 +2325,18 @@ export const AgentEntrySchema = z.object({
   /** The `Worker command` as launched, quotes and newlines intact. */
   command: z.string().default(''),
   startedAt: z.string().default(''),
+  /**
+   * The AGENT's pid at launch, or `''` where the manifest carried none or one
+   * that cannot be a pid (`0`, junk). A launch fact, never liveness on its own —
+   * see `state`. Defaults to `''` so a pulse from before the field validates.
+   */
+  pid: z.string().default(''),
+  /**
+   * Pulse-refreshed liveness. Defaults to `unknown` so an older pulse — which
+   * never carried a state — validates as *cannot say* rather than blanking a
+   * client's open page.
+   */
+  state: AgentStateSchema.default('unknown'),
   model: z.string().optional(),
   contextTokens: z.number().optional(),
   lastActivity: z.string().optional(),

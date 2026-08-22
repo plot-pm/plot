@@ -1,7 +1,40 @@
 import { describe, it, expect } from 'vitest';
 import {
-  PlanMetaSchema, CardSchema, FleetBranchSchema, AgentRowSchema,
+  PlanMetaSchema, CardSchema, FleetBranchSchema, AgentRowSchema, AgentEntrySchema,
 } from '../../src/contract/schema';
+
+describe('AgentEntrySchema — liveness on the wire', () => {
+  const base = {
+    session: 'sess', branch: 'feature/x', worktree: '/wt',
+    command: 'claude -p "go"', startedAt: '2026-08-22T10:00:00Z',
+  };
+
+  it('carries the pid and the pulse-refreshed state', () => {
+    const e = AgentEntrySchema.parse({ ...base, pid: '4242', state: 'running' });
+    expect(e.pid).toBe('4242');
+    expect(e.state).toBe('running');
+  });
+
+  it('accepts each of the five states', () => {
+    for (const state of ['running', 'finished', 'waiting', 'stalled', 'unknown']) {
+      expect(AgentEntrySchema.parse({ ...base, state }).state).toBe(state);
+    }
+  });
+
+  it('defaults pid to "" and state to "unknown" for an older payload', () => {
+    // A reader may have the board's page open across a server upgrade. A pulse
+    // from before these fields existed must still validate rather than blank the
+    // page — and the honest default for a fact the old server never sent is
+    // "no pid" and "cannot say".
+    const e = AgentEntrySchema.parse(base);
+    expect(e.pid).toBe('');
+    expect(e.state).toBe('unknown');
+  });
+
+  it('rejects a state outside the five', () => {
+    expect(() => AgentEntrySchema.parse({ ...base, state: 'ended' })).toThrow();
+  });
+});
 
 describe('PlanMetaSchema — waves', () => {
   const base = { file: 'docs/plans/x.md', format: 'canonical', phase: 'approved' };

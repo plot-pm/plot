@@ -1708,7 +1708,11 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     //
     // Assigned rather than merged: the directory is the whole truth about which
     // agents exist, so a manifest that was deleted must be able to disappear.
-    entry.agents = readAgentRegistry(opts.repoRoot);
+    // `scriptsDir` so the registry can reuse `plot-worker-state.sh` to refresh
+    // each entry's liveness on this pulse — the same helper the fleet scan and
+    // the dispatcher source. Without it every entry would read `unknown`, which
+    // is honest but useless to the cap that will ask this count every pulse.
+    entry.agents = readAgentRegistry(opts.repoRoot, undefined, { scriptsDir: opts.scriptsDir });
     // Default mode, WITH the fetch: the refresh is off the request path, so a
     // second of work is free — and the fetch is what lets the board see
     // branches a remote worker pushed. `--stream` is the only flag added.
