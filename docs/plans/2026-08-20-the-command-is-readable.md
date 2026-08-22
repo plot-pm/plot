@@ -12,13 +12,14 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — the defect was measured from a screenshot after the first reading of it was wrong; scope narrowed to the sizing branch
+- **Delivered:** 2026-08-22, jwloka, PRs #294
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-command-has-a-size`
 
 ## Problem

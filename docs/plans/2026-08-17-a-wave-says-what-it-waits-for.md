@@ -2,13 +2,13 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-08-19, Jan Wloka, plan-PR #197 merged
 - **Started:** 2026-08-20, Jan Wloka, `feature/a-branch-row-names-its-wave`
-- **Delivered:**
+- **Delivered:** 2026-08-22, jwloka, PRs #257, #275, #286
 - **Released:**
 - **Started:** 2026-08-20, Jan Wloka, `feature/a-blocked-wave-names-its-blocker`
 
@@ -119,14 +119,14 @@ three verdicts the scan computes are the three the board shows.
 
 ### Carrier
 
-- `feature/the-row-carries-its-verdict` — `verdict` becomes a field on
+- `feature/the-row-carries-its-verdict` — `verdict` becomes a field on → #257
   `AgentRowSchema`, written by `classify()`, additive and defaulted; the
   `complete`/`blocked` collapse at `fleet.ts:1054` is split so a finished
   wave stops claiming to block
 
 ### Line
 
-- `feature/a-branch-row-names-its-wave` — a branch row states which wave it belongs to, in every section. **Not a wave row of its own**, and the measurement is why.
+- `feature/a-branch-row-names-its-wave` — a branch row states which wave it belongs to, in every section. **Not a wave row of its own**, and the measurement is why. → #275
 
   A row rather than a label was the first design, and it does not survive counting the estate. Measured 2026-08-20 across the 16 unreleased plans: **32 waves over 46 branches, and only 8 of those waves hold more than one branch.** A wave row would add 32 rows to 46 — **+70%** — to group something that in three cases out of four has exactly one member. That is the defect `a-plan-row-is-not-a-branch-row` removed this week, one level down: a level that claims to group what needs no grouping.
 
@@ -159,7 +159,7 @@ three verdicts the scan computes are the three the board shows.
 
 ### Count
 
-- `feature/a-blocked-wave-names-its-blocker` — the blocked wave's row
+- `feature/a-blocked-wave-names-its-blocker` — the blocked wave's row → #286
   names which wave it waits for and how many branches are outstanding
 
 ## Done when

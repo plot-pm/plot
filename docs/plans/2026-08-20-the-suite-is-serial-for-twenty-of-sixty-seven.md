@@ -8,13 +8,14 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** infra
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — measured 43s serial against 25s parallel, and the parallel run exposed a real race; the race is fixed before the split
+- **Delivered:** 2026-08-22, jwloka, PRs #292, #298
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-timeout-test-does-not-race-the-clock`
 - **Started:** 2026-08-20, Jan Wloka, `feature/unit-tests-run-in-parallel`
 
@@ -193,7 +194,7 @@ Recorded so the measurement is not lost, but they need no branch:
 ## Branches
 
 ### Fix the race first
-- `bug/the-timeout-test-does-not-race-the-clock` — the killed-search assertion stops depending on a 1 ms budget beating a process launch. Tests: a killed search answers `""` and does not reject; the assertion holds with the file count reduced to nothing, proving it no longer depends on search duration; it holds under `--fileParallelism`; ten consecutive runs agree.
+- `bug/the-timeout-test-does-not-race-the-clock` — the killed-search assertion stops depending on a 1 ms budget beating a process launch. Tests: a killed search answers `""` and does not reject; the assertion holds with the file count reduced to nothing, proving it no longer depends on search duration; it holds under `--fileParallelism`; ten consecutive runs agree. → #292
 
 ### Then split
 - `feature/unit-tests-run-in-parallel` (PR #298) — vitest projects separate the 47 unit files from the 20 browser files, so each carries the parallelism it needs. Tests: the browser project still runs serially; the unit project runs in parallel; the whole suite passes ten consecutive times; the suite's wall-clock is recorded in the PR so the next reader knows what it bought.

@@ -9,7 +9,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Story:** plot-board
 - **Sprint:**
@@ -17,6 +17,7 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — six display findings measured on the live board
+- **Delivered:** 2026-08-22, jwloka, PRs #290, #297
 
 ## Problem
 
@@ -366,7 +367,7 @@ the interesting one.
 
 ### Seeing it
 
-- `bug/the-row-shows-what-it-withholds` — the five display findings above, in one branch: a section break reads as a bigger break than a row break; a plan group draws an edge so it stops absorbing what follows it; the plan row hosts the approval that belongs to a plan; a deferred row states the reason recorded in its annotation; and every pointer target reaches 24 x 24 px of hit area with the fold toggle distinguishable at a glance.
+- `bug/the-row-shows-what-it-withholds` — the five display findings above, in one branch: a section break reads as a bigger break than a row break; a plan group draws an edge so it stops absorbing what follows it; the plan row hosts the approval that belongs to a plan; a deferred row states the reason recorded in its annotation; and every pointer target reaches 24 x 24 px of hit area with the fold toggle distinguishable at a glance. → #290
 
   **One branch rather than five, and the reason is measured rather than tidy.** All five edit `AgentList.tsx`, and that file conflicted on *every* merge today — four times, each costing an artifact rebase. Five branches would mean four rebases and five CI rounds, against a CI that hung eleven times today on the Playwright step alone (10 to 57 minutes each). The findings are also one kind of change: none adds a data source, none touches the server, and a reviewer reading them together sees the pattern the plan is named for. Plot's convention is a branch per finding, and it is broken here deliberately — the convention exists to keep a branch reviewable, and five small display fixes in one file are more reviewable together than four rebases apart.
 

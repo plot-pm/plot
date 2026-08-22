@@ -11,13 +11,14 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — falsified by acting on it: 26 of 37 worktrees pruned, scan unchanged, the per-spawn figure rose
+- **Delivered:** 2026-08-22, jwloka, PRs #291
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-timeout-report-drops-what-it-cannot-measure`
 
 ## Problem

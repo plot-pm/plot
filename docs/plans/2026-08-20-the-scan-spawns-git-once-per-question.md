@@ -9,7 +9,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Story:** plot-board
 - **Sprint:**
@@ -17,6 +17,7 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — 459 git spawns measured at 56 ms each; pruning 33 worktrees took the scan 105 s to 63 s and proved the second multiplier
+- **Delivered:** 2026-08-22, jwloka, PRs #262, #273, #278
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-scan-walks-history-in-one-call`
 - **Started:** 2026-08-20, Jan Wloka, `feature/the-scan-says-what-it-is-paying-for`
 
@@ -131,8 +132,8 @@ redistributes it.
 ## Branches
 
 ### Batched
-- `bug/the-scan-reads-refs-in-one-call` — replace the 59 per-branch `show-ref` and 28 `rev-parse` calls with one `git for-each-ref`, and the 67 `show` plus 68 `ls-tree` calls with `git cat-file --batch`. Tests: every existing reconcile test passes unedited; the spawn count for one scan is asserted below a bound with a counting wrapper; a ref that cannot be read still reports `-` and never `NONE`.
-- `bug/the-scan-walks-history-in-one-call` — replace the 68 per-branch `rev-list` calls with batched forms (`--stdin` where the question is per-branch ancestry). Tests: ancestry verdicts are byte-identical on this repo's 54 branches; `local_ahead_of` still returns 0 for a missing upstream; the spawn bound holds.
+- `bug/the-scan-reads-refs-in-one-call` — replace the 59 per-branch `show-ref` and 28 `rev-parse` calls with one `git for-each-ref`, and the 67 `show` plus 68 `ls-tree` calls with `git cat-file --batch`. Tests: every existing reconcile test passes unedited; the spawn count for one scan is asserted below a bound with a counting wrapper; a ref that cannot be read still reports `-` and never `NONE`. → #262
+- `bug/the-scan-walks-history-in-one-call` — replace the 68 per-branch `rev-list` calls with batched forms (`--stdin` where the question is per-branch ancestry). Tests: ancestry verdicts are byte-identical on this repo's 54 branches; `local_ahead_of` still returns 0 for a missing upstream; the spawn bound holds. → #273
 
 ### Said
 - `feature/the-scan-says-what-it-is-paying-for` — when a scan exceeds its budget, it reports the estate that made it expensive (worktree count, spawn count, per-spawn cost) instead of only that it timed out. Tests: a scan under budget says nothing extra; one over budget names the counts; the numbers are measured, never estimated. (#278)

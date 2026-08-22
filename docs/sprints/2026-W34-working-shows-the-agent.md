@@ -9,7 +9,7 @@
 - **Phase:** Active
 - **Start:** 2026-08-19
 - **End:** 2026-08-26
-- **Release:** 2.7.0
+- **Release:** 2.8.0
 
 ## Sprint Goal
 
@@ -35,22 +35,22 @@ enterable where the question is shown.
 
 ### Must Have
 
-- [ ] [working-shows-the-agent] Wave *Asking* — a `waiting` worker keeps its place in WORKING with what it waits on, instead of being filed as finished
-- [ ] [working-shows-the-agent] Wave *Log* — the board serves a worker's log from its deterministic path; a WORKING row offers it
-- [ ] [the-pulse-measures-progress-not-elapsed-time] `changed_ago_seconds` — a row says when work last changed, so a long job and a dead one stop reading alike
+- [x] [working-shows-the-agent] Wave *Asking* — a `waiting` worker keeps its place in WORKING with what it waits on, instead of being filed as finished
+- [x] [working-shows-the-agent] Wave *Log* — the board serves a worker's log from its deterministic path; a WORKING row offers it
+- [x] [the-pulse-measures-progress-not-elapsed-time] `changed_ago_seconds` — a row says when work last changed, so a long job and a dead one stop reading alike
 
 ### Should Have
 
-- [ ] [working-shows-the-agent] Wave *Panel* — pid, uptime, command, branch and the live log in one view, opened from the row
-- [ ] [the-board-answers-agents] Wave *Ask* — `/api/attention` carries the same verdicts to consumers that cannot run the scan (dispatched 2026-08-19)
-- [ ] [an-issue-is-a-signal-the-board-can-see] Wave 1 — the board sees unplanned issues (dispatched 2026-08-19)
-- [ ] [plot-board-setup] Wave *Skill* — the adoption spoke (dispatched 2026-08-19)
-- [ ] [working-shows-the-agent] Wave *Answer* — a continuation run in the same worktree, prompted with the brief and the answer (pulled from Deferred 2026-08-19)
+- [x] [working-shows-the-agent] Wave *Panel* — pid, uptime, command, branch and the live log in one view, opened from the row
+- [x] [the-board-answers-agents] Wave *Ask* — `/api/attention` carries the same verdicts to consumers that cannot run the scan (dispatched 2026-08-19)
+- [x] [an-issue-is-a-signal-the-board-can-see] Wave 1 — the board sees unplanned issues (dispatched 2026-08-19)
+- [x] [plot-board-setup] Wave *Skill* — the adoption spoke (dispatched 2026-08-19)
+- [x] [working-shows-the-agent] Wave *Answer* — a continuation run in the same worktree, prompted with the brief and the answer (pulled from Deferred 2026-08-19)
 
 ### Could Have
 
-- [ ] [a-blocked-wave-is-not-eligible] `bug/a-blocked-branch-says-it-is-blocked` — a blocked row links its blocker
-- [ ] [the-scan-asks-once-not-once-per-branch] Waves *Cadence* — the pulse aims at 5 s and sits near 14 s; a section refreshed this often is worth the cost
+- [x] [a-blocked-wave-is-not-eligible] `bug/a-blocked-branch-says-it-is-blocked` — a blocked row links its blocker
+- [x] [the-scan-asks-once-not-once-per-branch] Waves *Cadence* — the pulse aims at 5 s and sits near 14 s; a section refreshed this often is worth the cost
 
 ### Deferred
 
