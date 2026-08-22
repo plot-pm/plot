@@ -6,12 +6,17 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** working-shows-the-agent
 - **Story:** plot-planning-model
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-22, Jan Wloka, in-session
+
+## Approval
+
+- **Assignee:** jwloka
 
 ## Changelog
 
@@ -40,6 +45,21 @@ every one of them was written between 2026-08-15 and 2026-08-17.** Nothing
 since. The eight plans interrogated on 2026-08-22 — including two approved that
 same day on the strength of those interrogations — report nothing.
 
+**Where it shows, and where it does not.** `PlanCard.tsx:288` renders the count
+as a neutral badge on the plan card — the Board tab, beside the phase. Measured
+against the live board on 2026-08-22:
+
+    cards on the board                91
+    cards showing a rounds badge      24
+    of those, in Released             24
+    in any OPEN column                 0
+
+Every badge on the board is on work that already shipped. **Not one open plan
+shows one** — not the eight interrogated that day, not the two approved on the
+strength of those interrogations. The badge is visible only where it can no
+longer inform a decision, which is the defect stated exactly: the field is not
+merely unwritten, it is absent precisely where it would be read.
+
 **The field's design makes the silence worse, not milder.** `rounds` is
 optional and *never defaulted to zero*, and the contract says why: *"`0 rounds`
 reads as interrogated and found nothing; a missing block means nobody has
@@ -54,9 +74,24 @@ detail: a `CHALLENGE-THE-PLAN-METADATA` HTML comment holding `round`,
 `questionHistory`, `deferredItems` and `categoriesCovered`, with instructions to
 reconstruct state from it and write it back after each round.
 
-`challenge-the-plan/SKILL.md` does not mention it. Not in this repo, not in the
-user-level copy, and not in the shipped `plot-marketplace/plot/2.7.0` plugin —
-checked all three on 2026-08-22, zero occurrences in each.
+`challenge-the-plan/SKILL.md` never mentions that block — zero occurrences in
+this repo, in the user-level copy, and in the shipped
+`plot-marketplace/plot/2.7.0` plugin, all three checked on 2026-08-22.
+
+**It is not that the skill has no notion of a round.** It has nine: *"4
+questions per round"*, *"Round 1: Surface Scan"*, *"Round 2+: Adaptive
+Deepening"*, *"After each round, append new deferred items"*. The whole skill is
+structured as a loop over rounds. What it never does is **persist the count** —
+so the fix is a write step inside a loop that already exists, not teaching the
+skill what a round is.
+
+**Three artifacts assumed a writer that was never there.** The command
+specifies the block in full. `plot-plan-meta.sh` documents `rounds` as read from
+*"the `CHALLENGE-THE-PLAN-METADATA` block the skill writes"* — a sentence
+written against behaviour the skill has never had. The contract designs the
+optional-vs-zero distinction around a value it therefore never receives. Three
+readers, one missing writer, and each of the three reads as though the gap were
+somebody else's to close.
 
 So the count did not degrade; it **stopped**, when the work moved from the
 command to the skill. The command describes state persistence the skill never
@@ -103,10 +138,24 @@ interrogated once, in a recorded session, and the count is one — but the
 after the fact. So the back-fill writes `round` and leaves the history empty,
 and says in the plan that it did.
 
-The eight: `the-plan-is-the-wave`, `an-approved-plan-offers-its-two-starts`,
-`waves-name-themselves`, `approval-hands-the-work-to-agents`,
-`a-folded-plan-says-what-it-hides`, `done-means-delivered`,
-`a-wave-is-one-branch`, `a-dispatch-hands-over-a-brief`.
+**Six are on the default branch and get their block; two are not, and are named
+rather than waited for.** Measured 2026-08-22:
+
+| on `main` today | pending |
+|---|---|
+| the-plan-is-the-wave | an-approved-plan-offers-its-two-starts (PR #313) |
+| waves-name-themselves | approval-hands-the-work-to-agents (PR #312) |
+| a-folded-plan-says-what-it-hides | |
+| done-means-delivered | |
+| a-wave-is-one-branch | |
+| a-dispatch-hands-over-a-brief | |
+
+A branch cut from `main` cannot edit a file that only exists on an unmerged
+branch, and coupling this wave to two PRs whose subject is unrelated would
+block a five-minute edit behind somebody else's CI. The two are recorded here
+by name; whoever merges #312 and #313 adds their blocks, or the next
+interrogation of either writes one — which is the mechanism wave 1 delivers
+anyway.
 
 ### What must not change
 
@@ -142,11 +191,15 @@ The eight: `the-plan-is-the-wave`, `an-approved-plan-offers-its-two-starts`,
 
 ### Recorded
 
-- `docs/the-eight-say-they-were-challenged` — the eight plans interrogated on
-  2026-08-22 receive a metadata block with `round: 1` and an empty
-  `questionHistory`, each noting that the history was not reconstructable.
-  Tests: each of the eight reports `rounds: 1`; no other plan's JSON changes;
-  the 24 plans that already carry counts are untouched.
+- `docs/the-six-say-they-were-challenged` — the six interrogated plans that are
+  on `main` receive a metadata block with `round: 1` and an empty
+  `questionHistory`, each noting that the history was not reconstructable. The
+  two on unmerged branches are named in the plan, not blocked on. Tests: each of
+  the six reports `rounds: 1` through `plot-plan-meta.sh`; **no other plan's
+  JSON changes at all** — the 24 that already carry counts are untouched, which
+  is the property that makes a hand-written block safe to add in bulk; a plan
+  whose block was added reports the same `branches`, `prs` and `waves` as
+  before.
 
 ## Notes
 
@@ -157,3 +210,19 @@ The board was restarted during the same investigation: it had exited, most
 likely when one of three running workers rebuilt `board-server.mjs` beneath it.
 Unrelated to this plan, but worth recording next to it, since a board that is
 not running is another way a visible fact becomes invisible.
+
+**Interrogated 2026-08-22**, and the sharpest measurement came from asking where
+the badge actually renders: 24 of 91 cards show one, **all 24 in Released, none
+in any open column**. The field is not merely unwritten — it is absent exactly
+where a reader would use it, and present only where the decision is already
+made.
+
+Three corrections. The skill is not silent about rounds: it says *round* nine
+times and is structured as a loop over them, so the fix is a write step inside
+an existing loop rather than a new concept. Three artifacts assumed the writer —
+the command specifies the block, the parser's own docstring calls it *"the block
+the skill writes"*, the contract designs the absent-vs-zero distinction around a
+value it never receives — which is why nobody noticed: each reads as though the
+gap belonged to someone else. And the back-fill covers six plans, not eight: two
+live on unmerged branches, and coupling a five-minute edit to unrelated CI would
+be the wrong trade.
