@@ -365,7 +365,15 @@ describe('the issue row has one action, and it creates a Draft', () => {
       // was already there. The menu component owns the seventh track.
       await expect.poll(() => cells.count()).toBe(7);
       // Track 4 (0-indexed 3) is still the empty branch column.
-      await expect.poll(() => cells.nth(3).textContent()).toBe('');
+      // NO BRANCH IS INVENTED, and slot 4 is where the plan slug goes.
+      //
+      // This read `textContent().toBe('')` on the branch COLUMN under
+      // ROW_TRACKS. The tuple made slot 4 the ARTIFACT slot, so on a ticket it
+      // carries the plan name the issue would become — measured,
+      // `planfleet-scan-asks-the-host-once`, the `plan` being an `sr-only`
+      // column name a sighted reader never sees.
+      await expect.poll(() => cells.nth(3).evaluate((el) => (el as HTMLElement).innerText.trim()))
+        .not.toMatch(/^(feature|bug|docs|infra|idea)\//);
       await expect.poll(() => issueRow(page, 228).locator('a[data-issue-link]').count()).toBe(1);
       // THE AGE COLUMN RENDERS ALONE — the reported defect. Track 6 (0-indexed
       // 5) held `1d`/`Create plan` overlapping when the button sat one track

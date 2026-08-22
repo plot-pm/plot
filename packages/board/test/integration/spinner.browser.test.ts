@@ -398,36 +398,14 @@ describe('the rows keep their own indicator, and it is not this one', () => {
     prError: null,
   };
 
-  it('the WORKING dot is still there, still pulsing, and is NOT the button marker', async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
-      await page.route('**/api/fleet', (route) =>
-        route.fulfill({ contentType: 'application/json', body: JSON.stringify(FLEET) }));
-      await page.goto(`${baseURL}?tab=agents`);
-      // The same landmark the Agents-tab suite waits on: every group renders
-      // its heading whether or not it holds rows, so this is the tab having
-      // painted rather than this fixture having any particular content.
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
-    await expandAgentFolds(page);
+  // *The WORKING dot is still there, still pulsing, and is NOT the button
+  // marker* stood here until 2026-08-22. That dot — `[data-live-dot]` — is
+  // gone: it sat a pixel from `ActivityMark`'s travelling dot, so a WORKING row
+  // showed two dots and read as one smudge, and what it said (*this row is in
+  // WORKING*) the section heading already says once.
+  //
+  // The claim it made survives above and in `acting-spinner.test.ts`: the ROW's
+  // marker and the BUTTON's spinner are never unified, because a click ends in
+  // seconds and a row does not.
 
-      const dot = page.locator('[data-live-dot]');
-      await expect.poll(() => dot.count(), { timeout: 10_000 }).toBe(1);
-
-      // Untouched: still animated, still hidden from a screen reader.
-      expect(await dot.evaluate((el) => {
-        const name = getComputedStyle(el).animationName;
-        return name !== 'none' && name !== '';
-      })).toBe(true);
-      expect(await dot.getAttribute('aria-hidden')).toBe('true');
-
-      // And DISTINGUISHABLE from the button's marker — the assertion a change
-      // that unified them fails. A row's dot must never be the button's
-      // spinner: the row says *something is alive, end unknown*, the button
-      // says *an answer is coming*.
-      expect(await dot.getAttribute('data-acting-spinner')).toBeNull();
-      expect(await page.locator('[data-acting-spinner]').count()).toBe(0);
-    } finally {
-      await page.close();
-    }
-  });
 });

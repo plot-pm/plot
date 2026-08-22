@@ -270,7 +270,10 @@ describe('a row is a tuple — what a rendered page settles', () => {
     // interchangeable words.
     const whats = await links.evaluateAll(
       (els) => els.map((e) => e.getAttribute('data-tuple-link')));
-    expect(whats).toEqual(['pr', 'plan', 'branch']);
+      // NARROWEST FIRST, CONTAINER LAST — the order every arm has used since
+      // 2026-08-22, adopted after a reader saw a plan row and a wave row on one
+      // screen naming the same two artifacts in opposite orders.
+    expect(whats).toEqual(['pr', 'branch', 'plan']);
   });
 
   it('renders every destination as a link, and no empty artifact control', async () => {
