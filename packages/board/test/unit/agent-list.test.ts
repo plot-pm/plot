@@ -17,7 +17,6 @@ import {
   openLabel,
   runLinkLabel,
   storyRefusal,
-  canCommissionDesign,
   splitBranch,
   prStateWord,
   noteWithoutPr,
@@ -1583,6 +1582,20 @@ describe('noteWithoutPr — the note is relieved of one duty, not replaced', () 
     expect(noteWithoutPr('PR #131, draft, CI running', pr(131))).toBe('');
   });
 
+  it('returns EMPTY for a note that is only its PR — which a caller must not read as "no row"', () => {
+    // The empty string above is correct and it is a trap for whoever consumes
+    // it. `waveNote` guarded on `soleNote` rather than on `soleRow`, so a wave
+    // whose one branch carried `PR #323 green` — nothing left after the strip —
+    // fell through to a verdict sentence about STARTING work that was finished:
+    // measured 2026-08-22, `green` rendered beside `approved — nobody has taken
+    // it`. Every single-branch wave reaching review hit it.
+    //
+    // The fix is at the caller, which now asks `soleRow ? soleNote : …`. This
+    // case is pinned here so the emptiness stays a known answer rather than an
+    // accident someone "fixes" by returning the note unchanged.
+    expect(noteWithoutPr('PR #323 green', pr(323))).toBe('');
+  });
+
   it('is anchored, and matches only the row\'s OWN number', () => {
     // This is deliberately NOT the `indexOf` search it replaces. That one
     // hunted a marker ANYWHERE in a sentence in order to link it, and dropped
@@ -2810,11 +2823,14 @@ describe("a row's actions all live in its menu", () => {
  * and the board asked only the second until 2026-08-18.
  */
 describe('menuState — a refusal is not an absence', () => {
+  // NO `canApprove` / `canCommission` / `approveWillAct` / `commissionWillAct`.
+  // Both plan-level acts left the branch menu for the plan head (`PlanActions`),
+  // so a branch row's menu no longer computes them and this state no longer
+  // carries their flags. What remains is what a branch row can genuinely do.
   const none = {
-    canStart: false, canApprove: false, canResolve: false, hasRun: false,
-    hasLog: false, hasStatus: false, hasOpen: false, canCommission: false,
-    hasChangedFiles: false,
-    serverWillAct: false, approveWillAct: false, commissionWillAct: false,
+    canStart: false, canResolve: false, hasRun: false,
+    hasLog: false, hasStatus: false, hasOpen: false,
+    hasChangedFiles: false, serverWillAct: false,
   };
 
   it('renders no menu at all on a row with nothing to offer', () => {
@@ -2833,9 +2849,6 @@ describe('menuState — a refusal is not an absence', () => {
     expect(menuState({ ...none, canStart: true })).toEqual({
       present: true, enabled: false,
     });
-    expect(menuState({ ...none, canApprove: true })).toEqual({
-      present: true, enabled: false,
-    });
   });
 
   it('enables the run link without asking whether the server will act', () => {
@@ -2850,12 +2863,14 @@ describe('menuState — a refusal is not an absence', () => {
 
   it('asks about ANY item, never one named item', () => {
     // The defect this gate had in its first form: `enabled` was `canStart &&
-    // serverWillAct`, so a Draft plan's row — never startable by construction —
-    // had a dead menu on exactly the rows with something to do.
-    expect(menuState({ ...none, canApprove: true, approveWillAct: true }).enabled).toBe(true);
+    // serverWillAct`, so a menu opened only where Start work was possible. Both
+    // dispatching acts on a branch row (Start work, the conflict dispatch)
+    // answer to the SAME `serverWillAct` binding, so the gate must ask about
+    // whichever one is present rather than a single named item.
+    expect(menuState({ ...none, canStart: true, serverWillAct: true }).enabled).toBe(true);
     expect(menuState({ ...none, canResolve: true, serverWillAct: true }).enabled).toBe(true);
-    // And `Approve` answers to its OWN verdict, not to the dispatch one.
-    expect(menuState({ ...none, canApprove: true, serverWillAct: true }).enabled).toBe(false);
+    // A read item enables on no binding at all — navigation is not an act.
+    expect(menuState({ ...none, hasOpen: true }).enabled).toBe(true);
   });
 
   it('never enables a menu it does not render', () => {
@@ -2870,18 +2885,15 @@ describe('menuState — a refusal is not an absence', () => {
     // it replaced grew a dimension with every new item; the property it proves did
     // not, so it does not need the cartesian product to stay honest.
     const keys = [
-      'canStart', 'canApprove', 'canResolve', 'hasRun', 'hasLog', 'hasStatus',
-      'hasOpen', 'canCommission', 'hasChangedFiles', 'serverWillAct',
-      'approveWillAct', 'commissionWillAct',
+      'canStart', 'canResolve', 'hasRun', 'hasLog', 'hasStatus',
+      'hasOpen', 'hasChangedFiles', 'serverWillAct',
     ] as const;
     const cases: (typeof none)[] = [{ ...none }];
     for (const key of keys)
       for (const v of bools) cases.push({ ...none, [key]: v });
     // A few with an act flag AND its will-act partner, so `enabled` is reached.
     cases.push({ ...none, canStart: true, serverWillAct: true });
-    cases.push({ ...none, canApprove: true, approveWillAct: true });
     cases.push({ ...none, canResolve: true, serverWillAct: true });
-    cases.push({ ...none, canCommission: true, commissionWillAct: true });
     for (const c of cases) {
       const state = menuState(c);
       expect(
@@ -2930,21 +2942,11 @@ describe('menuState — a refusal is not an absence', () => {
     });
   });
 
-  // Commission design writes — so it asks whether the server will act, exactly
-  // as Approve does, and is present-but-refused where the binding declines.
-  it('keeps Commission design present but disabled where the server refuses', () => {
-    expect(menuState({ ...none, canCommission: true })).toEqual({
-      present: true, enabled: false,
-    });
-  });
-
-  it('enables Commission design only on its own verdict', () => {
-    expect(menuState({ ...none, canCommission: true, commissionWillAct: true }).enabled)
-      .toBe(true);
-    // Not on the dispatch verdict — a different binding, a different question.
-    expect(menuState({ ...none, canCommission: true, serverWillAct: true }).enabled)
-      .toBe(false);
-  });
+  // Approve and Commission design are NOT tested here any longer: both are
+  // plan-level acts that left the branch menu for the plan head (`PlanActions`),
+  // so `menuState` — which answers for a BRANCH row's menu — no longer carries
+  // their flags. The plan head's two-answer menu is covered by the browser test
+  // `plan-head-controls.browser.test.ts`, which exercises the real render.
 });
 
 // A branch row names its wave BESIDE ITS BRANCH NAME, and the gate is now a
@@ -3145,31 +3147,12 @@ describe('runLinkLabel — Show failure only where a failure is present', () => 
   });
 });
 
-/**
- * COMMISSION DESIGN is offered on a PLAN kind row — a Draft plan a person must
- * decide about — beside Approve. It is the twin of Approve for the other answer:
- * this plan needs a spec, a spike or a tracer before it can be handed to
- * development.
- */
-describe('canCommissionDesign — offered on a Draft plan row, beside Approve', () => {
-  const draftPlanRow = row({
-    group: 'not-started', state: 'open', phase: 'Discovery', waitingOn: 'you',
-    note: DRAFT_PLAN_NOTE,
-  });
-
-  it('is offered on the same row Approve is — a Draft plan awaiting a decision', () => {
-    expect(canCommissionDesign(draftPlanRow)).toBe(true);
-  });
-
-  it('is NOT offered on a branch waiting its turn', () => {
-    // `waitingOn: 'time'` is a blocked wave, not a plan awaiting a person — the
-    // same exclusion Approve makes, and for the same reason.
-    expect(canCommissionDesign(row({ group: 'not-started', state: 'open', waitingOn: 'time' })))
-      .toBe(false);
-  });
-
-  it('is NOT offered on a started branch', () => {
-    expect(canCommissionDesign(row({ group: 'working', state: 'wip', waitingOn: null })))
-      .toBe(false);
-  });
-});
+// `canCommissionDesign` USED TO BE TESTED HERE, as a branch-row predicate on
+// `waitingOn === 'you'`. It is gone: Commission design is a PLAN-level act and
+// moved to the plan head (`PlanActions`), gated on the card's `isDraft` exactly
+// as Approve is — not on any row field. The old predicate was in fact
+// self-contradictory over board-producible inputs (`'you'` only ever arrives
+// with `state === 'deferred'`, while it required `state === 'open'`), which is
+// why it could never render and why it is deleted rather than repaired. The
+// plan head's Commission design item is covered by
+// `plan-head-controls.browser.test.ts`.

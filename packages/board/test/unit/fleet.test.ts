@@ -843,17 +843,25 @@ describe('classify', () => {
     }
   });
 
-  it('changes no state but `open` on a draft plan', () => {
+  it('changes no state but `open` and `deferred` on a draft plan', () => {
     // A drafted plan whose branches already carry work is drift worth SEEING,
     // not smoothing over — the same rule `rowPhase` follows where a plan's
     // bookkeeping lags its git state. The phase may only answer for a branch
     // that does not exist yet.
+    //
+    // `deferred` USED TO BE in this list — a draft plan's shelf classified
+    // identically to an approved plan's, both in NOT STARTED. It no longer does:
+    // a draft plan's shelved branch now leaves for WAITING ON YOU (the act it
+    // waits on is the approval, which lives on the plan head), while an approved
+    // plan's stays. So `deferred` joins `open` as an arm where the two phases
+    // diverge, and it is asserted on its own above rather than smoothed over
+    // here. What remains are the states where a draft plan carrying real work
+    // must still read as work, not as a pending review.
     for (const args of [
       ['claimed', 'eligible', QUIET + 1],
       ['wip', 'eligible', 5],
       ['wip', 'eligible', 200],
       ['merged', 'complete', 1],
-      ['deferred', 'eligible', null],
     ] as const) {
       const [state, verdict, age] = args;
       expect(classify(state, verdict, age, QUIET, null, false, 0, 'draft'))
@@ -1119,15 +1127,28 @@ describe('a deferred row answers to the phase too', () => {
     expect(waitingOnFor(r.group, 'deferred', 'eligible', 'approved')).toBe('you');
   });
 
-  it('leaves a deferred branch of a DRAFT plan in not-started, waiting on you', () => {
-    // Draft is not finished. A shelved branch of a plan still under review
-    // waits on a person twice over - approve the plan, un-shelve the branch -
-    // and `you` is the honest answer to both. Only a TERMINAL phase can say
-    // *nothing would move this forward*, which is the same line the `open` arm
-    // draws between its two tiers.
-    const r = classify('deferred', 'eligible', null, QUIET, null, false, 0, 'draft');
-    expect(r.group).toBe('not-started');
-    expect(waitingOnFor(r.group, 'deferred', 'eligible', 'draft')).toBe('you');
+  it('sends a deferred branch of a DRAFT plan to WAITING ON YOU, both verdicts', () => {
+    // SUPERSEDED ARGUMENT, recorded rather than erased. This test used to pin a
+    // deferred DRAFT branch in NOT STARTED, `waiting-on-you`, reasoning that a
+    // shelved branch of a plan under review "waits on a person twice over -
+    // approve the plan, un-shelve the branch". That is sound about the WAIT and
+    // wrong about the SECTION. Both waits are on the SAME person for the SAME
+    // next act - the approval - and NOT STARTED promises work an agent can TAKE
+    // now, which a Draft branch cannot: no phase gate lets `/plot-dispatch`
+    // start an unapproved plan. So the section's own hint ("approved - nobody
+    // has taken it") does not hold for it, and the `open` arm already draws
+    // exactly this line, sending a draft branch to WAITING ON YOU. The two arms
+    // now agree: a Draft plan's branch is a person's to approve, wherever it
+    // sits, and it belongs in the section that says so.
+    for (const verdict of ['eligible', 'blocked'] as const) {
+      const r = classify('deferred', verdict, null, QUIET, null, false, 0, 'draft');
+      expect(r.group).toBe('waiting-on-you');
+      expect(r.note).toBe(DRAFT_PLAN_NOTE);
+      // The row leaves NOT STARTED, so `waitingOnFor`'s group guard answers null
+      // for it - the plan-level act now lives on the plan head, gated on the
+      // card's own `isDraft`, not on this field.
+      expect(waitingOnFor(r.group, 'deferred', verdict, 'draft')).toBeNull();
+    }
   });
 
   it('leaves a deferred row of a pulse reporting NO phase exactly as it was', () => {
