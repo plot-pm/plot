@@ -124,6 +124,35 @@ describe('a group heading carries the activity of the rows behind it', () => {
   const markInHeading = (page: Page, key: string) =>
     sectionFor(page, key).locator('h2 [data-activity-mark]');
 
+  // ── A folded PLAN speaks for its branches ─────────────────────────────────
+
+  it('flashes the PLAN HEAD when a branch folded beneath it changes', async () => {
+    // THE SECOND FOLD, one level in from this suite's subject. A section can be
+    // collapsed — that is everything above — and so can a PLAN inside an open
+    // section. Reported from the live board: a write landed on a branch whose
+    // plan was folded, the row that flashed was not in the DOM, and the reader
+    // saw nothing at all.
+    //
+    // The wave row already aggregated (`wg.rows.some(...)`); the plan head did
+    // so for the ACTIVITY mark and not for this one. Two marks, one aggregation
+    // rule — a head speaks for its branches or it says nothing about them.
+    const page = await open([
+      row({
+        branch: 'feature/deep', group: 'waiting-on-you', plan: 'plant-tomatoes',
+        planFile: '2026-03-01-plant-tomatoes.md', wave: 'w',
+        branchUrl: `${GH}feature/deep`,
+      }),
+    ]);
+    // Fold the plan, so the branch's own row leaves the tree.
+    for (const t of await page.locator('[data-wave-toggle]').all()) {
+      if (await t.getAttribute('aria-expanded') === 'true') await t.click();
+    }
+    await expect.poll(() => page.locator('[data-plan-row]').count()).toBeGreaterThan(0);
+    // The head is present and the branch row is not — which is what makes the
+    // head the only thing that can report the change.
+    expect(await page.locator('[data-branch="feature/deep"]').count()).toBe(0);
+  });
+
   // ── The reported case ──────────────────────────────────────────────────────
 
   it('marks a COLLAPSED group whose row is being written to', async () => {

@@ -4450,6 +4450,7 @@ function PlanRow({
   expanded,
   onToggle,
   active,
+  marked = false,
   card = null,
   approve,
   onApproving,
@@ -4472,6 +4473,20 @@ function PlanRow({
   onToggle?: () => void;
   /** Something is being written to one of this plan's branches. */
   active?: boolean;
+  /**
+   * Something BENEATH this plan changed on the last pulse — see `ChangeMark`.
+   *
+   * A FOLDED PLAN IS THE CASE THIS EXISTS FOR, and it is why the head carries
+   * the mark at all. Reported from the live board: a write landed on a branch
+   * whose plan was collapsed, so the row that flashed was not in the DOM and
+   * the reader saw nothing. The heading is then the only thing on the page that
+   * can say anything about it — the same argument `group-activity` makes for
+   * the activity mark on a folded SECTION, one level in.
+   *
+   * Aggregated by the caller with `rows.some(...)`, exactly as `active` beside
+   * it is: a plan speaks for its branches or it says nothing about them.
+   */
+  marked?: boolean;
   /** This plan's board card — what `ApproveButton` acts on. Null off-board. */
   card?: Card | null;
   /** Whether this server will act on Approve, and why not. */
@@ -4518,6 +4533,20 @@ function PlanRow({
       // and its branches together. A rule here would fall between a plan and
       // its own first branch.
       bordered={false}
+      extra={
+        // THE CHANGE MARK, and a FOLDED plan is the case it exists for.
+        //
+        // Reported from the live board: a write landed on a branch whose plan
+        // was collapsed, so the row that flashed was not in the DOM and the
+        // reader saw nothing at all. The head is then the only thing on the
+        // page that can say anything about it — the same argument
+        // `group-activity` makes for a folded SECTION, one level in.
+        //
+        // `extra` rather than `marks`, because the mark tints the whole line
+        // with `inset-0` and that needs the row itself as its positioning
+        // parent. The wave row carries it in the same slot for the same reason.
+        marked ? <ChangeMark /> : null
+      }
       marks={
         // Always the FAST pace, because `active` is the only thing that reaches
         // this row: NOT STARTED is where plan rows are drawn, and its branches
@@ -7014,6 +7043,7 @@ export function AgentList({
                           // including one folded out of sight, which is the case
                           // the mark most needs to reach.
                           active={group.rows.some((r) => active.has(rowKey(r)))}
+                          marked={group.rows.some((r) => marked.has(rowKey(r)))}
                           // The PLAN's card, looked up by the group's own plan
                           // file rather than by any branch's — the approval is
                           // the plan's act and the card is the plan's record.
@@ -7303,6 +7333,7 @@ export function AgentList({
                             ? `open:${group.plan}` : `shut:${group.plan}`,
                         )}
                         active={group.rows.some((r) => active.has(rowKey(r)))}
+                        marked={group.rows.some((r) => marked.has(rowKey(r)))}
                         card={cardForPlanFile?.(group.planFile) ?? null}
                         approve={approve}
                         onApproving={onStarting}
