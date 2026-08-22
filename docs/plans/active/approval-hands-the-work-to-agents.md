@@ -1,0 +1,1 @@
+../2026-08-22-approval-hands-the-work-to-agents.md
