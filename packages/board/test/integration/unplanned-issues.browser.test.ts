@@ -126,7 +126,13 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
     const page = await open();
     try {
       const name = issueRow(page, 228).locator('[data-issue-name]');
-      await expect.poll(() => name.textContent()).toBe('fleet-scan-asks-the-host-once');
+      // `innerText`, not `textContent`. The slot carries an `sr-only` word
+      // naming the column — measured, `textContent` reads
+      // `planfleet-scan-asks-the-host-once` — and that word is for a screen
+      // reader, not part of the name. `innerText` is computed from layout and
+      // reports what a sighted reader sees, which is what this claims.
+      await expect.poll(() => name.evaluate((el) => (el as HTMLElement).innerText.trim()))
+        .toBe('fleet-scan-asks-the-host-once');
       await expect.poll(() => name.locator('a').count()).toBe(0);
       await expect.poll(() => name.evaluate((el) => el.tagName)).not.toBe('A');
     } finally {
@@ -134,7 +140,7 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
     }
   });
 
-  it('is labelled Story, and is NOT given a plan phase it does not have', async () => {
+  it('is labelled Ticket, and is NOT given a plan phase it does not have', async () => {
     // Slot 2 read `Discovery` on this row — a PLAN PHASE on a thing that is not
     // a plan and has never entered the lifecycle that word comes from. It was
     // defended as *not a fifth phase; the first one, worn by something that is
@@ -147,7 +153,12 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
     const page = await open();
     try {
       const kind = issueRow(page, 228).locator('[data-kind]');
-      await expect.poll(() => kind.textContent()).toBe('Story');
+      // `Ticket`, and it said `Story` until 2026-08-20. A story is a Plot
+      // artefact — an umbrella over several plans, tracked in `docs/stories` —
+      // and this row is an ISSUE on the git host that no plan references yet.
+      // Two different things, and the row was labelled with the other one's
+      // name; `KIND_LABEL` was corrected and this assertion was not.
+      await expect.poll(() => kind.textContent()).toBe('Ticket');
       // The phase word is gone, and so is the tooltip that stood in for a label.
       await expect.poll(() => issueRow(page, 228).locator('[data-phase]').count()).toBe(0);
       expect(await issueRow(page, 228).textContent()).not.toContain('Discovery');
@@ -164,8 +175,16 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
     const page = await open();
     try {
       const cells = issueRow(page, 228).locator('[role="gridcell"]');
-      // Track 4 (0-indexed 3) is the branch column — see ROW_TRACKS.
-      await expect.poll(() => cells.nth(3).textContent()).toBe('');
+      // NO BRANCH IS INVENTED — the claim, and slot 4 is no longer where it is
+      // read. That slot was the branch COLUMN under `ROW_TRACKS`; the tuple
+      // made it the ARTIFACT slot, and on a ticket it carries the plan name the
+      // issue would become. Measured: `fleet-scan-asks-the-host-once`, which is
+      // a plan slug and not a branch.
+      //
+      // So the assertion is asked of the branch itself, one line down, which is
+      // where it was always true — an empty cell was only ever a proxy for it.
+      expect(await cells.nth(3).evaluate((el) => (el as HTMLElement).innerText.trim()))
+        .not.toMatch(/^(feature|bug|docs|infra|idea)\//);
       // And no branch marker anywhere on the row.
       await expect.poll(() => issueRow(page, 228).locator('[data-branch]').count()).toBe(0);
     } finally {
