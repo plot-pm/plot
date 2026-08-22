@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-22, Jan Wloka, plan-PR #306 merged
 - **Started:** 2026-08-22, Jan Wloka, `infra/the-parser-reads-a-wave-heading`
+- **Started:** 2026-08-22, Jan Wloka, `infra/the-parser-reads-a-wave-heading`
 
 ## Changelog
 
