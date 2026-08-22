@@ -67,7 +67,11 @@ const fleet = (rows: AgentRow[]): Fleet => ({
  */
 const FOLDED = [
   row({
-    branch: 'feature/dying', group: 'quiet', localDirty: true,
+    // A PROCESS AND A WRITE. The dot reads the process since 2026-08-22 —
+    // `localDirty` alone is a person editing, which the background flash
+    // reports — and the local signal still sets the PACE, so this row is the
+    // fast case: a worker running AND writing.
+    branch: 'feature/dying', group: 'quiet', worker: 'running', localDirty: true,
     note: 'last commit 40 min ago', branchUrl: `${GH}feature/dying`,
   }),
   row({
@@ -180,16 +184,19 @@ describe('a group heading carries the activity of the rows behind it', () => {
     await toggleFor(page, 'quiet').click();
     await expect.poll(() =>
       sectionFor(page, 'quiet').locator('li[data-tuple-kind]').count()).toBeGreaterThan(0);
-    // THE ROW THAT CARRIES THAT BRANCH, whatever kind of row states it — for a
-    // plan of one branch the wave row IS the branch's row, and there is no
-    // `li[data-agent-row]` in this section to find.
+    // THE MARKED ROW BENEATH THE HEADING, found by the mark rather than by the
+    // branch. Measured after expanding: QUIET holds a plan head and a wave row,
+    // and NEITHER carries `[data-branch]` — the wave names its wave and links
+    // the branch as an artifact, so a filter keyed on the branch attribute
+    // matches nothing and the poll times out on a row that is right there.
+    //
+    // The claim is about AGREEMENT — the heading's pace equals its rows' — so
+    // the row to compare against is the marked one, whatever kind it is.
     const rowMark = sectionFor(page, 'quiet')
-      .locator('li[data-tuple-kind]')
-      .filter({ has: page.locator('[data-branch="feature/dying"]') })
-      .locator('[data-activity-mark]');
-    await expect.poll(() => rowMark.count()).toBe(1);
+      .locator('li[data-tuple-kind] [data-activity-mark]');
+    await expect.poll(() => rowMark.count()).toBeGreaterThan(0);
     expect(await markInHeading(page, 'quiet').getAttribute('data-activity-pace'))
-      .toBe(await rowMark.getAttribute('data-activity-pace'));
+      .toBe(await rowMark.first().getAttribute('data-activity-pace'));
   });
 
   // ── Where it sits ─────────────────────────────────────────────────────────
@@ -336,7 +343,7 @@ describe('a heading travels at the strongest pace its rows state', () => {
       row({ branch: 'feature/claimed-a', group: 'quiet', branchUrl: `${GH}feature/claimed-a` }),
       row({ branch: 'feature/claimed-b', group: 'quiet', branchUrl: `${GH}feature/claimed-b` }),
       row({
-        branch: 'feature/writing', group: 'quiet', localDirty: true,
+        branch: 'feature/writing', group: 'quiet', worker: 'running', localDirty: true,
         branchUrl: `${GH}feature/writing`,
       }),
     ]);
@@ -364,7 +371,7 @@ describe('a heading travels at the strongest pace its rows state', () => {
     // for one word.
     const page = await open([
       row({
-        branch: 'feature/writing', group: 'working', localDirty: true,
+        branch: 'feature/writing', group: 'working', worker: 'running', localDirty: true,
         branchUrl: `${GH}feature/writing`,
       }),
     ]);
