@@ -2352,6 +2352,10 @@ export function deriveWaves(pulse: FleetPulse): Wave[] {
   const waves: Wave[] = [];
   for (const plan of pulse.plans) {
     const planName = plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
+    // THE PLAN'S DECLARED WAVE COUNT — how many `### ` headings it has, not how
+    // many remain unfinished. A plan with exactly one wave renders that wave's
+    // status on the plan row, suppressing the separate wave row beneath it.
+    const planWaveCount = plan.waves.length;
     for (const wave of plan.waves) {
       // COMPLETE = every NON-DEFERRED branch merged. A deferred branch is exempt
       // — `plot-deliver` skips it in its own completeness gate — so {merged,
@@ -2374,6 +2378,7 @@ export function deriveWaves(pulse: FleetPulse): Wave[] {
         verdict: waveVerdict(wave.verdict),
         section,
         complete,
+        planWaveCount,
       });
     }
   }
