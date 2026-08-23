@@ -394,6 +394,23 @@ export function App() {
     : board?.commission;
 
   /**
+   * The SAME treatment for Slice this wave — the sixth spawn, which sends an
+   * `unsliced-wave` to `/plot-reslice`. Dimmed on a frozen page for the reason
+   * the two above are: it spawns an agent that rewrites a plan's `## Branches` on
+   * disk, and a page that cannot re-read git cannot know the wave has already
+   * been sliced.
+   *
+   * `board?.reslice` may be `undefined` even off a frozen page — the board CASTS
+   * its payload rather than parsing it, so the schema `.default` never runs
+   * client-side, and a pulse produced before this field existed carries no
+   * `reslice`. `ResliceButton` reads `reslice.available`, so the coalesce here is
+   * what makes a stale payload refuse rather than throw.
+   */
+  const resliceInfo = dimmed
+    ? { available: false, reason: BLOCKED_REASON }
+    : board?.reslice ?? { available: false, reason: '' };
+
+  /**
    * Coming back to a hidden tab RE-CHECKS instead of counting.
    *
    * Browsers throttle timers in hidden tabs, so a minimised window would
@@ -866,6 +883,11 @@ export function App() {
               // Draft plan into Design. It reaches the same PLAN rows Approve
               // does, in the row menu, and shares the idea binding today.
               commission={commissionInfo}
+              // The sixth act, and the only one belonging to a WAVE rather than
+              // a plan or a branch: Slice this wave sends an `unsliced-wave` to
+              // `/plot-reslice`. It shares the idea binding today, and reaches
+              // the wave rows in the review sections where a tangled wave lands.
+              reslice={resliceInfo}
               pulse={pulse}
               onStarting={onStarting}
               // The agent panel's BRANCH and PLAN facts are destinations.

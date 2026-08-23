@@ -41,6 +41,7 @@ import { ApproveButton } from './ApproveButton.js';
 import { AutoDispatchSwitch, ParallelAgentsStepper } from './FleetControls.js';
 import { CommissionDesignButton } from './CommissionDesignButton.js';
 import { CreatePlanButton } from './CreatePlanButton.js';
+import { ResliceButton } from './ResliceButton.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { isDraft } from './PlanCard.js';
 import { StartWorkButton } from './StartWorkButton.js';
@@ -4447,6 +4448,14 @@ export interface AgentListProps {
    * flag above it is: one flag for two capabilities is how they diverge.
    */
   commission?: DispatchInfo;
+  /**
+   * Whether this server will act on `Slice this wave`, and why not — the sixth
+   * capability, reaching the `unsliced-wave` wave rows. Same binding as `idea`
+   * and `commission` today (all spawn a plot agent that writes to this disk),
+   * kept its own prop for the reason those are: one flag for two capabilities is
+   * how they diverge.
+   */
+  reslice?: DispatchInfo;
   /** Bumps once per BOARD refresh; the Start work button counts these. */
   pulse?: number;
   /** A Start work click became outstanding (true) or settled (false). */
@@ -4954,6 +4963,94 @@ function WaveActions({
 }
 
 /**
+ * The `⋯` menu on a wave the board reports `unsliced-wave` — the ONE act such a
+ * wave offers: *Slice this wave*.
+ *
+ * A `⋯` of its own rather than a slot in `WaveActions`, because the two answer
+ * disjoint waves. `WaveActions` is gated on `verdict === 'eligible'` — a wave
+ * ready to dispatch — and an unsliced wave is precisely the wave that CANNOT be
+ * dispatched (several live branches, no single one to hand a worker). They never
+ * co-occur, so one row never wears both, and folding reslice into the dispatch
+ * menu would put an item on `eligible` waves that can never apply to them.
+ *
+ * The shell is `PlanActions`', with ONE difference that is the whole point: this
+ * menu opens even when `reslice` is refused. `PlanActions` gates its open on
+ * `willAct` because a Draft plan has other reasons to exist and a dead `⋯`
+ * there would be noise. An unsliced wave has exactly one errand — this one — so
+ * a refused binding must still open to NAME the refusal, or the operator meets a
+ * dead control with its explanation one hover away and unreachable by keyboard.
+ * `ResliceButton` states its own refusal inside, the way every `DispatchInfo`
+ * control does: a refusal is not an absence.
+ */
+function ResliceMenu({
+  wave,
+  slug,
+  reslice,
+  onActing,
+}: {
+  wave: string;
+  /** The plan slug the reslice acts on — `ResliceButton`'s POST body. */
+  slug: string;
+  reslice: DispatchInfo;
+  onActing?: (active: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const menu = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: globalThis.KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    // Capture phase, so the menu closes before a click lands anywhere else — the
+    // same hazard `RowActions`/`PlanActions` record. `ResliceButton` manages its
+    // own arm/run state internally, so it survives the unmount on capture.
+    const onDown = (e: globalThis.MouseEvent) => {
+      if (menu.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('click', onDown, true);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('click', onDown, true);
+    };
+  }, [open]);
+
+  return (
+    // NO `role="gridcell"` — `TupleRowView` renders the cell this sits in, and
+    // renders it whether or not a kind offers a menu, so the track holds its
+    // width either way. `relative` is what the popup below floats out of.
+    <div className="relative w-5 shrink-0 text-right" onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        data-reslice-actions={wave}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        // ALWAYS enabled, unlike `WaveActions`: the item inside always applies to
+        // an unsliced wave, and where the server refuses, the item — not this
+        // trigger — carries the reason.
+        aria-label={`Actions for wave ${wave}`}
+        title={`Actions for wave ${wave}`}
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex h-6 w-5 items-center justify-center leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"
+      >
+        <span aria-hidden className="text-xs">⋯</span>
+      </button>
+      {open && (
+        <div
+          role="menu"
+          ref={menu}
+          className="absolute right-0 z-10 mt-1 min-w-max rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+        >
+          <div role="menuitem" className="px-2 py-1 text-left">
+            <ResliceButton slug={slug} reslice={reslice} onActing={onActing} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * The info mark on a blocked wave, and the overlay that names what blocks it.
  *
  * ## Why an overlay rather than a `title`
@@ -5108,6 +5205,7 @@ function WaveRow({
   marked = false,
   card = null,
   dispatch,
+  reslice,
   pulse,
   onStarting,
   groupedCount,
@@ -5134,6 +5232,12 @@ function WaveRow({
   card?: Card | null;
   /** Whether this server will dispatch, and why not. */
   dispatch?: DispatchInfo;
+  /**
+   * Whether this server will reslice, and why not — used ONLY on an
+   * `unsliced-wave` row, where it drives the *Slice this wave* menu. Absent
+   * elsewhere: no other wave offers the act.
+   */
+  reslice?: DispatchInfo;
   /** The pulse counter, passed through to `StartWorkButton`. */
   pulse: number;
   onStarting?: (active: boolean) => void;
@@ -5534,6 +5638,21 @@ function WaveRow({
               dispatch={dispatch}
               pulse={pulse}
               onStarting={onStarting}
+            />
+          ) : null}
+          {/* THE UNSLICED WAVE'S ONE ACT — the menu this row had none of before.
+              A wave the scan reports `unsliced-wave` is `blocked` (several live
+              branches, no single one to dispatch) and holds more than one branch
+              (so no `soleRow`), which left it with neither of the two menus
+              above. It gets its OWN, because the errand it offers — spawn
+              `/plot-reslice` — belongs to no other wave. The state lives on the
+              wave's rows, read from `rows[0]` where its `StuckCell` reads it. */}
+          {group.rows[0]?.stuck?.state === 'unsliced-wave' && reslice ? (
+            <ResliceMenu
+              wave={group.wave || '(unnamed)'}
+              slug={plan}
+              reslice={reslice}
+              onActing={onStarting}
             />
           ) : null}
           {soleRow ? (
@@ -6676,6 +6795,7 @@ export function AgentList({
   dispatch,
   approve,
   commission,
+  reslice,
   continueWith,
   idea,
   pulse = 0,
@@ -7416,6 +7536,7 @@ export function AgentList({
                                     // it is on the plan row above.
                                     card={cardForPlanFile?.(group.planFile) ?? null}
                                     dispatch={dispatch}
+                                    reslice={reslice}
                                     pulse={pulse}
                                     onStarting={onStarting}
                                   />
@@ -7731,6 +7852,13 @@ export function AgentList({
                               // started. The card and dispatch binding are what
                               // that control needs, and withholding them is how
                               // this row says the act it wants is a merge.
+                              //
+                              // RESLICE IS STILL PASSED, and it is not `dispatch`
+                              // in disguise: `Slice this wave` takes only the
+                              // plan slug, so it needs no card and no merge —
+                              // it is the act an `unsliced-wave` here (five
+                              // landed branches, `blocked`) actually wants.
+                              reslice={reslice}
                               pulse={pulse}
                               onStarting={onStarting}
                               // WHAT THE COUNT MEANS, per section — the verdict
