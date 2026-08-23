@@ -372,7 +372,7 @@ reloads) is a browser-storage concern and explicitly optional.
 
 ### Carried
 
-- `feature/the-fleet-row-carries-its-sprint` — `AgentRow` gains `sprint`, set in the server where the row is created by joining `planFile` to that member list; rows with no plan, and plans no sprint lists, carry `''`. No client change, no filtering yet
+- `feature/the-fleet-row-carries-its-sprint` — `AgentRow` gains `sprint`, set in the server where the row is created by joining `planFile` to that member list; rows with no plan, and plans no sprint lists, carry `''`. No client change, no filtering yet → #373
 
 ### Counted
 
