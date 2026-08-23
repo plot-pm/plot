@@ -751,6 +751,79 @@ and a reader trusting the comment gets the weaker guarantee.
 the rollup (via `pr-list --rich`, which the scan already calls once) or the
 comment stops promising green. Naming it here so it is not lost.
 
+### Worktree → wave, and worktree → plan: nothing, and it is architectural
+
+**The worktree affects neither, and it could not.** The three worktree facts —
+`local_dirty`, `local_locked`, `local_ahead` — feed the verdict nowhere: the
+computation reads `$st` and nothing else.
+
+More importantly, **the branch `state` they might have influenced is derived from
+refs, not from the working tree**:
+
+```sh
+ahead=$(commits on origin/<branch> that <main> lacks)
+if [ "$ahead" -gt 0 ]; then
+    [ "$real" = "0" ] && { echo "claimed"; return; }   # claim commit only
+    echo "wip"; return                                  # real unlanded commits
+fi
+echo "merged"                                           # nothing of its own
+```
+
+`wip` means *the remote ref carries commits main lacks*. **An agent typing into a
+worktree for an hour without committing produces `open`, not `wip`** — the ref
+has not moved, so nothing about the branch has changed.
+
+### Why that is right, not a gap
+
+A worktree is **local to one machine**, and the scan's whole vocabulary is about
+things every reader can verify:
+
+> `local_dirty`, `local_locked` and `local_worktree` read the worktree, not the
+> mirror … the count degrades to absent, never to a wrong number.
+
+A wave verdict decides *whether the next wave may start* — a decision another
+session, on another machine, acts on. Deriving it from a working tree only one
+machine can see would make the fleet's ordering depend on facts most of the fleet
+cannot check. **The two are deliberately different kinds of evidence:**
+
+| | evidence | who can verify it |
+|---|---|---|
+| branch `state`, wave `verdict` | **refs** — pushed, shared | everyone |
+| `local_dirty`, `local_locked` | **a working tree** | one machine |
+
+The scan is explicit that this is *observed here* versus *ask another machine* —
+the same split. A local fact may **describe** a row and may never **order** the
+fleet.
+
+### What worktree facts DO affect
+
+They are not inert; they change three things, all of them local or advisory:
+
+1. **The activity mark.** `isActive` is `localDirty || localLocked` — the pulse
+   that says *someone is writing here*. Purely a rendering.
+2. **The worker's task state.** `plot-worker-state.sh` refines `finished` into
+   `stalled` when the tree holds uncommitted or unpushed work with no PR. That is
+   a fact about the **worklog**, not the branch.
+3. **Dispatch's refusal.** `plot-dispatch.sh` refuses a branch whose own worktree
+   exists carrying unlanded work — *"a shared file is a prediction, but a desk
+   somebody is sitting at is a measurement"*. It reads local refs and worktrees,
+   which is why dispatch is the only component that can see this, and why the
+   failure it prevents was two implemented, green branches whose work was never
+   pushed: no claim existed, so the fleet scan read them `eligible`.
+
+**Note what (3) is not.** Dispatch refuses to *start* on that branch; it does not
+change the branch's state, its wave's verdict, or the plan's phase. The
+worktree's influence stops at *shall I begin here*, and never reaches *what is
+true of this work*.
+
+### The defect this framing names
+
+**`isActive` reads a worktree fact to answer a work question**, and that is the
+DONE activity mark: seven merged branches whose stale worktrees held an edited
+test fixture reported *someone is writing here*. The fix is not to special-case
+the file — it is that a **local** fact was asked a question about **finished**
+work, which is a category the split above forbids.
+
 ### The gates run the other way
 
 Influence flows up as measurement; **constraint flows down as permission**:
