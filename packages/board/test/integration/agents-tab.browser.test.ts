@@ -2696,14 +2696,20 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('gives the PR cell 14rem, and makes the LONG BRANCH pay for it', async () => {
+  it('bounds the status cell at 8rem and lets a long name take the links slack', async () => {
     // The reported defect, measured in the browser rather than off the class
     // name: the PR cell held `⑂116 no checks` at 9rem and nothing wider, while
-    // the window's slack sat in the branch's `1fr` drawing nothing.
+    // the window's slack sat in the branch's `1fr` drawing nothing. The status
+    // cell earning its bound (8rem, 128px) is the claim that survives every
+    // later change — `status-column-earns-its-width`, the precedent this row's
+    // `the-name-track-holds-the-name` fix cites.
     //
-    // Both halves, because the first alone is passed by shapes the plan
-    // rejected: the cell is 224px (14rem) AND the branch elides to make room,
-    // rather than the row growing or the PR cell moving.
+    // This test used to assert the long branch CLIPPED to pay for that width.
+    // That was the OLD slot-3 behaviour (a fixed 12rem name track); on
+    // 2026-08-23 slot 3 became `minmax(12rem, auto)` and the long name now grows
+    // into slot 4's `1fr` instead of clipping — the fix, not a regression. The
+    // clip assertion below is inverted accordingly, and the status column is
+    // shown to stay put because the growth is absorbed by the flexible track.
     const long = 'feature/opus5-longhorizon-hardening-challenge-budget-and-more';
     const page = await openAgentsAt(1024, fleet({
       rows: [
@@ -2734,11 +2740,29 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // Asserted through `[data-branch]` rather than a Tailwind class name: the
       // clip belongs to the head span, and the row's own stable hook is the
       // anchor around it.
+      // THE LONG NAME NOW RENDERS IN FULL by consuming the links slack — the
+      // point of `the-name-track-holds-the-name` (2026-08-23). Slot 3 became
+      // `minmax(12rem, auto)`, so on this occupied branch row `auto` grows the
+      // name track INTO slot 4's `1fr` rather than clipping: measured, slot 3
+      // goes to 497px on the long row while the short row stays at its 192px
+      // (12rem) floor, and no span in the branch head overflows its box.
+      //
+      // This was asserted as a CLIP before that change — `⑂116`'s row held the
+      // window's slack in a `1fr` slot 4 while the branch's fixed 12rem name
+      // track ellipsised. The clip was the defect, not the design; the name
+      // getting the room is the fix.
       const clipped = await rowFor(page, long).locator('[data-branch]').evaluate(
         (el) => Array.from(el.querySelectorAll('span'))
           .some((s) => s.scrollWidth > s.clientWidth),
       );
-      expect(clipped).toBe(true);
+      expect(clipped, 'the long branch name now fits by growing into the links slack').toBe(false);
+      // AND THE STATUS COLUMN STAYS PUT. The growth is absorbed by slot 4's
+      // `1fr`, not by the fixed downstream tracks — so slot 5's x is identical on
+      // the long row and the short one. This is the half of `agent-rows-line-up`
+      // the 2026-08-23 override KEEPS: where slot 4 has slack to give, the name
+      // grows into it and the columns past it do not move. (Edges misalign only
+      // where slot 4 is empty — a plan head — which is a different row shape and a
+      // cost the operator accepted; see `TUPLE_TRACKS`.)
       expect(await cellX(page, long, STATUS_CELL)).toBe(await cellX(page, 'feature/x', STATUS_CELL));
       // And `⑂116 no checks` — the widest cell in the reported screenshot, the
       // one 9rem could not hold — now fits inside its track rather than being
