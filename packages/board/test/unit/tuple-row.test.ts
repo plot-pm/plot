@@ -4,6 +4,7 @@ import {
   KIND_ICON_PATH,
   prStatus,
   planPrAggregate,
+  statusTone,
   KIND_LABEL,
   SESSION_ID_CHARS,
   releaseVersion,
@@ -1021,5 +1022,53 @@ describe('no host call is added', () => {
     const imports = src.match(/^import .*$/gm) ?? [];
     expect(imports).toHaveLength(1);
     expect(imports[0]).toMatch(/contract\/schema\.js/);
+  });
+});
+
+describe('statusTone colours what a reader acts on', () => {
+  // The rule is *colour what a reader acts on*, not *colour the problem* —
+  // `green` already takes a tone, so a green PR you can merge and an `eligible`
+  // wave you can start are the same prompt in one column. `eligible` joins the
+  // emerald branch for exactly that reason.
+  const EMERALD = 'text-emerald-700 dark:text-emerald-500';
+  const ROSE = 'text-rose-700 dark:text-rose-400';
+
+  it('tones `eligible` the same emerald as `green`', () => {
+    // An eligible wave is the single most actionable state on the board — it
+    // means *this can be started now*. It earns the good-news tone BECAUSE a
+    // person can act on it, and it takes the SAME class `green` returns: still
+    // two colours, not three — a word moves into a group that exists.
+    expect(statusTone('eligible')).toBe(EMERALD);
+    expect(statusTone('eligible')).toBe(statusTone('green'));
+  });
+
+  it('leaves `blocked` untoned — it is the opposite case', () => {
+    // A blocked wave is precisely the one a reader can do nothing about: an
+    // earlier wave holding it back is the system working, not a fault. It keeps
+    // the ordinary grey, and its note already carries the dimmed `time` tone.
+    expect(statusTone('blocked')).toBe('');
+  });
+
+  it('leaves `complete` untoned — a complete wave prompts nothing', () => {
+    // Arguably finished-like, but its branches have landed and its plan moves
+    // on: colouring it would put emerald on rows a reader scrolls past, which
+    // is the dilution the two-value rule guards against.
+    expect(statusTone('complete')).toBe('');
+  });
+
+  it('keeps the emerald group as it was — good news is still good news', () => {
+    // The palette does not grow; adding `eligible` does not disturb the words
+    // already in the branch.
+    expect(statusTone('green')).toBe(EMERALD);
+    expect(statusTone('delivered')).toBe(EMERALD);
+    expect(statusTone('finished')).toBe(EMERALD);
+  });
+
+  it('leaves the rose group unchanged', () => {
+    // The bad-news branch is untouched: this plan tones one word and only one.
+    expect(statusTone('conflicts')).toBe(ROSE);
+    expect(statusTone('checks failing')).toBe(ROSE);
+    expect(statusTone('failed')).toBe(ROSE);
+    expect(statusTone('stalled')).toBe(ROSE);
   });
 });
