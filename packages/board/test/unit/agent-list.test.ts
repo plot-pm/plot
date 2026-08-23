@@ -1,12 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import {
+  describe,
+  it,
+  expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   groupByPlan,
   UNNAMED_WAVE,
   countdown,
-  waitingLabel,
   showPlanHeading,
-  isStartable,
   isLive,
   isCollapsible,
   noActionReason,
@@ -28,10 +29,8 @@ import {
   ChangeMarks,
   changedRows,
   isActive,
-  isFinished,
   soleRowStatus,
   isUnpushed,
-  waitingTone,
   activityPace,
   groupPace,
   ACTIVITY_MARK_PLACE,
@@ -41,7 +40,6 @@ import {
   rowsBySection,
   waveKeyOf,
   LOCK_ECHO_MS,
-  rowKey,
   watchedState,
   isUnreadable,
   sameWatched,
@@ -55,6 +53,7 @@ import {
   type WatchedState,
   type PlanGroup,
 } from '../../src/app/components/AgentList.js';
+import { isFinished, isStartable, rowKey, waitingLabel, waitingTone } from '../../src/app/lib/agent-rows/row-identity.js';
 import { groupByWave, groupedNote, waveDissent, waveLabel } from '../../src/app/lib/agent-rows/waves.js';
 // THE ONE GRID, from the component that owns it. It was `ROW_TRACKS` in
 // `AgentList.tsx` beside a second grid; `one-component-renders-every-row`

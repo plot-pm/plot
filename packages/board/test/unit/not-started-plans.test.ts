@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  isUnbegun,
   planWaitingDays,
   sortByWaiting,
   waveSummaryFor,
@@ -11,6 +10,7 @@ import {
   ungroupedRows,
 } from '../../src/app/components/AgentList.js';
 import { groupByWave } from '../../src/app/lib/agent-rows/waves.js';
+import { isUnbegun } from '../../src/app/lib/agent-rows/row-identity.js';
 import { ELIGIBLE_NOTE, type AgentRow, type Wave } from '../../src/contract/schema.js';
 
 /**

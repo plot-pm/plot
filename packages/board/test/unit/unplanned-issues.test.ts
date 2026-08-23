@@ -1,5 +1,10 @@
-import { describe, it, expect } from 'vitest';
-import { inferredPlanName, ageLabel } from '../../src/app/components/AgentList.js';
+import {
+  describe,
+  it,
+  expect } from 'vitest';
+import { inferredPlanName,
+} from '../../src/app/components/AgentList.js';
+import { ageLabel } from '../../src/app/lib/agent-rows/row-identity.js';
 import { FleetSchema, IssueRowSchema } from '../../src/contract/schema.js';
 
 /**
