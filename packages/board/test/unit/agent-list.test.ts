@@ -5,7 +5,6 @@ import {
 import { readFileSync } from 'node:fs';
 import {
   UNNAMED_WAVE,
-  isLive,
   isCollapsible,
   noActionReason,
   menuState,
@@ -22,8 +21,6 @@ import {
   CHANGE_MARK_MS,
   ChangeMarks,
   changedRows,
-  isActive,
-  soleRowStatus,
   isUnpushed,
   activityPace,
   groupPace,
@@ -36,6 +33,7 @@ import {
   sameWatched,
   type WatchedState,
 } from '../../src/app/components/AgentList.js';
+import { isActive, isLive, soleRowStatus } from '../../src/app/lib/agent-rows/stuck.js';
 import { GROUPS, groupByPlan, rowsBySection, showPlanHeading, type PlanGroup, waveKeyOf, waveSection } from '../../src/app/lib/agent-rows/sections.js';
 import { countdown } from '../../src/app/lib/agent-rows/actions.js';
 import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, hostErrorState, issueNote, noteWithoutPr, prNote, prStateWord } from '../../src/app/lib/agent-rows/host-notes.js';
