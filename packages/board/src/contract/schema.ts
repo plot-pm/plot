@@ -1965,6 +1965,36 @@ export const AgentRowSchema = z.object({
    */
   planFile: z.string().default(''),
   /**
+   * The ACTIVE SPRINT whose member list names this row's plan — its slug — or ""
+   * where no active sprint lists it. `""` covers three cases at once: a row with
+   * no plan (`planFile: ''` — a release row, an unplanned PR), a plan no active
+   * sprint commits to, and every pulse that predates this field.
+   *
+   * MEMBERSHIP IS THE SPRINT FILE'S, not the plan's `Sprint:` field. A sprint
+   * lists its plans as `- [ ] [slug]` lines (see {@link SprintMemberSchema}), and
+   * that list is complete by construction — a person edits it when they commit.
+   * The plan's own `Sprint:` field is a back-reference, allowed to be stale: on
+   * this estate 19 plans are listed and only 5 carry the field, so joining on the
+   * field would show a third of the commitment and silently hide the rest.
+   *
+   * SET WHERE THE ROW IS CREATED, in the server, by joining the row's plan slug
+   * to that member list — never derived in the renderer from `planFile`. `kind`
+   * learned this lesson in this same file: a derivation is a guess with a rule
+   * attached, and it goes wrong first on the rows that have no plan. The client
+   * reads the value; it does not compute it.
+   *
+   * ONE SLUG, not a list: where two sprints are Active and both list a plan, the
+   * FIRST active sprint wins — deterministic, matching the first-wins dedup the
+   * member list itself uses. The filter that renders one control per active
+   * sprint is a later wave's concern; this field only records which sprint claims
+   * the row.
+   *
+   * A VIEW, never a fetch: this field exists so the client can HIDE out-of-sprint
+   * rows. It does not narrow what the pulse collects — the server fetches every
+   * plan once and the cache is shared across consumers.
+   */
+  sprint: z.string().default(''),
+  /**
    * The version a RELEASE row is about — `2.7.0` — or "" on every other row.
    *
    * **Read from `package.json` on the release branch, never derived.** That
