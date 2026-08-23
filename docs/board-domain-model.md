@@ -516,6 +516,93 @@ They must agree at the boundaries:
 it would refuse work that exists. The board's job is to render it truthfully —
 which is exactly what it failed to do when DONE admitted that Discovery plan.
 
+## Wave constraints — what must exist, and with what values
+
+The same two readings as for the plan, one level down. Measured over all 82
+waves on the live board.
+
+### The table
+
+| | complete | eligible | blocked |
+|---|---|---|---|
+| **branch** ≥ 1 | required | required | required |
+| every non-deferred branch **merged** | **required** | **forbidden** | **forbidden** |
+| any branch `open` | **forbidden** | expected | expected |
+| every branch has a **PR** | expected | *no* | *no* |
+| `blockedBy` names a wave | **forbidden** | **forbidden** | *should* — **absent on 11 of 14** |
+| a **prior** wave incomplete | no | no | **required** |
+
+```
+COMPLETE  47 waves   47/47 all non-deferred merged · 0/47 any open · 46/47 all have a PR
+ELIGIBLE  20 waves    0/20 all merged · 18/20 any open ·  1/20 any merged
+BLOCKED   14 waves    0/14 any merged · 13/14 any open ·  3/14 carry blockedBy
+```
+
+### Complete is total on the rule that matters
+
+**47 of 47 complete waves have every non-deferred branch merged**, and **0 of 47
+have an open branch.** No exceptions. That is the definition holding exactly.
+
+The one wave where *all branches merged* is false is
+`waiting-on-you-says-what-kind-of-waiting / Moved…` — **three deferred branches
+and nothing else.** A wave whose every branch was deferred is complete because
+there is nothing left to do, which is why the rule is *every non-deferred branch
+merged* and not *every branch merged*. Measured, that distinction is load-bearing
+on exactly one wave in the estate, and stating it wrong would refuse it.
+
+### Eligible's single exception is the wave that breaks the board
+
+**1 of 20 eligible waves has a merged branch** — `every-section-has-one-subject /
+Inverted`, one `open` and one `merged`. Every other eligible wave has zero merged
+branches.
+
+That single wave is the one that renders in two sections, the one
+`the-wave-is-a-thing-the-board-can-hold` is written for, and the one that makes
+*a wave is where its unfinished work is* a rule rather than a tautology. **A
+constraint model built only from the other 19 would call this state impossible.**
+
+### `blockedBy` is missing on 11 of 14 blocked waves
+
+A blocked wave should be able to name what blocks it. **Only 3 of 14 do.**
+
+This is a real gap and not a display bug: the field is `null` in the payload for
+eleven waves that are genuinely blocked. So the *blocked by* mark has nothing to
+render on most blocked waves — worth knowing alongside
+`the-blocking-wave-is-found-wherever-it-is`, which fixes the mark's lookup and
+would still show nothing here.
+
+**Whether every blocked wave CAN name its blocker is an open question**, not a
+defect to assert: a wave blocked by several priors may have no single answer, and
+`blockedBy` is singular.
+
+### Read down: what each verdict requires of the other entities
+
+| wave `verdict` | branch `state` | pr | plan `phase` | worklog |
+|---|---|---|---|---|
+| **complete** | merged, or all-deferred | expected | any — **including Discovery** | usually absent |
+| **eligible** | open *(1 exception: merged)* | mostly none | Discovery · Development | elsewhere, or a live agent |
+| **blocked** | open · wip | mostly none | Discovery · Development | any |
+
+**A complete wave may belong to a Draft plan.** Measured: `a-wave-is-a-thing-not-a-label`
+has one. Work done before approval is a real state, and the wave's verdict does
+not constrain its plan's phase in that direction.
+
+**The reverse constraint does hold, and it is the useful one:** a
+**Released** plan has only complete waves (41/41), and an **Endgame** plan has
+only complete waves (9/9). The plan's phase constrains its waves; the wave's
+verdict does not constrain its plan.
+
+### The invariant the board breaks today
+
+**A wave renders in exactly one section.** It is not a property the payload
+carries — it is the rule `the-wave-is-a-thing-the-board-can-hold` exists to
+enforce — and `Inverted` breaks it, because two section predicates both claim a
+wave with one merged and one open branch.
+
+Stated as a constraint: **a wave's section is a function of its verdict and its
+plan's phase, and of nothing else.** Reading any individual branch's `state` to
+place a wave is what produces two placements for one wave.
+
 ## The rule this model exists to enforce
 
 **A question is answered by the status of the entity it is about.**
