@@ -13,6 +13,7 @@ import {
   type StuckState,
   type WaitingGroup,
   type WaveVerdict,
+  type Wave,
   type AgentEntry,
   type RowKind,
   UNNAMED_WAVE,
@@ -1410,18 +1411,24 @@ export function sortByWaiting(groups: PlanGroup[]): PlanGroup[] {
 }
 
 /**
- * What the plan row says about its waves, derived from the group's OWN rows.
+ * What the plan row says about its waves — the COUNT read from the server's
+ * `Wave` list, and *first eligible* from the group's own rows.
  *
- * **No contract field carries this, and that is the point.** `waveSummary` on
- * the schema lives on the CARD; a fleet row knows only its own wave. But
- * `groupByPlan` already holds every row of this plan in this section, so
- * counting them and reading their notes answers *how many, and is the first one
- * startable* without adding a fact to the wire.
+ * **THE HEAD ASKS THE WAVE.** `the-contract-carries-a-wave` put a server-derived
+ * `Wave` on the payload: one entry per `(plan, wave)`, carrying the ONE section
+ * the server placed it in. The count is a fact about the plan's waves, and the
+ * server already knows how many of them are unstarted — so this reads
+ * `fleet.waves` rather than re-grouping the rows in front of it with
+ * `groupByWave`, which was a second answer to a question the server answers.
+ * That re-grouping was the derivation `the-wave-is-a-thing-the-board-can-hold`
+ * exists to remove: a wave whose branches span sections could be counted
+ * differently here than the server counted it in DONE.
  *
- * Counted over the UNBEGUN rows only. A deferred branch keeps a row of its own
- * beneath the plan, with its own PR and age, so counting it into "3 waves" would
- * describe it twice and in the wrong terms — it is not a wave nobody has
- * reached, it is a branch somebody set down.
+ * Counted over the waves the server placed in `not-started` FOR THIS PLAN. A
+ * merged wave the server put in DONE is not counted here even if one of its rows
+ * lingers under the plan head; a blocked wave IS counted — it is unstarted work
+ * waiting on an earlier wave, which the row filter (`isUnbegun`, `open` only)
+ * would have dropped.
  *
  * **The limit is recorded rather than hidden: this counts what is in THIS
  * SECTION.** A plan whose first wave already merged has that wave in DONE, so it
@@ -1429,9 +1436,18 @@ export function sortByWaiting(groups: PlanGroup[]): PlanGroup[] {
  * honest number for the question the section asks (*what is not started*), and a
  * reader wanting the full arc has the plan link on the row.
  *
- * `first eligible` comes from `isStartable`, which is the same predicate the row
- * menu uses to decide whether `Start work` is offered — so the summary cannot
- * promise an action the menu then refuses.
+ * `first eligible` stays a ROW fact, from `isStartable` — the same predicate the
+ * row menu uses to decide whether `Start work` is offered, so the summary cannot
+ * promise an action the menu then refuses. The wave carries a `verdict`, but
+ * startability is a per-branch question the menu owns (a wave can be eligible
+ * while a particular branch in it is not the one to start), so it is read where
+ * the menu reads it.
+ *
+ * `waves` ABSENT falls back to the row derivation. The board CASTS the payload
+ * (`board as Board`) rather than parsing it, so `fleet.waves` is `undefined` —
+ * not `[]` — on a pulse from a pre-wave server (`FLEET_CONTROLS_DEFAULT`,
+ * 2026-08-22). The fallback keeps such a server working; a live server emits
+ * `waves` unconditionally, so the fallback is the safety net and not the path.
  *
  * Empty string where there is nothing to summarise, so the caller renders
  * nothing rather than a bare count of zero.
@@ -1439,17 +1455,21 @@ export function sortByWaiting(groups: PlanGroup[]): PlanGroup[] {
  * Exported for test — the section-scoped count is the half that reads like a bug
  * until it is stated.
  */
-export function waveSummaryFor(group: PlanGroup): string {
+export function waveSummaryFor(group: PlanGroup, waves?: Wave[]): string {
   const unbegun = group.rows.filter(isUnbegun);
-  if (unbegun.length === 0) return '';
-  // COUNTED IN WAVES, and it used to count ROWS while calling them waves. A
-  // one-wave plan holding five branches reported `5 waves`; the plan file lists
-  // one. The name of the unit was right and the number was of something else —
-  // exactly the confusion this wave exists to end, and it was in the summary
-  // whose job is to state the count.
-  const count = groupByWave(unbegun).length;
-  const waves = `${count} wave${count === 1 ? '' : 's'}`;
-  return unbegun.some(isStartable) ? `${waves}, first eligible` : waves;
+  // COUNTED FROM THE SERVER'S WAVES where the payload carries them: the entries
+  // the server placed in `not-started` for this plan. `deriveWaves` gives an
+  // incomplete wave exactly one home — `not-started` — so this is every wave of
+  // the plan that is not yet done, counted once however many branches it holds.
+  const count = waves
+    ? waves.filter((w) => w.plan === group.plan && w.section === 'not-started').length
+    // FALLBACK for a pre-wave server: count the unbegun rows' waves, the way the
+    // head did before the contract carried the wave. `groupByWave` collapses a
+    // multi-branch wave to one, which is the reading the count needs.
+    : groupByWave(unbegun).length;
+  if (count === 0) return '';
+  const label = `${count} wave${count === 1 ? '' : 's'}`;
+  return unbegun.some(isStartable) ? `${label}, first eligible` : label;
 }
 
 /**
@@ -4609,6 +4629,7 @@ function HeaderRow() {
  */
 function PlanRow({
   group,
+  waves,
   onOpenPlan,
   expanded,
   onToggle,
@@ -4621,6 +4642,13 @@ function PlanRow({
   ageMinutes,
 }: {
   group: PlanGroup;
+  /**
+   * The fleet's server-derived waves — the list the head's count reads instead
+   * of re-grouping `group.rows`. See `waveSummaryFor`. Undefined on a pre-wave
+   * server's pulse (the board casts, so the field is absent rather than `[]`),
+   * and the summary then falls back to the row derivation.
+   */
+  waves?: Wave[];
   onOpenPlan?: AgentListProps['onOpenPlan'];
   /**
    * The plan's clock in minutes, where the APPROVAL clock is not the one running.
@@ -4662,7 +4690,7 @@ function PlanRow({
   onApproving?: (active: boolean) => void;
 }) {
   const waiting = planWaitingDays(group);
-  const summary = waveSummaryFor(group);
+  const summary = waveSummaryFor(group, waves);
   const foldable = expanded !== null;
   // THE PHASE IS THE PLAN'S, and slot 5 is where a fact about the plan is true.
   // Read from the group's rows rather than from a plan field, because a row is
@@ -7441,6 +7469,7 @@ export function AgentList({
                       >
                         <PlanRow
                           group={group}
+                          waves={fleet.waves}
                           onOpenPlan={onOpenPlan}
                           expanded={expanded}
                           onToggle={foldable ? () => togglePlan(group.plan) : undefined}
@@ -7685,6 +7714,7 @@ export function AgentList({
                     {planHeads && (
                       <PlanRow
                         group={group}
+                        waves={fleet.waves}
                         onOpenPlan={onOpenPlan}
                         // THE FRESHEST BRANCH CLOCK, because `waitingDays` is
                         // null here.

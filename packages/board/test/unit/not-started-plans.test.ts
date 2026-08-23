@@ -11,7 +11,7 @@ import {
   waveGroupsFor,
   ungroupedRows,
 } from '../../src/app/components/AgentList.js';
-import { ELIGIBLE_NOTE, type AgentRow } from '../../src/contract/schema.js';
+import { ELIGIBLE_NOTE, type AgentRow, type Wave } from '../../src/contract/schema.js';
 
 /**
  * NOT STARTED counts PLANS — the decisions, as pure functions.
@@ -39,6 +39,17 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
 
 /** A group built the way the view builds it — through `groupByPlan`. */
 const groupOf = (...rows: AgentRow[]): PlanGroup => groupByPlan(rows)[0];
+
+/**
+ * A server-derived `Wave` the way `deriveWaves` writes it, for the head that
+ * now reads `fleet.waves` rather than re-grouping rows. Defaults to an
+ * unstarted, incomplete wave — the shape the count summarises.
+ */
+const wave = (over: Partial<Wave> = {}): Wave => ({
+  plan: 'a-plan', name: 'w', branches: ['feature/x'],
+  verdict: 'eligible', section: 'not-started', complete: false,
+  ...over,
+});
 
 describe('isUnbegun — a branch that is a name and nothing else', () => {
   it('is true for the open rows that made up the section', () => {
@@ -242,14 +253,75 @@ describe('waveSummaryFor — counted from the group\'s own rows', () => {
     expect(waveSummaryFor(group)).toBe('');
   });
 
-  it('adds no field to the contract to carry any of this', () => {
-    // `waveSummary` on the schema lives on the CARD; a fleet row knows only its
-    // own wave. The group already HOLDS every row of the plan, so the count is
-    // derived — this pins that the summary reads nothing a row does not carry.
+  it('falls back to the group\'s rows when no wave list is supplied', () => {
+    // The pre-wave-model server sends no `fleet.waves` (and the board CASTS the
+    // payload, so the field is `undefined`, not `[]`). Absent that list the head
+    // still answers, from the rows it already holds — the derivation stays as
+    // the safety net for an older server, not the live path.
     const group = groupOf(row({ wave: 'Shaped' }), row({ wave: 'Moved', branch: 'b' }));
-    const fields = new Set(Object.keys(group.rows[0]));
-    expect(fields.has('waveSummary')).toBe(false);
-    expect(waveSummaryFor(group)).toBe('2 waves, first eligible');
+    expect(waveSummaryFor(group, undefined)).toBe('2 waves, first eligible');
+  });
+});
+
+describe('waveSummaryFor — reads the server Wave, not a re-grouping of rows', () => {
+  // THE HEAD ASKS THE WAVE. `the-contract-carries-a-wave` put a server-derived
+  // `Wave` on the payload — one entry per (plan, wave), carrying the ONE section
+  // the server placed it in. The head's count was re-deriving that from rows via
+  // `groupByWave`, a second answer to a question the server already answered.
+  // These pin that the count now comes from `fleet.waves`.
+
+  it('counts the plan\'s waves the server placed in THIS section', () => {
+    // Two unstarted waves for this plan, plus one the server put in DONE and one
+    // that belongs to another plan — neither is counted here. The head reads the
+    // server's placement rather than re-grouping the rows in front of it.
+    const group = groupOf(
+      row({ plan: 'p', wave: 'First', branch: 'a' }),
+      row({ plan: 'p', wave: 'Second', branch: 'b' }),
+    );
+    const waves = [
+      wave({ plan: 'p', name: 'First' }),
+      wave({ plan: 'p', name: 'Second' }),
+      wave({ plan: 'p', name: 'Done', section: 'done', complete: true }),
+      wave({ plan: 'other', name: 'Elsewhere' }),
+    ];
+    expect(waveSummaryFor(group, waves)).toBe('2 waves, first eligible');
+  });
+
+  it('counts a multi-branch wave as ONE, from the server entry', () => {
+    // A five-branch wave is one `Wave`, so it counts once — the reading the row
+    // derivation only reached by re-grouping. The server already collapsed it.
+    const group = groupOf(
+      row({ plan: 'p', wave: 'Implementation', branch: 'a' }),
+      row({ plan: 'p', wave: 'Implementation', branch: 'b' }),
+      row({ plan: 'p', wave: 'Implementation', branch: 'c' }),
+    );
+    const waves = [wave({ plan: 'p', name: 'Implementation', branches: ['a', 'b', 'c'] })];
+    expect(waveSummaryFor(group, waves)).toBe('1 wave, first eligible');
+  });
+
+  it('counts a not-started wave whose rows are blocked, which the row filter drops', () => {
+    // THE DISCRIMINATING CASE. `isUnbegun` counts only `open` rows in
+    // not-started; a wave blocked by an earlier one carries `wip` rows there, so
+    // the row derivation counts it as ZERO and the summary would vanish. The
+    // server placed the wave in not-started all the same — it IS unstarted work,
+    // waiting on an earlier wave — so asking the wave counts one where re-grouping
+    // the rows counts none. The two answers differ, and the wave's is right.
+    const group = groupOf(
+      row({ plan: 'p', wave: 'Blocked', branch: 'b', state: 'wip', waitingOn: 'time', note: 'blocked by earlier wave' }),
+    );
+    const waves = [wave({ plan: 'p', name: 'Blocked', verdict: 'blocked' })];
+    expect(waveSummaryFor(group, waves)).toBe('1 wave');
+  });
+
+  it('reads completeness once — the same answer the DONE section reads', () => {
+    // The point is not the value but that there is ONE source. A wave the server
+    // marked complete is complete for every consumer; the head does not compute a
+    // second completeness from the rows and risk disagreeing.
+    const complete = wave({ plan: 'p', name: 'Done', section: 'done', complete: true });
+    const open = wave({ plan: 'p', name: 'Open' });
+    const group = groupOf(row({ plan: 'p', wave: 'Open', branch: 'b' }));
+    // Only the incomplete, not-started wave is summarised here.
+    expect(waveSummaryFor(group, [complete, open])).toBe('1 wave, first eligible');
   });
 });
 
