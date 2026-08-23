@@ -258,7 +258,7 @@ permanent is a track that cannot show a moment.
 ### Sized
 
 ### Placed
-- `bug/the-wave-leaves-the-kind-alone` — the wave renders beside the branch name only, and never beside the kind slot. Tests: a branch row's wave is adjacent to its branch name; **no `data-wave` element sits in the kind's track**; a plan row shows no wave; the kind slot's column contains only kind labels, asserted by reading every cell in it.
+- `bug/the-wave-leaves-the-kind-alone` → #346 — the wave renders beside the branch name only, and never beside the kind slot. Tests: a branch row's wave is adjacent to its branch name; **no `data-wave` element sits in the kind's track**; a plan row shows no wave; the kind slot's column contains only kind labels, asserted by reading every cell in it.
 
 ### Marked
 

@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-23, Jan Wloka, in-session
+- **Started:** 2026-08-23, Jan Wloka, `bug/the-wave-name-stays-in-its-cell`
 
 ## Approval
 
@@ -221,7 +222,7 @@ first* at 13 characters, and the offender is 53.
 
 ### Contained
 
-- `bug/the-wave-name-stays-in-its-cell` — the wave name clips like every other cell and keeps its full text on hover; follow whatever `the-name-track-holds-the-name` settled about the shared row geometry
+- `bug/the-wave-name-stays-in-its-cell` — the wave name clips like every other cell and keeps its full text on hover; follow whatever `the-name-track-holds-the-name` settled about the shared row geometry → #347
 
 ### Stated
 
