@@ -18,7 +18,7 @@ import {
   AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, toBoardPhase, unknownPhaseNote,
   type AgentRow, type FleetPulse,
 } from '../../src/contract/schema.js';
-import { showsWorkerLog } from '../../src/app/components/AgentList.js';
+import { showsWorkerLog } from '../../src/app/lib/agent-rows/menus.js';
 import type { PrRecord } from '../../src/server/fleet.js';
 
 // The classifier is where the tab's judgments live: which group a branch lands

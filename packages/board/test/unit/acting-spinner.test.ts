@@ -47,7 +47,7 @@ const src = (rel: string) =>
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
 
 const SPINNER = src('ui/ActingSpinner.tsx');
-const AGENT_LIST = src('AgentList.tsx');
+const AGENT_LIST = src('../lib/agent-rows/marks.tsx');
 const START_WORK = src('StartWorkButton.tsx');
 const APPROVE = src('ApproveButton.tsx');
 

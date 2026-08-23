@@ -13,7 +13,7 @@ import {
   sizeLabel,
   EMPTY_LOG_WORD,
 } from '../../src/app/components/WorkerLogModal.js';
-import { showsWorkerLog } from '../../src/app/components/AgentList.js';
+import { showsWorkerLog } from '../../src/app/lib/agent-rows/menus.js';
 import { AgentRowSchema, type AgentRow, type FleetPulse } from '../../src/contract/schema.js';
 
 // THE PATH IS DERIVED, NEVER SUPPLIED — and most of these tests are refusals

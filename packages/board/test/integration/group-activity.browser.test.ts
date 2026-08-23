@@ -168,7 +168,7 @@ describe('a group heading carries the activity of the rows behind it', () => {
     // *this plan has no fold*. A head with nothing to hide hides nothing, so
     // its branch is right there flashing and the head must stay quiet.
     const source = readFileSync(
-      new URL('../../src/app/components/AgentList.tsx', import.meta.url), 'utf8');
+      new URL('../../src/app/lib/agent-rows/rows.tsx', import.meta.url), 'utf8');
     expect(source).toContain('marked && expanded === false ? <ChangeMark /> : null');
   });
 

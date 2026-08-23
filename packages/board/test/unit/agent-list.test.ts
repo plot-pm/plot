@@ -5,6 +5,10 @@ import {
 import { readFileSync } from 'node:fs';
 import {
   UNNAMED_WAVE,
+  splitBranch,
+} from '../../src/app/components/AgentList.js';
+import { isUnpushed } from '../../src/app/lib/agent-rows/rows.js';
+import {
   noActionReason,
   menuState,
   openTarget,
@@ -12,9 +16,7 @@ import {
   openLabel,
   runLinkLabel,
   storyRefusal,
-  splitBranch,
-  isUnpushed,
-} from '../../src/app/components/AgentList.js';
+} from '../../src/app/lib/agent-rows/menus.js';
 import { CARD_BELOW_PX, COLLAPSED_BY_DEFAULT, isCollapsible, readCollapsed, writeCollapsed } from '../../src/app/lib/agent-rows/collapse.js';
 import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_MARK_MS, ChangeMarks, LOCK_ECHO_MS, activeRowKeys, activityPace, changedRows, groupPace, isUnreadable, sameWatched, type WatchedState, watchedState } from '../../src/app/lib/agent-rows/activity.js';
 import { isActive, isLive, soleRowStatus } from '../../src/app/lib/agent-rows/stuck.js';
@@ -896,7 +898,7 @@ describe('a process is marked in EVERY section, and writing is not a process', (
 
 describe('the activity marker leaves the other marks alone', () => {
   const source = readFileSync(
-    new URL('../../src/app/components/AgentList.tsx', import.meta.url), 'utf8');
+    new URL('../../src/app/lib/agent-rows/marks.tsx', import.meta.url), 'utf8');
 
   it('keeps isLive reading the GROUP, exactly as before', () => {
     // The dot means *in the WORKING group* and lives for hours; the activity
@@ -1159,7 +1161,7 @@ describe('groupPace — the heading states the strongest pace its rows state', (
  */
 describe('the activity mark is a track with a travelling dot', () => {
   const source = readFileSync(
-    new URL('../../src/app/components/AgentList.tsx', import.meta.url), 'utf8');
+    new URL('../../src/app/lib/agent-rows/marks.tsx', import.meta.url), 'utf8');
 
   /**
    * The `className` string of the JSX element carrying `data-<hook>`.
@@ -1174,7 +1176,7 @@ describe('the activity mark is a track with a travelling dot', () => {
    */
   function classesOf(hook: string): string {
     const at = source.search(new RegExp(`^\\s*data-${hook}\\s*$`, 'm'));
-    expect(at, `no data-${hook} JSX attribute in AgentList.tsx`).toBeGreaterThan(-1);
+    expect(at, `no data-${hook} JSX attribute in marks.tsx`).toBeGreaterThan(-1);
     const after = source.slice(at);
     // BOTH forms, and the second is not a nicety. The activity dot picks its
     // travel utility from the pace, so its class list is a TEMPLATE literal —
@@ -1212,7 +1214,7 @@ describe('the activity mark is a track with a travelling dot', () => {
    */
   function placementsOf(name: string): string[] {
     const table = new RegExp(`const ${name} = \\{([\\s\\S]*?)\\n\\} as const;`).exec(source);
-    expect(table, `no ${name} table in AgentList.tsx`).not.toBeNull();
+    expect(table, `no ${name} table in marks.tsx`).not.toBeNull();
     const out = [...table![1].matchAll(/^\s{2}\w+: '([^']*)',$/gm)].map((m) => m[1]);
     expect(out.length, `no placements parsed out of ${name}`).toBeGreaterThan(1);
     return out;
@@ -2635,7 +2637,7 @@ describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
     // a test failure — which reports the right fact in the wrong place, and
     // only for as long as nobody adds it back under another name.
     const src = readFileSync(
-      new URL('../../src/app/components/AgentList.tsx', import.meta.url), 'utf8');
+      new URL('../../src/app/lib/agent-rows/rows.tsx', import.meta.url), 'utf8');
     // COMMENTS STRIPPED, and the distinction is the whole reason this is worth
     // anything. Both adapters DISCUSS the grids they replaced — `PlanRow`'s
     // docstring records the reversal at length, because *a plan row is not a
@@ -2699,9 +2701,15 @@ describe("a row's actions all live in its menu", () => {
    * nothing at all.* The gate follows the components, not the file they were in
    * when it was written.
    */
-  const FILES = ['AgentList.tsx', 'TupleRow.tsx'] as const;
-  const sources = FILES.map((f) =>
-    readFileSync(new URL(`../../src/app/components/${f}`, import.meta.url), 'utf8'));
+  const COMPONENT_FILES = ['AgentList.tsx', 'TupleRow.tsx'] as const;
+  const AGENT_ROW_FILES = ['rows.tsx', 'menus.tsx'] as const;
+  const sources = [
+    ...COMPONENT_FILES.map((f) =>
+      readFileSync(new URL(`../../src/app/components/${f}`, import.meta.url), 'utf8')),
+    ...AGENT_ROW_FILES.map((f) =>
+      readFileSync(new URL(`../../src/app/lib/agent-rows/${f}`, import.meta.url), 'utf8')),
+  ];
+  const FILES = [...COMPONENT_FILES, ...AGENT_ROW_FILES];
   /** Kept for the assertions that ask about `AgentList.tsx` in particular. */
   const source = sources[0];
 
