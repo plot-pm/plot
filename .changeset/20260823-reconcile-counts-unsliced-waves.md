@@ -22,10 +22,14 @@ counts, since hiding it would misreport the estate.
 The `/plot-deliver` delivery-landed gate is unaffected: its stop marker
 (`sed -n '/^== 7./q;p'`) already excludes the two non-blocking sections at 7
 and 8, so it needs no change; only its prose is updated to name the new section.
+`/plot-reconcile` (the scan's interpreter) and `/plot`'s hygiene line have their
+prose, example footers and Automation Output updated to name the new section and
+its `unsliced_waves=` count and to renumber index drift to 8.
 
 <!--
 bumps:
   skills:
     plot: minor
     plot-deliver: patch
+    plot-reconcile: patch
 -->

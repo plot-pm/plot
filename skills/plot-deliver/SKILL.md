@@ -327,7 +327,7 @@ delivery that skipped CI should not be discovered by accident.
 
 ### 7b. Delivery-Landed Gate
 
-Delivery is a multi-step write (flip phase, write the `Delivered:` record, commit, push) — the biggest drift source in practice is a delivery that half-lands. The index move is no longer one of the steps that can half-land it: it is best-effort, and section 7 of the scan reports its absence as convenience rather than drift. This step is a **gate, not a rule**: the objective, checkable condition is *the reconcile scan's own output shows no drift for the plan you just delivered*. You cannot answer "did the delivery land?" without running the scan and reading its result — so run it, and **show the real output**. Do not declare delivery complete (do not proceed to the Summary) on a self-asserted claim; proceed only on the pasted evidence below.
+Delivery is a multi-step write (flip phase, write the `Delivered:` record, commit, push) — the biggest drift source in practice is a delivery that half-lands. The index move is no longer one of the steps that can half-land it: it is best-effort, and section 8 (index drift) of the scan reports its absence as convenience rather than drift. This step is a **gate, not a rule**: the objective, checkable condition is *the reconcile scan's own output shows no drift for the plan you just delivered*. You cannot answer "did the delivery land?" without running the scan and reading its result — so run it, and **show the real output**. Do not declare delivery complete (do not proceed to the Summary) on a self-asserted claim; proceed only on the pasted evidence below.
 
 Run the scan and capture both its `summary:` footer and the targeted grep:
 
@@ -379,7 +379,7 @@ Print:
   delivery — report the index move, if it happened, as a separate convenience
   line, and say so plainly if it was skipped)
 - All implementation PRs: merged
-- Delivery-landed gate: paste the **actual** `summary:` footer line the scan produced in step 7b (the objective artifact — not the words "verified" or "clean"), e.g. `summary: drift=0 merged_not_delivered=0 stale=… claims=… attention=0 concurrent=… unreleased_delivered=… index_drift=… pr_source=… main=…`. If the gate was skipped, print `Delivery-landed gate: SKIPPED — scan unavailable (<reason>)` instead. Add any optional branch-cleanup commands the scan suggested.
+- Delivery-landed gate: paste the **actual** `summary:` footer line the scan produced in step 7b (the objective artifact — not the words "verified" or "clean"), e.g. `summary: drift=0 merged_not_delivered=0 stale=… claims=… attention=0 concurrent=… unreleased_delivered=… unsliced_waves=… index_drift=… pr_source=… main=…`. If the gate was skipped, print `Delivery-landed gate: SKIPPED — scan unavailable (<reason>)` instead. Add any optional branch-cleanup commands the scan suggested.
 - If the plan has a Sprint field: show sprint progress ("N/M sprint items delivered")
 - Progress: `[ ] Draft > [ ] Approved > [x] Delivered > [ ] Released`
 - Type reminder:

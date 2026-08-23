@@ -455,7 +455,8 @@ while IFS="$US" read -r f st raw_phase alt alt_raw _branches _prs _ptype; do
   #
   # It is not silently dropped, because the visibility the old line bought was
   # real: a phase-less file in the plan directory is still worth a human
-  # glance, and section 7 is where a glance-level finding belongs now. What
+  # glance, and section 8 (index drift) is where a glance-level finding belongs
+  # now. What
   # changes is the claim — "nobody classified this" instead of "this plan is
   # broken" — and that it no longer inflates the `attention` count that gates
   # /plot-deliver and the /plot hygiene line.
