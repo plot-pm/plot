@@ -47,7 +47,6 @@ import { ChangedFilesModal } from './ChangedFilesModal.js';
 // formatter would drift from this one the first time either changed — the same
 // reason `ageLabel` was split out of `age` so an issue row and a branch row
 // cannot render one duration two ways.
-import { agoLabel } from './AgentPanelFacts.js';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 // THE TUPLE — one component and one grid for all seven kinds, and the
 // projection that fills its six slots.
