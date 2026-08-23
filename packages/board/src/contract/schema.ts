@@ -348,10 +348,38 @@ export const ColumnSchema = z.object({
 });
 export type Column = z.infer<typeof ColumnSchema>;
 
+/**
+ * One plan a sprint names, read from a `- [ ] [slug]` / `- [x] [slug]` line.
+ *
+ * `tier` is the MoSCoW section the line sits under. `deferred` is carried as a
+ * tier of its own — a `### Deferred` item is in the file and is NOT a commitment,
+ * so the consumer can exclude it from counts while the list stays faithful.
+ *
+ * `known` says whether the slug names a plan the board actually found. A sprint
+ * can list a plan since renamed or deleted; that member is REPORTED (`known:
+ * false`), never dropped, so the sprint's own scope stays knowable. The flag is
+ * set by `collectSprints`, which sees the plan estate; `parseSprintFile` reading
+ * the file alone cannot tell, so it emits `known: true`.
+ */
+export const SprintMemberSchema = z.object({
+  slug: z.string(),
+  tier: z.enum(['must', 'should', 'could', 'deferred']),
+  /** `- [x]` vs `- [ ]`. A ticked item is still a member. */
+  checked: z.boolean(),
+  known: z.boolean().default(true),
+});
+export type SprintMember = z.infer<typeof SprintMemberSchema>;
+
 export const SprintCardSchema = z.object({
   slug: z.string(),
   title: z.string(),
   phase: z.string(),
+  /**
+   * The plans the sprint names, one per distinct slug. A slug sliced across
+   * several waves lists once here (first, highest tier wins). Defaults to `[]`
+   * so a sprint file with no member list — or a hand-built SprintCard — is valid.
+   */
+  members: z.array(SprintMemberSchema).default([]),
 });
 export type SprintCard = z.infer<typeof SprintCardSchema>;
 

@@ -50,9 +50,19 @@ const REJECTED = `# A rejected idea
 - **Type:** docs
 `;
 
+// `sprint-support` is a real plan in this repo (the DELIVERED fixture above);
+// `ghost-plan` names nothing, so buildBoard must flag it known:false, not drop
+// it. The four-heading tier map and the checkbox/tick reading are covered by
+// the unit suite; here the point is the end-to-end payload carries the members
+// and the known-plan join has run.
 const SPRINT = `# Sprint: Alpha week
 ## Status
 - **Phase:** Active
+
+### Must Have
+
+- [ ] [sprint-support] a real plan, listed
+- [x] [ghost-plan] renamed away, still reported
 `;
 
 const STORY = `---
@@ -168,7 +178,17 @@ describe('board: contract fields + frontmatter visibility', () => {
   it('discovers active sprints', async () => {
     const board = await fetchBoard(server.port);
     assert.equal(board.sprints.length, 1);
-    assert.deepEqual(board.sprints[0], { slug: 'alpha-week', title: 'Alpha week', phase: 'Active' });
+    assert.deepEqual(board.sprints[0], {
+      slug: 'alpha-week',
+      title: 'Alpha week',
+      phase: 'Active',
+      members: [
+        // `sprint-support` is a plan the board found; `ghost-plan` is not, and is
+        // flagged rather than dropped. A `- [x]` item is still a member.
+        { slug: 'sprint-support', tier: 'must', checked: false, known: true },
+        { slug: 'ghost-plan', tier: 'must', checked: true, known: false },
+      ],
+    });
   });
 
   it('discovers stories with title + status + the path that makes them openable', async () => {

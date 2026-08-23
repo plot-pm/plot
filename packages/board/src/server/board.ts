@@ -13,6 +13,7 @@ import {
   type CardPr,
   type Phase,
   type SprintCard,
+  type SprintMember,
   type StoryCard,
   type FleetPulse,
   type PlanMeta,
@@ -538,11 +539,63 @@ function readPlanMeta(scriptsDir: string, files: string[]) {
 }
 
 /**
+ * The MoSCoW heading a member line sits under → the tier it carries. A heading
+ * outside this map (Sprint Goal, Notes, prose) puts the cursor in no tier, so
+ * checkbox lines there are not members.
+ */
+const SPRINT_TIER_HEADINGS: ReadonlyArray<readonly [RegExp, SprintMember['tier']]> = [
+  [/^### Must Have\b/, 'must'],
+  [/^### Should Have\b/, 'should'],
+  [/^### Could Have\b/, 'could'],
+  [/^### Deferred\b/, 'deferred'],
+];
+
+/**
+ * A sprint member line: `- [ ] [slug] …` or `- [x] [slug] …`. The first bracket
+ * is the checkbox, the second is the plan slug. A `### Deferred` bullet written
+ * as prose (`- **Renaming Endgame.** …`) has no `[slug]` and does not match.
+ */
+const SPRINT_MEMBER_LINE = /^- \[( |x)\] \[([^\]]+)\]/;
+
+/**
+ * Read a sprint file's members: the `- [ ] [slug]` / `- [x] [slug]` lines, the
+ * MoSCoW tier each sits under, and whether it is ticked. A plan sliced across
+ * waves lists its slug once per wave; the sprint contains it once, so members
+ * are deduped by slug with the FIRST occurrence winning — the file is read
+ * top-down and the sections run Must → Should → Could → Deferred, so a plan
+ * keeps its strongest tier.
+ *
+ * Every member is emitted `known: true`; only `collectSprints`, which sees the
+ * plan estate, can say otherwise.
+ */
+function parseSprintMembers(content: string): SprintMember[] {
+  const members: SprintMember[] = [];
+  const seen = new Set<string>();
+  let tier: SprintMember['tier'] | null = null;
+  for (const line of content.split('\n')) {
+    if (line.startsWith('### ') || line.startsWith('## ')) {
+      // A new heading resets the cursor: an unrecognised heading is no tier, so
+      // its checkboxes are not counted.
+      tier = SPRINT_TIER_HEADINGS.find(([re]) => re.test(line))?.[1] ?? null;
+      continue;
+    }
+    if (!tier) continue;
+    const m = line.match(SPRINT_MEMBER_LINE);
+    if (!m) continue;
+    const slug = m[2].trim();
+    if (seen.has(slug)) continue;
+    seen.add(slug);
+    members.push({ slug, tier, checked: m[1] === 'x', known: true });
+  }
+  return members;
+}
+
+/**
  * Sprint files are not plan files, so they are read here rather than via
  * plot-plan-meta.sh (which owns the plan format only). Minimal, faithful port
- * of the previous walker's parseSprint.
+ * of the previous walker's parseSprint, plus the member list.
  */
-function parseSprintFile(absPath: string): SprintCard | null {
+export function parseSprintFile(absPath: string): SprintCard | null {
   let content: string;
   try {
     content = fs.readFileSync(absPath, 'utf8');
@@ -557,10 +610,23 @@ function parseSprintFile(absPath: string): SprintCard | null {
   const phaseMatch = (statusMatch ? statusMatch[1] : '').match(/^- \*\*Phase:\*\* (.+)$/m);
   const phase = phaseMatch ? phaseMatch[1].trim() : '';
   if (!phase) return null;
-  return { slug, title, phase };
+  return { slug, title, phase, members: parseSprintMembers(content) };
 }
 
-function collectSprints(repoRoot: string, sprintDir: string): SprintCard[] {
+/**
+ * Discover the sprints under `<sprintDir>/active/`.
+ *
+ * `knownSlugs`, when supplied, is the set of plan slugs the board actually
+ * found; a member whose slug is not in it is flagged `known: false` and kept —
+ * a sprint listing a renamed or deleted plan must still report it, or its own
+ * scope becomes unknowable. Omitting the set leaves every member `known: true`
+ * (the file's own answer), which is what a caller with no plan estate wants.
+ */
+export function collectSprints(
+  repoRoot: string,
+  sprintDir: string,
+  knownSlugs?: ReadonlySet<string>,
+): SprintCard[] {
   const dir = path.join(repoRoot, sprintDir, 'active');
   if (!fs.existsSync(dir)) return [];
   const sprints: SprintCard[] = [];
@@ -573,7 +639,13 @@ function collectSprints(repoRoot: string, sprintDir: string): SprintCard[] {
       continue;
     }
     const sprint = parseSprintFile(resolved);
-    if (sprint) sprints.push(sprint);
+    if (!sprint) continue;
+    if (knownSlugs) {
+      sprint.members = sprint.members.map((m) =>
+        knownSlugs.has(m.slug) ? m : { ...m, known: false },
+      );
+    }
+    sprints.push(sprint);
   }
   return sprints;
 }
@@ -871,7 +943,11 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // `deliverable` bit, which this walker DOES know and sets above.
     deliver: { available: false, reason: '' },
     checklist: readChecklist(repoRoot, readConfig(opts, 'Release directory', 'docs/releases/')),
-    sprints: collectSprints(repoRoot, sprintDir),
+    // The plan slugs the board actually found, so a sprint member naming a
+    // renamed or deleted plan is flagged rather than silently dropped. `slug` on
+    // a card is `planSlug(relPath)` — the same date-stripped basename a sprint's
+    // `[slug]` carries, so the two join directly.
+    sprints: collectSprints(repoRoot, sprintDir, new Set(cards.map((c) => c.slug))),
     stories: collectStories(repoRoot, storyDir),
   };
 }
