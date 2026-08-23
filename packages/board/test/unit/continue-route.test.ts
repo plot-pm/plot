@@ -51,7 +51,9 @@ function worktree(opts: { marker?: boolean; pid?: string } = {}): string {
   git('commit', '-qm', 'trunk: before the branch existed');
   git('checkout', '-qb', BRANCH);
   if (opts.marker !== false) {
-    fs.writeFileSync(path.join(dir, 'QUESTION.md'), 'PLOT-BLOCKED: which adapter should this use?');
+    // The marker is a PLOT-BLOCKED* FILE the worker wrote, not a string inside
+    // some other file — `markerIn` finds it by name, mirroring the classifier.
+    fs.writeFileSync(path.join(dir, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which adapter should this use?');
   }
   fs.writeFileSync(path.join(dir, 'landed.txt'), 'what the previous run wrote');
   git('add', '-A');
