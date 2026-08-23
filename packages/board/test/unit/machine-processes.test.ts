@@ -1,6 +1,12 @@
-import { describe, it, expect } from 'vitest';
-import { classify, machineProcesses, rowsFromPulse } from '../../src/server/fleet.js';
-import { inMachineSection, machineNote, GROUPS } from '../../src/app/components/AgentList.js';
+import {
+  describe,
+  it,
+  expect } from 'vitest';
+import { classify,
+  machineProcesses,
+  rowsFromPulse } from '../../src/server/fleet.js';
+import { inMachineSection, machineNote } from '../../src/app/lib/agent-rows/host-notes.js';
+import { GROUPS } from '../../src/app/lib/agent-rows/sections.js';
 import {
   AgentRowSchema, WorkerStateSchema, type AgentRow, type FleetPulse,
 } from '../../src/contract/schema.js';

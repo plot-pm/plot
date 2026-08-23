@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { groupByPlan } from '../../src/app/components/AgentList.js';
+import { groupByPlan } from '../../src/app/lib/agent-rows/sections.js';
 import { type AgentRow } from '../../src/contract/schema.js';
 
 /**

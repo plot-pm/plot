@@ -1,16 +1,10 @@
-import { describe, it, expect } from 'vitest';
 import {
-  isUnbegun,
-  planWaitingDays,
-  sortByWaiting,
-  waveSummaryFor,
-  showsWaveFold,
-  groupByPlan,
-  type PlanGroup,
-  groupByWave,
-  waveGroupsFor,
-  ungroupedRows,
-} from '../../src/app/components/AgentList.js';
+  describe,
+  it,
+  expect } from 'vitest';
+import { groupByPlan, planWaitingDays, showsWaveFold, sortByWaiting, type PlanGroup, ungroupedRows, waveGroupsFor, waveSummaryFor } from '../../src/app/lib/agent-rows/sections.js';
+import { groupByWave } from '../../src/app/lib/agent-rows/waves.js';
+import { isUnbegun } from '../../src/app/lib/agent-rows/row-identity.js';
 import { ELIGIBLE_NOTE, type AgentRow, type Wave } from '../../src/contract/schema.js';
 
 /**

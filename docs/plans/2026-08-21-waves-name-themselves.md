@@ -15,6 +15,7 @@
 - **Started:** 2026-08-22, Jan Wloka, `infra/the-parser-reads-a-wave-heading`
 - **Started:** 2026-08-22, Jan Wloka, `infra/the-parser-reads-a-wave-heading`
 - **Started:** 2026-08-22, Jan Wloka, `infra/the-template-writes-waves`
+- **Started:** 2026-08-23, Jan Wloka, `infra/the-parser-reads-a-wave-heading`
 
 ## Changelog
 
