@@ -32,7 +32,7 @@ import {
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
 import { repairFor, startRepair } from './resolver.js';
-import type { BuildBoardOptions } from './board.js';
+import { collectSprints, readConfig, type BuildBoardOptions } from './board.js';
 import { readBridge, writeBridge } from './pulse-bridge.js';
 import { readFleetControls } from './fleet-controls.js';
 import { maybeAutoDispatch, liveAgentCount } from './auto-dispatch.js';
@@ -4239,6 +4239,21 @@ export function rowsFromPulse(
    * did before the field existed.
    */
   repoRoot = '',
+  /**
+   * Which ACTIVE sprint lists each plan, keyed by plan SLUG — the plan file with
+   * its date prefix and `.md` stripped, the same spelling the row writes into
+   * `plan`. Built by the caller from {@link collectSprints}, because that read
+   * touches `docs/sprints/` and this function is the synchronous render path: a
+   * filesystem read here would be the cost `questions` and `versions` are threaded
+   * as maps to avoid.
+   *
+   * A slug the map does not name gets `sprint: ''`, which is the honest answer
+   * for a plan no active sprint commits to. Last in the parameter list because it
+   * is the newest, so every existing caller is unchanged: a caller passing
+   * nothing leaves every row's `sprint` empty — exactly the board that predates
+   * the field.
+   */
+  sprintOf?: Map<string, string> | null,
 ): AgentRow[] {
   const rows: AgentRow[] = [];
   // ONE PASS OVER THE ESTATE, before the plan loop — a double claim cannot be
@@ -4432,6 +4447,12 @@ export function rowsFromPulse(
           branch: b.branch,
           plan: plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, ''),
           planFile: plan.file,
+          // WHICH ACTIVE SPRINT names this plan — joined on the slug, which is
+          // exactly `plan` one line up. Read from the caller's map, "" when no
+          // active sprint lists it: membership is the sprint FILE's list, not the
+          // plan's own `Sprint:` field, so a plan the file omits carries no sprint
+          // even where its field is filled. See `AgentRowSchema.sprint`.
+          sprint: sprintOf?.get(plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '')) ?? '',
           // NEVER A RELEASE, so never a version: this loop walks the branches a
           // PLAN names, and `changeset-release/*` belongs to no plan — it
           // reaches the board through the planless-PR loop below, which is where
@@ -4714,6 +4735,14 @@ export function rowsFromPulse(
       // now, so the caution is obsolete — and leaving it in cost the grouped
       // rows their only way to open the plan.
       planFile: ideaPlans?.get(branch) ?? '',
+      // NO SPRINT — and "" here is a fact, not a default reached by omission. A
+      // release row and an unplanned PR belong to no sprint by their nature: they
+      // are outside the question a sprint filter asks, which is exactly why the
+      // filter must keep them visible. An idea branch DOES carry a plan slug, but
+      // that plan is under review on its own branch and no sprint commits to a
+      // plan still being drafted; `sprintOf` is built from active sprints' member
+      // lists, which name landed plans, so an idea slug is absent from it anyway.
+      sprint: '',
       // THE VERSION a release branch would ship, read from its own
       // `package.json` — "" on every other branch. See `releaseVersions`.
       version: versions?.get(branch) ?? '',
@@ -4846,6 +4875,35 @@ const EMPTY_SUMMARY = {
 };
 
 /**
+ * Which active sprint lists each plan, keyed by plan SLUG → sprint slug — the
+ * join the fleet row's `sprint` field is set from. Read from the sprint FILES,
+ * not from any plan's `Sprint:` field: {@link collectSprints} parses the
+ * `- [ ] [slug]` member lines, and that list is complete by construction where
+ * the back-reference is unreliable.
+ *
+ * `active/` is a curated symlink index, so `collectSprints` already returns the
+ * active sprints — but the phase is checked here anyway, so the map's meaning is
+ * legible from the code that builds it rather than from an index invariant this
+ * file does not own. A Closed sprint left linked by drift must not claim a row.
+ *
+ * FIRST active sprint wins where two list one plan, matching the first-wins dedup
+ * the member list itself uses. Two Active sprints are permitted (two teams, one
+ * train); the field records one, and the control that renders both is a later
+ * wave's concern.
+ */
+export function sprintMembership(opts: BuildBoardOptions): Map<string, string> {
+  const sprintDir = readConfig(opts, 'Sprint directory', 'docs/sprints/');
+  const map = new Map<string, string>();
+  for (const sprint of collectSprints(opts.repoRoot, sprintDir)) {
+    if (sprint.phase !== 'Active') continue;
+    for (const member of sprint.members) {
+      if (!map.has(member.slug)) map.set(member.slug, sprint.slug);
+    }
+  }
+  return map;
+}
+
+/**
  * Read the cached pulse. Never runs the scan — that is the whole point.
  * `repoRoot` stays a parameter even while the UI shows one repo, so the second
  * one is an addition rather than a rebuild.
@@ -4863,7 +4921,11 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
       // on the render clock rather than carried on the pulse: the check is one
       // `existsSync` and a brief written between two scans is visible on the
       // next pulse, where a scan-time answer would be as stale as the scan.
-      entry.questions, entry.prsByHead, opts.repoRoot)
+      entry.questions, entry.prsByHead, opts.repoRoot,
+      // Which active sprint claims each plan — read on the render clock like the
+      // brief above, and for the same reason: a sprint file edited between two
+      // scans shows up on the next pulse. One dir read per pulse, no host call.
+      sprintMembership(opts))
     : [];
   return {
     generatedAt: new Date().toISOString(),

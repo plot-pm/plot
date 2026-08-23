@@ -287,7 +287,7 @@ for no gain.
 
 ### Measured
 
-- `feature/a-plan-reports-its-status` — the contract gains a derived `status` on the plan row, computed from its waves in the server, with `phase` untouched and the release gate proved unchanged
+- `feature/a-plan-reports-its-status` — the contract gains a derived `status` on the plan row, computed from its waves in the server, with `phase` untouched and the release gate proved unchanged → #374
 
 ## Notes
 
