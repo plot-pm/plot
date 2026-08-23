@@ -2976,7 +2976,7 @@ function PlanActions({
   const canCommission = Boolean(isDraftPlan && commission);
   // Deliver's OWN gate, disjoint from the draft one: the card's `deliverable`
   // bit, which the server sets only where it auto-bumped a fully-merged plan
-  // into Endgame — never on a plan already delivered. So this is true on exactly
+  // into Testing — never on a plan already delivered. So this is true on exactly
   // the plans that are complete-but-not-delivered, which is where the decision
   // to deliver lives.
   const canDeliver = Boolean(card?.deliverable && deliver);

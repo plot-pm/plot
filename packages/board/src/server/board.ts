@@ -61,7 +61,7 @@ function resolvedRepoRoot(opts: BuildBoardOptions): string {
  *
  * This is a SECOND contract surface — a markdown shape no other script reads,
  * the class of dependency that let a broken board call sit unnoticed for five
- * months. It earns its place only because the Endgame column asks *what is left
+ * months. It earns its place only because the Testing column asks *what is left
  * before signoff*, which "Delivered" does not answer, and because the parse is
  * small enough to pin completely with tests.
  *
@@ -410,7 +410,7 @@ export function summariseFromPulse(meta: PlanMeta, pulse: FleetPulse | null): Wa
  *
  * A deferred branch is exempt, matching the scan's own rule: a shelved branch is
  * not outstanding work, so a plan holding six merged and three deferred branches
- * (measured on the Endgame plans) is as complete as one holding nine merged.
+ * (measured on the Testing plans) is as complete as one holding nine merged.
  *
  * Returns false — the plan stays in Development — in three cases that must not be
  * confused with each other but share one answer here:
@@ -487,7 +487,7 @@ export function leadingDate(record: string): string {
  * one field rather than four.
  *
  * Each column measures recency on its own clock: `Released` by when the work
- * shipped, `Endgame` by when it was delivered, `Development` by when the plan
+ * shipped, `Testing` by when it was delivered, `Development` by when the plan
  * was approved, `Design` by when it entered Design. Reading one record for
  * every column would sort most of them by a date that is not theirs.
  *
@@ -506,7 +506,7 @@ export function phaseDateOf(phase: Phase, meta: PlanMeta): string {
   switch (phase) {
     case 'Released':
       return leadingDate(meta.released_raw);
-    case 'Endgame':
+    case 'Testing':
       return leadingDate(meta.delivered_raw);
     case 'Design':
       return leadingDate(meta.design_raw);
@@ -833,7 +833,7 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // The measurement, computed ONCE and reused for both the column and the
     // card's `deliverable` bit below. A plan is deliverable exactly when it is
     // in Development and every non-deferred branch has merged — which is also
-    // the condition that bumps its card into Endgame. Reusing the one boolean
+    // the condition that bumps its card into Testing. Reusing the one boolean
     // keeps the card's affordance and the auto-bump in lockstep by construction.
     const deliverable = mapped === 'Development' && allWavesMerged(meta, pulse);
     const phase = deliverable ? toBoardPhase('delivered')! : mapped;
@@ -868,7 +868,7 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // thing, but a Development card still benefits from the explicit flag. Gated
     // on the card's OWN phase, not the plan's: an approved plan whose waves have
     // all merged has been bumped out of Development, and the Ready/In-progress
-    // badge is a Development affordance that must not ride along into Endgame.
+    // badge is a Development affordance that must not ride along into Testing.
     if (phase === 'Development') card.started = started;
     // Computed for every plan that HAS waves, single-wave ones included. The
     // old `> 1` guard was right about "2 waves · 3 branches" being noise on a
@@ -891,7 +891,7 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // The affordance the Deliver control reads. Attached only when true, like
     // the fields above: absent and false are the same statement (*this plan is
     // not deliverable*), and the client leaves the control off either way. It is
-    // the SAME boolean the column bump used, so a card in Endgame that is not
+    // the SAME boolean the column bump used, so a card in Testing that is not
     // marked here is a plan already delivered — its decision made — and must
     // offer nothing.
     if (deliverable) card.deliverable = true;

@@ -173,7 +173,7 @@ function boardWith(cardOver: Record<string, unknown>): Record<string, unknown> {
       { phase: 'Backlog', cards: [] },
       { phase: 'Design', cards: [] },
       { phase: 'Development', cards: [card] },
-      { phase: 'Endgame', cards: [] },
+      { phase: 'Testing', cards: [] },
       { phase: 'Released', cards: [] },
     ],
     sprints: [],

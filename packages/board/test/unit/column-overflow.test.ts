@@ -172,12 +172,12 @@ describe('phaseDateOf — each column measures recency on its own clock', () => 
     released_raw: '2026-08-08, v2.3.0',
   };
 
-  it('reads Released by its RELEASE date and Endgame by its DELIVERY date', () => {
+  it('reads Released by its RELEASE date and Testing by its DELIVERY date', () => {
     // The mapping is the load-bearing half. One record for every column would
     // sort at least three of them by a date that is not theirs — and the result
     // looks sorted, which is why it needs pinning rather than eyeballing.
     expect(phaseDateOf('Released', meta(dates))).toBe('2026-08-08');
-    expect(phaseDateOf('Endgame', meta(dates))).toBe('2026-05-05');
+    expect(phaseDateOf('Testing', meta(dates))).toBe('2026-05-05');
   });
 
   it('reads Design by its DESIGN date and Development by its APPROVAL date', () => {
@@ -189,7 +189,7 @@ describe('phaseDateOf — each column measures recency on its own clock', () => 
   });
 
   it('gives a Design card no date when it records no Design: line', () => {
-    // Same discipline as Endgame/Released: no borrowing another phase's record.
+    // Same discipline as Testing/Released: no borrowing another phase's record.
     // A Design column with no design_raw sorts by arrival, not by approval.
     expect(phaseDateOf('Design', meta({ approved_raw: '2026-02-02' }))).toBe('');
   });
@@ -206,7 +206,7 @@ describe('phaseDateOf — each column measures recency on its own clock', () => 
     // its release date must yield "" rather than borrowing the delivery date —
     // a plausible order that answers a different question.
     expect(phaseDateOf('Released', meta({ delivered_raw: '2026-05-05' }))).toBe('');
-    expect(phaseDateOf('Endgame', meta({ approved_raw: '2026-01-01' }))).toBe('');
+    expect(phaseDateOf('Testing', meta({ approved_raw: '2026-01-01' }))).toBe('');
   });
 });
 

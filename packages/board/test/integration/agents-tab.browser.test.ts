@@ -855,7 +855,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   it('prints NO plan phase on a branch row, in any section', async () => {
     // THE RELOCATION, asserted as an absence — which is the only way it can be
     // asserted, and the reason it is a test of its own. 71 rows printed their
-    // plan's phase (36 `Development`, 26 `Endgame`, 9 `Design`): a fact about
+    // plan's phase (36 `Development`, 26 `Testing`, 9 `Design`): a fact about
     // the plan, on a row about a branch.
     //
     // `feature/reviewed` carries `phase: 'Development'` in the fixture, so the
@@ -1013,7 +1013,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       const li = rowFor(page, 'feature/reviewed');
       await expect.poll(() => li.textContent()).not.toContain('Phase:');
-      for (const word of ['Discovery', 'Design', 'Development', 'Endgame', 'Released']) {
+      for (const word of ['Discovery', 'Design', 'Development', 'Testing', 'Released']) {
         expect(await li.textContent()).not.toContain(word);
       }
     } finally {

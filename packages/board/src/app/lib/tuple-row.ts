@@ -914,7 +914,7 @@ export interface PlanRowFacts {
  * Project a plan into the six slots.
  *
  * **The phase belongs HERE**, and this is the object it describes. 71 branch
- * rows printed their plan's phase — 36 `Development`, 26 `Endgame`, 9 `Design`
+ * rows printed their plan's phase — 36 `Development`, 26 `Testing`, 9 `Design`
  * — a fact about the plan on a row about something else. Slot 5 on the PLAN row
  * is where that fact is true.
  *
