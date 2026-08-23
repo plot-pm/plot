@@ -1,3 +1,6 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import { planStatus } from '../../src/server/board.js';
 import { PlanMetaSchema, PlanStatusSchema, type FleetPulse } from '../../src/contract/schema.js';
@@ -179,5 +182,74 @@ describe('PlanStatusSchema — the enum is exactly the seven', () => {
       expect(PlanStatusSchema.parse(v)).toBe(v);
     }
     expect(PlanStatusSchema.safeParse('reviewing').success).toBe(false);
+  });
+});
+
+describe('deliverable is exactly status === deliverable — the one word', () => {
+  // The card's `deliverable` bit and the auto-bump into Testing both read
+  // `planStatus(...) === 'deliverable'` now. This asserts that word means the
+  // SAME thing the old inline boolean (`mapped === 'Development' &&
+  // allWavesMerged`) did — approved AND every non-deferred branch merged — so
+  // the Deliver button, the column bump and the reported status cannot disagree.
+  const oldDeliverable = (m: ReturnType<typeof meta>, p: FleetPulse | null) =>
+    m.phase === 'approved'
+    && p !== null
+    && (() => {
+      const plan = p.plans.find((x) => x.file === SLUG);
+      if (!plan) return false;
+      let merged = 0;
+      for (const w of plan.waves) for (const b of w.branches) {
+        if (b.state === 'deferred') continue;
+        if (b.state !== 'merged') return false;
+        merged += 1;
+      }
+      return merged > 0;
+    })();
+
+  const cases: Array<[string, ReturnType<typeof meta>, FleetPulse | null]> = [
+    ['approved+all-merged', meta({ phase: 'approved' }), oneMerged],
+    ['approved+one-open', meta({ phase: 'approved' }), oneOpen],
+    ['approved+started', meta({ phase: 'approved', started_raw: ['x'] }), oneOpen],
+    ['delivered', meta({ phase: 'delivered' }), oneMerged],
+    ['released', meta({ phase: 'released' }), oneMerged],
+    ['draft', meta({ phase: 'draft', review: 'pr' }), oneOpen],
+    ['no pulse', meta({ phase: 'approved' }), null],
+  ];
+  it.each(cases)('%s: the bit equals the word', (_name, m, p) => {
+    expect(planStatus(m, p) === 'deliverable').toBe(oldDeliverable(m, p));
+  });
+});
+
+describe('status appears nowhere on disk — nothing new is written', () => {
+  // The whole design: `status` is a DERIVED payload field, re-computed every
+  // scan, never a line in a plan file. The plan-format CONTRACT is the place to
+  // assert this — a raw grep for "Status:" false-matches prose (three plans here
+  // carry `Status: Not started` in a worker report), while the real guarantee is
+  // that `plot-plan-meta.sh` neither reads nor emits a `status` field and the
+  // schema that types its output has no such key.
+
+  it('PlanMetaSchema — the parser contract — carries no `status` field', () => {
+    // If the plan format ever grew `status`, the schema would gain the key and a
+    // parsed object would carry it. It must not: `status` is the board's
+    // derivation, not the plan's record.
+    const parsed = PlanMetaSchema.parse({
+      file: '/repo/docs/plans/x.md', format: 'canonical', phase: 'approved',
+    }) as Record<string, unknown>;
+    expect('status' in parsed).toBe(false);
+  });
+
+  it('no plan file records a `status` phase-field the way it records `Phase:`', () => {
+    // `Phase:` is the DECISION, written as a `- **Phase:** approved` record in
+    // the `## Status` section. `status` must never appear in that same shape — a
+    // measurement written to disk is the staleness this field exists to avoid.
+    // Matches the record form only, so `Status: Not started` prose in a body is
+    // not an offender; a `**Status:** approved` phase-record would be.
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const plansDir = path.resolve(here, '../../../../docs/plans');
+    const files = readdirSync(plansDir).filter((f) => f.endsWith('.md'));
+    expect(files.length).toBeGreaterThan(0);
+    const offenders = files.filter((f) =>
+      /^-\s*\*\*Status:\*\*/mi.test(readFileSync(path.join(plansDir, f), 'utf8')));
+    expect(offenders).toEqual([]);
   });
 });
