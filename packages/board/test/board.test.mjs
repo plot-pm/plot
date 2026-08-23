@@ -109,7 +109,7 @@ describe('board: contract fields + frontmatter visibility', () => {
     const board = await fetchBoard(server.port);
     assert.deepEqual(
       board.columns.map((c) => c.phase),
-      ['Discovery', 'Design', 'Development', 'Endgame', 'Released'],
+      ['Discovery', 'Design', 'Development', 'Testing', 'Released'],
     );
   });
 
@@ -160,7 +160,7 @@ describe('board: contract fields + frontmatter visibility', () => {
     const byPhase = Object.fromEntries(board.columns.map((c) => [c.phase, c.cards.map((x) => x.slug)]));
     assert.ok(byPhase.Discovery.includes('webhook-support'), 'a Draft plan lands in Discovery');
     assert.ok(!byPhase.Design.includes('webhook-support'), 'and not also in Design — a column is a partition');
-    assert.equal(byPhase.Endgame[0], 'sprint-support', 'Delivered belongs to Endgame alone');
+    assert.equal(byPhase.Testing[0], 'sprint-support', 'Delivered belongs to Testing alone');
     const all = board.columns.flatMap((c) => c.cards.map((x) => x.slug));
     assert.ok(!all.includes('rejected-idea'), 'rejected plan must not appear on the board');
   });
@@ -318,7 +318,7 @@ describe('board: Approved is Development, Ready or In progress, via the started 
   });
 
   it('reports a release checklist count, or null when there is none', async () => {
-    // The Endgame column asks what is left before signoff. The fixture has no
+    // The Testing column asks what is left before signoff. The fixture has no
     // docs/releases/, so null is the right answer — never a guessed 0/0.
     const board = await fetchBoard(server.port);
     assert.equal(board.checklist, null);

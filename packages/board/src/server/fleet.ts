@@ -2911,8 +2911,13 @@ function classifyGroup(
     // tip, the AND the scan already computed; reading it keeps a merged leftover
     // in NOT STARTED where it belongs. The path itself does not reach this
     // function — the row NAMES it through the pulse's `worktrees` list.
+    //
+    // WORKING IS ABOUT AGENTS. Agentless local activity goes to NOT STARTED
+    // — the branch is eligible for dispatch but nobody has taken it yet. The
+    // section means *an agent is working on this*, not *local activity
+    // observed*. See `every-section-has-one-subject`, wave Inverted.
     if (localDirty || localLocked || held) {
-      return workingLocally(localDirty, localAhead, localLocked, held);
+      return localActivity(localDirty, localAhead, localLocked, held);
     }
     // THE PLAN'S PHASE IS ASKED FIRST, AND IT DECIDES THE SECTION.
     //
@@ -3259,16 +3264,15 @@ function classifyGroup(
     // passed with nothing committed does "go look" become the useful thing to
     // say.
     //
-    // The GROUP is unchanged from the day it shipped, and deliberately: a fresh
-    // claim with no known worker is still the normal opening of a dispatch, and
-    // demoting every one of them would be the missing-pid-means-nobody mistake
-    // wearing a group instead of a sentence. Only the note stops promising
-    // commits are coming.
+    // WORKING IS ABOUT AGENTS, NOT BRANCHES. A claimed branch with no known
+    // worker is NOT STARTED — an agent may take it. The claim ref exists, but
+    // until `worker === 'running'` or `worker === 'waiting'`, no agent is on
+    // it. See `every-section-has-one-subject`, wave Inverted.
     if (ageMinutes !== null && ageMinutes <= quietMinutes) {
-      return { group: 'working', note: unstarted };
+      return { group: 'not-started', note: unstarted };
     }
     if (localDirty || localAhead > 0 || localLocked) {
-      return workingLocally(localDirty, localAhead, localLocked);
+      return localActivity(localDirty, localAhead, localLocked);
     }
     return {
       group: 'quiet',
@@ -3291,13 +3295,16 @@ function classifyGroup(
       : { group: 'done', note: 'merged — wave still open' };
   }
   // state === 'wip'
+  //
+  // WORKING IS ABOUT AGENTS. A branch with recent commits but no known agent
+  // is NOT STARTED — an agent may take it. The commit shows activity, but
+  // until `worker === 'running'` or `worker === 'waiting'`, no agent is on it.
+  // See `every-section-has-one-subject`, wave Inverted.
   if (ageMinutes !== null && ageMinutes <= quietMinutes) {
-    // A recent commit is the stronger statement and keeps its own note: the age
-    // is what the reader came for, and replacing it would hide it.
-    return { group: 'working', note: `last commit ${humanAge(ageMinutes)} ago` };
+    return { group: 'not-started', note: `last commit ${humanAge(ageMinutes)} ago` };
   }
   if (localDirty || localAhead > 0 || localLocked) {
-    return workingLocally(localDirty, localAhead, localLocked);
+    return localActivity(localDirty, localAhead, localLocked);
   }
   if (ageMinutes === null) return { group: 'quiet', note: 'pushed work, age unknown' };
   return { group: 'quiet', note: `no commit for ${humanAge(ageMinutes)}` };
@@ -3407,55 +3414,30 @@ export function classify(
 }
 
 /**
- * The one answer local evidence may produce: working, on grounds this machine
- * can see and no other can.
+ * Local activity on a branch WITHOUT a known agent → NOT STARTED.
  *
- * The note names the evidence as LOCAL because that is what a reader needs to
- * judge it. Work that has not been pushed is work nobody else can see, and a row
- * claiming *working* on grounds the next person cannot verify would be its own
- * kind of lie — saying *local* keeps the claim honest.
+ * WORKING IS ABOUT AGENTS. A branch with local activity but no known worker is
+ * an invitation to dispatch, not evidence that an agent is on it. The section
+ * means *who is working*, and a dirty worktree or a lock does not answer that.
+ * See `every-section-has-one-subject`, wave Inverted.
  *
- * It does not say WHO. A human's edits look exactly like an agent's (git records
- * no author on an uncommitted change), and on an `Impl: same branch` plan they
- * share one branch by design. So the note reports what was observed and on which
- * machine, and a reader who recognises their own editor is not misled — where
- * "agent working" would have misled them.
+ * The note describes WHAT was observed — uncommitted work, unpushed commits, a
+ * write lock, a held checkout — and the reader infers whose. The section is
+ * NOT STARTED because an agent may claim this branch; once `worker ===
+ * 'running'` or `worker === 'waiting'`, the branch moves to WORKING through
+ * the worker arm in `classifyGroup`, not through this function.
  *
- * TWO FACTS, AND BOTH ARE SAID WHEN BOTH HOLD — unpushed first. `dirty` means
- * *someone is editing*; `ahead` means *finished work exists that nobody else can
- * see*. An earlier draft reported only the unpushed commits, on the grounds that
- * they are the more urgent fact. That is true and not a reason to drop the
- * other: suppressing a true fact because a second outranks it is precisely the
- * displacement `deferred` used to cause to the note text. The pair also changes
- * the advice — *push this* versus *push this, and someone is still working* —
- * which is the whole reason to distinguish them.
- *
- * The count is a COUNT, never an age. "2 commits not pushed" answers a question
- * no timestamp can: it names an action, and the action belongs to a specific
- * machine.
- *
- * The DIRTY-ONLY note is unchanged from the day it shipped. Rewording it to
- * match the pair would have been tidier and would have changed what every
- * existing dirty row says, for a branch whose subject is the OTHER case.
- *
- * A LOCK OUTRANKS BOTH AND SAYS SO ALONE. `dirty` and `ahead` describe a state
- * the worktree is IN; a lock describes something happening AS THE ROW IS READ,
- * and it is the only one of the three that can go stale between the scan and the
- * next poll four seconds later. So it leads, and it does not append the other
- * two: under a lock `git status` never ran, so `dirty` was not observed and is
- * false by default rather than by measurement — printing "no uncommitted
- * changes" beside it would report an absence of evidence as evidence of absence,
- * which is the mistake the whole exit-code rule exists to prevent. `ahead` is a
- * ref fact and remains true, but it answers *what to do next* for a branch
- * nobody is touching, and the reader of a locked row is being told to wait.
+ * This function replaced `workingLocally` on 2026-08-23: same notes, different
+ * section. The notes kept their wording — a human reading "held in a local
+ * worktree" should recognise it as the same fact, only filed where it belongs.
  */
-function workingLocally(
+function localActivity(
   dirty: boolean,
   ahead: number,
   locked = false,
   held = false,
 ): { group: WaitingGroup; note: string } {
-  if (locked) return { group: 'working', note: 'a write is in progress in a local worktree' };
+  if (locked) return { group: 'not-started', note: 'a write is in progress in a local worktree' };
   // HELD WITH NOTHING ELSE TO REPORT. A worktree holds the branch, the tree is
   // clean, and `local_ahead` is 0 — which for a branch with no upstream is what
   // "could not compare" reports, not what "no commits" reports. So this says the
@@ -3469,12 +3451,12 @@ function workingLocally(
   // genuinely-held branch prints this note — the merged leftover it used to
   // fire on now stays in NOT STARTED, which is the whole of the fix.
   if (!dirty && ahead <= 0 && held) {
-    return { group: 'working', note: 'held in a local worktree' };
+    return { group: 'not-started', note: 'held in a local worktree' };
   }
-  if (ahead <= 0) return { group: 'working', note: 'uncommitted work in a local worktree' };
+  if (ahead <= 0) return { group: 'not-started', note: 'uncommitted work in a local worktree' };
   const unpushed = `${ahead} commit${ahead === 1 ? '' : 's'} not pushed locally`;
   return {
-    group: 'working',
+    group: 'not-started',
     note: dirty ? `${unpushed}, uncommitted changes` : unpushed,
   };
 }

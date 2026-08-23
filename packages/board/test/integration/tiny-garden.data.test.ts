@@ -29,9 +29,9 @@ describe('tiny-garden: data layer (built artifact + real helpers)', () => {
     // whether or not a branch has started — approved-but-unstarted is work
     // waiting for an agent, not design in progress. The Design column is empty
     // because no fixture plan is in the Design phase. Its 3 Delivered ones are
-    // Endgame, because Development ends at the merge. This is the measured case
+    // Testing, because Development ends at the merge. This is the measured case
     // the plan names: approved-unstarted plans move OUT of Design.
-    expect(counts).toEqual({ Discovery: 2, Design: 0, Development: 2, Endgame: 3, Released: 1 });
+    expect(counts).toEqual({ Discovery: 2, Design: 0, Development: 2, Testing: 3, Released: 1 });
   });
 
   it('excludes the Rejected plan from every column', async () => {
