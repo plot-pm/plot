@@ -185,7 +185,7 @@ cap; they are not one, and nothing here should honour them.)
 
 ### Alive
 
-- `feature/the-registry-knows-which-agents-live` — the registry answers
+- `feature/the-registry-knows-which-agents-live` → #327 — the registry answers
   liveness, which nothing does today. `plot-dispatch.sh` writes the agent's pid
   into its manifest beside the identity it already records; the pulse refreshes
   each entry's state from `plot-worker-state.sh`, so an entry whose process is
