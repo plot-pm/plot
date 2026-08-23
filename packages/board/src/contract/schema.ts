@@ -117,7 +117,7 @@ export type PlanMeta = z.infer<typeof PlanMetaSchema>;
  *   Discovery    Draft — the plan is still being found          👤 human-led
  *   Design       Design — a question approval cannot answer     👤 human-led
  *   Development  Approved — handed to an agent, or waiting      🤖 agent-led
- *   Endgame      Delivered, not yet Released                    👤 human-led
+ *   Testing      Delivered, not yet Released                    👤 human-led
  *   Released     done
  *
  * Design is a real phase now, not a state the board infers. A plan enters it
@@ -136,10 +136,10 @@ export type PlanMeta = z.infer<typeof PlanMetaSchema>;
  *
  * Development ends at the MERGE, not at the release: Delivered means the code
  * landed and the agents are done, so what remains is verification and signoff.
- * A column is a partition, so Delivered belongs to Endgame alone.
+ * A column is a partition, so Delivered belongs to Testing alone.
  */
 export const BOARD_PHASES = [
-  'Discovery', 'Design', 'Development', 'Endgame', 'Released',
+  'Discovery', 'Design', 'Development', 'Testing', 'Released',
 ] as const;
 export type Phase = (typeof BOARD_PHASES)[number];
 
@@ -152,7 +152,7 @@ export const PHASE_LEADERSHIP: Record<Phase, { icon: string; who: string }> = {
   Discovery: { icon: '👤', who: 'human-led' },
   Design: { icon: '👤', who: 'human-led' },
   Development: { icon: '🤖', who: 'agent-led' },
-  Endgame: { icon: '👤', who: 'human-led' },
+  Testing: { icon: '👤', who: 'human-led' },
   Released: { icon: '✓', who: 'done' },
 };
 
@@ -300,12 +300,12 @@ export const CardSchema = z.object({
    * and nothing more: reaching it flips no phase and writes no `Delivered:`
    * record. Delivering stays a person's click on the control this gates.
    *
-   * Set ONLY on a card the server auto-bumped from Development into Endgame
+   * Set ONLY on a card the server auto-bumped from Development into Testing
    * because `allWavesMerged` held (see `buildBoard`). An already-`delivered`
-   * plan also lands in Endgame, and it deliberately does NOT carry this — its
+   * plan also lands in Testing, and it deliberately does NOT carry this — its
    * decision was already made, so the control it would gate must not appear.
    * That asymmetry is the whole reason this is its own bit rather than
-   * `phase === 'Endgame'`.
+   * `phase === 'Testing'`.
    *
    * Optional and absent-when-false, the discipline of `worktrees`/`hasDispatchLog`
    * above: a plan that is not deliverable, and an older server that never looked,
@@ -317,7 +317,7 @@ export const CardSchema = z.object({
    * plan records none.
    *
    * One field rather than four, and that is the point: a `Released` card is
-   * recent by its **release** date and an `Endgame` card by its **delivery**
+   * recent by its **release** date and a `Testing` card by its **delivery**
    * date, so "how recent is this card" has a different answer per column. The
    * server picks the right record once (see `phaseDateOf`) and the client sorts
    * on the answer — otherwise every consumer would carry its own copy of the
@@ -539,7 +539,7 @@ export const BoardSchema = z.object({
    */
   deliver: DispatchInfoSchema.default({ available: false, reason: '' }),
   /**
-   * Newest release checklist, for the Endgame column: what is left before
+   * Newest release checklist, for the Testing column: what is left before
    * signoff. null when no checklist exists or none could be parsed — the board
    * shows no badge rather than a guessed count.
    */
@@ -582,7 +582,7 @@ export function toBoardPhase(helperPhase: string, _started = false): Phase | nul
       // used to manufacture the Design column with; removing it is the change.
       return 'Development';
     case 'delivered':
-      return 'Endgame';
+      return 'Testing';
     case 'released':
       return 'Released';
     default:

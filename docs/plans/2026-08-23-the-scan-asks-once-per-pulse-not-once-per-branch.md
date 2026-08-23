@@ -46,6 +46,27 @@ would stay invisible:
 It is now fatal on GitHub too, for a reason #228 could not have seen: this repo
 went from 14 branches to **99**, and the board polls every 5 s.
 
+### And the cost multiplies per board
+
+Measured the same evening: **six board servers were running at once** on this
+machine — one per worktree an operator or a test had left open, each respawned by
+`node --watch`. Each spawns its own scan on its own 5 s timer, and each scan
+re-asks the same ~99 branches, because the cache that would have prevented it is
+per-invocation.
+
+The whole 5000-call GraphQL budget went in roughly **90 minutes** of ordinary
+work, and the session could not query PR state to finish merging — the tooling
+took the budget the operator needed. REST sat untouched at 4999/5000 throughout,
+which is what identifies the drain as the scan (GraphQL, via `gh pr *`) rather
+than as merge activity (REST, via `gh api`).
+
+**This is not a separate defect and must not become a separate plan.** Six boards
+is a symptom of a development machine, not of a bug; the reason six boards can
+exhaust a budget is the per-branch call, and removing it makes the board's cost
+per pulse independent of the branch count. A fix aimed at "run fewer boards"
+would leave a single board exhausting the budget in ~81 minutes, which is the
+measured starting point.
+
 ### What #232 actually fixed, and what it left
 
 `plot-fleet-scan.sh` resolves state through `host_pr_state` (line 567), which

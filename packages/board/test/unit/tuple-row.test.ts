@@ -701,15 +701,15 @@ describe('every kind fills all six slots', () => {
     //
     // The phase is a fact about a PLAN. Slot 5 on a plan row is where it is
     // true, and 71 branch rows printed it anyway (36 `Development`, 26
-    // `Endgame`, 9 `Design`) because slot 2 was a column looking for something
+    // `Testing`, 9 `Design`) because slot 2 was a column looking for something
     // to hold. A PR row and a build row have no phase at all — a CI run is not
-    // in `Endgame` — and a ticket has never entered the lifecycle the word
+    // in `Testing` — and a ticket has never entered the lifecycle the word
     // comes from.
     //
     // Every projection here is handed a row that COULD leak one: `row()` carries
     // `phase` and the plan fixture is in `Design`, so a projection reading
     // `row.phase` into slot 5 would be caught rather than passing on absent data.
-    const PHASES = ['Discovery', 'Design', 'Development', 'Endgame', 'Released'];
+    const PHASES = ['Discovery', 'Design', 'Development', 'Testing', 'Released'];
     for (const kind of RowKindSchema.options) {
       const t = projections[kind]();
       if (kind === 'plan') {
@@ -1013,11 +1013,11 @@ describe('slot 5 holds a value, never a sentence', () => {
 
   it('puts the PHASE on the plan row, which is the object it describes', () => {
     // 71 branch rows printed their plan's phase — 36 `Development`, 26
-    // `Endgame`, 9 `Design` — a fact about the plan on a row about something
+    // `Testing`, 9 `Design` — a fact about the plan on a row about something
     // else. Slot 5 on the PLAN row is where that fact is true.
     expect(tupleFromPlan({
-      plan: 'p', planFile: 'f.md', phase: 'Endgame', waitingDays: null,
-    }).status).toBe('Endgame');
+      plan: 'p', planFile: 'f.md', phase: 'Testing', waitingDays: null,
+    }).status).toBe('Testing');
   });
 });
 
