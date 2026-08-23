@@ -766,6 +766,24 @@ export function App() {
     <div className="mx-auto min-h-screen max-w-[1600px] px-4 py-4">
       <header className="mb-4 flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-bold tracking-tight">Plot</h1>
+        {/* The branch this server is serving from. This repo has 22+ worktrees
+            and `pnpm board` serves whichever one it was started in, so a reader
+            who sees a layout they changed needs to know which branch's artifact
+            they are looking at before concluding the fix did or did not land.
+
+            Rendered ONLY when non-empty: a detached HEAD (several here are) or an
+            unreadable repo reports '', and the header shows no element rather
+            than a chip saying `unknown` or a fabricated SHA. Muted secondary
+            weight — a branch name is context, not one of the two states a reader
+            acts on, so it does not compete with the row states below. */}
+        {board?.server.branch && (
+          <span
+            className="font-mono text-xs text-slate-500 dark:text-slate-400"
+            title="The branch this board is serving from"
+          >
+            {board.server.branch}
+          </span>
+        )}
         <nav className="mr-auto flex gap-1" aria-label="Views">
           {([
             ['board', 'Board'],

@@ -403,6 +403,20 @@ export const ServerInfoSchema = z.object({
   restartCommand: z.string().default(''),
   /** The bound port, or 0 where it is not known. */
   port: z.number().default(0),
+  /**
+   * The branch this server is serving the artifact from — the worktree it was
+   * started in. With 22+ worktrees on this repo a reader who sees a layout they
+   * changed and concludes the fix failed may simply be looking at another
+   * branch's artifact; this names which one so the two are told apart.
+   *
+   * Empty means DETACHED HEAD or unreadable — `git branch --show-current`
+   * prints nothing for a detached worktree, several of which exist here. The
+   * header renders NO element for the empty value rather than a chip saying
+   * `unknown` or a fabricated short SHA: a SHA answers a question nobody asked
+   * and reads as a branch name to anyone skimming. Absent (an older server that
+   * never sent the field) collapses to the same empty, and to the same silence.
+   */
+  branch: z.string().default(''),
 });
 export type ServerInfo = z.infer<typeof ServerInfoSchema>;
 
@@ -412,7 +426,7 @@ export const BoardSchema = z.object({
   /** See DispatchInfoSchema — a server capability, not plan data. */
   dispatch: DispatchInfoSchema.default({ available: false, reason: '' }),
   /** See ServerInfoSchema — how to start this server again, and where it is. */
-  server: ServerInfoSchema.default({ restartCommand: '', port: 0 }),
+  server: ServerInfoSchema.default({ restartCommand: '', port: 0, branch: '' }),
   /**
    * Whether the server will act on an Approve click, and why not.
    *
