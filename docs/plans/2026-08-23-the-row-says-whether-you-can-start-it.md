@@ -73,11 +73,34 @@ One word, computed from every fact the board already holds — prior waves lande
 | the row says | live count | what a reader does |
 |---|---|---|
 | `start work` | ~5 | start it |
+| `needs a brief` | see below | run `/plot-implement` to write one |
 | `waiting on approval` | 13 | approve the plan, or leave it |
 | `someone is on it` | 8 | nothing — and that is a real answer |
 
 Every one of those is actionable or explicitly closes the question. `eligible`
 was neither.
+
+### `start work` must mean START IT, which is why there are four words
+
+A fourth verdict exists because the third would otherwise lie. `needsBrief`
+already ships in `row-identity.ts`, and its docstring carries the measurement:
+
+> Measured 2026-08-19: nine eligible rows on this board, zero briefs. Every one
+> read *eligible — nobody has taken it*, and every dispatch it invited would
+> have started an agent that reads a file which is not there.
+
+A branch with no brief is not startable in the sense `start work` promises. The
+`Worker command` opens by telling the agent to read `.plot/briefs/<slug>.md`, so
+dispatching such a row starts an agent that fails on its first read — a
+**worse** outcome than the row saying nothing, because the reader acted on it.
+
+Folding this into `start work` and qualifying it with a note would rebuild the
+defect one level down: a word that means *go* except when a smaller word beside
+it says otherwise is the same shape as `eligible` plus its reasons. **The
+verdict must be the whole answer.**
+
+`briefGapNote`'s wording is reused unchanged — this plan adds a verdict, not a
+second vocabulary for the same fact.
 
 ### `eligible` survives where it is true — in the SCAN
 
@@ -101,6 +124,29 @@ Thirteen of twenty-six eligible rows belong to **Discovery/Draft** plans, where
 start — it must say the plan needs approving, because that is a thing the reader
 can go and do.
 
+### ONE predicate, and the menu reads it
+
+`isStartable` already lives client-side and gates the row menu's *Start work*
+action:
+
+```ts
+export function isStartable(row: AgentRow): boolean {
+  return row.waitingOn === 'click' && row.state === 'open';
+}
+```
+
+**It becomes a read of the new verdict, not a second computation of it.** Two
+predicates answering *can I start this* is exactly the duplication
+`the-wave-is-a-thing-the-board-can-hold` spent four waves removing, and here it
+has a specific failure: the row could say `start work` while the menu refuses,
+or offer *Start work* on a row the verdict called `waiting on approval`. That
+promise/refusal mismatch is the hazard `waveSummaryFor`'s own docstring already
+names — *"the summary cannot promise an action the menu then refuses"* — and
+keeping two implementations is how it comes back.
+
+The server derives once, where the plan phase is in scope; the row renders the
+word and the menu reads the same field.
+
 ### Not chosen: keep `eligible` and add a note beside it
 
 Considered and rejected 2026-08-23. The note would carry the actionable half
@@ -122,21 +168,29 @@ start this*.
 
 ## Done when
 
-- A row on an **unapproved** plan never reads as startable. Twelve rows today
-  would change; assert on that shape, not on the count.
-- A row whose branch is **claimed** or **wip** never reads as startable — four
-  rows today.
-- The **eight** genuinely startable rows still say so.
-- **`verdict` is unchanged on the payload**, and `--next` returns the same branch
-  before and after. Assert it: this is a rendering change, and a fix that alters
-  the scan's answer has changed the fleet's ordering.
-- The status word a reader sees and the note beside it **agree** — today one says
-  `eligible` and the other says *plan not approved yet*.
-- **Every sentence in WAITING ON YOU names something a reader can do.** The
-  section means *a person owes this something*; a head reading *work landed —
-  waiting to be merged* over branches with no PR names nothing. Verify against
-  `a-draft-plan-claims-no-approvals`, which owns that fix, rather than duplicating
-  it here.
+- **Every verdict is reachable, one test each**, building the state that
+  produces it: `start work`, `needs a brief`, `waiting on approval`, `someone is
+  on it`. Asserted on fixtures rather than against the live estate — the live
+  counts belong in Motivation, and they move: this plan already records them
+  going from 25/8 to 26/5 while it was being written, so an assertion on them
+  would fail for reasons that are not regressions.
+- **An exhaustiveness test:** every value the verdict can take is produced by
+  some fixture. A verdict nothing constructs is one nobody has read, and it is
+  how a fifth case gets added without a reader ever seeing it.
+- **No row renders `eligible`.** Asserted as absence across every section — this
+  is the defect, and a fix that adds the new words while leaving the old one
+  somewhere reads as an improvement in every other test.
+- **A row with no brief reads `needs a brief`, never `start work`.** This is the
+  assertion that keeps the third word honest; without it an implementation that
+  ignores `needsBrief` passes everything else.
+- **The row and the menu never disagree.** `isStartable` reads the verdict, so a
+  row saying `start work` offers *Start work* and a row saying anything else does
+  not. Asserted directly, because the promise/refusal mismatch is the failure
+  two predicates produce.
+- **The scan is unchanged.** `plot-fleet-scan.sh` still reports `eligible` and
+  still means *every prior wave landed*; other components read it and the
+  fleet's ordering depends on it. Asserted by running the scan's own suite
+  untouched — this plan changes the board's word, not the model's.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
 ## Branches
@@ -161,17 +215,18 @@ slot that reads as a verdict.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
-    {"q": "Does the defect still reproduce?", "a": "Yes and worse - re-measured 26 eligible / ~5 startable, against the draft's 25/8. 13 are Discovery plans the phase gate refuses, 8 are wip/claimed/merged", "category": "technical"},
-    {"q": "Is the wave-head note half still real?", "a": "No - groupedNote's false 'work landed' fallback was removed by #339 today and the string is absent from packages/board/src. Dropped from scope, recorded rather than deleted", "category": "technical"},
-    {"q": "Replace the word, or keep eligible and add a note?", "a": "REPLACE - a startability verdict. A note leaves the reader reading an unactionable word first. eligible survives in the SCAN, where it is a true measurement about waves", "category": "ux"}
+    {"q": "Round 1 (recorded earlier)", "a": "see plan body", "category": "technical"},
+    {"q": "The plan never mentions the brief, but needsBrief ships and a briefless dispatch starts an agent that reads a missing file", "a": "A fourth verdict `needs a brief` - start work must mean start it; folding it in as a note rebuilds the eligible defect one level down", "category": "domain"},
+    {"q": "isStartable already answers 'can I start this' client-side - two predicates?", "a": "The menu reads the new verdict; derive once in the server where the phase is in scope", "category": "technical"},
+    {"q": "Prove against fixtures or the live estate?", "a": "Fixtures, one per verdict, plus exhaustiveness - the live counts move and belong in Motivation", "category": "nonFunctional"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
-    "technical": {"stack": true, "architecture": true, "implementation": true},
+    "technical": {"stack": false, "architecture": true, "implementation": true},
     "domain": true,
-    "ux": {"happyPath": true, "edgeCases": true, "errors": false, "accessibility": false},
+    "ux": true,
     "nonFunctional": {"security": false, "performance": false, "scalability": false},
     "tradeOffs": true
   }
