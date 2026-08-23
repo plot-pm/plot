@@ -29,6 +29,8 @@ import {
   ChangeMarks,
   changedRows,
   isActive,
+  isFinished,
+  soleRowStatus,
   isUnpushed,
   waitingTone,
   activityPace,
@@ -431,6 +433,19 @@ describe('isActive — which rows have a PROCESS running on them', () => {
     expect(isActive(row({ state: 'wip', worker: 'running' }))).toBe(true);
   });
 
+  it('never marks a DEFERRED branch either — deferred is finished work', () => {
+    // Same category as merged: a human decided this branch is not needed, so
+    // there is no writing left to observe on it. Measured on the live board,
+    // one of the seven rows wearing the mark was `state: deferred` with a dirty
+    // worktree (`waiting-on-you-says-what-kind-of-waiting`). A worktree fact on
+    // a finished row is not a pulse; the guard is finishedness, not merged-ness.
+    expect(isActive(row({ state: 'deferred', worker: 'running' }))).toBe(false);
+    expect(isActive(row({ state: 'deferred', worker: 'waiting' }))).toBe(false);
+    expect(isActive(row({
+      state: 'deferred', pr: { number: 1, url: 'u', draft: false, state: 'pending' },
+    }))).toBe(false);
+  });
+
   it('survives a row that predates the fields entirely', () => {
     // The payload an older server sends.
     expect(() => isActive({ worker: undefined, pr: undefined } as never)).not.toThrow();
@@ -448,6 +463,58 @@ describe('isActive — which rows have a PROCESS running on them', () => {
     const agentOutside = row({ group: 'quiet', worker: 'running' });
     expect(isLive(agentOutside)).toBe(false);
     expect(isActive(agentOutside)).toBe(true);
+  });
+});
+
+describe('isFinished — the branch\'s work is over, whatever its worktree holds', () => {
+  it('is true for the two settled states and false for the rest', () => {
+    // `merged` and `deferred` are the two ways a branch's work ends: one landed,
+    // one was called off. Neither has writing left to observe, so a worktree or
+    // worker fact on such a row describes a stale checkout rather than live work.
+    expect(isFinished(row({ state: 'merged' }))).toBe(true);
+    expect(isFinished(row({ state: 'deferred' }))).toBe(true);
+    for (const s of ['open', 'wip', 'claimed'] as const) {
+      expect(isFinished(row({ state: s })), s).toBe(false);
+    }
+  });
+
+  it('survives a row that predates the field', () => {
+    expect(() => isFinished({ state: undefined } as never)).not.toThrow();
+  });
+});
+
+describe('soleRowStatus — a finished wave-of-one never shows a live worker', () => {
+  // The second face of the same defect: a wave of one folds its branch into the
+  // wave row, so that row's status is the branch's. A LIVE worker outranks the
+  // PR there — correct while the branch is in flight, stale once it is finished.
+  // Measured 2026-08-23: three DONE rows carried `worker: waiting`/`failed` on
+  // branches that were `merged` or `deferred`. `waiting` is a LIVE worker, so it
+  // survived onto a merged wave and read as *someone owes this an answer* under
+  // a heading that says done.
+  it('prefers a live worker on an UNFINISHED wave', () => {
+    expect(soleRowStatus(row({ state: 'wip', worker: 'running' }))).toBe('working');
+    expect(soleRowStatus(row({ state: 'open', worker: 'waiting' }))).toBe('waiting on you');
+  });
+
+  it('drops a live worker on a MERGED or DEFERRED wave, showing the state', () => {
+    // The worker outlives the branch; its last recorded state never cleared. On
+    // a finished row the branch state is the current fact, so the row reads
+    // `delivered` / `deferred` rather than a worklog fact about a run nobody is
+    // waiting on.
+    expect(soleRowStatus(row({ state: 'merged', worker: 'waiting' }))).toBe('delivered');
+    expect(soleRowStatus(row({ state: 'merged', worker: 'failed' }))).toBe('delivered');
+    expect(soleRowStatus(row({ state: 'deferred', worker: 'waiting' }))).toBe('deferred');
+    expect(soleRowStatus(row({ state: 'deferred', worker: 'stalled' }))).toBe('deferred');
+  });
+
+  it('prefers a PR condition over the bare state on a finished wave', () => {
+    // With the worker screened out, the row falls back to its PR then its state
+    // — the same order an unfinished wave uses, minus the live worker.
+    const t = soleRowStatus(row({
+      state: 'merged', worker: 'waiting',
+      pr: { number: 7, url: 'u', draft: false, state: 'green' },
+    }));
+    expect(t).toBe('green');
   });
 });
 
