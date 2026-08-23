@@ -40,11 +40,16 @@ import { CreatePlanButton } from './CreatePlanButton.js';
 import { ResliceButton } from './ResliceButton.js';
 import { DeliverButton } from './DeliverButton.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
-import { isDraft } from './PlanCard.js';
+import { isDraft, isApproved } from './PlanCard.js';
 import { StartWorkButton } from './StartWorkButton.js';
 import { WorkerLogModal } from './WorkerLogModal.js';
 import { DispatchLogModal } from './DispatchLogModal.js';
 import { ChangedFilesModal } from './ChangedFilesModal.js';
+// THE BOARD'S ONE AGE DIALECT, borrowed rather than reimplemented. A second
+// formatter would drift from this one the first time either changed — the same
+// reason `ageLabel` was split out of `age` so an issue row and a branch row
+// cannot render one duration two ways.
+import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 // THE TUPLE — one component and one grid for all seven kinds, and the
 // projection that fills its six slots.
 //
@@ -70,7 +75,7 @@ import { TupleLinkView, TupleRowView } from './TupleRow.js';
 import { isCollapsible, readCollapsed, writeCollapsed } from '../lib/agent-rows/collapse.js';
 import { ACTIVITY_MARK_PLACE, ActivityEcho, type ActivityPace, ChangeMarks, type WatchedState, activeRowKeys, activityPace, changedRows, groupPace } from '../lib/agent-rows/activity.js';
 import { offersChangedFiles, soleRowStatus, stuckEvidence, stuckWord } from '../lib/agent-rows/stuck.js';
-import { GROUPS, type PlanGroup, groupByPlan, planWaitingDays, rowsBySection, showPlanHeading, showsWaveFold, sortByWaiting, ungroupedRows, waveGroupsFor, waveKeyOf, waveSummaryFor } from '../lib/agent-rows/sections.js';
+import { GROUPS, type PlanGroup, elsewhereNote, groupByPlan, planWaitingDays, rowsBySection, showPlanHeading, showsWaveFold, sortByWaiting, ungroupedRows, waveGroupsFor, wavesElsewhere, waveKeyOf, waveSummaryFor } from '../lib/agent-rows/sections.js';
 import { changedFilesLabel, repairWord, shrinkNote } from '../lib/agent-rows/actions.js';
 import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, inMachineSection, issueNote, machineNote, noteWithoutPr, prNote } from '../lib/agent-rows/host-notes.js';
 import { briefGapNote, isStartable, isUnbegun, needsBrief, rowKey, waitingTone } from '../lib/agent-rows/row-identity.js';
@@ -1831,8 +1836,11 @@ function PlanRow({
   approve,
   commission,
   deliver,
+  dispatch,
+  pulse = 0,
   onApproving,
   ageMinutes,
+  elsewhere = 0,
   soleWave,
 }: {
   group: PlanGroup;
@@ -1844,6 +1852,14 @@ function PlanRow({
    */
   waves?: Wave[];
   onOpenPlan?: AgentListProps['onOpenPlan'];
+  /**
+   * How many of this plan's waves belong in ANOTHER section — from
+   * `wavesElsewhere`, computed at the call site where the server's `fleet.waves`
+   * and this head's section are both in scope. The head states the number so a
+   * plan split across sections is legible as split; zero appends nothing. See
+   * `elsewhereNote`.
+   */
+  elsewhere?: number;
   /**
    * The plan's clock in minutes, where the APPROVAL clock is not the one running.
    *
@@ -1884,6 +1900,11 @@ function PlanRow({
       end of the lifecycle, threaded to `PlanActions`, gated on the card's
       `deliverable` bit rather than on a Draft phase. */
   deliver?: DispatchInfo;
+  /** Whether this server will act on Dispatch — same binding as Start work,
+      threaded to `PlanActions` for the plan-level "dispatch all" action. */
+  dispatch?: DispatchInfo;
+  /** The pulse counter, passed through to `DispatchAllButton` for confirmation. */
+  pulse?: number;
   /** A click is outstanding (true) or has settled (false). */
   onApproving?: (active: boolean) => void;
   /**
@@ -1897,7 +1918,15 @@ function PlanRow({
   soleWave?: Wave | null;
 }) {
   const waiting = planWaitingDays(group);
-  const summary = waveSummaryFor(group, waves);
+  // THE SECTION'S OWN WAVES, then how many are ELSEWHERE. `waveSummaryFor` counts
+  // what this section holds — from the server's `waves` where the payload
+  // carries them — and is silent about the rest; `elsewhere` names the rest so a
+  // plan split across sections reads as split rather than as a whole plan two
+  // waves short. Joined with a middot when both speak; either alone stands on
+  // its own, and both empty renders nothing (the aside guards on it).
+  const here = waveSummaryFor(group, waves);
+  const away = elsewhereNote(elsewhere);
+  const summary = [here, away].filter(Boolean).join(' · ');
   const foldable = expanded !== null;
   // THE PHASE IS THE PLAN'S, and slot 5 is where a fact about the plan is true.
   // Read from the group's rows rather than from a plan field, because a row is
@@ -2087,16 +2116,19 @@ function PlanRow({
         </span>
       ) : null}
       aside={
-        // THE WAVE SUMMARY — *3 waves, first eligible*. It answers *which slice
-        // of this plan* in the plan's own terms, which are the only terms this
-        // row has: the branches it would otherwise name do not exist yet. In
-        // slot 4 beside the branch link for the same reason a branch row's wave
-        // badge is there — it qualifies the item rather than pointing anywhere.
+        // THE WAVE SUMMARY — *3 waves, first eligible*, then *· 1 wave
+        // elsewhere*. It answers *which slice of this plan* in the plan's own
+        // terms, which are the only terms this row has: the branches it would
+        // otherwise name do not exist yet. In slot 4 beside the branch link for
+        // the same reason a branch row's wave badge is there — it qualifies the
+        // item rather than pointing anywhere. The `elsewhere` clause makes the
+        // section-scoping legible: a plan split across sections says how many of
+        // its waves this head does NOT speak for.
         summary ? (
           <span
             data-wave-summary
             className="truncate text-slate-500 dark:text-slate-400"
-            title="Waves of this plan that nothing has started — counted in this section"
+            title="Waves of this plan in this section — and how many sit in another"
           >
             {summary}
           </span>
@@ -2112,7 +2144,7 @@ function PlanRow({
       // stands: a `plot-dispatch` control would have to guess which of the
       // plan's waves it meant, so the branch rows in the fold keep their own
       // menus, where the row has already decided.
-      menu={<PlanActions plan={group.plan} card={card} approve={approve} commission={commission} deliver={deliver} onApproving={onApproving} />}
+      menu={<PlanActions plan={group.plan} card={card} approve={approve} commission={commission} deliver={deliver} dispatch={dispatch} pulse={pulse} onApproving={onApproving} />}
     />
   );
 }
@@ -2955,6 +2987,165 @@ function WaveRow({
 }
 
 /**
+ * Whether the card has work that could be started now.
+ *
+ * The gate for Implement and Dispatch: an approved plan (`phase === 'Development'`)
+ * with at least one eligible branch. A plan with nothing eligible — every wave
+ * is blocked, claimed, merged or deferred — offers neither act.
+ *
+ * Returns false for any card without a pulse yet (`eligible` is undefined), which
+ * is the same answer `startRefusal` gives: waiting for the first fleet scan.
+ */
+function hasEligibleWork(card: Card | null): boolean {
+  return Boolean(card && isApproved(card) && (card.waveSummary?.eligible ?? 0) > 0);
+}
+
+/**
+ * Implement: dispatches `/plot-implement <slug>` via an agent spawned from the
+ * board. The route does not exist yet — Wave 2 of the plan adds it — so this
+ * renders present-but-refused with the reason.
+ *
+ * The control follows `DeliverButton`'s pattern: rendered whenever the gate
+ * passes, stating its own refusal where the server cannot act. A control that
+ * vanishes when refused is a control the reader cannot learn about, and a
+ * refusal that names itself is what this board settles on.
+ */
+function ImplementButton({ slug: _slug }: { slug: string }) {
+  // Wave 2 adds the route and the `implement` binding. Until then, the button
+  // is always refused with a reason that names what is missing.
+  const reason = 'route not yet available — Wave 2 adds /api/implement';
+  return (
+    <button
+      type="button"
+      aria-disabled
+      title={reason}
+      className="cursor-not-allowed text-xs font-medium text-slate-400 no-underline dark:text-slate-600"
+    >
+      Implement
+      <span className="sr-only"> — unavailable: {reason}</span>
+    </button>
+  );
+}
+
+/**
+ * Dispatch all: fans out all eligible branches of this plan in one click.
+ *
+ * The difference from `StartWorkButton` is the CAP: Start work posts with
+ * `--max 1` because it is on a wave row and means *this wave, now*; Dispatch
+ * posts with no cap because it is on a plan row and means *all of it*.
+ * `plot-dispatch.sh --max 0` is its own default, so omitting the cap is how the
+ * call expresses *no limit*.
+ */
+function DispatchAllButton({
+  card,
+  dispatch,
+  pulse,
+  onDispatching,
+}: {
+  card: Card;
+  dispatch: DispatchInfo;
+  pulse: number;
+  onDispatching?: (active: boolean) => void;
+}) {
+  const [state, setState] = useState<
+    | { kind: 'idle' }
+    | { kind: 'dispatching'; since: number }
+    | { kind: 'dispatched' }
+    | { kind: 'failed'; message: string }
+  >({ kind: 'idle' });
+  const dispatching = state.kind === 'dispatching';
+  const inFlight = useRef(false);
+
+  useEffect(() => {
+    if (!dispatching) inFlight.current = false;
+  }, [dispatching]);
+
+  useEffect(() => {
+    if (!dispatching || !onDispatching) return;
+    onDispatching(true);
+    return () => onDispatching(false);
+  }, [dispatching, onDispatching]);
+
+  // Watch claimed count, same as StartWorkButton — but give up after fewer
+  // pulses because a plan-level dispatch may claim several branches and the
+  // first claim landing is the confirmation.
+  const claimedRef = useRef(card.waveSummary?.claimed);
+  const claimed = card.waveSummary?.claimed;
+  const PULSES_BEFORE_GIVING_UP = 3;
+
+  useEffect(() => {
+    if (state.kind !== 'dispatching') {
+      claimedRef.current = claimed;
+      return;
+    }
+    const claimedAtClick = claimedRef.current;
+    const pulsesElapsed = pulse - state.since;
+    if (claimedAtClick !== undefined && claimed !== undefined && claimed > claimedAtClick) {
+      setState({ kind: 'idle' });
+    } else if (pulsesElapsed >= PULSES_BEFORE_GIVING_UP) {
+      setState({ kind: 'dispatched' });
+    }
+  }, [pulse, claimed, state]);
+
+  const refusal = !dispatch.available ? dispatch.reason : undefined;
+  const blocked = dispatching || refusal !== undefined;
+
+  const doDispatch = async () => {
+    setState({ kind: 'dispatching', since: pulse });
+    try {
+      // NO `--max` — the difference from StartWorkButton. `plot-dispatch.sh`
+      // treats no cap as "all eligible branches".
+      const res = await fetch('/api/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: card.slug }),
+      });
+      const body = (await res.json()) as { slug?: string; error?: string };
+      if (!res.ok) {
+        setState({ kind: 'failed', message: body.error ?? `HTTP ${res.status}` });
+      }
+    } catch (e) {
+      setState({ kind: 'failed', message: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          if (inFlight.current || blocked) return;
+          inFlight.current = true;
+          void doDispatch();
+        }}
+        aria-disabled={blocked || undefined}
+        aria-busy={dispatching}
+        title={refusal ?? `Dispatch all eligible branches of ${card.slug}`}
+        className={
+          blocked
+            ? `cursor-not-allowed text-xs font-medium text-slate-400 no-underline dark:text-slate-600${dispatching ? ` ${ACTING_CLASS}` : ''}`
+            : 'text-xs font-medium text-blue-600 hover:underline dark:text-blue-400'
+        }
+      >
+        {dispatching ? 'dispatching…' : 'Dispatch'}
+        {dispatching && <ActingSpinner />}
+        {!dispatching && refusal && (
+          <span className="sr-only"> — unavailable: {refusal}</span>
+        )}
+      </button>
+      {state.kind === 'dispatched' && (
+        <span className="text-xs text-slate-500 dark:text-slate-400">
+          Agent work will show up shortly
+        </span>
+      )}
+      {state.kind === 'failed' && (
+        <span className="text-xs text-red-700 dark:text-red-400">{state.message}</span>
+      )}
+    </>
+  );
+}
+
+/**
  * The plan row's `⋯` menu — the plan's own acts, and the reason it is a menu.
  *
  * **Two answers to one question, both plan-level.** A Draft plan awaits a
@@ -2966,6 +3157,13 @@ function WaveRow({
  * wave reads `waiting-on-you` when its plan is Draft, so any branch-row gate put
  * a plan act on a row whose own available act is not its own. That is why the
  * two row-level twins are deleted, not merely re-gated, and why they live here.
+ *
+ * **An approved plan with eligible work offers Implement and Dispatch.** Both
+ * are plan-level: Implement prepares one wave, Dispatch fans out all eligible
+ * branches. Neither appears on a branch row; neither appears on a plan with
+ * nothing eligible (blocked or finished). Implement is present-but-refused
+ * until its route exists (Wave 2); Dispatch posts to `/api/dispatch` with no
+ * cap.
  *
  * `ApproveButton` arms itself on the first click and its armed label names the
  * consequence (`Approve — merges PR #146?`), which is 25 characters in a cell
@@ -2990,6 +3188,8 @@ function PlanActions({
   approve,
   commission,
   deliver,
+  dispatch,
+  pulse = 0,
   onApproving,
 }: {
   plan: string;
@@ -3012,6 +3212,18 @@ function PlanActions({
    * one, because a plan head has one `⋯`.
    */
   deliver?: DispatchInfo;
+  /**
+   * Whether the server will act on Dispatch, and why not — the same binding
+   * Start work uses to fan out one branch at a time. Used by `DispatchAllButton`
+   * for the plan-level "dispatch all eligible branches" action.
+   */
+  dispatch?: DispatchInfo;
+  /**
+   * The pulse counter, passed through to `DispatchAllButton` for confirmation
+   * watching. `StartWorkButton` watches it to confirm a claim landed; the
+   * plan-level dispatch does the same for all eligible branches at once.
+   */
+  pulse?: number;
   onApproving?: (active: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -3033,6 +3245,12 @@ function PlanActions({
   // the plans that are complete-but-not-delivered, which is where the decision
   // to deliver lives.
   const canDeliver = Boolean(card?.deliverable && deliver);
+  // The APPROVED acts: Implement and Dispatch. Both gate on an approved plan
+  // with eligible work. The two together are the complement of Start work, which
+  // sits on a wave row and dispatches one branch — this menu sits on the plan
+  // row and offers either *prepare one wave* (Implement) or *fan out all of it*
+  // (Dispatch).
+  const hasEligible = hasEligibleWork(card);
   const approveWillAct = approve?.available ?? false;
   const commissionWillAct = commission?.available ?? false;
   // The DRAFT acts open the `⋯` only when one WILL act — a Draft plan with both
@@ -3040,13 +3258,18 @@ function PlanActions({
   // #160 settled and this must not disturb.
   const draftWillAct =
     (canApprove && approveWillAct) || (canCommission && commissionWillAct);
+  // The APPROVED acts follow `DeliverButton`'s shape: the menu opens on an
+  // eligible approved plan EVEN WHEN the server refuses or the route is missing.
+  // Implement states its own refusal (no route yet); Dispatch states the server's.
+  // Both render whenever `hasEligible`, so an approved plan with work always
+  // sees its two starts.
+  const approvedWillShow = hasEligible;
   // DELIVER is `ResliceMenu`'s shape, not the draft one: the menu opens on a
   // deliverable plan EVEN WHEN the server refuses, because `DeliverButton` states
   // its own refusal inside — a refusal is not an absence. So the `⋯` opens when a
-  // draft act will act OR the plan is deliverable, and `DeliverButton` below
-  // renders whenever `canDeliver`, showing its disabled+reason state when the
-  // binding declines.
-  const canOpen = draftWillAct || canDeliver;
+  // draft act will act OR the plan is deliverable OR it has eligible work, and
+  // the buttons below render whenever their own gate passes.
+  const canOpen = draftWillAct || canDeliver || approvedWillShow;
   // The dim button's tooltip names a refusal only when there IS one to name —
   // an act present and declined. The reason of whichever act this plan offers
   // leads, so the sentence points at a real binding rather than a generic one.
@@ -3054,6 +3277,7 @@ function PlanActions({
     (canApprove ? approve?.reason : undefined) ||
     (canCommission ? commission?.reason : undefined) ||
     (canDeliver ? deliver?.reason : undefined) ||
+    (hasEligible ? dispatch?.reason : undefined) ||
     `Cannot act on ${plan} from here`;
 
   useEffect(() => {
@@ -3084,7 +3308,7 @@ function PlanActions({
       className="relative w-5 shrink-0 text-right"
       onClick={(e) => e.stopPropagation()}
     >
-      {(isDraftPlan || canDeliver) && (
+      {(isDraftPlan || canDeliver || hasEligible) && (
         <button
           type="button"
           data-plan-actions={plan}
@@ -3133,6 +3357,27 @@ function PlanActions({
           {canDeliver && deliver && (
             <div role="menuitem" className="px-2 py-1 text-left">
               <DeliverButton slug={card.slug} deliver={deliver} onActing={onApproving} />
+            </div>
+          )}
+          {/* The approved acts: Implement and Dispatch. Rendered whenever the
+              plan has eligible work, EVEN WHEN the server refuses or the route
+              is missing — each states its own refusal inside. The menu opens
+              when hasEligible, so these are never alone in an empty menu.
+              Implement is present-but-refused until Wave 2 adds its route;
+              Dispatch posts to /api/dispatch with no cap. */}
+          {hasEligible && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <ImplementButton slug={card.slug} />
+            </div>
+          )}
+          {hasEligible && dispatch && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <DispatchAllButton
+                card={card}
+                dispatch={dispatch}
+                pulse={pulse}
+                onDispatching={onApproving}
+              />
             </div>
           )}
         </div>
@@ -4755,7 +5000,15 @@ export function AgentList({
                           approve={approve}
                           commission={commission}
                           deliver={deliver}
+                          dispatch={dispatch}
+                          pulse={pulse}
                           onApproving={onStarting}
+                          // HOW MANY OF THIS PLAN'S WAVES ARE IN ANOTHER SECTION.
+                          // Read from the server's `fleet.waves`, keyed on the
+                          // section this head renders in (`key`), so a plan whose
+                          // first wave already merged into DONE says as much here
+                          // rather than reading two-wave when it is three.
+                          elsewhere={wavesElsewhere(fleet.waves, group.plan, key)}
                           // A ONE-WAVE plan shows its wave's verdict on this row
                           // instead of nesting a wave row beneath it.
                           soleWave={soleWaveFor(group.plan, waves)}
@@ -5081,7 +5334,15 @@ export function AgentList({
                         approve={approve}
                         commission={commission}
                         deliver={deliver}
+                        dispatch={dispatch}
+                        pulse={pulse}
                         onApproving={onStarting}
+                        // HOW MANY OF THIS PLAN'S WAVES ARE ELSEWHERE — the same
+                        // count the NOT STARTED head carries, keyed on THIS
+                        // section (`key`). A DONE head whose plan also has an
+                        // unstarted wave says so here rather than reading as a
+                        // plan wholly done.
+                        elsewhere={wavesElsewhere(fleet.waves, group.plan, key)}
                         // A ONE-WAVE plan shows its wave's verdict on this row
                         // instead of nesting a wave row beneath it.
                         soleWave={soleWaveFor(group.plan, waves)}

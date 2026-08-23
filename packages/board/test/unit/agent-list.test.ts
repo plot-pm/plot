@@ -18,7 +18,7 @@ import {
 import { CARD_BELOW_PX, COLLAPSED_BY_DEFAULT, isCollapsible, readCollapsed, writeCollapsed } from '../../src/app/lib/agent-rows/collapse.js';
 import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_MARK_MS, ChangeMarks, LOCK_ECHO_MS, activeRowKeys, activityPace, changedRows, groupPace, isUnreadable, sameWatched, type WatchedState, watchedState } from '../../src/app/lib/agent-rows/activity.js';
 import { isActive, isLive, soleRowStatus } from '../../src/app/lib/agent-rows/stuck.js';
-import { GROUPS, groupByPlan, rowsBySection, showPlanHeading, type PlanGroup, waveKeyOf, waveSection } from '../../src/app/lib/agent-rows/sections.js';
+import { GROUPS, elsewhereNote, groupByPlan, rowsBySection, showPlanHeading, type PlanGroup, waveKeyOf, waveSection, wavesElsewhere } from '../../src/app/lib/agent-rows/sections.js';
 import { countdown } from '../../src/app/lib/agent-rows/actions.js';
 import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, hostErrorState, issueNote, noteWithoutPr, prNote, prStateWord } from '../../src/app/lib/agent-rows/host-notes.js';
 import { isFinished, isStartable, rowKey, waitingLabel, waitingTone } from '../../src/app/lib/agent-rows/row-identity.js';
@@ -29,7 +29,7 @@ import { groupByWave, groupedNote, waveDissent, waveLabel } from '../../src/app/
 import { TUPLE_TRACKS } from '../../src/app/components/TupleRow.js';
 import { GROUP_ORDER } from '../../src/server/fleet.js';
 import {
-  AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, type AgentRow, type Fleet,
+  AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, type AgentRow, type Fleet, type Wave,
 } from '../../src/contract/schema.js';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
@@ -235,6 +235,71 @@ describe('waveDissent — the collapsed row does not read `merged` for a half-op
     // And a word that DOES have a sentence keeps it when its branches agree.
     expect(groupedNote('delivered', null)).toBe('landed — nothing left in it');
     expect(groupedNote('delivered', 2)).toMatch(/2 merged/);
+  });
+});
+
+describe('wavesElsewhere — a split plan says how many of its waves are NOT here', () => {
+  // The defect this closes: `waveSummaryFor` counts the waves IN THIS SECTION and
+  // silently drops the rest, so a plan whose first wave merged into DONE reports
+  // `2 waves` under its NOT STARTED head with nothing saying a third exists. The
+  // count is honest for the section but the OMISSION is not legible — the reader
+  // cannot tell a two-wave plan from the visible half of a three-wave one. This
+  // reads the server-derived `fleet.waves`, where each wave carries its ONE
+  // section, and counts the ones whose section is not the head's.
+  const wave = (over: Partial<Wave> = {}): Wave => ({
+    plan: 'split-plan', name: 'w', branches: ['feature/x'],
+    verdict: 'complete', section: 'done', complete: true, ...over,
+  });
+
+  it('counts a plan\'s waves that sit in another section', () => {
+    // Two waves done, one not started. The NOT STARTED head speaks for the one;
+    // two are elsewhere. The DONE head speaks for the two; one is elsewhere.
+    const waves = [
+      wave({ name: 'Sown', section: 'done', complete: true }),
+      wave({ name: 'Grown', section: 'done', complete: true }),
+      wave({ name: 'Reaped', section: 'not-started', complete: false }),
+    ];
+    expect(wavesElsewhere(waves, 'split-plan', 'not-started')).toBe(2);
+    expect(wavesElsewhere(waves, 'split-plan', 'done')).toBe(1);
+  });
+
+  it('is zero for a plan whose every wave is in the head\'s own section', () => {
+    // The common case — a plan that has not split. Nothing is elsewhere, so the
+    // head says nothing extra.
+    const waves = [
+      wave({ name: 'Sown', section: 'not-started', complete: false }),
+      wave({ name: 'Grown', section: 'not-started', complete: false }),
+    ];
+    expect(wavesElsewhere(waves, 'split-plan', 'not-started')).toBe(0);
+  });
+
+  it('counts only THIS plan\'s waves — a namesake wave of another plan is not ours', () => {
+    // `plan` is half of a wave's identity; names repeat across plans. A `Tracer`
+    // in some other plan sitting in DONE must not inflate this plan's count.
+    const waves = [
+      wave({ plan: 'split-plan', name: 'Tracer', section: 'not-started', complete: false }),
+      wave({ plan: 'other-plan', name: 'Tracer', section: 'done', complete: true }),
+    ];
+    expect(wavesElsewhere(waves, 'split-plan', 'not-started')).toBe(0);
+  });
+
+  it('is zero when the payload carries no waves — a pre-wave server, cast not parsed', () => {
+    // `fleet.waves` defaults to [] only at PARSE time, and the board CASTS the
+    // payload, so a pre-wave pulse leaves it `undefined`. The head must degrade to
+    // "nothing to report" rather than throw — the FLEET_CONTROLS_DEFAULT lesson.
+    expect(wavesElsewhere(undefined, 'split-plan', 'not-started')).toBe(0);
+    expect(wavesElsewhere([], 'split-plan', 'not-started')).toBe(0);
+  });
+});
+
+describe('elsewhereNote — the fragment the head appends, or nothing', () => {
+  it('names the count and pluralises', () => {
+    expect(elsewhereNote(1)).toBe('1 wave elsewhere');
+    expect(elsewhereNote(3)).toBe('3 waves elsewhere');
+  });
+
+  it('is empty at zero, so the head appends nothing rather than "0 elsewhere"', () => {
+    expect(elsewhereNote(0)).toBe('');
   });
 });
 

@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-23, Jan Wloka, in-session
+- **Started:** 2026-08-23, Jan Wloka, `bug/an-arrived-list-answers-for-the-branches-it-omits`
 
 ## Approval
 
@@ -490,7 +491,7 @@ fetched the list.
      See the collision note in Design for the ordering against
      `loose-checks-the-rollup`, which edits `pr_ready`'s predicate. -->
 
-- `bug/an-arrived-list-answers-for-the-branches-it-omits` — test `.list-arrived` before the `--ask` host call in `merged_by_host`, and read `pr_ready` from the same cache, so a branch the list omits resolves without a round trip on either path; keep the host call for the case where the list never arrived or came back at the limit
+- `bug/an-arrived-list-answers-for-the-branches-it-omits` — test `.list-arrived` before the `--ask` host call in `merged_by_host`, and read `pr_ready` from the same cache, so a branch the list omits resolves without a round trip on either path; keep the host call for the case where the list never arrived or came back at the limit → #370
 
 ## Notes
 
