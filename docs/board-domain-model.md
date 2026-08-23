@@ -824,6 +824,104 @@ test fixture reported *someone is writing here*. The fix is not to special-case
 the file — it is that a **local** fact was asked a question about **finished**
 work, which is a category the split above forbids.
 
+### PR → wave: yes, and it is the ONE upward path
+
+The PR is the only entity below the branch that can move a status upward — and it
+does so through exactly one door, guarded.
+
+`branch_state` walks local evidence first, then asks the host:
+
+```sh
+merged_by_subject "$br" && { echo "merged"; return; }   # a merge commit names it
+merged_by_host    "$br" && { echo "merged"; return; }   # the host says MERGED
+echo "open"
+```
+
+`merged_by_host` is `host_pr_state "$1" --ask` compared against `MERGED`. So a PR
+merging turns its branch `merged`, which drops the wave's `outstanding` count,
+which can turn the wave `complete`, which can turn the *next* wave `eligible`.
+
+**One PR merging can unblock a wave three positions later.** That is the entire
+upward causal chain in Plot, and it runs through this one comparison.
+
+**It is deliberately one-directional, and the comment says so:**
+
+> It may only ever move this branch from `open` to `merged`: a miss, a CLOSED PR,
+> or a host that cannot answer all fall through to the `open` below.
+
+So the PR can only ever *settle* a branch, never unsettle one. A closed PR does
+not make a branch closed; a host outage does not make a branch open-er. **Absent
+is not false**, applied to the one place where a remote answer changes local
+truth.
+
+**And `pr.state` — the CHECKS half — takes no part in it.** `merged_by_host`
+compares against `MERGED`, which is the PR's *standing*. Whether the build was
+green is not consulted, which is the same finding as the build section: only a
+human's decision to merge carries a build result into the model.
+
+| PR fact | reaches the wave? |
+|---|---|
+| the PR **merged** | **yes** — the one upward path |
+| the PR is closed | no — falls through to `open` |
+| the PR is draft | no *(except `--loose`, which checks exactly this)* |
+| the build is red / green | **no** — see the build section |
+
+### Worker → wave, and worker → plan: nothing
+
+**The verdict never mentions the worker.** Nor does any phase writer. The agent's
+state is reported beside the work and takes no part in deciding it.
+
+That is the same architectural split as the worktree, one step further out: a
+worker state is derived from a **process on this machine** plus **its worktree**,
+and neither is evidence another session can check. A wave whose verdict moved
+because an agent died on somebody's laptop would make the fleet's ordering depend
+on a machine nobody else can see.
+
+**What the worker state does affect:**
+
+1. **Which section a row renders in.** `classify` takes `workerState` as an
+   argument — a `failed` or `waiting` worker sends its row to WAITING ON YOU,
+   because a person owes it something. That is a *rendering* decision about one
+   row, not a change to any status.
+2. **Whether dispatch will start there.** A live worker means the branch is
+   taken.
+3. **Nothing else.** Not the branch state, not the verdict, not the phase.
+
+**The stalled worker proves the split is right.** Measured 2026-08-22: a worker
+exited 0 having written 283 good lines it never committed. Its branch stayed
+`open`, its wave stayed `eligible`, its plan stayed `Approved` — all correct,
+because *nothing had landed*. The work existed; the fleet's ordering had no
+business moving for it. What the worker state bought was the board's ability to
+**say** the agent had stopped, which is exactly the right division of labour.
+
+### The whole causal picture
+
+```mermaid
+flowchart BT
+    BUILD["BUILD<br/>green · failing · pending"]
+    PR["PR<br/>merged · closed · draft"]
+    WT["WORKTREE<br/>dirty · locked · ahead"]
+    WK["WORKLOG<br/>running · stalled · waiting"]
+    BR["BRANCH state<br/>open · wip · merged · deferred"]
+    WV["WAVE verdict<br/>complete · eligible · blocked"]
+    PL["PLAN phase<br/>Draft → Approved → Delivered → Released"]
+
+    PR -- "MERGED only,<br/>one direction" --> BR
+    BR -- "computed every scan" --> WV
+    WV -. "cascades to the<br/>next wave" .-> WV
+
+    BUILD -. "only via a human<br/>deciding to merge" .-> PR
+    WT -. "renders; never orders" .-> WK
+    WK -. "picks a SECTION;<br/>changes no status" .-> BR
+
+    BR -.->|"nothing"| PL
+    PL == "gates: may this start?" ==> WV
+```
+
+**Read the solid arrows and there is exactly one upward path:** a PR merges, a
+branch settles, a wave completes, the next wave opens. Everything else either
+flows downward as permission, or is a fact the board renders without acting on.
+
 ### The gates run the other way
 
 Influence flows up as measurement; **constraint flows down as permission**:
