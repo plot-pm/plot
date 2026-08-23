@@ -152,15 +152,27 @@ describe('a split plan counts what is elsewhere', () => {
   });
 
   it('states in the DONE head that a wave is elsewhere', async () => {
-    // The other end of the split. The DONE head's own wave has no unbegun summary
-    // to lead with, so the elsewhere clause stands alone — which the join in
-    // `PlanRow` must handle without a stray leading middot.
+    // The other end of the split. Both clauses speak here: `waveSummaryFor` reads
+    // the server's waves (`the-head-asks-the-wave`) so the DONE head counts its
+    // OWN wave too, and `elsewhereNote` adds the one that is not here.
+    //
+    // ASSERTED AS A JOIN, NOT AS A STRING. The property this test exists for is
+    // that `PlanRow` composes the two clauses without a stray leading or
+    // trailing middot — the failure mode when one half is empty. An earlier
+    // version pinned the whole text with `toBe('1 wave elsewhere')`, which
+    // encoded a premise that held only while `waveSummaryFor` counted ROWS and
+    // returned nothing in DONE; reading the server's wave list made the count
+    // real here, and the pin then failed on correct output.
     const page = await open();
     try {
       await openDone(page);
       const summary = planHead(done(page), SPLIT).locator('[data-wave-summary]');
       await expect.poll(() => summary.textContent(), { timeout: 10_000 })
-        .toBe('1 wave elsewhere');
+        .toMatch(/1 wave · 1 wave elsewhere/);
+      // The join itself: no dangling separator at either end.
+      const text = (await summary.textContent()) ?? '';
+      expect(text.trim().startsWith('·')).toBe(false);
+      expect(text.trim().endsWith('·')).toBe(false);
     } finally {
       await page.close();
     }
