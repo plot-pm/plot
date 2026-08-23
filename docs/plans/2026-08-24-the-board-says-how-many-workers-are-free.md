@@ -169,11 +169,11 @@ hygiene, so the write buys nothing the fix does not already give.
   registry from disk.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Branches
+## Waves
 
-### Counted
 
-- `bug/the-board-says-how-many-workers-are-free` — liveness takes two facts, the server publishes `working`, the stepper renders it, and the registry stops being committed
+### Counted (Branch: bug/the-board-says-how-many-workers-are-free)
+- liveness takes two facts, the server publishes `working`, the stepper renders it, and the registry stops being committed
 
 ## Notes
 

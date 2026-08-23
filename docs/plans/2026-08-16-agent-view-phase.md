@@ -381,19 +381,19 @@ merged branch with no plan vanishes when its ref is deleted, and `Released` and
 question is whether this tab is a **state** or a **journal**. It is a state,
 and a state view still has to hold the last few minutes of it.
 
-## Branches
+## Waves
 
-### Data
 
-- `feature/fleet-row-phase` → #140 — the pulse carries plan phase onto each row and
+### Data (Branch: feature/fleet-row-phase, PR: #140)
+- → #140 — the pulse carries plan phase onto each row and
   also reads recently delivered plans (rolling 24 h, mtime-prefiltered, no date
   no row); `AgentRow` gains the derived phase; row-level derivation composes
   `toBoardPhase` with the branch state; a draft PR's note carries its check
   state (the waiting-age field shipped early in `board-ui-polish`)
 
-### Display
 
-- `feature/agent-view-phase-ui` → #147 — the phase replaces the repo cell;
+### Display (Branch: feature/agent-view-phase-ui, PR: #147)
+- → #147 — the phase replaces the repo cell;
   `deferred` badge; `StartWorkButton` on eligible rows
 
 Two waves, and this one is a genuine dependency rather than a habit: the

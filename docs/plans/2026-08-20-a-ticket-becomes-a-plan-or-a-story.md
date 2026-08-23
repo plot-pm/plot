@@ -159,10 +159,10 @@ already models for *Create plan* (`idea.available`).
       nothing, and a second opinion rendered in a menu is a second place to keep
       the heuristic correct.
 
-## Branches
+## Waves
 
-### Routed
-- `feature/a-ticket-becomes-a-story` — `/api/story` spawns a `Story command` for `/story-tracking` on a ticket, writing the issue to a file exactly as `/api/idea` does; `storyRefusal` becomes a not-configured refusal rather than a categorical one. Tests: the route writes the issue to a file and passes only its path; `PLOT_UNATTENDED=1` and `PLOT_ISSUE` are exported; an absent `Story command` refuses and **names the key**; a repo with more than one **declared** story home refuses with the home question named rather than guessing; **a repo containing unrelated `stories/` directories — website content, image assets — is still a one-home repo**, because the count reads `Story directory` and not the filesystem; nothing from the issue body reaches the shell; `/api/idea` is unchanged; the ticket menu still offers both entries.
+### Routed (Branch: feature/a-ticket-becomes-a-story)
+- `/api/story` spawns a `Story command` for `/story-tracking` on a ticket, writing the issue to a file exactly as `/api/idea` does; `storyRefusal` becomes a not-configured refusal rather than a categorical one. Tests: the route writes the issue to a file and passes only its path; `PLOT_UNATTENDED=1` and `PLOT_ISSUE` are exported; an absent `Story command` refuses and **names the key**; a repo with more than one **declared** story home refuses with the home question named rather than guessing; **a repo containing unrelated `stories/` directories — website content, image assets — is still a one-home repo**, because the count reads `Story directory` and not the filesystem; nothing from the issue body reaches the shell; `/api/idea` is unchanged; the ticket menu still offers both entries.
 
 ## Notes
 

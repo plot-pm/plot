@@ -164,9 +164,10 @@ subject match is the fallback worth measuring.
       resolved some branches via the host is a fourth mode, and the footer
       should probably say so rather than claiming an exhaustive local walk.
 
-## Branches
+## Waves
 
-- `bug/a-squashed-branch-is-merged-not-open` — ask the host for branches with no local ref, map the three-way reply, and leave the unreachable case reading exactly as it does today. Test: a sandbox where a branch is squash-merged and deleted must report `merged` and let its wave complete, and a sandbox with an unreachable host must still report `open`. → #216
+### Implementation (Branch: bug/a-squashed-branch-is-merged-not-open, PR: #216)
+- ask the host for branches with no local ref, map the three-way reply, and leave the unreachable case reading exactly as it does today. Test: a sandbox where a branch is squash-merged and deleted must report `merged` and let its wave complete, and a sandbox with an unreachable host must still report `open`.
 
 ## Notes
 

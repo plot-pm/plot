@@ -159,11 +159,11 @@ familiar rather than new.
       why WAITING ON A MACHINE exists. Dimmer marks the difference between
       *something is happening* and *do something*.
 
-## Branches
+## Waves
 
-### Aggregated
 
-- `feature/a-folded-plan-says-what-it-hides` — Fold the branches' PR states into
+### Aggregated (Branch: feature/a-folded-plan-says-what-it-hides, PR: #319)
+- Fold the branches' PR states into
   one worst-case word on the plan head, beside the phase, with a count where
   more than one branch is affected. The fold happens **inside `PlanRow`**, from
   the `group` it already receives, so both call sites get it. Tests: a folded
@@ -174,7 +174,7 @@ familiar rather than new.
   `pending` renders in the dimmer tone rather than the actionable one; the
   aggregate is still shown when the group is expanded; the phase remains in slot
   5 and is never replaced; a count appears only where more than one branch is
-  affected; the aggregate is a word and not colour alone. → #319
+  affected; the aggregate is a word and not colour alone.
 
 ## Notes
 

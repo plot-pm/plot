@@ -281,15 +281,15 @@ one that will, and it leaves a file that is 8000 lines for no stated reason.
   now live. A consumer that stops compiling is a finding, not a fix-up.
 - `pnpm run typecheck` clean; `pnpm build:board` run and the artifact committed.
 
-## Branches
+## Waves
 
-### Moved
 
-- `infra/the-derivations-leave-the-component` — move the derivations into eight subject modules under `app/lib/agent-rows/`, docstrings intact, no re-exports, and update the 14 importing files → #357
+### Moved (Branch: infra/the-derivations-leave-the-component, PR: #357)
+- move the derivations into eight subject modules under `app/lib/agent-rows/`, docstrings intact, no re-exports, and update the 14 importing files
 
-### Rendered
 
-- `infra/the-components-leave-the-shell` — move the 17 components into `rows.tsx`, `menus.tsx` and `marks.tsx`, whole components only, leaving `AgentList.tsx` as a ~1625-line shell; largest file in the package drops to ~1881 → #369
+### Rendered (Branch: infra/the-components-leave-the-shell, PR: #369)
+- move the 17 components into `rows.tsx`, `menus.tsx` and `marks.tsx`, whole components only, leaving `AgentList.tsx` as a ~1625-line shell; largest file in the package drops to ~1881
 
 ## Notes
 

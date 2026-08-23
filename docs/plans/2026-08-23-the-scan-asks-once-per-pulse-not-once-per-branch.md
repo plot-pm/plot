@@ -478,9 +478,8 @@ fetched the list.
   OIDs; this plan does not weaken it and adds nothing to what it remembers.
 - `pnpm test`, `pnpm run test:reconcile` and `pnpm run test:board` green.
 
-## Branches
+## Waves
 
-### Derived
 
 <!-- ONE branch for two call sites, deliberately. `merged_by_host` and
      `pr_ready` are the same defect in the same file, and the assertion that
@@ -491,7 +490,8 @@ fetched the list.
      See the collision note in Design for the ordering against
      `loose-checks-the-rollup`, which edits `pr_ready`'s predicate. -->
 
-- `bug/an-arrived-list-answers-for-the-branches-it-omits` — test `.list-arrived` before the `--ask` host call in `merged_by_host`, and read `pr_ready` from the same cache, so a branch the list omits resolves without a round trip on either path; keep the host call for the case where the list never arrived or came back at the limit → #370
+### Derived (Branch: bug/an-arrived-list-answers-for-the-branches-it-omits, PR: #370)
+- test `.list-arrived` before the `--ask` host call in `merged_by_host`, and read `pr_ready` from the same cache, so a branch the list omits resolves without a round trip on either path; keep the host call for the case where the list never arrived or came back at the limit
 
 ## Notes
 

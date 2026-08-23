@@ -136,9 +136,10 @@ still a race.
       the fleet view — but the board calls it on a 5 s timer and may prefer a
       brief retry to a reported blip.
 
-## Branches
+## Waves
 
-- `bug/the-board-test-does-not-race-its-own-server` — bounded, lock-specific retry in the **shared** git helper in `packages/board/test/helpers.mjs`, so all six suites that call `startServer` inherit it (`bridge`, `approve`, `board`, `claimed`, `dispatch`, `discovery`). Keyed on `index.lock` in stderr specifically: a blanket retry would paper over real git errors and turn a deterministic failure into a slow flaky one. → #214
+### Implementation (Branch: bug/the-board-test-does-not-race-its-own-server, PR: #214)
+- bounded, lock-specific retry in the **shared** git helper in `packages/board/test/helpers.mjs`, so all six suites that call `startServer` inherit it (`bridge`, `approve`, `board`, `claimed`, `dispatch`, `discovery`). Keyed on `index.lock` in stderr specifically: a blanket retry would paper over real git errors and turn a deterministic failure into a slow flaky one.
 
   Test: the retry path must be exercised deliberately — hold a lock, assert the helper still succeeds — rather than left to chance. A test that merely runs the suite proves nothing, since the race is load-dependent and the suite passes in isolation.
 

@@ -248,9 +248,10 @@ plans".
 a Draft plan on an idea branch is on the board only since #130, and a plan
 outside the walked directories would have a row and no card.
 
-## Branches
+## Waves
 
-- `feature/board-ui-polish` →  #132 — all three changes; the plan rides this branch and → #132
+### Implementation (Branch: feature/board-ui-polish, PR: #132)
+- →  #132 — all three changes; the plan rides this branch and
   one PR carries plan and code
 
 ## Done when

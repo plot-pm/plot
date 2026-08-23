@@ -208,17 +208,17 @@ keyed to commit freshness — a scale nobody can read (*was that four
 minutes or forty?*) that changes continuously would be motion in place
 of information.
 
-## Branches
+## Waves
 
-### Pace
 
-- `feature/working-rows-show-their-pace` — the activity marker aligns to
+### Pace (Branch: feature/working-rows-show-their-pace, PR: #194)
+- the activity marker aligns to
   the row's first line and becomes a track with a travelling dot at two
-  speeds; `motion-reduce` keeps it and stops the travel → #194
+  speeds; `motion-reduce` keeps it and stops the travel
 
-### Change
 
-- `feature/the-line-flashes-on-any-written-update` — `watchedState`
+### Change (Branch: feature/the-line-flashes-on-any-written-update)
+- `watchedState`
   widens to every observed fact and excludes derived time, so a new
   commit flashes and a ticking clock does not
 

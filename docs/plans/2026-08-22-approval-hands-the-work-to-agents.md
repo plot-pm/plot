@@ -181,11 +181,11 @@ cap; they are not one, and nothing here should honour them.)
       counting every Claude process would sweep in the operator's own session.
       The control says *dispatched agents*, which is what it can enforce.
 
-## Branches
+## Waves
 
-### Alive
 
-- `feature/the-registry-knows-which-agents-live` → #327 — the registry answers
+### Alive (Branch: feature/the-registry-knows-which-agents-live, PR: #327)
+- → #327 — the registry answers
   liveness, which nothing does today. `plot-dispatch.sh` writes the agent's pid
   into its manifest beside the identity it already records; the pulse refreshes
   each entry's state from `plot-worker-state.sh`, so an entry whose process is
@@ -198,9 +198,9 @@ cap; they are not one, and nothing here should honour them.)
   live entries is derivable in one pass, since the cap will ask for it every
   pulse.
 
-### Switched
 
-- `feature/the-sections-carry-the-fleet-controls` → #329 — the two controls and their
+### Switched (Branch: feature/the-sections-carry-the-fleet-controls, PR: #329)
+- → #329 — the two controls and their
   shared state, dispatching nothing yet. A checkbox in the NOT STARTED header
   and a `− N +` stepper in the WORKING header, both read from `.plot/state/`,
   defaulted from `## Plot Config` (switch off, agents 3), written through a new
@@ -211,9 +211,9 @@ cap; they are not one, and nothing here should honour them.)
   the stepper is a real `spinbutton` rather than two buttons beside a label;
   the endpoint refuses a cross-origin write exactly as `/api/dispatch` does.
 
-### Served
 
-- `feature/an-eligible-wave-starts-itself` → #359 — while the switch is on, eligible
+### Served (Branch: feature/an-eligible-wave-starts-itself, PR: #359)
+- → #359 — while the switch is on, eligible
   waves of approved plans dispatch, honouring `plot-dispatch.sh`'s existing
   caps. Tests: an eligible wave of an approved plan dispatches with no click;
   a **blocked** wave does not; a **draft** plan's wave does not; a branch

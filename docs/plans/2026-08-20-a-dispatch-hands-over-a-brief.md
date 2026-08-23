@@ -180,13 +180,13 @@ Two properties this must keep:
       own. They agree today because `--next` returns the same branch; they need
       not always.
 
-## Branches
+## Waves
 
-### Gated
-- `bug/a-dispatch-without-a-brief-refuses` — `plot-dispatch.sh` refuses to launch a worker for a branch with no brief, with `--no-brief` as the named escape. Tests: a branch with no brief is prepared and **not started**, and the message names the file and the two ways forward; a branch **with** a brief starts as before; `--no-brief` starts it and says so in the log; an unreadable brief is treated as missing, not as present; the footer still reports `brief=` and now agrees with what happened; the plan gate and the held-branch refusal are unchanged.
+### Gated (Branch: bug/a-dispatch-without-a-brief-refuses)
+- `plot-dispatch.sh` refuses to launch a worker for a branch with no brief, with `--no-brief` as the named escape. Tests: a branch with no brief is prepared and **not started**, and the message names the file and the two ways forward; a branch **with** a brief starts as before; `--no-brief` starts it and says so in the log; an unreadable brief is treated as missing, not as present; the footer still reports `brief=` and now agrees with what happened; the plan gate and the held-branch refusal are unchanged.
 
-### Handed over
-- `feature/the-board-asks-for-a-brief` — `/api/dispatch` calls `/api/implement`
+### Handed over (Branch: feature/the-board-asks-for-a-brief)
+- `/api/dispatch` calls `/api/implement`
   and waits for the brief before running the script; with no `Implement command`
   configured the button refuses and names it. **Depends on
   `an-approved-plan-offers-its-two-starts` WAVE 2**

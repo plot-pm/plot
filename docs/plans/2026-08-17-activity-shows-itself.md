@@ -338,32 +338,32 @@ Nothing new is measured, computed, or asked of git.
 **No change to grouping.** `classify()` is untouched: a row's group is
 where it belongs, and this is about what it is doing there.
 
-## Branches
+## Waves
 
-### Truth
 
-- `feature/rows-mark-real-activity` — the row's marker reads
+### Truth (Branch: feature/rows-mark-real-activity, PR: #182)
+- the row's marker reads
   `local_locked || local_dirty` instead of `group === 'working'`; a seen
   lock echoes for a few seconds; absent stays unmarked; the marker names
-  its own limit (*in this checkout*) → #182
+  its own limit (*in this checkout*)
 
-### Prominence
 
-- `feature/activity-marker-glows` — the marker becomes a glowing,
+### Prominence (Branch: feature/activity-marker-glows, PR: #189)
+- the marker becomes a glowing,
   **static** bar on the left edge; no animation, because two elements on
-  the row already pulse; `aria-hidden` → #189
+  the row already pulse; `aria-hidden`
 
-### Fold
 
-- `feature/group-shows-inner-activity` — the group heading carries the
+### Fold (Branch: feature/group-shows-inner-activity, PR: #199)
+- the group heading carries the
   same bar when any of its rows is active, derived at render, folded or
-  open → #199
+  open
 
-### Stillness
 
-- `feature/unpushed-work-shows-still` — `local_ahead` gets its own mark
+### Stillness (Branch: feature/unpushed-work-shows-still, PR: #201)
+- `local_ahead` gets its own mark
   at the same left edge, separated from the activity bar by form and the
-  absence of the glow; distinguishable when both hold at once → #201
+  absence of the glow; distinguishable when both hold at once
 
 Four waves, sequential, and the order is the one this session has now
 paid for twice. **Truth first**: a glowing marker over

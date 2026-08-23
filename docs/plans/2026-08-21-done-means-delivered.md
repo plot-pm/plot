@@ -157,7 +157,7 @@ PR creation is not a change to the delivery path.
 - [ ] The rename touches 13 plan files carrying `Endgame` in prose. Rewrite them,
       or leave history alone and rename only the enum?
 
-## Branches
+## Waves
 
 > **Order matters twice here.** The annotation fix comes BEFORE the button,
 > because without it `/plot-deliver` refuses on any plan whose worker never
@@ -165,35 +165,35 @@ PR creation is not a change to the delivery path.
 > mechanical but touches 54 occurrences across source and tests, so it would
 > rebase-collide with every sibling branch if it went earlier.
 
-### Reached
 
-- `feature/merged-waves-reach-testing` → #345 — a plan whose every wave holds a merged
+### Reached (Branch: feature/merged-waves-reach-testing, PR: #345)
+- → #345 — a plan whose every wave holds a merged
   branch reports the phase after Development rather than Development. Tests: all
   waves merged → the later phase; one wave open → Development; a deferred branch
   does not block it, matching the scan's own rule; a plan already `delivered`
   is untouched; the derivation is the server's and is not remade in the renderer.
 
-### Verified
 
-- `feature/deliver-finds-prs-without-annotations` → #350 — `/plot-deliver` matches
+### Verified (Branch: feature/deliver-finds-prs-without-annotations, PR: #350)
+- → #350 — `/plot-deliver` matches
   merged PR heads to branch names where a plan carries no `→ #N` annotation,
   which is what `plot-reconcile-scan.sh` already does. Tests: a plan with zero
   annotations and all branches merged verifies; one with an unmerged branch
   refuses and names it; annotations, where present, still win; the host is asked
   through `plot-host.sh` and never directly.
 
-### Offered
 
-- `feature/the-plan-row-offers-deliver` → #351 — the plan row gains a `Deliver` action
+### Offered (Branch: feature/the-plan-row-offers-deliver, PR: #351)
+- → #351 — the plan row gains a `Deliver` action
   spawning `/plot-deliver <slug>`, wrapping the skill rather than writing the
   transition. Tests: the item appears only on a plan whose waves are all merged;
   it is absent where the server would refuse and NAMES the refusal on the
   control; the click spawns and writes nothing itself; a `delivered` plan offers
   nothing; the route refuses a non-localhost binding, like every other spawn.
 
-### Named
 
-- `feature/the-phase-after-development-is-testing` → #361 — `Endgame` becomes `Testing`
+### Named (Branch: feature/the-phase-after-development-is-testing, PR: #361)
+- → #361 — `Endgame` becomes `Testing`
   through `BOARD_PHASES`, its mapping and every reader. Tests: the contract enum
   carries `Testing` and not `Endgame`; `toBoardPhase('delivered')` returns it;
   the board column header reads it; no source file under `packages/board/src`

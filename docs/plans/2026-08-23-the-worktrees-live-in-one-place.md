@@ -163,15 +163,15 @@ A mixed estate must be an ordinary state, not a transition to be completed.
   scratch probe this plan measured.
 - `pnpm test`, `pnpm run test:e2e` green.
 
-## Branches
+## Waves
 
-### Rooted
 
-- `infra/the-worktree-root-is-configurable` — `Worktree root` config key, default unchanged; the prefix becomes a property of the root; `plot-resolve-artifact.sh` stops composing a path; `.gitignore` gains the directory
+### Rooted (Branch: infra/the-worktree-root-is-configurable)
+- `Worktree root` config key, default unchanged; the prefix becomes a property of the root; `plot-resolve-artifact.sh` stops composing a path; `.gitignore` gains the directory
 
-### Moved
 
-- `infra/idle-worktrees-can-be-migrated` — `--migrate` moves worktrees with no live worker and no unlanded work, refuses the rest, and reports both
+### Moved (Branch: infra/idle-worktrees-can-be-migrated)
+- `--migrate` moves worktrees with no live worker and no unlanded work, refuses the rest, and reports both
 
 ## Notes
 

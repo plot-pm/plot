@@ -223,20 +223,20 @@ is **not** the problem and must not be "optimised". It spawns real git repos on
 purpose — that is what makes the containment assertions real. Speed is not the
 fix; determinism is.
 
-## Branches
+## Waves
 
-### Truth
 
-- `bug/board-shows-staleness` — a failed fetch marks the payload stale in the
+### Truth (Branch: bug/board-shows-staleness, PR: #141)
+- a failed fetch marks the payload stale in the
   Agents tab; the countdown stops rather than clamping at zero; the ages stop
-  advancing; the last payload stays on screen → #141
+  advancing; the last payload stays on screen
 
-### Ports
 
-- `bug/board-binds-port-zero` — `PORT=0` binds zero and reports the assigned
+### Ports (Branch: bug/board-binds-port-zero, PR: #143)
+- `PORT=0` binds zero and reports the assigned
   port (default 7777 unchanged); `findFreePort` is deleted and all 28 call
   sites across 8 test files read the started server's port; a second
-  `pnpm board` names the running one and exits → #143
+  `pnpm board` names the running one and exits
 
 **One at a time, and the reason is the artifact, not the sources.** Checked at
 dispatch: `agent-view-phase`'s Data wave holds `fleet.ts`, `schema.ts`,

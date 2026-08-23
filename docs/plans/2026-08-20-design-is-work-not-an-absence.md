@@ -172,19 +172,19 @@ audited later.
       commit, and inventing a spoke for it would add ceremony the change does
       not need.
 
-## Branches
+## Waves
 
-### The phase exists
 
-- `feature/design-is-a-phase` — `plot-plan-meta.sh` normalises `design` as a seventh phase and reports its `Design:` record beside `Approved:`/`Delivered:`. Contract-level and additive: `test/reconcile/parser.test.mjs` must pass unedited, exactly as the `changelog` field did. Tests: a plan in phase Design parses; its `Design:` record is reported; a plan without one is unaffected; the existing six phases are byte-identical. → #259
+### The phase exists (Branch: feature/design-is-a-phase, PR: #259)
+- `plot-plan-meta.sh` normalises `design` as a seventh phase and reports its `Design:` record beside `Approved:`/`Delivered:`. Contract-level and additive: `test/reconcile/parser.test.mjs` must pass unedited, exactly as the `changelog` field did. Tests: a plan in phase Design parses; its `Design:` record is reported; a plan without one is unaffected; the existing six phases are byte-identical.
 
-### The gates know it
 
-- `feature/the-gates-know-design` — `plot-approve.sh` accepts a plan in Design as well as Draft, and `plot-phase-gate.sh` blocks implementation commits in Design as it does in Draft. `/plot-implement` still requires Approved, unchanged. Tests: approving from Design records `Approved:` and flips the phase; an implementation commit under Design is blocked with a message naming the phase; `/plot-implement` refuses a Design plan; the Draft paths are unchanged. → #265
+### The gates know it (Branch: feature/the-gates-know-design, PR: #265)
+- `plot-approve.sh` accepts a plan in Design as well as Draft, and `plot-phase-gate.sh` blocks implementation commits in Design as it does in Draft. `/plot-implement` still requires Approved, unchanged. Tests: approving from Design records `Approved:` and flips the phase; an implementation commit under Design is blocked with a message naming the phase; `/plot-implement` refuses a Design plan; the Draft paths are unchanged.
 
-### The board reads it
 
-- `feature/the-design-column-means-design` — `toBoardPhase` maps `design → Design`, and `approved` maps to Development whether or not a branch has started. Tests: a plan in Design appears in the Design column; an approved plan with no started branch appears in Development, not Design; the measured case — three approved-unstarted plans — moves out of Design; Discovery, Endgame and Released are unchanged. → #289
+### The board reads it (Branch: feature/the-design-column-means-design, PR: #289)
+- `toBoardPhase` maps `design → Design`, and `approved` maps to Development whether or not a branch has started. Tests: a plan in Design appears in the Design column; an approved plan with no started branch appears in Development, not Design; the measured case — three approved-unstarted plans — moves out of Design; Discovery, Endgame and Released are unchanged.
 
 ## Notes
 

@@ -160,25 +160,25 @@ guess about a terminal width the board does not have — it is a web page,
 and the footer already wraps. **The cheapest correct fix is to remove the
 `slice` entirely**, and the plan prefers it.
 
-## Branches
+## Waves
 
-### Observation
 
-- `bug/an-empty-conflict-set-is-not-a-refusal` — the resolver
+### Observation (Branch: bug/an-empty-conflict-set-is-not-a-refusal, PR: #198)
+- the resolver
   distinguishes *nothing observed* from *other files*, works in a
   worktree that is its own or idle, and does not retry a `not-observed`
-  refusal every pulse → #198
+  refusal every pulse
 
-### Transport
 
-- `bug/plot-host-exits-nonzero-when-it-cannot-ask` — a transport failure
+### Transport (Branch: bug/plot-host-exits-nonzero-when-it-cannot-ask, PR: #200)
+- a transport failure
   exits non-zero with empty stdout; lookup misses keep `exit 0`; the
-  board reads the code instead of inferring from emptiness → #200
+  board reads the code instead of inferring from emptiness
 
-### Message
 
-- `bug/the-error-shows-the-whole-path` — drop the 80-character slice; the
-  footer wraps → #202
+### Message (Branch: bug/the-error-shows-the-whole-path, PR: #202)
+- drop the 80-character slice; the
+  footer wraps
 
 Three waves. **Observation first** — it is the one that refused a correct
 repair and touched a running agent's worktree, and the fix is

@@ -276,26 +276,26 @@ that does not exist.
 Writing the fix first would make that impossible to tell apart: a passing test
 after a fix proves nothing about whether the fix was needed.
 
-## Branches
+## Waves
 
-### Proof
 
-- `bug/acting-buttons-pin-the-double-click` — a browser test that clicks each
+### Proof (Branch: bug/acting-buttons-pin-the-double-click, PR: #173)
+- a browser test that clicks each
   acting button twice inside one tick and asserts a single request; the fix
-  (a `useRef` latch) lands only if the test fails first → #173
+  (a `useRef` latch) lands only if the test fails first
 
-### Truth
 
-- `bug/start-work-watches-the-right-count` — the button derives its outcome from
+### Truth (Branch: bug/start-work-watches-the-right-count, PR: #174)
+- the button derives its outcome from
   `waveSummary.claimed` rather than the plan-level `card.started`, so a dispatch
   on an already-started plan reads as success instead of *no change*; a plan
-  with nothing eligible refuses before the click → #174
+  with nothing eligible refuses before the click
 
-### Feedback
 
-- `feature/acting-buttons-spin-while-acting` — the in-flight button carries a
+### Feedback (Branch: feature/acting-buttons-spin-while-acting, PR: #176)
+- the in-flight button carries a
   spinner, keeps its label change, and dims; `motion-reduce` keeps the marker
-  and stops the animation, and the rows' pulsing dot is left untouched → #176
+  and stops the animation, and the rows' pulsing dot is left untouched
 
 Three waves, sequential, and the order is deliberate. **Proof** settles whether
 the guard is broken at all — writing a fix first would make a passing test

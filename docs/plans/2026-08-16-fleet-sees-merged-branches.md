@@ -371,12 +371,13 @@ plan whose stuck wave motivated this work would have been missed by an
 annotation-based fix. Detection reads git and nothing else, which also keeps
 the scan stateless — re-derived from refs and history on every run.
 
-## Branches
+## Waves
 
-- `bug/fleet-merged-branch-state` — `branch_state()` recognises a
+### Implementation (Branch: bug/fleet-merged-branch-state, PR: #129)
+- `branch_state()` recognises a
   merged-and-deleted branch from an anchored PR-merge subject reachable from
   the configured default branch; `merge_detect` in the footer; absence keeps
-  `open`; tests in `test/reconcile/fleet.test.mjs` → #129
+  `open`; tests in `test/reconcile/fleet.test.mjs`
 
 **One branch, deliberately.** An earlier cut split this into Detection and
 Coverage waves. That was wrong twice over: the change is one function in one

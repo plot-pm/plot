@@ -147,15 +147,15 @@ scan claims, and that is a fact the report should carry rather than discard.
       `entry.approvedAt`, and `entry.ideaPlans`? Each is assigned in the same
       block and none is compared against its predecessor.
 
-## Branches
+## Waves
 
-### Symptom
 
-- `bug/a-smaller-pulse-is-not-silently-better` — compare incoming against cached, carry the discrepancy to the UI, and render the view as suspect rather than swapping it silently. Tests: a shrinking sequence must not produce an unmarked smaller board. → #211
+### Symptom (Branch: bug/a-smaller-pulse-is-not-silently-better, PR: #211)
+- compare incoming against cached, carry the discrepancy to the UI, and render the view as suspect rather than swapping it silently. Tests: a shrinking sequence must not produce an unmarked smaller board.
 
-### Cause
 
-- `bug/the-scan-enumerates-the-ref` — enumerate plans from `origin/$MAIN` via `git ls-tree`/`git show`, keep worktree observation local, and stop discarding the fetch's failure. Tests: the sandbox above — a third plan pushed by another clone must be seen without a local pull, and the count must not depend on the working tree. → #217
+### Cause (Branch: bug/the-scan-enumerates-the-ref, PR: #217)
+- enumerate plans from `origin/$MAIN` via `git ls-tree`/`git show`, keep worktree observation local, and stop discarding the fetch's failure. Tests: the sandbox above — a third plan pushed by another clone must be seen without a local pull, and the count must not depend on the working tree.
 
 ## Notes
 
