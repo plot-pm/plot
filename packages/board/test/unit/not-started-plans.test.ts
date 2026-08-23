@@ -7,10 +7,10 @@ import {
   showsWaveFold,
   groupByPlan,
   type PlanGroup,
-  groupByWave,
   waveGroupsFor,
   ungroupedRows,
 } from '../../src/app/components/AgentList.js';
+import { groupByWave } from '../../src/app/lib/agent-rows/waves.js';
 import { ELIGIBLE_NOTE, type AgentRow, type Wave } from '../../src/contract/schema.js';
 
 /**

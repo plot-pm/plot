@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   groupByPlan,
-  waveLabel,
   UNNAMED_WAVE,
   countdown,
   waitingLabel,
@@ -20,7 +19,6 @@ import {
   splitBranch,
   prStateWord,
   noteWithoutPr,
-  groupedNote,
   readCollapsed,
   writeCollapsed,
   COLLAPSED_BY_DEFAULT,
@@ -39,11 +37,9 @@ import {
   ACTIVITY_MARK_PLACE,
   ActivityEcho,
   activeRowKeys,
-  groupByWave,
   waveSection,
   rowsBySection,
   waveKeyOf,
-  waveDissent,
   LOCK_ECHO_MS,
   rowKey,
   watchedState,
@@ -59,6 +55,7 @@ import {
   type WatchedState,
   type PlanGroup,
 } from '../../src/app/components/AgentList.js';
+import { groupByWave, groupedNote, waveDissent, waveLabel } from '../../src/app/lib/agent-rows/waves.js';
 // THE ONE GRID, from the component that owns it. It was `ROW_TRACKS` in
 // `AgentList.tsx` beside a second grid; `one-component-renders-every-row`
 // collapsed both into this.
