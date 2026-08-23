@@ -274,9 +274,24 @@ What it replaces is the *membership* half of `done-holds-what-is-still-yours` an
 the *counting* half of `a-split-plan-says-it-is-split` — both of which currently
 have to re-derive a wave to do their job.
 
-**Sequencing matters and is the main risk.** If this lands first, two of those
-plans get simpler. If they land first, this arrives to find two more derivations
-in place. Decide the order deliberately; do not run both.
+**Sequencing is settled: this plan lands FIRST.** Decided 2026-08-23, and the
+reason is that `Inverted` is the pivot — once a wave has one section, DONE's
+verdict rule is already satisfied and the split tuple's numerator becomes
+well-defined. Both dependent plans shrink rather than being written around a
+placement that is about to change.
+
+The order, and each arrow is a real dependency:
+
+```
+bug/a-wave-is-one-row
+   ↓ Inverted now has exactly one section
+done-holds-what-is-still-yours     — its verdict rule is already met
+   ↓ DONE's membership is settled
+a-split-plan-says-it-is-split      — (2/3) numerator is now well-defined
+```
+
+**Do not run them concurrently.** All three edit `AgentList.tsx`, and the two
+downstream plans would each add a wave derivation this one exists to remove.
 
 **It does not move the derivation into the client.** The server already owns
 wave verdicts and the client already casts rather than parses (see
@@ -285,12 +300,17 @@ a second answer to a question the scan already answers.
 
 ### Open Questions
 
-- [ ] Does `Wave` go in the payload, or does the client build it once from rows
-      and pass it down? The payload is more honest (one answer, server-owned) and
-      costs contract churn plus a schema migration; a single client-side
-      derivation is cheaper and keeps the answer where it can drift from the
-      scan's. Lean payload, but measure the payload-size cost first — the scan
-      already runs 18s and the board polls it.
+- [x] Does `Wave` go in the payload, or does the client build it once from rows?
+      **The payload, server-derived** — settled 2026-08-23. The scan already
+      computes verdicts, so the Wave is assembled where its status already lives
+      and the client keeps casting rather than deriving. A client-side derivation
+      would put the answer where it can drift from the scan's, which is the exact
+      failure class this plan documents.
+
+      **Cost accepted knowingly:** a schema migration, a larger payload, and every
+      board version agreeing on the shape. Measure the payload growth during
+      implementation and report it — if a wave costs more than the branch rows it
+      replaces, say so rather than shipping it silently.
 - [ ] What happens to `waveGroupsFor`? It should become a lookup rather than a
       computation, but its per-section predicates encode real distinctions
       (QUIET's *stalled* is not DONE's *merged*) that must survive the move.

@@ -162,6 +162,20 @@ from `Delivered:` is precisely *all waves merged, not yet released* — which is
 what "ready for testing" means here. The vocabulary already has the slot; it is
 named for what follows rather than for what is happening in it.
 
+### Endgame IS the testing window, and it is small
+
+Measured 2026-08-23: **4 plans sit at Endgame** (delivered, not released) against
+70 released — a 5% slice, and each of the four was delivered within the last few
+days. Plans move `delivered → released` quickly.
+
+So after this filter, DONE **becomes the testing queue**: work that landed and
+has not yet shipped. That is the section's purpose stated exactly, and it means
+DONE will be **small** — 61 rows today become ~19, and fewer as the Development
+plans finish.
+
+That smallness is the feature. A section holding 61 rows, two-thirds of them
+shipped months ago, cannot answer *what needs testing*; one holding four can.
+
 > Worth deciding separately: whether `Endgame` should be renamed. It is the one
 > phase whose name describes the NEXT step rather than the state, which is why
 > the rule had to be explained rather than read off. Out of scope here.
@@ -171,7 +185,33 @@ live payload has one — `a-wave-is-a-thing-not-a-label`, wave `Modelled`, merge
 and complete, on a plan that is still a **Draft**. A merged wave of an
 unapproved plan is not a delivery; the plan has not been agreed to yet.
 
-**2. A finished row is not active.**
+**2. A finished row is not active — and does not report a live worker either.**
+
+Two faces of one rule, folded together because they are the same category error
+in the same file.
+
+**The activity mark** fires on `localDirty || localLocked`, a worktree fact, for
+work that is finished.
+
+**And the worker state goes stale.** Measured 2026-08-23, three DONE rows carry a
+worker of `failed` or `waiting` on branches that are `merged` or `deferred`:
+
+```
+worker=failed   state=deferred   waiting-on-you-says-what-kind-of-waiting / Moved…
+worker=waiting  state=deferred   waiting-on-you-says-what-kind-of-waiting / Moved…
+worker=failed   state=merged     waves-name-themselves / Written
+```
+
+The branch landed; the worklog's last recorded state never cleared. **A finished
+branch reporting a live worker state is stale bookkeeping** — a worklog fact
+outliving the work it described, which is the same shape as the activity mark and
+wants the same answer.
+
+**This does NOT self-resolve when DONE is filtered.** Two of the three rows are
+`Development`/`Endgame` and stay in DONE under the new membership rule; only the
+`Released` one leaves. Choosing to ignore it would be choosing a known-stale
+display.
+
 
 `isActive` must ask whether the row's work is finished before reporting a pulse.
 A merged or deferred row reports **no** activity regardless of what its worktree
@@ -219,6 +259,9 @@ never the motion mark. The same argument `localAhead` already won:
 - A row leaving DONE arrives **somewhere** — no row is dropped from the board by
   this change unless it is `Released`. Asserted on the total: rows in minus rows
   out, since a membership rule is the easy place to lose a row silently.
+- A **merged** row whose worker is `failed` or `waiting` does not present that
+  state as current. Three such rows exist today and two survive the membership
+  filter, so this cannot be left to the filter to fix.
 - A **merged** row whose worktree is dirty reports **no** activity mark, and its
   section reports none because of it. Asserted with `localDirty: true` on a
   merged row: that is the exact live shape, and an implementation keyed on the
@@ -236,7 +279,7 @@ never the motion mark. The same argument `localAhead` already won:
 
 ### Still
 
-- `bug/a-finished-row-is-not-active` — `isActive` reports no pulse for merged or deferred work, whatever its worktree holds; the rule is the row's finishedness, never a filename
+- `bug/a-finished-row-is-not-active` — a finished row reports neither a pulse nor a live worker state: `isActive` ignores worktree facts on merged or deferred work, and a `failed`/`waiting` worker on a landed branch reads as stale rather than as current. The rule is the row's finishedness, never a filename
 
 ## Notes
 
