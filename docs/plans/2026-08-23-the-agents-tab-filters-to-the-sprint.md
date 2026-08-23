@@ -367,7 +367,7 @@ reloads) is a browser-storage concern and explicitly optional.
 
 ### Parsed
 
-- `feature/the-sprint-file-names-its-members` — `parseSprintFile` parses the `- [ ] [slug]` lines into a member list with its MoSCoW tier; a slug naming no plan is reported, not dropped. No client change
+- `feature/the-sprint-file-names-its-members` — `parseSprintFile` parses the `- [ ] [slug]` lines into a member list with its MoSCoW tier; a slug naming no plan is reported, not dropped. No client change → #365
 
 ### Carried
 
