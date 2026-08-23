@@ -4,13 +4,18 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** <!-- optional -->
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-23, Jan Wloka, in-session
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Changelog
 
@@ -293,10 +298,51 @@ a-split-plan-says-it-is-split      — (2/3) numerator is now well-defined
 **Do not run them concurrently.** All three edit `AgentList.tsx`, and the two
 downstream plans would each add a wave derivation this one exists to remove.
 
+**A second ordering crosses plans, and it is NOT enforced by these waves.**
+`bug/done-holds-finished-plans-only` filters on a plan's **phase**, and five
+plans carry a stale one — every branch merged, still reading `Approved`
+(measured 2026-08-23; it was 16 on 08-21, drained by hand to 2, and refilled to 5
+in a day of fleet work). A filter verified against those reads a wrong input.
+
+`done-means-delivered`'s `Reached` wave is what fixes the input. Plot cannot gate
+across plans, so this is stated rather than enforced — **and the practical
+mitigation is in the assertion, not the schedule**: `done-holds-finished-plans-only`
+asserts against a **fixture** with known phases, never against the live estate.
+The code is then independent and only the estate-level verification waits.
+
 **It does not move the derivation into the client.** The server already owns
 wave verdicts and the client already casts rather than parses (see
 `FLEET_CONTROLS_DEFAULT`, fixed 2026-08-22). A wave computed client-side would be
 a second answer to a question the scan already answers.
+
+### The six failing rules are xfails with numbers, not skips
+
+Twelve of the eighteen rules pass today and six do not. The six are written
+**asserting their current measured value**:
+
+```ts
+it('DONE => verdict complete', () => {
+  // Fails 60/61 today: every-section-has-one-subject / Inverted.
+  // `a-wave-is-one-row` makes this 61/61 — and this test will FAIL when it does,
+  // which is the point: the number must be raised deliberately, in the commit
+  // that earns it.
+  expect(rows.filter(complete).length).toBe(60);
+});
+```
+
+**Not `it.skip`.** A skipped test is invisible in a green run, and this estate has
+already been bitten by that — the whole reason the section rules exist is that
+seven defects were found by screenshots rather than by tests. A skip would make
+the rules a document again.
+
+**Not a red suite either.** Asserting all eighteen truthfully would leave CI red
+for the sprint's whole duration, and this repo gates merges on it — so the sprint
+would be unable to land its own fixes.
+
+The xfail's cost is stated: a test that passes for the wrong reason if someone
+changes the estate rather than the code. Guard by asserting the **rule's
+outcome** over a fixture rather than a live count wherever the fixture can carry
+the case.
 
 ### Open Questions
 
@@ -369,7 +415,7 @@ a second answer to a question the scan already answers.
 
 ### Constrained
 
-- `feature/the-classifier-is-total` — enumerate the state cross-product against `classify`, asserting it is total and stable and that no `(plan, wave)` reaches two groups; written against today's behaviour so it records the baseline before anything moves
+- `feature/the-classifier-is-total` — enumerate the state cross-product against `classify`, asserting it is total and stable and that no `(plan, wave)` reaches two groups; plus the eighteen section rules, the six currently-failing ones written as **explicit expected-failures carrying today's measured numbers** (`DONE => verdict complete` expects 60 of 61, not "fails") so that fixing one breaks its test and forces a deliberate update
 
 ### One row
 
@@ -387,7 +433,7 @@ a second answer to a question the scan already answers.
 
 - `feature/the-sections-ask-the-wave` — `waveGroupsFor` becomes a lookup; the per-section predicates that encode real distinctions move onto the wave rather than being repeated
 - `feature/the-head-asks-the-wave` — the plan head's count, tuple and note read the wave instead of re-grouping rows
-- `bug/done-holds-finished-plans-only` — DONE holds the release scope: plans whose every wave is complete and whose version has not shipped. Depends on a wave having one section, since its verdict rule is otherwise unsatisfiable for a mixed wave
+- `bug/done-holds-finished-plans-only` — DONE holds the release scope: plans whose every wave is complete and whose version has not shipped. Depends on a wave having one section, since its verdict rule is otherwise unsatisfiable for a mixed wave — **and on `done-means-delivered`'s `Reached` wave, because the filter reads a plan's phase and five plans currently carry a stale one**
 - `feature/a-split-plan-counts-what-is-elsewhere` — each head of a plan spread across sections states how many of its waves are not here, and renders none of them. Depends on the same: the tuple's numerator is undefined while a wave can be in two places
 
 ## Notes

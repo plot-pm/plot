@@ -6,11 +6,16 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** pr
 - **Impl:** own branches
+- **Approved:** 2026-08-23, Jan Wloka, in-session
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Changelog
 

@@ -7,12 +7,17 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-23, Jan Wloka, in-session
 - **Assignee:** jwloka
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Changelog
 
@@ -100,6 +105,39 @@ The third sanctioned path is the one `/api/idea` already uses: **spawn a Plot
 agent**. That is what this plan builds.
 
 ## Design
+
+### Scope: slice the wave, never do the work in it
+
+The subject is `opus5-longhorizon-hardening :: Implementation` — five branches
+under one wave, blocked 26 days. **That plan is out of the 2.9.0 sprint**, and
+this one does not pull it in.
+
+The distinction, because it is easy to lose:
+
+| | in scope |
+|---|---|
+| splitting `### Implementation` into five waves in the plan file | **yes** — a plan-file edit |
+| the six branches' actual work | **no** — that is `opus5-longhorizon-hardening`'s |
+
+**Why the slice alone is worth doing:** an unsliced wave has no single verdict —
+five branches in one wave means the wave is neither complete nor clearly startable
+— so *a wave has one section* is **undefined** over it. The sprint's rules cannot
+hold over a wave the model cannot describe. Slicing gives it a well-defined
+verdict; whether anyone builds the branches is a separate question with a separate
+answer.
+
+**Deferring the branches was considered and rejected.** Marking them
+`<!-- deferred: -->` would exempt them from the merge gate — measured, a deferred
+branch is exempt, which is how an Endgame plan can hold 6 merged and 3 deferred —
+and the wave would complete. But that claims work is *done* which is merely
+*unstarted*, and the board would report a finished wave over five unbuilt
+branches. **A verdict earned by annotation rather than by merging is the kind of
+false completion this whole release is about removing.**
+
+Five blocked waves instead of one blocked wave is the honest outcome, and it is
+what the model can describe.
+
+
 
 ### The rule now has a home, and it is the manifesto
 
