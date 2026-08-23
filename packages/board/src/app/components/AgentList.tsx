@@ -8,6 +8,7 @@ import {
   type IssueAnswer,
   type IssueRow,
   type WaitingGroup,
+  type Wave,
   type AgentEntry,
   UNNAMED_WAVE,
   isSpikeWave,
