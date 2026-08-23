@@ -2587,6 +2587,61 @@ describe('rowsFromPulse', () => {
     expect(rows.find((r) => r.branch === 'feature/b')?.pr)
       .toMatchObject({ number: 7, url: '' });
   });
+
+  describe('the row carries its sprint', () => {
+    // `sprintOf` is the 15th argument — after `repoRoot`. The placeholders reach
+    // it; the map keys on the plan SLUG, which is `example-plan` here.
+    const withSprint = (sprintOf: Map<string, string> | null) =>
+      rowsFromPulse(
+        pulse, ages, 'plot', QUIET, new Map(), '', null, Date.now(),
+        null, null, null, null, null, '', sprintOf);
+
+    it('sets the active sprint that lists the plan onto every one of its rows', () => {
+      // The join the whole branch exists for: a plan the active sprint names
+      // carries that sprint's slug on each of its branch rows. Asserted on more
+      // than one row so it is the JOIN under test, not a single lucky match.
+      const rows = withSprint(new Map([['example-plan', 'the-active-sprint']]));
+      const planRows = rows.filter((r) => r.planFile === '2026-08-15-example-plan.md');
+      expect(planRows.length).toBeGreaterThan(1);
+      expect(planRows.every((r) => r.sprint === 'the-active-sprint')).toBe(true);
+    });
+
+    it('leaves a plan no sprint lists empty — membership is the file, not the field', () => {
+      // The defect this plan is the first consumer of `plan.status` to avoid:
+      // a plan the sprint file omits carries "" even though the join map exists
+      // for OTHER plans. Joining on a plan's own `Sprint:` field showed 5 of 19;
+      // this is the assertion that a missing membership reads as absence, never
+      // as a guess.
+      const rows = withSprint(new Map([['some-other-plan', 'the-active-sprint']]));
+      const planRows = rows.filter((r) => r.planFile === '2026-08-15-example-plan.md');
+      expect(planRows.every((r) => r.sprint === '')).toBe(true);
+    });
+
+    it('leaves a plan-less row empty under the same map — the row a naive filter deletes', () => {
+      // The release row and the unplanned PR belong to no sprint by their nature,
+      // and the filter that consumes this field must keep them visible. Here the
+      // planless PR reaches the row through the PR loop, whose slug the map cannot
+      // name, so the lookup at that push site is "" — never a crash on a plan it
+      // has no file for.
+      const prs = new Map([['changeset-release/main', pr({ head: 'changeset-release/main' })]]);
+      const rows = rowsFromPulse(
+        pulse, ages, 'plot', QUIET, prs, '', null, Date.now(),
+        null, null, null, null, null, '',
+        new Map([['example-plan', 'the-active-sprint']]));
+      const loose = rows.find((r) => r.branch === 'changeset-release/main')!;
+      expect(loose.planFile).toBe('');
+      expect(loose.sprint).toBe('');
+    });
+
+    it('leaves every existing caller unchanged — no map means empty, not a default fired', () => {
+      // The parameter is last and optional. A caller that says nothing about
+      // sprints gets "" on every row, which is exactly the board before the field
+      // — and it must be "" from the ABSENT map here, not a Zod default that a
+      // client-side cast would never apply.
+      const rows = rowsFromPulse(pulse, ages, 'plot', QUIET);
+      expect(rows.every((r) => r.sprint === '')).toBe(true);
+    });
+  });
 });
 
 describe('rateLimitBackoffMs — slow down for a quota, not for a blip', () => {
