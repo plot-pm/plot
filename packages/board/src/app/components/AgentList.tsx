@@ -744,17 +744,34 @@ export function groupByPlan(rows: AgentRow[]): PlanGroup[] {
 }
 
 /**
- * The sentence a GROUPED wave row carries, by what its count means.
+ * The sentence a GROUPED wave row carries, by what its count means — for the two
+ * words a count actually names, and NOTHING for any other.
  *
- * Each says what the wave is waiting for, and none of them is *may this be
- * started* — which is the only thing the verdict can say, and the reason these
- * rows do not use it.
+ * Each answer says what the wave IS, and none of them is *may this be started* —
+ * which is the only thing the verdict can say, and the reason these rows do not
+ * use it. `delivered` and `stalled` are the whole vocabulary: DONE folds
+ * delivered branches, QUIET folds stalled ones, and those are the only sections
+ * where the count carries a meaning a sentence can state.
+ *
+ * A NOTE IS DERIVED, NEVER DEFAULTED INTO. The default used to assert `work
+ * landed — waiting to be merged` for ANY unrecognised word, and `to approve` — a
+ * wave whose plan is still in review, no PR opened, nothing pushed — hit it:
+ * measured 2026-08-23 on five live blocked waves, every one claimed a merge was
+ * pending over branches never touched, two lines above their own rows reading
+ * *plan not approved yet — still in review*. Absent is not false, and here the
+ * default made absent WORSE than false — a positive claim about work that does
+ * not exist.
+ *
+ * So an unknown word returns `''`. Empty is falsy, and the caller's `waveNote`
+ * ternary falls through it to the VERDICT — the value that actually describes an
+ * ungrouped-meaning wave, and the arm that was dead for every multi-branch wave
+ * while this function answered for words it did not understand.
  */
 export function groupedNote(word: string | undefined): string {
   switch (word) {
     case 'delivered': return 'landed — nothing left in it';
     case 'stalled': return 'nothing has moved here for a while';
-    default: return 'work landed — waiting to be merged';
+    default: return '';
   }
 }
 
@@ -4977,11 +4994,21 @@ function WaveRow({
     // That is the condition the verdict sentences must yield to, whether or not
     // anything survives the strip — and it is what the sibling `waveWaitingOn`
     // ternary above already tests.
+    //
+    // AND THE GROUPED NOTE FALLS THROUGH THE SAME WAY. `groupedNote` now answers
+    // only for the two words a count can mean and returns `''` otherwise — so
+    // `|| verdict` here, not a `groupedCount !== undefined ?` arm that
+    // short-circuited before the verdict could speak. That arm was taken for
+    // EVERY multi-branch wave (`groupedCount` is defined for all of them), which
+    // left the two verdict clauses below dead and let the old default assert
+    // `work landed` over five live `blocked` waves that had never been touched.
+    // A grouped wave with an unrecognised word is exactly the wave the verdict
+    // describes, so it derives the same value a single-branch wave does.
     soleRow ? soleNote
-      : groupedCount !== undefined ? groupedNote(groupedWord)
-      : group.verdict === 'eligible' ? 'approved — nobody has taken it'
-        : group.verdict === 'blocked' ? 'an earlier wave has to land first'
-          : '';
+      : (groupedCount !== undefined ? groupedNote(groupedWord) : '')
+        || (group.verdict === 'eligible' ? 'approved — nobody has taken it'
+          : group.verdict === 'blocked' ? 'an earlier wave has to land first'
+            : '');
   return (
     <TupleRowView
       tuple={tupleFromWave({

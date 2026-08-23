@@ -20,6 +20,7 @@ import {
   splitBranch,
   prStateWord,
   noteWithoutPr,
+  groupedNote,
   readCollapsed,
   writeCollapsed,
   COLLAPSED_BY_DEFAULT,
@@ -1673,6 +1674,39 @@ describe('noteWithoutPr — the note is relieved of one duty, not replaced', () 
     expect(noteWithoutPr('see PR #130 green', pr(130))).toBe('see PR #130 green');
     expect(noteWithoutPr('PR #999 green', pr(130))).toBe('PR #999 green');
     expect(noteWithoutPr('PR #130 green', null)).toBe('PR #130 green');
+  });
+});
+
+describe('groupedNote — a note is DERIVED, never defaulted into', () => {
+  it('answers only for the two words a count can mean', () => {
+    // These are the two the fold's count actually carries in a section where a
+    // wave row states what it holds: DONE folds delivered branches, QUIET folds
+    // stalled ones. Each says what the wave IS, and neither is *may it start* —
+    // which is the verdict's job, and the reason these two are the whole
+    // vocabulary.
+    expect(groupedNote('delivered')).toBe('landed — nothing left in it');
+    expect(groupedNote('stalled')).toBe('nothing has moved here for a while');
+  });
+
+  it('returns EMPTY for any other word — it does NOT assert work landed', () => {
+    // The defect this branch ends: the fallback returned `work landed — waiting
+    // to be merged` for ANY unrecognised word, and `to approve` — a wave whose
+    // PLAN is still in review, no PR opened, nothing pushed — hit it. Measured
+    // 2026-08-23 on five live blocked waves, every one read that a merge was
+    // pending over branches that had never been touched, two lines above their
+    // own rows saying *plan not approved yet — still in review*.
+    //
+    // Empty is the whole fix: `''` is falsy, so the caller's ternary falls
+    // through to the verdict — the value that actually describes the wave. A
+    // note is DERIVED for words it knows and DECLINED otherwise; it is never
+    // defaulted into a claim.
+    //
+    // `to approve` is the word the live population carried; the unknown case is
+    // asserted beside it so no future word can inherit the old assertion.
+    expect(groupedNote('to approve')).toBe('');
+    expect(groupedNote('to review')).toBe('');
+    expect(groupedNote('anything-unrecognised')).toBe('');
+    expect(groupedNote(undefined)).toBe('');
   });
 });
 
