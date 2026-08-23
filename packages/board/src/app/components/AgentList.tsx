@@ -42,6 +42,7 @@ import { AutoDispatchSwitch, ParallelAgentsStepper } from './FleetControls.js';
 import { CommissionDesignButton } from './CommissionDesignButton.js';
 import { CreatePlanButton } from './CreatePlanButton.js';
 import { ResliceButton } from './ResliceButton.js';
+import { DeliverButton } from './DeliverButton.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { isDraft } from './PlanCard.js';
 import { StartWorkButton } from './StartWorkButton.js';
@@ -4456,6 +4457,16 @@ export interface AgentListProps {
    * how they diverge.
    */
   reslice?: DispatchInfo;
+  /**
+   * Whether this server will act on `Deliver`, and why not — the seventh
+   * capability, reaching the PLAN rows whose card is `deliverable`. Same binding
+   * as `idea`, `commission` and `reslice` today (all spawn a plot agent that
+   * writes to this disk), kept its own prop for the reason those are: one flag
+   * for two capabilities is how they diverge. Read together with the card's
+   * `deliverable` bit — this says the board can act, that says the plan is
+   * complete enough to.
+   */
+  deliver?: DispatchInfo;
   /** Bumps once per BOARD refresh; the Start work button counts these. */
   pulse?: number;
   /** A Start work click became outstanding (true) or settled (false). */
@@ -4617,6 +4628,7 @@ function PlanRow({
   card = null,
   approve,
   commission,
+  deliver,
   onApproving,
   ageMinutes,
 }: {
@@ -4658,6 +4670,10 @@ function PlanRow({
   /** Whether this server will act on Commission design — the plan head's OTHER
       act, threaded through to `PlanActions` beside Approve. */
   commission?: DispatchInfo;
+  /** Whether this server will act on Deliver — the plan head's act on the OTHER
+      end of the lifecycle, threaded to `PlanActions`, gated on the card's
+      `deliverable` bit rather than on a Draft phase. */
+  deliver?: DispatchInfo;
   /** A click is outstanding (true) or has settled (false). */
   onApproving?: (active: boolean) => void;
 }) {
@@ -4863,7 +4879,7 @@ function PlanRow({
       // stands: a `plot-dispatch` control would have to guess which of the
       // plan's waves it meant, so the branch rows in the fold keep their own
       // menus, where the row has already decided.
-      menu={<PlanActions plan={group.plan} card={card} approve={approve} commission={commission} onApproving={onApproving} />}
+      menu={<PlanActions plan={group.plan} card={card} approve={approve} commission={commission} deliver={deliver} onApproving={onApproving} />}
     />
   );
 }
@@ -5740,6 +5756,7 @@ function PlanActions({
   card,
   approve,
   commission,
+  deliver,
   onApproving,
 }: {
   plan: string;
@@ -5753,6 +5770,15 @@ function PlanActions({
    * the two authorities changes one prop.
    */
   commission?: DispatchInfo;
+  /**
+   * Whether the server will act on Deliver, and why not — a THIRD act, and the
+   * one that answers a plan on the OTHER end of the lifecycle. Approve and
+   * Commission gate on a Draft plan; Deliver gates on a `deliverable` card (every
+   * non-deferred branch merged, not yet delivered). The two gates are disjoint,
+   * so a plan offers at most one class of act — but the menu that carries them is
+   * one, because a plan head has one `⋯`.
+   */
+  deliver?: DispatchInfo;
   onApproving?: (active: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -5762,21 +5788,40 @@ function PlanActions({
   // is the single spelling of that rule. Two spellings drift — which is how the
   // branch menu and the card came to disagree in the first place.
   //
-  // BOTH acts share this one gate. A Draft plan is what a person decides about,
-  // and Approve and Commission design are the two answers; each then asks its
-  // OWN binding whether the server will act, below.
+  // BOTH draft acts share this one gate. A Draft plan is what a person decides
+  // about, and Approve and Commission design are the two answers; each then asks
+  // its OWN binding whether the server will act, below.
   const isDraftPlan = Boolean(card && isDraft(card));
   const canApprove = Boolean(isDraftPlan && approve);
   const canCommission = Boolean(isDraftPlan && commission);
+  // Deliver's OWN gate, disjoint from the draft one: the card's `deliverable`
+  // bit, which the server sets only where it auto-bumped a fully-merged plan
+  // into Endgame — never on a plan already delivered. So this is true on exactly
+  // the plans that are complete-but-not-delivered, which is where the decision
+  // to deliver lives.
+  const canDeliver = Boolean(card?.deliverable && deliver);
   const approveWillAct = approve?.available ?? false;
   const commissionWillAct = commission?.available ?? false;
-  // The `⋯` opens if EITHER act can act — one refused binding must not hide the
-  // other's live item. Each item still answers to its own verdict inside.
-  const willAct = (canApprove && approveWillAct) || (canCommission && commissionWillAct);
+  // The DRAFT acts open the `⋯` only when one WILL act — a Draft plan with both
+  // bindings refused has nothing to show but a tooltip, which is the behaviour
+  // #160 settled and this must not disturb.
+  const draftWillAct =
+    (canApprove && approveWillAct) || (canCommission && commissionWillAct);
+  // DELIVER is `ResliceMenu`'s shape, not the draft one: the menu opens on a
+  // deliverable plan EVEN WHEN the server refuses, because `DeliverButton` states
+  // its own refusal inside — a refusal is not an absence. So the `⋯` opens when a
+  // draft act will act OR the plan is deliverable, and `DeliverButton` below
+  // renders whenever `canDeliver`, showing its disabled+reason state when the
+  // binding declines.
+  const canOpen = draftWillAct || canDeliver;
   // The dim button's tooltip names a refusal only when there IS one to name —
-  // both acts present and both declined. Approve's reason leads where it is the
-  // one refused, else commission's, so the sentence points at a real binding.
-  const refusalReason = approve?.reason || commission?.reason || `Cannot act on ${plan} from here`;
+  // an act present and declined. The reason of whichever act this plan offers
+  // leads, so the sentence points at a real binding rather than a generic one.
+  const refusalReason =
+    (canApprove ? approve?.reason : undefined) ||
+    (canCommission ? commission?.reason : undefined) ||
+    (canDeliver ? deliver?.reason : undefined) ||
+    `Cannot act on ${plan} from here`;
 
   useEffect(() => {
     if (!open) return;
@@ -5806,7 +5851,7 @@ function PlanActions({
       className="relative w-5 shrink-0 text-right"
       onClick={(e) => e.stopPropagation()}
     >
-      {isDraftPlan && (
+      {(isDraftPlan || canDeliver) && (
         <button
           type="button"
           data-plan-actions={plan}
@@ -5814,12 +5859,12 @@ function PlanActions({
           aria-expanded={open}
           // Never the native attribute — a natively disabled control leaves the
           // tab order and takes the explanation with it.
-          aria-disabled={!willAct || undefined}
-          aria-label={willAct ? `Actions for ${plan}` : refusalReason}
-          title={willAct ? `Actions for ${plan}` : refusalReason}
-          onClick={() => { if (willAct) setOpen((v) => !v); }}
+          aria-disabled={!canOpen || undefined}
+          aria-label={canOpen ? `Actions for ${plan}` : refusalReason}
+          title={canOpen ? `Actions for ${plan}` : refusalReason}
+          onClick={() => { if (canOpen) setOpen((v) => !v); }}
           className={`inline-flex h-6 w-5 items-center justify-center leading-none ${
-            willAct
+            canOpen
               ? 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'
               : 'cursor-default text-slate-300 dark:text-slate-700'
           }`}
@@ -5827,7 +5872,7 @@ function PlanActions({
           <span aria-hidden className="text-xs">⋯</span>
         </button>
       )}
-      {open && willAct && card && (
+      {open && canOpen && card && (
         <div
           role="menu"
           ref={menu}
@@ -5844,6 +5889,17 @@ function PlanActions({
           {canCommission && commissionWillAct && commission && (
             <div role="menuitem" className="px-2 py-1 text-left">
               <CommissionDesignButton card={card} commission={commission} onActing={onApproving} />
+            </div>
+          )}
+          {/* Rendered whenever the plan is deliverable, EVEN WHEN the server
+              refuses — `DeliverButton` states its own refusal inside, the way
+              every `ResliceButton` does. This is the one item that departs from
+              the draft acts above, which render only where their binding will
+              act; the departure is deliberate, so a refused delivery is a named
+              control rather than a vanished one. */}
+          {canDeliver && deliver && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <DeliverButton slug={card.slug} deliver={deliver} onActing={onApproving} />
             </div>
           )}
         </div>
@@ -6796,6 +6852,7 @@ export function AgentList({
   approve,
   commission,
   reslice,
+  deliver,
   continueWith,
   idea,
   pulse = 0,
@@ -7455,6 +7512,7 @@ export function AgentList({
                           card={cardForPlanFile?.(group.planFile) ?? null}
                           approve={approve}
                           commission={commission}
+                          deliver={deliver}
                           onApproving={onStarting}
                         />
                         {/* The branches, folded. Removed from the tree rather
@@ -7740,6 +7798,7 @@ export function AgentList({
                         card={cardForPlanFile?.(group.planFile) ?? null}
                         approve={approve}
                         commission={commission}
+                        deliver={deliver}
                         onApproving={onStarting}
                       />
                     )}

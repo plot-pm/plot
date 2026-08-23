@@ -4,13 +4,19 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** infra
 - **Sprint:** <!-- optional -->
 - **Issue:** <!-- optional -->
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-23, Jan Wloka, in-session
+- **Started:** 2026-08-23, Jan Wloka, `infra/the-derivations-leave-the-component`
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Changelog
 
@@ -85,14 +91,49 @@ Two hot regions: the derivations (0–3000, **56 hunks**) and the row components
 (4000–6000, **34**). The subjects inside the first are already legible from the
 export names, and they are what the modules should be:
 
-| module | subject | exports include |
+| module | subject | ~lines |
 |---|---|---|
-| `host-notes.ts` | what the host and its PRs can say | `hostAnswer`, `hostErrorState`, `hostCannotReportCi`, `prNote`, `issueNote`, `machineNote`, `HOST_ANSWER_HINT` |
-| `collapse.ts` | what is folded, and remembered | `readCollapsed`, `writeCollapsed`, `isCollapsible`, `COLLAPSED_BY_DEFAULT` |
-| `waves.ts` | grouping rows into waves and describing them | `groupByWave`, `waveLabel`, `waveSummaryFor`, `waveDissent`, `groupedNote`, `showPlanHeading` |
-| `activity.ts` | motion, change marks, pace | `activeRowKeys`, `changedRows`, `activityPace`, `groupPace`, `watchedState`, `CHANGE_MARK_MS` |
-| `row-identity.ts` | what a row IS and how it is keyed | `rowKey`, `isFinished`, `isUnbegun`, `isUnreadable`, `sortByWaiting`, `planWaitingDays` |
-| `actions.ts` | what a row offers | `offersAction`, `offersChangedFiles`, `changedFilesLabel`, `repairWord` |
+| `host-notes.ts` | what the host and its PRs can say — `hostAnswer`, `prNote`, `issueNote`, `machineNote` | 268 |
+| `collapse.ts` | what is folded, and remembered — `readCollapsed`, `isCollapsible` | 85 |
+| `waves.ts` | grouping into waves and describing them — `groupByWave`, `waveDissent`, `groupedNote` | 314 |
+| `sections.ts` | which section a row lands in — `waveGroupsFor`, `groupByPlan`, `rowsBySection`, `GROUPS` | ~330 |
+| `activity.ts` | motion, change marks, pace — `activeRowKeys`, `activityPace`, `watchedState` | 560 |
+| `stuck.ts` | liveness and why a row is stuck — `stuckEvidence`, `stuckWord`, `isLive`, `isActive` | ~320 |
+| `row-identity.ts` | what a row IS and how it is keyed — `rowKey`, `isFinished`, `sortByWaiting` | 327 |
+| `actions.ts` | what a row offers — `offersAction`, `changedFilesLabel`, `repairWord` | 109 |
+
+**Eight, not six.** A first cut named six and covered only ~1660 of the 3008
+derivation lines; measuring the remainder found two more real subjects —
+`sections` and `stuck` — rather than a residue. That is the check the plan
+demands of itself: a leftover pile means the cut was wrong.
+
+### And the components, because otherwise the largest file barely moves
+
+The derivations are 3008 of 8104 lines. Moving them alone leaves
+**`AgentList.tsx` at ~5095 lines** — still the largest file in the package, and
+still the file every row, menu and mark branch has to edit. Measured spans:
+
+```
+AgentList (shell)  1316      Row            698      RowActions   603
+WaveRow             540      ChangeMark     346      PlanRow      279
+ActivityMark        222      StuckCell      197      IssueRowActions 152
+PlanActions         143      BlockedByMark  115      ResliceMenu   98
+WaveActions          96      BranchMenu      64      HeaderRow     60
+IssueRowView         58      PlanLink        59      UnpushedMark  50
+```
+
+So the components split too, by what they render:
+
+| module | holds | ~lines |
+|---|---|---|
+| `rows.tsx` | `Row`, `WaveRow`, `PlanRow`, `HeaderRow`, `IssueRowView`, `PlanLink` | ~1690 |
+| `menus.tsx` | `RowActions`, `PlanActions`, `WaveActions`, `BranchMenu`, `ResliceMenu`, `IssueRowActions` | ~1160 |
+| `marks.tsx` | `ActivityMark`, `UnpushedMark`, `ChangeMark`, `StuckCell`, `BlockedByMark` | ~930 |
+| `AgentList.tsx` | the shell only | ~1320 |
+
+**Largest file after: ~1690** (`rows.tsx`), against 8104 today. That is the
+number this plan is answerable for, and it is stated here so the claim can be
+checked rather than felt.
 
 **This is the whole point of the change.** One module would end the
 serialisation — the fleet could at least queue. Six end the *accidental*
@@ -156,17 +197,28 @@ be asked to do. The correct order:
 2. do this move, alone, in one PR;
 3. dispatch the held-back branches onto the smaller file.
 
-### Not chosen: split the components too
+### The component split is the riskier half, and is treated as such
 
-`PlanRow` / `WaveRow` / `Row` / the menus are the obvious second cut, and they
-are the harder one — they share props, helpers and rendering conventions.
-Rejected **for this plan**: doing both at once produces a diff nobody can review
-against a behaviour-preservation claim. The derivations move is independently
-valuable and independently verifiable.
+The derivation modules are pure moves: no JSX, no hooks, no shared render
+conventions. The components are not — `Row`, `WaveRow` and `PlanRow` share
+props, helpers and idioms, and an earlier draft of this plan rejected splitting
+them for exactly that reason.
 
-Revisit once this has landed and the contention is measured again.
+**It is included because the measurement overruled the caution:** derivations
+alone leave a 5095-line file that four branches still queue on, which is most of
+the problem left in place.
 
-### Not chosen: move only the contended functions
+So the component half carries a stricter rule than the derivation half:
+
+- **Move whole components, never parts of one.** If a component has to be
+  divided to fit a module, stop and report it — that is a redesign, not a move.
+- **Shared render helpers go to one module and are imported**, never duplicated.
+  Two copies of a helper is how the next `groupedNote` conflict gets made.
+- **If a component cannot move without editing it, leave it in
+  `AgentList.tsx`** and say so in the PR. A shell of 1320 lines plus one awkward
+  component is a better outcome than a move that quietly changed behaviour.
+
+### Not chosen: move only the contended functions### Not chosen: move only the contended functions
 
 `groupedNote` and `waveDissent` caused today's conflict, so moving just those is
 tempting. Rejected: it fixes the collision that already happened rather than the
@@ -200,8 +252,12 @@ one that will, and it leaves a file that is 8000 lines for no stated reason.
 - **One commit per module**, each moving exactly that module's functions and
   nothing else. A commit that touches two modules is a review unit nobody asked
   for; a commit that moves and edits is not a move.
-- `AgentList.tsx` no longer holds the derivations, and is **materially smaller**
-  — state the before and after line counts in the PR body.
+- **No file in `packages/board/src/app` exceeds ~1700 lines.** Asserted by
+  counting: this is the number the plan is answerable for, against 8104 today.
+- `AgentList.tsx` is a shell of roughly 1320 lines — it holds the top-level
+  component and nothing else.
+- **Every component moved whole.** A component split across modules, or edited to
+  fit one, means the move became a redesign.
 - **`AgentList.tsx` re-exports nothing.** Assert by grep: no `export {` block
   forwarding a moved symbol. This is the assertion that separates a real split
   from a line-count reduction — every other assertion here passes with a
@@ -227,7 +283,11 @@ one that will, and it leaves a file that is 8000 lines for no stated reason.
 
 ### Moved
 
-- `infra/the-derivations-leave-the-component` — move the 65 pure derivations from `AgentList.tsx` into six subject modules under `app/lib/agent-rows/` with their docstrings intact, update the 14 importing files, and change no behaviour
+- `infra/the-derivations-leave-the-component` — move the derivations into eight subject modules under `app/lib/agent-rows/`, docstrings intact, no re-exports, and update the 14 importing files
+
+### Rendered
+
+- `infra/the-components-leave-the-shell` — move the 18 components into `rows.tsx`, `menus.tsx` and `marks.tsx`, whole components only, leaving `AgentList.tsx` as a ~1320-line shell; largest file in the package drops to ~1690
 
 ## Notes
 
@@ -241,11 +301,12 @@ surface cannot be worked on by two branches, and this fleet routinely wants four
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 4,
+  "round": 5,
   "questionHistory": [
     {"q": "Is the region above the first component actually pure?", "a": "Not quite - grep showed 25 JSX hits and 10 hook uses. Reading them: the hits are <AgentRow generic type parameters, not markup, and only useChangeMarks is a real hook. The cut is derivations, not a line number", "category": "technical"},
     {"q": "One derivations module, or several by subject?", "a": "SEVERAL - operator call. One ends the serialisation; six end the ACCIDENTAL collisions, so two branches on unrelated subjects share no file. Subjects taken from export names: host-notes, collapse, waves, activity, row-identity, actions", "category": "architecture"},
     {"q": "Direct imports or re-exports from AgentList.tsx?", "a": "DIRECT, no re-exports - operator call. A re-export block leaves AgentList.tsx naming all 65 symbols and edited by every module change: line count down, contention unchanged", "category": "implementation"},
+    {"q": "How big is the largest file after the refactor?", "a": "Derivations alone left AgentList.tsx at ~5095 - still the largest and still the bottleneck. So the components split too: rows/menus/marks, largest file ~1690 against 8104 today. Also found the six modules covered only 1660 of 3008 lines; the rest were two missed subjects, sections and stuck, making eight", "category": "architecture"},
     {"q": "Six PRs or one?", "a": "ONE - operator call. Six would each edit AgentList.tsx's import block and serialise on the file this unblocks. One PR, six commits, one per module: the commits are the review unit", "category": "implementation"},
     {"q": "Split the components too?", "a": "No - they share props and conventions, and doing both produces a diff nobody can review against a behaviour-preservation claim", "category": "tradeOffs"},
     {"q": "Move only the functions that actually collided?", "a": "No - fixes the collision that happened rather than the one that will, and leaves 8000 lines for no stated reason", "category": "tradeOffs"}

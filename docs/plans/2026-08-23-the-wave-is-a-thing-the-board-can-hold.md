@@ -16,6 +16,10 @@
 - **Started:** 2026-08-23, Jan Wloka, `bug/a-wave-is-one-row`
 - **Started:** 2026-08-23, Jan Wloka, `feature/the-contract-carries-a-wave`
 - **Started:** 2026-08-23, Jan Wloka, `feature/the-classifier-is-total`
+- **Started:** 2026-08-23, Jan Wloka, `feature/the-sections-ask-the-wave`
+- **Started:** 2026-08-23, Jan Wloka, `feature/the-head-asks-the-wave`
+- **Started:** 2026-08-23, Jan Wloka, `bug/done-holds-finished-plans-only`
+- **Started:** 2026-08-23, Jan Wloka, `feature/a-split-plan-counts-what-is-elsewhere`
 
 ## Approval
 
