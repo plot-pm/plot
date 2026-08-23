@@ -70,6 +70,124 @@ erDiagram
   *"a branch is what an agent is working on, never what it is."*
 - **PR → build is 0..n** — one check run per workflow.
 
+**And two the diagram cannot say, because they are about identity rather than
+counting:**
+
+- **A wave's identity is the PAIR `(plan, name)`, never the name.** Wave names
+  repeat across the estate — `Shaped` appears in several plans, `Says` in three —
+  so any map keyed on the name alone collides. `openWaves` keys on
+  `plan\0wave` for this reason, and so does `BlockedByMark`'s lookup.
+- **A branch belongs to ONE wave, but may be NAMED by two plans.** Measured
+  2026-08-22: `feature/the-registry-knows-which-agents-live` was declared by both
+  `approval-hands-the-work-to-agents` and `every-section-has-one-subject`, and
+  the board reported `claimed twice`. The git ref is single; the declaration is
+  not. That is a real estate state, not a modelling error — the board's job is to
+  surface it, which it did.
+
+**Cardinality is a claim that can be violated, and one is today.** *A wave
+renders in exactly one section* is the invariant, and `Inverted` breaks it — one
+merged branch and one open branch, so two section predicates both claim the wave.
+See `the-wave-is-a-thing-the-board-can-hold`.
+
+## Creation lifecycle
+
+Each entity is brought into being by a different act, and they are not equally
+ceremonious. The order is fixed — nothing downstream can exist before its
+upstream does.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+
+    [*] --> PlanFile : /plot-idea writes docs/plans/&lt;date&gt;-&lt;slug&gt;.md
+
+    state "PLAN — a file on a branch" as PlanFile
+    state "WAVE — a ### heading" as WaveHeading
+    state "BRANCH — a claimed ref" as BranchRef
+    state "WORKLOG — a manifest" as Manifest
+    state "PR — opened by the worker" as PullRequest
+    state "BUILD — a check run" as CheckRun
+
+    PlanFile --> WaveHeading : written by hand, in prose
+    WaveHeading --> BranchRef : claim push (empty commit)
+    BranchRef --> Manifest : plot-dispatch.sh spawns an agent
+    BranchRef --> PullRequest : the worker opens it
+    PullRequest --> CheckRun : CI reacts to the head sha
+
+    note right of WaveHeading
+        NO CREATION EVENT.
+        A wave exists the moment
+        somebody types ###.
+        Nothing validates it.
+    end note
+
+    note right of Manifest
+        Optional. A branch worked
+        by a human has no manifest
+        and is not less real.
+    end note
+```
+
+### Who creates what, and when
+
+| entity | created by | at what moment | can it be refused? |
+|---|---|---|---|
+| **plan** | `/plot-idea` | a file is written and committed | yes — slug collision is a hard gate |
+| **wave** | *a human typing `### `* | **no event** — it exists on write | **no** |
+| **branch** | `git push -u origin <branch>` | the **claim**, before any work | yes — the push is rejected if it exists |
+| **worklog** | `plot-dispatch.sh` | an agent is spawned | n/a |
+| **pr** | the implementing session | first real commit is pushed | by the host |
+| **build** | CI | a head sha appears | n/a |
+
+### The claim is the only atomic creation
+
+```
+git checkout -b "$BRANCH" "origin/$DEFAULT_BRANCH"
+git push -u origin "$BRANCH"          # ← THE CLAIM
+```
+
+**The claim carries an EMPTY COMMIT, and that is load-bearing.** A branch merely
+pointing at `origin/main` pushes as a no-op — the remote already has that commit,
+so the push succeeds with *"Everything up-to-date"* and **both** dispatchers
+believe they own the branch. Mutual exclusion needs a ref the remote does not
+already have.
+
+That makes the branch the one entity whose creation is a lock. There is no lock
+manager and none is wanted: pushing a ref that already exists is rejected, so two
+sessions racing cannot both win. The loser asks `--next` for another branch.
+
+### A wave is born in prose, and that is the defect
+
+A wave has **no creation step at all** — no file, no ref, no registration. It
+exists the moment a `### ` heading is written inside `## Branches`, and nothing
+validates that it was meant.
+
+**Measured consequence:** a backticked branch name mentioned in an *explanatory
+table* inside `## Branches` was parsed as a declaration, read as `eligible` by
+the fleet scan, and **dispatched to an agent**. The correction file an operator
+left in that worktree says it plainly:
+
+> `bug/one-column-one-kind-of-fact` was never an intended branch. It appeared in
+> the plan's `## Branches` section as a backticked prose mention inside an
+> explanatory table.
+
+Two branches were created for work nobody had planned. That is what *no creation
+event* costs: there is no step at which a wave can be refused, because there is
+no step.
+
+### Lifetimes differ from creation order
+
+- **A plan outlives its waves.** Delivered and Released plans keep their waves as
+  history.
+- **A worklog outlives its branch.** An agent finishes one and takes another;
+  `branch: ''` is the state between. The manifest is keyed on the *session*, not
+  the branch, for exactly this reason.
+- **A branch outlives its worktree.** Cleaning a worktree does not delete the
+  ref, and `/plot-reconcile` deliberately never deletes a remote ref another
+  session may be reading.
+- **A build outlives nothing** — it belongs to a commit, so a rebase orphans it.
+  This is why a CI waiter must pin the head sha.
+
 ## PLAN
 
 The one entity with a complete existing model: `plot-plan-meta.sh` emits 26
