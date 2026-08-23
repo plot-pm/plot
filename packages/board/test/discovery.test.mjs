@@ -305,7 +305,7 @@ describe('board: a repo with no prefixed branches behaves exactly as before', ()
     const board = await fetchBoard(server.port);
     const counts = Object.fromEntries(board.columns.map((c) => [c.phase, c.cards.length]));
     assert.deepEqual(counts, {
-      Discovery: 0, Design: 0, Development: 1, Endgame: 0, Released: 0,
+      Discovery: 0, Design: 0, Development: 1, Testing: 0, Released: 0,
     });
   });
 });

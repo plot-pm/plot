@@ -15,6 +15,7 @@
 - **Started:** 2026-08-22, Jan Wloka, `infra/the-parser-reads-a-wave-heading`
 - **Started:** 2026-08-22, Jan Wloka, `infra/the-parser-reads-a-wave-heading`
 - **Started:** 2026-08-22, Jan Wloka, `infra/the-template-writes-waves`
+- **Started:** 2026-08-23, Jan Wloka, `infra/the-parser-reads-a-wave-heading`
 
 ## Changelog
 
@@ -191,7 +192,7 @@ performing.
   still parses, so no existing plan changes meaning; a heading with no `PR:`
   yields no PR rather than an empty string; a backticked branch name in a
   PARAGRAPH is not a branch, which is the defect the old shape invited; the
-  format contract tests cover both shapes. → #321
+  format contract tests cover both shapes. → #367
 
 ### Written
 - `infra/the-template-writes-waves` — the plan template and `/plot-idea` write

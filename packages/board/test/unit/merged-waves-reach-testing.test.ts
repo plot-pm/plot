@@ -72,7 +72,7 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
   });
 
   it('is true with a deferred branch among merged ones — the scan exempts it', () => {
-    // Measured on the Endgame plans: six merged, three deferred, and complete.
+    // Measured on the Testing plans: six merged, three deferred, and complete.
     // A shelved branch is not outstanding work, so it does not hold the plan in
     // Development — matching `plot-fleet-scan.sh`'s own rule.
     const m = meta({
@@ -198,13 +198,13 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
 
 describe('the bump reaches the phase after Development, read from the mapping', () => {
   // The wiring in `buildBoard` computes the target as `toBoardPhase('delivered')`
-  // rather than a literal, so the rename wave (Named: Endgame → Testing) needs no
+  // rather than a literal, so the rename wave (Named: Testing → Testing) needs no
   // edit here — the mapping stays the one definition of which column `delivered`
   // lands in, and this derivation follows it. Pinning the current value keeps the
   // reference discoverable; the rename wave updates this one line, not the logic.
   it('is the same column a delivered plan lands in', () => {
     const afterDevelopment = toBoardPhase('delivered');
-    expect(afterDevelopment).toBe('Endgame');
+    expect(afterDevelopment).toBe('Testing');
     // ...and it is NOT Development — the bump must actually move the card.
     expect(afterDevelopment).not.toBe('Development');
     expect(afterDevelopment).not.toBe(toBoardPhase('approved'));

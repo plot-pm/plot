@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { classify, rowsFromPulse, whereToLook } from '../../src/server/fleet.js';
-import { inMachineSection } from '../../src/app/components/AgentList.js';
+import { inMachineSection } from '../../src/app/lib/agent-rows/host-notes.js';
 import { WorkerStateSchema, type AgentRow, type FleetPulse } from '../../src/contract/schema.js';
 import type { PrRecord } from '../../src/server/fleet.js';
 

@@ -20,7 +20,7 @@ describe('plansInStory', () => {
     const cards = [
       card('netting', 'Design', 'berry-patch'),
       card('apples', 'Released', 'orchard'),
-      card('mulch', 'Endgame', 'berry-patch'),
+      card('mulch', 'Testing', 'berry-patch'),
       card('loose', 'Design'),
     ];
     expect(plansInStory(cards, 'berry-patch').map((c) => c.slug)).toEqual(['netting', 'mulch']);
@@ -48,7 +48,7 @@ describe('plansInStory', () => {
     `;
     const cards = [
       card('netting', 'Design', 'berry-patch'),
-      card('compost', 'Endgame', 'berry-patch'),
+      card('compost', 'Testing', 'berry-patch'),
     ];
     const derived = plansInStory(cards, 'berry-patch').map((c) => c.slug);
     expect(derived).toEqual(['netting', 'compost']);

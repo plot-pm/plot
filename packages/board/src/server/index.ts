@@ -174,14 +174,14 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     //
     // The same class of route as /api/reslice, and the same binding: it spawns a
     // plot agent (`/plot-deliver`) that flips a plan's phase on this disk. It is
-    // SLUG-scoped — it acts on the plan the Endgame card already names — and it
+    // SLUG-scoped — it acts on the plan the Testing card already names — and it
     // asks the plan's own waves (through `plot-plan-meta.sh`, against the pulse
     // the board renders from) whether every non-deferred branch has merged before
     // spawning, because delivering a plan whose work is not done is the gate #350
     // kept.
     //
     // DELIVERY IS A DECISION, NOT THE MEASUREMENT. The board bumps a fully-merged
-    // plan's card into Endgame on its own — that is the measurement — but flips no
+    // plan's card into Testing on its own — that is the measurement — but flips no
     // phase. This route is where a person makes the decision to deliver, and it
     // writes none of the transition itself: `/plot-deliver` re-verifies the merges
     // and moves the plan. This is the standing rule for board writes: reuse the
@@ -563,7 +563,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 
   // What happened to a delivery somebody asked for — the same read-it-back shape
   // `/api/reslice/<slug>` has, slug-keyed. A delivery moves the card out of
-  // Endgame only once its phase flips, so the button watches this for the
+  // Testing only once its phase flips, so the button watches this for the
   // command's own words on a refusal.
   if (url.pathname.startsWith('/api/deliver/')) {
     const slug = url.pathname.slice('/api/deliver/'.length);

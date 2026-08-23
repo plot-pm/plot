@@ -295,7 +295,7 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
     const page = await open();
     try {
       // 71 branch rows printed their plan's phase — 36 `Development`, 26
-      // `Endgame`, 9 `Design` — a fact about the plan on a row about something
+      // `Testing`, 9 `Design` — a fact about the plan on a row about something
       // else. Slot 5 on the PLAN row is where that fact is true.
       const planRow = page.locator('li[data-tuple-kind="plan"]');
       await planRow.first().waitFor({ timeout: 10_000 });

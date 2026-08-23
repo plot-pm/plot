@@ -15,7 +15,7 @@
 //                                 clause this file's first half proves.
 //
 // THE PHASE VOCABULARY IS THE ONE TRAP. The domain model states its rules in the
-// plan's own phases — Discovery · Development · Endgame · Released — but
+// plan's own phases — Discovery · Development · Testing · Released — but
 // `classify` never sees those words. Its `planPhase` argument is the fleet
 // SCAN's lowercase lifecycle vocabulary — '' · draft · approved · delivered ·
 // released — the same strings `toBoardPhase` maps back up. So every rule stated
@@ -38,9 +38,9 @@ import type { AgentRow, BranchState, FleetPulse, WaitingGroup, WaveVerdict, Work
 // released plan is out of the board's scope, so its rows never reach a section
 // at all. `classify` is again left unchanged — per branch, a merged branch of a
 // released plan is `done` — and the Released half of `DONE ⇒ Development or
-// Endgame` is re-asserted against `rowsFromPulse`, which is the layer that
+// Testing` is re-asserted against `rowsFromPulse`, which is the layer that
 // drops it. `done-holds-finished-plans-only` is the commit that earns it.
-import { waveSection } from '../../src/app/components/AgentList.js';
+import { waveSection } from '../../src/app/lib/agent-rows/sections.js';
 
 /**
  * A PR row as `classify` reads it — it consults `checks` and `mergeable`, never
@@ -95,7 +95,7 @@ const WORKERS: readonly WorkerState[] = [
 const PHASE = {
   Discovery: 'draft',
   Development: 'approved',
-  Endgame: 'delivered',
+  Testing: 'delivered',
   Released: 'released',
 } as const;
 
@@ -355,11 +355,11 @@ describe('the twelve rules that HOLD — asserted over fixtures', () => {
     // Every DONE row landed: a merged branch, or a deferred one on a plan still
     // in play. An open or wip branch is never DONE. Note the wording the brief
     // insists on — merged OR DEFERRED — because a deferred branch is exempt from
-    // the merge gate by design (Endgame plans hold 6 merged and 3 deferred).
+    // the merge gate by design (Testing plans hold 6 merged and 3 deferred).
     expect(section({ state: 'merged', verdict: 'complete', phase: PHASE.Development })).toBe('done');
     // A deferred branch of a plan still in play is NOT STARTED (a person may
     // un-shelve it), which is the estate's own reading; the DONE deferred rows
-    // are the all-deferred waves of Endgame plans, tested below under the
+    // are the all-deferred waves of Testing plans, tested below under the
     // wording clause.
     expect(section({ state: 'open', verdict: 'eligible', phase: PHASE.Development })).not.toBe('done');
     expect(section({ state: 'wip', verdict: 'eligible', phase: PHASE.Development, ageMinutes: 3 })).not.toBe('done');
@@ -378,11 +378,11 @@ describe('the twelve rules that HOLD — asserted over fixtures', () => {
     // branches and nothing else — complete because there is nothing left to do.
     // A wave of {merged, deferred} is complete; a deferred branch does not break
     // completeness.
-    const merged = section({ state: 'merged', verdict: 'complete', phase: PHASE.Endgame });
+    const merged = section({ state: 'merged', verdict: 'complete', phase: PHASE.Testing });
     expect(merged).toBe('done');
-    // An all-deferred complete wave on an Endgame plan lands in DONE — the
+    // An all-deferred complete wave on an Testing plan lands in DONE — the
     // deferred branch is exempt from the merge gate.
-    expect(section({ state: 'deferred', verdict: 'complete', phase: PHASE.Endgame })).toBe('done');
+    expect(section({ state: 'deferred', verdict: 'complete', phase: PHASE.Testing })).toBe('done');
   });
 
   it('blocked ⇒ no branch merged (HOLDS 14/14)', () => {
@@ -402,7 +402,7 @@ describe('the six failing rules — three still fail, three were fixed a layer a
   // THREE HAVE NOW MOVED, each by a fix a LAYER ABOVE `classify`. `a-wave-is-one-row`
   // raised `every wave has EXACTLY ONE section` (81/82 → 82/82) and `eligible ⇒
   // no branch merged` (19/20 → 20/20) via `waveSection`. `done-holds-finished-plans-only`
-  // raised the Released half of `DONE ⇒ Development or Endgame` (19/61 → 19/20)
+  // raised the Released half of `DONE ⇒ Development or Testing` (19/61 → 19/20)
   // via `rowsFromPulse`, which drains a released plan before it reaches a
   // section. Their numbers are raised here, deliberately, in the commit that
   // earns them. The remaining three still carry today's failing numbers and wait
@@ -424,7 +424,7 @@ describe('the six failing rules — three still fail, three were fixed a layer a
     expect(MEASURED_PASSING).toBe(MEASURED_TOTAL - 1);
   });
 
-  it('DONE ⇒ phase Development or Endgame (NOW 19/20 — `done-holds-finished-plans-only` drained Released)', () => {
+  it('DONE ⇒ phase Development or Testing (NOW 19/20 — `done-holds-finished-plans-only` drained Released)', () => {
     // WAS 19/61: 41 Released rows and 1 Discovery row sat in DONE. The Released
     // 41 are now drained. Their number is raised here, deliberately, in the
     // commit that earns them — leaving the ONE Discovery row as the last
@@ -464,7 +464,7 @@ describe('the six failing rules — three still fail, three were fixed a layer a
     // Measured: DONE held 61 rows; #339 sent `Inverted`'s incomplete merged
     // branch to NOT STARTED (61 → 60), and this branch drains the 41 Released
     // (60 → 19 finished-and-unreleased + 1 Discovery = 20). So 19 of 20 rendered
-    // DONE rows are Development or Endgame; the one Discovery row is the last to
+    // DONE rows are Development or Testing; the one Discovery row is the last to
     // fall, to `a-draft-plan-claims-no-approvals`.
     const MEASURED_PASSING = 19;
     const MEASURED_TOTAL = 20;
