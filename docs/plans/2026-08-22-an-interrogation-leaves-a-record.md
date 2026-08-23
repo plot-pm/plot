@@ -6,17 +6,16 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
-- **Sprint:** working-shows-the-agent
+- **Sprint:** the-board-tells-the-truth-in-every-section
 - **Story:** plot-planning-model
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-22, Jan Wloka, in-session
 - **Started:** 2026-08-22, Jan Wloka, `bug/the-skill-records-its-rounds`
-- **Started:** 2026-08-22, Jan Wloka, `bug/the-skill-records-its-rounds`
 - **Started:** 2026-08-22, Jan Wloka, `docs/the-six-say-they-were-challenged`
-- **Started:** 2026-08-22, Jan Wloka, `docs/the-six-say-they-were-challenged`
+- **Delivered:** 2026-08-23
 
 ## Approval
 
@@ -203,7 +202,7 @@ anyway.
   JSON changes at all** — the 24 that already carry counts are untouched, which
   is the property that makes a hand-written block safe to add in bulk; a plan
   whose block was added reports the same `branches`, `prs` and `waves` as
-  before.
+  before. → #328
 
 ## Notes
 

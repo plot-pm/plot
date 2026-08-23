@@ -132,7 +132,7 @@ compete with the row states beneath it.
 
 ### Named
 
-- `feature/the-board-says-which-branch-it-serves` — add the branch to `serverInfo`, render it in the header, and prove the detached case renders nothing
+- `feature/the-board-says-which-branch-it-serves` — add the branch to `serverInfo`, render it in the header, and prove the detached case renders nothing → #337
 
 ## Notes
 

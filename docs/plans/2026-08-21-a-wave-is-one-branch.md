@@ -15,6 +15,7 @@
 - **Approved:** 2026-08-23, Jan Wloka, in-session
 - **Assignee:** jwloka
 - **Started:** 2026-08-23, Jan Wloka, `feature/plot-reslice-proposes-one-wave-per-branch`
+- **Started:** 2026-08-23, Jan Wloka, `feature/reconcile-counts-unsliced-waves`
 
 ## Approval
 

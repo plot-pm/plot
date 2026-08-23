@@ -770,7 +770,7 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // Empty for the same reason and by the same hand: the port is known only
     // inside `listen()`, so index.ts overwrites this at response time. An empty
     // command renders no restart hint rather than a guessed one.
-    server: { restartCommand: '', port: 0 },
+    server: { restartCommand: '', port: 0, branch: '' },
     // Same rule, same reason: whether the board may approve depends on the
     // socket AND on a config key, and this walker reads plans. index.ts
     // overwrites it where both are known.
