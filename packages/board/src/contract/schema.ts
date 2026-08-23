@@ -567,6 +567,24 @@ export const BoardSchema = z.object({
    */
   deliver: DispatchInfoSchema.default({ available: false, reason: '' }),
   /**
+   * Whether "Implement" will act — the eighth capability, twin of `idea`,
+   * `commission`, `reslice` and `deliver`: it spawns a plot agent
+   * (`/plot-implement`) that prepares an approved plan on this disk, so it
+   * answers the same localhost binding they do. It stays its own field for the
+   * reason `approve`/`commission`/`reslice` record — one flag for two
+   * capabilities is how they diverge when a later change makes only one of them
+   * local.
+   *
+   * **It answers only half the question the control needs.** This field says
+   * whether THIS BOARD can act; whether a given plan has work to start — approved
+   * and `waveSummary.eligible > 0` — is `hasEligibleWork`, computed per plan.
+   * The control gates on the card first, and reads this flag for its refusal.
+   *
+   * Same default as the seven above: an older server sends nothing and a newer
+   * client hides the control rather than offering one that 403s.
+   */
+  implement: DispatchInfoSchema.default({ available: false, reason: '' }),
+  /**
    * Newest release checklist, for the Testing column: what is left before
    * signoff. null when no checklist exists or none could be parsed — the board
    * shows no badge rather than a guessed count.

@@ -428,6 +428,23 @@ export function App() {
     : board?.deliver ?? { available: false, reason: '' };
 
   /**
+   * The SAME treatment for Implement — the eighth spawn, which prepares an
+   * approved plan for implementation via `/plot-implement`. Dimmed on a frozen
+   * page for the reason the ones above are: it spawns an agent that creates a
+   * branch and a brief on disk, and a page that cannot re-read git cannot know
+   * the plan has already been started, or that its ground has moved.
+   *
+   * `board?.implement` may be `undefined` even off a frozen page — the board
+   * CASTS its payload rather than parsing it, so the schema `.default` never
+   * runs client-side, and a pulse produced before this field existed carries no
+   * `implement`. `ImplementButton` reads `implement.available`, so the coalesce
+   * here is what makes a stale payload refuse rather than throw.
+   */
+  const implementInfo = dimmed
+    ? { available: false, reason: BLOCKED_REASON }
+    : board?.implement ?? { available: false, reason: '' };
+
+  /**
    * Coming back to a hidden tab RE-CHECKS instead of counting.
    *
    * Browsers throttle timers in hidden tabs, so a minimised window would
@@ -911,6 +928,11 @@ export function App() {
               // Commission do, in the row menu, gated on the card's `deliverable`
               // bit rather than on a Draft phase.
               deliver={deliverInfo}
+              // The eighth act, and the complement of Dispatch on an approved
+              // plan: Implement prepares one wave via `/plot-implement`. It
+              // reaches the same PLAN rows Approve, Commission and Deliver do,
+              // in the row menu, gated on the card having eligible work.
+              implement={implementInfo}
               pulse={pulse}
               onStarting={onStarting}
               // The agent panel's BRANCH and PLAN facts are destinations.
