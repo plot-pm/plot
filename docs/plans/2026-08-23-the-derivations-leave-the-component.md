@@ -14,6 +14,7 @@
 - **Approved:** 2026-08-23, Jan Wloka, in-session
 - **Started:** 2026-08-23, Jan Wloka, `infra/the-derivations-leave-the-component`
 - **Started:** 2026-08-23, Jan Wloka, `infra/the-components-leave-the-shell`
+- **Started:** 2026-08-23, Jan Wloka, `infra/the-derivations-leave-the-component`
 
 ## Approval
 
