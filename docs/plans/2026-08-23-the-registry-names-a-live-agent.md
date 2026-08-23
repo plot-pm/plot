@@ -98,7 +98,25 @@ onto the `agents` array. The moment it lands, these become the section answering
 
 ### Fix A — the stamp updates, and records that it did
 
-Replace **any** `pid` line, not only the empty one. Keep the full-line-match
+**There are TWO relaunch paths, and the one that matters is not the
+dispatcher's.** `/api/continue` — the board's *Continue with an answer* button —
+spawns a worker **directly** (`continue.ts:521`) and writes `.plot-worker.pid`
+itself (line 544). It never invokes `plot-dispatch.sh`, so an `awk` fix in the
+dispatcher would not fire on the very path that produced the reported defect.
+
+It also already **holds both pids**: it returns `pid` and `previousPid` to the
+client, reading the previous one from the pulse rather than from the manifest.
+The facts are in hand at the write site and are discarded.
+
+So the manifest write becomes **one contract with two implementations**:
+`stamp` = `pid`, `startedAt`, `previousPid`, `relaunches`. `continue.ts` calls a
+TypeScript helper; the dispatcher's detached `sh -c` cannot reach one and keeps
+inline `awk` against the same field set. **A test asserts both paths produce an
+identical manifest** — that is what keeps two implementations one contract, and
+it is the `plot-worker-state.sh` pattern this repo adopted after five of six
+states drifted while held in duplicate.
+
+In the dispatcher, replace **any** `pid` line, not only the empty one. Keep the full-line-match
 discipline that makes it safe: anchor on the key at the start of the line and
 replace the whole line, never a substring match on `"pid"` that the `command`
 value could plausibly contain.
@@ -143,6 +161,19 @@ worker by hand — which is what Fix A keeps accurate.
 does: the worktree is classified by `plot-worker-state.sh`, which reads the
 worktree's own pid file. The manifest pid is not consulted.
 
+### Writing the manifest safely
+
+**Atomic, and deliberately unlocked.** Both writers go through a temp file and a
+rename within the directory — the discipline the dispatcher already uses, and
+the one that keeps a manifest from ever being read half-written.
+
+`relaunches` is a read-modify-write and is **not** locked. Two relaunches landing
+in the same instant could both read 1 and both write 2, losing an increment.
+That is accepted: the cost is an undercount on a diagnostic field nothing acts
+on, while a torn manifest costs the whole entry. A per-branch lock would buy an
+exact count and introduce a stale-lock failure mode — a poor trade for a counter
+the plan's own open question has not yet decided to render.
+
 ### Not chosen: have the registry stop showing a pid
 
 Cheapest fix for defect A, and it removes the visible contradiction without
@@ -161,6 +192,38 @@ writes and keeps owning them.
 The earlier draft proposed one, to defeat pid recycling. With the recycling
 claim falsified there is nothing for it to defend against — the classifier reads
 a file that every launch rewrites, which is already a sentinel in effect.
+
+### What the nine rows will say — measured, and not what was expected
+
+Classifying the nine skipped entries changes them from `unknown` to a real
+state. Measured by running the classifier against their worktrees directly, all
+nine answer **`waiting`** — and **none of them has a `PLOT-BLOCKED` marker.**
+
+That is a false positive, and it is not this plan's to fix. `plot_worker_blocked`
+greps file **contents** for `PLOT-BLOCKED:|TODO\((you|human)\)`, excluding only
+`.plot-worker.*`. Three committed briefs on `main` contain the literal string
+because they *describe the blocking feature*:
+
+```
+.plot/briefs/a-waiting-agent-stays-working.md
+.plot/briefs/api-attention-says-what-needs-you.md
+.plot/briefs/continue-with-an-answer.md
+```
+
+Every worktree inherits them, so **every worker in this repo that exits cleanly
+reads `waiting` instead of `finished`** — including the live ones. The board's
+current `waiting: 7` is very likely this, not seven people owed answers.
+
+**This plan does not fix it** (see the branch note), but it must not pretend the
+nine rows will be informative either. The honest statement of the blast radius:
+
+- before: `unknown` ×12
+- after: `unknown` ×3 (no worktree), plus nine rows saying `waiting`
+- of which an unknown number — possibly all nine — are the false positive above
+
+**Assert the transition, not the verdict.** A test proves a pid-less manifest
+with a live worktree is *classified* rather than skipped. Asserting it reads
+`waiting` would pin the bug in place.
 
 ### Open Questions
 
@@ -183,6 +246,14 @@ a file that every launch rewrites, which is already a sentinel in effect.
   that overwrites `previousPid` correctly but never increments is caught.
 - A **first** dispatch is byte-identical to today: pid filled, no `previousPid`,
   no `relaunches`.
+- **`/api/continue` updates the manifest.** Asserted against that route, not only
+  against the dispatcher — it is the path that produced the defect, and a fix
+  applied only to `plot-dispatch.sh` passes every dispatcher assertion while
+  leaving the reported bug exactly as it is.
+- **Both writers produce an identical manifest** for the same inputs. Asserted by
+  comparing them; this is what holds two implementations to one contract.
+- A manifest is never observed half-written: both writers go through a temp file
+  and a rename.
 - An entry whose manifest has **no pid but a live worktree** is classified.
   Asserted directly against a hand-written pid-less manifest — this is defect B,
   and an implementation that only fixes the stamp passes every assertion above
@@ -208,6 +279,14 @@ a file that every launch rewrites, which is already a sentinel in effect.
 
 ## Notes
 
+**A separate defect was found while interrogating this plan and is NOT fixed
+here:** `plot_worker_blocked` matches the marker string anywhere in a worktree's
+file contents, so three committed briefs that discuss blocking make every
+worktree read `waiting`. It needs its own plan — the fix is probably to match a
+marker FILE rather than any file's contents, and that is a change to a
+load-bearing classifier with its own measured history, not a rider on a registry
+fix. Recorded here so it is not lost.
+
 Found 2026-08-23 while answering whether WORKING belongs to the registry. It
 does not today — WORKING renders branch and wave rows from the fleet scan, and
 the registry's agents are a separate array — but `every-section-has-one-subject`
@@ -226,17 +305,20 @@ them.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {"q": "How should fix 2 be rewritten, given the pid-recycling claim is falsified but the pid gates refreshStates?", "a": "Drop the pid from the gate; check any entry with a worktree; fix the wrong docstring", "category": "technical"},
-    {"q": "What should the manifest record on relaunch, given ContinueWithAnAnswer already computes previousPid?", "a": "Overwrite pid + startedAt AND persist previousPid/relaunches", "category": "domain"}
+    {"q": "What should the manifest record on relaunch, given ContinueWithAnAnswer already computes previousPid?", "a": "Overwrite pid + startedAt AND persist previousPid/relaunches", "category": "domain"},
+    {"q": "Where should the manifest update live, given /api/continue spawns directly and never runs plot-dispatch.sh?", "a": "A shared contract with two implementations; a test asserts both produce identical manifests", "category": "technical"},
+    {"q": "How much concurrency safety should this plan carry for relaunches?", "a": "Atomic temp+rename in both writers; accept a lost increment rather than take a lock", "category": "nonFunctional"},
+    {"q": "What should the plan say about nine rows changing from unknown to a real state?", "a": "State it as expected and assert the transition - but measurement showed all nine read `waiting` from a false positive in plot_worker_blocked, so assert classification, not the verdict", "category": "ux"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
     "technical": {"stack": true, "architecture": true, "implementation": true},
     "domain": true,
-    "ux": {"happyPath": false, "edgeCases": false, "errors": false, "accessibility": false},
-    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "ux": {"happyPath": true, "edgeCases": true, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": true},
     "tradeOffs": true
   }
 }
