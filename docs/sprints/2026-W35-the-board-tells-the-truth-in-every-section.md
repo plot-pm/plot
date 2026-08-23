@@ -109,6 +109,10 @@ cannot serve the release it exists for.
 - [ ] [the-plan-the-board-holds] The row carries the plan's own records rather than re-deriving them
 - [ ] [loose-checks-what-it-promises] `--loose` verifies green rather than not-draft
 
+### Carried in
+
+- [ ] Decide PR #57 — *Harden Plot against documented Opus 5 long-horizon failure modes*. Open since 2026-07-25, `mergeable_state: dirty`, **29 days stale**. Inherited from `2026-W34-the-board-tells-the-truth`, which closed on 2026-08-23 two versions after its release shipped. Carried rather than absorbed: it is a decision nobody has taken, and a closing sprint must not tick one of those. The decision is *merge it, rebase it, or close it* — not *do the work in it*
+
 ### Deferred
 
 - **Renaming `Endgame`.** It is the one phase named for what follows rather than

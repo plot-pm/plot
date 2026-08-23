@@ -1,1 +1,0 @@
-../2026-W34-the-board-tells-the-truth.md
