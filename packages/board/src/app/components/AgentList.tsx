@@ -8,9 +8,11 @@ import {
   type IssueAnswer,
   type IssueRow,
   type WaitingGroup,
+  type Wave,
   type AgentEntry,
   UNNAMED_WAVE,
   isSpikeWave,
+  isOneWavePlan,
   FLEET_CONTROLS_DEFAULT,
   RELEASE_BRANCH,
 } from '../../contract/schema.js';
@@ -74,6 +76,25 @@ import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReport
 import { briefGapNote, isStartable, isUnbegun, needsBrief, rowKey, waitingTone } from '../lib/agent-rows/row-identity.js';
 import { WAVE_LINKING_KINDS, type WaveGroup, groupByWave, groupedNote, isReviewable, waveDissent, waveLabel } from '../lib/agent-rows/waves.js';
 
+
+/**
+ * Find the sole wave for a plan, if the plan has exactly one wave.
+ *
+ * Returns the wave object when `planWaveCount === 1`, null otherwise.
+ * Used to decide whether a plan row should carry the wave's status —
+ * which it does when the wave adds no information beyond what the plan
+ * row already says.
+ *
+ * Looks up by the plan's DISPLAY name (the basename with date stripped),
+ * matching what `deriveWaves` writes into `Wave.plan`.
+ */
+export function soleWaveFor(planName: string, waves: Wave[] | undefined): Wave | null {
+  if (!waves) return null;
+  // A plan may have multiple waves. Find ANY wave for this plan and check
+  // its planWaveCount — every wave of a plan shares the same count.
+  const w = waves.find((wave) => wave.plan === planName);
+  return w && isOneWavePlan(w) ? w : null;
+}
 
 /**
  * What the server writes where a plan divides its work into no waves at all.
@@ -1812,6 +1833,7 @@ function PlanRow({
   onApproving,
   ageMinutes,
   elsewhere = 0,
+  soleWave,
 }: {
   group: PlanGroup;
   onOpenPlan?: AgentListProps['onOpenPlan'];
@@ -1865,6 +1887,15 @@ function PlanRow({
   deliver?: DispatchInfo;
   /** A click is outstanding (true) or has settled (false). */
   onApproving?: (active: boolean) => void;
+  /**
+   * The plan's sole wave, where it has exactly one — the wave's status shows on
+   * this row rather than on a separate wave row beneath it.
+   *
+   * A plan with one wave renders NO wave row: the plan row carries the wave's
+   * verdict, and a second row would state the same thing twice. Measured on
+   * this estate: 35 of 54 plans have exactly one wave.
+   */
+  soleWave?: Wave | null;
 }) {
   const waiting = planWaitingDays(group);
   // THE SECTION'S OWN WAVES, then how many are ELSEWHERE. `waveSummaryFor` counts
@@ -2035,7 +2066,21 @@ function PlanRow({
       // happening* and *do something*. A count rides only where more than one
       // branch carries the state — a single branch says its own size by being
       // one row once opened.
-      statusExtra={prFold ? (
+      //
+      // A ONE-WAVE PLAN shows its sole wave's VERDICT here instead of the PR
+      // fold — the wave row is suppressed, so this is the only place the verdict
+      // appears. The verdict outranks the prFold: `eligible`/`blocked`/`complete`
+      // says what to do next, while a PR state is about a branch that may not
+      // exist yet.
+      statusExtra={soleWave?.verdict ? (
+        <span
+          data-sole-wave-verdict={soleWave.verdict}
+          title={`This plan's sole wave: ${soleWave.verdict}`}
+          className={`min-w-0 shrink-0 truncate ${statusTone(soleWave.verdict)}`}
+        >
+          {soleWave.verdict}
+        </span>
+      ) : prFold ? (
         <span
           data-plan-pr-fold={prFold.state}
           data-plan-pr-count={prFold.count > 1 ? prFold.count : undefined}
@@ -4727,6 +4772,9 @@ export function AgentList({
                           // first wave already merged into DONE says as much here
                           // rather than reading two-wave when it is three.
                           elsewhere={wavesElsewhere(fleet.waves, group.plan, key)}
+                          // A ONE-WAVE plan shows its wave's verdict on this row
+                          // instead of nesting a wave row beneath it.
+                          soleWave={soleWaveFor(group.plan, waves)}
                         />
                         {/* The branches, folded. Removed from the tree rather
                             than hidden with CSS, the same as the section fold:
@@ -4786,7 +4834,42 @@ export function AgentList({
                                 which is exactly the loss `fleet.ts` warns of:
                                 *"a branch started and then shelved read as never
                                 begun, with its age and its PR erased."* */}
-                            {groupByWave(group.rows.filter(isUnbegun)).map((wg) => {
+                            {/* ONE-WAVE PLANS render their branches DIRECTLY,
+                                skipping the wave row — the plan row carries the
+                                verdict, and a second row would repeat it. For
+                                multi-wave plans, the wave row groups branches
+                                under their wave name and verdict. */}
+                            {(() => {
+                              const oneWave = soleWaveFor(group.plan, waves);
+                              const waveGroups = groupByWave(group.rows.filter(isUnbegun));
+                              // ONE-WAVE PLAN: render branches directly beneath
+                              // the plan row. No wave row, because the plan row
+                              // already carries the verdict.
+                              if (oneWave) {
+                                return waveGroups.flatMap((wg) =>
+                                  wg.rows.map((r) => (
+                                    <Row
+                                      key={rowKey(r)}
+                                      row={r}
+                                      onOpenPlan={onOpenPlan}
+                                      inPlanGroup
+                                      card={cardForPlanFile?.(r.planFile) ?? null}
+                                      dispatch={dispatch}
+                                      continueWith={continueWith}
+                                      pulse={pulse}
+                                      onStarting={onStarting}
+                                      marked={marked.has(rowKey(r))}
+                                      active={active.has(rowKey(r))}
+                                      section={key}
+                                      agent={agentByBranch.get(r.branch) ?? null}
+                                      onRevealBranch={onRevealBranch}
+                                      highlighted={r.branch === highlightBranch}
+                                    />
+                                  ))
+                                );
+                              }
+                              // MULTI-WAVE PLAN: render wave rows as before.
+                              return waveGroups.map((wg) => {
                               const many = wg.rows.length > 1;
                               const waveOpen = many
                                 ? openWaves.has(waveKey(group.plan, wg.wave))
@@ -4858,7 +4941,8 @@ export function AgentList({
                                   )}
                                 </li>
                               );
-                            })}
+                            });
+                            })()}
                             {/* The rows that are not a wave's unbegun work —
                                 a deferred branch, with its own PR and its own
                                 age. Rendered as BRANCH rows, because that is
@@ -5019,6 +5103,9 @@ export function AgentList({
                         // unstarted wave says so here rather than reading as a
                         // plan wholly done.
                         elsewhere={wavesElsewhere(fleet.waves, group.plan, key)}
+                        // A ONE-WAVE plan shows its wave's verdict on this row
+                        // instead of nesting a wave row beneath it.
+                        soleWave={soleWaveFor(group.plan, waves)}
                       />
                     )}
                     {headed && !planHeads && (
@@ -5107,7 +5194,38 @@ export function AgentList({
                           branches with PRs group here, the ones nobody started
                           group under the plan in NOT STARTED. Each section shows
                           only the branches its own question is about. */}
-                      {waveGroupsFor(group.rows, key, waves).map((wg) => {
+                      {/* ONE-WAVE PLANS render their branches DIRECTLY,
+                          skipping the wave row — the plan row carries the
+                          verdict, and a second row would repeat it. */}
+                      {(() => {
+                        const oneWave = soleWaveFor(group.plan, waves);
+                        const waveGroups = waveGroupsFor(group.rows, key, waves);
+                        // ONE-WAVE PLAN: render branches directly.
+                        if (oneWave) {
+                          return waveGroups.flatMap((wg) =>
+                            wg.rows.map((r) => (
+                              <Row
+                                key={rowKey(r)}
+                                row={r}
+                                onOpenPlan={onOpenPlan}
+                                inPlanGroup={planHeads}
+                                card={cardForPlanFile?.(r.planFile) ?? null}
+                                dispatch={dispatch}
+                                continueWith={continueWith}
+                                pulse={pulse}
+                                onStarting={onStarting}
+                                marked={marked.has(rowKey(r))}
+                                active={active.has(rowKey(r))}
+                                section={key}
+                                agent={agentByBranch.get(r.branch) ?? null}
+                                onRevealBranch={onRevealBranch}
+                                highlighted={r.branch === highlightBranch}
+                              />
+                            ))
+                          );
+                        }
+                        // MULTI-WAVE PLAN: render wave rows as before.
+                        return waveGroups.map((wg) => {
                         // A WAVE OF ONE NEEDS NO FOLD — its single branch is
                         // already named in slot 4, so a control revealing a row
                         // the reader can see is the noise this estate removed
@@ -5195,7 +5313,8 @@ export function AgentList({
                             )}
                           </li>
                         );
-                      })}
+                      });
+                      })()}
                       {ungroupedRows(group.rows, key, waves).map((r) => (
                         <Row
                           // The same helper the change memory keys by — two
