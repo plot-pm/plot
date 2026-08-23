@@ -348,6 +348,112 @@ stuck row consumes it.
 **A build belongs to a commit, not to a PR** — which is why a CI waiter must pin
 the head sha, and why a green run on an older commit is not a green PR.
 
+## Phase constraints — what must exist, and with what values
+
+A phase is a claim about the world. These are the abstractions that must exist
+for the claim to be true, measured against all 104 plans so every rule is one the
+estate can be held to rather than one it merely ought to obey.
+
+### The table
+
+| | Draft | Approved | Delivered | Released |
+|---|---|---|---|---|
+| **wave** ≥ 1 | required | required | required | required |
+| **branch** ≥ 1 *(or `Impl: none`)* | required | required | required | required |
+| `approved` record | **forbidden** | required | required | required |
+| `started[]` | **forbidden** | *optional* | expected | expected |
+| **PR** | **forbidden** | *optional* | expected | expected |
+| `delivered` record | **forbidden** | **forbidden** | required | required |
+| `released` record | **forbidden** | **forbidden** | **forbidden** | required |
+| every non-deferred **branch** merged | no | no | **required** | required |
+
+**Measured against the estate, 2026-08-23:**
+
+```
+DRAFT      16 plans   0/16 approved · 0/16 started · 0/16 PR · 0/16 delivered · 0/16 released
+APPROVED   10 plans   9/10 approved · 5/10 started · 4/10 PR
+DELIVERED   4 plans   4/4  approved · 3/4  started · 4/4 delivered
+RELEASED   70 plans  65/70 approved · 61/70 started · 67/70 delivered · 67/70 released
+```
+
+### Draft is perfectly clean, and that makes it a gate
+
+**Zero of sixteen Draft plans carry any record** — no approval, no start, no PR,
+no delivery, no release. The estate has never violated this, so *Draft ⇒ no
+records* can be enforced today rather than aspired to.
+
+That is also the strongest form of the answer to *is this plan partially
+approved*: it cannot be. A record's presence on a Draft would be corruption, not
+drift.
+
+### The violations run one way only
+
+Every failure in the estate is a record **missing**, never a record **present too
+early**:
+
+| what is wrong | plans |
+|---|---|
+| approved/delivered/released with **no approval record** | `board-sync`, `reconcile-drift-loop`, `kanban-board-v1`, `opus5-longhorizon-hardening`, `the-index-is-derived`, `the-no-ref-arm-asks-once-too` |
+| released with **no delivered record** and **no released record** | `reconcile-scan-accuracy`, `board-reads-git`, `push-main-bypass` |
+
+Nine plans, six violations, and **not one of them has a record it should not
+have.**
+
+**That asymmetry is the design, and the constraint model must respect it.**
+Records are written by commands and sometimes not written at all — a plan
+delivered by hand before `/plot-deliver` existed has no record and is still
+delivered. So:
+
+- **A record present too early is REFUSED.** It cannot happen by accident; it
+  means the phase and the record disagree about what occurred.
+- **A record absent late is REPORTED.** It is bookkeeping drift, and the phase
+  remains authoritative. This is why `phase` and not the records determines the
+  lifecycle — the three plans above are genuinely released.
+
+### What each phase requires of the OTHER entities
+
+The table above is about the plan's own fields. These are the cross-entity
+constraints, and they are what the board actually needs:
+
+**Draft**
+- waves exist, branches are *named* — but **no branch ref need exist**. The
+  branches of a Draft plan are names in prose, which is exactly how a prose
+  mention became a dispatched branch.
+- **no worklog may exist** — nothing has been dispatched.
+
+**Approved**
+- every branch may be claimed; `started[]` records which were.
+- **`started[].length` is the only structural start signal.** Measured: 5 of 10
+  approved plans have started and 5 have not, identical `phase`, opposite answers
+  to *can I pick this up*.
+
+**Delivered**
+- **every non-deferred branch has a merged PR.** This is `/plot-deliver`'s hard
+  gate, and the one cross-entity rule already enforced.
+- a `deferred` branch is exempt — its annotation is a human decision.
+
+**Released**
+- everything Delivered requires, plus a version. The version is resolved from
+  `git tag --contains`, **not** from the `released` record: a plan booked
+  2026-08-19 had shipped in v2.5.0, and dates get this wrong where ancestry
+  cannot.
+
+### The wave constraint the phases imply
+
+A phase is a claim about the plan; a **wave verdict** is a claim about a slice.
+They must agree at the boundaries:
+
+- **Delivered ⇒ every wave `complete`.** A plan cannot be delivered with an
+  eligible or blocked wave; that is the same gate as *every branch merged*, one
+  level up.
+- **Draft ⇒ no wave may be `complete`… except it can.** Measured:
+  `a-wave-is-a-thing-not-a-label` is a Draft plan with a merged, complete wave.
+  Someone did the work before the plan was approved.
+
+**That second line is deliberately not a rule.** It is a real state and refusing
+it would refuse work that exists. The board's job is to render it truthfully —
+which is exactly what it failed to do when DONE admitted that Discovery plan.
+
 ## The rule this model exists to enforce
 
 **A question is answered by the status of the entity it is about.**
