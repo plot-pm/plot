@@ -288,7 +288,7 @@ one that will, and it leaves a file that is 8000 lines for no stated reason.
 
 ### Rendered
 
-- `infra/the-components-leave-the-shell` — move the 18 components into `rows.tsx`, `menus.tsx` and `marks.tsx`, whole components only, leaving `AgentList.tsx` as a ~1320-line shell; largest file in the package drops to ~1690
+- `infra/the-components-leave-the-shell` — move the 17 components into `rows.tsx`, `menus.tsx` and `marks.tsx`, whole components only, leaving `AgentList.tsx` as a ~1625-line shell; largest file in the package drops to ~1881 → #369
 
 ## Notes
 
