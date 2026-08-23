@@ -441,7 +441,7 @@ the case.
 
 - `feature/the-sections-ask-the-wave` — `waveGroupsFor` becomes a lookup; the per-section predicates that encode real distinctions move onto the wave rather than being repeated → #353
 - `feature/the-head-asks-the-wave` — the plan head's count, tuple and note read the wave instead of re-grouping rows → #354
-- `bug/done-holds-finished-plans-only` — DONE holds the release scope: plans whose every wave is complete and whose version has not shipped. Depends on a wave having one section, since its verdict rule is otherwise unsatisfiable for a mixed wave — **and on `done-means-delivered`'s `Reached` wave, because the filter reads a plan's phase and five plans currently carry a stale one**
+- `bug/done-holds-finished-plans-only` — DONE holds the release scope: plans whose every wave is complete and whose version has not shipped. Depends on a wave having one section, since its verdict rule is otherwise unsatisfiable for a mixed wave — **and on `done-means-delivered`'s `Reached` wave, because the filter reads a plan's phase and five plans currently carry a stale one** → #356
 - `feature/a-split-plan-counts-what-is-elsewhere` — each head of a plan spread across sections states how many of its waves are not here, and renders none of them. Depends on the same: the tuple's numerator is undefined while a wave can be in two places → #355
 
 ## Notes
