@@ -103,6 +103,42 @@ examined. Worth stating plainly: *a fix is not finished when the reported
 instance stops* — a sentence this file already contains, four hundred lines
 above, about a different instance of the same habit.
 
+### When it fires — measured, and it is not rare
+
+**The sentence exists only in the renderer.** It is in no payload field: the
+three branches under `a-folded-row-still-says-what-matters :: Folded` all carry
+`note: "plan not approved yet — still in review"` and `verdict: blocked`. The
+head above them synthesises the claim.
+
+**The trigger is exact: a wave with MORE THAN ONE branch.** `groupedCount` is
+defined only for a grouped head, so the ternary short-circuits there and
+`groupedNote` runs with a word it does not know:
+
+```
+soleRow ? soleNote
+  : groupedCount !== undefined ? groupedNote(groupedWord)   ← taken for any multi-branch wave
+  : group.verdict === 'blocked' ? 'an earlier wave has to land first'   ← unreachable
+```
+
+Measured on the live board 2026-08-23 — **five waves reproduce it**, and every
+one has a verdict of **`blocked`**:
+
+```
+a-dispatch-hands-over-a-brief    Handed over    2 branches, all blocked
+a-folded-row-still-says-what-...  Folded        3 branches, all blocked
+the-budget-is-spent-where-...     Spent well    2 branches, all blocked
+the-wave-is-a-thing-the-board...  Consumed      4 branches, all blocked
+opus5-longhorizon-hardening       Implementation 5 branches, all blocked
+```
+
+**So the head claims work landed on five waves whose own verdict says blocked** —
+and the arm that would have said *an earlier wave has to land first* sits two
+lines below, unreachable for every one of them.
+
+`a-folded-row-still-says-what-matters :: Folded` is the clearest: three branches,
+none with a PR, on a plan that is still a Draft, under a head reading *work
+landed — waiting to be merged*.
+
 ### The fix
 
 **A note is derived, never defaulted into.** `groupedNote` answers only for
@@ -136,6 +172,11 @@ bug. The defect is *a fallback that asserts*, not *drafts specifically*.
 - A wave whose branches have **no PR and no remote ref** never reports work as
   landed or merged. That is the live shape here, and it is the strongest form of
   the assertion: the claim was made about branches that do not exist.
+- **All five live cases render their verdict.** `Folded`, `Handed over`,
+  `Spent well`, `Consumed` and `Implementation` each have >1 branch and a
+  `blocked` verdict, and each must read *an earlier wave has to land first*. That
+  is the whole population today; a fix verified on one of them is verified on the
+  shape, not on an instance.
 - A wave of open branches on a **draft** plan reports what its verdict says
   (`an earlier wave has to land first` for `blocked`), never *work landed*.
   Asserted on the live shape: `a-dispatch-hands-over-a-brief` / `Handed over`,
