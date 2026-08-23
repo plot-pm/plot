@@ -97,12 +97,60 @@ look alike.
 
 ## Design
 
+### The records are DETAIL, in text — and the phase is the fact
+
+The `*_raw` fields are exactly what their name says: **the raw line a human or a
+command wrote**, kept for a reader who wants the detail. They are not a second
+encoding of the lifecycle, and the board must not treat them as one.
+
+Measured across all 104 plans, 2026-08-23:
+
+| field | filled | shape |
+|---|---|---|
+| `approved_raw` | 78 | 66 as `date, who, channel`; **12 as prose** — `2026-08-20 by jwloka (in-session) — <sentence>` |
+| `delivered_raw` | 71 | **nine distinct shapes**, from bare date to `date + 7 fields` where a PR list's commas are indistinguishable from separators |
+| `released_raw` | 67 | 66 as `date, version` — the only near-uniform one |
+| `design_raw` | **0** | the Design phase exists in `toBoardPhase` and no plan has ever entered it |
+| `phase_alt` | 0 here | guards a **front-matter** disagreement; our estate is 104/104 canonical, so it is empty by construction rather than by neglect |
+
+**So a typed `approved` record is not available today.** A parser would be wrong
+on 12 plans immediately and unpredictably on `delivered_raw`. The board carries
+the string and renders it as prose — which is what it is.
+
+### Why the phase stays the authority
+
+The records do **not** determine the phase, and the estate proves it:
+
+```
+phase=released   records = approved+delivered+released   62
+phase=released   records = delivered+released             5
+phase=released   records = approved only                  3   ← records incomplete
+phase=approved   records = (none)                          1
+```
+
+**Three released plans carry no released record**, and one approved plan carries
+no approval record. Deriving the phase from the records would demote all four.
+`Phase:` is the structured fact; the records are the story behind it, written by
+hand and sometimes not written at all.
+
+That is the split the board should carry:
+
+- **`phase`** — structured, five values, total mapping, drives grouping and every
+  decision
+- **`*_raw`** — text, optional, shown as detail, drives nothing
+
+**A field that drives nothing cannot be wrong in a way that misroutes a row**,
+which is the whole reason to keep them apart. `absent is not false` applies to
+the records specifically: an empty `delivered_raw` on a delivered plan means
+*nobody wrote it down*, never *it was not delivered*.
+
 ### Carry the plan's own records, do not re-derive them
 
 Add to the payload's plan facts, from `PlanMeta`, unchanged:
 
-- `approved` — the record: date, who, channel. `null` where absent.
-- `started[]` — the records, one per started branch
+- `approved` — the record **as text**, `""` where absent. Not parsed into
+  date/who/channel: 12 of 78 use a different grammar today.
+- `started[]` — the records as written, one per started branch
 - `assignee`, `sprint`, `story` — as the plan states them, `""` where absent
 - `review`, `impl` — the two ceremony answers
 
@@ -140,9 +188,15 @@ Recorded so the next reader does not add them:
 
 ## Done when
 
-- A row carries the plan's `approved` record, and it is `null` for a Draft — the
-  live shape is `a-dispatch-hands-over-a-brief`, which is Draft with an empty
+- A row carries the plan's `approved` record **as text**, and it is empty for a
+  Draft — the live shape is `a-dispatch-hands-over-a-brief`, Draft with an empty
   `Approved:`.
+- **No record drives a decision.** Asserted by construction: grouping, section
+  and phase read `phase`, never a `*_raw`. A test that renders the records but
+  also routes on them passes every display assertion and reintroduces the
+  coupling this split exists to prevent.
+- A **released** plan with no `released_raw` still reads as released — three
+  such plans exist today, and deriving phase from records would demote them.
 - A row carries `started[]`, and an approved-but-unstarted plan is
   distinguishable from one whose branches merely have no activity. That pair is
   indistinguishable today, and a test that only checks the field exists misses it.
