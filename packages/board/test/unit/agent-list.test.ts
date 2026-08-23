@@ -4,9 +4,7 @@ import {
   expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  groupByPlan,
   UNNAMED_WAVE,
-  showPlanHeading,
   isLive,
   isCollapsible,
   noActionReason,
@@ -21,7 +19,6 @@ import {
   writeCollapsed,
   COLLAPSED_BY_DEFAULT,
   CARD_BELOW_PX,
-  GROUPS,
   CHANGE_MARK_MS,
   ChangeMarks,
   changedRows,
@@ -33,16 +30,13 @@ import {
   ACTIVITY_MARK_PLACE,
   ActivityEcho,
   activeRowKeys,
-  waveSection,
-  rowsBySection,
-  waveKeyOf,
   LOCK_ECHO_MS,
   watchedState,
   isUnreadable,
   sameWatched,
   type WatchedState,
-  type PlanGroup,
 } from '../../src/app/components/AgentList.js';
+import { GROUPS, groupByPlan, rowsBySection, showPlanHeading, type PlanGroup, waveKeyOf, waveSection } from '../../src/app/lib/agent-rows/sections.js';
 import { countdown } from '../../src/app/lib/agent-rows/actions.js';
 import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, hostErrorState, issueNote, noteWithoutPr, prNote, prStateWord } from '../../src/app/lib/agent-rows/host-notes.js';
 import { isFinished, isStartable, rowKey, waitingLabel, waitingTone } from '../../src/app/lib/agent-rows/row-identity.js';

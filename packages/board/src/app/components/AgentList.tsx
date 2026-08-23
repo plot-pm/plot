@@ -74,52 +74,11 @@ import { splitBranch, tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave
 // from here, and a second definition is exactly the drift this wave removed.
 export { splitBranch };
 import { MARKS_CELL, TupleLinkView, TupleRowView } from './TupleRow.js';
+import { GROUPS, type PlanGroup, groupByPlan, planWaitingDays, rowsBySection, showPlanHeading, showsWaveFold, sortByWaiting, ungroupedRows, waveGroupsFor, waveKeyOf, waveSummaryFor } from '../lib/agent-rows/sections.js';
 import { changedFilesLabel, repairWord, shrinkNote } from '../lib/agent-rows/actions.js';
 import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, inMachineSection, issueNote, machineNote, noteWithoutPr, prNote } from '../lib/agent-rows/host-notes.js';
 import { briefGapNote, isFinished, isStartable, isUnbegun, needsBrief, rowKey, waitingTone } from '../lib/agent-rows/row-identity.js';
 import { LIVE_WORKERS, WAVE_LINKING_KINDS, type WaveGroup, groupByWave, groupedNote, isReviewable, waveDissent, waveLabel } from '../lib/agent-rows/waves.js';
-
-/**
- * Groups in fixed order, each labelled by what it asks OF YOU rather than by
- * what the branch is. "wip" is a git fact; "nothing to do but look" is the
- * answer a person came here for.
- *
- * Every group renders even when empty. A group that vanishes is
- * indistinguishable from a group that is empty — and for `waiting-on-machine`,
- * which needs PR data this step does not have, silence would read as "nothing
- * is waiting on CI": a claim this step cannot make.
- *
- * Actionable before diagnostic: `not-started` precedes `quiet`, because work a
- * person can pick up right now outranks work they must go investigate. This
- * order must stay identical to `GROUP_ORDER` in `fleet.ts`, which sorts the
- * rows — a disagreement between the two would sort rows into a sequence the
- * sections then render in a different one.
- */
-export const GROUPS: { key: WaitingGroup; icon: string; label: string; hint: string }[] = [
-  { key: 'waiting-on-you', icon: '⚠', label: 'Waiting on you', hint: 'review, merge, decide' },
-  { key: 'working', icon: '🤖', label: 'Working', hint: 'nothing to do — just look' },
-  // *a machine is working* rather than *CI will finish*. The section lists
-  // PROCESSES and CI is only one kind: a worker running in a local worktree is a
-  // machine working too, and it is observable in this very checkout. The old
-  // hint named the one source the section was filled from and would now be
-  // wrong about an empty section for the other reason — no local run either.
-  //
-  // It also drops a FORECAST. *CI will finish* predicts an outcome nothing here
-  // measures; *a machine is working* is what was observed, and the section's own
-  // rule. `HOST_CANNOT_REPORT_HINT` still withdraws even this where the host
-  // cannot be asked at all.
-  { key: 'waiting-on-machine', icon: '⏳', label: 'Waiting on a machine', hint: 'nothing — a machine is working' },
-  // *approved* rather than only *nobody has taken it*: the section is filtered
-  // on the plan's phase first, so every row in it is one an agent may actually
-  // take. The old hint described the branch and let three unclaimable kinds of
-  // row in behind it.
-  { key: 'not-started', icon: '📋', label: 'Not started', hint: 'approved — nobody has taken it' },
-  { key: 'quiet', icon: '💤', label: 'Quiet', hint: 'still thinking, or dead?' },
-  // `delivered` for the same reason the row's status word changed: it is Plot's
-  // term for the transition (Draft → Approved → **Delivered** → Released) and
-  // `/plot-deliver` performs it. `merged` names what git did to a ref.
-  { key: 'done', icon: '✅', label: 'Done', hint: 'delivered' },
-];
 
 /**
  * The groups that start collapsed.
@@ -255,6 +214,7 @@ export const CARD_BELOW_PX = 640;
 
 
 /**
+<<<<<<< HEAD
  * The one section a WAVE belongs in — a function of the wave, never of a single
  * branch.
  *
@@ -549,6 +509,8 @@ export function ungroupedRows(rows: AgentRow[], section: WaitingGroup, waves?: W
 }
 
 /**
+=======
+>>>>>>> 87475bbc (plot-board: move section-placement derivations to agent-rows/sections.ts)
  * What the server writes where a plan divides its work into no waves at all.
  *
  * `waveLabel` declines to print it, and this is why the string is named rather
@@ -559,186 +521,6 @@ export function ungroupedRows(rows: AgentRow[], section: WaitingGroup, waves?: W
 // both clients test for it. Imported for local use and re-exported, because
 // modules already import it from here.
 export { UNNAMED_WAVE };
-
-/**
- * Does a plan sub-heading earn its place ON THIS GROUP?
- *
- * A heading pays for itself by SAVING REPETITION: with two or more rows under
- * one plan, the name prints once above them instead of once on each. With a
- * single row it saves nothing — the name appears exactly once either way, and
- * the heading costs an extra line of height to say it. A section of one-row
- * plans became a stack of alternating headings and rows, each heading labelling
- * the single line beneath it.
- *
- * A nameless group can never have one: there is nothing to head it WITH, and
- * rendering the heading anyway printed a bare "(3)".
- *
- * This replaces a section-wide `showPlanHeadings(rowCount, planCount)` that
- * asked *should this section have headings at all* — `planCount > 1 ||
- * rowCount > planCount`. Both of its clauses are subsumed here: the second IS
- * this rule, counted per group instead of summed across the section, and the
- * first (two plans, one row each) turns out to be a case where headings are
- * *not* wanted. What that clause was really protecting is that unlabelled rows
- * must still name their plan — which is now the row's job whenever its group
- * has no heading, rather than something a section-wide flag guarantees.
- *
- * Exported so the mixed section — one plan with several rows beside a plan with
- * one — can be pinned without a browser. That case is what a section-wide
- * answer cannot express, and it is where the row-side half must hold.
- */
-export function showPlanHeading(group: PlanGroup): boolean {
-  return Boolean(group.plan) && group.rows.length > 1;
-}
-
-/**
- * How long this PLAN has been waiting, in days — the clock that ticks in NOT
- * STARTED, read off the group's own rows.
- *
- * `waitingDays` dates the plan's `Approved:` record, so every row of one plan
- * carries the same number and any of them answers for the group. `Math.max`
- * rather than "the first one" only because a group can hold a deferred branch
- * beside unstarted ones and nothing forces the field onto both — taking the
- * largest keeps a recorded date from being lost behind a null.
- *
- * Null where NO row carries a date. Absent, not zero: `waitingLabel(0)` renders
- * `today`, which would claim a plan was approved this morning on the strength of
- * a field nobody filled in.
- *
- * Exported for test — the null case is the one an implementation reaching for
- * `?? 0` gets wrong while looking right on every dated plan.
- */
-export function planWaitingDays(group: PlanGroup): number | null {
-  const dated = group.rows.map((r) => r.waitingDays).filter((d): d is number => d !== null);
-  return dated.length === 0 ? null : Math.max(...dated);
-}
-
-/**
- * Order NOT STARTED's plan groups: **oldest first, by the plan's own clock.**
- *
- * What it replaces, measured at `groupByPlan`: `Math.max(...rows.map((r) =>
- * r.ageMinutes ?? -1))`. In this section `ageMinutes` is `null` on every row —
- * the branches have no tip to date — so every group scored `-1`, the comparator
- * returned 0 for every pair, and the sort did nothing at all.
- * `plot-sprint-support`, approved 187 days ago, sat wherever the map's insertion
- * order happened to put it, beside a plan from that afternoon.
- *
- * **Oldest first, and the direction is the decision.** Sorting startable-first
- * reads as more actionable and buys less: the startable plans are already marked
- * by their own note, and burying a six-month-old plan under a fresh one hides
- * exactly the drift this section exists to surface.
- *
- * This is the GROUP order, and it is deliberately not the same question as
- * `compareWithinGroup` in `fleet.ts`, which orders the ROWS inside a group
- * newest-first on the reasoning that six months of availability is evidence
- * nobody wants a *branch*. That answers *which branch do I pick up*; this
- * answers *which plan has been ignored longest*, which is the question a reader
- * scanning section headings is asking. Two levels, two questions — and the
- * server's row order survives untouched inside each fold.
- *
- * An undated plan sorts LAST. It has no recorded approval, so it has no claim on
- * a position that means *this has been waiting*; `-1` would put it above a plan
- * approved today and assert a wait nobody measured.
- *
- * Exported for test: the old comparator scores every group here `-1`, so an
- * assertion that merely checks the groups came back in some order passes against
- * a sort that does nothing.
- */
-export function sortByWaiting(groups: PlanGroup[]): PlanGroup[] {
-  return [...groups].sort((a, b) => {
-    const byWaiting = (planWaitingDays(b) ?? -1) - (planWaitingDays(a) ?? -1);
-    if (byWaiting !== 0) return byWaiting;
-    // TIES ARE BROKEN BY NAME, and that is what makes the list readable.
-    //
-    // Waiting days is a COARSE key: most plans in this section were approved on
-    // the same day, so most comparisons return 0 and the surviving order is
-    // whatever `groups` happened to arrive in. `Array.prototype.sort` is stable
-    // in every engine since ES2019, so it faithfully preserves that arrival
-    // order — and the arrival order is rebuilt from a fresh scan every four
-    // seconds, from a Map whose insertion order follows the pulse. Stability
-    // preserves an input that is not itself stable.
-    //
-    // Observed on the live board 2026-08-20: the NOT STARTED section reordered
-    // on almost every pulse, which makes a list of a dozen plans unreadable —
-    // the eye re-finds its place from scratch each time, and a row clicked at
-    // the moment of a pulse can be a different row than the one aimed at.
-    //
-    // The plan NAME is the right tiebreak because it is the only field here
-    // that cannot change between pulses: `planWaitingDays` moves at midnight,
-    // row counts move as branches land, and both are derived. A name is the
-    // plan's identity.
-    return a.plan.localeCompare(b.plan);
-  });
-}
-
-/**
- * What the plan row says about its waves, derived from the group's OWN rows.
- *
- * **No contract field carries this, and that is the point.** `waveSummary` on
- * the schema lives on the CARD; a fleet row knows only its own wave. But
- * `groupByPlan` already holds every row of this plan in this section, so
- * counting them and reading their notes answers *how many, and is the first one
- * startable* without adding a fact to the wire.
- *
- * Counted over the UNBEGUN rows only. A deferred branch keeps a row of its own
- * beneath the plan, with its own PR and age, so counting it into "3 waves" would
- * describe it twice and in the wrong terms — it is not a wave nobody has
- * reached, it is a branch somebody set down.
- *
- * **The limit is recorded rather than hidden: this counts what is in THIS
- * SECTION.** A plan whose first wave already merged has that wave in DONE, so it
- * reports the remainder — two where the plan file lists three. That is the
- * honest number for the question the section asks (*what is not started*), and a
- * reader wanting the full arc has the plan link on the row.
- *
- * `first eligible` comes from `isStartable`, which is the same predicate the row
- * menu uses to decide whether `Start work` is offered — so the summary cannot
- * promise an action the menu then refuses.
- *
- * Empty string where there is nothing to summarise, so the caller renders
- * nothing rather than a bare count of zero.
- *
- * Exported for test — the section-scoped count is the half that reads like a bug
- * until it is stated.
- */
-export function waveSummaryFor(group: PlanGroup): string {
-  const unbegun = group.rows.filter(isUnbegun);
-  if (unbegun.length === 0) return '';
-  // COUNTED IN WAVES, and it used to count ROWS while calling them waves. A
-  // one-wave plan holding five branches reported `5 waves`; the plan file lists
-  // one. The name of the unit was right and the number was of something else —
-  // exactly the confusion this wave exists to end, and it was in the summary
-  // whose job is to state the count.
-  const count = groupByWave(unbegun).length;
-  const waves = `${count} wave${count === 1 ? '' : 's'}`;
-  return unbegun.some(isStartable) ? `${waves}, first eligible` : waves;
-}
-
-/**
- * Does this plan row earn an expander?
- *
- * Only where opening it REVEALS something. A plan with one branch beneath it
- * already shows that branch's name in its own summary line, so a control that
- * unfolds a single row the reader can already read is noise — the same rule
- * `showPlanHeading` applies one level up, where a heading over one row saves no
- * repetition.
- *
- * Counted over ALL the group's rows, not just the unbegun ones: a plan with one
- * unstarted wave and one deferred branch has two rows to show, and the deferred
- * one carries a PR and an age that appear nowhere else.
- *
- * Exported for test: the one-wave case is the one an implementation that always
- * renders the expander gets wrong while passing every assertion about folding.
- */
-export function showsWaveFold(group: PlanGroup): boolean {
-  // COUNTED IN WAVES, not in rows — since NOT STARTED renders one row per WAVE
-  // rather than one per branch. A plan whose single wave holds five branches has
-  // five rows and ONE child row, so the row count promised a fold that revealed
-  // one line; and the wave's own fold is what discloses those five.
-  //
-  // Measured on the estate: `opus5-longhorizon-hardening :: Implementation`
-  // holds five branches, and it is the plan this got wrong.
-  return groupByWave(group.rows).length > 1;
-}
 
 /**
  * Does this row get the live indicator?

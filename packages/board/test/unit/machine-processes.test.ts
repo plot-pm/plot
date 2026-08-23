@@ -5,10 +5,8 @@ import {
 import { classify,
   machineProcesses,
   rowsFromPulse } from '../../src/server/fleet.js';
-import {
-  GROUPS,
-} from '../../src/app/components/AgentList.js';
 import { inMachineSection, machineNote } from '../../src/app/lib/agent-rows/host-notes.js';
+import { GROUPS } from '../../src/app/lib/agent-rows/sections.js';
 import {
   AgentRowSchema, WorkerStateSchema, type AgentRow, type FleetPulse,
 } from '../../src/contract/schema.js';
