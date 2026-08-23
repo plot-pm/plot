@@ -10,12 +10,21 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-23, Jan Wloka, in-session
 - **Assignee:** jwloka
+
+## Approval
+
+- **Assignee:** Jan Wloka
+
+## Changelog
+
+- `PLOT_BOARD_MOCK` renders one row of every kind, so the board's rendering can be exercised without a real estate, a fleet, or a git host.
 
 ## Problem
 

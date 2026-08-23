@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import {
-  classify, compareWithinGroup, draftNote, humanAge, prState, rowPhase, rowsFromPulse,
+  classify, compareWithinGroup, draftNote, humanAge, prState, prStates, rowPhase, rowsFromPulse,
   rateLimitBackoffMs,
   graphqlResetMs,
   prGateOpen,
@@ -2942,6 +2942,119 @@ describe('prState', () => {
   });
 });
 
+describe('prStates', () => {
+  const pr = (over: Partial<PrRecord> = {}): PrRecord => ({
+    number: 42, head: 'feature/x', state: 'OPEN', draft: false, checks: 'green',
+    mergeable: 'mergeable', review: '', url: 'https://example.test/pr/42', ...over,
+  });
+
+  it('keeps BOTH facts for a PR that conflicts and whose build failed', () => {
+    // THE MEASURED LOSS, and the whole reason this function exists. A single
+    // value reported `conflicts` and the failed build was gone before the row
+    // was built — one observable with two causes, and the code kept one.
+    //
+    // Not hypothetical: a run can complete, and fail, before main moves
+    // underneath the branch and makes it unmergeable.
+    expect(prStates(pr({ checks: 'failing', mergeable: 'conflicting' })))
+      .toEqual(['conflicts', 'failing']);
+  });
+
+  it('leads with the conflict, because it blocks the merge outright', () => {
+    // The ORDER is the precedence, and it is unchanged from `prState`: a red
+    // build on an unmergeable PR is moot until the rebase happens, and fixing it
+    // first can be wasted work if the rebase changes what fails.
+    expect(prStates(pr({ checks: 'failing', mergeable: 'conflicting' }))[0])
+      .toBe('conflicts');
+  });
+
+  it('does not print the empty rollup a conflict CAUSED', () => {
+    // GitHub starts no workflow for a branch that does not merge, so `none`
+    // beside a conflict is that conflict's own consequence. Appending it would
+    // stand the symptom next to its cause as though they were two problems —
+    // and `no checks` is the sentence this estate already removed once for
+    // naming the symptom while withholding the reason.
+    expect(prStates(pr({ checks: 'none', mergeable: 'conflicting' }))).toEqual(['conflicts']);
+  });
+
+  it('appends nothing that is not an errand of its own', () => {
+    // `pending` and `unknown` say nothing a reader can act on beneath a
+    // conflict, and `green` is the absence of an errand rather than a peer of
+    // one. Only a failed build composes.
+    expect(prStates(pr({ checks: 'pending', mergeable: 'conflicting' }))).toEqual(['conflicts']);
+    expect(prStates(pr({ checks: 'green', mergeable: 'conflicting' }))).toEqual(['conflicts']);
+    expect(prStates(pr({ checks: 'unknown', mergeable: 'conflicting' }))).toEqual(['conflicts']);
+  });
+
+  it('answers unknown ALONE, claiming nothing beside it', () => {
+    // `green-never-outranks-unknown`, carried into the set: unknown
+    // mergeability poisons the checks answer as well, so a second entry here
+    // would claim a knowledge the row does not have. The live shape from PR #57
+    // is the first of these.
+    expect(prStates(pr({ checks: 'green', mergeable: 'unknown' }))).toEqual(['unknown']);
+    expect(prStates(pr({ checks: 'failing', mergeable: 'unknown' }))).toEqual(['unknown']);
+    expect(prStates(pr({ checks: 'green', mergeable: undefined }))).toEqual(['unknown']);
+  });
+
+  it('answers green ALONE', () => {
+    // Green is the absence of every errand, so nothing composes with it —
+    // including in the other direction, where a set implementation that always
+    // appended the checks would report `['green', 'green']`.
+    expect(prStates(pr({ checks: 'green', mergeable: 'mergeable' }))).toEqual(['green']);
+  });
+
+  it('answers a single errand as a set of one', () => {
+    // The common case. A set does not mean every row carries two things.
+    expect(prStates(pr({ checks: 'failing' }))).toEqual(['failing']);
+    expect(prStates(pr({ checks: 'pending' }))).toEqual(['pending']);
+    expect(prStates(pr({ checks: 'none' }))).toEqual(['none']);
+  });
+
+  it('never answers empty, so its head is always a real word', () => {
+    // What licenses `prState` to be `prStates(pr)[0]` without a fallback. An
+    // implementation that returned `[]` for any input would make the derived
+    // word `undefined` and every consumer of it lie.
+    for (const mergeable of ['mergeable', 'conflicting', 'unknown', '', undefined]) {
+      for (const checks of ['green', 'pending', 'failing', 'none', 'unknown', 'new-word']) {
+        expect(prStates(pr({ checks, mergeable })).length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('agrees with prState on EVERY input, because one derives from the other', () => {
+    // THE INVARIANT THE CONTRACT ASSERTS: `states[0] === state`. Two fields
+    // deriving one answer separately is how a row's word and its sentence come
+    // to disagree — the failure `classify` mirrors `prState` to avoid, recorded
+    // in both their comments. Here it cannot happen by construction, and this
+    // is the test that says so rather than trusting the arrangement.
+    for (const mergeable of ['mergeable', 'conflicting', 'unknown', '', undefined]) {
+      for (const checks of ['green', 'pending', 'failing', 'none', 'unknown', 'new-word']) {
+        const record = pr({ checks, mergeable });
+        expect(prStates(record)[0]).toBe(prState(record));
+      }
+    }
+  });
+
+  it('does not fold draft into the set', () => {
+    // The same independence `prState` keeps: a draft has CI like anything else,
+    // and a set is exactly where a careless implementation would smuggle a
+    // seventh value in beside the real ones.
+    expect(prStates(pr({ draft: true, checks: 'failing' }))).toEqual(['failing']);
+    expect(prStates(pr({ draft: true, checks: 'failing', mergeable: 'conflicting' })))
+      .toEqual(['conflicts', 'failing']);
+  });
+
+  it('remains a pure function over the two facts it already receives', () => {
+    // No new field and no host call: the same record in, the same set out. The
+    // plan's constraint is explicit — the kind is derived from data already on
+    // the row.
+    const record = pr({ checks: 'failing', mergeable: 'conflicting' });
+    const before = JSON.stringify(record);
+    expect(prStates(record)).toEqual(prStates(record));
+    expect(JSON.stringify(record)).toBe(before);
+    expect(prStates.length).toBe(1);
+  });
+});
+
 describe('the row carries the PR condition as fields', () => {
   const pulse: FleetPulse = {
     generatedAt: '2026-08-17T00:00:00Z',
@@ -2974,6 +3087,9 @@ describe('the row carries the PR condition as fields', () => {
     const row = rowFor();
     expect(row.pr).toEqual({
       number: 42, url: 'https://host/pr/42', draft: false, state: 'green',
+      // The SET travels too, and `state` is its head — the invariant the row
+      // depends on to name a subject without recomputing the precedence.
+      states: ['green'],
     });
   });
 

@@ -19,6 +19,7 @@
      cannot both be true. `own branches` is what the declared branch describes —
      one branch fanning out from main. -->
 - **Approved:** 2026-08-23, Jan Wloka, in-session
+- **Started:** 2026-08-23, Jan Wloka, `bug/a-wave-head-says-what-its-verdict-says`
 
 ## Approval
 
