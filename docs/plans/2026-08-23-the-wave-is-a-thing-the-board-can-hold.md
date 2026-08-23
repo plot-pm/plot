@@ -353,6 +353,20 @@ a second answer to a question the scan already answers.
 
 ## Branches
 
+<!-- THE WAVES ENCODE THE DEPENDENCY, so it is a gate rather than a note.
+     Three branches from two other plans consumed the wave model and were held in
+     order by prose alone — which CLAUDE.md says is a rule that will eventually be
+     violated. They move here, into waves Plot itself will not release early: a
+     wave is eligible only once every non-deferred branch in every prior wave has
+     merged.
+
+     The four branches that do NOT depend on the wave model stayed in their own
+     plans deliberately — blocking them would buy nothing. They are:
+       the-wave-name-stays-in-its-cell   (row geometry)
+       the-sweep-names-a-prose-wave      (the parser)
+       a-finished-row-is-not-active      (worktree facts)
+     Each is independently dispatchable today. -->
+
 ### Constrained
 
 - `feature/the-classifier-is-total` — enumerate the state cross-product against `classify`, asserting it is total and stable and that no `(plan, wave)` reaches two groups; written against today's behaviour so it records the baseline before anything moves
@@ -363,12 +377,18 @@ a second answer to a question the scan already answers.
 
 ### Modelled
 
-- `feature/the-contract-carries-a-wave` — a `Wave` with identity, branches, verdict, section and completeness, derived once where the verdicts already are
+- `feature/the-contract-carries-a-wave` — a `Wave` with identity, branches, verdict, section and completeness, derived once where the verdicts already are, and carried in the payload
 
 ### Consumed
 
+<!-- Moved here from done-holds-what-is-still-yours and a-split-plan-says-it-is-split
+     on 2026-08-23. Each assumes a wave has ONE section; each would otherwise have
+     to add a wave derivation this plan exists to remove. -->
+
 - `feature/the-sections-ask-the-wave` — `waveGroupsFor` becomes a lookup; the per-section predicates that encode real distinctions move onto the wave rather than being repeated
 - `feature/the-head-asks-the-wave` — the plan head's count, tuple and note read the wave instead of re-grouping rows
+- `bug/done-holds-finished-plans-only` — DONE holds the release scope: plans whose every wave is complete and whose version has not shipped. Depends on a wave having one section, since its verdict rule is otherwise unsatisfiable for a mixed wave
+- `feature/a-split-plan-counts-what-is-elsewhere` — each head of a plan spread across sections states how many of its waves are not here, and renders none of them. Depends on the same: the tuple's numerator is undefined while a wave can be in two places
 
 ## Notes
 

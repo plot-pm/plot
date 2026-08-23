@@ -427,9 +427,14 @@ never the motion mark. The same argument `localAhead` already won:
 
 ## Branches
 
-### Scoped
+<!-- `bug/done-holds-finished-plans-only` MOVED on 2026-08-23 to
+     the-wave-is-a-thing-the-board-can-hold, wave `Consumed`. Its verdict rule is
+     unsatisfiable while a wave can be in two sections, so it waits on
+     `bug/a-wave-is-one-row` — and a wave is the unit Plot will hold it in, rather
+     than a note in this file that nothing enforces.
 
-- `bug/done-holds-finished-plans-only` — DONE holds plans whose every wave is merged and which are not yet released; released work and plans still in flight both leave
+     The branch below stayed: it reads worktree and worker facts, not wave
+     placement, so nothing blocks it. -->
 
 ### Still
 

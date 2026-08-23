@@ -191,17 +191,16 @@ first* at 13 characters, and the offender is 53.
 - The denominator is the plan's TOTAL wave count, never the row count.
   `every-section-has-one-subject` renders 4 rows over 3 waves, so its denominator
   is 3.
-- **A wave that appears in two sections is counted once, on both heads.**
-  `every-section-has-one-subject`'s `Inverted` is a two-branch wave with one
-  branch merged and one open, so it renders in DONE and in NOT STARTED. Both
-  heads read `(3/3)` under a naive numerator, which would say *all here* on two
-  heads that each show a part.
+> **An assertion was deleted here.** This plan asserted *"a wave appearing in two
+> sections is counted once, on both heads"* — a real question when it was written,
+> and an impossible input now. `a-wave-is-one-row` lands first and makes a wave's
+> section unique, so there is no *both heads* to count on. Keeping it would have
+> meant writing a fixture that constructs a state the system forbids.
+>
+> The invariant it was reaching for now lives where it belongs: **`no wave reaches
+> two sections`** is `a-wave-is-one-row`'s own assertion, stated once, in the plan
+> that owns it.
 
-  Settle this with `done-holds-what-is-still-yours` before implementing: under
-  its wave-verdict rule `Inverted` is not complete and leaves DONE entirely, at
-  which point DONE reads `(2/3)` and NOT STARTED `(1/3)` and the tuple is
-  well-defined again. **The two plans must agree here, and this is the case that
-  proves whether they do.**
 - A plan wholly inside one section gains **no** marker. Otherwise the marker
   means nothing.
 - A wave named with 53 characters clips inside its cell and paints over no
@@ -221,7 +220,12 @@ first* at 13 characters, and the offender is 53.
 
 ### Stated
 
-- `feature/a-split-plan-counts-what-is-elsewhere` — each head of a plan spread across sections states how many of its waves are not in this section, and renders none of them
+<!-- `feature/a-split-plan-counts-what-is-elsewhere` MOVED on 2026-08-23 to
+     the-wave-is-a-thing-the-board-can-hold, wave `Consumed`. The tuple's
+     numerator is undefined while a wave can appear in two sections, so it waits
+     on `bug/a-wave-is-one-row` in a wave Plot enforces.
+
+     The branch below stayed: the parser check is independent of any of it. -->
 - `feature/the-sweep-names-a-prose-wave` — `plot-plan-meta.sh` reports an over-long wave name and the reconcile sweep surfaces it, without failing the parse
 
 ## Notes

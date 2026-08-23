@@ -201,8 +201,39 @@ This wants the prefix kept, the middle elided, and the tail kept —
 - A fold holding nothing exceptional shows no exception clause — no `0 problems`.
 - `splitBranch` keeps the branch's prefix: `feature/x` elides to something a
   reader can still identify as `feature/…`, asserted on the rendered string.
-- WORKING at ten branches occupies materially less height than today, measured
-  in a browser test at a stated viewport, with the numbers quoted.
+- **The density claim is a measured ratio, not a word.** With the ten-branch
+  fixture below, the folded render is at most **40%** of the unfolded height —
+  and the 40 is derived rather than chosen: two folded heads against ten rows.
+  Assert the ratio, so it fails when folding stops saving space; "materially
+  less" is a claim nothing can fail.
+
+### Fixtures are hand-built, because these states are rare
+
+Every assertion here needs a board state the live estate does not hold. Measured
+2026-08-23: **WORKING is empty (0 rows)**, there are **0 stalled workers**, and
+only 2 rows carry `claimedBy`. The screenshot this plan was written from showed
+ten agents running; that moment is gone and will not recur on demand.
+
+So the pulses are **constructed in the test**, as literals:
+
+```ts
+const busy = fleet([
+  row({ group: 'working', worker: 'running', wave: 'Folded', ... }),
+  ...nine more
+]);
+```
+
+**The cost is stated rather than hidden:** a hand-built fixture is what someone
+believes the board produces, not what it produced. Two guards against that:
+
+- every value in the fixture must be one the **live payload has actually
+  carried** — checked against `/api/fleet`, never invented
+- the fixture is parsed by the **schema**, so one that drifts from the contract
+  fails rather than testing a board that cannot exist
+
+A captured pulse was considered and rejected for the density claim specifically:
+it needs a moment when ten agents are running, and waiting for one makes the test
+unwritable today.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
 ## Branches
