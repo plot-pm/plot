@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { startServer, expandAgentFolds } from '../helpers.mjs';
 import { type AgentRow, type Fleet, type Stuck } from '../../src/contract/schema.js';
 
 /**
@@ -10,7 +10,7 @@ import { type AgentRow, type Fleet, type Stuck } from '../../src/contract/schema
  *
  * The unit suite (`test/unit/agent-list.test.ts`) owns the decisions: which
  * items a kind offers (`menuState`, `openTarget`, `runLinkLabel`,
- * `canCommissionDesign`, `storyRefusal`). This owns the half a page states:
+ * `storyRefusal`). This owns the half a page states:
  *
  *   - EVERY row in WAITING ON YOU has a `⋯` menu — the motivating defect was
  *     two rows of three with none.
@@ -119,6 +119,7 @@ describe('the menu fits the kind, and every row has one', () => {
       }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     return page;
   }
 

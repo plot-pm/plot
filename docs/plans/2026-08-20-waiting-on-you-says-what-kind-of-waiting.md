@@ -8,7 +8,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Released
 - **Type:** feature
 - **Story:** plot-board
 - **Sprint:**
@@ -22,6 +22,8 @@
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-kind-is-labelled-not-hovered`
 - **Started:** 2026-08-20, Jan Wloka, `bug/a-failure-is-shown-not-dumped`
 - **Started:** 2026-08-20, Jan Wloka, `bug/plans-of-equal-age-order-by-name`
+- **Delivered:** 2026-08-22, jwloka, PRs #280, #287, #288
+- **Released:** 2026-08-22, v2.7.0
 
 ## Problem
 
@@ -346,11 +348,22 @@ The order is **menu, then failure detail**. The menu already landed; the rest of
 this plan is what the tuple's slot list does not cover.
 
 ### Offered first
-- `feature/the-menu-fits-the-kind` — each kind offers its own actions in the `...` menu, and every row has one. Tests: a ticket offers Create plan and Create story; a plan offers Approve and Commission design, and Commission design creates a plan in phase `Design`; a PR with failing checks offers Show failure; an action that cannot act refuses with its reason on the control; every row in the section has a menu. (PR #280)
+- `feature/the-menu-fits-the-kind` — each kind offers its own actions in the `...` menu, and every row has one. Tests: a ticket offers Create plan and Create story; a plan offers Approve and Commission design, and Commission design creates a plan in phase `Design`; a PR with failing checks offers Show failure; an action that cannot act refuses with its reason on the control; every row in the section has a menu. (PR #280) → #280
+
+### Moved — recorded here so the plan states what it started
+
+Three branches carry `Started:` records above and appear in no wave, because
+they were moved to `a-row-is-a-tuple` on the day they were cut. They are listed
+so the plan's Branches section accounts for every branch it started; the
+reasoning is under *What was moved, and why*.
+
+- `feature/the-row-leads-with-its-subject` <!-- deferred: moved to a-row-is-a-tuple 2026-08-20, absorbed by one-component-renders-every-row (PR #301) --> — absorbed, and its worktree still holds ~315 uncommitted lines. See the note below on what did NOT travel with it.
+- `bug/one-column-one-kind-of-fact` <!-- deferred: moved to a-row-is-a-tuple 2026-08-20, absorbed by the-wave-and-the-phase-find-their-owners (PR #299) --> — absorbed; its worktree holds 190 uncommitted lines against a file since rewritten.
+- `bug/the-kind-is-labelled-not-hovered` <!-- deferred: moved to a-row-is-a-tuple 2026-08-20, absorbed by the-wave-and-the-phase-find-their-owners (PR #299) --> — absorbed; its worktree holds 131 uncommitted lines against the same file.
 
 ### Shaped
-- `bug/a-failure-is-shown-not-dumped` — a failing check shows step and time on the row, with the changed-file list behind the menu. Tests: the row names the step; the timestamp renders as an age, not an ISO string; the file list is not in the row; a row with no failure shows neither. (PR #287)
-- `bug/plans-of-equal-age-order-by-name` — this section gets the tiebreak #267 landed for NOT STARTED. Tests: two rows of equal age hold their order across pulses; the age ordering is unchanged where ages differ. (PR #288)
+- `bug/a-failure-is-shown-not-dumped` — a failing check shows step and time on the row, with the changed-file list behind the menu. Tests: the row names the step; the timestamp renders as an age, not an ISO string; the file list is not in the row; a row with no failure shows neither. (PR #287) → #287
+- `bug/plans-of-equal-age-order-by-name` — this section gets the tiebreak #267 landed for NOT STARTED. Tests: two rows of equal age hold their order across pulses; the age ordering is unchanged where ages differ. (PR #288) → #288
 
 ## What was moved, and why
 
@@ -371,6 +384,19 @@ report a conflict *and* a failing build; split off, it would land as a contract
 change with no consumer to justify it, and the grouping at `fleet.ts:2198` would
 be re-pointed twice instead of once. The 20 consumers across three files are the
 cost of the change, not an argument for staging it.
+
+**`pr.states` did not arrive.** The paragraph above says the set travels with
+`the-row-leads-with-its-subject`, and it did not: `a-row-is-a-tuple` absorbed
+that branch through one-component-renders-every-row (PR #301) without naming
+`states` anywhere, closed as Released, and `prStates` is absent from `main`
+as of 2026-08-22. The work exists only as uncommitted lines in that branch's
+worktree — a `PrStateWord` union and a `prStates()` returning `['conflicts',
+'failing']` where today one word hides the other.
+
+It is a real gap and it has a live consumer: PR #57 reads `CONFLICTING` **and**
+has failing checks, and the board can report only one of them. Whoever picks it
+up should cut a fresh branch from the worktree's diff rather than rebasing a
+branch 160 commits behind — the surrounding file has been rewritten twice since.
 
 **Two things did NOT move**, because the tuple's slots do not reach them:
 

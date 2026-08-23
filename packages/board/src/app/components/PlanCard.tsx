@@ -12,7 +12,7 @@ const PHASE_ACCENT: Record<Phase, string> = {
   Discovery: 'border-l-sky-400',
   Design: 'border-l-slate-400',
   Development: 'border-l-green-500',
-  Endgame: 'border-l-violet-500',
+  Testing: 'border-l-violet-500',
   Released: 'border-l-orange-500',
 };
 

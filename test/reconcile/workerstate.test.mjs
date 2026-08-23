@@ -292,7 +292,13 @@ test('worker-state: a clean exit is refined by the tree, from one fixture', () =
     assert.equal(d.word, dispatchWord, `plot-dispatch on ${label}:\n${d.line}`);
   };
 
-  // A tidy worktree: nothing on the floor, so the clean exit stands.
+  // A tidy worktree: nothing on the floor, so the clean exit stands. THIS IS
+  // ALSO THE DEFECT, because the fixture's own tree documents the marker: its
+  // CLAUDE.md carries a `## Plot Config` and — like every real checkout of this
+  // repo — the fixture repo is where the marker is described. A contents grep
+  // read `waiting` here off a clean exit; a file-existence check reads
+  // `finished`, because no PLOT-BLOCKED* file stands. The direct, no-ambiguity
+  // form of this assertion is the `plot_worker_blocked` unit test below.
   agree('finished', 'finished', 'a clean exit over a clean tree');
 
   // UNCOMMITTED WORK AND NO PR — the state this wave exists to name. Note the
@@ -309,23 +315,34 @@ test('worker-state: a clean exit is refined by the tree, from one fixture', () =
   agree('finished', 'finished', 'only a .tmp1');
   f.file('plot-dispatch.sh.tmp1', null);
 
-  // A MARKER OUTRANKS WORK ON THE FLOOR, and the file is dirty here on purpose:
-  // a worker that stops to ask a question has almost always left the work it
-  // was doing uncommitted beside the question. Checking dirtiness first would
-  // report every waiting branch `stalled` and invite a restart into the same
-  // wait — measured happening twice to one branch, the second restart re-running
-  // work the first had finished.
-  f.file('feature.ts', '// PLOT-BLOCKED: which retry semantics did you want?\n');
-  agree('waiting', 'waiting', 'the marker Plot defines, beside dirty work');
+  // A MARKER FILE OUTRANKS WORK ON THE FLOOR, and the file is dirty here on
+  // purpose: a worker that stops to ask a question has almost always left the
+  // work it was doing uncommitted beside the question. Checking dirtiness first
+  // would report every waiting branch `stalled` and invite a restart into the
+  // same wait — measured happening twice to one branch, the second restart
+  // re-running work the first had finished.
+  //
+  // THE MARKER IS A FILE the worker writes, not a string inside its work. The
+  // dirty source file below stays, so the tree is on the floor AND carrying a
+  // marker; the PLOT-BLOCKED.md file is what makes it `waiting`.
+  f.file('feature.ts', 'export const x = 1;\n');
+  f.file('PLOT-BLOCKED.md', 'PLOT-BLOCKED: which retry semantics did you want?\n');
+  agree('waiting', 'waiting', 'a PLOT-BLOCKED file beside dirty work');
 
-  // THE TWO SPELLINGS THAT EMERGED FROM WORKERS stay recognised. They exist in
-  // trees right now, and dropping them would silently regress every worker
-  // already running — a `waiting` reported as `stalled` is the restart-into-the-
-  // wait this state prevents.
-  for (const marker of ['TODO(you)', 'TODO(human)']) {
-    f.file('feature.ts', `// ${marker}: which retry semantics did you want?\n`);
-    agree('waiting', 'waiting', `the emergent marker ${marker}`);
-  }
+  // A DIFFERENT PLOT-BLOCKED* NAME IS STILL A MARKER. The `Worker command` does
+  // not name the file, and a prefix match accepts what workers produce.
+  f.file('PLOT-BLOCKED.md', null);
+  f.file('PLOT-BLOCKED', 'PLOT-BLOCKED: which retry semantics did you want?\n');
+  agree('waiting', 'waiting', 'a PLOT-BLOCKED file with a different extension');
+  f.file('PLOT-BLOCKED', null);
+
+  // A FILE MERELY CONTAINING THE STRING IS NOT A MARKER — the exact regression
+  // this whole change exists to prevent. A brief or a doc that documents the
+  // marker used to read `waiting` off a pristine checkout; now it does not,
+  // because it is not a PLOT-BLOCKED* file. The source file is still dirty, so
+  // the honest verdict here is `stalled`, not `waiting`.
+  f.file('feature.ts', '// we write PLOT-BLOCKED: to signal a stop; TODO(you) too\n');
+  agree('stalled', 'stalled', 'a file that only mentions the marker string');
   f.file('feature.ts', null);
 
   // COMMITTED BUT UNPUSHED IS STILL WORK ONLY THIS MACHINE HOLDS. Committing
@@ -340,48 +357,54 @@ test('worker-state: a clean exit is refined by the tree, from one fixture', () =
   f.cleanup();
 });
 
-test('worker-state: the log records the question, the tree records that it stands', () => {
-  // THE MARKER IS READ FROM THE TREE, NOT THE LOG, and this is the assertion
-  // that pins it. The log is the ONE file guaranteed to contain the marker
+test('worker-state: the log records the question, the marker FILE records that it stands', () => {
+  // THE MARKER IS A FILE, NOT A LINE IN THE LOG, and this is the assertion that
+  // pins it. The log is the ONE file guaranteed to contain the marker token
   // whenever the worker mentioned writing one — a worker's final report says
-  // what it left behind — so a recursive grep over the worktree would answer
+  // what it left behind — so a CONTENTS search over the worktree would answer
   // `waiting` from the report of a question that was since ANSWERED.
   //
   // Measured: a restarted worker found its own question already answered in the
   // commit above it and carried on without asking again. The log still held the
-  // question, and always will; only the tree cleared.
+  // question, and always will; only the marker FILE was deleted.
+  //
+  // A file-existence check makes the log-versus-tree split automatic: the log is
+  // named `.plot-worker.log`, which is not a `PLOT-BLOCKED*` file, so it is
+  // never mistaken for the marker. The old contents grep had to exclude it by
+  // name and could regress silently if that exclusion leaned on `.gitignore`;
+  // there is no such flag to forget any more.
   const f = fixture('logvtree');
   f.worker({ pid: DEAD, exit: 0 });
-
-  // NO `.gitignore` IN THIS FIXTURE, and that is the point rather than an
-  // oversight. The first version of this exclusion leaned on
-  // `--exclude-standard`, which honours the repo's own ignore rules — and Plot's
-  // repo happens to ignore `.plot-worker.*`, so every local run passed while CI,
-  // on a fixture without those lines, read `waiting`. An adopting repo that
-  // never ignored them would have hit the same thing silently and forever.
-  // Plot's own records must be excluded BECAUSE THEY ARE PLOT'S, never because
-  // a file Plot does not control happens to list them.
-  assert.ok(!fs.existsSync(path.join(f.wt, '.gitignore')),
-    'this fixture must not ignore .plot-worker.* — that is what it is testing');
 
   f.file('.plot-worker.log',
     'I stopped and wrote a PLOT-BLOCKED: marker asking about retry semantics.\n');
   assert.equal(f.scanState().state, 'finished',
-    'a question in the LOG is history — the tree says it no longer stands');
+    'a question in the LOG is history — no marker file stands');
 
-  // The whole `.plot-worker.*` family is excluded by one rule, so a sibling
-  // record is checked too — NOT the pid or exit file, whose CONTENT is parsed
-  // and would change the process verdict before the marker search is reached.
-  // A stray `.plot-worker.log.1` from a rotated log is the realistic case.
+  // A rotated `.plot-worker.log.1` is not a marker either: it does not start
+  // with `PLOT-BLOCKED`. The realistic case, kept.
   f.file('.plot-worker.log.1', 'PLOT-BLOCKED: an older run asked this\n');
   assert.equal(f.scanState().state, 'finished',
-    "Plot's own records are never searched for markers");
+    "Plot's own records are never marker files");
   f.file('.plot-worker.log.1', null);
 
-  // The same sentence, in a file that is part of the tree, IS the question.
-  f.file('question.md', 'PLOT-BLOCKED: which retry semantics did you want?\n');
+  // The same sentence, written into a PLOT-BLOCKED* FILE, IS the question.
+  f.file('PLOT-BLOCKED.md', 'PLOT-BLOCKED: which retry semantics did you want?\n');
   assert.equal(f.scanState().state, 'waiting',
-    'the same marker in the TREE is a question still open');
+    'a PLOT-BLOCKED file in the tree is a question still open');
+
+  // A file that merely NAMES the marker in its contents is not one — the exact
+  // false positive this change removes. `question.md` is a document, not a
+  // PLOT-BLOCKED* file, so it is NOT `waiting`. It is an untracked file, which
+  // is work on the floor, so the honest verdict is `stalled` — anything but
+  // `waiting`, which is the whole point: a mention no longer stops the branch.
+  f.file('PLOT-BLOCKED.md', null);
+  f.file('question.md', 'PLOT-BLOCKED: which retry semantics did you want?\n');
+  const mention = f.scanState().state;
+  assert.notEqual(mention, 'waiting',
+    'a document that merely mentions the marker does not read waiting');
+  assert.equal(mention, 'stalled',
+    'the mention is not a marker; the untracked doc is work on the floor');
 
   f.cleanup();
 });
@@ -413,9 +436,10 @@ test('worker-state: an open PR outranks everything the worktree still holds', ()
     { encoding: 'utf8' }).split('\t')[0];
 
   // Dirty AND carrying an open question — the two things that would otherwise
-  // answer `stalled` and `waiting`. The PR outranks both.
-  fs.writeFileSync(path.join(d, 'feature.ts'),
-    '// PLOT-BLOCKED: still wondering\nexport const x = 1;\n');
+  // answer `stalled` and `waiting`. The PR outranks both. The marker is a FILE;
+  // the dirty source file sits beside it.
+  fs.writeFileSync(path.join(d, 'feature.ts'), 'export const x = 1;\n');
+  fs.writeFileSync(path.join(d, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: still wondering\n');
   assert.equal(classify(''), 'waiting', 'without the PR fact, the tree answers');
   assert.equal(classify('pr'), 'finished', 'with an open PR, the tree is moot');
 
@@ -433,9 +457,11 @@ test('worker-state: an open PR outranks everything the worktree still holds', ()
 
 test('worker-state: the task states are added once, not once per consumer', () => {
   // WAVE 1'S STRUCTURAL ASSERTION, EXTENDED TO WAVE 2. The states could agree
-  // today while the marker pattern or the leftover exclusion sat in two places
+  // today while the marker match or the leftover exclusion sat in two places
   // waiting to drift — which is exactly the position wave 1 started from, and
-  // the reason it went first.
+  // the reason it went first. The marker is now a FILENAME the classifier globs
+  // for rather than a token it greps; the assertion is the same in spirit — the
+  // match lives with the classification, and only there.
   const bodies = {
     'plot-dispatch.sh': fs.readFileSync(dispatch, 'utf8'),
     'plot-fleet-scan.sh': fs.readFileSync(scan, 'utf8'),
@@ -444,7 +470,7 @@ test('worker-state: the task states are added once, not once per consumer', () =
   const sharedCode = code(fs.readFileSync(shared, 'utf8'));
 
   assert.match(sharedCode, /PLOT-BLOCKED/,
-    'the marker Plot defines lives with the classification');
+    'the marker filename Plot globs for lives with the classification');
   assert.match(sharedCode, /tmp\[0-9\]\*/,
     'so does the editor-leftover exclusion');
 
@@ -461,4 +487,58 @@ test('worker-state: the task states are added once, not once per consumer', () =
   // `/plot-dispatch`'s, and Manifesto Principle 1 keeps the pulse derived.
   assert.doesNotMatch(code(bodies['plot-fleet-scan.sh']), /\.plot-worker\./,
     'the read-only scan must not touch the worker record itself');
+});
+
+test('worker-state: plot_worker_blocked answers a marker FILE, not a mention', () => {
+  // THE DEFECT, ASSERTED AT THE PREDICATE ITSELF, with no PR, no upstream, and
+  // no dirty-work ordering in the way. Every other assertion in this file passed
+  // with the bug in place; this is the one that did not. The old classifier
+  // grepped file CONTENTS for the marker token and matched the 28 tracked files
+  // on `main` that document the feature, so a pristine checkout read blocked
+  // before any worker ran.
+  //
+  // Sourced and called directly under bash — the shell both callers declare.
+  const blocked = (wt) => {
+    try {
+      execFileSync('bash', ['-c',
+        `. ${JSON.stringify(shared)}; plot_worker_blocked ${JSON.stringify(wt)}`]);
+      return true; // exit 0 → a person is owed an answer
+    } catch {
+      return false; // non-zero → not blocked
+    }
+  };
+
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-blocked-'));
+
+  // A tree that DOCUMENTS the marker is not blocked — the exact false positive.
+  fs.writeFileSync(path.join(d, 'CLAUDE.md'),
+    '- **Worker command:** ... write PLOT-BLOCKED: into a file ... TODO(you) ...\n');
+  fs.writeFileSync(path.join(d, 'a-brief.md'),
+    'the worker writes PLOT-BLOCKED: followed by the question\n');
+  assert.equal(blocked(d), false,
+    'a tree that only MENTIONS the marker is not waiting on anybody');
+
+  // A real PLOT-BLOCKED* file at the root IS blocked, and the assertion is that
+  // it is FOUND — not merely that a clean tree is not blocked, which a function
+  // that always returned false would also satisfy.
+  fs.writeFileSync(path.join(d, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which adapter?\n');
+  assert.equal(blocked(d), true, 'a PLOT-BLOCKED file is found');
+
+  // Any PLOT-BLOCKED* name, since the instruction does not fix one.
+  fs.rmSync(path.join(d, 'PLOT-BLOCKED.md'));
+  fs.writeFileSync(path.join(d, 'PLOT-BLOCKED'), 'PLOT-BLOCKED: which adapter?\n');
+  assert.equal(blocked(d), true, 'a bare PLOT-BLOCKED file is found');
+  fs.rmSync(path.join(d, 'PLOT-BLOCKED'));
+
+  // Root only: a marker buried in a subdirectory is not found, mirroring the
+  // decision the plan settled (prefer root over any-depth).
+  fs.mkdirSync(path.join(d, 'sub'));
+  fs.writeFileSync(path.join(d, 'sub', 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: buried\n');
+  assert.equal(blocked(d), false, 'a marker under a subdirectory is not a root marker');
+
+  // A missing or empty worktree path is not blocked and never errors.
+  assert.equal(blocked(path.join(d, 'gone')), false, 'a missing worktree is not blocked');
+  assert.equal(blocked(''), false, 'an empty worktree argument is not blocked');
+
+  fs.rmSync(d, { recursive: true, force: true });
 });

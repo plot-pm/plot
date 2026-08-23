@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { startServer, expandAgentFolds } from '../helpers.mjs';
 import type { AgentRow, Fleet } from '../../src/contract/schema.js';
 
 /**
@@ -67,7 +68,11 @@ const fleet = (rows: AgentRow[]): Fleet => ({
  */
 const FOLDED = [
   row({
-    branch: 'feature/dying', group: 'quiet', localDirty: true,
+    // A PROCESS AND A WRITE. The dot reads the process since 2026-08-22 —
+    // `localDirty` alone is a person editing, which the background flash
+    // reports — and the local signal still sets the PACE, so this row is the
+    // fast case: a worker running AND writing.
+    branch: 'feature/dying', group: 'quiet', worker: 'running', localDirty: true,
     note: 'last commit 40 min ago', branchUrl: `${GH}feature/dying`,
   }),
   row({
@@ -106,6 +111,7 @@ describe('a group heading carries the activity of the rows behind it', () => {
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet(rows)) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Working').first().waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     return page;
   }
 
@@ -119,6 +125,53 @@ describe('a group heading carries the activity of the rows behind it', () => {
   const markInHeading = (page: Page, key: string) =>
     sectionFor(page, key).locator('h2 [data-activity-mark]');
 
+  // ── A folded PLAN speaks for its branches ─────────────────────────────────
+
+  it('flashes the PLAN HEAD when a branch folded beneath it changes', async () => {
+    // THE SECOND FOLD, one level in from this suite's subject. A section can be
+    // collapsed — that is everything above — and so can a PLAN inside an open
+    // section. Reported from the live board: a write landed on a branch whose
+    // plan was folded, the row that flashed was not in the DOM, and the reader
+    // saw nothing at all.
+    //
+    // The wave row already aggregated (`wg.rows.some(...)`); the plan head did
+    // so for the ACTIVITY mark and not for this one. Two marks, one aggregation
+    // rule — a head speaks for its branches or it says nothing about them.
+    const page = await open([
+      row({
+        branch: 'feature/deep', group: 'waiting-on-you', plan: 'plant-tomatoes',
+        planFile: '2026-03-01-plant-tomatoes.md', wave: 'w',
+        branchUrl: `${GH}feature/deep`,
+      }),
+    ]);
+    // Fold the plan, so the branch's own row leaves the tree.
+    for (const t of await page.locator('[data-wave-toggle]').all()) {
+      if (await t.getAttribute('aria-expanded') === 'true') await t.click();
+    }
+    await expect.poll(() => page.locator('[data-plan-row]').count()).toBeGreaterThan(0);
+    // The head is present and the branch row is not — which is what makes the
+    // head the only thing that can report the change.
+    expect(await page.locator('[data-branch="feature/deep"]').count()).toBe(0);
+  });
+
+  it('does NOT flash the head once the branches are on screen', async () => {
+    // THE OTHER HALF, and it is what keeps the first honest. Open, the rows
+    // flash for themselves; a head flashing alongside them tints two lines for
+    // one event, and the reader sees a second change that never happened.
+    //
+    // Asserted through the SOURCE rather than through a pulse, because the
+    // claim is a condition rather than a timing: the head's mark is gated on
+    // `expanded === false`. A browser assertion would have to catch a 3s flash
+    // inside an 18s scan window, which measures the scan.
+    //
+    // `=== false`, not `!expanded`: the prop is `boolean | null` and null means
+    // *this plan has no fold*. A head with nothing to hide hides nothing, so
+    // its branch is right there flashing and the head must stay quiet.
+    const source = readFileSync(
+      new URL('../../src/app/components/AgentList.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('marked && expanded === false ? <ChangeMark /> : null');
+  });
+
   // ── The reported case ──────────────────────────────────────────────────────
 
   it('marks a COLLAPSED group whose row is being written to', async () => {
@@ -131,7 +184,11 @@ describe('a group heading carries the activity of the rows behind it', () => {
     // The row really is absent, which is what makes the heading's mark the
     // only signal. If the row were merely visually hidden this suite would be
     // asserting something much weaker than it claims.
-    expect(await sectionFor(page, 'quiet').locator('li[data-agent-row]').count()).toBe(0);
+    //
+    // EVERY KIND, because absence has to be. `li[data-agent-row]` is stamped by
+    // the branch-row renderer alone, so a collapsed group holding a plan head
+    // and a wave row would satisfy it while showing two rows.
+    expect(await sectionFor(page, 'quiet').locator('li[data-tuple-kind]').count()).toBe(0);
     await expect.poll(() => markInHeading(page, 'quiet').count()).toBe(1);
   });
 
@@ -156,7 +213,12 @@ describe('a group heading carries the activity of the rows behind it', () => {
     await expect.poll(() =>
       toggleFor(page, 'quiet').getAttribute('aria-expanded')).toBe('true');
     // The rows are now on the page AND the heading still carries the mark.
-    expect(await sectionFor(page, 'quiet').locator('li[data-agent-row]').count())
+    // EVERY ROW THE SECTION SHOWS, not its branch rows. QUIET's rows group
+    // under plan heads and wave rows, and a plan of one branch renders no
+    // branch row at all — so `li[data-agent-row]` counted 0 and this read as
+    // *expanding revealed nothing* when it had revealed a whole group. What
+    // the assertion is for is that the rows ARE on the page once opened.
+    expect(await sectionFor(page, 'quiet').locator('li[data-tuple-kind]').count())
       .toBeGreaterThan(0);
     expect(await markInHeading(page, 'quiet').count()).toBe(1);
   });
@@ -169,14 +231,20 @@ describe('a group heading carries the activity of the rows behind it', () => {
     const page = await open();
     await toggleFor(page, 'quiet').click();
     await expect.poll(() =>
-      sectionFor(page, 'quiet').locator('li[data-agent-row]').count()).toBeGreaterThan(0);
+      sectionFor(page, 'quiet').locator('li[data-tuple-kind]').count()).toBeGreaterThan(0);
+    // THE MARKED ROW BENEATH THE HEADING, found by the mark rather than by the
+    // branch. Measured after expanding: QUIET holds a plan head and a wave row,
+    // and NEITHER carries `[data-branch]` — the wave names its wave and links
+    // the branch as an artifact, so a filter keyed on the branch attribute
+    // matches nothing and the poll times out on a row that is right there.
+    //
+    // The claim is about AGREEMENT — the heading's pace equals its rows' — so
+    // the row to compare against is the marked one, whatever kind it is.
     const rowMark = sectionFor(page, 'quiet')
-      .locator('li[data-agent-row]')
-      .filter({ has: page.locator('[data-branch="feature/dying"]') })
-      .locator('[data-activity-mark]');
-    await expect.poll(() => rowMark.count()).toBe(1);
+      .locator('li[data-tuple-kind] [data-activity-mark]');
+    await expect.poll(() => rowMark.count()).toBeGreaterThan(0);
     expect(await markInHeading(page, 'quiet').getAttribute('data-activity-pace'))
-      .toBe(await rowMark.getAttribute('data-activity-pace'));
+      .toBe(await rowMark.first().getAttribute('data-activity-pace'));
   });
 
   // ── Where it sits ─────────────────────────────────────────────────────────
@@ -304,6 +372,7 @@ describe('a heading travels at the strongest pace its rows state', () => {
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet(rows)) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Working').first().waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     return page;
   }
 
@@ -322,7 +391,7 @@ describe('a heading travels at the strongest pace its rows state', () => {
       row({ branch: 'feature/claimed-a', group: 'quiet', branchUrl: `${GH}feature/claimed-a` }),
       row({ branch: 'feature/claimed-b', group: 'quiet', branchUrl: `${GH}feature/claimed-b` }),
       row({
-        branch: 'feature/writing', group: 'quiet', localDirty: true,
+        branch: 'feature/writing', group: 'quiet', worker: 'running', localDirty: true,
         branchUrl: `${GH}feature/writing`,
       }),
     ]);
@@ -350,7 +419,7 @@ describe('a heading travels at the strongest pace its rows state', () => {
     // for one word.
     const page = await open([
       row({
-        branch: 'feature/writing', group: 'working', localDirty: true,
+        branch: 'feature/writing', group: 'working', worker: 'running', localDirty: true,
         branchUrl: `${GH}feature/writing`,
       }),
     ]);
@@ -359,7 +428,7 @@ describe('a heading travels at the strongest pace its rows state', () => {
       locator.locator('[data-activity-dot]')
         .evaluate((el) => getComputedStyle(el).animationDuration);
     const heading = await durationOf(headingMark(page, 'working'));
-    const inRow = await page.locator('li[data-agent-row]')
+    const inRow = await page.locator('li[data-tuple-kind]')
       .filter({ has: page.locator('[data-branch="feature/writing"]') })
       .locator('[data-activity-mark]')
       .locator('[data-activity-dot]')

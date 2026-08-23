@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { startServer, expandAgentFolds } from '../helpers.mjs';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../src/contract/schema.js';
 
 /**
@@ -142,6 +142,7 @@ describe('the row says what it knows', () => {
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Not started').first().waitFor({ timeout: 15_000 });
+    await expandAgentFolds(page);
     return page;
   }
 
@@ -217,6 +218,146 @@ describe('the row says what it knows', () => {
     }
   });
 
+  // ─── A section is not a row, and is no longer drawn as one ───────────────
+  //
+  // The spacing half of this finding is above. This is the SIZE half, and it
+  // was measured on 2026-08-20 to be worse than reported: the section `<h2>`
+  // was `text-xs`, 12px, while a row's branch name renders 13px and the row's
+  // own `<li>` is `text-sm`. The strongest structural break on the page was set
+  // BELOW the weakest thing inside it, and the plan `<h3>` under it at 11px was
+  // smaller still — three levels ordered backwards.
+  //
+  // Read these together with the two above: spacing separates the sections,
+  // size distinguishes them, and each can be undone without touching the other.
+
+  /** The rendered font size of an element, in px, as a number. */
+  const fontSizes = (page: Page) =>
+    page.evaluate(() => {
+      const size = (el: Element | null) =>
+        el ? Number.parseFloat(getComputedStyle(el).fontSize) : null;
+      // A ROW'S OWN TEXT, taken as the LARGEST thing a row draws rather than
+      // the smallest. A row carries several sizes — 13px branch name, 12px
+      // supporting cells — and the heading has to clear the biggest of them or
+      // it is still smaller than something in the list it introduces. Asserting
+      // against the 12px cells would pass a heading the branch names overpower.
+      const rowText = Array.from(
+        document.querySelectorAll('ul[role="grid"] li[data-agent-row] *'),
+      )
+        .filter((el) => el.children.length === 0 && el.textContent?.trim())
+        .map((el) => Number.parseFloat(getComputedStyle(el).fontSize));
+      return {
+        section: size(document.querySelector('[data-sections] > section h2')),
+        sectionCaret: size(
+          document.querySelector('[data-group-toggle] span[aria-hidden]'),
+        ),
+        // THE PLAN'S NAME, read off the plan ROW — it stopped being an `h3` when
+        // a plan head became a row rather than chrome. `ul[role="grid"] h3`
+        // matched nothing, so this read 0 and the comparison below was between
+        // a real number and an absence.
+        planHeading: size(document.querySelector('li[data-plan-row] [data-tuple-link="plan"], li[data-plan-row] [data-tuple-text="plan"]')),
+        rowMax: rowText.length ? Math.max(...rowText) : null,
+      };
+    });
+
+  it('draws a section heading larger than the rows it introduces', async () => {
+    const page = await open();
+    try {
+      const px = await fontSizes(page);
+      expect(px.rowMax).toBeGreaterThan(0);
+      // THE PROPERTY, not one implementation of it: a section reads as the
+      // stronger level. Stated as a comparison so re-tuning the scale later
+      // does not have to re-tune this test.
+      expect(px.section!).toBeGreaterThan(px.rowMax!);
+      // And above the 12px measured, which was the defect itself. Without this
+      // the comparison alone would pass if a row ever SHRANK to meet a heading
+      // that never moved — the wrong repair for this finding, and the one that
+      // costs the rows their scan.
+      expect(px.section!).toBeGreaterThan(12);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('draws the section fold caret larger than a row, without shrinking its target', async () => {
+    const page = await open();
+    try {
+      const px = await fontSizes(page);
+      // THE GLYPH GROWS. The caret was 13px against a 13px branch name — the
+      // control that answers *is there more here?*, drawn at the size of the
+      // thing it hides.
+      expect(px.sectionCaret!).toBeGreaterThan(px.rowMax!);
+
+      // AND THE TARGET DOES NOT MOVE. This is the assertion that keeps the
+      // earlier fix's work: `py-1 -my-1` made the heading line a 24px target
+      // deliberately, and a "bigger caret" that reached the glyph by trimming
+      // the padding would pass the line above while undoing it. Legible and
+      // hittable are separate properties of one control, so both are measured.
+      const target = await page
+        .locator('[data-group-toggle]')
+        .first()
+        .evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          return { h: Math.round(r.height), w: Math.round(r.width) };
+        });
+      expect(target.h).toBeGreaterThanOrEqual(MIN_TARGET);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('stops the plan heading being the smallest text on the page', async () => {
+    const page = await open();
+    try {
+      const px = await fontSizes(page);
+      expect(px.planHeading).toBeGreaterThan(0);
+      // A LABEL NOT SMALLER THAN WHAT IT LABELS. At `text-[11px]` this heading
+      // sat under the 13px branch names it introduces — the section's defect
+      // one level down.
+      expect(px.planHeading!).toBeGreaterThanOrEqual(px.rowMax!);
+      // AND STILL BELOW THE SECTION. Two sizes for three levels was the
+      // decision — this heading sits in a tinted, outlined box that already
+      // says *inside a section* — so it must not climb to the section's size
+      // and flatten the one distinction this branch draws.
+      expect(px.planHeading!).toBeLessThan(px.section!);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('keeps a section foldable, with aria-expanded tracking the fold', async () => {
+    const page = await open();
+    try {
+      // The heading is a BUTTON, and growing its type is exactly the kind of
+      // change that turns one into a `<span>` by accident. The fold is the
+      // reason the heading is interactive at all.
+      const toggle = page.locator('[data-group-toggle]').first();
+      await expect.poll(() => toggle.count()).toBe(1);
+      const rows = () =>
+        page
+          .locator('section')
+          .filter({ has: page.locator('[data-group-toggle]') })
+          .first()
+          .locator('ul[role="grid"]')
+          .count();
+
+      // From a KNOWN state: the fold is remembered across sessions, so a test
+      // that assumes open passes or fails on what a previous run left behind.
+      if ((await toggle.getAttribute('aria-expanded')) === 'false') {
+        await toggle.click();
+      }
+      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('true');
+      await expect.poll(rows).toBe(1);
+
+      await toggle.click();
+      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('false');
+      // The BODY GOES, not merely the attribute — a fold that flips a label and
+      // leaves the rows on screen is the state this assertion exists to catch.
+      await expect.poll(rows).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
   // ─── A plan group has an edge, so it stops absorbing what follows ────────
 
   it('closes the plan group after its last branch, with the issue rows outside it', async () => {
@@ -244,14 +385,28 @@ describe('the row says what it knows', () => {
       });
       expect(Math.max(edge.outline, edge.border)).toBeGreaterThan(0);
       expect(edge.outline > 0 ? edge.style : 'solid').not.toBe('none');
-      // AND IT COSTS NO ALIGNMENT. The rows inside a group must sit at the same
-      // x as a row outside one, or the edge was bought with the property the
-      // tracks exist for.
-      const insideX = await group.locator('li[data-agent-row] [role="gridcell"]')
-        .first().boundingBox();
-      const outsideX = await grid(page, 'Not started')
-        .locator('li[data-plan-row] [role="gridcell"]').first().boundingBox();
-      expect(Math.abs((insideX?.x ?? 0) - (outsideX?.x ?? -99))).toBeLessThanOrEqual(1);
+      // AND IT COSTS NO ALIGNMENT — measured WITHIN each row, which is what
+      // that claim can mean once rows nest.
+      //
+      // It compared absolute x: a cell inside the group against a plan head
+      // outside it, expecting the same pixel. Measured, they differ by 50 —
+      // two levels of `ml-6` plus each group's rule, because one row sits two
+      // folds deep and the other at the top. That is the INDENT, drawn on
+      // purpose, and asserting it away would assert that nesting is invisible.
+      //
+      // The property the tracks exist for is that a row's cells land on the
+      // same offsets whatever the row's depth, so it is asked of the offsets.
+      const offsets = await page.evaluate(() => {
+        const first = (sel: string) => {
+          const cell = document.querySelector(`${sel} [role="gridcell"]`);
+          const li = cell?.closest('li');
+          if (!cell || !li) return null;
+          return Math.round(cell.getBoundingClientRect().x - li.getBoundingClientRect().x);
+        };
+        return { inside: first('li[data-agent-row]'), outside: first('li[data-plan-row]') };
+      });
+      expect(offsets.inside, `inside ${offsets.inside} outside ${offsets.outside}`)
+        .toBe(offsets.outside);
       // AND THE ISSUE ROWS ARE OUTSIDE IT. This is the half a border alone does
       // not buy: #227 and #228 belong to no plan, and the layout must place
       // them where nothing claims they do.
@@ -275,8 +430,14 @@ describe('the row says what it knows', () => {
       const group = section.locator('li[data-plan-group="zucchini-glut"]');
       await expect.poll(() => group.count()).toBe(1);
       const inside = await group.locator('li[data-agent-row]').count();
-      const heading = await group.locator('h3').textContent();
-      expect(heading).toContain(`(${inside})`);
+      // THE COUNT IS ON THE PLAN ROW, not in an `h3`. A plan heads its group
+      // with a row since the wave kind landed, and the tally moved with it.
+      // `li[data-plan-row]`, not the bare attribute: the fold button inside the
+      // row carries it too, and `.first()` on the attribute alone reads the
+      // caret — measured, it returned `▸`.
+      const head = await group.locator('li[data-plan-row]').first().innerText();
+      expect(head, `${inside} rows inside, head reads: ${head}`)
+        .toContain(`(${inside})`);
     } finally {
       await page.close();
     }
@@ -379,11 +540,39 @@ describe('the row says what it knows', () => {
       // AND THE BRANCH NAME SURVIVES IT. This is the half the first
       // implementation lost: the branch is the row's primary key and the only
       // cell that flexes, so a sentence sharing it wins and the name is what
-      // pays. Asserted on the rendered width against the scroll width, which is
-      // what "truncated" actually means.
-      const crushed = await branchRow.locator('[data-branch]').evaluate((el) =>
-        el.scrollWidth > el.clientWidth + 1);
-      expect(crushed).toBe(false);
+      // pays.
+      //
+      // MEASURED ON THE TAIL, because the name is two spans and only one of
+      // them is allowed to yield. `BranchLabel` folds a long name in the
+      // MIDDLE — a `truncate` head that gives up width and a `shrink-0` tail
+      // that never does — so the tail is where "the name survived" is decided.
+      // `splitBranch` states the reason: six branches here share twenty-four
+      // characters of prefix, so the suffix is what tells them apart and a
+      // reader who loses it loses the row's identity.
+      //
+      // This assertion replaced one on the OUTER span's `scrollWidth >
+      // clientWidth`, which was correct for a single-span name and reports
+      // every folded name as crushed. Measured 2026-08-21 for this row in its
+      // 81px slot: outer scroll 94 against client 81 — *because* the head
+      // collapsed to 0 and handed its width to a 94px tail that clipped
+      // nothing. The old measure called the mechanism working as designed a
+      // failure, and would go on doing so for every name long enough to fold.
+      //
+      // The clipped head is deliberately NOT asserted. It is the give in the
+      // design, and pinning it would forbid the fold this row depends on.
+      const tail = branchRow.locator('[data-branch] > span > span').last();
+      const clipped = await tail.evaluate((el) => ({
+        text: el.textContent ?? '',
+        overflowing: el.scrollWidth > el.clientWidth + 1,
+      }));
+      // The tail renders whole: no ellipsis of its own, at its full width.
+      expect(clipped.overflowing).toBe(false);
+      // AND IT IS THE HALF THAT DISTINGUISHES. A tail that survived by being
+      // empty passes the line above and identifies nothing, which is the same
+      // defect one step along — so the surviving text has to be the end of the
+      // name a reader would search for.
+      expect(clipped.text.length).toBeGreaterThan(0);
+      expect('feature/give-them-away'.endsWith(clipped.text)).toBe(true);
     } finally {
       await page.close();
     }
@@ -418,7 +607,16 @@ describe('the row says what it knows', () => {
       //
       // The sweep runs over the SELECTORS the plan measured, so a target that
       // regresses is named rather than counted.
-      await page.locator('[data-wave-toggle="strawberry-netting"]').click();
+      // OPEN WHATEVER FOLDS, rather than one named plan. This clicked
+      // `[data-wave-toggle="strawberry-netting"]`, and that plan draws no fold:
+      // measured, only `zucchini-glut` and `fix-leaky-hose` carry one, because a
+      // fold is drawn per foldable GROUP and these four plans sit in different
+      // sections. The click waited out its 30s timeout on a control that was
+      // never going to exist.
+      //
+      // What this test needs is any folded thing opened, so more targets are on
+      // screen to measure — not a particular plan's.
+      await expandAgentFolds(page);
       const small = await page.evaluate((min) => {
         const selectors = [
           '[data-wave-toggle]',
@@ -450,6 +648,10 @@ describe('the row says what it knows', () => {
   it('distinguishes the two fold states without reading five pixels of glyph', async () => {
     const page = await open();
     try {
+      // `zucchini-glut`, because it HAS a fold. This read `strawberry-netting`,
+      // which draws none — a fold is drawn per foldable group, and these plans
+      // sit in different sections. Every locator here then waited out its 30s
+      // timeout on a control that does not exist.
       // The reason a reader could not tell a folded plan from an empty one was
       // not the wording of the summary: it was that the ONLY difference between
       // `▸` and `▾` was five pixels of caret, in two shapes of near-equal mass.
@@ -460,16 +662,22 @@ describe('the row says what it knows', () => {
       // the standalone `rotate` property, and asserting on only one of the two
       // would make this test pass for the wrong reason if that ever changes.
       const orientation = () =>
-        page.locator('[data-wave-toggle="strawberry-netting"] span[aria-hidden]')
+        page.locator('[data-wave-toggle="zucchini-glut"] span[aria-hidden]')
           .evaluate((el) => {
             const s = getComputedStyle(el);
             return `${s.rotate}|${s.transform}`;
           });
-      const toggle = page.locator('[data-wave-toggle="strawberry-netting"]');
+      const toggle = page.locator('[data-wave-toggle="zucchini-glut"]');
       // Start from a KNOWN state rather than from whichever one the page
       // happens to be in — the fold is remembered across sessions, so a test
       // that assumes "shut" asserts on the wrong half whenever it is not.
       if ((await toggle.getAttribute('aria-expanded')) === 'true') await toggle.click();
+      // WAITED FOR, because `transition-transform` animates the glyph: reading
+      // `rotate` in the same tick as the click catches the transition mid-flight
+      // and reports the state being LEFT. Measured: `aria-expanded="false"` on
+      // the button and `90deg` on the glyph inside it, which no render produces
+      // — both read the same `expanded` prop.
+      await expect.poll(orientation, { timeout: 5_000 }).not.toContain('90deg');
       const shut = await orientation();
       expect(shut).not.toContain('90deg');
       await toggle.click();
@@ -483,7 +691,7 @@ describe('the row says what it knows', () => {
       // `transition-transform` means the quarter turn takes a frame or two, and
       // reading mid-flight reports an angle nobody designed.
       await page.waitForFunction(() => {
-        const el = document.querySelector('[data-wave-toggle="strawberry-netting"] span[aria-hidden]');
+        const el = document.querySelector('[data-wave-toggle="zucchini-glut"] span[aria-hidden]');
         return !!el && getComputedStyle(el).rotate === '90deg';
       }, undefined, { timeout: 5_000 });
       const turned = await orientation();
@@ -492,7 +700,7 @@ describe('the row says what it knows', () => {
       // And `aria-expanded` still carries it for a reader who sees no geometry
       // at all.
       await expect.poll(() =>
-        page.locator('[data-wave-toggle="strawberry-netting"]').getAttribute('aria-expanded'))
+        page.locator('[data-wave-toggle="zucchini-glut"]').getAttribute('aria-expanded'))
         .toBe('true');
     } finally {
       await page.close();

@@ -3,7 +3,7 @@ title: How Plot cuts work into pieces
 author: jwloka
 status: active
 created: 2026-08-16
-updated: 2026-08-16
+updated: 2026-08-22
 ---
 
 # How Plot cuts work into pieces
@@ -119,7 +119,19 @@ and unused, which is a different thing from wrong.
 
 | Plan | Status | What it covers |
 |------|--------|----------------|
-| [plot-sprint-support](../../plans/active/plot-sprint-support.md) | Approved, never started | Time-boxed planning with MoSCoW priorities — the sprint half of the vocabulary |
+| [plot-sprint-support](../../plans/2026-02-11-plot-sprint-support.md) | Released | Time-boxed planning with MoSCoW priorities — the sprint half of the vocabulary |
+| [a-sprint-names-what-it-ships](../../plans/2026-08-18-a-sprint-names-what-it-ships.md) | Released | A sprint declares the release it targets, so the gate has something to read |
+| [the-index-is-derived](../../plans/2026-08-18-the-index-is-derived.md) | Released | The phase a plan declares decides where it appears; the symlink index stops being a second truth |
+| [a-plan-moves-through-the-sections](../../plans/2026-08-22-a-plan-moves-through-the-sections.md) | Approved | The lifecycle a board reader walks: approve a plan, see it where work is taken, start it |
+| [approval-hands-the-work-to-agents](../../plans/2026-08-22-approval-hands-the-work-to-agents.md) | Draft | Approval as the handover: eligible waves dispatch themselves, bounded by a cap the operator holds |
+| [an-approved-plan-offers-its-two-starts](../../plans/2026-08-22-an-approved-plan-offers-its-two-starts.md) | Draft | The two ways to begin an approved plan — a person implements it, or a fleet dispatches it |
+| [an-interrogation-leaves-a-record](../../plans/2026-08-22-an-interrogation-leaves-a-record.md) | Draft | A challenged plan says so: the round count reaches the file, so interrogated and unexamined stop looking alike |
+
+> Three of these arrived on 2026-08-22 and they are one line of work: the
+> vocabulary this story keeps coherent is no longer only *what the words mean*
+> but *what the board does with them*. Approval is the handover from human-led
+> to agent-led — the column model has said so since Design became a phase — and
+> these three make the board act on it rather than describe it.
 
 ## Session Narrative
 

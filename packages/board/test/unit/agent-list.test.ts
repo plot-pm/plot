@@ -1,15 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import {
+  describe,
+  it,
+  expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  groupByPlan,
-  waveLabel,
   UNNAMED_WAVE,
-  countdown,
-  waitingLabel,
-  showPlanHeading,
-  isStartable,
-  isLive,
-  isCollapsible,
   noActionReason,
   menuState,
   openTarget,
@@ -17,42 +12,21 @@ import {
   openLabel,
   runLinkLabel,
   storyRefusal,
-  canCommissionDesign,
   splitBranch,
-  prStateWord,
-  noteWithoutPr,
-  readCollapsed,
-  writeCollapsed,
-  COLLAPSED_BY_DEFAULT,
-  CARD_BELOW_PX,
-  GROUPS,
-  ROW_TRACKS,
-  CHANGE_MARK_MS,
-  ChangeMarks,
-  changedRows,
-  isActive,
   isUnpushed,
-  waitingTone,
-  activityPace,
-  groupPace,
-  ACTIVITY_MARK_PLACE,
-  ActivityEcho,
-  activeRowKeys,
-  LOCK_ECHO_MS,
-  rowKey,
-  watchedState,
-  isUnreadable,
-  sameWatched,
-  hostCannotReportCi,
-  HOST_CANNOT_REPORT_HINT,
-  hostAnswer,
-  HOST_ANSWER_HINT,
-  hostErrorState,
-  prNote,
-  issueNote,
-  type WatchedState,
-  type PlanGroup,
 } from '../../src/app/components/AgentList.js';
+import { CARD_BELOW_PX, COLLAPSED_BY_DEFAULT, isCollapsible, readCollapsed, writeCollapsed } from '../../src/app/lib/agent-rows/collapse.js';
+import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_MARK_MS, ChangeMarks, LOCK_ECHO_MS, activeRowKeys, activityPace, changedRows, groupPace, isUnreadable, sameWatched, type WatchedState, watchedState } from '../../src/app/lib/agent-rows/activity.js';
+import { isActive, isLive, soleRowStatus } from '../../src/app/lib/agent-rows/stuck.js';
+import { GROUPS, groupByPlan, rowsBySection, showPlanHeading, type PlanGroup, waveKeyOf, waveSection } from '../../src/app/lib/agent-rows/sections.js';
+import { countdown } from '../../src/app/lib/agent-rows/actions.js';
+import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, hostErrorState, issueNote, noteWithoutPr, prNote, prStateWord } from '../../src/app/lib/agent-rows/host-notes.js';
+import { isFinished, isStartable, rowKey, waitingLabel, waitingTone } from '../../src/app/lib/agent-rows/row-identity.js';
+import { groupByWave, groupedNote, waveDissent, waveLabel } from '../../src/app/lib/agent-rows/waves.js';
+// THE ONE GRID, from the component that owns it. It was `ROW_TRACKS` in
+// `AgentList.tsx` beside a second grid; `one-component-renders-every-row`
+// collapsed both into this.
+import { TUPLE_TRACKS } from '../../src/app/components/TupleRow.js';
 import { GROUP_ORDER } from '../../src/server/fleet.js';
 import {
   AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, type AgentRow, type Fleet,
@@ -114,6 +88,153 @@ describe('groupByPlan', () => {
 
   it('returns nothing for no rows', () => {
     expect(groupByPlan([])).toEqual([]);
+  });
+});
+
+describe('waveSection — resolves the Inverted split, gated on the verdict', () => {
+  // A wave's rows: same plan, same wave name, branches described by their state,
+  // per-branch group (what `classify` gave each), and the wave verdict every
+  // branch shares.
+  const waveRows = (
+    branches: { state: AgentRow['state']; group: AgentRow['group'] }[],
+    verdict: AgentRow['verdict'] = 'eligible',
+  ): AgentRow[] => branches.map((b, i) => row({
+    plan: 'p', wave: 'W', branch: `feature/b${i}`, state: b.state, group: b.group, verdict,
+  }));
+
+  it('sends the merged branch to where the unfinished work is — the Inverted split', () => {
+    // Verdict eligible (not finished), one merged (→ done), one open (→
+    // not-started). A wave with unmerged work is where its unfinished work is, so
+    // the merged branch joins NOT STARTED — never the reverse.
+    expect(waveSection(waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'open', group: 'not-started' }],
+    ))).toBe('not-started');
+  });
+
+  it('reads the unfinished branch\'s own section — quiet where that is where it sits', () => {
+    expect(waveSection(waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'wip', group: 'quiet' }],
+      'blocked',
+    ))).toBe('quiet');
+  });
+
+  it('returns null when the wave carries NO verdict — nothing to aggregate on', () => {
+    // A pre-verdict pulse, or a synthetic row: the scan said nothing, so a merged
+    // branch beside an open one is not proof of an Inverted split. Don't guess.
+    expect(waveSection(waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'open', group: 'not-started' }],
+      null,
+    ))).toBeNull();
+  });
+
+  it('returns null for a COMPLETE wave — every branch merged, no split', () => {
+    expect(waveSection(waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'merged', group: 'done' }],
+      'complete',
+    ))).toBeNull();
+  });
+
+  it('returns null for an all-unmerged wave spanning process sections — a build stays put', () => {
+    // The Modelled shape: a PR in review and a build on the machine, both wip, no
+    // merged branch. Not a placement defect; collapsing them would move the build
+    // off WAITING ON A MACHINE, which is where the board means to show it.
+    expect(waveSection(waveRows([
+      { state: 'wip', group: 'waiting-on-you' },
+      { state: 'wip', group: 'waiting-on-machine' },
+    ]))).toBeNull();
+  });
+
+  it('does not treat {merged, deferred} as a split — a deferred branch is exempt', () => {
+    expect(waveSection(waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'deferred', group: 'not-started' }],
+    ))).toBeNull();
+  });
+});
+
+describe('rowsBySection — Inverted stops splitting across two sections', () => {
+  it('rewrites every branch of a mixed wave to the ONE section the wave belongs in', () => {
+    // The live defect: a merged branch carrying `group: done` and an open branch
+    // carrying `group: not-started`, one eligible wave. Filtering by `r.group`
+    // put them in two sections. After re-sectioning both read `not-started`.
+    const rows = [
+      row({ plan: 'p', wave: 'Inverted', branch: 'feature/a', state: 'merged', group: 'done', verdict: 'eligible' }),
+      row({ plan: 'p', wave: 'Inverted', branch: 'feature/b', state: 'open', group: 'not-started', verdict: 'eligible' }),
+    ];
+    const out = rowsBySection(rows);
+    expect(out.map((r) => r.group)).toEqual(['not-started', 'not-started']);
+    // Every (plan, wave) reaches exactly one section — the invariant.
+    const sections = new Set(out.map((r) => r.group));
+    expect(sections.size).toBe(1);
+  });
+
+  it('leaves a uniform wave untouched — identity preserved, not re-allocated', () => {
+    const rows = [
+      row({ plan: 'p', wave: 'Done', branch: 'feature/a', state: 'merged', group: 'done', verdict: 'complete' }),
+      row({ plan: 'p', wave: 'Done', branch: 'feature/b', state: 'merged', group: 'done', verdict: 'complete' }),
+    ];
+    const out = rowsBySection(rows);
+    // Same objects back where nothing changed — the fleet is shared and cast.
+    expect(out[0]).toBe(rows[0]);
+    expect(out[1]).toBe(rows[1]);
+  });
+
+  it('does not merge two DIFFERENT plans that share a wave name', () => {
+    // p1 is a genuine split (merged + open) → its merged branch joins NOT
+    // STARTED. p2 is all-merged (no split) → untouched. The shared wave name
+    // must not fuse them: keying on (plan, wave) keeps them apart.
+    const rows = [
+      row({ plan: 'p1', wave: 'Shaped', branch: 'feature/a', state: 'merged', group: 'done', verdict: 'eligible' }),
+      row({ plan: 'p1', wave: 'Shaped', branch: 'feature/b', state: 'open', group: 'not-started', verdict: 'eligible' }),
+      row({ plan: 'p2', wave: 'Shaped', branch: 'feature/c', state: 'merged', group: 'done', verdict: 'complete' }),
+    ];
+    const out = rowsBySection(rows);
+    expect(out.filter((r) => r.plan === 'p1').map((r) => r.group))
+      .toEqual(['not-started', 'not-started']);
+    expect(out.find((r) => r.plan === 'p2')?.group).toBe('done');
+  });
+
+  it('leaves a planless / wave-less row alone — it is its own subject', () => {
+    const planless = row({ plan: '', wave: '', branch: 'feature/orphan', group: 'quiet', verdict: null });
+    const out = rowsBySection([planless]);
+    expect(out[0]).toBe(planless);
+  });
+});
+
+describe('waveDissent — the collapsed row does not read `merged` for a half-open wave', () => {
+  it('reports how many merged when branches disagree — the Inverted case', () => {
+    // One merged, one open: the row speaks for both, so it must state that some
+    // landed and some did not, not a plain `merged`.
+    expect(waveDissent([
+      row({ state: 'merged' }), row({ state: 'open' }),
+    ])).toBe(1);
+  });
+
+  it('is null when every branch agrees — the count already tells the story', () => {
+    expect(waveDissent([row({ state: 'merged' }), row({ state: 'merged' })])).toBeNull();
+    expect(waveDissent([row({ state: 'open' }), row({ state: 'wip' })])).toBeNull();
+  });
+
+  it('does not count a DEFERRED branch as disagreement — it is exempt by design', () => {
+    // A wave of {merged, deferred} agrees that everything wanted has landed.
+    expect(waveDissent([row({ state: 'merged' }), row({ state: 'deferred' })])).toBeNull();
+  });
+
+  it('feeds groupedNote, which then says so rather than the section word', () => {
+    // With a dissent the note names the split; without one it keeps the ordinary
+    // sentence for the section word.
+    //
+    // `to review` IS THE POINT OF THE FIRST TWO LINES, and it is deliberately not
+    // the word in the third. It is a word `groupedNote` does not recognise, and
+    // an unrecognised word returns '' so the caller's ternary falls through to
+    // the VERDICT — the default used to assert `work landed — waiting to be
+    // merged` over five live blocked waves whose branches had never been touched.
+    // A dissent still outranks that: a MEASURED disagreement is a fact about
+    // branches that exist, so it speaks even for a word with no sentence.
+    expect(groupedNote('to review', 1)).toMatch(/1 merged/);
+    expect(groupedNote('to review', null)).toBe('');
+    // And a word that DOES have a sentence keeps it when its branches agree.
+    expect(groupedNote('delivered', null)).toBe('landed — nothing left in it');
+    expect(groupedNote('delivered', 2)).toMatch(/2 merged/);
   });
 });
 
@@ -320,7 +441,10 @@ describe('isUnpushed — finished work nobody else can see', () => {
     // has not pushed. Asserted as two separate answers because the row renders
     // two separate marks, and an implementation testing them in sequence loses
     // whichever it tests second.
-    const both = row({ localDirty: true, localAhead: 3 });
+    // A PROCESS for the active half, since `isActive` reads the process rather
+    // than the worktree: an agent running on a branch that also holds unpushed
+    // commits. Two answers, two marks, neither derived from the other.
+    const both = row({ worker: 'running', localAhead: 3 });
     expect(isActive(both)).toBe(true);
     expect(isUnpushed(both)).toBe(true);
   });
@@ -366,112 +490,147 @@ describe('waitingTone — only one of the three is loud', () => {
   });
 });
 
-describe('isActive — which rows are actually being written to', () => {
-  it('marks a row holding a lock, and a row with uncommitted work', () => {
-    // The two entrances, and they are ORs rather than a sequence: someone is
-    // writing this instant, or has written and not committed.
-    expect(isActive(row({ localLocked: true }))).toBe(true);
-    expect(isActive(row({ localDirty: true }))).toBe(true);
-    expect(isActive(row({ localLocked: true, localDirty: true }))).toBe(true);
-  });
-
-  it('never marks a MERGED branch, whatever its worktree holds', () => {
-    // Measured on screen: a row sitting in DONE with the activity mark. Both
-    // halves were true — merged, and a dirty checkout — and the row said two
-    // things that cannot both be acted on. The dirt was one leftover
-    // `.plot-worker.exit` nobody had cleaned up.
+describe('isActive — which rows have a PROCESS running on them', () => {
+  it('marks a live agent and a running build, and nothing else', () => {
+    // THE MOVING DOT IS ABOUT MACHINES. It read `localLocked || localDirty`
+    // until 2026-08-22, and those describe a WORKTREE's contents rather than a
+    // process: measured on the live board, the row for the branch being
+    // committed to pulsed continuously for hours while nothing but a person
+    // typed in it.
     //
-    // Editing a merged branch's checkout is real and simply not what this mark
-    // means. `classify` already sends merged branches to `done` before looking
-    // at any local signal; this predicate now agrees with it rather than
-    // contradicting it one layer up.
-    expect(isActive(row({ state: 'merged', localDirty: true }))).toBe(false);
-    expect(isActive(row({ state: 'merged', localLocked: true }))).toBe(false);
+    // Two sources, one per kind of machine this board knows: `worker` for
+    // AGENTS, bounded by LIVE_WORKERS, and `pr.state === 'pending'` for BUILDS.
+    expect(isActive(row({ worker: 'running' }))).toBe(true);
+    expect(isActive(row({ worker: 'waiting' }))).toBe(true);
+    expect(isActive(row({ worker: 'stalled' }))).toBe(true);
+    expect(isActive(row({
+      pr: { number: 1, url: 'u', draft: false, state: 'pending' },
+    }))).toBe(true);
   });
 
-  it('still marks an UNMERGED branch with the same signals', () => {
-    // The pairing. A fix that suppressed the mark whenever a row sits in DONE —
-    // or worse, whenever a PR exists — would pass the assertion above and take
-    // the mark off every agent that is actually writing.
-    expect(isActive(row({ state: 'wip', localDirty: true }))).toBe(true);
-    expect(isActive(row({ state: 'claimed', localLocked: true }))).toBe(true);
-    expect(isActive(row({ state: 'open', localDirty: true }))).toBe(true);
+  it('does NOT mark a person editing — that is the background flash\'s job', () => {
+    // The split the operator drew: the DOT shows processes, the background
+    // FLASH shows writing. `localDirty` and `localLocked` are still watched by
+    // `changedRows`, so a write still reaches the reader — as a flash, on the
+    // change, rather than as a dot claiming a machine is at work.
+    expect(isActive(row({ localDirty: true }))).toBe(false);
+    expect(isActive(row({ localLocked: true }))).toBe(false);
+    expect(isActive(row({ localDirty: true, localLocked: true }))).toBe(false);
   });
 
-  it('does NOT mark a WORKING row that carries neither signal', () => {
-    // THE assertion, and the whole point of the wave. An implementation that
-    // kept reading `group === 'working'` passes every positive case above and
-    // fails here — a row sits in WORKING for HOURS while an agent works, while
-    // an agent has crashed, or while it waits on a human, and nothing measures
-    // the end. Six rows carried that claim in one session.
-    expect(isActive(row({ group: 'working' }))).toBe(false);
-    // Not even with the strongest note WORKING can carry: the note is a
-    // sentence the server composed, not an observation of a write.
-    expect(isActive(row({ group: 'working', note: 'claimed, no commits yet' }))).toBe(false);
-    expect(isActive(row({ group: 'working', ageMinutes: 1, note: 'last commit 1 min ago' })))
-      .toBe(false);
-  });
-
-  it('marks a row OUTSIDE working when the signals say so', () => {
-    // The other half of the same reversal: the group no longer decides. A quiet
-    // row whose worktree is dirty is being written to, whatever the classifier
-    // made of its commit age.
-    for (const group of GROUPS.map((g) => g.key)) {
-      expect(isActive(row({ group, localDirty: true }))).toBe(true);
+  it('reads a FINISHED run as no run — the six states that are not live', () => {
+    // `LIVE_WORKERS` is *is anybody on this now*, and the other five describe a
+    // run that is over or absent. Measured on this repo's board: 4 rows carry
+    // `finished` and every one is a merged PR in DONE.
+    for (const w of ['finished', 'failed', 'ended', 'none', 'elsewhere'] as const) {
+      expect(isActive(row({ worker: w })), `${w} read as live`).toBe(false);
     }
   });
 
-  it('does NOT treat unpushed commits as activity', () => {
-    // The pairing the plan names explicitly: an implementation OR-ing all three
-    // signals passes every positive assertion above and marks finished work
-    // sitting still as motion. A branch nobody has touched for hours that holds
-    // one unpushed commit must read as UNMARKED.
-    //
-    // Asserted against the field itself, now that `localAhead` reaches the row:
-    // the wave that added the unpushed mark forwarded it, exactly as this test's
-    // earlier form anticipated ("a later wave's own signal"). What that form
-    // asserted — that `local_ahead` is ABSENT from the row — was a statement
-    // about the plumbing of the day and stopped being true; what it MEANT is
-    // asserted here and does not expire: however many unpushed commits a row
-    // holds, `isActive` is false.
-    //
-    // Kept as its own test rather than folded into `isUnpushed`'s block: this
-    // one guards the predicate that must NOT see the field, and a fix that ORs
-    // the three signals together fails here and nowhere else.
-    const ahead = row({ group: 'working', localDirty: false, localLocked: false, localAhead: 3 });
-    expect(isActive(ahead)).toBe(false);
-    expect(isUnpushed(ahead)).toBe(true);
+  it('reads a SETTLED build as no build — pending is the only running one', () => {
+    // The other PR states are verdicts a machine left behind, not a machine at
+    // work. `conflicts` in particular is a standing condition, and a row that
+    // pulsed for it would pulse for weeks.
+    for (const st of ['green', 'failing', 'none', 'closed', 'conflicts', 'unknown'] as const) {
+      expect(isActive(row({ pr: { number: 1, url: 'u', draft: false, state: st } })),
+        `${st} read as running`).toBe(false);
+    }
   });
 
-  it('leaves an UNOBSERVED row unmarked, and never crashes on one', () => {
-    // ABSENT IS NOT FALSE. A scan that could not look at a worktree reports
-    // absence rather than cleanliness, so both fields default to false — and
-    // false here must yield NO MARK rather than a mark saying *idle*. The
-    // strongest licensed statement is *unknown, never nobody*.
-    const unobserved = AgentRowSchema.parse({
-      repo: 'plot', branch: 'feature/elsewhere', plan: 'p', wave: 'w', state: 'wip',
-      group: 'working', ageMinutes: 5, note: 'claimed, no commits yet',
-    });
-    expect(unobserved.localDirty).toBe(false);
-    expect(unobserved.localLocked).toBe(false);
-    expect(isActive(unobserved)).toBe(false);
-    // And the predicate survives a row that predates the fields entirely — the
-    // payload an older server sends.
-    expect(() => isActive({ localDirty: undefined, localLocked: undefined } as never))
-      .not.toThrow();
+  it('never marks a MERGED branch, whatever is running against it', () => {
+    // Measured on screen: a row in DONE carrying the mark. After the merge
+    // there is no work on the branch left to happen, which is why `classify`
+    // sends merged branches to `done` before it looks at any signal.
+    expect(isActive(row({ state: 'merged', worker: 'running' }))).toBe(false);
+    expect(isActive(row({
+      state: 'merged', pr: { number: 1, url: 'u', draft: false, state: 'pending' },
+    }))).toBe(false);
+    // And the same signals on an UNMERGED branch still mark it.
+    expect(isActive(row({ state: 'wip', worker: 'running' }))).toBe(true);
+  });
+
+  it('never marks a DEFERRED branch either — deferred is finished work', () => {
+    // Same category as merged: a human decided this branch is not needed, so
+    // there is no writing left to observe on it. Measured on the live board,
+    // one of the seven rows wearing the mark was `state: deferred` with a dirty
+    // worktree (`waiting-on-you-says-what-kind-of-waiting`). A worktree fact on
+    // a finished row is not a pulse; the guard is finishedness, not merged-ness.
+    expect(isActive(row({ state: 'deferred', worker: 'running' }))).toBe(false);
+    expect(isActive(row({ state: 'deferred', worker: 'waiting' }))).toBe(false);
+    expect(isActive(row({
+      state: 'deferred', pr: { number: 1, url: 'u', draft: false, state: 'pending' },
+    }))).toBe(false);
+  });
+
+  it('survives a row that predates the fields entirely', () => {
+    // The payload an older server sends.
+    expect(() => isActive({ worker: undefined, pr: undefined } as never)).not.toThrow();
   });
 
   it('is a DIFFERENT question from isLive, and neither answers the other', () => {
     // Three marks, three meanings — and the pairing that matters: no mark may
-    // be implemented by modifying another. A WORKING row with no signals is
-    // LIVE and not ACTIVE; a dirty QUIET row is ACTIVE and not LIVE.
+    // be implemented by modifying another. A WORKING row with no process is
+    // LIVE and not ACTIVE; an agent running OUTSIDE working is ACTIVE and not
+    // LIVE.
     const idleInWorking = row({ group: 'working' });
     expect(isLive(idleInWorking)).toBe(true);
     expect(isActive(idleInWorking)).toBe(false);
 
-    const dirtyOutside = row({ group: 'quiet', localDirty: true });
-    expect(isLive(dirtyOutside)).toBe(false);
-    expect(isActive(dirtyOutside)).toBe(true);
+    const agentOutside = row({ group: 'quiet', worker: 'running' });
+    expect(isLive(agentOutside)).toBe(false);
+    expect(isActive(agentOutside)).toBe(true);
+  });
+});
+
+describe('isFinished — the branch\'s work is over, whatever its worktree holds', () => {
+  it('is true for the two settled states and false for the rest', () => {
+    // `merged` and `deferred` are the two ways a branch's work ends: one landed,
+    // one was called off. Neither has writing left to observe, so a worktree or
+    // worker fact on such a row describes a stale checkout rather than live work.
+    expect(isFinished(row({ state: 'merged' }))).toBe(true);
+    expect(isFinished(row({ state: 'deferred' }))).toBe(true);
+    for (const s of ['open', 'wip', 'claimed'] as const) {
+      expect(isFinished(row({ state: s })), s).toBe(false);
+    }
+  });
+
+  it('survives a row that predates the field', () => {
+    expect(() => isFinished({ state: undefined } as never)).not.toThrow();
+  });
+});
+
+describe('soleRowStatus — a finished wave-of-one never shows a live worker', () => {
+  // The second face of the same defect: a wave of one folds its branch into the
+  // wave row, so that row's status is the branch's. A LIVE worker outranks the
+  // PR there — correct while the branch is in flight, stale once it is finished.
+  // Measured 2026-08-23: three DONE rows carried `worker: waiting`/`failed` on
+  // branches that were `merged` or `deferred`. `waiting` is a LIVE worker, so it
+  // survived onto a merged wave and read as *someone owes this an answer* under
+  // a heading that says done.
+  it('prefers a live worker on an UNFINISHED wave', () => {
+    expect(soleRowStatus(row({ state: 'wip', worker: 'running' }))).toBe('working');
+    expect(soleRowStatus(row({ state: 'open', worker: 'waiting' }))).toBe('waiting on you');
+  });
+
+  it('drops a live worker on a MERGED or DEFERRED wave, showing the state', () => {
+    // The worker outlives the branch; its last recorded state never cleared. On
+    // a finished row the branch state is the current fact, so the row reads
+    // `delivered` / `deferred` rather than a worklog fact about a run nobody is
+    // waiting on.
+    expect(soleRowStatus(row({ state: 'merged', worker: 'waiting' }))).toBe('delivered');
+    expect(soleRowStatus(row({ state: 'merged', worker: 'failed' }))).toBe('delivered');
+    expect(soleRowStatus(row({ state: 'deferred', worker: 'waiting' }))).toBe('deferred');
+    expect(soleRowStatus(row({ state: 'deferred', worker: 'stalled' }))).toBe('deferred');
+  });
+
+  it('prefers a PR condition over the bare state on a finished wave', () => {
+    // With the worker screened out, the row falls back to its PR then its state
+    // — the same order an unfinished wave uses, minus the live worker.
+    const t = soleRowStatus(row({
+      state: 'merged', worker: 'waiting',
+      pr: { number: 7, url: 'u', draft: false, state: 'green' },
+    }));
+    expect(t).toBe('green');
   });
 });
 
@@ -647,13 +806,18 @@ describe('LOCK_ECHO_MS — long enough to outlive a pulse, short enough to read 
 
 describe('activeRowKeys — this pulse\'s signals, widened by recent locks', () => {
   it('marks rows the pulse reports active', () => {
+    // THE TWO KINDS OF PROCESS, and a row with neither. `isActive` reads the
+    // worker and the build since 2026-08-22 — a dirty worktree is a person
+    // writing, which the background flash reports and the dot does not.
     const rows = [
-      row({ branch: 'dirty', localDirty: true }),
-      row({ branch: 'locked', localLocked: true }),
+      row({ branch: 'agent', worker: 'running' }),
+      row({ branch: 'build', pr: { number: 9, url: 'u', draft: false, state: 'pending' } }),
       row({ branch: 'idle', group: 'working' }),
     ];
     expect([...activeRowKeys(rows, new Set())].sort())
-      .toEqual(['plot/dirty', 'plot/locked']);
+      // KEYS CARRY THE PLAN since two plans can name one branch — the fixture's
+      // `plan: 'a-plan'` is the third segment.
+      .toEqual(['plot/agent/a-plan', 'plot/build/a-plan']);
   });
 
   it('adds rows still echoing a lock, without the pulse saying anything', () => {
@@ -661,14 +825,14 @@ describe('activeRowKeys — this pulse\'s signals, widened by recent locks', () 
     // no signals at all in this pulse and is marked purely because a lock it
     // was seen holding has not yet expired.
     const rows = [row({ branch: 'gone-quiet' })];
-    expect([...activeRowKeys(rows, new Set(['plot/gone-quiet']))])
-      .toEqual(['plot/gone-quiet']);
+    expect([...activeRowKeys(rows, new Set(['plot/gone-quiet/a-plan']))])
+      .toEqual(['plot/gone-quiet/a-plan']);
   });
 
   it('does not mark an echo for a row that is no longer in the fleet', () => {
     // The set is one entry per VISIBLE row, not a log. A stale key for a branch
     // that has left the pulse marks nothing.
-    expect([...activeRowKeys([row({ branch: 'here' })], new Set(['plot/vanished']))])
+    expect([...activeRowKeys([row({ branch: 'here' })], new Set(['plot/vanished/a-plan']))])
       .toEqual([]);
   });
 
@@ -678,12 +842,55 @@ describe('activeRowKeys — this pulse\'s signals, widened by recent locks', () 
     // the last pulse actually found — so a row echoing a lock while the pulse
     // says *claimed, no commits yet* keeps saying exactly that.
     const quiet = row({ branch: 'echoing', note: 'claimed, no commits yet' });
-    const active = activeRowKeys([quiet], new Set(['plot/echoing']));
-    expect(active.has('plot/echoing')).toBe(true);
+    const active = activeRowKeys([quiet], new Set(['plot/echoing/a-plan']));
+    expect(active.has('plot/echoing/a-plan')).toBe(true);
     expect(quiet.note).toBe('claimed, no commits yet');
     // And the row itself still reports no signals — the echo lives beside the
     // row's facts rather than rewriting them.
     expect(isActive(quiet)).toBe(false);
+  });
+});
+
+describe('a process is marked in EVERY section, and writing is not a process', () => {
+  it('marks a running process wherever the row is filed', () => {
+    // No section withholds the dot. A predicate that gated on the group stood
+    // for one day and was wrong twice — first refusing QUIET and DONE, where
+    // `group-activity` shows the mark matters most, then refusing WAITING ON
+    // YOU while a real process ran there. A section says what work is WAITING
+    // for; a process running is not waiting.
+    for (const group of ['working', 'waiting-on-machine', 'waiting-on-you',
+                         'quiet', 'done', 'not-started'] as const) {
+      const busy = row({ branch: 'w', group, worker: 'running' });
+      expect([...activeRowKeys([busy], new Set())], `${group} withheld the mark`)
+        .toHaveLength(1);
+    }
+  });
+
+  it('does NOT mark a person editing, in any section', () => {
+    // The split the operator drew: the DOT is for processes, the background
+    // FLASH is for writing. A dirty worktree is a person — or the master agent
+    // in the project directory — and it reaches the reader as a flash on the
+    // change, not as a dot claiming a machine is at work.
+    for (const group of ['working', 'waiting-on-you', 'quiet'] as const) {
+      const dirty = row({ branch: 'w', group, localDirty: true });
+      expect([...activeRowKeys([dirty], new Set())], `${group} marked a writer`)
+        .toHaveLength(0);
+    }
+  });
+
+  it('refuses it where nothing runs at all', () => {
+    // The negative that keeps the positive meaning something.
+    const idle = row({ branch: 'w', group: 'working', worker: 'none' });
+    expect([...activeRowKeys([idle], new Set())]).toHaveLength(0);
+  });
+
+  it('leaves the MERGED exception standing — it is about the branch', () => {
+    // `isActive` refuses a merged branch whatever runs against it, measured on
+    // a row in DONE carrying the mark. The guard reads `state`, a fact about
+    // the BRANCH, so neither the section rule's removal nor the change of
+    // source disturbs it.
+    expect(isActive({ state: 'merged', worker: 'running', pr: null })).toBe(false);
+    expect(isActive({ state: 'wip', worker: 'running', pr: null })).toBe(true);
   });
 });
 
@@ -700,18 +907,28 @@ describe('the activity marker leaves the other marks alone', () => {
     expect(isLive(row({ group: 'working', localDirty: false }))).toBe(true);
   });
 
-  it('renders three distinct marks, none defined in terms of another', () => {
+  it('renders two distinct marks, neither defined in terms of the other', () => {
     // Read out of the source: each hook exists and is its own element. An
-    // implementation that made activity a variant of the live dot would still
-    // pass every predicate assertion above.
-    expect(source).toContain('data-live-dot');
+    // implementation that made activity a variant of the flash would still pass
+    // every predicate assertion above.
     expect(source).toContain('data-change-mark');
     expect(source).toContain('data-activity-mark');
-    // The change mark keeps its own channel — full-row wash, amber, pulsing —
-    // untouched by this wave.
+    // The change mark keeps its own channel — full-row wash, amber, pulsing.
     expect(source).toContain('absolute inset-0 animate-pulse bg-amber-300/25');
-    // And the live dot keeps its own: a 6px emerald dot that pulses.
-    expect(source).toContain('h-1.5 w-1.5 shrink-0 self-center animate-pulse rounded-full');
+    // ONE BAR, ONE DOT, and no third mark beside it. `data-live-dot` was a
+    // static green dot on every WORKING row, drawn at `left-1` — one pixel from
+    // the travelling dot at `left-0`, so a WORKING row showed two dots and read
+    // as one smudge. Reported from a screenshot of that overlap, and what it
+    // said (*this row is in WORKING*) is what the section heading says once.
+    // Asked of the ATTRIBUTE as JSX writes it, not of the word: three comments
+    // still name `[data-live-dot]` to say what they are deliberately NOT, and a
+    // bare `not.toContain` would fail on the prose that explains the removal.
+    expect(source).not.toMatch(/^\s*data-live-dot$/m);
+    // The activity mark's own dot rides its own track — the pairing that keeps
+    // "one bar, one dot" honest, since a bar with no dot and a dot with no bar
+    // would each pass a hook-existence check.
+    expect(source).toContain('data-activity-track');
+    expect(source).toContain('data-activity-dot');
   });
 
   it('names its own limit in the accessible description', () => {
@@ -722,14 +939,6 @@ describe('the activity marker leaves the other marks alone', () => {
     expect(source).toContain('A write is in progress in this checkout');
   });
 
-  it('keeps the stuck cue on its own channel too', () => {
-    // The fourth mark, and the one that arrived after the plan was written.
-    // Amber and MOVING (`animate-ping`), against this mark's static emerald —
-    // asserted here so a later wave reaching for the cue's element to make
-    // activity louder fails rather than passes.
-    expect(source).toContain('data-stuck-cue');
-    expect(source).toContain('animate-ping rounded-full bg-amber-500');
-  });
 });
 
 /**
@@ -763,21 +972,35 @@ describe('activityPace — fast means measured, slow means unobserved', () => {
     expect(activityPace(row({ localDirty: false, localLocked: false }))).toBe('slow');
   });
 
-  it('is the SAME predicate isActive already draws, and not a second one', () => {
-    // The load-bearing relationship: `activity-shows-itself` settled what
-    // *someone is writing here* means, and this wave reads that answer rather
-    // than inventing a rival. An implementation that graded the pace on the
-    // group, the note or the age would disagree with `isActive` on some row and
-    // put a fast dot on a branch nobody has touched.
-    for (const over of [
-      { localDirty: true, localLocked: false },
-      { localDirty: false, localLocked: true },
-      { localDirty: false, localLocked: false },
-      { localDirty: true, localLocked: true },
-    ]) {
-      const r = row(over);
-      expect(activityPace(r)).toBe(isActive(r) ? 'fast' : 'slow');
-    }
+  it('is a SECOND question, asked of the same row — not the same predicate', () => {
+    // THE TWO SPEEDS ARE THE TWO QUESTIONS, and they parted on 2026-08-22.
+    //
+    // This asserted `activityPace(r) === (isActive(r) ? 'fast' : 'slow')` —
+    // sound while both read the worktree, and false once they divided:
+    // `isActive` asks *does a process run here* (the worker, the build), and
+    // the pace asks *is that process doing anything*, for which the worktree is
+    // the only evidence the board has.
+    //
+    // So a claimed branch whose agent is thinking travels SLOW, and the moment
+    // it writes a file the same dot travels FAST. The operator's words: *the
+    // ActivityMark starts when a process runs and flickers faster when real
+    // work happens*.
+    const thinking = row({ worker: 'running', localDirty: false, localLocked: false });
+    expect(isActive(thinking)).toBe(true);
+    expect(activityPace(thinking)).toBe('slow');
+
+    const writing = row({ worker: 'running', localDirty: true });
+    expect(isActive(writing)).toBe(true);
+    expect(activityPace(writing)).toBe('fast');
+
+    const holdingLock = row({ worker: 'running', localLocked: true });
+    expect(activityPace(holdingLock)).toBe('fast');
+
+    // A BUILD is a process too, and it has the same two speeds: CI churning
+    // through a checkout that is being written to is the fast case.
+    const ci = row({ pr: { number: 9, url: 'u', draft: false, state: 'pending' } });
+    expect(isActive(ci)).toBe(true);
+    expect(activityPace(ci)).toBe('slow');
   });
 
   it('reads NOTHING but the two local signals', () => {
@@ -997,11 +1220,16 @@ describe('the activity mark is a track with a travelling dot', () => {
 
   it('reads each mark\'s OWN class list, not the next one in the file', () => {
     // The helper's own guard, and the reason it exists. Every assertion below
-    // is worthless if this walks into a neighbour: the four marks are adjacent
-    // in the source and each names the others in its comment. Two marks whose
-    // geometry cannot be confused pin it.
-    expect(classesOf('live-dot')).toContain('h-1.5 w-1.5');
+    // is worthless if this walks into a neighbour: the marks are adjacent in
+    // the source and each names the others in its comment. Two marks whose
+    // geometry cannot be confused pin it — a full-row wash and a 12px track.
+    //
+    // `live-dot` was the third of these until 2026-08-22 and is gone: a static
+    // dot beside the travelling one made a WORKING row show two dots a pixel
+    // apart. The remaining pair still cannot be confused, which is all this
+    // guard needs.
     expect(classesOf('change-mark')).toContain('absolute inset-0');
+    expect(classesOf('activity-track')).toContain('w-full');
     expect(classesOf('activity-mark')).not.toContain('inset-0');
     // The template-literal case, which is where this helper failed once: the
     // activity dot's class list is built from the pace, and a matcher that only
@@ -1051,8 +1279,20 @@ describe('the activity mark is a track with a travelling dot', () => {
     // NO padding of its own — the row already carries `py-2`, and a second pair
     // here made every row as tall as a two-line one (both measured at 60px).
     // The height comes from the row's content; `self-stretch` only takes it.
+    // `items-start` SINCE THE TRACK WIDENED, and the change is measured. The
+    // marks track went from 1rem to 1.5rem with the tuple, and a CENTRED 12px
+    // mark in a 24px cell lands at 35px — to the RIGHT of the live dot at 33px,
+    // which sits at `sm:left-1` of this same cell. Two marks in the wrong order
+    // read as one smeared pair, which is what the track was cut to prevent.
+    // The marks LEAD the row, so they start where the cell starts.
     expect(ACTIVITY_MARK_PLACE.row).toBe(
-      'relative flex w-full shrink-0 flex-col items-center justify-center gap-1 self-stretch');
+      'relative flex w-full shrink-0 flex-col items-start justify-start gap-1 self-stretch pt-0.5');
+    // STILL NO `py-`, and the guard is worded exactly right: SYMMETRIC vertical
+    // padding is what made every row as tall as a two-line one. `pt-0.5` is
+    // top-only, 2px, inside a `self-stretch` cell whose height comes from the
+    // row — and it was measured rather than reasoned about, because reasoning
+    // got this wrong once: single-line rows stay at 37px with it, and only the
+    // agent row is taller (56px), from its own wrapped slot 4.
     expect(ACTIVITY_MARK_PLACE.row).not.toMatch(/\bpy-/);
   });
 
@@ -1151,7 +1391,12 @@ describe('the activity mark is a track with a travelling dot', () => {
     // reach is a fraction of the track, and a track that were not the
     // containing block would decouple the two.
     expect(track).toContain('relative');
-    expect(classesOf('live-dot')).toContain('h-1.5 w-1.5');
+    // AND THE DOT IS THE TRACK'S OWN, not a second mark beside it. `LiveDot`
+    // used to sit one pixel away at `left-1`; the screenshot that reported the
+    // overlap is why it is gone. What rides the track is `data-activity-dot`,
+    // and nothing else is drawn next to it.
+    expect(classesOf('activity-dot')).toContain('h-1.5 w-1.5');
+    expect(classesOf('activity-dot')).toContain('absolute');
   });
 
   it('gives the mark the FIRST LINE\'S OWN BOX rather than a computed offset', () => {
@@ -1166,13 +1411,25 @@ describe('the activity mark is a track with a travelling dot', () => {
     // box begins 18.6px below the row's top edge, not the 8px or 10px a reader
     // would derive from the padding alone.
     // The cell answers this now: `self-stretch` takes the row's own height and
-    // `items-center` centres the marks across it. No number is stated at all —
-    // which is the strongest form of the same rule, since the line height it
-    // used to name (`h-5`) was itself a value that could go stale.
+    // `justify-start` puts the marks at its TOP — the first line, which is what
+    // this test is named for. No number is stated at all, which is the strongest
+    // form of the same rule, since the line height it used to name (`h-5`) was
+    // itself a value that could go stale.
+    //
+    // It read `justify-center` until 2026-08-20, and centring across a
+    // `self-stretch` cell is *the first line* only while the row is one line
+    // tall — see the sibling test for the measurement that separated them.
+    //
+    // `justify-*`, not `items-*`, and the pairing is worth stating because the
+    // two were conflated here. In a `flex-col` the MAIN axis is vertical, so
+    // `justify-*` is what places the stack and `items-*` decides where it sits
+    // horizontally — a different question, answered `items-start` above for a
+    // measured reason. An assertion on `items-center` was reading the cross axis
+    // while claiming the main one.
     const mark = ACTIVITY_MARK_PLACE.row;
     expect(mark).toContain('self-stretch');
-    expect(mark).toContain('items-center');
-    expect(mark).toContain('flex');
+    expect(mark).toContain('justify-start');
+    expect(mark).toContain('flex-col');
     // And no hand-computed offset, which is the failure mode this guards.
     expect(mark).not.toMatch(/\btop-\d/);
   });
@@ -1219,13 +1476,25 @@ describe('the activity mark is a track with a travelling dot', () => {
     // the branch name.
     //
     // Now a CELL rather than an offset, which answers the same question without
-    // arithmetic: `self-stretch` makes the box the full height of the row and
-    // `justify-center` centres the marks in it, so a row that grows a second
-    // line keeps its marks centred against the whole cell rather than against
-    // an assumption about the first line's height.
+    // arithmetic: `self-stretch` makes the box the full height of the row.
+    //
+    // AND `justify-start`, which this asserted as `justify-center` until
+    // 2026-08-20 — while its own TITLE said *first line*. The two agreed only
+    // for as long as rows were one line tall: centring in a one-line cell IS
+    // the first line. On a row that wraps they diverge, and centring puts the
+    // mark exactly where this test says it must not go — between the lines.
+    //
+    // Which is the scenario the comment above already cites: *"the stuck cell
+    // broke that by landing as its own line beneath the six columns."* Measured
+    // on the mock, an agent row 56px tall against 37px for its neighbours, its
+    // activity dot at y=24 while the name sat at y=9. With `justify-start` the
+    // dot is at y=11 — the line it belongs to.
+    //
+    // The title was right and the class was wrong.
     const mark = ACTIVITY_MARK_PLACE.row;
     expect(mark).toContain('self-stretch');
-    expect(mark).toContain('justify-center');
+    expect(mark).toContain('justify-start');
+    expect(mark).not.toContain('justify-center');
     // Every positioned form is GONE. Asserted negatively because leaving one
     // behind would fight the cell: a stray `translate-y` on the parent is a
     // transform the dot's own `translateX` travel would have to fight.
@@ -1496,6 +1765,20 @@ describe('noteWithoutPr — the note is relieved of one duty, not replaced', () 
     expect(noteWithoutPr('PR #131, draft, CI running', pr(131))).toBe('');
   });
 
+  it('returns EMPTY for a note that is only its PR — which a caller must not read as "no row"', () => {
+    // The empty string above is correct and it is a trap for whoever consumes
+    // it. `waveNote` guarded on `soleNote` rather than on `soleRow`, so a wave
+    // whose one branch carried `PR #323 green` — nothing left after the strip —
+    // fell through to a verdict sentence about STARTING work that was finished:
+    // measured 2026-08-22, `green` rendered beside `approved — nobody has taken
+    // it`. Every single-branch wave reaching review hit it.
+    //
+    // The fix is at the caller, which now asks `soleRow ? soleNote : …`. This
+    // case is pinned here so the emptiness stays a known answer rather than an
+    // accident someone "fixes" by returning the note unchanged.
+    expect(noteWithoutPr('PR #323 green', pr(323))).toBe('');
+  });
+
   it('is anchored, and matches only the row\'s OWN number', () => {
     // This is deliberately NOT the `indexOf` search it replaces. That one
     // hunted a marker ANYWHERE in a sentence in order to link it, and dropped
@@ -1506,6 +1789,39 @@ describe('noteWithoutPr — the note is relieved of one duty, not replaced', () 
     expect(noteWithoutPr('see PR #130 green', pr(130))).toBe('see PR #130 green');
     expect(noteWithoutPr('PR #999 green', pr(130))).toBe('PR #999 green');
     expect(noteWithoutPr('PR #130 green', null)).toBe('PR #130 green');
+  });
+});
+
+describe('groupedNote — a note is DERIVED, never defaulted into', () => {
+  it('answers only for the two words a count can mean', () => {
+    // These are the two the fold's count actually carries in a section where a
+    // wave row states what it holds: DONE folds delivered branches, QUIET folds
+    // stalled ones. Each says what the wave IS, and neither is *may it start* —
+    // which is the verdict's job, and the reason these two are the whole
+    // vocabulary.
+    expect(groupedNote('delivered')).toBe('landed — nothing left in it');
+    expect(groupedNote('stalled')).toBe('nothing has moved here for a while');
+  });
+
+  it('returns EMPTY for any other word — it does NOT assert work landed', () => {
+    // The defect this branch ends: the fallback returned `work landed — waiting
+    // to be merged` for ANY unrecognised word, and `to approve` — a wave whose
+    // PLAN is still in review, no PR opened, nothing pushed — hit it. Measured
+    // 2026-08-23 on five live blocked waves, every one read that a merge was
+    // pending over branches that had never been touched, two lines above their
+    // own rows saying *plan not approved yet — still in review*.
+    //
+    // Empty is the whole fix: `''` is falsy, so the caller's ternary falls
+    // through to the verdict — the value that actually describes the wave. A
+    // note is DERIVED for words it knows and DECLINED otherwise; it is never
+    // defaulted into a claim.
+    //
+    // `to approve` is the word the live population carried; the unknown case is
+    // asserted beside it so no future word can inherit the old assertion.
+    expect(groupedNote('to approve')).toBe('');
+    expect(groupedNote('to review')).toBe('');
+    expect(groupedNote('anything-unrecognised')).toBe('');
+    expect(groupedNote(undefined)).toBe('');
   });
 });
 
@@ -1533,7 +1849,7 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
   it('marks a row whose state changed', () => {
     const prior = observed(withState('a', 'pending'));
     expect([...changedRows(prior, [withState('a', 'failing')]).changed])
-      .toEqual(['plot/a']);
+      .toEqual(['plot/a/a-plan']);
   });
 
   it('does NOT mark a row whose watched value held, however much else moved', () => {
@@ -1561,7 +1877,7 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     // `null → pending`: an agent has just delivered, and this is often the most
     // interesting transition a branch ever has.
     const prior = observed(withState('a', null));
-    expect([...changedRows(prior, [withState('a', 'pending')]).changed]).toEqual(['plot/a']);
+    expect([...changedRows(prior, [withState('a', 'pending')]).changed]).toEqual(['plot/a/a-plan']);
   });
 
   it('marks a PR GOING AWAY, the same as one arriving', () => {
@@ -1569,7 +1885,7 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     // asymmetry here would need a reason and there is none that survives *the
     // row's own state changed*.
     const prior = observed(withState('a', 'pending'));
-    expect([...changedRows(prior, [withState('a', null)]).changed]).toEqual(['plot/a']);
+    expect([...changedRows(prior, [withState('a', null)]).changed]).toEqual(['plot/a/a-plan']);
   });
 
   it('tells NEVER-SEEN apart from SEEN-WITH-NO-PR', () => {
@@ -1579,15 +1895,15 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     // row and the same state.
     const fresh = changedRows(new Map(), [withState('a', null)]);
     expect(fresh.changed.size).toBe(0);              // first sighting: silent
-    expect(fresh.next.has('plot/a')).toBe(true);     // but REMEMBERED,
+    expect(fresh.next.has('plot/a/a-plan')).toBe(true);     // but REMEMBERED,
     // …as a known `null` IN ITS PR SLOT. The memory holds a record now rather
     // than a lone state, so the assertion reads the slot instead of the whole
     // value — the distinction it protects (known-null vs never-seen) is the
     // same one, one field in.
-    expect(fresh.next.get('plot/a')!.pr).toBe(null);
+    expect(fresh.next.get('plot/a/a-plan')!.pr).toBe(null);
     // …so the PR that opens next is a change, not another first sighting.
     expect([...changedRows(fresh.next, [withState('a', 'pending')]).changed])
-      .toEqual(['plot/a']);
+      .toEqual(['plot/a/a-plan']);
   });
 
   it('marks every changed row — no threshold, no suppression', () => {
@@ -1613,7 +1929,7 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
       branch: 'a', group: 'waiting-on-you',
       pr: { number: 1, url: '', draft: false, state: 'conflicts' },
     });
-    expect([...changedRows(observed(before), [after]).changed]).toEqual(['plot/a']);
+    expect([...changedRows(observed(before), [after]).changed]).toEqual(['plot/a/a-plan']);
   });
 
   it('starts a returning row SILENT — absence erases the memory', () => {
@@ -1621,7 +1937,7 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     // It has no prior value at its return, so it records rather than marks.
     const first = observed(withState('a', 'green'));
     const withoutIt = changedRows(first, [withState('other', 'green')]);
-    expect(withoutIt.next.has('plot/a')).toBe(false);
+    expect(withoutIt.next.has('plot/a/a-plan')).toBe(false);
     // Back, with a DIFFERENT state than it left with — still silent.
     expect(changedRows(withoutIt.next, [withState('a', 'conflicts')]).changed.size).toBe(0);
   });
@@ -1666,7 +1982,7 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     const prior = observed(withState('a', 'green'));
     const outage = changedRows(prior, [withState('a', 'unknown')]);
     expect([...changedRows(outage.next, [withState('a', 'failing')]).changed])
-      .toEqual(['plot/a']);
+      .toEqual(['plot/a/a-plan']);
   });
 
   it('stays silent for a row that has ONLY ever been unknown', () => {
@@ -1686,8 +2002,8 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     //
     // What must stay true is the SILENCE, and it is asserted either side: no
     // flash on the first sighting, and none on the next unknown pulse.
-    expect(first.next.has('plot/a')).toBe(true);
-    expect(first.next.get('plot/a')!.pr).toBe('unknown');
+    expect(first.next.has('plot/a/a-plan')).toBe(true);
+    expect(first.next.get('plot/a/a-plan')!.pr).toBe('unknown');
     expect(changedRows(first.next, [withState('a', 'unknown')]).changed.size).toBe(0);
     // And a real state arriving after an unreadable one does not flash either —
     // that would be news about the host recovering, not about the branch.
@@ -1708,7 +2024,7 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     for (const [before, after] of pairs) {
       const prior = observed(withState('a', before));
       expect([...changedRows(prior, [withState('a', after)]).changed])
-        .toEqual(['plot/a']);
+        .toEqual(['plot/a/a-plan']);
     }
   });
 
@@ -2006,9 +2322,47 @@ describe('issueNote — the note never claims a check it did not run', () => {
 describe('rowKey', () => {
   it('keys a row by repo AND branch', () => {
     // Two repos can carry the same branch name, and one board can show both.
-    expect(rowKey({ repo: 'plot', branch: 'feature/x' })).toBe('plot/feature/x');
-    expect(rowKey({ repo: 'other', branch: 'feature/x' }))
-      .not.toBe(rowKey({ repo: 'plot', branch: 'feature/x' }));
+    expect(rowKey({ repo: 'plot', branch: 'feature/x', plan: 'p' })).toBe('plot/feature/x/p');
+    expect(rowKey({ repo: 'other', branch: 'feature/x', plan: 'p' }))
+      .not.toBe(rowKey({ repo: 'plot', branch: 'feature/x', plan: 'p' }));
+  });
+
+  it('separates two plans claiming ONE branch — the flashing board', () => {
+    // THE DEFECT, stated as the two rows that caused it. A branch named by two
+    // plans renders twice, once under each, and on `${repo}/${branch}` the two
+    // rows shared one memory: each pulse one overwrote the other's remembered
+    // facts, the detector saw a difference that was never a change, and the
+    // mark lit for hours on a branch nobody had touched.
+    //
+    // Reported twice — written up in `stuck.ts` when `double-claimed` was added
+    // to NAME the collision, and again on 2026-08-22 with
+    // `bug/one-row-one-truncation-rule` flashing under both of its plans.
+    // Naming it never stopped it, because the shared key is the cause and the
+    // state is the symptom.
+    const a = { repo: 'plot', branch: 'bug/one-row-one-truncation-rule',
+                plan: 'a-mock-row-shows-what-the-tuple-still-gets-wrong' };
+    const b = { repo: 'plot', branch: 'bug/one-row-one-truncation-rule',
+                plan: 'the-row-is-legible' };
+    expect(rowKey(a)).not.toBe(rowKey(b));
+  });
+
+  it('gives a planless row ONE stable key, not one per absent value', () => {
+    // An unplanned branch and a release branch legitimately carry no plan, and
+    // they must be remembered across pulses like anything else — so the absent
+    // value collapses to one key rather than distinguishing null from ''.
+    const noPlan = { repo: 'plot', branch: 'changeset-release/main', plan: '' };
+    expect(rowKey(noPlan)).toBe(rowKey({ ...noPlan, plan: '' }));
+    expect(rowKey(noPlan)).not.toBe(rowKey({ ...noPlan, plan: 'some-plan' }));
+  });
+
+  it('survives the move it was built to survive — a change of SECTION', () => {
+    // The property the key exists for: `pr.state` helps decide the group, so
+    // the changes worth marking are frequently the ones that MOVE the row. The
+    // group is derived from state, CI and age — none of which touch `plan` — so
+    // adding the plan cannot cost the memory a single one of those moves.
+    const before = { repo: 'plot', branch: 'feature/x', plan: 'beans' };
+    const afterMove = { ...before };
+    expect(rowKey(afterMove)).toBe(rowKey(before));
   });
 });
 
@@ -2139,67 +2493,170 @@ describe('the change marker costs nothing outside the client', () => {
     expect(fleetSrc).toContain('PR_BACKOFF_MAX_MS = 120_000');
   });
 
-  it('adds no contract field — the memory is the CLIENT\'s', () => {
-    // The whole change is that the client remembers one value. Putting it in
-    // the server would give it a notion of *event* where it has only ever had
-    // *state*, and would grow the payload to carry it.
+  it('adds no MEMORY field to the contract — remembering is the CLIENT\'s job', () => {
+    // The whole change is that the client remembers one value. Putting the
+    // MEMORY in the server would give it a notion of *event* where it has only
+    // ever had *state*, and would grow the payload to carry a prior reading.
+    //
+    // MEASUREMENTS ARE NOT MEMORY, and the distinction is what this test is
+    // about. `changed_ago_seconds` joined the contract on 2026-08-22: the
+    // seconds since the newest write in a worktree, computed by the scan the
+    // way `ageMinutes` beside it is. The server states it and forgets it; the
+    // client compares consecutive readings and decides whether that is news.
+    //
+    // The old pattern caught it on the word `changed` alone and would have
+    // refused any field with that syllable — including one describing the
+    // present. Named terms only, so the claim is *no field carries a PRIOR
+    // value* rather than *no field mentions change*.
     const row = AgentRowSchema.parse({
       repo: 'plot', branch: 'feature/x', plan: 'p', planFile: 'f.md', wave: 'w',
       state: 'wip', phase: null, group: 'quiet', ageMinutes: 1, note: '', pr: null,
       branchUrl: '', waitingDays: null,
     });
     for (const key of Object.keys(row)) {
-      expect(key).not.toMatch(/prior|previous|changed|mark|flash/i);
+      expect(key, `${key} looks like a remembered value`)
+        .not.toMatch(/prior|previous|was[A-Z]|lastSeen|mark|flash/i);
     }
+    // And the measurement IS there, stated in the present tense.
+    expect(Object.keys(row)).toContain('changedAgo');
   });
 });
 
-describe('ROW_TRACKS — where the row\'s width goes', () => {
-  /** The six tracks, in order, read out of the one exported constant. */
+describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
+  /**
+   * THE ONE GRID, read out of the one exported constant.
+   *
+   * This described `ROW_TRACKS` until `one-component-renders-every-row`, and
+   * the rename is the whole point rather than a tidy-up. There were TWO grids —
+   * `ROW_TRACKS` for a branch row and `PLAN_ROW_TRACKS` for a plan row — and a
+   * ticket row was laid on the branch's, wearing a wave, a worker and a branch
+   * it does not have. The arithmetic below is the same arithmetic; what changed
+   * is that there is now one answer to it instead of two-and-a-borrowing.
+   */
   const tracks = () => {
-    const inner = /grid-cols-\[(.+)\]/.exec(ROW_TRACKS)?.[1];
-    expect(inner, `ROW_TRACKS is not a Tailwind track list: ${ROW_TRACKS}`).toBeTruthy();
+    const inner = /grid-cols-\[(.+)\]/.exec(TUPLE_TRACKS)?.[1];
+    expect(inner, `TUPLE_TRACKS is not a Tailwind track list: ${TUPLE_TRACKS}`).toBeTruthy();
     return inner!.split('_');
   };
 
-  it('gives the PR column 14rem, taken from the branch and not from the window', () => {
-    // The reported defect: at 9rem the PR cell held `⑂116 no checks` and
-    // nothing wider, while the window's whole slack collected in the branch's
-    // `1fr` as a gap that draws nothing.
-    // Seven tracks since the marks earned one: `1rem` for them, and the phase
-    // down to `5rem` to pay for it — see the breakpoint arithmetic below.
-    expect(tracks()).toEqual(['1rem', '5rem', '10rem', '1fr', '14rem', '2.5rem', '1.25rem']);
+  it('lays out the six slots, with the marks and the menu around them', () => {
+    // `[marks, kind, name, links, status, age, menu]` — the six slots plus the
+    // two the tuple does not own. The MARKS track comes first and holds slot
+    // 1's icon beside the activity marks; the MENU track is last and holds
+    // whatever the kind offers.
+    expect(tracks()).toEqual(
+      ['1.5rem', '4.5rem', 'minmax(12rem,auto)', '1fr', '8rem', '4.5rem', '1.25rem']);
   });
 
-  it('keeps every track but the branch FIXED', () => {
-    // The pairing that matters, and the reason this asserts the shape rather
-    // than only the number. `minmax(9rem, auto)` on the PR cell and
-    // `max-content` on the branch both make the column WIDER and both let an
-    // edge move between rows — passing "the status got more space" while
-    // undoing what fixed tracks are for. Exactly one track may be flexible.
-    const flexible = tracks().filter((t) => !/^[\d.]+rem$/.test(t));
-    expect(flexible).toEqual(['1fr']);
+  it('flexes the LINKS track and no other', () => {
+    // THE ONE TRACK THAT ABSORBS THE SLACK IS `1fr`, AND THERE IS EXACTLY ONE.
+    // That is the property this asserts, and it survived the 2026-08-23 change
+    // to slot 3 verbatim: slot 4 (the links) is still the zero-or-more slot — a
+    // branch carries no artifact link and a PR carries two — so it takes the
+    // leftover width, and no other track does.
+    //
+    // The predicate CHANGED because the shape did. It used to read "one track is
+    // not `Nrem`", which was a sound proxy for "one track flexes" while every
+    // other track was a fixed rem. Slot 3 is now `minmax(12rem, auto)`, which is
+    // NOT a fixed rem and is NOT the slack absorber either: an `auto` ceiling
+    // grows a track to its content and then YIELDS the remaining free space to
+    // the `fr` track, so `minmax(12rem, auto)` and `1fr` do different things and
+    // only `1fr` absorbs the slack. Testing "not `Nrem`" would now wrongly count
+    // slot 3 as flexible; testing `=== '1fr'` names the slack absorber directly.
+    //
+    // Why this still forbids what the old predicate forbade: `minmax(9rem, auto)`
+    // as a SECOND grow-track, or a second `1fr`, or `max-content` used to absorb
+    // slack — none of those is `1fr`, so a shape with two slack-takers still
+    // fails "exactly one `1fr`". What the change deliberately ADMITS is the ONE
+    // `minmax` on slot 3, whose misalignment cost the operator accepted on
+    // 2026-08-23 (see `TUPLE_TRACKS`' docstring) so the name renders in full.
+    const slackAbsorbers = tracks().filter((t) => t === '1fr');
+    expect(slackAbsorbers).toEqual(['1fr']);
   });
 
-  it('still needs less than the card breakpoint before the branch gets a pixel', () => {
-    // The arithmetic `CARD_BELOW_PX` rests on, and the thing this change spent:
-    // the fixed tracks went from 460px to 540px, so the grid now needs 624px of
-    // the 640px breakpoint. Widening any fixed track again crosses it, and then
-    // `CARD_BELOW_PX` has to move too — this fails when that day comes.
-    // DERIVED from the track count, not hard-coded — and that is the fix this
-    // test needed as much as the code did. `84` was five gaps plus padding,
-    // correct for six tracks and silently wrong the moment a seventh arrived:
-    // it under-counted by one gap and would have passed a layout that overflows.
-    // A constant that only holds for the shape it was written against fails in
-    // the reassuring direction.
+  it('needs less than the card breakpoint before the links track gets a pixel', () => {
+    // THE ARITHMETIC THE COLLAPSE BOUGHT BACK, and the numbers are MEASURED
+    // here rather than quoted. `ROW_TRACKS` totalled 540px of fixed track and
+    // needed 624px of the 640px breakpoint — 16px of headroom, and its own
+    // comment recorded having crossed the line by 8px once and paid for it by
+    // shrinking a column. The tuple totals 508px and needs 604px: 36px clear,
+    // twice the room and not the 60px `TUPLE_TRACKS` claimed when it landed.
+    //
+    // THAT OVERSTATEMENT IS WORTH RECORDING, because it is the same error this
+    // test's own comment warns about, made in the constant's documentation
+    // rather than in its code. The docstring counted `84` of gaps and padding —
+    // five gaps plus 24 — while declaring SEVEN tracks, which have six. One
+    // uncounted gap, 12px, and the same shape of mistake `ROW_TRACKS` made and
+    // this assertion was rewritten to prevent. It shipped no defect: 604 is
+    // still under 640. It shipped a WRONG MARGIN, which is what a later
+    // widening would have been checked against.
+    //
+    // Why the tuple is narrower at all, and it is not a coincidence: seven
+    // tracks holding ONE kind's facts had to be wide enough for the widest of
+    // them, while seven tracks holding a SHAPE are each bounded by what every
+    // kind puts in them — a kind is one word, a status is one word, an age is
+    // four characters. Only slot 4 varies, and it is the one that flexes.
+    //
+    // DERIVED from the track count, never hard-coded.
     const GAP_PX = 12;
     const PADDING_PX = 24;
     const gapsAndPadding = (tracks().length - 1) * GAP_PX + PADDING_PX;
+    // THE MINIMUM WIDTH A TRACK RESERVES, in px. `1fr` reserves nothing before
+    // the grid reaches its intrinsic width, so it is excluded. A fixed `Nrem`
+    // reserves `N * 16`. Slot 3's `minmax(12rem, auto)` reserves its FLOOR — the
+    // `auto` ceiling only claims more once the grid is already past 604px, which
+    // is exactly the point this arithmetic guards. So the figure below is the
+    // 12rem floor, unchanged from the fixed-12rem grid this replaced: `minmax`
+    // did not move the breakpoint math, which is what let the 508/604/36 numbers
+    // come out identical after the 2026-08-23 change (see `TUPLE_TRACKS`).
+    const floorRem = (t: string) => {
+      const minmax = /^minmax\(([\d.]+)rem,/.exec(t);
+      return minmax ? Number.parseFloat(minmax[1]) : Number.parseFloat(t);
+    };
     const fixedPx = tracks()
       .filter((t) => t !== '1fr')
-      .reduce((sum, t) => sum + Number.parseFloat(t) * 16, 0);
-    expect(fixedPx).toBe(540);
+      .reduce((sum, t) => sum + floorRem(t) * 16, 0);
+    expect(fixedPx).toBe(508);
     expect(fixedPx + gapsAndPadding).toBeLessThan(CARD_BELOW_PX);
+    // AND THE HEADROOM IS NAMED, so a later widening has to argue with a
+    // number rather than merely stay under a ceiling — which is exactly what
+    // the docstring's uncounted gap took away.
+    expect(CARD_BELOW_PX - (fixedPx + gapsAndPadding)).toBe(36);
+  });
+
+  it('has no second grid left to drift from this one', () => {
+    // THE DELETION, asserted. Two grids for three components is how they
+    // drifted apart, and a test that only checks the survivor's numbers would
+    // pass just as well with `PLAN_ROW_TRACKS` still in the file and still
+    // rendering a plan row on four tracks of its own.
+    //
+    // Read out of the SOURCE, because the property is *this constant does not
+    // exist* and an import of a deleted binding is a compile error rather than
+    // a test failure — which reports the right fact in the wrong place, and
+    // only for as long as nobody adds it back under another name.
+    const src = readFileSync(
+      new URL('../../src/app/components/AgentList.tsx', import.meta.url), 'utf8');
+    // COMMENTS STRIPPED, and the distinction is the whole reason this is worth
+    // anything. Both adapters DISCUSS the grids they replaced — `PlanRow`'s
+    // docstring records the reversal at length, because *a plan row is not a
+    // branch row* was a correct argument that produced the second grid, and a
+    // deletion whose reasoning is not written down is one somebody re-derives.
+    // A match against the raw file would fail on the prose explaining why the
+    // code no longer does the thing, and a test that cannot tell a mention from
+    // a declaration is a test that gets deleted the first time it is wrong.
+    const code = src
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    expect(code).not.toMatch(/ROW_TRACKS/);
+    expect(code).not.toMatch(/PLAN_ROW_TRACKS/);
+    // And the stripping removed something, so the two assertions above are
+    // about code rather than about an empty string.
+    expect(src).toMatch(/PLAN_ROW_TRACKS/);
+    // ONE `grid-cols-` in the whole row estate, and it is the tuple's.
+    const tupleSrc = readFileSync(
+      new URL('../../src/app/components/TupleRow.tsx', import.meta.url), 'utf8');
+    expect([...tupleSrc.matchAll(/grid-cols-\[/g)]).toHaveLength(1);
+    expect(code).not.toMatch(/grid-cols-\[/);
   });
 });
 
@@ -2227,28 +2684,60 @@ describe('ROW_TRACKS — where the row\'s width goes', () => {
  * test data reaches it.
  */
 describe("a row's actions all live in its menu", () => {
-  const source = readFileSync(
-    new URL('../../src/app/components/AgentList.tsx', import.meta.url), 'utf8');
+  /**
+   * THE ROW ESTATE'S SOURCE — TWO FILES, and the second is what the collapse
+   * made load-bearing.
+   *
+   * This scan read `AgentList.tsx` alone while every row component lived there.
+   * `one-component-renders-every-row` moved the rendering into `TupleRow.tsx`
+   * and left three ADAPTERS behind, so a one-file scan would now walk from
+   * `Row` to `TupleRowView`, fail to find it, and report a clean row — while
+   * every anchor in the estate sat one file away, unwatched.
+   *
+   * That is precisely the failure this describe's own docstring warns about: *a
+   * scan that matched nothing passes the assertion forever while gating
+   * nothing at all.* The gate follows the components, not the file they were in
+   * when it was written.
+   */
+  const FILES = ['AgentList.tsx', 'TupleRow.tsx'] as const;
+  const sources = FILES.map((f) =>
+    readFileSync(new URL(`../../src/app/components/${f}`, import.meta.url), 'utf8'));
+  /** Kept for the assertions that ask about `AgentList.tsx` in particular. */
+  const source = sources[0];
 
   /**
-   * The source of one top-level `function Name(` declaration.
+   * The source of one top-level declaration, from whichever file holds it.
    *
    * It ends at the first `}` in COLUMN ZERO, which is where every top-level
-   * declaration in this file closes and nothing nested ever does. An earlier
+   * declaration in these files closes and nothing nested ever does. An earlier
    * version sliced to *the next `function `* instead and was wrong in the
    * direction that matters: past the last declaration there is no next one, so
    * `PrCell` swallowed the rest of the file and the scan reported two toggle
    * buttons that live hundreds of lines below it. A structural test whose
    * boundaries are wrong reports strays that are not there — and, on the other
    * side of the same error, misses ones that are.
+   *
+   * `export function` as well as `function`, because the tuple's two components
+   * are exported and the three adapters are not — a distinction about module
+   * boundaries that says nothing about whether a row renders an anchor.
    */
   function declaration(name: string): string {
-    const start = source.indexOf(`function ${name}(`);
-    expect(start, `no component named ${name}`).toBeGreaterThan(-1);
-    const end = source.indexOf('\n}\n', start);
-    expect(end, `${name} does not close in column zero`).toBeGreaterThan(-1);
-    return source.slice(start, end + 3);
+    for (const src of sources) {
+      for (const prefix of ['function ', 'export function ']) {
+        const start = src.indexOf(`${prefix}${name}(`);
+        if (start === -1) continue;
+        const end = src.indexOf('\n}\n', start);
+        expect(end, `${name} does not close in column zero`).toBeGreaterThan(-1);
+        return src.slice(start, end + 3);
+      }
+    }
+    expect.fail(`no component named ${name} in ${FILES.join(' or ')}`);
   }
+
+  /** Whether a name is a component either file declares. */
+  const declares = (name: string): boolean =>
+    sources.some((src) =>
+      src.includes(`function ${name}(`) || src.includes(`export function ${name}(`));
 
   /**
    * Every component reachable from the ROW BODY, following what each mounts —
@@ -2274,7 +2763,7 @@ describe("a row's actions all live in its menu", () => {
         // `HTMLAnchorElement` and friends are types in handler signatures, not
         // mounted components — they have no declaration and are skipped by the
         // same check that skips anything already visited.
-        if (!seen.has(child) && source.includes(`function ${child}(`)) queue.push(child);
+        if (!seen.has(child) && declares(child)) queue.push(child);
       }
     }
     return out;
@@ -2297,18 +2786,103 @@ describe("a row's actions all live in its menu", () => {
    * entry is a claim that the row NAMES the thing, and it has to be argued in
    * review rather than arrived at by rendering.
    */
-  const ROW_NAVIGATION = ['data-branch', 'data-pr-link', 'href={`/plan/'];
+  /**
+   * Where a JSX opening tag ENDS — the first `>` at brace depth zero.
+   *
+   * `indexOf('>')` was right for as long as no attribute value contained one,
+   * and the tuple's anchor broke it: `onClick={handle}` is fine but an inline
+   * `onClick={(e) => ...}` is not, and neither is any `{cond ? a : b}` holding
+   * a comparison. The old scan then cut the tag short, missed the
+   * `data-tuple-link` hook that sat past the cut, and reported the estate's one
+   * legitimate anchor as a stray.
+   *
+   * That failure is the benign direction — a false stray is noticed the moment
+   * the suite runs. The direction worth guarding is the other one, and it is
+   * why this counts braces rather than widening the slice: a fixed lookahead
+   * long enough to clear the handler would also reach into the NEXT element's
+   * attributes, and a stray `<button>` would be waved through by a hook
+   * belonging to the link above it.
+   */
+  function tagClose(body: string, from: number): number {
+    let depth = 0;
+    for (let i = from; i < body.length; i += 1) {
+      const c = body[i];
+      if (c === '{') depth += 1;
+      else if (c === '}') depth -= 1;
+      else if (c === '>' && depth === 0) return i;
+    }
+    return -1;
+  }
+
+  /**
+   * Block comments, gone — so prose ABOUT markup is not read AS markup.
+   *
+   * `IssueRowView` documents that its name cell is deliberately `not an <a>`,
+   * and that literal tag in the comment matched the raw-tag scan below. The
+   * branch-row gate escaped this only because its comments happen not to spell
+   * a bare tag; the rule is the same and so is the strip. Both the plain and the
+   * JSX-wrapped comment forms are removed, non-greedily, before any tag match.
+   */
+  const stripComments = (s: string): string =>
+    s
+      .replace(/\{?\/\*[\s\S]*?\*\/\}?/g, '')
+      // LINE comments too, and the collapse is what made this half necessary.
+      // `TupleLinkView` explains at length that a name with no address is *not
+      // an `<a>`* and that a missing link renders as text — prose about markup,
+      // in `//` comments the block-stripper walks straight past. The branch
+      // gate escaped this for as long as its comments happened not to spell a
+      // bare tag; the rule is the same and so is the strip.
+      .replace(/^[^\S\n]*\/\/.*$/gm, '');
+
+  const ROW_NAVIGATION = [
+    'data-branch',
+    'data-pr-link',
+    'href={`/plan/',
+    // THE TUPLE'S ONE ANCHOR, and it is the same allowance stated once instead
+    // of per component. `TupleLinkView` renders every linked name on every kind
+    // — a PR's number, a plan's slug, a branch's name — through ONE `<a>` whose
+    // `data-tuple-link` says what it points at. That is navigation to a thing
+    // the row NAMES, which is exactly what this list is for; the three hooks
+    // above it are the same permission as it was spelled when three components
+    // each rendered their own anchor.
+    'data-tuple-link',
+    // THE HREFLESS NAME THAT IS STILL A DESTINATION, added 2026-08-20 for the
+    // agent row — and the justification the gate asks for.
+    //
+    // An agent's name is its session id, and what it opens is the agent PANEL: a
+    // local overlay, not a URL. So it cannot be an `<a>` — inventing an address
+    // is what this board refuses everywhere — and it must not be inert either,
+    // or the row names a thing a reader cannot reach.
+    //
+    // It IS navigation to a thing the row NAMES, which is precisely what this
+    // list permits; only the element differs, because the destination has no
+    // address. `TupleLinkView` renders a `<button>` exactly when a name is given
+    // an `onActivate`, so this hook cannot spread to an artifact link: those
+    // either have an href or stay text.
+    //
+    // `data-tuple-text` is deliberately the SAME hook a plain hrefless name
+    // wears, because the property tests assert on it is *this is not an anchor*
+    // — true of both, and the assertion that matters.
+    'data-tuple-text',
+  ];
 
   it('renders no interactive element in a row body outside the menu', () => {
     // THE GATE. Every `<a>` and `<button>` reachable from the row body, minus
     // the row's own navigation — the remainder must be empty.
     const strays: string[] = [];
-    for (const { name, source: body } of rowBodySources()) {
+    for (const { name, source: decl } of rowBodySources()) {
+      // COMMENTS STRIPPED FIRST, so prose ABOUT markup is not read AS markup —
+      // the same strip the issue gate has always applied, now needed here too
+      // because `TupleLinkView` discusses the anchor it declines to render.
+      const body = stripComments(decl);
       for (const m of body.matchAll(/<(a|button)[\s>]/g)) {
-        // The element's own attributes: up to the end of its opening tag, which
-        // is where its `data-` hook and `href` are.
-        const tagEnd = body.indexOf('>', m.index);
-        const tag = body.slice(m.index, tagEnd === -1 ? m.index + 400 : tagEnd);
+        // The element's own attributes: up to the end of its opening TAG, which
+        // is where its `data-` hook and `href` are. `>` inside a JSX expression
+        // (`() => ...`) is not the tag's end, so the search skips a `>` that
+        // has an unbalanced `{` before it — measured on the tuple's anchor,
+        // whose `onClick` handler closes before the tag does.
+        const tagEnd = tagClose(body, m.index!);
+        const tag = body.slice(m.index, tagEnd === -1 ? m.index! + 400 : tagEnd);
         if (ROW_NAVIGATION.some((hook) => tag.includes(hook))) continue;
         strays.push(`${name}: ${tag.replace(/\s+/g, ' ').slice(0, 120)}`);
       }
@@ -2327,9 +2901,12 @@ describe("a row's actions all live in its menu", () => {
     // gating nothing at all, which is the failure mode a structural test is
     // most prone to. So the detector is run against a row body with the exact
     // element this plan removed put back into it.
+    // Injected at the row's MENU prop, which every kind's adapter has and which
+    // is the nearest thing left to the branch cell the old injection used —
+    // `<BranchName row={row} />` was deleted with the component that held it.
     const withStray = declaration('Row').replace(
-      '<BranchName row={row} />',
-      '<BranchName row={row} /><a href={runUrl} data-stuck-link>Open failing run</a>',
+      '      menu={',
+      '      extra={<a href={runUrl} data-stuck-link>Open failing run</a>}\n      menu={',
     );
     expect(withStray).toContain('data-stuck-link');
     const found = [...withStray.matchAll(/<(a|button)[\s>]/g)].filter((m) => {
@@ -2340,29 +2917,29 @@ describe("a row's actions all live in its menu", () => {
   });
 
   it('reaches the components the row mounts, not only Row itself', () => {
-    // The scan is transitive, and this is the property that makes it worth
-    // anything: the row's own links live in `BranchName` and `PrCell`, so a
-    // scan stopping at `Row` would read as clean while an inline action sat one
-    // component down — exactly where the next one would land.
+    // THE PROPERTY THAT MAKES THE GATE WORTH ANYTHING, and the collapse moved
+    // what it has to reach. The row's own links used to live in `BranchName`
+    // and `PrCell`; they now live in `TupleLinkView`, reached through
+    // `TupleRowView` — and in ANOTHER FILE, which is the reach a one-file scan
+    // silently lost. A scan stopping at `Row` reads as clean while every anchor
+    // in the estate sits one component and one module away.
     const names = rowBodySources().map((c) => c.name);
-    expect(names).toContain('BranchName');
-    expect(names).toContain('PrCell');
+    expect(names).toContain('TupleRowView');
+    expect(names).toContain('TupleLinkView');
     // And it does NOT enter the menu, which is where actions are allowed.
     expect(names).not.toContain('RowActions');
   });
 
-  it('keeps the four actions in the menu, and the cue out of it', () => {
-    // The other half of the rule. The gate above proves nothing LEFT the menu
-    // for the row; this proves the four arrived — and that the one thing that
-    // must NOT move did not.
-    const menu = declaration('RowActions');
-    expect(menu).toContain('<StartWorkButton');
-    expect(menu).toContain('<ApproveButton');
-    expect(menu).toContain('data-stuck-link');
-    // The CUE is state, not an action: it points at something being wrong, and
-    // a signal reachable only by opening a menu is not a signal.
-    expect(menu).not.toContain('<StuckCue');
-    expect(declaration('StuckCell')).toContain('<StuckCue');
+  it('reaches the tuple from the PLAN row and the TICKET row too', () => {
+    // THE THIRD FILL SITE, which is what the whole collapse was about. Three
+    // components on two grids meant three places an inline action could land
+    // and only one the gate walked — so *Create plan* sat inline on a ticket
+    // row for as long as it did. One component renders every kind now, and the
+    // gate reaching it from all three adapters is what says so structurally
+    // rather than in a comment.
+    for (const adapter of ['PlanRow', 'IssueRowView']) {
+      expect(declaration(adapter)).toContain('<TupleRowView');
+    }
   });
 
   /**
@@ -2381,19 +2958,20 @@ describe("a row's actions all live in its menu", () => {
    * is the one inline interactive element permitted, and everything else — which
    * today is *Create plan* alone — belongs behind the menu.
    */
-  const ISSUE_NAVIGATION = ['data-issue-link'];
+  const ISSUE_NAVIGATION = [
+    'data-issue-link',
+    // The tuple's one anchor, for the reason stated at `ROW_NAVIGATION`: since
+    // the collapse a ticket's tracker link and a branch's branch link are the
+    // SAME `<a>`, rendered by `TupleLinkView` from a `TupleLink`. The two
+    // allowances converged because the two rows did.
+    'data-tuple-link',
+    // And the same convergence for the hrefless name that is still a
+    // destination — see `ROW_NAVIGATION` for the full justification. It reaches
+    // this gate because both read `TupleLinkView`, not because an issue row has
+    // one: a ticket's name carries a tracker URL and takes the anchor above.
+    'data-tuple-text',
+  ];
 
-  /**
-   * Block comments, gone — so prose ABOUT markup is not read AS markup.
-   *
-   * `IssueRowView` documents that its name cell is deliberately `not an <a>`,
-   * and that literal tag in the comment matched the raw-tag scan below. The
-   * branch-row gate escaped this only because its comments happen not to spell
-   * a bare tag; the rule is the same and so is the strip. Both the plain and the
-   * JSX-wrapped comment forms are removed, non-greedily, before any tag match.
-   */
-  const stripComments = (s: string): string =>
-    s.replace(/\{?\/\*[\s\S]*?\*\/\}?/g, '');
 
   /**
    * Every component reachable from the ISSUE row body, not entering
@@ -2412,7 +2990,7 @@ describe("a row's actions all live in its menu", () => {
       const body = declaration(name);
       out.push({ name, source: body });
       for (const [, child] of body.matchAll(/<([A-Z][A-Za-z0-9]*)/g)) {
-        if (!seen.has(child) && source.includes(`function ${child}(`)) queue.push(child);
+        if (!seen.has(child) && declares(child)) queue.push(child);
       }
     }
     return out;
@@ -2427,8 +3005,8 @@ describe("a row's actions all live in its menu", () => {
     for (const { name, source: decl } of issueRowBodySources()) {
       const body = stripComments(decl);
       for (const m of body.matchAll(/<(a|button)[\s>]/g)) {
-        const tagEnd = body.indexOf('>', m.index);
-        const tag = body.slice(m.index, tagEnd === -1 ? m.index + 400 : tagEnd);
+        const tagEnd = tagClose(body, m.index!);
+        const tag = body.slice(m.index, tagEnd === -1 ? m.index! + 400 : tagEnd);
         if (ISSUE_NAVIGATION.some((hook) => tag.includes(hook))) continue;
         strays.push(`${name}: ${tag.replace(/\s+/g, ' ').slice(0, 120)}`);
       }
@@ -2483,11 +3061,14 @@ describe("a row's actions all live in its menu", () => {
  * and the board asked only the second until 2026-08-18.
  */
 describe('menuState — a refusal is not an absence', () => {
+  // NO `canApprove` / `canCommission` / `approveWillAct` / `commissionWillAct`.
+  // Both plan-level acts left the branch menu for the plan head (`PlanActions`),
+  // so a branch row's menu no longer computes them and this state no longer
+  // carries their flags. What remains is what a branch row can genuinely do.
   const none = {
-    canStart: false, canApprove: false, canResolve: false, hasRun: false,
-    hasLog: false, hasStatus: false, hasOpen: false, canCommission: false,
-    hasChangedFiles: false,
-    serverWillAct: false, approveWillAct: false, commissionWillAct: false,
+    canStart: false, canResolve: false, hasRun: false,
+    hasLog: false, hasStatus: false, hasOpen: false,
+    hasChangedFiles: false, serverWillAct: false,
   };
 
   it('renders no menu at all on a row with nothing to offer', () => {
@@ -2506,9 +3087,6 @@ describe('menuState — a refusal is not an absence', () => {
     expect(menuState({ ...none, canStart: true })).toEqual({
       present: true, enabled: false,
     });
-    expect(menuState({ ...none, canApprove: true })).toEqual({
-      present: true, enabled: false,
-    });
   });
 
   it('enables the run link without asking whether the server will act', () => {
@@ -2523,12 +3101,14 @@ describe('menuState — a refusal is not an absence', () => {
 
   it('asks about ANY item, never one named item', () => {
     // The defect this gate had in its first form: `enabled` was `canStart &&
-    // serverWillAct`, so a Draft plan's row — never startable by construction —
-    // had a dead menu on exactly the rows with something to do.
-    expect(menuState({ ...none, canApprove: true, approveWillAct: true }).enabled).toBe(true);
+    // serverWillAct`, so a menu opened only where Start work was possible. Both
+    // dispatching acts on a branch row (Start work, the conflict dispatch)
+    // answer to the SAME `serverWillAct` binding, so the gate must ask about
+    // whichever one is present rather than a single named item.
+    expect(menuState({ ...none, canStart: true, serverWillAct: true }).enabled).toBe(true);
     expect(menuState({ ...none, canResolve: true, serverWillAct: true }).enabled).toBe(true);
-    // And `Approve` answers to its OWN verdict, not to the dispatch one.
-    expect(menuState({ ...none, canApprove: true, serverWillAct: true }).enabled).toBe(false);
+    // A read item enables on no binding at all — navigation is not an act.
+    expect(menuState({ ...none, hasOpen: true }).enabled).toBe(true);
   });
 
   it('never enables a menu it does not render', () => {
@@ -2543,18 +3123,15 @@ describe('menuState — a refusal is not an absence', () => {
     // it replaced grew a dimension with every new item; the property it proves did
     // not, so it does not need the cartesian product to stay honest.
     const keys = [
-      'canStart', 'canApprove', 'canResolve', 'hasRun', 'hasLog', 'hasStatus',
-      'hasOpen', 'canCommission', 'hasChangedFiles', 'serverWillAct',
-      'approveWillAct', 'commissionWillAct',
+      'canStart', 'canResolve', 'hasRun', 'hasLog', 'hasStatus',
+      'hasOpen', 'hasChangedFiles', 'serverWillAct',
     ] as const;
     const cases: (typeof none)[] = [{ ...none }];
     for (const key of keys)
       for (const v of bools) cases.push({ ...none, [key]: v });
     // A few with an act flag AND its will-act partner, so `enabled` is reached.
     cases.push({ ...none, canStart: true, serverWillAct: true });
-    cases.push({ ...none, canApprove: true, approveWillAct: true });
     cases.push({ ...none, canResolve: true, serverWillAct: true });
-    cases.push({ ...none, canCommission: true, commissionWillAct: true });
     for (const c of cases) {
       const state = menuState(c);
       expect(
@@ -2603,21 +3180,11 @@ describe('menuState — a refusal is not an absence', () => {
     });
   });
 
-  // Commission design writes — so it asks whether the server will act, exactly
-  // as Approve does, and is present-but-refused where the binding declines.
-  it('keeps Commission design present but disabled where the server refuses', () => {
-    expect(menuState({ ...none, canCommission: true })).toEqual({
-      present: true, enabled: false,
-    });
-  });
-
-  it('enables Commission design only on its own verdict', () => {
-    expect(menuState({ ...none, canCommission: true, commissionWillAct: true }).enabled)
-      .toBe(true);
-    // Not on the dispatch verdict — a different binding, a different question.
-    expect(menuState({ ...none, canCommission: true, serverWillAct: true }).enabled)
-      .toBe(false);
-  });
+  // Approve and Commission design are NOT tested here any longer: both are
+  // plan-level acts that left the branch menu for the plan head (`PlanActions`),
+  // so `menuState` — which answers for a BRANCH row's menu — no longer carries
+  // their flags. The plan head's two-answer menu is covered by the browser test
+  // `plan-head-controls.browser.test.ts`, which exercises the real render.
 });
 
 // A branch row names its wave BESIDE ITS BRANCH NAME, and the gate is now a
@@ -2818,31 +3385,12 @@ describe('runLinkLabel — Show failure only where a failure is present', () => 
   });
 });
 
-/**
- * COMMISSION DESIGN is offered on a PLAN kind row — a Draft plan a person must
- * decide about — beside Approve. It is the twin of Approve for the other answer:
- * this plan needs a spec, a spike or a tracer before it can be handed to
- * development.
- */
-describe('canCommissionDesign — offered on a Draft plan row, beside Approve', () => {
-  const draftPlanRow = row({
-    group: 'not-started', state: 'open', phase: 'Discovery', waitingOn: 'you',
-    note: DRAFT_PLAN_NOTE,
-  });
-
-  it('is offered on the same row Approve is — a Draft plan awaiting a decision', () => {
-    expect(canCommissionDesign(draftPlanRow)).toBe(true);
-  });
-
-  it('is NOT offered on a branch waiting its turn', () => {
-    // `waitingOn: 'time'` is a blocked wave, not a plan awaiting a person — the
-    // same exclusion Approve makes, and for the same reason.
-    expect(canCommissionDesign(row({ group: 'not-started', state: 'open', waitingOn: 'time' })))
-      .toBe(false);
-  });
-
-  it('is NOT offered on a started branch', () => {
-    expect(canCommissionDesign(row({ group: 'working', state: 'wip', waitingOn: null })))
-      .toBe(false);
-  });
-});
+// `canCommissionDesign` USED TO BE TESTED HERE, as a branch-row predicate on
+// `waitingOn === 'you'`. It is gone: Commission design is a PLAN-level act and
+// moved to the plan head (`PlanActions`), gated on the card's `isDraft` exactly
+// as Approve is — not on any row field. The old predicate was in fact
+// self-contradictory over board-producible inputs (`'you'` only ever arrives
+// with `state === 'deferred'`, while it required `state === 'open'`), which is
+// why it could never render and why it is deleted rather than repaired. The
+// plan head's Commission design item is covered by
+// `plan-head-controls.browser.test.ts`.

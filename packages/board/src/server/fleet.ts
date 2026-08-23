@@ -1,3 +1,4 @@
+import { RELEASE_BRANCH } from '../contract/schema.js';
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -25,6 +26,7 @@ import {
   type StuckRun,
   type WaitingGroup,
   type WaitingOn,
+  type Wave,
   type WaveVerdict,
   type WorkerState,
 } from '../contract/schema.js';
@@ -32,6 +34,8 @@ import { stuckState, summarizeStuck } from './stuck.js';
 import { repairFor, startRepair } from './resolver.js';
 import type { BuildBoardOptions } from './board.js';
 import { readBridge, writeBridge } from './pulse-bridge.js';
+import { readFleetControls } from './fleet-controls.js';
+import { maybeAutoDispatch } from './auto-dispatch.js';
 import { readAgentRegistry } from './registry.js';
 import type { AgentEntry } from './registry.js';
 import { workerQuestions } from './worker-question.js';
@@ -131,7 +135,30 @@ const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
  * URL already renders as no link. A number large enough to be wrong slowly is
  * better here than a page-walking loop on a 5 s timer.
  */
-const PR_LIMIT = 300;
+/**
+ * How many PRs the board asks the host for, across every state.
+ *
+ * **1000, and 300 was three PRs from silently truncating.** Measured 2026-08-21:
+ * this repo holds **297** PRs, `--state all` returns the newest first, and the
+ * oldest — #49-#55, from July — sat at the very end of a 300-wide window. Opening
+ * four more PRs would have pushed them out, and the symptom is not an error: a
+ * branch simply loses its PR link and its status, reading as though no PR had ever
+ * existed. It was watched happening between two board restarts.
+ *
+ * `plot-host.sh` warns about exactly this in its own header — *"--limit raises the
+ * host CLI's default page of 30, which `--state all` exhausts immediately"* — and
+ * the caution was applied to the CLI's default without being carried through to
+ * the board's own ceiling.
+ *
+ * 1000 buys years at this repo's rate rather than months. The cost is one host
+ * query per PR-refresh cycle, already the whole bill this refresh pays for, and a
+ * larger page does not add a round trip.
+ *
+ * A REAL CEILING, not `Infinity`: an unbounded query against a repo with tens of
+ * thousands of PRs would be a different defect, and the number is what makes the
+ * next reader ask whether it is still enough.
+ */
+const PR_LIMIT = 1000;
 
 /**
  * How many open issues to ask for.
@@ -285,6 +312,8 @@ interface CacheEntry {
   approvedAt: Map<string, number>;
   /** Plan filename per idea branch — see `ideaPlanFiles`. */
   ideaPlans: Map<string, string>;
+  /** The version each release branch would ship — see `releaseVersions`. */
+  versions: Map<string, string>;
   /**
    * What each `waiting` worker asked, by branch — see `workerQuestions`.
    *
@@ -327,6 +356,22 @@ interface CacheEntry {
    * dispatch has run — a fact, not a failure.
    */
   agents: AgentEntry[];
+  /**
+   * Branches AUTO-DISPATCH has started this session whose claim/manifest the
+   * next pulse cannot yet see.
+   *
+   * `plot-dispatch.sh` is spawned detached, so a branch dispatched on one pulse
+   * may show neither a claim ref nor a manifest on the very next one. Counting
+   * only the registry against the cap would then dispatch it a second time and
+   * let the fleet reach 2N. This set holds such branches against the cap until a
+   * pulse confirms them (claimed, merged, gone, or held by a live registry
+   * entry), at which point `pruneInFlight` retires them.
+   *
+   * IN MEMORY AND NOWHERE ELSE, like `terminal` above: it describes what THIS
+   * process did, a restart re-derives from git, and it must never become a
+   * second source of truth about a repo whose only one is git.
+   */
+  autoInFlight: Set<string>;
   prs: Map<string, PrRecord> | null;
   /**
    * The same records keyed by PR NUMBER. The fleet tab asks "what is this
@@ -833,6 +878,64 @@ async function ideaPlanFiles(opts: BuildBoardOptions): Promise<Map<string, strin
       .map((l) => l.trim())
       .find((l) => l.endsWith(`${slug}.md`));
     if (hit) found.set(branch, path.basename(hit));
+  }
+  return found;
+}
+
+/**
+ * The version a release branch would ship, read from its own `package.json`.
+ *
+ * **Read, never derived** — see `AgentRow.version` for why that distinction is
+ * the licence for this at all. Changesets consumes the `.changeset/*.md` files
+ * and writes the bumped version into `package.json` **on the release branch**,
+ * so the sum this board refuses to compute has already been computed by the
+ * tool whose job it is. Verified 2026-08-20:
+ * `origin/changeset-release/main:package.json` reads `2.7.0` where `main` reads
+ * `2.6.0`.
+ *
+ * ONE `git show` for the whole pulse, not one per row: release branches are rare
+ * (this estate has exactly one) and the map is built from the refs already in
+ * hand. The scan's cost discipline is the reason — `for-each-ref` earned its
+ * comment for the same trade.
+ *
+ * "" on anything unreadable — a ref that has gone, a repo whose root package
+ * carries no version, malformed JSON. The row then names its PR number, which is
+ * the honest fallback rather than an invented tag: the same rule the board
+ * applies to a missing URL.
+ */
+async function releaseVersions(opts: BuildBoardOptions): Promise<Map<string, string>> {
+  const found = new Map<string, string>();
+  // THE REFS, not the plans — and the first version of this read the plans,
+  // which is why it found nothing on the live board while the mock looked right.
+  //
+  // `changeset-release/main` belongs to NO plan; that is precisely why it reaches
+  // the board through the planless-PR loop. Feeding this function
+  // `plans.flatMap(...waves...branches)` therefore passed a list that could never
+  // contain the one branch it exists to read, and the filter matched nothing.
+  //
+  // The mock HID it: `version` was set there by hand, so the fixture built to
+  // expose this shape was the reason it went unseen. Measured on the live board —
+  // `version: ""` on the only release row.
+  const refs = await run('git',
+    ['for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin/changeset-release/*'],
+    opts.repoRoot).catch(() => '');
+  const branches = refs.split('\n')
+    .map((l) => l.trim().replace(/^origin\//, ''))
+    .filter(Boolean);
+  for (const branch of branches) {
+    // `?? ''` because `run` rejects on a missing ref, and a release branch that
+    // vanished between the ref listing and this read is a race rather than a
+    // defect — it reads as *no version*, which is what the row then says.
+    const raw = await run('git', ['show', `origin/${branch}:package.json`], opts.repoRoot)
+      .catch(() => '');
+    if (!raw) continue;
+    try {
+      const version = (JSON.parse(raw) as { version?: unknown }).version;
+      if (typeof version === 'string' && version) found.set(branch, version);
+    } catch {
+      // Malformed JSON on a release branch is not this board's problem to
+      // report, and a partially-parsed version would be worse than none.
+    }
   }
   return found;
 }
@@ -1625,7 +1728,11 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     //
     // Assigned rather than merged: the directory is the whole truth about which
     // agents exist, so a manifest that was deleted must be able to disappear.
-    entry.agents = readAgentRegistry(opts.repoRoot);
+    // `scriptsDir` so the registry can reuse `plot-worker-state.sh` to refresh
+    // each entry's liveness on this pulse — the same helper the fleet scan and
+    // the dispatcher source. Without it every entry would read `unknown`, which
+    // is honest but useless to the cap that will ask this count every pulse.
+    entry.agents = readAgentRegistry(opts.repoRoot, undefined, { scriptsDir: opts.scriptsDir });
     // Default mode, WITH the fetch: the refresh is off the request path, so a
     // second of work is free — and the fetch is what lets the board see
     // branches a remote worker pushed. `--stream` is the only flag added.
@@ -1795,6 +1902,10 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // that one. Two clocks, one dependency: the same shape that pinned the
     // countdown at zero earlier today.
     entry.ideaPlans = await ideaPlanFiles(opts);
+    // THE RELEASE VERSION, from the release branch's own `package.json`. From
+    // the REFS for the reason stated one line up: the PR map is on its own
+    // timer and is still null at the first git refresh.
+    entry.versions = await releaseVersions(opts);
     // WHAT THE WAITING WORKERS ASKED, read here and nowhere else.
     //
     // After `entry.pulse` is assigned, because the pulse is what says WHICH
@@ -1836,6 +1947,27 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // `startRepair` decides. This loop only offers it every branch and it
     // refuses all but one state — see `mayResolve`.
     maybeRepair(opts, complete, entry.prs);
+
+    // THE SECOND AUTOMATIC WRITE — wave 3, the switch that does something.
+    //
+    // Beside `maybeRepair` and of the same kind: on the SCAN's clock, inside its
+    // success path, from a pulse that actually landed — a dispatch from a failed
+    // scan would act on refs that may have moved. Off the request path entirely,
+    // so it is a route nobody can reach.
+    //
+    // Reads the controls FRESH so a switch flipped this pulse takes effect now,
+    // and counts liveness from `entry.agents`, the registry this same refresh
+    // just repopulated. The in-flight set is the ONE piece of state that spans
+    // pulses — assigned whole, never mutated, so the cache's one-directional
+    // rule holds. It withholds the next dispatch when the switch is off or the
+    // cap is at its live count; it NEVER signals a running worker.
+    entry.autoInFlight = maybeAutoDispatch(
+      opts,
+      complete,
+      readFleetControls(opts),
+      entry.agents,
+      entry.autoInFlight,
+    );
   } catch (err) {
     // A failed refresh NEVER overwrites a good result. Replacing real state
     // with emptiness because one scan failed is what makes a monitoring view
@@ -1876,10 +2008,14 @@ export function freshCacheEntry(): CacheEntry {
     terminal: '',
     approvedAt: new Map(),
     ideaPlans: new Map(),
+    versions: new Map(),
     questions: new Map(),
     // `unsupported` before the first lookup, never `answered`: a board that
     // has not asked must not render an empty inbox as a clear one.
     issues: [], issueAnswer: 'unsupported', issueError: null, agents: [],
+    // Empty at construction — nothing was dispatched before this process began,
+    // and a restart re-derives liveness from git rather than trusting a set.
+    autoInFlight: new Set(),
     prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prAt: null, prError: null,
     // 0, so the first fetch happens immediately rather than a minute in.
     prNextAt: 0, prNextIsBackoff: false,
@@ -2137,11 +2273,14 @@ export function waitingOnFor(
   // as well, so a finished plan's shelf leaves the section entirely and the
   // group guard above returns null before this line can run.
   //
-  // So the answer is UNCHANGED and its scope is narrower: every row still
-  // reaching here belongs to a plan that can move — `approved` or `draft` — and
-  // for those the hand-back is real. Somebody shelved this branch and somebody
-  // may un-shelve it, which is a person, with no clock running. The note beside
-  // the colour says which action.
+  // So the answer is UNCHANGED and its scope is narrower: every deferred row
+  // still reaching here belongs to an APPROVED plan — the only phase whose
+  // shelved branch stays in NOT STARTED. A DRAFT plan's shelf leaves for WAITING
+  // ON YOU in the deferred arm, and a finished plan's leaves for DONE, so both
+  // are gone before the group guard above lets this run. For an approved plan
+  // the hand-back is real: somebody shelved this branch and somebody may
+  // un-shelve it, which is a person, with no clock running. The note beside the
+  // colour says which action.
   if (state === 'deferred') return 'you';
   if (state !== 'open') return null;
   // An earlier wave, WITHIN an approved plan — which is now the only kind of
@@ -2186,6 +2325,106 @@ export function waitingOnFor(
 export function waveVerdict(verdict: string): WaveVerdict | null {
   const parsed = WaveVerdictSchema.safeParse(verdict);
   return parsed.success ? parsed.data : null;
+}
+
+/**
+ * The one WAVE ENTITY, assembled from the pulse where the verdicts already are.
+ *
+ * The scan emits `plan → wave → branch` with a verdict per wave; this flattens
+ * it to one {@link Wave} per `(plan, wave)`, carrying what a wave is asked
+ * about — its identity, its branches, its verdict, its ONE section, its
+ * completeness — so no consumer has to re-derive any of it from the rows. That
+ * re-derivation, at 33 call sites choosing 33 predicates, is the defect
+ * `the-wave-is-a-thing-the-board-can-hold` exists to end; this is the single
+ * answer they read instead.
+ *
+ * DERIVED ONCE, HERE, FROM THE SCAN. `verdict` is the scan's own, parsed
+ * through the same `waveVerdict` gate the row uses — never re-computed.
+ * `complete` reads the branch states this pulse already carries; `section`
+ * follows from `complete`. No host call, no second scan: every field is a
+ * reading of `pulse`, which `rowsFromPulse` has already been handed.
+ *
+ * The plan identity is the DISPLAY name — the basename with its date prefix and
+ * `.md` stripped — the exact spelling `rowsFromPulse` writes into a row's
+ * `plan`, so a consumer joining a wave to its rows reads one string from both.
+ */
+export function deriveWaves(pulse: FleetPulse): Wave[] {
+  const waves: Wave[] = [];
+  for (const plan of pulse.plans) {
+    const planName = plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
+    for (const wave of plan.waves) {
+      // COMPLETE = every NON-DEFERRED branch merged. A deferred branch is exempt
+      // — `plot-deliver` skips it in its own completeness gate — so {merged,
+      // deferred} is complete and {merged, open} is not. A wave with only
+      // deferred branches has nothing left to merge and is complete.
+      const complete = wave.branches.every((b) => b.deferred || b.state === 'merged');
+      // ONE SECTION, derived from completeness rather than from the verdict: a
+      // wave with a merged branch and an open one cannot read `done` however its
+      // verdict aggregates. A wave never reaches `working` or `waiting-on-machine`
+      // — an agent works and a build runs, a wave does neither — so the only two
+      // homes are `done` and `not-started`, and where it is not done it is where
+      // its unfinished work is: not-started.
+      const section: WaitingGroup = complete ? 'done' : 'not-started';
+      waves.push({
+        plan: planName,
+        // `(unnamed)` where the plan named no wave — the same substitution the
+        // row makes, so both spell an unnamed wave one way.
+        name: wave.name || '(unnamed)',
+        branches: wave.branches.map((b) => b.branch),
+        verdict: waveVerdict(wave.verdict),
+        section,
+        complete,
+      });
+    }
+  }
+  return waves;
+}
+
+/**
+ * What `plot-dispatch.sh` names the worker's log inside the worktree it made.
+ *
+ * A SECOND SPELLING OF `worker-log.ts`'s `WORKER_LOG_NAME`, and importing that
+ * one instead would be the obvious move. It cannot be done: `worker-log.ts`
+ * imports `pulseFor` from THIS module, so the arrow already points that way and
+ * reversing it closes a cycle. The name is `plot-dispatch.sh`'s, fixed at the
+ * point the worktree is made, and both readers are describing the same shell
+ * constant rather than agreeing on a convention of their own.
+ *
+ * The duplication is therefore declared rather than hidden — `continue.ts:487`
+ * already spells it a third time inline. What must not drift is the SHELL,
+ * which is the source both sides read.
+ */
+const WORKER_LOG_FILENAME = '.plot-worker.log';
+
+/**
+ * Where to go and look, for the note of a worker that broke.
+ *
+ * **The log first, the worktree second, and that order is the reader's.** A
+ * crashed agent's log is what says WHY; the worktree is where the rest of the
+ * evidence sits and where the work is resumed. Naming the directory alone would
+ * make the reader guess the filename — and it is a dotfile, so a plain `ls`
+ * does not show it.
+ *
+ * NEITHER PATH IS PROBED, and that is not laziness. Deciding the clause on
+ * `existsSync` would make one sentence depend on a disk read taken at scan time
+ * and rendered later, so a log rotated between the two would silently drop the
+ * only pointer the row had. The clause says *where a log would be*, which is
+ * true whether or not the file survived, and `/api/worker-log` is what answers
+ * *is there one* — it already reports `no-log` and `no-worktree` as distinct
+ * outcomes precisely so that question has one owner. This is Principle 3 in the
+ * small: report the location, conclude nothing about it.
+ *
+ * Returns "" for an absent worktree, which the caller appends as nothing at all.
+ *
+ * Exported for test: an implementation that names the directory and forgets the
+ * log passes every assertion that only greps for the path.
+ */
+export function whereToLook(localWorktree: string): string {
+  if (!localWorktree) return '';
+  // `path.join` rather than a template, so a worktree the scan reported with a
+  // trailing slash does not produce a doubled separator in a path a person is
+  // about to paste into a shell.
+  return ` · log: ${path.join(localWorktree, WORKER_LOG_FILENAME)} (worktree ${localWorktree})`;
 }
 
 /**
@@ -2366,6 +2605,40 @@ function classifyGroup(
    * statement.
    */
   held = false,
+  /**
+   * Where this branch is checked out on THIS machine, or "" — see
+   * `FleetBranchSchema.local_worktree`. Named in the note of a BROKEN worker
+   * (`failed`, `ended`, `stalled`) and read for nothing else.
+   *
+   * THE PATH, HERE, AFTER `held` DELIBERATELY DID NOT TAKE IT. `held` is the
+   * authoritative form of `local_worktree` *for the WORKING lift* — a boolean,
+   * because a lift needs a yes, and a path would invite deciding on the path's
+   * mere presence, which is the merged-leftover misread `held` exists to
+   * prevent. That argument is about DECIDING, and this parameter decides
+   * nothing: it lands in a sentence a person reads. So both are right and both
+   * are here — `held` for the lift, this for the errand — and neither derives
+   * from the other, since a merged leftover has a path and earns no lift, while
+   * a branch held on another machine has no path here at all.
+   *
+   * A BROKEN AGENT IS THE ONE ROW THAT NEEDS IT. Every other section either
+   * says what it means without a place (a PR is on the host, a wave is in a
+   * plan) or is not a row anyone opens a directory about. A reader told an
+   * agent crashed and not told where its log is has been informed, not helped —
+   * they must go find the worktree themselves, which is the work the row
+   * existed to save them.
+   *
+   * "" IS A STATED ABSENCE AND THE NOTE OMITS THE CLAUSE, never guessing a
+   * path. The path is true on this machine and meaningless on any other, so a
+   * reader elsewhere gets the evidence and no location — honest, where a
+   * reconstructed path would name a directory that does not exist where they
+   * are reading.
+   *
+   * LAST, BECAUSE IT IS THE NEWEST — the rule `held`, `workerQuestion` and
+   * `workerDirtyPaths` each record above, and for the reason recorded there:
+   * inserting a parameter mid-list shifts every spread-tuple caller in the
+   * suite silently past the compiler, and this file has paid that once already.
+   */
+  localWorktree = '',
 ): { group: WaitingGroup; note: string } {
   // A deferred branch is never `working` — the group is about the claim the row
   // makes, not about the age of its last commit, so a fresh commit does not
@@ -2394,9 +2667,10 @@ function classifyGroup(
     // of an APPROVED plan genuinely waits on a person: somebody shelved it,
     // somebody may un-shelve it, and `waitingOnFor` still colours it `you`. A
     // deferred branch of a RELEASED plan waits on nobody — the plan shipped and
-    // the shelf is part of its history. `draft` keeps the old answer for the
-    // same reason it does in the `open` arm: a plan under review is not finished,
-    // and a shelved branch of one waits on a person twice over.
+    // the shelf is part of its history. A `draft` branch is not finished either,
+    // but it does not stay in this section: it leaves for WAITING ON YOU on the
+    // line below, the same answer the `open` arm gives a draft branch, because
+    // the act it waits on is the plan's approval and that lives on the plan head.
     //
     // ABOVE the three exits below rather than beside one of them. A shelved
     // branch of a shipped plan is finished whether it was shelved with no
@@ -2406,6 +2680,25 @@ function classifyGroup(
     if (planPhase === 'delivered' || planPhase === 'released') {
       return { group: 'done', note: FINISHED_PLAN_NOTE };
     }
+    // A DRAFT plan's shelved branch waits on a person, and it belongs in WAITING
+    // ON YOU — the same answer, and the same note, the `open` arm gives a draft
+    // branch a few dozen lines below. It USED to fall through to `not-started`,
+    // because `'draft'` sat in the allowlist below beside `''`; that put an
+    // unapproved plan's branch in the section whose hint reads *approved —
+    // nobody has taken it*, offering work no phase gate would let an agent take.
+    //
+    // The wait it once described — approve the plan, un-shelve the branch — is
+    // real, but it is one wait on one person for one next act: the approval. So
+    // it goes where the approval lives, beside the plan head that now carries
+    // the act, rather than pretending to be startable in NOT STARTED.
+    //
+    // Above the allowlist and stated as its own inclusion, exactly as the `open`
+    // arm states it, so the two arms answer a draft branch the same way and
+    // neither has to remember to exclude it from a list meant for phases the
+    // board cannot read.
+    if (planPhase === 'draft') {
+      return { group: 'waiting-on-you', note: DRAFT_PLAN_NOTE };
+    }
     // The allowlist, as in the `open` arm and for its reason: a phase the board
     // has not been taught is not startable, and the sentence NAMES it rather
     // than inventing a placement. `''` falls through untouched — a scan
@@ -2414,11 +2707,16 @@ function classifyGroup(
     // NONE` in the same measurement, its plan unresolvable from the branch name;
     // filing that under DONE would be the same guess in the other direction.
     //
+    // `'draft'` is NO LONGER excepted here — it answers above, on its own line,
+    // rather than by being kept off this list. A plan under review is not a
+    // phase the board fails to recognise, and treating it as one is how the two
+    // arms came to disagree about where its shelved branch belongs.
+    //
     // No worktree check sits between this and the terminal arm above, unlike in
     // the `open` arm where one deliberately does. There is nothing here for it
     // to protect: a deferred row never reads `working`, because the group is
     // about the claim the row makes and shelved work is not work in progress.
-    if (planPhase !== '' && planPhase !== 'approved' && planPhase !== 'draft') {
+    if (planPhase !== '' && planPhase !== 'approved') {
       return { group: 'done', note: unknownPhaseNote(planPhase) };
     }
     // BELOW THE PHASE, THE SHELF STILL SPEAKS — and the note is not the word
@@ -2472,6 +2770,12 @@ function classifyGroup(
     // been the author's errand — and a conflict is the strongest possible
     // version of that errand. Adding a draft exemption here would move rows
     // this change is not about, in the direction of saying less.
+    // NO `CLOSED` ARM HERE, and the reason is one screen up: *"A merged or
+    // declined PR must NOT reach `classify` by head: it would answer for a
+    // branch whose git state has already answered."* The `byHead` map is
+    // open-only, so a closed PR never arrives — an arm for it would be dead code.
+    // I wrote one on 2026-08-21 before reading that line; `prState` is where the
+    // closed case belongs, and it is handled there.
     if (pr.mergeable === 'conflicting') {
       return { group: 'waiting-on-you', note: withNote(`PR #${pr.number}, conflicts`, note) };
     }
@@ -2602,8 +2906,13 @@ function classifyGroup(
     // tip, the AND the scan already computed; reading it keeps a merged leftover
     // in NOT STARTED where it belongs. The path itself does not reach this
     // function — the row NAMES it through the pulse's `worktrees` list.
+    //
+    // WORKING IS ABOUT AGENTS. Agentless local activity goes to NOT STARTED
+    // — the branch is eligible for dispatch but nobody has taken it yet. The
+    // section means *an agent is working on this*, not *local activity
+    // observed*. See `every-section-has-one-subject`, wave Inverted.
     if (localDirty || localLocked || held) {
-      return workingLocally(localDirty, localAhead, localLocked, held);
+      return localActivity(localDirty, localAhead, localLocked, held);
     }
     // THE PLAN'S PHASE IS ASKED FIRST, AND IT DECIDES THE SECTION.
     //
@@ -2819,12 +3128,44 @@ function classifyGroup(
           : 'worker waiting on you — reason unavailable, look in its worktree',
       };
     }
+    // A BROKEN AGENT IS THE ONE AGENT THIS SECTION HOLDS, and the three arms
+    // below are it: `failed`, `ended`, `stalled`. WAITING ON YOU is for what
+    // needs a person's DECISION, so its normal population is a PR, a branch, a
+    // plan, a release. An agent has no business here while it works — an agent
+    // IS the worker — and `running` and `waiting` are already gone above, into
+    // WORKING where they belong.
+    //
+    // So the presence of an agent here is ITSELF the signal, which is the
+    // property the exception is worth having and the reason it must stay rare.
+    // Rarity is a property of the RULE: only a problem state admits an agent,
+    // and the arms above are what keep a working one out.
+    //
+    // THE NOTES SAY WHAT WAS OBSERVED, NEVER WHAT TO DO. They read *restart it*
+    // and *resume it* until now, and both were verdicts about the schedule — a
+    // conclusion the row is not entitled to. Whether a crashed agent is worth
+    // restarting depends on what its log says and on what else is in flight,
+    // neither of which this function can see; and the board restarts nothing
+    // in any case, since relaunching is `/plot-dispatch`'s to do. Evidence is
+    // the estate's rule for exactly this reason — scripts collect, humans
+    // conclude (Manifesto Principle 3), the same discipline `HOST_ANSWER_HINT`
+    // and the changed-files modal already follow.
+    //
+    // AND EACH NAMES WHERE TO LOOK. A reader told an agent crashed and not told
+    // where its log is has been informed, not helped: they still have to find
+    // the worktree, which is the errand the row existed to save them. See
+    // `whereToLook` for why the path is never probed first.
     if (worker === 'failed') {
+      // THE EXIT CODE IS THE OBSERVATION, and it is what separates this arm
+      // from `stalled` below — a non-zero status is the process saying it died,
+      // which no amount of work left on the floor can tell you. Kept in the
+      // sentence for the same reason it is kept in the enum: `failed` and
+      // `finished` are opposite actions, and the number is the evidence for
+      // which one arrived.
       return {
         group: 'waiting-on-you',
         note: workerExit
-          ? `worker failed (exit ${workerExit}) — restart it`
-          : 'worker failed — restart it',
+          ? `worker crashed — exited ${workerExit}${whereToLook(localWorktree)}`
+          : `worker crashed${whereToLook(localWorktree)}`,
       };
     }
     if (worker === 'finished') {
@@ -2853,13 +3194,35 @@ function classifyGroup(
       const what = shown
         ? ` (${shown}${rest > 0 ? ` +${rest} more` : ''})`
         : '';
+      // *STOPPED WITHOUT FINISHING* AND *CRASHED* ARE DIFFERENT SENTENCES, and
+      // the reader does different things with them — which is the whole reason
+      // this arm and `failed` are not one label. This worker EXITED 0: the
+      // process ended normally and the tree says the task did not end with it,
+      // which is why `stalled` is a TASK state rather than a process one. So
+      // there is no exit code to report and nothing crashed; what is observable
+      // is that it stopped without finishing and without asking.
+      //
+      // WITHOUT ASKING is the half that earns the phrase, and it is not
+      // rhetorical: a worker that stopped to ask is `waiting` and left in
+      // WORKING by the arm far above — its question is its note. Reaching here
+      // means the scan found no marker, so nobody was asked anything. That
+      // distinction is exactly what a reader needs to know they are looking at
+      // an abandonment rather than a question they overlooked.
       return {
         group: 'waiting-on-you',
-        note: `worker stopped with work unfinished${what} — resume it`,
+        note: `worker stopped without finishing and without asking${what}${whereToLook(localWorktree)}`,
       };
     }
     if (worker === 'ended') {
-      return { group: 'waiting-on-you', note: 'worker ended, exit status unknown' };
+      // THE THIRD BROKEN CASE, and it says only what it knows. `ended` is the
+      // state that means *the status was not recorded* — so it names neither a
+      // crash nor a clean stop, because the record that would settle which is
+      // the thing that is missing. Guessing either way is the one answer that
+      // tells a reader to stop looking, and the log is where the answer is.
+      return {
+        group: 'waiting-on-you',
+        note: `worker stopped, exit status not recorded${whereToLook(localWorktree)}`,
+      };
     }
   }
 
@@ -2896,16 +3259,15 @@ function classifyGroup(
     // passed with nothing committed does "go look" become the useful thing to
     // say.
     //
-    // The GROUP is unchanged from the day it shipped, and deliberately: a fresh
-    // claim with no known worker is still the normal opening of a dispatch, and
-    // demoting every one of them would be the missing-pid-means-nobody mistake
-    // wearing a group instead of a sentence. Only the note stops promising
-    // commits are coming.
+    // WORKING IS ABOUT AGENTS, NOT BRANCHES. A claimed branch with no known
+    // worker is NOT STARTED — an agent may take it. The claim ref exists, but
+    // until `worker === 'running'` or `worker === 'waiting'`, no agent is on
+    // it. See `every-section-has-one-subject`, wave Inverted.
     if (ageMinutes !== null && ageMinutes <= quietMinutes) {
-      return { group: 'working', note: unstarted };
+      return { group: 'not-started', note: unstarted };
     }
     if (localDirty || localAhead > 0 || localLocked) {
-      return workingLocally(localDirty, localAhead, localLocked);
+      return localActivity(localDirty, localAhead, localLocked);
     }
     return {
       group: 'quiet',
@@ -2928,13 +3290,16 @@ function classifyGroup(
       : { group: 'done', note: 'merged — wave still open' };
   }
   // state === 'wip'
+  //
+  // WORKING IS ABOUT AGENTS. A branch with recent commits but no known agent
+  // is NOT STARTED — an agent may take it. The commit shows activity, but
+  // until `worker === 'running'` or `worker === 'waiting'`, no agent is on it.
+  // See `every-section-has-one-subject`, wave Inverted.
   if (ageMinutes !== null && ageMinutes <= quietMinutes) {
-    // A recent commit is the stronger statement and keeps its own note: the age
-    // is what the reader came for, and replacing it would hide it.
-    return { group: 'working', note: `last commit ${humanAge(ageMinutes)} ago` };
+    return { group: 'not-started', note: `last commit ${humanAge(ageMinutes)} ago` };
   }
   if (localDirty || localAhead > 0 || localLocked) {
-    return workingLocally(localDirty, localAhead, localLocked);
+    return localActivity(localDirty, localAhead, localLocked);
   }
   if (ageMinutes === null) return { group: 'quiet', note: 'pushed work, age unknown' };
   return { group: 'quiet', note: `no commit for ${humanAge(ageMinutes)}` };
@@ -3044,55 +3409,30 @@ export function classify(
 }
 
 /**
- * The one answer local evidence may produce: working, on grounds this machine
- * can see and no other can.
+ * Local activity on a branch WITHOUT a known agent → NOT STARTED.
  *
- * The note names the evidence as LOCAL because that is what a reader needs to
- * judge it. Work that has not been pushed is work nobody else can see, and a row
- * claiming *working* on grounds the next person cannot verify would be its own
- * kind of lie — saying *local* keeps the claim honest.
+ * WORKING IS ABOUT AGENTS. A branch with local activity but no known worker is
+ * an invitation to dispatch, not evidence that an agent is on it. The section
+ * means *who is working*, and a dirty worktree or a lock does not answer that.
+ * See `every-section-has-one-subject`, wave Inverted.
  *
- * It does not say WHO. A human's edits look exactly like an agent's (git records
- * no author on an uncommitted change), and on an `Impl: same branch` plan they
- * share one branch by design. So the note reports what was observed and on which
- * machine, and a reader who recognises their own editor is not misled — where
- * "agent working" would have misled them.
+ * The note describes WHAT was observed — uncommitted work, unpushed commits, a
+ * write lock, a held checkout — and the reader infers whose. The section is
+ * NOT STARTED because an agent may claim this branch; once `worker ===
+ * 'running'` or `worker === 'waiting'`, the branch moves to WORKING through
+ * the worker arm in `classifyGroup`, not through this function.
  *
- * TWO FACTS, AND BOTH ARE SAID WHEN BOTH HOLD — unpushed first. `dirty` means
- * *someone is editing*; `ahead` means *finished work exists that nobody else can
- * see*. An earlier draft reported only the unpushed commits, on the grounds that
- * they are the more urgent fact. That is true and not a reason to drop the
- * other: suppressing a true fact because a second outranks it is precisely the
- * displacement `deferred` used to cause to the note text. The pair also changes
- * the advice — *push this* versus *push this, and someone is still working* —
- * which is the whole reason to distinguish them.
- *
- * The count is a COUNT, never an age. "2 commits not pushed" answers a question
- * no timestamp can: it names an action, and the action belongs to a specific
- * machine.
- *
- * The DIRTY-ONLY note is unchanged from the day it shipped. Rewording it to
- * match the pair would have been tidier and would have changed what every
- * existing dirty row says, for a branch whose subject is the OTHER case.
- *
- * A LOCK OUTRANKS BOTH AND SAYS SO ALONE. `dirty` and `ahead` describe a state
- * the worktree is IN; a lock describes something happening AS THE ROW IS READ,
- * and it is the only one of the three that can go stale between the scan and the
- * next poll four seconds later. So it leads, and it does not append the other
- * two: under a lock `git status` never ran, so `dirty` was not observed and is
- * false by default rather than by measurement — printing "no uncommitted
- * changes" beside it would report an absence of evidence as evidence of absence,
- * which is the mistake the whole exit-code rule exists to prevent. `ahead` is a
- * ref fact and remains true, but it answers *what to do next* for a branch
- * nobody is touching, and the reader of a locked row is being told to wait.
+ * This function replaced `workingLocally` on 2026-08-23: same notes, different
+ * section. The notes kept their wording — a human reading "held in a local
+ * worktree" should recognise it as the same fact, only filed where it belongs.
  */
-function workingLocally(
+function localActivity(
   dirty: boolean,
   ahead: number,
   locked = false,
   held = false,
 ): { group: WaitingGroup; note: string } {
-  if (locked) return { group: 'working', note: 'a write is in progress in a local worktree' };
+  if (locked) return { group: 'not-started', note: 'a write is in progress in a local worktree' };
   // HELD WITH NOTHING ELSE TO REPORT. A worktree holds the branch, the tree is
   // clean, and `local_ahead` is 0 — which for a branch with no upstream is what
   // "could not compare" reports, not what "no commits" reports. So this says the
@@ -3106,12 +3446,12 @@ function workingLocally(
   // genuinely-held branch prints this note — the merged leftover it used to
   // fire on now stays in NOT STARTED, which is the whole of the fix.
   if (!dirty && ahead <= 0 && held) {
-    return { group: 'working', note: 'held in a local worktree' };
+    return { group: 'not-started', note: 'held in a local worktree' };
   }
-  if (ahead <= 0) return { group: 'working', note: 'uncommitted work in a local worktree' };
+  if (ahead <= 0) return { group: 'not-started', note: 'uncommitted work in a local worktree' };
   const unpushed = `${ahead} commit${ahead === 1 ? '' : 's'} not pushed locally`;
   return {
-    group: 'working',
+    group: 'not-started',
     note: dirty ? `${unpushed}, uncommitted changes` : unpushed,
   };
 }
@@ -3216,19 +3556,92 @@ export function draftNote(pr: PrRecord): string {
  * `AgentPr` states: a draft has CI like anything else, and answering both
  * questions with one value is what kept WAITING ON A MACHINE empty.
  */
-export function prState(pr: PrRecord): 'green' | 'pending' | 'failing' | 'none' | 'conflicts' | 'unknown' {
-  if (pr.mergeable === 'conflicting') return 'conflicts';
-  // BELOW `conflicting`, never above it: a host that knows the branch conflicts
-  // must still say so, and reordering these two lines loses the cause.
+export function prState(pr: PrRecord): PrStateWord {
+  // DERIVED FROM `prStates`, never computed a second time. The set is ordered
+  // most-blocking first, so its head IS this answer — and deriving it here is
+  // what makes `states[0] === state` true by construction rather than by two
+  // functions agreeing. `classify` mirroring this function, and saying so in a
+  // comment, is the cost of the other arrangement; one derivation is cheaper
+  // than a mirror that has to be maintained.
   //
+  // Non-empty on every input: `prStates` always answers at least `unknown`.
+  return prStates(pr)[0];
+}
+
+/** The words a PR's condition can be reported in — see `AgentPr.states`. */
+export type PrStateWord =
+  'green' | 'pending' | 'failing' | 'none' | 'conflicts' | 'unknown' | 'closed';
+
+/**
+ * EVERYTHING the PR is waiting for, most-blocking first — see `AgentPr.states`.
+ *
+ * The primitive `prState` is now derived from. What it fixes is a loss that was
+ * invisible in a single value: a PR that conflicts AND has a failed check
+ * reported `conflicts` and the build failure was gone before the row was built.
+ *
+ * **The precedence is unchanged and the discarding is what stopped.** `conflicts`
+ * still leads, for the reason `prState` has always given — GitHub starts no
+ * workflow for a branch that does not merge, so a conflicting PR reports an
+ * empty rollup and `none` there names the symptom while withholding the cause.
+ * A conflicting PR whose checks DID run and DID fail is the case that value
+ * could not express, and it is not hypothetical: a run can complete before main
+ * moves underneath the branch.
+ *
+ * `unknown` AND `green` ARE ALWAYS ALONE, and the two early returns are what
+ * guarantee it. Unknown mergeability poisons the checks answer as well — the
+ * `green-never-outranks-unknown` rule this function has carried since #165 —
+ * so it answers `['unknown']` and appends nothing: a second entry beside it
+ * would claim a knowledge the row does not have. Green is the absence of every
+ * errand rather than a peer of one, so nothing composes with it either.
+ */
+export function prStates(pr: PrRecord): [PrStateWord, ...PrStateWord[]] {
+  // CLOSED OUTRANKS EVERY CHECK, and it has to come first — the same rule the
+  // singular `prState` carried before this function existed, restored here
+  // because this is now where precedence is decided.
+  //
+  // A closed PR is ABANDONED work — somebody decided against it. Its checks are
+  // whatever they were when it was closed, and reporting `green` about it says
+  // *this is ready* when the truth is *this was given up*.
+  //
+  // Measured on the live board 2026-08-21: PRs #51-#55, all CLOSED as drafts 26
+  // days ago, rendered `green` + `draft` on five rows — the board reading *five
+  // reviews are waiting on you* about a wave that was deliberately dropped.
+  //
+  // ALONE IN THE SET, not appended to. The set exists to report conditions a
+  // reader can act on separately, and there is no errand beneath abandonment:
+  // a failing check on a PR nobody will merge is not a second problem.
+  //
+  // `merged` is deliberately NOT given a state: a merged PR's row is already
+  // `merged` via the branch state, and the two vocabularies would then disagree
+  // about the same row.
+  if (pr.state === 'CLOSED') return ['closed'];
   // Anything that is not one of the two ANSWERS counts, not just the literal
   // word: an adapter predating the field, and a word from a future host, are
   // both in exactly the position Bitbucket is in. The ingest normalizes absent
-  // to `'unknown'` already, so this is belt-and-braces there — but `prState` is
+  // to `'unknown'` already, so this is belt-and-braces there — but `prStates` is
   // exported and called directly, and a pure function that says `green` on a
   // record it was handed without the field would be a defect one call site away.
-  if (pr.mergeable !== 'mergeable') return 'unknown';
-  switch (pr.checks) {
+  //
+  // ABOVE the conflict check, unlike the old ordering, and that is not a change
+  // of precedence: `mergeable === 'conflicting'` and `mergeable !== 'mergeable'`
+  // are disjoint, so no input reaches a different answer. It reads in the order
+  // the field is actually consulted.
+  if (pr.mergeable !== 'mergeable' && pr.mergeable !== 'conflicting') return ['unknown'];
+  const checks = checkWord(pr.checks);
+  if (pr.mergeable === 'conflicting') {
+    // The conflict leads. The checks follow it ONLY where they are an errand of
+    // their own: `none` beside a conflict is the empty rollup the conflict
+    // CAUSED, so appending it would print the symptom next to its own cause as
+    // though they were two problems. `pending` and `unknown` say nothing a
+    // reader can act on beneath a conflict, and `green` is not an errand.
+    return checks === 'failing' ? ['conflicts', 'failing'] : ['conflicts'];
+  }
+  return [checks];
+}
+
+/** One PR's check rollup as a word, with every unrecognised value as `unknown`. */
+function checkWord(checks: PrRecord['checks']): PrStateWord {
+  switch (checks) {
     case 'green': return 'green';
     case 'pending': return 'pending';
     case 'failing': return 'failing';
@@ -3282,7 +3695,21 @@ export function prOutranks(candidate: PrRecord, held: PrRecord): boolean {
  *
  * Exported for test.
  */
-export const RELEASE_BRANCH = /^changeset-release\//;
+export { RELEASE_BRANCH };
+
+/**
+ * The branch `/plot-idea` cuts for a plan under review — `idea/<slug>`.
+ *
+ * A CONVENTION PLOT WRITES, which is what makes reading it sound rather than a
+ * guess: the same argument the row-building site makes when it recovers the plan
+ * slug from this name. The prefix is configurable per repo (`Branch prefixes` in
+ * `## Plot Config`), and `idea/` is the default every Plot repo starts from —
+ * a repo that renames it loses the mark and gets a `pr` row, which is the
+ * pre-2026-08-20 behaviour rather than a wrong answer.
+ *
+ * Exported for test.
+ */
+export const IDEA_BRANCH = /^idea\//;
 
 /**
  * WHICH OF THE SEVEN a row is — the judgement `AgentRow.kind` carries.
@@ -3295,6 +3722,17 @@ export const RELEASE_BRANCH = /^changeset-release\//;
  *   1. **A release is a release**, whatever else is true of it. It is the one
  *      row nobody should merge by reflex, and the mark exists to stop that — so
  *      it cannot be outranked by the PR arm that would otherwise claim it.
+ *   1b. **An `idea/` branch's PR is a `plan`**, for the same reason and by the
+ *      same test: what the reader is deciding about is the PLAN, not the code.
+ *      Technically it is a pull request — and that is exactly why the mark is
+ *      needed, since without it a plan awaiting APPROVAL renders as one more
+ *      open PR awaiting review, and the two ask for different acts. Merging it
+ *      is `plot-approve.sh`'s job, which takes a plan and no branch.
+ *
+ *      The branch name is the whole detection, and it is a convention **Plot
+ *      itself writes** (`/plot-idea` names the branch after the plan's slug) —
+ *      not a guess about one, which is the argument the row-building site one
+ *      screen down already makes for reading the slug out of the same name.
  *   2. **A merge conflict makes it a `branch`**, even with an open PR, because
  *      no PR resolves a conflict: the reader has to go to the branch and rebase.
  *      This is the rule `the-row-leads-with-its-subject` settled, applied here
@@ -3307,13 +3745,115 @@ export const RELEASE_BRANCH = /^changeset-release\//;
  * a merged branch whose PR has gone. `branch` is the fallback rather than a
  * fourth arm, because a row with no PR has nothing else it could be about.
  *
- * `build`, `agent`, `plan` and `ticket` are NOT decided here. A build and an
- * agent have no row yet; a plan row and a ticket row are built elsewhere and
- * each says its own kind at its own site, which is the same rule — the kind is
- * stated where the row is created.
+ * `build`, `agent` and `ticket` are NOT decided here — each is built elsewhere
+ * and says its own kind at its own site, which is the same rule: the kind is
+ * stated where the row is created. `plan` used to be in that list and now has
+ * one arm here, because an idea branch's PR is a row this loop DOES build and
+ * the fact that identifies it (the branch name) is in hand at this site.
  *
  * Exported for test.
  */
+/**
+ * WHAT A BRANCH CARRIES — the facts that decide what its row is about.
+ *
+ * ## The branch abstraction
+ *
+ * The operator's rule, 2026-08-21: *"the branch is carrying the information, but
+ * we should only see a branch row if the branch does not carry a wave, and the
+ * branch does not carry a draft plan, and the branch does not have a PR, and the
+ * branch is not a release branch. These are distinct tests."*
+ *
+ * So a branch row is the FALLBACK, reached by answering no four times — and each
+ * test is a property of the branch, named here rather than spelled as a
+ * condition at a call site. `carriesWave` and `carriesDraftPlan` are the two that
+ * were previously implicit: the wave test lived in the CLIENT (`waveGroupsFor`
+ * grouping rows per section), and the draft-plan test was an inline regex.
+ *
+ * Splitting the decision across server and client is what cost tonight: a
+ * wave-grouped branch lost its plan link, its stuck cell and its accessible name
+ * one at a time, because the client was deciding a kind the server did not know
+ * about. `RowKindSchema` states the rule this restores — the kind is the server's
+ * judgement and must not be remade in the renderer.
+ */
+export interface BranchFacts {
+  /** The ref's short name — `feature/x`, `idea/y`, `changeset-release/main`. */
+  branch: string;
+  /** Whether an open PR names it. NOT what condition the PR is in. */
+  hasPr: boolean;
+  /** Whether the SCAN found a conflict — never *whether one was looked for*. */
+  conflicts: boolean;
+  /** The wave it belongs to, or "" — a name only, never the test for one. */
+  wave: string;
+  /**
+   * The plan this branch belongs to, or "" where none names it.
+   *
+   * THE TEST FOR A WAVE, and the wave's own name is not. A wave is the unit a
+   * plan is cut into, so a branch no plan names cannot be in one whatever the
+   * wave field says.
+   */
+  plan: string;
+}
+
+/** Is this the branch changesets cuts for a release? */
+export function isReleaseBranch(f: Pick<BranchFacts, 'branch'>): boolean {
+  return RELEASE_BRANCH.test(f.branch);
+}
+
+/**
+ * Does it carry a plan?
+ *
+ * An `idea/<slug>` branch — `/plot-idea` names the branch after the plan's own
+ * slug, so the prefix IS the statement that this branch carries a plan.
+ *
+ * **THE PR WAS REQUIRED UNTIL 2026-08-21**, on the reasoning that *a plan is not
+ * under review until something asks for the review*. That reads the kind as a
+ * phase, and it is not: the operator's rule is *"Ein plan Branch (idea/) mit oder
+ * ohne PR ist ein PLAN"*. A plan written and not yet opened for review is still a
+ * plan, and calling it a bare branch is exactly the confusion the kind exists to
+ * remove — the reader is told *a name somebody pushed* about the one row that is
+ * a document waiting for them.
+ *
+ * Where it is in its lifecycle belongs to the row's PHASE and its status, which
+ * carry Draft, Approved and the rest. The kind says what the row IS; the status
+ * says where it has got to. Same split as `release`, whose arm has always read
+ * the ref name alone.
+ */
+export function carriesDraftPlan(f: Pick<BranchFacts, 'branch'>): boolean {
+  return IDEA_BRANCH.test(f.branch);
+}
+
+/**
+ * Does it belong to a wave — that is, does a plan name it?
+ *
+ * **THE PLAN IS THE TEST, and it replaced the wave's NAME on 2026-08-21.** This
+ * read `wave !== UNNAMED_WAVE`, on the reasoning that *a wave with no name
+ * cannot head a row, so a branch in one is just a branch*. That was true while a
+ * wave was a heading. It is not true of a carrier: `MANIFESTO.md` states *"a plan
+ * with no subheadings is one wave"*, so a plan nobody cut into `### ` sections
+ * still has exactly one wave — an unnamed one — and its branch is that wave's
+ * work.
+ *
+ * Measured when the operator caught it on the live board: a merged branch under
+ * plan `the-no-ref-arm-asks-once-too`, with PR #255, rendering as `BRANCH`. Its
+ * plan carries no `### ` heading, so its wave parsed as `(unnamed)` and the arm
+ * refused it. 23 of this repo's 83 plans with a `## Branches` section have no
+ * named wave — a template rule (*"EVERY wave gets a `### <Name>` heading"*) with
+ * no gate behind it, violated 27% of the time.
+ *
+ * The operator's two rules settle both halves:
+ *
+ *   *"Ein branch der zu keinem Plan gehört ist keine WAVE"* — no plan, no wave.
+ *   *"Ein PR der einen Branch hat der zu keinem Plan gehört ist ein PR"* — and
+ *   what such a row IS instead is decided by the arm below this one.
+ *
+ * So the unnamed wave is a naming defect in the plan file, repaired by
+ * `/plot-reslice`, and never a reason for the board to call a plan's work a bare
+ * branch.
+ */
+export function carriesWave(f: Pick<BranchFacts, 'plan'>): boolean {
+  return Boolean(f.plan);
+}
+
 export function rowKind(
   branch: string,
   /**
@@ -3339,18 +3879,115 @@ export function rowKind(
    * has produced no evidence for the branch arm.
    */
   conflicts: boolean,
+  /**
+   * The PLAN this branch belongs to, or "" — the test for a wave.
+   *
+   * It took the wave's NAME until 2026-08-21, and a name cannot answer the
+   * question: a plan with no `### ` heading has one unnamed wave, and its branch
+   * is that wave's work. `carriesWave` states the operator's rule in full — no
+   * plan, no wave.
+   *
+   * Last in the parameter list because it is the newest, so every existing caller
+   * is unchanged and a caller that says nothing about a plan gets the behaviour
+   * it had.
+   */
+  plan = '',
 ): RowKind {
-  if (RELEASE_BRANCH.test(branch)) return 'release';
+  // ## A BRANCH ROW IS THE FALLBACK, and it takes four distinct negatives
+  //
+  // The operator's rule, 2026-08-21: *"we should only see a branch row if the
+  // branch does not carry a wave, and the branch does not carry a draft plan, and
+  // the branch does not have a PR, and the branch is not a release branch. These
+  // are distinct tests."*
+  //
+  // Each arm below is one of those tests, in the order a stronger claim outranks
+  // a weaker one. Everything that answers no to all four is a branch — a name
+  // somebody pushed and nothing else is true of yet.
+  //
+  // **The WAVE test was being made in the CLIENT** until now, by `waveGroupsFor`
+  // grouping rows per section. That split the one decision across two places, and
+  // the client's half could not see what the server had decided — which is why a
+  // wave-grouped branch lost its plan link, its stuck cell and its accessible
+  // name one at a time. `RowKindSchema` says this judgement is the server's and
+  // must not be remade in the renderer; the wave arm belongs here with the rest.
+  if (isReleaseBranch({ branch })) return 'release';
+  // A PLAN AWAITING APPROVAL, not code awaiting review — see arm 1b. Ordered
+  // ABOVE the conflict arm on purpose: a conflicting plan PR is still a plan,
+  // and the act it wants is approval rather than a rebase. It is BELOW the
+  // release arm only because the two cannot both match.
+  if (carriesDraftPlan({ branch })) return 'plan';
+  // A RUN IN PROGRESS IS A BUILD, and this arm is why the `build` kind existed
+  // for weeks with nothing ever assigned to it — `tupleFromBuild` was written,
+  // tested, and unreachable, because this function's own docstring said *"a build
+  // and an agent have no row yet"* while `classify` was already routing these
+  // rows to WAITING ON A MACHINE.
+  //
+  // The result was a section whose subject is *what is a machine doing* holding
+  // a row labelled `PR`, with a note reading `CI is running for PR #304`.
+  // Reported from a screenshot; the section knew, the kind did not.
+  //
+  // A CONFLICT MAKES IT A BRANCH even with an open PR, because no PR resolves a
+  // conflict: the reader has to go to the branch and rebase. This is the one arm
+  // that answers *yes* to a later test and still returns `branch`, and it is
+  // deliberate — see the rule `the-row-leads-with-its-subject` settled.
   if (conflicts) return 'branch';
-  return hasPr ? 'pr' : 'branch';
+  // ## THE WAVE IS WHAT CARRIES THE PLAN, so it outranks what happens to it
+  //
+  // This arm was LAST until 2026-08-21, on the argument that a wave is *"the
+  // weakest claim"* because it only says *which slice of a plan* a branch belongs
+  // to. That was a mis-classification rather than a mis-ranking, and the method
+  // this board serves had already written down why.
+  //
+  // *Ein Team, ein Plan, viele Agenten* — the published factsheet — names the
+  // defect in the row: *"Sie sind nicht der Gegenstand, sie sind das Vehikel …
+  // Wer die Zeile mit dem Branchnamen führt, zeigt allen dreien dasselbe
+  // Gesicht."* Its table of what a person waits on keeps subject and vehicle in
+  // separate columns: a WAVE is the subject, and it *"fährt auf einem Branch mit
+  // Pull Request und eigenem Worktree auf"*. `rowKind` had the two in one column
+  // and let the vehicle win.
+  //
+  // The model says the same: `plan → wave → branch`. A wave is what a plan is cut
+  // into, what `plot-dispatch` claims, what a worktree exists for, and what must
+  // finish before the next one opens. A PR, a run, a review are EVENTS at a
+  // branch while its wave is carried out — each comes and goes without the wave
+  // changing, and the wave cannot change without the plan's progress changing.
+  // So the row is about the carrier; the events are its status, links and notes.
+  //
+  // The conflict arm above is the deliberate exception, and the same table argues
+  // for it: *"Branch in Flug — fährt auf sich selbst — das Vehikel ist das
+  // Problem"*. There the vehicle IS the subject.
+  //
+  // Two measurements corroborate and decide nothing, which is the right weight
+  // for them: 67 of 76 rows on this repo's board are already `wave` and `build`
+  // is 0 of 76, rendering in `mock-fleet.ts` and nowhere else. The count once
+  // cited FOR `pr` inverts on reading — *67 of 80 rows carry BOTH a branch and a
+  // PR* — so `pr` separated almost nothing.
+  //
+  // This is also the structural fix for a defect the `build` arm was patching.
+  // That arm was added because WAITING ON A MACHINE showed a row labelled `PR`
+  // whose note read *"CI is running for PR #304"* — the section knew and the kind
+  // did not. Making the kind track the machine was one way to close the gap;
+  // making the kind the WAVE closes it permanently, because a wave row cannot
+  // contradict a section that is asking what is happening to a wave.
+  if (carriesWave({ plan })) return 'wave';
+  if (hasPr) return 'pr';
+  return 'branch';
 }
 
-/** The PR fields a row carries: the link, and the two independent conditions. */
+/**
+ * The PR fields a row carries: the link, and the two independent conditions.
+ *
+ * `state` and `states` both travel, and `state` is read out of `states` rather
+ * than computed beside it — so the row cannot ship a head that disagrees with
+ * its own winner. A consumer that wants *the one thing this waits for* reads
+ * `state`; one that wants *what is true of this PR* reads `states`.
+ */
 export function agentPr(pr: PrRecord): {
   number: number; url: string; draft: boolean;
-  state: ReturnType<typeof prState>;
+  state: PrStateWord; states: PrStateWord[];
 } {
-  return { number: pr.number, url: pr.url ?? '', draft: pr.draft === true, state: prState(pr) };
+  const states = prStates(pr);
+  return { number: pr.number, url: pr.url ?? '', draft: pr.draft === true, state: states[0], states };
 }
 
 function withNote(base: string, note: string): string {
@@ -3496,6 +4133,36 @@ export function briefState(repoRoot: string, branch: string): BriefState {
   }
 }
 
+/**
+ * Which plans claim each branch — the index that finds a double claim.
+ *
+ * Built once per pulse over the whole estate, because the question is about the
+ * ESTATE and not about any one plan: a branch listed in two plans' `## Branches`
+ * sections looks perfectly ordinary from inside either one.
+ *
+ * Only collisions are kept. The common answer is one plan, and a map holding
+ * every branch would be a map nobody reads — the same rule `stuckState` follows
+ * in returning null for a branch that is not stuck.
+ */
+export function doubleClaimedBranches(pulse: FleetPulse): Map<string, string[]> {
+  const byBranch = new Map<string, Set<string>>();
+  for (const plan of pulse.plans) {
+    const slug = plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
+    for (const wave of plan.waves) {
+      for (const b of wave.branches) {
+        const seen = byBranch.get(b.branch) ?? new Set<string>();
+        seen.add(slug);
+        byBranch.set(b.branch, seen);
+      }
+    }
+  }
+  const collisions = new Map<string, string[]>();
+  for (const [branch, plans] of byBranch) {
+    if (plans.size > 1) collisions.set(branch, [...plans].sort());
+  }
+  return collisions;
+}
+
 export function rowsFromPulse(
   pulse: FleetPulse,
   ages: Map<string, number | null>,
@@ -3506,6 +4173,13 @@ export function rowsFromPulse(
   approvedAt?: Map<string, number> | null,
   now = Date.now(),
   ideaPlans?: Map<string, string> | null,
+  /**
+   * The version each release branch would ship, by branch — see
+   * `releaseVersions`. Threaded like `ideaPlans` and for the same reason: this
+   * function is SYNCHRONOUS and cannot read git, so anything from a ref arrives
+   * as a map the caller built.
+   */
+  versions?: Map<string, string> | null,
   /**
    * Recent CI runs per branch, for the failing ones — see `refreshRuns`. Last in
    * the parameter list because it is the newest, so every existing caller is
@@ -3562,7 +4236,41 @@ export function rowsFromPulse(
   repoRoot = '',
 ): AgentRow[] {
   const rows: AgentRow[] = [];
+  // ONE PASS OVER THE ESTATE, before the plan loop — a double claim cannot be
+  // seen from inside either plan that makes it.
+  const doubleClaimed = doubleClaimedBranches(pulse);
   for (const plan of pulse.plans) {
+    // A RELEASED PLAN HAS DRAINED, and the board has nothing left to say about
+    // it. DONE is the RELEASE SCOPE — work that has landed and whose version has
+    // NOT shipped, waiting on its endgame test — and `Released` is exactly the
+    // leave-condition: `/plot-release` resolves the version from `git tag
+    // --contains`, so `released` means *the release shipped* rather than a date
+    // that can drift. The section is a queue that drains, not an archive that
+    // decays, and cutting the version empties it.
+    //
+    // DROPPED HERE, at the PLAN, not filtered per row in `classify`. Three
+    // reasons this is the plan's decision and not the branch's:
+    //   - The scope is the plan's. A plan releases with ALL its waves at once —
+    //     there is no partial release — so a released plan's every branch is out
+    //     of scope together, and asking the question once per plan says that.
+    //   - `classify` answers with one of six WaitingGroups and has no "not
+    //     rendered" among them; a released row it kept would have to land in a
+    //     section, and every section is a call to action a shipped plan is not.
+    //   - This is the ONE place a row may be dropped from the board — the
+    //     membership rule's easy failure is losing a live row silently, so the
+    //     drop is confined to the single phase that licenses it and nothing else
+    //     leaves for any other reason.
+    //
+    // `released` ONLY, never `delivered`: a delivered plan is complete and
+    // unreleased — the core of the scope, ready for the endgame — and it stays.
+    // The asymmetry is the design: every wave being complete is a MEASUREMENT,
+    // releasing is a DECISION, and only the decision drains the queue.
+    //
+    // The rolling window is why this fires at all: the scan admits plans
+    // delivered or released inside the last 24 h, so a freshly-released plan
+    // reaches this loop and would otherwise crowd DONE with shipped work — 41 of
+    // 61 DONE rows, measured 2026-08-23.
+    if (plan.phase === 'released') continue;
     // WHICH earlier wave is blocking — the plan's FIRST incomplete one, read
     // once per plan rather than searched per row.
     //
@@ -3649,10 +4357,20 @@ export function rowsFromPulse(
           // Whether a worktree HOLDS this branch — the path with the merged tip
           // excluded, the AND the scan computed. It decides the WORKING lift, so
           // a leftover worktree on a merged branch stays in NOT STARTED instead
-          // of reading as somebody working. The PATH itself is not passed here —
-          // it names the place, which the row does through the pulse's
-          // `worktrees` list, not through classification.
-          b.held);
+          // of reading as somebody working.
+          b.held,
+          // WHERE TO LOOK when the worker broke — the path, which `held` above
+          // deliberately does not carry because a lift must not be decided on a
+          // path's presence. This decides nothing; it lands in the sentence of a
+          // `failed`, `ended` or `stalled` row so a reader can go read the log.
+          //
+          // The note above this line said the path was NOT passed here, and that
+          // it names the place through the pulse's `worktrees` list instead. That
+          // was true while no note needed it: the list serves the plan modal,
+          // which is a place a reader navigates TO. A broken agent's row has to
+          // carry the location itself — it is read in a list, often over a
+          // terminal, by someone deciding whether to open anything at all.
+          b.local_worktree);
         // Derived once, read twice below — and derived from `group` rather than
         // re-deciding it, so a row `classify` placed outside `not-started`
         // cannot pick up a waiting-state by a rule that drifted apart from it.
@@ -3687,11 +4405,33 @@ export function rowsFromPulse(
           kind: rowKind(
             b.branch,
             pr !== null,
-            b.conflicts_known && b.conflicts.length > 0,
+            // A CLOSED PR'S CONFLICT DOES NOT MAKE IT A BRANCH.
+            //
+            // The conflict arm exists because *no PR resolves a conflict — the
+            // reader has to go to the branch and rebase*. Nobody rebases
+            // abandoned work, so on a closed PR the arm sends the row to a kind
+            // that promises an act no one will perform.
+            //
+            // `stuckState` reaches the same conclusion one file over and drops
+            // the cue; this keeps the KIND agreeing with it, which is the rule
+            // `classify` states — *the row's word and its sentence must not be
+            // able to disagree*.
+            b.conflicts_known && b.conflicts.length > 0 && pr?.state !== 'CLOSED',
+            // THE PLAN, which is what says this branch is a wave's work. Not the
+            // wave's NAME: a plan with no `### ` heading has one unnamed wave and
+            // its branch belongs to it all the same. Passing the name here sent a
+            // merged branch under a real plan to `BRANCH`, which is the defect
+            // this replaced.
+            plan.file,
           ),
           branch: b.branch,
           plan: plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, ''),
           planFile: plan.file,
+          // NEVER A RELEASE, so never a version: this loop walks the branches a
+          // PLAN names, and `changeset-release/*` belongs to no plan — it
+          // reaches the board through the planless-PR loop below, which is where
+          // the version is read.
+          version: '',
           wave: wave.name || '(unnamed)',
           state: b.state,
           // WHY it was deferred, carried through from the plan's annotation.
@@ -3762,6 +4502,9 @@ export function rowsFromPulse(
           // hours as though someone were writing to it. Three fields, two
           // meanings, and the row renders them as two marks.
           localDirty: b.local_dirty,
+          // HOW LONG SINCE THE LAST WRITE, which is what makes a write an EVENT
+          // rather than a standing condition — see `changed_ago_seconds`.
+          changedAgo: b.changed_ago_seconds ?? null,
           localLocked: b.local_locked,
           localAhead: b.local_ahead,
           // WHAT THIS ROW IS WAITING FOR, as a value — computed from the same
@@ -3827,6 +4570,16 @@ export function rowsFromPulse(
             changedPaths: b.changed_paths,
             failingChecks: pr?.failing_checks ?? [],
             runHistory: runs?.get(b.branch) ?? [],
+            // TWO PLANS CLAIMING ONE BRANCH — from the estate-wide index, since
+            // the collision is invisible from inside either plan.
+            claimedBy: doubleClaimed.get(b.branch) ?? [],
+            // AND THE WAVE'S OTHER BRANCHES, where it holds more than one. A wave
+            // is carried out in ONE branch and one worktree, so several means the
+            // plan was never sliced after its spike. Read from the wave in hand —
+            // no index needed, unlike the double claim.
+            waveSiblings: wave.branches.length > 1
+              ? wave.branches.map((x) => x.branch)
+              : [],
           }),
           // WHAT THE MACHINE DID ABOUT IT — beside the state, never folded into
           // it. A silent automatic write is indistinguishable from a defect, so
@@ -3956,6 +4709,9 @@ export function rowsFromPulse(
       // now, so the caution is obsolete — and leaving it in cost the grouped
       // rows their only way to open the plan.
       planFile: ideaPlans?.get(branch) ?? '',
+      // THE VERSION a release branch would ship, read from its own
+      // `package.json` — "" on every other branch. See `releaseVersions`.
+      version: versions?.get(branch) ?? '',
       wave: '',
       state: 'wip',
       // No plan, so no deferral and nothing to explain.
@@ -3989,6 +4745,10 @@ export function rowsFromPulse(
       // FALSE` the row simply carries no activity marker. Guessing one from the
       // PR's age would invent an observation this machine never made.
       localDirty: false,
+      // NO WORKTREE, so no write to time. These rows reach the board from the
+      // host's PR list rather than from a checkout — the same reason
+      // `localDirty` is false one line up.
+      changedAgo: null,
       localLocked: false,
       // 0 here means UNOBSERVED, exactly as `false` does above — this row was
       // built from the PR map, so no worktree was ever inspected for it. The
@@ -4092,7 +4852,8 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
   const ageSeconds = entry.at === null ? 0 : Math.round((now - entry.at) / 1000);
   const rows = entry.pulse
     ? rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, entry.prs,
-      entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans, entry.runs,
+      entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans, entry.versions,
+      entry.runs,
       // The root, so each row can be asked whether its brief exists. Read HERE
       // on the render clock rather than carried on the pulse: the check is one
       // `existsSync` and a brief written between two scans is visible on the
@@ -4131,6 +4892,13 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
     error: entry.error,
     shrink: entry.shrink,
     rows,
+    // THE WAVES, derived once from the same pulse the rows came from — beside
+    // `rows`, not left for the client to re-group. Emitted unconditionally: []
+    // on a cold cache, because the client CASTS this payload and a Zod
+    // `.default([])` never fires client-side. A field the server left off would
+    // reach the renderer as `undefined`, the `fleetControls` lesson from
+    // 2026-08-22.
+    waves: entry.pulse ? deriveWaves(entry.pulse) : [],
     summary: entry.pulse?.summary ?? EMPTY_SUMMARY,
     // COUNTED FROM THE ROWS, never tallied beside the decision that made them.
     // A counter incremented in parallel with a classification is a second
@@ -4162,5 +4930,12 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
     // in both and is not duplicated — the entities differ.
     agents: entry.agents,
     issueError: entry.issueError,
+    // The two fleet controls, read fresh from `.plot/state/` on this render
+    // clock — NOT off the cached pulse — so a write through /api/fleet-controls
+    // is visible on the very next poll. Read here, unconditionally, because the
+    // client casts this payload rather than parsing it: a Zod `.default` never
+    // fires client-side, so a field the server left off would reach the renderer
+    // as `undefined`. It is emitted every time, cold cache included.
+    fleetControls: readFleetControls(opts),
   };
 }

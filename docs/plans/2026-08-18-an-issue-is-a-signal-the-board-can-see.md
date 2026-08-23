@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Story:** plot-board
 - **Sprint:** the-board-tells-the-truth
@@ -13,7 +13,7 @@
 - **Approved:** 2026-08-18, jwloka, in-session
 - **Started:** 2026-08-18, Jan Wloka, `feature/the-board-sees-unplanned-issues`
 - **Delivered:** 2026-08-19, jwloka, PRs #236, #248
-- **Released:**
+- **Released:** 2026-08-22, v2.7.0
 - **Started:** 2026-08-19, Jan Wloka, `feature/an-issue-becomes-a-plan`
 
 ## Changelog

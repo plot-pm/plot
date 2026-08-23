@@ -29,6 +29,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Fleet, AgentRow } from '../../src/contract/schema.js';
+import { expandAgentFolds } from '../helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(here, '../../../..');
@@ -182,6 +183,7 @@ describe('the command can be read in full: one line, then the whole thing, copie
       }) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Working').first().waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     await page.locator('[data-row-actions]').first().click();
     await page.locator('[data-worker-log-open]').first().click();
     await page.locator('[data-command-fact]').waitFor({ timeout: 5_000 });
@@ -335,6 +337,7 @@ describe('the command can be read in full: one line, then the whole thing, copie
         }) }));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Working').first().waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       await page.locator('[data-row-actions]').first().click();
       await page.locator('[data-worker-log-open]').first().click();
       await page.locator('[data-worker-log]').waitFor({ timeout: 5_000 });

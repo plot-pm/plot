@@ -34,7 +34,7 @@ describe('roundsBadgeText', () => {
     // Past Discovery the count is history: the design question it answers was
     // settled by approval, and a number nobody acts on is the crowding this
     // board keeps removing.
-    for (const phase of ['Design', 'Development', 'Endgame', 'Released'] as const) {
+    for (const phase of ['Design', 'Development', 'Testing', 'Released'] as const) {
       expect(roundsBadgeText(card({ phase, rounds: 3 }))).toBe('');
     }
     // …and every Draft card with a count does carry it.

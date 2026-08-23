@@ -10,13 +10,16 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — reported from a screenshot; the sizes are measured and the caret comment defends the click target, which this does not touch
+- **Delivered:** 2026-08-22, jwloka, PRs #302
+- **Released:** 2026-08-22, v2.7.0
+- **Started:** 2026-08-20, Jan Wloka, `bug/a-section-is-not-a-row`
 
 ## Problem
 
@@ -115,7 +118,7 @@ differ here too.
 ## Branches
 
 ### Sized
-- `bug/a-section-is-not-a-row` — the section heading and its fold caret stop being row-sized; the click target and the row height are untouched. Tests: a section heading's computed font size is larger than a row's; the caret glyph is larger than a row's text; **the fold target is still at least 24px tall**; row height is unchanged from before; the `space-y-8` section separation is unchanged; a folded section still folds and its `aria-expanded` still flips.
+- `bug/a-section-is-not-a-row` — the section heading and its fold caret stop being row-sized; the click target and the row height are untouched. Tests: a section heading's computed font size is larger than a row's; the caret glyph is larger than a row's text; **the fold target is still at least 24px tall**; row height is unchanged from before; the `space-y-8` section separation is unchanged; a folded section still folds and its `aria-expanded` still flips. (#302) → #302
 
 ## Notes
 

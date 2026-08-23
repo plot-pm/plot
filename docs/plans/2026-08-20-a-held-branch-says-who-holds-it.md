@@ -9,7 +9,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Sprint:**
@@ -17,6 +17,8 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — the board reported `WORKING: none` while four agents worked; finding 1+2 already fixed in #258
+- **Delivered:** 2026-08-22, jwloka, PRs #260, #261, #266, #269, #274
+- **Released:** 2026-08-22, v2.7.0
 - **Started:** 2026-08-20, Jan Wloka, `feature/a-worktree-holds-its-branch`
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-board-says-who-holds-a-branch`
 
@@ -157,10 +159,10 @@ a warning it may read as advisory.
 - `feature/a-worktree-holds-its-branch` — the fleet scan reports a branch as held when a worktree has it checked out with an unmerged tip, alongside the claim ref rather than instead of it. Tests: a committed-and-clean worktree reads held; a dirty worktree reads held; a clean worktree on a merged branch does not; a claim ref with no worktree still reads claimed; the branch's wave eligibility is unchanged by holding. → #266
 
 ### Said
-- `bug/the-board-says-who-holds-a-branch` — `WORKING` shows a held branch whether or not its tree is dirty, and `NOT STARTED` says *held in a local worktree* instead of *nobody has taken it*. Tests: an agent that commits stays in WORKING; a held branch is never offered as eligible; the row names the worktree.
-- `bug/a-branch-row-carries-its-link` — the branch row carries the PR number and URL the scan already resolved, so the branch name links the way the plan name does. Tests: a branch with a merged PR carries its number; a branch with no PR carries none and renders as text rather than a dead link; the row's link survives a branch whose ref is deleted, since the PR outlives it.
+- `bug/the-board-says-who-holds-a-branch` — `WORKING` shows a held branch whether or not its tree is dirty, and `NOT STARTED` says *held in a local worktree* instead of *nobody has taken it*. Tests: an agent that commits stays in WORKING; a held branch is never offered as eligible; the row names the worktree. → #274
+- `bug/a-branch-row-carries-its-link` — the branch row carries the PR number and URL the scan already resolved, so the branch name links the way the plan name does. Tests: a branch with a merged PR carries its number; a branch with no PR carries none and renders as text rather than a dead link; the row's link survives a branch whose ref is deleted, since the PR outlives it. → #260
 - `bug/every-action-is-in-the-menu` — *Create plan* moves into the `...` menu with every other row action, freeing the age column it currently overlaps. Tests: an issue row's menu offers Create plan; no action renders outside the menu; the two-step arm survives the move; the age column renders alone. → #269
-- `bug/dispatch-refuses-a-held-branch` — `plot-dispatch.sh` refuses a branch whose worktree exists with an unmerged tip, naming the path, and says so in `--dry-run`. Tests: a held branch is refused and counted `skipped`; the refusal names the worktree; `--allow-local` does not override it; a leftover worktree on a merged branch is still dispatchable.
+- `bug/dispatch-refuses-a-held-branch` — `plot-dispatch.sh` refuses a branch whose worktree exists with an unmerged tip, naming the path, and says so in `--dry-run`. Tests: a held branch is refused and counted `skipped`; the refusal names the worktree; `--allow-local` does not override it; a leftover worktree on a merged branch is still dispatchable. → #261
 
 ## Notes
 

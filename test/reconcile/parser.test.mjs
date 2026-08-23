@@ -149,6 +149,31 @@ test('plan-meta: waves group branches by ### subheading, deferred flagged', () =
   ]);
 });
 
+test('plan-meta: a wave name past the threshold is reported in long_wave_names', () => {
+  // A wave name is a label; a 53-character sentence is a plan-authoring mistake
+  // the board can only render badly. The parser REPORTS it in a top-level
+  // `long_wave_names` array — a REPORT, never a refusal: the waves[] array is
+  // unchanged and the plan still parses. The threshold is a judgement: the
+  // longest legitimate name here (`Offered first`, 13 chars) stays silent, the
+  // offender (53 chars) is named.
+  const actual = parse('canonical-prose-wave-name.md');
+  assert.deepEqual(actual.long_wave_names,
+    ['Moved — recorded here so the plan states what it started']);
+  // The report does not fail the parse: all three waves still come through,
+  // names intact — nothing was shortened, nothing was dropped.
+  assert.deepEqual(actual.waves.map((w) => w.name),
+    ['Shaped', 'Moved — recorded here so the plan states what it started', 'Offered first']);
+});
+
+test('plan-meta: a plan whose wave names are all labels reports an empty long_wave_names', () => {
+  // Empty is the field a consumer reads to know there is nothing to fix — the
+  // field is ALWAYS present (an array), never omitted, so `.long_wave_names`
+  // never reads as undefined. canonical-waves.md carries `Tracer`,
+  // `Implementation`, `Wave 3` — all short.
+  const actual = parse('canonical-waves.md');
+  assert.deepEqual(actual.long_wave_names, []);
+});
+
 test('plan-meta: a plan without ### subheadings is a single unnamed wave', () => {
   // Backwards compatibility: every pre-wave plan behaves as one wave, all
   // branches eligible at once — exactly today's semantics.
@@ -648,4 +673,347 @@ test('plan-meta: a deferral reason with a quote survives as JSON', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ---------------------------------------------------------------------------
+// `prs` — the field four gates read, and the one nothing tested.
+//
+// /plot-deliver's merged check, /plot-release's version resolution, the sweep's
+// section 6 and the fleet scan all decide from `prs`. Until 2026-08-22 no test
+// in this file took it as its subject: the two existing mentions are incidental
+// assertions inside `issues` tests. The measured cost was a back-fill that
+// "already referenced the PR" on four plans and left every one of them
+// invisible to the parser, because the reference it found was human-readable
+// prose rather than the annotation.
+// ---------------------------------------------------------------------------
+
+/** Parse a plan written to a temp file, returning its JSON. */
+function parseSource(src, name = '2026-08-22-prs.md') {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-prs-'));
+  const f = path.join(dir, name);
+  writeFileSync(f, src);
+  try {
+    return JSON.parse(execFileSync('bash', [parser, f], { encoding: 'utf8' }));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('plan-meta: only `→ #N` is a PR annotation — a citation is not', () => {
+  // THE STRICTNESS IS THE FEATURE, and it is load-bearing enough to pin.
+  //
+  // Plans cite PR numbers constantly as history: this repo's
+  // a-plan-row-is-not-a-branch-row names #175 and #191 in prose as prior art,
+  // and neither delivered it. A parser that scanned the body for `#NNN` would
+  // record those as delivery evidence — which is why `prs` reads ONE form and
+  // refuses every lookalike. The four cases below are the lookalikes that
+  // actually occur in this repo's plans.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Delivered
+- **Type:** bug
+
+## Branches
+
+- \`bug/annotated\` — the real form → #100
+- \`bug/cited\` — carries (#101) and nothing else
+- \`bug/prose\` — mentions #102 mid-sentence, then annotates → #103
+
+## Notes
+
+Prose citing #999, and a table row: | \`bug/table\` | → #998 |
+`);
+  assert.deepEqual(meta.prs, [100, 103], 'only the two arrow-annotated numbers');
+  assert.ok(!meta.prs.includes(101), '(#101) is a citation, not an annotation');
+  assert.ok(!meta.prs.includes(102), 'a bare #102 in prose is not an annotation');
+  assert.ok(!meta.prs.includes(999), '#999 outside ## Branches never counts');
+  assert.ok(!meta.prs.includes(998), 'an arrow outside ## Branches never counts');
+});
+
+test('plan-meta: a branch with no annotation is still a branch, and adds no PR', () => {
+  // THE ASYMMETRY THAT HID THE FAILURE. A plan can list five branches and
+  // report two PRs, and nothing in the JSON pairs them — so "this plan has
+  // branches" and "this plan has PR evidence" are separate questions. A
+  // delivery gate that checks only `branches` sees a full plan; one that reads
+  // `prs` sees the truth. Both fields are asserted together here so the gap
+  // between them stays visible to whoever changes this next.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+
+## Branches
+
+- \`bug/with\` — annotated → #200
+- \`bug/without\` — no annotation at all
+`);
+  assert.deepEqual(meta.branches, ['bug/with', 'bug/without'], 'both are branches');
+  assert.deepEqual(meta.prs, [200], 'only the annotated one contributes a PR');
+});
+
+test('plan-meta: `→ owner/repo#N` is a PR annotation — split-home plans have one', () => {
+  // THE DOCUMENTED FORM THE PARSER USED TO DROP. /plot-deliver step 4 tells
+  // implementers to write `→ owner/repo#N` for `Impl: other repo` plans, and
+  // names it again in its split-home clause — but `prs` matched `→ #[0-9]+`
+  // only, so the annotation vanished and `error` stayed null. A split-home
+  // plan therefore reported `prs: []` with `impl: other-repo` beside it: the
+  // delivery gate would read "no PRs" for a plan whose only PR was written
+  // exactly as instructed. No plan in this repo used the form yet, so the
+  // defect was latent and would have struck the first adopter.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+- **Impl:** other repo
+
+## Branches
+
+- \`feature/x\` — lands in the code repo → acme/api#42
+- \`feature/y\` — and one here → #43
+`);
+  assert.deepEqual(meta.prs, [42, 43], 'the cross-repo PR counts as a PR');
+  assert.equal(meta.impl, 'other-repo', 'and the plan is still split-home');
+});
+
+test('plan-meta: `→#N` without the space is reported, never silently dropped', () => {
+  // A TYPO MUST NOT READ AS AN ABSENCE. The annotation is written by hand, and
+  // `→#44` is the obvious slip. Accepting it would widen the contract on a
+  // guess about intent; dropping it silently is worse, because "no annotation"
+  // is a claim the sweep acts on — it prints "cannot resolve a version" and a
+  // human adds an annotation that is already there. So the parser reports it:
+  // `malformed_prs` carries the offending text, and `prs` stays strict.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+
+## Branches
+
+- \`bug/typo\` — missing the space →#44
+- \`bug/fine\` — correct → #45
+`);
+  assert.deepEqual(meta.prs, [45], 'the strict form is unchanged');
+  assert.deepEqual(meta.malformed_prs, ['→#44'], 'and the typo is reported, not lost');
+});
+
+test('plan-meta: prs are sorted, unique, and several may share one line', () => {
+  // THE SHAPE THE HEADER PROMISES ("sorted, unique"), asserted rather than
+  // assumed. A wave line carrying two PRs is ordinary — a branch reworked
+  // after review — and a plan repeating a number across waves must not report
+  // it twice, since callers use the list's length as a count of evidence.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Delivered
+- **Type:** feature
+
+## Branches
+
+### Wave one
+
+- \`feature/a\` — reworked → #50 → #48
+- \`feature/b\` — one → #49
+
+### Wave two
+
+- \`feature/c\` — repeats the first → #48
+`);
+  assert.deepEqual(meta.prs, [48, 49, 50], 'sorted ascending, duplicates collapsed');
+});
+
+test('plan-meta: a plan with no Branches section reports no prs and no malformed ones', () => {
+  // THE EMPTY CASE, pinned so "absent" and "malformed" stay distinguishable.
+  // Draft plans and knowledge plans have no branches at all; they must report
+  // [] for both, never null and never an error.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Draft
+- **Type:** docs
+
+## Problem
+
+Nothing to build yet — and #123 in prose stays prose.
+`);
+  assert.deepEqual(meta.prs, [], 'no branches, no prs');
+  assert.deepEqual(meta.malformed_prs, [], 'and nothing malformed either');
+});
+
+// ---------------------------------------------------------------------------
+// `## Waves` — the new spelling. The branch and PR live in the `### ` heading
+// (`### Removed (Branch: bug/foo, PR: #300)`), and the line below is pure
+// prose. The parser must read BOTH spellings, because wave 3 of this very plan
+// migrates 85 files one at a time and a plan moved one commit before the parser
+// learns the shape must not go invisible — it parses to zero branches SILENTLY
+// under the old parser, and every consumer inherits the silence.
+//
+// The load-bearing property: a new-shape plan and its old-shape twin produce
+// byte-identical branches/prs/waves JSON. That identity is what makes the
+// migration provably a re-spelling rather than a change of meaning.
+// ---------------------------------------------------------------------------
+
+test('plan-meta: a ## Waves plan and its old-shape twin parse to identical branches/prs/waves', () => {
+  // THE PROPERTY THE WHOLE PLAN RESTS ON. The heading takes the meta (which
+  // branch, which PR); the line keeps the work. Read from either spelling, the
+  // structural arrays must be indistinguishable — so a one-file migration can
+  // be verified by diffing the JSON before and after.
+  const nu = parse('canonical-waves-heading.md');
+  const old = parse('canonical-waves-heading-twin.md');
+  assert.deepEqual(nu.branches, old.branches, 'flat branches[] identical');
+  assert.deepEqual(nu.prs, old.prs, 'prs[] identical');
+  assert.deepEqual(nu.waves, old.waves, 'waves[] identical — names, order, deferred, claimed');
+  assert.deepEqual(nu.malformed_prs, old.malformed_prs, 'no malformed PRs from either shape');
+  // Spell out the expectation once, so a change to BOTH fixtures that keeps them
+  // equal to each other but wrong still fails.
+  assert.deepEqual(nu.branches, [
+    'feature/api', 'feature/dropped', 'feature/migration', 'feature/thin-slice',
+  ], 'sorted, unique, from the headings');
+  assert.deepEqual(nu.prs, [10, 11], 'only the two headings that carry a PR:');
+  assert.deepEqual(nu.waves, [
+    { name: 'Tracer', branches: [{ branch: 'feature/thin-slice', deferred: false, deferred_reason: '', claimed: '' }] },
+    { name: 'Implementation', branches: [{ branch: 'feature/api', deferred: false, deferred_reason: '', claimed: '' }] },
+    { name: 'Deferred one', branches: [{ branch: 'feature/dropped', deferred: true, deferred_reason: 'covered by feature/api', claimed: '' }] },
+    { name: 'Wave four', branches: [{ branch: 'feature/migration', deferred: false, deferred_reason: '', claimed: '' }] },
+  ], 'one heading, one wave, one branch — the post-2026-08-21 rule');
+});
+
+test('plan-meta: a ## Waves heading with no PR: yields no PR, not an empty string', () => {
+  // ABSENT IS NOT A GUESS, carried over from `Issue:`. A heading that names a
+  // branch but no PR contributes the branch and contributes nothing to prs —
+  // not "", not 0. Two of the four waves above omit PR:, and prs is [10, 11].
+  const meta = parse('canonical-waves-heading.md');
+  assert.deepEqual(meta.prs, [10, 11]);
+  // feature/dropped and feature/migration have no PR: — neither adds anything.
+  assert.equal(meta.prs.includes(0), false, 'no zero stands in for an absent PR');
+  assert.equal(meta.prs.length, 2, 'exactly the two headings that carry a PR');
+});
+
+test('plan-meta: a backticked branch name in a ## Waves body line is NOT a branch', () => {
+  // THE DEFECT THE OLD SHAPE INVITED, now structurally impossible. The Tracer
+  // wave's description cites `feature/not-a-branch` in prose; under the old
+  // shape a body line's second path-shaped token was read as another branch
+  // (opus5-longhorizon-hardening reported six branches for a five-branch wave
+  // on 2026-08-22). The branch comes from the HEADING now, so prose cannot
+  // masquerade as a branch.
+  const meta = parse('canonical-waves-heading.md');
+  assert.equal(meta.branches.includes('feature/not-a-branch'), false,
+    'a name in a description is prose, not a branch');
+  // And a → #NNN in that same prose line is not a PR either.
+  assert.equal(meta.prs.includes(999), false, 'a → #NNN in prose is not a PR');
+});
+
+test('plan-meta: a ## Waves section with an unreadable heading reports something, not silent zero', () => {
+  // THE SILENT-EMPTY FAILURE THIS PLAN EXISTS TO REFUSE. A `## Waves` section
+  // whose heading the parser cannot read must not yield the same JSON as a plan
+  // with no waves at all — that indistinguishability is exactly what makes a
+  // mis-migrated plan disappear from the fleet scan and pass /plot-deliver's
+  // empty-list gate. The section is SEEN (a wave with an unreadable name), so a
+  // consumer can tell "a wave I could not parse" from "no waves".
+  const meta = parseSource(`# Plan with an unreadable wave heading
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Waves
+
+### this heading names no branch at all
+- some prose describing work whose branch nobody wrote into the heading
+`);
+  // The section is not silently empty: the wave is recorded, name and all, even
+  // though it carries no branch. A reader sees a wave it could not extract a
+  // branch from — not an absence.
+  assert.notDeepEqual(meta.waves, [], 'the ## Waves section is not silently dropped');
+  assert.equal(meta.waves.length, 1, 'the unreadable heading still opens a wave');
+  assert.equal(meta.waves[0].name, 'this heading names no branch at all');
+  assert.deepEqual(meta.waves[0].branches, [], 'and its branch list is honestly empty');
+});
+
+test('plan-meta: ## Waves and ## Branches are read the same when a plan carries only Waves', () => {
+  // THE COMPATIBILITY THE MIGRATION NEEDS. A plan that has been converted to
+  // `## Waves` and no longer carries a `## Branches` section still parses in
+  // full — phase, type, and the structural arrays all present.
+  const meta = parse('canonical-waves-heading.md');
+  assert.equal(meta.phase, 'approved');
+  assert.equal(meta.type, 'feature');
+  assert.equal(meta.review, 'pr');
+  assert.ok(meta.branches.length === 4, 'the branches came from the headings');
+});
+
+test('plan-meta: a fenced ## Waves example is illustration, not the plan\'s own section', () => {
+  // THE HAZARD ## Waves REINTRODUCED, and the reason the parser now tracks
+  // fences. A plan that ARGUES FOR the new shape shows a `## Waves` block inside
+  // a ``` fence, and its `### Removed (Branch: real/name)` headings look exactly
+  // like real ones. waves-name-themselves is such a plan: its Design section
+  // fences a `## Waves` example whose headings name bug/an-agent-is-not-a-machine
+  // and feature/a-broken-agent-needs-you — branches of OTHER plans. Read as this
+  // plan's own, they would be dispatched. The real implementation section is the
+  // `## Branches` below the fence, and only it counts.
+  const meta = parseSource(`# A plan that documents the new wave shape
+
+## Status
+
+- **Phase:** Approved
+- **Type:** infra
+
+## Design
+
+The new shape puts the branch in the heading:
+
+\`\`\`markdown
+## Waves
+
+### Removed (Branch: bug/example-not-real, PR: #300)
+- work here
+\`\`\`
+
+## Branches
+
+### Parsed
+- \`infra/the-actual-branch\` — the real one → #7
+`);
+  assert.deepEqual(meta.branches, ['infra/the-actual-branch'],
+    'the fenced example contributes nothing; the real ## Branches section wins');
+  assert.deepEqual(meta.prs, [7], 'and the fenced PR: #300 is not a PR of this plan');
+  assert.equal(meta.branches.includes('bug/example-not-real'), false);
+});
+
+test('plan-meta: a fenced ## Branches example is illustration too (latent bug, now closed)', () => {
+  // THE SAME TRICK ON THE OLD PATH, which the committed parser got wrong. A
+  // fenced `## Branches` example won the first-heading-wins guard, so the parser
+  // read the EXAMPLE branch and MISSED the real section entirely — a plan
+  // documenting the format reported a branch that does not exist and hid the one
+  // that does. Fence tracking fixes both spellings at once.
+  const meta = parseSource(`# A plan documenting the old shape
+
+## Status
+
+- **Phase:** Approved
+- **Type:** docs
+
+## Design
+
+\`\`\`markdown
+## Branches
+- \`feature/example-not-real\` → #99
+\`\`\`
+
+## Branches
+
+- \`feature/actually-real\` → #5
+`);
+  assert.deepEqual(meta.branches, ['feature/actually-real'],
+    'the real section wins, not the fenced example');
+  assert.deepEqual(meta.prs, [5], 'and only its PR counts');
 });

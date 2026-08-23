@@ -10,7 +10,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Released
 - **Type:** feature
 - **Story:** plot-board
 - **Sprint:**
@@ -18,6 +18,8 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — throttle, do not fall back to a second budget
+- **Delivered:** 2026-08-22, jwloka, PRs #271, #272, #283, #284
+- **Released:** 2026-08-22, v2.7.0
 - **Started:** 2026-08-20, Jan Wloka, `feature/every-host-consumer-slows-down`
 - **Started:** 2026-08-20, Jan Wloka, `feature/the-wait-comes-from-the-host`
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-note-names-the-rate-limit`

@@ -8,7 +8,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Sprint:**
@@ -16,6 +16,8 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — six findings measured on the live board; PID 58282 was the dispatcher, the agent was 5501
+- **Delivered:** 2026-08-22, jwloka, PRs #268, #276, #277, #279, #281, #285
+- **Released:** 2026-08-22, v2.7.0
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-panel-names-the-working-process`
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-button-claims-only-what-it-knows`
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-overlay-keeps-its-place`
@@ -165,14 +167,14 @@ that cannot navigate must not look like one.
 ## Branches
 
 ### Reads
-- `bug/the-panel-names-the-working-process` — `.plot-worker.pid` records the agent's pid rather than the wrapper's, and the panel reads the output that process produces. Where the tool writes nothing until exit, the panel says that rather than implying the worker is idle. Tests: a running agent's pid is not the dispatcher's; an empty log under a live agent renders the tool's behaviour, not a claim about the worker; a finished run shows its exit code.
+- `bug/the-panel-names-the-working-process` — `.plot-worker.pid` records the agent's pid rather than the wrapper's, and the panel reads the output that process produces. Where the tool writes nothing until exit, the panel says that rather than implying the worker is idle. Tests: a running agent's pid is not the dispatcher's; an empty log under a live agent renders the tool's behaviour, not a claim about the worker; a finished run shows its exit code. → #268
 
 ### Says
 - `bug/the-button-claims-only-what-it-knows` — the transient message becomes *"Agent work will show up shortly"*, and a `Status` entry in the `...` menu renders the dispatcher log durably. Tests: a successful dispatch shows no failure message; the row moves to WORKING on the next pulse; the Status entry is present whenever a dispatcher log exists; no log path is rendered as transient-only text. (#276)
 - `bug/the-overlay-keeps-its-place` — the open panel locks background scroll and restores position on close. Tests: a wheel event over the backdrop does not move the list behind it; the scroll position after close equals the position before open. (#277)
 - `bug/the-panel-facts-are-destinations` — `BRANCH` and `PLAN` navigate, `WORKTREE` offers Copy path. Tests: clicking BRANCH reveals that row; clicking PLAN opens its card; WORKTREE is not rendered as a link. (#281)
 - `bug/the-log-is-live-and-its-path-is-copyable` — the footer path offers Copy, and the polling that already exists renders the agent's real output (see `the-panel-names-the-working-process`, which supplies it). Tests: the footer is not rendered as a link; Copy yields the exact path; an appended line appears within one poll interval without reopening the panel. (#279)
-- `bug/the-command-can-be-read-in-full` — `COMMAND` expands to its full text and offers Copy. Tests: the collapsed form shows one line; expanding reveals the whole command including the brief path; Copy yields the exact string the worker was launched with, not the truncated render.
+- `bug/the-command-can-be-read-in-full` — `COMMAND` expands to its full text and offers Copy. Tests: the collapsed form shows one line; expanding reveals the whole command including the brief path; Copy yields the exact string the worker was launched with, not the truncated render. → #285
 
 ## Notes
 

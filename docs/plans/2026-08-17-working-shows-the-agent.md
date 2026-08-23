@@ -2,15 +2,15 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:** working-shows-the-agent
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-08-19, Jan Wloka, plan-PR #203 merged
 - **Started:** 2026-08-19, Jan Wloka, `feature/the-worker-log-is-readable`
-- **Delivered:**
-- **Released:**
+- **Delivered:** 2026-08-22, jwloka, PRs #239, #241, #244, #246, #270, #295
+- **Released:** 2026-08-22, v2.7.0
 - **Started:** 2026-08-19, Jan Wloka, `feature/a-waiting-agent-stays-working`
 - **Started:** 2026-08-19, Jan Wloka, `feature/the-agent-panel`
 - **Started:** 2026-08-19, Jan Wloka, `feature/continue-with-an-answer`
@@ -336,12 +336,12 @@ in a wave whose shape the earlier ones are likely to change.
 
 ### Log
 
-- `feature/the-worker-log-is-readable` — the board serves a worker's log
+- `feature/the-worker-log-is-readable` — the board serves a worker's log → #239
   on demand from its deterministic path; a WORKING row offers it — PR #239
 
 ### Asking
 
-- `feature/a-waiting-agent-stays-working` — a worker whose state is `waiting`
+- `feature/a-waiting-agent-stays-working` — a worker whose state is `waiting` → #241
   (PR #219, merged) keeps its place in WORKING with an annotation rather than
   moving to WAITING ON YOU. The state exists and is populated; what is missing
   is the board treating it as an agent rather than as a result. Tests: a
@@ -350,18 +350,18 @@ in a wave whose shape the earlier ones are likely to change.
 
 ### Panel
 
-- `feature/the-agent-panel` — pid, uptime, command, branch and the live
+- `feature/the-agent-panel` — pid, uptime, command, branch and the live → #244
   log in one view, opened from the row — PR #244
 
 ### Answer
 
-- `feature/continue-with-an-answer` — a continuation run in the same
+- `feature/continue-with-an-answer` — a continuation run in the same → #246
   worktree, prompted with the brief, the answer, and what already landed —
   never the previous run's transcript — PR #246
 
 ### Machine
 
-- `feature/a-local-run-is-a-machine-working` — a process this board can
+- `feature/a-local-run-is-a-machine-working` — a process this board can → #270
   see running in its own checkout puts its row in WAITING ON A MACHINE,
   with the same evidence-not-verdict rule: *a test run is in progress
   here*, never *it will be done in three minutes*. The section is keyed on
@@ -373,7 +373,7 @@ in a wave whose shape the earlier ones are likely to change.
 
 ### Registry
 
-- `feature/an-agent-outlives-its-branch` — the dispatcher writes a
+- `feature/an-agent-outlives-its-branch` — the dispatcher writes a → #295
   manifest under `.plot/agents/` at launch (identity, command, started-at,
   session id, and the branch while it holds one), and the board reads
   model, context and last activity from the session transcript that

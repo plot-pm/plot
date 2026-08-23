@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-gates
 - **Sprint:** the-board-tells-the-truth
@@ -13,7 +13,7 @@
 - **Approved:** 2026-08-18, jwloka, in-session
 - **Started:** 2026-08-18, Jan Wloka, `feature/skills-know-when-nobody-is-there`
 - **Delivered:** 2026-08-19, jwloka, PRs #230, #250
-- **Released:**
+- **Released:** 2026-08-22, v2.7.0
 - **Started:** 2026-08-19, Jan Wloka, `feature/the-worker-command-says-nobody-is-watching`
 
 ## Changelog

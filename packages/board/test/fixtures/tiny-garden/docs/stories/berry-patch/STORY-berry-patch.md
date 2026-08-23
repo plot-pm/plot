@@ -17,4 +17,4 @@ rather than from this prose.
 - Dig the second bed (this plan does not exist and never did)
 
 It omits both plans the board actually holds for this story: the netting plan
-(Design) and the compost guide (Endgame).
+(Design) and the compost guide (Testing).

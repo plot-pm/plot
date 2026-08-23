@@ -3,7 +3,7 @@ title: Making parallel work visible
 author: jwloka
 status: active
 created: 2026-08-15
-updated: 2026-08-18
+updated: 2026-08-22
 ---
 
 # Making parallel work visible
@@ -12,8 +12,15 @@ updated: 2026-08-18
 
 Give a person running several agents at once a single place to answer two
 questions: **where does this work stand**, and **what is everything waiting
-for**. Four plans across five months have each answered part of that; this
-story is the frame that makes them one piece of work rather than four.
+for**. Four plans across five months had each answered part of that when this
+story was written; **seventy-one** claim it as of 2026-08-22, sixty of them
+released. The frame held — that growth is the story working, not outgrowing
+itself — and the objective stays open while nine plans are still unanswered.
+
+> Two of those nine had no `Story:` field until 2026-08-22 and were invisible to
+> every reader that groups by story — a board-rendering bug and the lifecycle
+> gap that leaves delivered work reading `Approved`. Both are board work by
+> subject; the field was simply never filled.
 
 ## Why Now
 

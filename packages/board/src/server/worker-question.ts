@@ -1,31 +1,24 @@
-import { execFile } from 'node:child_process';
-import type { ExecFileException } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 import type { FleetPulse } from '../contract/schema.js';
 
 /**
- * The markers a stopped-to-ask worker leaves in its tree, as an ERE — the same
- * set `plot-worker-state.sh` greps for (`PLOT_BLOCKED_MARKER`), and it must stay
- * the same set.
+ * The prefix of the marker file a stopped-to-ask worker writes into its tree.
  *
- * A SECOND COPY OF A PATTERN, and that is the honest cost of this change rather
- * than an oversight. The scan answers *is this worker waiting*; this module
- * answers *what is it waiting on*, and the two run on opposite sides of a JSON
- * boundary that carries the verdict and not the text. The alternative — teaching
- * the scan to emit the marker line as a field — is the better shape and is
- * exactly what this branch was told not to build (`plot-worker-state.sh` and
- * `plot-fleet-scan.sh` are out of scope). So the duplication is deliberate,
- * named, and bounded to one constant.
+ * THE MARKER IS A FILE, matching `plot-worker-state.sh`'s `plot_worker_blocked`
+ * exactly: that function decides `waiting` by finding a `PLOT-BLOCKED*` file at
+ * the worktree root, and this module reads the same file to say what it asks.
  *
- * WHAT DRIFT COSTS HERE IS A SENTENCE, NEVER A SECTION. This pattern never
- * decides `waiting` — the scan already did that, and this module is only asked
- * about branches the scan has ALREADY called `waiting`. A marker spelling that
- * the scan recognises and this does not degrades the row to *waiting, reason
- * unavailable*, which is the stated-unknown this module exists to produce
- * anyway. The row stays in WORKING either way. That asymmetry is why the copy
- * is tolerable: the authoritative pattern is still the scan's, and this one can
- * only ever say less.
+ * NO SHARED PATTERN CONSTANT ANY MORE, which is the point of this change. The
+ * module used to carry a SECOND copy of the scan's marker regex and re-grep the
+ * worktree for it — its own docstring called the duplication "the honest cost".
+ * The cost was worse than duplication: grepping a pristine worktree matched the
+ * marker token where a brief or CLAUDE.md merely documented it, so the board
+ * surfaced a documentation example as a worker's question. A filename cannot be
+ * documented into existence, so there is nothing left to keep in sync: both this
+ * module and the scan look for the same file, by name, at the same place.
  */
-export const BLOCKED_MARKER = 'PLOT-BLOCKED:|TODO\\((you|human)\\)';
+const MARKER_PREFIX = 'PLOT-BLOCKED';
 
 /**
  * How much of a marker line to carry into a row's note.
@@ -44,114 +37,81 @@ export const BLOCKED_MARKER = 'PLOT-BLOCKED:|TODO\\((you|human)\\)';
 export const QUESTION_MAX = 120;
 
 /**
- * How long to let the marker search run, per worktree.
- *
- * Short, and bounded on purpose: this rides the 5 s scan timer, and a worktree
- * on a slow or unmounted volume must not hold the refresh open. A timeout is an
- * unreadable marker, which is a case this module already has an honest answer
- * for — see {@link questionFor}.
- */
-const GREP_TIMEOUT_MS = 5_000;
-
-/**
- * How {@link markerIn} runs its search — the seam the suite makes fail.
- *
- * `execFile`'s shape, narrowed to what this module uses: the callback is handed
- * an error or `null` and whatever reached stdout, and a runner reports a killed
- * search exactly as `execFile` does — a non-null error and no output.
- *
- * A PARAMETER THAT EXISTS FOR THE TEST, and named as one rather than disguised.
- * The alternative was to keep asserting the timeout through a real `git grep`,
- * and that is the bug this seam replaces: the assertion below is about the
- * ERROR PATH — *a search that failed answers `""` rather than rejecting* — and
- * a real subprocess can only be steered onto that path by winning a race
- * against its own start-up. Measured 2026-08-20: with the budget at 1 ms the
- * kill wins whether the repo holds 2,000 files or none, and with the budget at
- * 400 ms `git grep` wins with the 2,000 still there. The file count never
- * controlled the outcome; spawn latency against the budget did, and neither is
- * a property of this module.
- */
-export type SearchRunner = (
-  file: string,
-  args: string[],
-  options: { encoding: 'utf8'; timeout: number; maxBuffer: number },
-  callback: (err: ExecFileException | null, stdout: string) => void,
-) => void;
-
-/**
  * The first marker line in a worktree, trimmed and bounded — or "" when none
  * could be read.
  *
  * **"" IS A STATED UNKNOWN, NOT AN ABSENCE OF ONE.** This function is only ever
- * asked about a worker the scan has already called `waiting`, so the marker was
- * there when the scan looked. "" therefore means *the scan saw one and this
- * read did not* — a race with the answering human, a permission, a worktree
- * that has since gone — and the caller renders it as *reason unavailable*. It
- * must never be rendered as *not waiting*: the state is the scan's to decide and
- * this text only ever annotates it.
+ * asked about a worker the scan has already called `waiting`, so the marker file
+ * was there when the scan looked. "" therefore means *the scan saw one and this
+ * read did not* — a race with the answering worker deleting it, a permission, a
+ * worktree that has since gone — and the caller renders it as *reason
+ * unavailable*. It must never be rendered as *not waiting*: the state is the
+ * scan's to decide and this text only ever annotates it.
  *
- * `git grep` OVER THE TRACKED TREE PLUS UNTRACKED FILES, never `grep -r`, and
- * the reason is the same one `plot-worker-state.sh` records: a worktree holds
- * `node_modules` and build output, and a recursive grep would walk all of it —
- * every five seconds, once per waiting branch. `--untracked` is included
- * because a marker a worker just wrote and has not committed is the live case,
- * and `--exclude-standard` keeps ignored build output out.
+ * A FILE READ, NOT A `git grep`. The marker is a `PLOT-BLOCKED*` file at the
+ * worktree root — the same thing `plot_worker_blocked` looks for — so this reads
+ * that file and takes its first line. The subprocess this replaced existed only
+ * to search file CONTENTS, and searching contents is the defect: it matched the
+ * marker token where a doc or brief merely mentioned it, and surfaced that
+ * mention as a worker's question. A file read cannot make that mistake, because
+ * a document is not a `PLOT-BLOCKED*` file.
  *
- * PLOT'S OWN RECORDS ARE EXCLUDED BY NAME, mirroring the scan exactly.
- * `.plot-worker.log` is guaranteed to contain the marker whenever the worker
- * reported writing one, so a hit there is the report of a question rather than
- * the question — the log-versus-tree distinction the whole `waiting` state is
- * built on. Excluding it by name rather than trusting `.gitignore` is the bug
- * CI caught in the scan: this repo ignores those files, a fixture repo did not,
- * and the difference was silent.
+ * `.plot-worker.log` IS EXCLUDED FOR FREE now, where the grep had to name it.
+ * The log is the one file guaranteed to contain the marker token whenever the
+ * worker reported writing one, so the old contents search excluded it by name to
+ * keep the log-versus-tree distinction the `waiting` state is built on. A prefix
+ * match on `PLOT-BLOCKED*` never sees `.plot-worker.log` at all — the exclusion
+ * is now a property of the name, not a flag that could be forgotten.
  *
- * `-I` skips binary files: a marker-shaped byte sequence inside a `.png` is a
- * coincidence, not a question. `-m1` per file and `-h` for no filename prefix —
- * the note wants the question, and the file it lives in is a second errand the
- * panel serves better.
- *
- * EVERY OPTION BEFORE THE PATTERN, and this is not style. `git grep -IE <pat>
- * --untracked` parses `--untracked` as a REVISION and dies "unable to resolve
- * revision" — exit 128, no match, silently. Measured in the scan twice, from
- * two causes; the ordering here is the same defence.
- *
- * `run` DEFAULTS TO `execFile` AND IS OVERRIDDEN ONLY BY THE SUITE — see
- * {@link SearchRunner} for why the failure path needs a seam rather than a
- * stopwatch. Production has exactly one runner and never passes the argument.
+ * STILL `Promise<string>` though the read is synchronous, because `continue.ts`
+ * and {@link workerQuestions} both `await` it. The work is cheap and the return
+ * shape is the caller's contract, so it resolves the read rather than blocking.
+ * Any failure — no marker file, unreadable, a worktree that has gone — resolves
+ * "", the stated unknown, exactly as the killed search did.
  */
-export function markerIn(
-  worktree: string,
-  timeoutMs = GREP_TIMEOUT_MS,
-  run: SearchRunner = execFile as SearchRunner,
-): Promise<string> {
-  return new Promise((resolve) => {
-    run(
-      'git',
-      [
-        '-C', worktree, 'grep', '-hIEm1', '--untracked', '--exclude-standard',
-        BLOCKED_MARKER, '--', '.', ':(exclude).plot-worker.*',
-      ],
-      { encoding: 'utf8', timeout: timeoutMs, maxBuffer: 1 << 20 },
-      (err, stdout) => {
-        // EVERY FAILURE IS "". `git grep` exits 1 for no match and 128 for a
-        // worktree that has gone; a timeout kills it with no output. All three
-        // are the same answer to the caller — the marker could not be read —
-        // and none of them may be allowed to reject, because this runs inside a
-        // scan refresh whose other work must not be lost to it.
-        if (err && !stdout) return resolve('');
-        resolve(firstMarkerLine(stdout));
-      },
-    );
-  });
+export function markerIn(worktree: string): Promise<string> {
+  return Promise.resolve(readMarkerFile(worktree));
+}
+
+/**
+ * The contents of the first `PLOT-BLOCKED*` file at the worktree root, passed
+ * through {@link firstMarkerLine} — or "" when none reads.
+ *
+ * ROOT ONLY, mirroring `plot_worker_blocked`: every observed marker sits at the
+ * root, and matching at depth would re-admit the looseness this change removes.
+ * The directory is listed and the first entry whose name starts with the prefix
+ * is read; a `readdir` that throws (no such worktree) is the stated unknown.
+ */
+function readMarkerFile(worktree: string): string {
+  let names: string[];
+  try {
+    names = fs.readdirSync(worktree);
+  } catch {
+    return '';
+  }
+  for (const name of names) {
+    if (!name.startsWith(MARKER_PREFIX)) continue;
+    try {
+      const full = path.join(worktree, name);
+      if (!fs.statSync(full).isFile()) continue;
+      return firstMarkerLine(fs.readFileSync(full, 'utf8'));
+    } catch {
+      // A name that matched the prefix but would not read is the stated
+      // unknown, not a reason to look past it: the scan already found a marker
+      // here, and a second matching entry is not the one it saw.
+      return '';
+    }
+  }
+  return '';
 }
 
 /**
  * The first non-empty line of grep output, trimmed and bounded to
  * {@link QUESTION_MAX}.
  *
- * Split out and exported because it is the whole of the formatting judgement
- * and the rest of {@link markerIn} is a subprocess — a judgement reachable only
- * through `execFile` is one the suite cannot exercise directly.
+ * Split out and exported because it is the whole of the formatting judgement,
+ * and {@link markerIn} wraps it in a filesystem read — testing the judgement
+ * directly is cleaner than staging a marker file for every formatting case.
  *
  * LEADING COMMENT SYNTAX IS STRIPPED. A marker written into a source file
  * arrives as `// PLOT-BLOCKED: which adapter?` or `# PLOT-BLOCKED: ...`, and

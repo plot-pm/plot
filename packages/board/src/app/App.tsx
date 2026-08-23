@@ -394,6 +394,40 @@ export function App() {
     : board?.commission;
 
   /**
+   * The SAME treatment for Slice this wave — the sixth spawn, which sends an
+   * `unsliced-wave` to `/plot-reslice`. Dimmed on a frozen page for the reason
+   * the two above are: it spawns an agent that rewrites a plan's `## Branches` on
+   * disk, and a page that cannot re-read git cannot know the wave has already
+   * been sliced.
+   *
+   * `board?.reslice` may be `undefined` even off a frozen page — the board CASTS
+   * its payload rather than parsing it, so the schema `.default` never runs
+   * client-side, and a pulse produced before this field existed carries no
+   * `reslice`. `ResliceButton` reads `reslice.available`, so the coalesce here is
+   * what makes a stale payload refuse rather than throw.
+   */
+  const resliceInfo = dimmed
+    ? { available: false, reason: BLOCKED_REASON }
+    : board?.reslice ?? { available: false, reason: '' };
+
+  /**
+   * The SAME treatment for Deliver — the seventh spawn, which sends a
+   * fully-merged plan to `/plot-deliver`. Dimmed on a frozen page for the reason
+   * the ones above are: it spawns an agent that flips a plan's phase on disk, and
+   * a page that cannot re-read git cannot know the plan has already been
+   * delivered — or that a branch it read as merged has been reverted.
+   *
+   * `board?.deliver` may be `undefined` even off a frozen page — the board CASTS
+   * its payload rather than parsing it, so the schema `.default` never runs
+   * client-side, and a pulse produced before this field existed carries no
+   * `deliver`. `DeliverButton` reads `deliver.available`, so the coalesce here is
+   * what makes a stale payload refuse rather than throw.
+   */
+  const deliverInfo = dimmed
+    ? { available: false, reason: BLOCKED_REASON }
+    : board?.deliver ?? { available: false, reason: '' };
+
+  /**
    * Coming back to a hidden tab RE-CHECKS instead of counting.
    *
    * Browsers throttle timers in hidden tabs, so a minimised window would
@@ -766,6 +800,24 @@ export function App() {
     <div className="mx-auto min-h-screen max-w-[1600px] px-4 py-4">
       <header className="mb-4 flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-bold tracking-tight">Plot</h1>
+        {/* The branch this server is serving from. This repo has 22+ worktrees
+            and `pnpm board` serves whichever one it was started in, so a reader
+            who sees a layout they changed needs to know which branch's artifact
+            they are looking at before concluding the fix did or did not land.
+
+            Rendered ONLY when non-empty: a detached HEAD (several here are) or an
+            unreadable repo reports '', and the header shows no element rather
+            than a chip saying `unknown` or a fabricated SHA. Muted secondary
+            weight — a branch name is context, not one of the two states a reader
+            acts on, so it does not compete with the row states below. */}
+        {board?.server.branch && (
+          <span
+            className="font-mono text-xs text-slate-500 dark:text-slate-400"
+            title="The branch this board is serving from"
+          >
+            {board.server.branch}
+          </span>
+        )}
         <nav className="mr-auto flex gap-1" aria-label="Views">
           {([
             ['board', 'Board'],
@@ -848,6 +900,17 @@ export function App() {
               // Draft plan into Design. It reaches the same PLAN rows Approve
               // does, in the row menu, and shares the idea binding today.
               commission={commissionInfo}
+              // The sixth act, and the only one belonging to a WAVE rather than
+              // a plan or a branch: Slice this wave sends an `unsliced-wave` to
+              // `/plot-reslice`. It shares the idea binding today, and reaches
+              // the wave rows in the review sections where a tangled wave lands.
+              reslice={resliceInfo}
+              // The seventh act, and the only one belonging to a plan on the
+              // OTHER end of the lifecycle: Deliver sends a fully-merged plan to
+              // `/plot-deliver`. It reaches the same PLAN rows Approve and
+              // Commission do, in the row menu, gated on the card's `deliverable`
+              // bit rather than on a Draft phase.
+              deliver={deliverInfo}
               pulse={pulse}
               onStarting={onStarting}
               // The agent panel's BRANCH and PLAN facts are destinations.

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import {
-  classify, compareWithinGroup, draftNote, humanAge, prState, rowPhase, rowsFromPulse,
+  classify, compareWithinGroup, draftNote, humanAge, prState, prStates, rowPhase, rowsFromPulse,
   rateLimitBackoffMs,
   graphqlResetMs,
   prGateOpen,
@@ -46,21 +46,21 @@ describe('a live worker keeps its row in WORKING', () => {
     expect(r.note).toContain('pid 7');
   });
 
-  it('lifts an OPEN branch into working when its worktree is dirty', () => {
-    // The second kind of active work, and the one a dispatch worker never
-    // explains: a person editing in this checkout. `open` means git has no ref
-    // — which is what a branch nobody created looks like AND what a branch
-    // created only locally looks like. The scan can tell them apart, and the
-    // row must not say *nobody has taken it* while carrying the activity mark
-    // that means *someone is writing here*.
+  it('puts an OPEN branch with a dirty worktree into not-started, not working', () => {
+    // WORKING IS ABOUT AGENTS. A dirty worktree without a known worker is
+    // evidence of local activity — a person editing in this checkout — but it
+    // is not evidence of an agent. The section means *who is working*, and
+    // `worker: 'none'` does not answer that. See `every-section-has-one-subject`.
     const r = classify('open', 'eligible', null, 60, null, true, 0, 'approved', 'none', null, 0, false);
-    expect(r.group).toBe('working');
+    expect(r.group).toBe('not-started');
     expect(r.note).toContain('uncommitted');
   });
 
-  it('lifts an OPEN branch into working when its worktree is LOCKED', () => {
+  it('puts an OPEN branch with a LOCKED worktree into not-started', () => {
+    // WORKING IS ABOUT AGENTS. A lock without a known worker is evidence of
+    // local activity, not of an agent. See `every-section-has-one-subject`.
     const r = classify('open', 'eligible', null, 60, null, false, 0, 'approved', 'none', null, 0, true);
-    expect(r.group).toBe('working');
+    expect(r.group).toBe('not-started');
   });
 
   it('does NOT lift an open branch that is merely AHEAD', () => {
@@ -222,9 +222,13 @@ describe('classify', () => {
   // about two states, an idle branch and a claim nobody ever started a worker
   // on. What they assert now is the GROUP, which is what they were always
   // about; the sentence beside it is pinned by the worker tests below.
-  it('calls a fresh claim working — it is the normal start of a dispatch', () => {
+  //
+  // WORKING IS ABOUT AGENTS. A claim with no known worker is NOT STARTED —
+  // an agent may take this, the claim ref exists but nobody has proven a
+  // worker is running. See `every-section-has-one-subject`.
+  it('puts a fresh claim without a known worker into not-started', () => {
     const r = classify('claimed', 'eligible', 3, QUIET);
-    expect(r.group).toBe('working');
+    expect(r.group).toBe('not-started');
     expect(r.note).toMatch(/claimed/);
   });
 
@@ -240,15 +244,18 @@ describe('classify', () => {
     expect(classify('claimed', 'eligible', null, QUIET).group).toBe('quiet');
   });
 
-  it('calls a recent commit working and a stale one quiet', () => {
-    expect(classify('wip', 'eligible', 5, QUIET).group).toBe('working');
+  // WORKING IS ABOUT AGENTS. A recent commit without a known worker is NOT
+  // STARTED — an agent may take this. See `every-section-has-one-subject`.
+  it('puts a recent commit without a known worker into not-started, stale to quiet', () => {
+    expect(classify('wip', 'eligible', 5, QUIET).group).toBe('not-started');
     expect(classify('wip', 'eligible', 200, QUIET).group).toBe('quiet');
   });
 
-  it('respects the configured quiet window rather than a hard-coded 30', () => {
+  it('respects the configured quiet window for the not-started/quiet boundary', () => {
     // The default is a guess; a repo whose agents think for an hour raises it.
+    // WORKING IS ABOUT AGENTS, so the boundary is now not-started vs quiet.
     expect(classify('wip', 'eligible', 45, 30).group).toBe('quiet');
-    expect(classify('wip', 'eligible', 45, 60).group).toBe('working');
+    expect(classify('wip', 'eligible', 45, 60).group).toBe('not-started');
   });
 
   it('does not claim a branch is working when its age is unknown', () => {
@@ -304,36 +311,31 @@ describe('classify', () => {
   // narrow — a signal true only on the machine doing the looking may add an
   // answer where this machine knows more, never downgrade one.
 
-  it('lifts a stale CLAIM out of quiet when its local worktree is dirty', () => {
-    // The motivating case. A branch claimed a day earlier and resumed today has
-    // a 21-hour-old claim commit and minutes-old work, so the refs say quiet and
-    // the worktree says otherwise. QUIET carries an instruction — go check
-    // whether it died — and following it found a live agent with three modified
-    // files.
+  // WORKING IS ABOUT AGENTS. Local activity without a known worker goes to
+  // NOT STARTED, not WORKING. The note names the evidence as LOCAL, because
+  // that is what a reader needs to judge it. See `every-section-has-one-subject`.
+  it('puts a stale CLAIM with a dirty worktree into not-started', () => {
     const r = classify('claimed', 'eligible', QUIET + 1, QUIET, null, true);
-    expect(r.group).toBe('working');
-    // The note names the evidence as LOCAL, because that is what a reader needs
-    // to judge it: work nobody else can see, claimed on grounds the next person
-    // cannot verify. Saying `local` keeps the claim honest.
+    expect(r.group).toBe('not-started');
     expect(r.note).toMatch(/local/);
     expect(r.note).toMatch(/uncommitted/);
   });
 
-  it('lifts a stale WIP branch too, not only a claim', () => {
+  it('puts a stale WIP branch with a dirty worktree into not-started', () => {
     // All six quiet rows on the board the day this was found were `wip` with
     // 22-day-old commits, not `claimed`. A dirty worktree means the same thing
-    // whatever put the branch there, and a test for only the motivating state
-    // leaves the common one to chance.
+    // whatever put the branch there.
     const r = classify('wip', 'eligible', 30_300, QUIET, null, true);
-    expect(r.group).toBe('working');
+    expect(r.group).toBe('not-started');
     expect(r.note).toMatch(/local/);
   });
 
-  it('lifts a claim whose age is unknown — no age, but there IS evidence', () => {
+  it('puts a claim with unknown age but a dirty worktree into not-started', () => {
     // Without an age the claim arm falls to quiet because there is nothing to
-    // judge. A dirty worktree is something to judge.
-    expect(classify('claimed', 'eligible', null, QUIET, null, true).group).toBe('working');
-    expect(classify('wip', 'eligible', null, QUIET, null, true).group).toBe('working');
+    // judge. A dirty worktree is something to judge — but still NOT STARTED
+    // because WORKING IS ABOUT AGENTS.
+    expect(classify('claimed', 'eligible', null, QUIET, null, true).group).toBe('not-started');
+    expect(classify('wip', 'eligible', null, QUIET, null, true).group).toBe('not-started');
   });
 
   it('changes nothing for a CLEAN worktree', () => {
@@ -371,22 +373,13 @@ describe('classify', () => {
     // groups a PR decides.
     expect(classify('merged', 'complete', 1, QUIET, null, true).group).toBe('done');
     expect(classify('deferred', 'eligible', null, QUIET, null, true).group).toBe('not-started');
-    // `open` is NOT in this list, and its absence is the rule being stated
-    // precisely rather than loosely. `not-started` → `working` is not a
-    // DOWNGRADE — it is the lift this test's own name allows. An `open` branch
-    // with a dirty worktree was created locally and is being edited: git has no
-    // ref for it, which looks identical to a branch nobody ever made. The row
-    // used to say *nobody has taken it* while carrying the activity mark that
-    // means *someone is writing here* — one row, two contradictory statements.
-    //
-    // `merged` and `deferred` stay: unsaying `done` after a merge would be a
-    // real downgrade, and a shelved branch is a decision rather than a state.
-    expect(classify('open', 'eligible', null, QUIET, null, true).group).toBe('working');
-    // A branch already reading `working` keeps the note it had: a recent commit
-    // is the stronger statement, and replacing it with "uncommitted work" would
-    // hide the age the reader came for.
+    // WORKING IS ABOUT AGENTS. An `open` branch with a dirty worktree but no
+    // known worker goes to NOT STARTED — it is local activity, not proof an
+    // agent is running. See `every-section-has-one-subject`.
+    expect(classify('open', 'eligible', null, QUIET, null, true).group).toBe('not-started');
+    // A branch with a recent commit but no known worker also goes to NOT STARTED.
     const fresh = classify('wip', 'eligible', 5, QUIET, null, true);
-    expect(fresh.group).toBe('working');
+    expect(fresh.group).toBe('not-started');
     expect(fresh.note).toMatch(/last commit/);
   });
 
@@ -399,12 +392,12 @@ describe('classify', () => {
   //
   // Same one-directional rule, and these tests are what hold it.
 
-  it('lifts a CLAIM holding unpushed commits, with a CLEAN worktree', () => {
-    // The exact case that produced this plan, and `localDirty` is asserted FALSE
-    // on purpose: with it true the shipped signal does the lifting and the test
-    // proves nothing about the new one.
+  // WORKING IS ABOUT AGENTS. Unpushed commits without a known worker go to
+  // NOT STARTED — local activity, not proof an agent is running.
+  // See `every-section-has-one-subject`.
+  it('puts a CLAIM with unpushed commits into not-started', () => {
     const r = classify('claimed', 'eligible', QUIET + 1, QUIET, null, false, 3);
-    expect(r.group).toBe('working');
+    expect(r.group).toBe('not-started');
     // The note says how many, and names the evidence as local — work nobody else
     // can see, claimed on grounds the next person cannot verify.
     expect(r.note).toMatch(/3 commits not pushed/);
@@ -414,17 +407,17 @@ describe('classify', () => {
     expect(r.note).not.toMatch(/ago/);
   });
 
-  it('lifts a stale WIP branch on unpushed commits too', () => {
+  it('puts a stale WIP branch with unpushed commits into not-started', () => {
     const r = classify('wip', 'eligible', 30_300, QUIET, null, false, 1);
-    expect(r.group).toBe('working');
+    expect(r.group).toBe('not-started');
     // Singular, because a note that reads "1 commits" is the kind of thing a
     // reader stops trusting.
     expect(r.note).toMatch(/1 commit not pushed/);
   });
 
-  it('lifts a claim whose age is unknown — no age, but there IS evidence', () => {
-    expect(classify('claimed', 'eligible', null, QUIET, null, false, 2).group).toBe('working');
-    expect(classify('wip', 'eligible', null, QUIET, null, false, 2).group).toBe('working');
+  it('puts a claim with unknown age but unpushed commits into not-started', () => {
+    expect(classify('claimed', 'eligible', null, QUIET, null, false, 2).group).toBe('not-started');
+    expect(classify('wip', 'eligible', null, QUIET, null, false, 2).group).toBe('not-started');
   });
 
   it('says BOTH facts when a branch is dirty AND ahead, unpushed first', () => {
@@ -433,7 +426,7 @@ describe('classify', () => {
     // because a second outranks it is the displacement `deferred` used to cause
     // to the note text.
     const r = classify('wip', 'eligible', 30_300, QUIET, null, true, 2);
-    expect(r.group).toBe('working');
+    expect(r.group).toBe('not-started');
     expect(r.note).toMatch(/2 commits not pushed/);
     expect(r.note).toMatch(/uncommitted/);
     // Unpushed first: finished work nobody can see is the more urgent half.
@@ -497,13 +490,14 @@ describe('classify', () => {
   //
   // ONE-DIRECTIONAL, like every other local signal — it may only LIFT.
 
-  it('lifts an OPEN branch held by a worktree', () => {
-    // The motivating row: clean tree, no lock, no comparable commit count. The
-    // worktree HOLDS the branch — `held` is true — and that is enough.
+  // WORKING IS ABOUT AGENTS. A worktree holding a branch without a known
+  // worker goes to NOT STARTED — local activity, not proof an agent is running.
+  // See `every-section-has-one-subject`.
+  it('puts an OPEN branch held by a worktree into not-started', () => {
     const r = classify('open', 'eligible', null, QUIET, null, false, 0,
       undefined, undefined, undefined, undefined, undefined, undefined,
       undefined, true);
-    expect(r.group).toBe('working');
+    expect(r.group).toBe('not-started');
     expect(r.note).toMatch(/held in a local worktree/);
   });
 
@@ -521,7 +515,7 @@ describe('classify', () => {
     const r = classify('open', 'eligible', null, QUIET, null, true, 0,
       undefined, undefined, undefined, undefined, undefined, undefined,
       undefined, true);
-    expect(r.group).toBe('working');
+    expect(r.group).toBe('not-started');
     expect(r.note).toMatch(/uncommitted/);
   });
 
@@ -544,10 +538,10 @@ describe('classify', () => {
     expect(classify('open', 'eligible', null, QUIET, null, false, 4).group).toBe('not-started');
     expect(classify('deferred', 'eligible', null, QUIET, null, false, 4).group)
       .toBe('not-started');
-    // A branch already reading `working` on a fresh commit keeps the age note:
-    // the age is what the reader came for.
+    // WORKING IS ABOUT AGENTS. A branch with a recent commit but no known worker
+    // goes to NOT STARTED. See `every-section-has-one-subject`.
     const fresh = classify('wip', 'eligible', 5, QUIET, null, false, 4);
-    expect(fresh.group).toBe('working');
+    expect(fresh.group).toBe('not-started');
     expect(fresh.note).toMatch(/last commit/);
   });
 
@@ -569,23 +563,18 @@ describe('classify', () => {
   // same rule every local signal here follows: last, because inserting it
   // mid-list shifts every spread caller past the compiler.
 
-  it('lifts a COMMITTED, CLEAN held branch that the path-only check could not', () => {
-    // The motivating row from the plan: an agent committed (so `local_dirty` is
-    // false), the branch has no upstream (so `local_ahead` is a could-not-
-    // compare 0), and nothing is locked. `held` is the only true signal, and it
-    // is enough to keep the agent in WORKING rather than offering its finished
-    // work as available.
+  // WORKING IS ABOUT AGENTS. A held branch without a known worker goes to
+  // NOT STARTED — local activity, not proof an agent is running.
+  it('puts a COMMITTED, CLEAN held branch into not-started', () => {
     const r = classify('open', 'eligible', null, QUIET, null, false, 0,
       undefined, undefined, undefined, undefined, undefined, undefined,
       undefined, true);
-    expect(r.group).toBe('working');
+    expect(r.group).toBe('not-started');
     expect(r.note).toMatch(/held in a local worktree/);
   });
 
-  it('never offers a held branch as eligible', () => {
-    // The other face of the same coin: whatever else is true, a held branch is
-    // not *nobody has taken it*. This is the invitation that sent a second agent
-    // at finished work.
+  it('never offers a held branch with the eligible note', () => {
+    // A held branch is not *nobody has taken it* — it has local activity.
     const r = classify('open', 'eligible', null, QUIET, null, false, 0,
       undefined, undefined, undefined, undefined, undefined, undefined,
       undefined, true);
@@ -610,7 +599,7 @@ describe('classify', () => {
     const r = classify('open', 'eligible', null, QUIET, null, true, 0,
       undefined, undefined, undefined, undefined, undefined, undefined,
       undefined, true);
-    expect(r.group).toBe('working');
+    expect(r.group).toBe('not-started');
     expect(r.note).toMatch(/uncommitted/);
   });
 
@@ -641,26 +630,25 @@ describe('classify', () => {
 
   const LOCKED = [null, false, 0, '', 'elsewhere', '', '', true] as const;
 
-  it('lifts a quiet CLAIM on a lock alone', () => {
-    // The motivating row. Everything else is asserted absent — a clean worktree,
-    // nothing unpushed, a claim older than the quiet window — so the lock is
-    // doing the lifting and nothing is covering for it.
+  // WORKING IS ABOUT AGENTS. A lock without a known worker goes to NOT STARTED
+  // — local activity, not proof an agent is running. See `every-section-has-one-subject`.
+  it('puts a quiet CLAIM with a lock into not-started', () => {
     const r = classify('claimed', 'eligible', QUIET + 1, QUIET, ...LOCKED);
-    expect(r.group).toBe('working');
+    expect(r.group).toBe('not-started');
     expect(r.note).toMatch(/write is in progress/);
     // Named as LOCAL, like every other signal only this machine can see.
     expect(r.note).toMatch(/local/);
   });
 
-  it('lifts a stale WIP branch on a lock too', () => {
+  it('puts a stale WIP branch with a lock into not-started', () => {
     const r = classify('wip', 'eligible', 30_300, QUIET, ...LOCKED);
-    expect(r.group).toBe('working');
+    expect(r.group).toBe('not-started');
     expect(r.note).toMatch(/write is in progress/);
   });
 
-  it('lifts a branch whose age is unknown', () => {
-    expect(classify('claimed', 'eligible', null, QUIET, ...LOCKED).group).toBe('working');
-    expect(classify('wip', 'eligible', null, QUIET, ...LOCKED).group).toBe('working');
+  it('puts a branch with unknown age but a lock into not-started', () => {
+    expect(classify('claimed', 'eligible', null, QUIET, ...LOCKED).group).toBe('not-started');
+    expect(classify('wip', 'eligible', null, QUIET, ...LOCKED).group).toBe('not-started');
   });
 
   it('says the LOCK alone, not the other two facts beside it', () => {
@@ -670,7 +658,7 @@ describe('classify', () => {
     // instructions.
     const r = classify('wip', 'eligible', 30_300, QUIET, null, true, 2,
       '', 'elsewhere', '', '', true);
-    expect(r.group).toBe('working');
+    expect(r.group).toBe('not-started');
     expect(r.note).toMatch(/write is in progress/);
     expect(r.note).not.toMatch(/not pushed/);
     expect(r.note).not.toMatch(/uncommitted/);
@@ -682,13 +670,12 @@ describe('classify', () => {
     // answer and never take one away.
     expect(classify('merged', 'complete', 1, QUIET, ...LOCKED).group).toBe('done');
     expect(classify('deferred', 'eligible', null, QUIET, ...LOCKED).group).toBe('not-started');
-    // Same correction as the dirty case above: a lock on an `open` branch is
-    // somebody writing to it right now, and lifting is not downgrading.
-    expect(classify('open', 'eligible', null, QUIET, ...LOCKED).group).toBe('working');
-    // A branch already reading `working` on a fresh commit keeps the age note:
-    // the age is what the reader came for.
+    // WORKING IS ABOUT AGENTS. A lock on an `open` branch without a known worker
+    // goes to NOT STARTED — local activity, not proof an agent is running.
+    expect(classify('open', 'eligible', null, QUIET, ...LOCKED).group).toBe('not-started');
+    // A branch with a recent commit but no known worker goes to NOT STARTED.
     const fresh = classify('wip', 'eligible', 5, QUIET, ...LOCKED);
-    expect(fresh.group).toBe('working');
+    expect(fresh.group).toBe('not-started');
     expect(fresh.note).toMatch(/last commit/);
   });
 
@@ -843,17 +830,25 @@ describe('classify', () => {
     }
   });
 
-  it('changes no state but `open` on a draft plan', () => {
+  it('changes no state but `open` and `deferred` on a draft plan', () => {
     // A drafted plan whose branches already carry work is drift worth SEEING,
     // not smoothing over — the same rule `rowPhase` follows where a plan's
     // bookkeeping lags its git state. The phase may only answer for a branch
     // that does not exist yet.
+    //
+    // `deferred` USED TO BE in this list — a draft plan's shelf classified
+    // identically to an approved plan's, both in NOT STARTED. It no longer does:
+    // a draft plan's shelved branch now leaves for WAITING ON YOU (the act it
+    // waits on is the approval, which lives on the plan head), while an approved
+    // plan's stays. So `deferred` joins `open` as an arm where the two phases
+    // diverge, and it is asserted on its own above rather than smoothed over
+    // here. What remains are the states where a draft plan carrying real work
+    // must still read as work, not as a pending review.
     for (const args of [
       ['claimed', 'eligible', QUIET + 1],
       ['wip', 'eligible', 5],
       ['wip', 'eligible', 200],
       ['merged', 'complete', 1],
-      ['deferred', 'eligible', null],
     ] as const) {
       const [state, verdict, age] = args;
       expect(classify(state, verdict, age, QUIET, null, false, 0, 'draft'))
@@ -1056,21 +1051,18 @@ describe('NOT STARTED shows Approved plans, and nothing else', () => {
     }
   });
 
-  it('still lets a live worktree outrank the WAVE, within an approved plan', () => {
-    // The ordering the phase check did NOT take over. Someone editing a branch
-    // of a blocked wave is still someone editing — that plan is live, and the
-    // board reports what is rather than what the ordering says should be.
+  // WORKING IS ABOUT AGENTS. Local activity without a known worker goes to
+  // NOT STARTED, not WORKING, regardless of wave state.
+  it('puts a live worktree on a blocked wave into not-started', () => {
     expect(classify('open', 'blocked', null, QUIET, null, true, 0, 'approved').group)
-      .toBe('working');
+      .toBe('not-started');
   });
 
-  it('leaves a DRAFT plan\'s live worktree in WORKING', () => {
-    // Draft is not finished, and this is the line between the two halves of the
-    // rule. A plan under review whose branch is being edited right now HAS
-    // someone working on it — the review is what is outstanding, not the work.
-    // Only a terminal phase can say *nothing would move this forward*.
+  // WORKING IS ABOUT AGENTS. A draft plan's local activity without a known
+  // worker goes to NOT STARTED.
+  it('puts a DRAFT plan\'s live worktree into not-started', () => {
     expect(classify('open', 'eligible', null, QUIET, null, true, 0, 'draft').group)
-      .toBe('working');
+      .toBe('not-started');
   });
 });
 
@@ -1119,15 +1111,28 @@ describe('a deferred row answers to the phase too', () => {
     expect(waitingOnFor(r.group, 'deferred', 'eligible', 'approved')).toBe('you');
   });
 
-  it('leaves a deferred branch of a DRAFT plan in not-started, waiting on you', () => {
-    // Draft is not finished. A shelved branch of a plan still under review
-    // waits on a person twice over - approve the plan, un-shelve the branch -
-    // and `you` is the honest answer to both. Only a TERMINAL phase can say
-    // *nothing would move this forward*, which is the same line the `open` arm
-    // draws between its two tiers.
-    const r = classify('deferred', 'eligible', null, QUIET, null, false, 0, 'draft');
-    expect(r.group).toBe('not-started');
-    expect(waitingOnFor(r.group, 'deferred', 'eligible', 'draft')).toBe('you');
+  it('sends a deferred branch of a DRAFT plan to WAITING ON YOU, both verdicts', () => {
+    // SUPERSEDED ARGUMENT, recorded rather than erased. This test used to pin a
+    // deferred DRAFT branch in NOT STARTED, `waiting-on-you`, reasoning that a
+    // shelved branch of a plan under review "waits on a person twice over -
+    // approve the plan, un-shelve the branch". That is sound about the WAIT and
+    // wrong about the SECTION. Both waits are on the SAME person for the SAME
+    // next act - the approval - and NOT STARTED promises work an agent can TAKE
+    // now, which a Draft branch cannot: no phase gate lets `/plot-dispatch`
+    // start an unapproved plan. So the section's own hint ("approved - nobody
+    // has taken it") does not hold for it, and the `open` arm already draws
+    // exactly this line, sending a draft branch to WAITING ON YOU. The two arms
+    // now agree: a Draft plan's branch is a person's to approve, wherever it
+    // sits, and it belongs in the section that says so.
+    for (const verdict of ['eligible', 'blocked'] as const) {
+      const r = classify('deferred', verdict, null, QUIET, null, false, 0, 'draft');
+      expect(r.group).toBe('waiting-on-you');
+      expect(r.note).toBe(DRAFT_PLAN_NOTE);
+      // The row leaves NOT STARTED, so `waitingOnFor`'s group guard answers null
+      // for it - the plan-level act now lives on the plan head, gated on the
+      // card's own `isDraft`, not on this field.
+      expect(waitingOnFor(r.group, 'deferred', verdict, 'draft')).toBeNull();
+    }
   });
 
   it('leaves a deferred row of a pulse reporting NO phase exactly as it was', () => {
@@ -1224,19 +1229,24 @@ describe('a deferred row answers to the phase too', () => {
       }],
       summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 0, blocked: 0, deferred: 1 },
     } as FleetPulse);
+    const rowsFor = (phase: string) =>
+      rowsFromPulse(pulseWith(phase), new Map(), 'plot', QUIET);
     const rowFor = (phase: string) =>
-      rowsFromPulse(pulseWith(phase), new Map(), 'plot', QUIET)
-        .find((r) => r.branch === 'feature/plot-sprint-support')!;
+      rowsFor(phase).find((r) => r.branch === 'feature/plot-sprint-support')!;
 
-    expect(rowFor('released').group).toBe('done');
+    // A RELEASED plan has drained: `plot-sprint-support` shipped in
+    // v1.0.0-beta.3, and a shipped plan is out of the board's scope, so its
+    // deferred branch yields NO row at all — not a DONE row. This is the
+    // release-scope drain, one level down from the merged case: the phase
+    // decides membership before the shelf refines a section it never reaches.
+    expect(rowsFor('released')).toEqual([]);
+    // A DELIVERED plan is unreleased — the core of the scope — and stays in
+    // DONE. The `deferred` FACT survives the move, so the badge still has
+    // something to render from; the phase decides the section, it does not
+    // erase what the plan said about the branch.
     expect(rowFor('delivered').group).toBe('done');
+    expect(rowFor('delivered').state).toBe('deferred');
     expect(rowFor('approved').group).toBe('not-started');
-    // And the `deferred` FACT survives the move - the badge still has something
-    // to render from, in DONE as in NOT STARTED. The phase decides the section;
-    // it does not erase what the plan said about the branch.
-    expect(rowFor('released').state).toBe('deferred');
-    // Nothing to wait for once the row has left the section, by construction.
-    expect(rowFor('released').waitingOn).toBe(null);
     expect(rowFor('approved').waitingOn).toBe('you');
   });
 });
@@ -1258,15 +1268,18 @@ describe('the section follows the plan through rowsFromPulse', () => {
     summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
   } as FleetPulse);
 
+  const rowsFor = (phase: string) =>
+    rowsFromPulse(pulseWith(phase), new Map(), 'plot', QUIET);
   const rowFor = (phase: string) =>
-    rowsFromPulse(pulseWith(phase), new Map(), 'plot', QUIET)
-      .find((r) => r.branch === 'feature/c')!;
+    rowsFor(phase).find((r) => r.branch === 'feature/c')!;
 
   it('places each phase in its documented section, end to end', () => {
     expect(rowFor('draft').group).toBe('waiting-on-you');
     expect(rowFor('approved').group).toBe('not-started');
     expect(rowFor('delivered').group).toBe('done');
-    expect(rowFor('released').group).toBe('done');
+    // A RELEASED plan has drained — DONE is the release scope, and a shipped
+    // plan is out of it — so it contributes NO row rather than a DONE one.
+    expect(rowsFor('released')).toEqual([]);
   });
 
   it('changes section on the next pulse when a plan is approved — nothing to clear', () => {
@@ -1282,8 +1295,13 @@ describe('the section follows the plan through rowsFromPulse', () => {
     // `waitingOn` is null outside `not-started` by construction — derived from
     // the group rather than re-decided — so a Draft row moving to WAITING ON
     // YOU cannot keep a colour that says it is claimable.
+    //
+    // `delivered`, not `released`: a released plan yields no row to ask (the
+    // release-scope drain), so a DELIVERED row — landed in DONE, still on the
+    // board — is the example of a row that left NOT STARTED and dropped its
+    // wait.
     expect(rowFor('draft').waitingOn).toBe(null);
-    expect(rowFor('released').waitingOn).toBe(null);
+    expect(rowFor('delivered').waitingOn).toBe(null);
     expect(rowFor('approved').waitingOn).toBe('click');
   });
 });
@@ -1326,7 +1344,7 @@ describe('rowPhase — derived from the PAIR, never from the plan file alone', (
     expect(rowPhase('approved', 'open')).toBe('Development');
   });
 
-  it('keeps a delivered plan at Endgame when a late commit lands', () => {
+  it('keeps a delivered plan at Testing when a late commit lands', () => {
     // "git wins" is about an ABSENT record, not about overruling a recorded
     // decision. A missing `Started:` line is nobody having written something
     // down; a commit after delivery contradicts something a human wrote, and a
@@ -1335,8 +1353,8 @@ describe('rowPhase — derived from the PAIR, never from the plan file alone', (
     // Load-bearing: the SYMMETRIC implementation — git evidence overriding the
     // plan in both directions — passes every other test in this file and fails
     // only here. Without it, a plan goes visibly backwards for a typo fix.
-    expect(rowPhase('delivered', 'wip')).toBe('Endgame');
-    expect(rowPhase('delivered', 'merged')).toBe('Endgame');
+    expect(rowPhase('delivered', 'wip')).toBe('Testing');
+    expect(rowPhase('delivered', 'merged')).toBe('Testing');
     expect(rowPhase('released', 'wip')).toBe('Released');
   });
 
@@ -1355,7 +1373,7 @@ describe('rowPhase — derived from the PAIR, never from the plan file alone', (
   });
 
   it('leaves a deferred branch alone once the plan is past deciding', () => {
-    expect(rowPhase('delivered', 'deferred')).toBe('Endgame');
+    expect(rowPhase('delivered', 'deferred')).toBe('Testing');
     expect(rowPhase('released', 'deferred')).toBe('Released');
   });
 
@@ -1404,7 +1422,12 @@ describe('classify — whether a worker is actually running', () => {
     const failed = classify('claimed', 'eligible', 3, QUIET, null, false, 0, '', 'failed', '1');
     const finished = classify('claimed', 'eligible', 3, QUIET, null, false, 0, '', 'finished', '0');
     expect(failed.note).not.toBe(finished.note);
-    expect(failed.note).toMatch(/failed/);
+    // THE WORDING MOVED, THE CLAIM DID NOT. `failed` read *worker failed* until
+    // 2026-08-20 and now reads *worker crashed*, because the note states what
+    // was observed rather than what to do — see `broken-agent.test.ts`. What
+    // this test has always asserted is that the two states are not one label,
+    // and that is checked above, on the notes themselves.
+    expect(failed.note).toMatch(/crashed/);
     expect(finished.note).toMatch(/finished/);
   });
 
@@ -1433,7 +1456,11 @@ describe('classify — whether a worker is actually running', () => {
     // stop looking.
     const r = classify('claimed', 'eligible', 3, QUIET, null, false, 0, '', 'ended', '');
     expect(r.group).toBe('waiting-on-you');
-    expect(r.note).toMatch(/unknown/);
+    // *not recorded* rather than *unknown* since 2026-08-20 — the same claim in
+    // the words of the thing observed: what is missing is the RECORD. The
+    // assertion that matters is that it never reads as success, below.
+    expect(r.note).toMatch(/not recorded/);
+    expect(r.note).not.toMatch(/finished|success/);
     expect(r.note).not.toMatch(/finished/);
   });
 
@@ -1455,8 +1482,9 @@ describe('classify — whether a worker is actually running', () => {
     //
     // Asserted from the direction that can actually fail: a `none` verdict
     // carrying the rejected pid must NOT be talked back into running.
+    // WORKING IS ABOUT AGENTS — a claim with no known worker goes to NOT STARTED.
     const r = classify('claimed', 'eligible', 3, QUIET, null, false, 0, '', 'none', '', '0');
-    expect(r.group).toBe('working'); // the fresh-claim group, unchanged
+    expect(r.group).toBe('not-started'); // no known worker, so NOT STARTED
     expect(r.note).not.toMatch(/running/);
     expect(r.note).toMatch(/no known worker/);
   });
@@ -1480,18 +1508,19 @@ describe('classify — whether a worker is actually running', () => {
     // way in one session; reading a missing pid as "nobody is working" would
     // have reported every one of them dead.
     //
-    // So the GROUP does not move. Only the sentence stops promising commits.
+    // WORKING IS ABOUT AGENTS. A claim with no known worker goes to NOT STARTED
+    // — we do NOT say "dead" or "nobody", but we also do not say WORKING.
     const r = classify('claimed', 'eligible', 3, QUIET, null, false, 0, '', 'none');
-    expect(r.group).toBe('working');
-    expect(r.note).not.toMatch(/dead|nobody|not started/i);
+    expect(r.group).toBe('not-started');
+    expect(r.note).not.toMatch(/dead|nobody/i);
   });
 
   it('leaves a caller that passes no worker at all answering as before', () => {
-    // Every caller predating the field. The group is what those callers were
-    // about, and it must not move for a field they do not set.
-    expect(classify('claimed', 'eligible', 3, QUIET).group).toBe('working');
+    // Every caller predating the field. WORKING IS ABOUT AGENTS — no known
+    // worker means NOT STARTED for a fresh claim or recent commit.
+    expect(classify('claimed', 'eligible', 3, QUIET).group).toBe('not-started');
     expect(classify('claimed', 'eligible', QUIET + 1, QUIET).group).toBe('quiet');
-    expect(classify('wip', 'eligible', 5, QUIET).group).toBe('working');
+    expect(classify('wip', 'eligible', 5, QUIET).group).toBe('not-started');
   });
 
   it('does not let a stale worktree speak for a merged branch', () => {
@@ -1756,7 +1785,7 @@ describe('rowsFromPulse', () => {
       // #252/#253/#254 are merged with their refs deleted, and the PR page is
       // still there. The PR outlives the branch, so the link must too.
       const rows = rowsFromPulse(
-        pulse, ages, 'plot', QUIET, new Map(), '', null, Date.now(), null, null, null,
+        pulse, ages, 'plot', QUIET, new Map(), '', null, Date.now(), null, null, null, null,
         new Map([['feature/a', merged]]));
       const row = rows.find((r) => r.branch === 'feature/a')!;
       expect(row.pr).not.toBeNull();
@@ -1772,7 +1801,7 @@ describe('rowsFromPulse', () => {
       // The mirror, and the half that keeps the assertion above about the LINK
       // rather than about a default. `feature/c` is `open` with no PR anywhere.
       const rows = rowsFromPulse(
-        pulse, ages, 'plot', QUIET, new Map(), '', null, Date.now(), null, null, null,
+        pulse, ages, 'plot', QUIET, new Map(), '', null, Date.now(), null, null, null, null,
         new Map([['feature/a', merged]]));
       expect(rows.find((r) => r.branch === 'feature/c')!.pr).toBeNull();
     });
@@ -1783,7 +1812,7 @@ describe('rowsFromPulse', () => {
       // the row would be grouped by a merge that has not happened to this
       // branch. The number must arrive without the verdict coming with it.
       const rows = rowsFromPulse(
-        pulse, ages, 'plot', QUIET, new Map(), '', null, Date.now(), null, null, null,
+        pulse, ages, 'plot', QUIET, new Map(), '', null, Date.now(), null, null, null, null,
         new Map([['feature/b', pr({ number: 300, head: 'feature/b', state: 'MERGED' })]]));
       const row = rows.find((r) => r.branch === 'feature/b')!;
       expect(row.pr!.number).toBe(300);
@@ -1866,9 +1895,10 @@ describe('rowsFromPulse', () => {
   it('orders groups by what they ask of you, not by plan', () => {
     const rows = rowsFromPulse(pulse, ages, 'plot', QUIET);
     const groups = rows.map((r) => r.group);
-    // working first (nothing to do but look), then not-started (an opportunity
-    // to take), then quiet (an errand to run). Workable top to bottom.
-    expect(groups[0]).toBe('working');
+    // WORKING IS ABOUT AGENTS. Without agent state in the fixture, `working`
+    // is empty. not-started is actionable (an opportunity to take), then quiet
+    // (an errand to run). Workable top to bottom.
+    expect(groups[0]).toBe('not-started');
     // done sits last: it asks nothing of you at all.
     expect(groups.at(-1)).toBe('done');
   });
@@ -2029,11 +2059,11 @@ describe('rowsFromPulse', () => {
       expect(rows.find((r) => r.branch === 'feature/d')!.phase).toBe('Development');
     });
 
-    it('keeps a delivered plan\'s rows at Endgame despite fresh commits', () => {
+    it('keeps a delivered plan\'s rows at Testing despite fresh commits', () => {
       // `feature/b` is four minutes old in this fixture — a commit under a plan
       // already marked delivered, which must not reverse the phase.
       const rows = rowsFromPulse(withPhase('delivered'), ages, 'plot', QUIET);
-      expect(rows.every((r) => r.phase === 'Endgame')).toBe(true);
+      expect(rows.every((r) => r.phase === 'Testing')).toBe(true);
     });
 
     it('leaves it null on a pulse from a scan that reports no phase', () => {
@@ -2080,6 +2110,67 @@ describe('rowsFromPulse', () => {
       // And the note is the branch's own, not the word `deferred`.
       expect(row.note).not.toBe('deferred');
       expect(row.group).toBe('not-started');
+    });
+  });
+
+  describe('DONE is the release scope — a released plan has drained', () => {
+    // DONE holds work that has landed and whose version has NOT shipped: the
+    // scope of the next release, waiting on its endgame test. `Released` is the
+    // leave-condition — /plot-release resolving the version is exactly *the
+    // release shipped* — so a released plan is out of the board's scope and its
+    // rows do not appear here. Measured 2026-08-23: 41 of 61 DONE rows were
+    // Released work the board had no further say over.
+    //
+    // A released plan is all-merged, all-complete by construction (the domain
+    // model measures 41/41), so this fixture is the estate's own shape.
+    const released: FleetPulse = {
+      ...pulse,
+      plans: [{
+        file: '2026-08-01-shipped-plan.md', phase: 'released',
+        waves: [{
+          name: 'Tracer', verdict: 'complete',
+          branches: [
+            { branch: 'feature/shipped-a', state: 'merged', deferred: false, claimed: '' },
+            { branch: 'feature/shipped-b', state: 'merged', deferred: false, claimed: '' },
+          ],
+        }],
+      }],
+      summary: { plans: 1, waves: 1, branches: 2, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+    };
+
+    it('drops a released plan\'s rows — the release drained DONE', () => {
+      const rows = rowsFromPulse(released, new Map(), 'plot', QUIET);
+      expect(rows).toEqual([]);
+    });
+
+    it('drains only the release — a delivered plan stays in DONE', () => {
+      // The one direction that is NOT symmetric: every wave complete is a
+      // measurement, releasing is a decision. A delivered plan is complete and
+      // unreleased — the core of the release scope — and it stays. Only the
+      // version shipping removes it, which is what makes DONE a queue that
+      // drains rather than an archive that decays.
+      const delivered: FleetPulse = {
+        ...released,
+        plans: [{ ...released.plans[0], phase: 'delivered' }],
+      };
+      const rows = rowsFromPulse(delivered, new Map(), 'plot', QUIET);
+      expect(rows).toHaveLength(2);
+      expect(rows.every((r) => r.group === 'done')).toBe(true);
+      expect(rows.every((r) => r.phase === 'Testing')).toBe(true);
+    });
+
+    it('leaves a released row on a planless branch alone — it is not a plan', () => {
+      // The drain reads a PLAN's phase. A branch no plan names — a release
+      // branch, a loose PR — carries no phase to drain on, and reaches the board
+      // through its own path. Dropping it here would lose a row the release did
+      // not scope.
+      const loose = new Map([[
+        'changeset-release/main',
+        { number: 5, head: 'changeset-release/main', state: 'OPEN', draft: false,
+          checks: 'green', mergeable: 'mergeable', review: '', url: '' } as never,
+      ]]);
+      const rows = rowsFromPulse(released, new Map(), 'plot', QUIET, loose);
+      expect(rows.find((r) => r.branch === 'changeset-release/main')).toBeDefined();
     });
   });
 
@@ -2238,12 +2329,13 @@ describe('rowsFromPulse', () => {
       }],
     });
 
-    it('moves a long-quiet branch into working, saying the evidence is local', () => {
+    it('puts a long-quiet branch with local activity into not-started, not working', () => {
       // `feature/d` is 240 minutes old against a 30-minute window, so the refs
-      // put it firmly in quiet and only the worktree says otherwise.
+      // put it firmly in quiet and only the worktree says otherwise. WORKING IS
+      // ABOUT AGENTS: local activity without an agent is not-started.
       const rows = rowsFromPulse(dirty('feature/d'), ages, 'plot', QUIET);
       const row = rows.find((r) => r.branch === 'feature/d');
-      expect(row!.group).toBe('working');
+      expect(row!.group).toBe('not-started');
       expect(row!.note).toMatch(/local/);
     });
 
@@ -2274,12 +2366,13 @@ describe('rowsFromPulse', () => {
       }],
     });
 
-    it('moves a long-quiet branch into working, and says how many', () => {
+    it('puts a long-quiet branch with unpushed commits into not-started, not working', () => {
       // `feature/d` is 240 minutes old against a 30-minute window, so the refs
       // put it firmly in quiet and only the unpushed commits say otherwise.
+      // WORKING IS ABOUT AGENTS: local activity without an agent is not-started.
       const rows = rowsFromPulse(ahead('feature/d', 3), ages, 'plot', QUIET);
       const row = rows.find((r) => r.branch === 'feature/d');
-      expect(row!.group).toBe('working');
+      expect(row!.group).toBe('not-started');
       expect(row!.note).toMatch(/3 commits not pushed/);
     });
 
@@ -2324,7 +2417,10 @@ describe('rowsFromPulse', () => {
       const rows = rowsFromPulse(withWorker('failed', '2', '900'), ages, 'plot', QUIET);
       const row = rows.find((r) => r.branch === 'feature/d')!;
       expect(row.group).toBe('waiting-on-you');
-      expect(row.note).toMatch(/exit 2/);
+      // The exit code still travels; the sentence around it reads *crashed —
+      // exited 2* rather than *failed (exit 2)* since 2026-08-20. What this test
+      // is about is that the CODE arrives, which is asserted on the number.
+      expect(row.note).toMatch(/exited 2/);
     });
 
     it('carries a running worker\'s pid, so the reader can go look at the process', () => {
@@ -2345,7 +2441,7 @@ describe('rowsFromPulse', () => {
       // `waiting-on-you` until this change and undercounted every one.
       const rows = rowsFromPulse(
         withWorker('waiting', '0', '900'), ages, 'plot', QUIET,
-        null, '', null, Date.now(), null, null, asking('PLOT-BLOCKED: which adapter?'));
+        null, '', null, Date.now(), null, null, null, asking('PLOT-BLOCKED: which adapter?'));
       expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('working');
     });
 
@@ -2355,7 +2451,7 @@ describe('rowsFromPulse', () => {
       // or see that it is not theirs — without opening the worktree first.
       const rows = rowsFromPulse(
         withWorker('waiting', '0', '900'), ages, 'plot', QUIET,
-        null, '', null, Date.now(), null, null,
+        null, '', null, Date.now(), null, null, null,
         asking('PLOT-BLOCKED: which adapter should the fallback use?'));
       expect(rows.find((r) => r.branch === 'feature/d')!.note)
         .toMatch(/which adapter should the fallback use\?/);
@@ -2395,7 +2491,11 @@ describe('rowsFromPulse', () => {
       const row = rows.find((r) => r.branch === 'feature/d')!;
       expect(row.group).toBe('waiting-on-you');
       expect(row.note).toMatch(/src\/retry\.ts/);
-      expect(row.note).toMatch(/resume it/);
+      // The sentence around the names stopped prescribing *resume it* on
+      // 2026-08-20 and now states what was observed — *stopped without finishing
+      // and without asking*. The names, which are what this test is about, are
+      // asserted above and unchanged.
+      expect(row.note).toMatch(/without finishing/);
     });
 
     it('counts the remainder rather than dropping it silently', () => {
@@ -2428,7 +2528,7 @@ describe('rowsFromPulse', () => {
       // `waiting-on-you` the row had neither.
       const rows = rowsFromPulse(
         withWorker('waiting', '0', '900'), ages, 'plot', QUIET,
-        null, '', null, Date.now(), null, null, asking('PLOT-BLOCKED: which one?'));
+        null, '', null, Date.now(), null, null, null, asking('PLOT-BLOCKED: which one?'));
       expect(showsWorkerLog(rows.find((r) => r.branch === 'feature/d')!)).toBe(true);
     });
 
@@ -2442,10 +2542,19 @@ describe('rowsFromPulse', () => {
       // the second restart re-running work the first had finished.
       const rows = rowsFromPulse(
         withWorker('waiting', '0', '900', ['src/half-done.ts']), ages, 'plot', QUIET,
-        null, '', null, Date.now(), null, null, asking('PLOT-BLOCKED: which one?'));
+        null, '', null, Date.now(), null, null, null, asking('PLOT-BLOCKED: which one?'));
       const row = rows.find((r) => r.branch === 'feature/d')!;
       expect(row.group).toBe('working');
-      expect(row.note).not.toMatch(/resume it/);
+      // REBOUND TO THE STALLED SENTENCE THAT EXISTS. This read `not
+      // toMatch(/resume it/)` until 2026-08-20, when the stalled note stopped
+      // prescribing a move — and a negative assertion against a string nothing
+      // composes any more passes whatever the ordering does, which is the one
+      // way this guarantee could have been lost silently. It now names the
+      // wording the stalled arm actually produces.
+      expect(row.note).not.toMatch(/without finishing/);
+      // AND POSITIVELY: the question is what the row must carry. If dirtiness
+      // won, this row would describe the floor instead of the ask.
+      expect(row.note).toMatch(/which one\?/);
     });
 
     it('renders the three claim cases as three different sentences', () => {
@@ -2730,9 +2839,12 @@ describe('classify with PR data', () => {
     expect(r.note).toMatch(/failing/);
   });
 
-  it('leaves a green DRAFT PR to its author rather than to you', () => {
+  it('leaves a green DRAFT PR to its author, classified by git age not PR state', () => {
+    // A draft PR breaks out of the PR handling (pr.draft → break) and falls
+    // through to the git-state classification. WORKING IS ABOUT AGENTS: with
+    // no agent state, a recent commit goes to not-started.
     const r = classify('wip', 'eligible', 3, QUIET, pr({ draft: true }));
-    expect(r.group).toBe('working');
+    expect(r.group).toBe('not-started');
   });
 
   it('shows review state as a note without ever gating on it', () => {
@@ -2761,10 +2873,11 @@ describe('classify with PR data', () => {
   });
 
   it('falls back to git state when no PR exists', () => {
-    // The git-only behaviour must survive untouched for branches without a PR —
-    // including for claims, which now answer by age like everything else.
-    expect(classify('wip', 'eligible', 3, QUIET, null).group).toBe('working');
-    expect(classify('claimed', 'eligible', 3, QUIET, null).group).toBe('working');
+    // The git-only behaviour survives for branches without a PR — including for
+    // claims, which now answer by age like everything else. WORKING IS ABOUT
+    // AGENTS: without agent state, recent commits go to not-started.
+    expect(classify('wip', 'eligible', 3, QUIET, null).group).toBe('not-started');
+    expect(classify('claimed', 'eligible', 3, QUIET, null).group).toBe('not-started');
     expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null).group).toBe('quiet');
   });
 });
@@ -2896,6 +3009,119 @@ describe('prState', () => {
   });
 });
 
+describe('prStates', () => {
+  const pr = (over: Partial<PrRecord> = {}): PrRecord => ({
+    number: 42, head: 'feature/x', state: 'OPEN', draft: false, checks: 'green',
+    mergeable: 'mergeable', review: '', url: 'https://example.test/pr/42', ...over,
+  });
+
+  it('keeps BOTH facts for a PR that conflicts and whose build failed', () => {
+    // THE MEASURED LOSS, and the whole reason this function exists. A single
+    // value reported `conflicts` and the failed build was gone before the row
+    // was built — one observable with two causes, and the code kept one.
+    //
+    // Not hypothetical: a run can complete, and fail, before main moves
+    // underneath the branch and makes it unmergeable.
+    expect(prStates(pr({ checks: 'failing', mergeable: 'conflicting' })))
+      .toEqual(['conflicts', 'failing']);
+  });
+
+  it('leads with the conflict, because it blocks the merge outright', () => {
+    // The ORDER is the precedence, and it is unchanged from `prState`: a red
+    // build on an unmergeable PR is moot until the rebase happens, and fixing it
+    // first can be wasted work if the rebase changes what fails.
+    expect(prStates(pr({ checks: 'failing', mergeable: 'conflicting' }))[0])
+      .toBe('conflicts');
+  });
+
+  it('does not print the empty rollup a conflict CAUSED', () => {
+    // GitHub starts no workflow for a branch that does not merge, so `none`
+    // beside a conflict is that conflict's own consequence. Appending it would
+    // stand the symptom next to its cause as though they were two problems —
+    // and `no checks` is the sentence this estate already removed once for
+    // naming the symptom while withholding the reason.
+    expect(prStates(pr({ checks: 'none', mergeable: 'conflicting' }))).toEqual(['conflicts']);
+  });
+
+  it('appends nothing that is not an errand of its own', () => {
+    // `pending` and `unknown` say nothing a reader can act on beneath a
+    // conflict, and `green` is the absence of an errand rather than a peer of
+    // one. Only a failed build composes.
+    expect(prStates(pr({ checks: 'pending', mergeable: 'conflicting' }))).toEqual(['conflicts']);
+    expect(prStates(pr({ checks: 'green', mergeable: 'conflicting' }))).toEqual(['conflicts']);
+    expect(prStates(pr({ checks: 'unknown', mergeable: 'conflicting' }))).toEqual(['conflicts']);
+  });
+
+  it('answers unknown ALONE, claiming nothing beside it', () => {
+    // `green-never-outranks-unknown`, carried into the set: unknown
+    // mergeability poisons the checks answer as well, so a second entry here
+    // would claim a knowledge the row does not have. The live shape from PR #57
+    // is the first of these.
+    expect(prStates(pr({ checks: 'green', mergeable: 'unknown' }))).toEqual(['unknown']);
+    expect(prStates(pr({ checks: 'failing', mergeable: 'unknown' }))).toEqual(['unknown']);
+    expect(prStates(pr({ checks: 'green', mergeable: undefined }))).toEqual(['unknown']);
+  });
+
+  it('answers green ALONE', () => {
+    // Green is the absence of every errand, so nothing composes with it —
+    // including in the other direction, where a set implementation that always
+    // appended the checks would report `['green', 'green']`.
+    expect(prStates(pr({ checks: 'green', mergeable: 'mergeable' }))).toEqual(['green']);
+  });
+
+  it('answers a single errand as a set of one', () => {
+    // The common case. A set does not mean every row carries two things.
+    expect(prStates(pr({ checks: 'failing' }))).toEqual(['failing']);
+    expect(prStates(pr({ checks: 'pending' }))).toEqual(['pending']);
+    expect(prStates(pr({ checks: 'none' }))).toEqual(['none']);
+  });
+
+  it('never answers empty, so its head is always a real word', () => {
+    // What licenses `prState` to be `prStates(pr)[0]` without a fallback. An
+    // implementation that returned `[]` for any input would make the derived
+    // word `undefined` and every consumer of it lie.
+    for (const mergeable of ['mergeable', 'conflicting', 'unknown', '', undefined]) {
+      for (const checks of ['green', 'pending', 'failing', 'none', 'unknown', 'new-word']) {
+        expect(prStates(pr({ checks, mergeable })).length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('agrees with prState on EVERY input, because one derives from the other', () => {
+    // THE INVARIANT THE CONTRACT ASSERTS: `states[0] === state`. Two fields
+    // deriving one answer separately is how a row's word and its sentence come
+    // to disagree — the failure `classify` mirrors `prState` to avoid, recorded
+    // in both their comments. Here it cannot happen by construction, and this
+    // is the test that says so rather than trusting the arrangement.
+    for (const mergeable of ['mergeable', 'conflicting', 'unknown', '', undefined]) {
+      for (const checks of ['green', 'pending', 'failing', 'none', 'unknown', 'new-word']) {
+        const record = pr({ checks, mergeable });
+        expect(prStates(record)[0]).toBe(prState(record));
+      }
+    }
+  });
+
+  it('does not fold draft into the set', () => {
+    // The same independence `prState` keeps: a draft has CI like anything else,
+    // and a set is exactly where a careless implementation would smuggle a
+    // seventh value in beside the real ones.
+    expect(prStates(pr({ draft: true, checks: 'failing' }))).toEqual(['failing']);
+    expect(prStates(pr({ draft: true, checks: 'failing', mergeable: 'conflicting' })))
+      .toEqual(['conflicts', 'failing']);
+  });
+
+  it('remains a pure function over the two facts it already receives', () => {
+    // No new field and no host call: the same record in, the same set out. The
+    // plan's constraint is explicit — the kind is derived from data already on
+    // the row.
+    const record = pr({ checks: 'failing', mergeable: 'conflicting' });
+    const before = JSON.stringify(record);
+    expect(prStates(record)).toEqual(prStates(record));
+    expect(JSON.stringify(record)).toBe(before);
+    expect(prStates.length).toBe(1);
+  });
+});
+
 describe('the row carries the PR condition as fields', () => {
   const pulse: FleetPulse = {
     generatedAt: '2026-08-17T00:00:00Z',
@@ -2928,6 +3154,9 @@ describe('the row carries the PR condition as fields', () => {
     const row = rowFor();
     expect(row.pr).toEqual({
       number: 42, url: 'https://host/pr/42', draft: false, state: 'green',
+      // The SET travels too, and `state` is its head — the invariant the row
+      // depends on to name a subject without recomputing the precedence.
+      states: ['green'],
     });
   });
 

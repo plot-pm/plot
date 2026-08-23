@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Sprint:** the-board-tells-the-truth
@@ -13,7 +13,7 @@
 - **Approved:** 2026-08-18, jwloka, in-session
 - **Started:** 2026-08-18, Jan Wloka, `bug/not-started-shows-approved-plans`
 - **Delivered:** 2026-08-19, jwloka, PRs #231, #234, #243
-- **Released:**
+- **Released:** 2026-08-22, v2.7.0
 - **Started:** 2026-08-18, Jan Wloka, `bug/a-deferred-row-answers-to-the-phase-too`
 - **Started:** 2026-08-19, Jan Wloka, `bug/a-blocked-branch-says-it-is-blocked`
 

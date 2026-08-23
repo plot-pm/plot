@@ -14,6 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Fleet, AgentRow } from '../../src/contract/schema.js';
 import type { AgentPanel } from '../../src/server/agent-panel.js';
+import { expandAgentFolds } from '../helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(here, '../../../..');
@@ -126,6 +127,7 @@ describe('the agent panel facts are destinations', () => {
       r.fulfill({ contentType: 'application/json', body: boardWithCard }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Working').first().waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     return page;
   }
 
@@ -200,6 +202,7 @@ describe('the agent panel facts are destinations', () => {
         r.fulfill({ contentType: 'application/json', body: JSON.stringify(panel()) }));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Working').first().waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       await openPanel(page);
       await page.locator('[data-copy-path]').click();
       // The exact path, not the truncated render — the whole point of copying.

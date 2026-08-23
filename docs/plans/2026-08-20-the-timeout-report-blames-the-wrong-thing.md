@@ -11,13 +11,15 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — falsified by acting on it: 26 of 37 worktrees pruned, scan unchanged, the per-spawn figure rose
+- **Delivered:** 2026-08-22, jwloka, PRs #291
+- **Released:** 2026-08-22, v2.7.0
 - **Started:** 2026-08-20, Jan Wloka, `bug/the-timeout-report-drops-what-it-cannot-measure`
 
 ## Problem
@@ -137,7 +139,7 @@ picks the first:
 ## Branches
 
 ### Says
-- `bug/the-timeout-report-drops-what-it-cannot-measure` — `perSpawnMs` and the causal sentence are removed; the counts and the timeout stay. Tests: the report names the worktree and branch counts; it contains no per-spawn figure; it proposes no remedy it cannot support; `measureEstate` still returns null rather than a partial object when a count cannot be read; the bare-timeout fallback is unchanged where no counts are available. PR #291.
+- `bug/the-timeout-report-drops-what-it-cannot-measure` — `perSpawnMs` and the causal sentence are removed; the counts and the timeout stay. Tests: the report names the worktree and branch counts; it contains no per-spawn figure; it proposes no remedy it cannot support; `measureEstate` still returns null rather than a partial object when a count cannot be read; the bare-timeout fallback is unchanged where no counts are available. PR #291. → #291
 
 ## Notes
 

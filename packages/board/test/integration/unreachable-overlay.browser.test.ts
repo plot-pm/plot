@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { startServer, expandAgentFolds } from '../helpers.mjs';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet } from '../../src/contract/schema.js';
 // The threshold under test, IMPORTED rather than restated: a copy here would
 // drift in exactly the way that matters — raise it in App.tsx and a hard-coded
@@ -50,7 +50,16 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     // this whole plan exists to withdraw.
     row({
       branch: 'feature/untaken', plan: 'plant-tomatoes', group: 'not-started',
-      state: 'open', phase: 'Design', ageMinutes: null, waitingOn: 'click' as const, note: ELIGIBLE_NOTE,
+      // `verdict: 'eligible'`, said in the FIELD and not only in the note.
+      //
+      // The row describes a startable branch — `ELIGIBLE_NOTE`, `waitingOn:
+      // 'click'` — and the menu that offers `Start work` is gated on the wave's
+      // VERDICT, which was absent. A wave with no verdict offers no control at
+      // all (`isStartable`'s rule: a button whose usual state is *you cannot*
+      // teaches people to ignore buttons), so the whole suite was asserting
+      // against a row that could never have had the menu it looks for.
+      state: 'open', phase: 'Design', ageMinutes: null, waitingOn: 'click' as const,
+      verdict: 'eligible' as const, note: ELIGIBLE_NOTE,
       branchUrl: `${GH}feature/untaken`, waitingDays: 22,
     }),
   ];
@@ -110,9 +119,23 @@ describe('tiny-garden: a frozen board stops inviting', () => {
    * it was never an invitation, so withdrawing it is not the claim.
    */
   const eligibleMenu = (page: Page) =>
-    page.locator('li[data-agent-row]')
-      .filter({ has: page.getByText('feature/untaken', { exact: true }) })
-      .locator('[data-row-actions]');
+    // THE MENU ON THE ROW THAT NAMES THIS BRANCH, whatever kind of row that is.
+    //
+    // An eligible branch renders as its WAVE since `a-wave-is-a-kind`, and the
+    // wave row carries the menu — `Start work` acts on a plan and a dispatch
+    // binding, never on a branch, so the wave is where it belongs. `data-row-actions`
+    // was the branch row's hook; `data-wave-actions` is the wave's, and this
+    // accepts either so the test asks *is the menu reachable* rather than *which
+    // component drew it*.
+    // FOUND BY `data-branch`, not by exact text. A branch name is folded in the
+    // middle across two `aria-hidden` spans — `splitBranch` keeps the last
+    // twelve characters visible — so no single element holds the whole name as
+    // text and `getByText(exact)` matches nothing at all. The attribute carries
+    // the name whole, which is what it is for.
+    page.locator('li')
+      .filter({ has: page.locator('[data-branch="feature/untaken"]') })
+      .locator('[data-row-actions], [data-wave-actions]')
+      .last();
 
   /**
    * How a real backgrounded tab comes back — and, here, the lever that drives
@@ -184,6 +207,10 @@ describe('tiny-garden: a frozen board stops inviting', () => {
     // Wait for real content, so there is a payload to degrade FROM.
     if (tab === 'agents') await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     else await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
+    // AFTER the branch, not inside it: a line inserted between `if` and `else`
+    // is a parse error, and this file carried one — the whole suite failed to
+    // load rather than failing an assertion.
+    if (tab === 'agents') await expandAgentFolds(page);
     // The Agents tab needs the board's cards too — that is where Start work
     // and the restart command come from.
     if (tab === 'agents') {
@@ -191,6 +218,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
       await page.getByRole('button', { name: 'Agents' }).click();
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     }
     return { page, set: (m: Mode) => { mode = m; } };
   }

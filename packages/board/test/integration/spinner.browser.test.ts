@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { startServer, expandAgentFolds } from '../helpers.mjs';
 import type { Fleet } from '../../src/contract/schema.js';
 
 /**
@@ -352,81 +352,15 @@ describe('the acting buttons carry a spinner while they act', () => {
  * hours with no known end. The dot must be untouched, and the two markers must
  * be TELLABLE APART.
  */
-describe('the rows keep their own indicator, and it is not this one', () => {
-  let server: { port: number; kill: () => void };
-  let browser: Browser;
-  let baseURL: string;
-  let garden: string;
-
-  beforeAll(async () => {
-    garden = detachedGarden();
-    server = await startServer(garden);
-    baseURL = `http://localhost:${server.port}/`;
-    browser = await chromium.launch();
-  });
-  afterAll(async () => {
-    await browser?.close();
-    server?.kill();
-    if (garden) fs.rmSync(garden, { recursive: true, force: true });
-  });
-
-  /**
-   * One WORKING row, which is all this question needs.
-   *
-   * Typed as the real `Fleet` rather than a loose literal: the first draft here
-   * carried only `rows`, the payload failed the contract, and the tab rendered
-   * nothing at all — a stub that is wrong in that direction fails as a timeout
-   * rather than as a claim about the dot, which is a slow way to learn nothing.
-   */
-  const FLEET: Fleet = {
-    generatedAt: '2026-08-17T09:00:00Z',
-    ageSeconds: 2,
-    ready: true,
-    error: null,
-    rows: [{
-      repo: 'garden', branch: 'feature/beans-a', plan: 'beans',
-      planFile: '2026-03-01-plant-tomatoes.md', wave: 'w', state: 'wip',
-      phase: 'Development', group: 'working', ageMinutes: 3,
-      note: 'last commit 3 min ago', pr: null,
-      branchUrl: 'https://github.com/tiny/garden/tree/feature/beans-a',
-      waitingDays: null,
-    }],
-    summary: { plans: 1, waves: 1, branches: 1, claimed: 1, eligible: 0, blocked: 0, deferred: 0 },
-    prAgeSeconds: null,
-    prNextInSeconds: null,
-    scanNextInSeconds: null,
-    prError: null,
-  };
-
-  it('the WORKING dot is still there, still pulsing, and is NOT the button marker', async () => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    try {
-      await page.route('**/api/fleet', (route) =>
-        route.fulfill({ contentType: 'application/json', body: JSON.stringify(FLEET) }));
-      await page.goto(`${baseURL}?tab=agents`);
-      // The same landmark the Agents-tab suite waits on: every group renders
-      // its heading whether or not it holds rows, so this is the tab having
-      // painted rather than this fixture having any particular content.
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
-
-      const dot = page.locator('[data-live-dot]');
-      await expect.poll(() => dot.count(), { timeout: 10_000 }).toBe(1);
-
-      // Untouched: still animated, still hidden from a screen reader.
-      expect(await dot.evaluate((el) => {
-        const name = getComputedStyle(el).animationName;
-        return name !== 'none' && name !== '';
-      })).toBe(true);
-      expect(await dot.getAttribute('aria-hidden')).toBe('true');
-
-      // And DISTINGUISHABLE from the button's marker — the assertion a change
-      // that unified them fails. A row's dot must never be the button's
-      // spinner: the row says *something is alive, end unknown*, the button
-      // says *an answer is coming*.
-      expect(await dot.getAttribute('data-acting-spinner')).toBeNull();
-      expect(await page.locator('[data-acting-spinner]').count()).toBe(0);
-    } finally {
-      await page.close();
-    }
-  });
-});
+// `the rows keep their own indicator, and it is not this one` stood here and
+// held one test: the WORKING dot — `[data-live-dot]`, a static emerald mark on
+// every such row — was present, pulsing, and not the button's marker.
+//
+// That dot went on 2026-08-22. It sat a pixel from `ActivityMark`'s travelling
+// dot, so a WORKING row showed two and read as one smudge, and what it said
+// (*this row is in WORKING*) the section heading already says once.
+//
+// Its claim survives whole in `acting-spinner.test.ts`, which reads the source:
+// the ROW's marker and the BUTTON's spinner must never be unified, because a
+// click ends in seconds and a row does not — and `ActivityMark` measures no end
+// either, so the argument transfers intact.

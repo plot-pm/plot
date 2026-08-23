@@ -14,6 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Fleet, AgentRow } from '../../src/contract/schema.js';
+import { expandAgentFolds } from '../helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(here, '../../../..');
@@ -96,6 +97,7 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
       r.fulfill({ status, contentType: 'application/json', body: JSON.stringify(logBody) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Working').first().waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     return page;
   }
 
@@ -278,6 +280,7 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
         r.fulfill({ contentType: 'application/json', body: JSON.stringify(ok()) }));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Working').first().waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       await openPanel(page);
 
       await page.getByRole('button', { name: /copy path/i }).click();
@@ -307,6 +310,7 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
         r.fulfill({ contentType: 'application/json', body: JSON.stringify(ok({ text })) }));
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Working').first().waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       await openPanel(page);
       expect(await page.locator('[data-log-body]').innerText()).toContain('first line');
 
@@ -334,6 +338,7 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
       });
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Working').first().waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
       // THE POINT OF SERVING ON DEMAND: the board has been open and polling,
       // and not one log has been fetched.
       await page.waitForTimeout(500);

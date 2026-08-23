@@ -67,4 +67,23 @@ describe('the board never reaches the network to read refs', () => {
     const board = sources.find((s) => s.file === 'board.ts');
     expect(board!.code).toMatch(/'show'/);
   });
+
+  it('reads the served branch ONLY in server-info.ts, never on a request path', () => {
+    // The branch the header names is a startup fact — the process serves one
+    // worktree for its whole life. `serverInfo()` runs on every /api/board
+    // response, so the read is memoised behind a null sentinel in
+    // `server-info.ts` and the fork fires once. This pins that by CONSTRUCTION:
+    // `--show-current` appears in exactly that file and nowhere else in the
+    // server. If it turned up in `index.ts` (the request handler) or `board.ts`
+    // (the per-request walker), the branch would be re-forked per poll — the
+    // very cost `no-network` exists to keep off this path.
+    const offenders = sources.filter(
+      (s) => s.file !== 'server-info.ts' && /--show-current/.test(s.code),
+    );
+    expect(offenders.map((s) => s.file)).toEqual([]);
+    // The positive half: not merely "absent elsewhere", but present where it
+    // belongs — deleting the read would pass the negative check too.
+    const info = sources.find((s) => s.file === 'server-info.ts');
+    expect(info!.code).toMatch(/--show-current/);
+  });
 });

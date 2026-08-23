@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { startServer, expandAgentFolds } from '../helpers.mjs';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet } from '../../src/contract/schema.js';
 
 /**
@@ -173,7 +173,7 @@ function boardWith(cardOver: Record<string, unknown>): Record<string, unknown> {
       { phase: 'Backlog', cards: [] },
       { phase: 'Design', cards: [] },
       { phase: 'Development', cards: [card] },
-      { phase: 'Endgame', cards: [] },
+      { phase: 'Testing', cards: [] },
       { phase: 'Released', cards: [] },
     ],
     sprints: [],
@@ -247,6 +247,7 @@ describe('the Status entry — the dispatcher log gets a durable home', () => {
     }
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText(/Working/).first().waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
     return page;
   }
 

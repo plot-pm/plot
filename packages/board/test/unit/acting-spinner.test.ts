@@ -16,7 +16,7 @@ import { ACTING_CLASS } from '../../src/app/components/ui/ActingSpinner.js';
  *
  * | Indicator          | Means                                | Lives for |
  * |--------------------|--------------------------------------|-----------|
- * | `LiveDot` on a row | something is alive, end unknown      | hours     |
+ * | `ActivityMark` row | a process runs, end unknown          | hours     |
  * | Spinner on button  | an answer is coming                  | seconds   |
  *
  * This repo has no component-test seat — vitest runs `environment: 'node'`, with
@@ -51,9 +51,21 @@ const AGENT_LIST = src('AgentList.tsx');
 const START_WORK = src('StartWorkButton.tsx');
 const APPROVE = src('ApproveButton.tsx');
 
-/** The `LiveDot` component body — the row's marker, and nothing around it. */
-function liveDotBody(): string {
-  const from = AGENT_LIST.indexOf('function LiveDot()');
+/**
+ * The ROW's marker body — and nothing around it.
+ *
+ * It was `LiveDot` until 2026-08-22, a static dot on every WORKING row. That
+ * one is gone: it sat a pixel from `ActivityMark`'s travelling dot, so a
+ * WORKING row drew two dots and read as one smudge, and what it said (*this row
+ * is in WORKING*) the section heading already says once.
+ *
+ * `ActivityMark` is the row's marker now, and this suite's claim survives the
+ * swap intact — arguably better. The claim is that the ROW's marker and the
+ * BUTTON's spinner must not be unified, because a click ends in seconds and a
+ * row does not; `ActivityMark` measures a process whose end is just as unknown.
+ */
+function rowMarkerBody(): string {
+  const from = AGENT_LIST.indexOf('function ActivityMark(');
   expect(from).toBeGreaterThan(-1);
   return AGENT_LIST.slice(from, AGENT_LIST.indexOf('\n}', from));
 }
@@ -65,22 +77,24 @@ describe('the two indicators are different markers making different claims', () 
     expect(SPINNER).toMatch(/\banimate-spin\b/);
   });
 
-  it('the ROW pulses — no rotation, because a row does not end', () => {
+  it('the ROW TRAVELS — no rotation, because a row does not end', () => {
     // `working-rows-show-motion` chose this deliberately: *rotation implies
     // progress toward completion, which nothing here measures*. That is still
-    // true of a row, and it is what makes unifying the two markers wrong.
-    const dot = liveDotBody();
-    expect(dot).toMatch(/\banimate-pulse\b/);
+    // the claim; only the motion has changed. The row's marker pulsed while it
+    // was `LiveDot` and travels now that it is `ActivityMark` — a dot sliding
+    // along a track, which states extent without implying an end.
+    const dot = rowMarkerBody();
+    expect(dot).toMatch(/animate-travel-(fast|slow)/);
     expect(dot).not.toMatch(/\banimate-spin\b/);
   });
 
   it('and neither borrows the other\'s test hook', () => {
-    // The hook a unifying change would collapse. `data-live-dot` is already
-    // asserted by the Agents tab suite; a spinner wearing it would inherit
-    // those assertions while changing what the row claims.
+    // The hook a unifying change would collapse. `data-activity-mark` is
+    // already asserted by the Agents tab suite; a spinner wearing it would
+    // inherit those assertions while changing what the row claims.
     expect(SPINNER).toMatch(/data-acting-spinner/);
-    expect(SPINNER).not.toMatch(/data-live-dot/);
-    expect(liveDotBody()).not.toMatch(/data-acting-spinner/);
+    expect(SPINNER).not.toMatch(/data-activity-mark/);
+    expect(rowMarkerBody()).not.toMatch(/data-acting-spinner/);
   });
 });
 
@@ -101,7 +115,7 @@ describe('motion-reduce stops the animation and keeps the marker', () => {
   });
 
   it('the row keeps the same pattern, untouched', () => {
-    expect(liveDotBody()).toMatch(/motion-reduce:animate-none/);
+    expect(rowMarkerBody()).toMatch(/motion-reduce:animate-none/);
   });
 });
 

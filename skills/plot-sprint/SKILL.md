@@ -8,7 +8,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.2.0
+  version: 1.3.0
 compatibility: Designed for Claude Code and Cursor. Requires git. Sprint skeletons commit directly to main; planning refinement may optionally go through a draft PR (see "Refine via PR").
 ---
 
@@ -590,10 +590,37 @@ Print:
 
 Scope changes are allowed during Active (or Committed) sprints. All changes are logged in the sprint file's `## Notes > ### Scope Changes` section for traceability.
 
-**Adding items mid-sprint:**
+**Adding items mid-sprint — dispatched work only.**
+
+A plan may be added to a RUNNING sprint only once it has been **dispatched**:
+its branch is claimed on the remote, or work on it has otherwise started. A plan
+that is merely written, or even approved, does not go in.
+
+**Why the line is there.** A sprint is a commitment about a timebox, and its
+Must Haves gate a release. Adding an approved-but-unstarted plan mid-flight
+inflates the commitment with work nobody has picked up — so the sprint reports a
+scope it never agreed to, and the release gate then refuses on an item that was
+added after the sprint was committed. The scope a sprint is judged against must
+be the scope it took on, plus what actually got started.
+
+*Unstarted* plans belong to the **next** sprint's planning, where they are
+weighed against its goal rather than appended to one already underway.
+
+Check before adding, rather than asserting it:
+
+```bash
+git ls-remote --heads origin "<branch>"   # non-empty → dispatched
+```
+
+Then:
 - Add the new `- [ ]` item to the appropriate MoSCoW tier
 - Log: `- YYYY-MM-DD: Added [slug] to Must/Should/Could — <reason>`
 - If plan-backed (`[slug]`), update the plan's Sprint field
+
+**A dispatched plan still has to earn its tier.** Being started is what makes it
+*eligible* for the sprint; whether it serves the sprint's goal is the separate
+judgement that decides Must vs Should vs Could — or that it does not belong at
+all. Work can be in flight and still be outside this sprint's subject.
 
 **Removing or deferring items:**
 - Move the item to the `### Deferred` section (do not delete — preserve history)

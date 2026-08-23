@@ -1,0 +1,1 @@
+../2026-08-22-a-plan-moves-through-the-sections.md

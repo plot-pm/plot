@@ -22,6 +22,17 @@
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — the doubling was measured with `pr: None`, so it cannot be the two-waits case the rule was written for
 - **Started:** 2026-08-20, Jan Wloka, `bug/an-agent-is-not-a-machine-you-wait-on`
+- **Started:** 2026-08-20, Jan Wloka, `feature/a-broken-agent-needs-you`
+
+## Changelog
+
+- An agent is never listed as a machine: a running worker appears in WORKING
+  only, and the machine section holds builds and pipelines rather than the
+  agents that started them.
+- A crashed or abandoned agent appears in WAITING ON YOU, naming what went
+  wrong and where to look — while a running or waiting one stays out of it.
+- WORKING lists the agents themselves rather than the branches they hold, so an
+  agent holding no branch is visible and a branch with no agent is not.
 
 ## The rule
 
@@ -329,13 +340,27 @@ three-line predicate change that stands alone; making WORKING agent-centred
 changes what the section *is* and depends on the registry the same day landed.
 
 ### Removed
-- `bug/an-agent-is-not-a-machine-you-wait-on` — `machineProcesses` loses its `origin: 'local'` half and `inMachineSection` stops admitting rows on worker state. Tests: **a running worker with no PR appears in WORKING only**; **a running worker with a pending check appears in WORKING, and the PR's row is in WAITING ON A MACHINE — the agent is not**; a stopped worker with a pending check is still listed, which is the case the local origin was wrongly credited with covering; no worker state of any kind (`running`, `waiting`, `stalled`, `finished`) puts a row in the machine section; `processes` still carries host entries; the CI grouping at `fleet.ts:2501` is unchanged.
+- `bug/an-agent-is-not-a-machine-you-wait-on` (PR #366) — `machineProcesses` loses its `origin: 'local'` half and `inMachineSection` stops admitting rows on worker state. Tests: **a running worker with no PR appears in WORKING only**; **a running worker with a pending check appears in WORKING, and the PR's row is in WAITING ON A MACHINE — the agent is not**; a stopped worker with a pending check is still listed, which is the case the local origin was wrongly credited with covering; no worker state of any kind (`running`, `waiting`, `stalled`, `finished`) puts a row in the machine section; `processes` still carries host entries; the CI grouping at `fleet.ts:2501` is unchanged.
 
 ### Surfaced
-- `feature/a-broken-agent-needs-you` — a crashed or abandoned agent appears in WAITING ON YOU, naming what went wrong and where to look; every other agent state stays out of it. Tests: a `failed` worker appears in WAITING ON YOU; a `stalled` one appears, and the note distinguishes *stopped without finishing* from *crashed*; a **`running`** worker does not; a **`waiting`** worker does not — it stopped to ask and is working, with its question as the note; a `finished` one does not; the row names the log path and the worktree so the reader can act; no PR, branch or plan row moves.
+- `feature/a-broken-agent-needs-you` (PR #303) — a crashed or abandoned agent appears in WAITING ON YOU, naming what went wrong and where to look; every other agent state stays out of it. Tests: a `failed` worker appears in WAITING ON YOU; a `stalled` one appears, and the note distinguishes *stopped without finishing* from *crashed*; a **`running`** worker does not; a **`waiting`** worker does not — it stopped to ask and is working, with its question as the note; a `finished` one does not; the row names the log path and the worktree so the reader can act; no PR, branch or plan row moves.
 
 ### Inverted
-- `feature/working-is-about-agents` — WORKING renders the `agents` list rather than branch rows, each naming its agent with the branch as an artifact link; the four agentless paths into `working` (`unstarted`, `last commit N ago`, `locked`, `held`) go to the section their state belongs to. Tests: a running agent appears once, identified by its session, with its branch linked; **a branch with no agent does not appear in WORKING** — held, uncommitted, and write-locked branches all leave it carrying the marks they already have; **a `locked` worktree with no worker is not called working**; an agent holding **no** branch is listed, which is what the registry exists for; two agents on two branches are two rows; the same agent is never two rows; no other section loses a row.
+
+> **Depends on `approval-hands-the-work-to-agents` wave 1**
+> (feature/the-registry-knows-which-agents-live — named without backticks: the
+> parser reads every backticked branch name under `## Branches` as a claim, and
+> this line CITES the dependency rather than listing a branch this wave owns),
+> and the dependency is not
+> tidiness. Measured 2026-08-22: WORKING derives from `worker: running` and
+> showed **2** rows, both alive — while `.plot/agents/` held **7** entries of
+> which **5 were dead processes**. The registry records a launch and nothing
+> marks it finished, so rendering the agents list today would replace a correct
+> two-row section with a seven-row one, five of them agents that stopped hours
+> ago. The inversion is right and its input is not ready: entries must be able
+> to say whether they are alive first.
+
+- `feature/working-is-about-agents` #362 — WORKING renders the `agents` list rather than branch rows, each naming its agent with the branch as an artifact link; the four agentless paths into `working` (`unstarted`, `last commit N ago`, `locked`, `held`) go to the section their state belongs to. Tests: a running agent appears once, identified by its session, with its branch linked; **a branch with no agent does not appear in WORKING** — held, uncommitted, and write-locked branches all leave it carrying the marks they already have; **a `locked` worktree with no worker is not called working**; an agent holding **no** branch is listed, which is what the registry exists for; two agents on two branches are two rows; the same agent is never two rows; no other section loses a row.
 
 ## Notes
 
@@ -349,3 +374,22 @@ watching its own CI"*; the code says *"a process is running"*, and an agent is
 always a process. The same distinction the tuple plan reached from the other side
 — `kind` answers *what is being decided here*, not *what object did this come
 from*.
+
+**Interrogated 2026-08-22.** The rule held and the estate confirmed it: WORKING
+showed two rows, both running agents, neither doubled into the machine section.
+Waves 1 and 2 did what they said.
+
+Wave 3 is the finding. *"WORKING renders the `agents` list rather than branch
+rows"* is right about the subject and wrong about the timing, because the
+agents list cannot yet say who is alive: 7 entries, 5 of them dead processes,
+against a section that currently derives from `worker: running` and gets the
+answer right by a different route. Building the inversion today would trade a
+correct two-row section for a seven-row one — the section's own subject rule
+satisfied, and its content wrong. It now depends on the registry-liveness wave
+of `approval-hands-the-work-to-agents`, which is the plan that gives an entry a
+pid and a pulse-refreshed state.
+
+Also added: a `## Changelog`, absent entirely, so `/plot-release` would have
+shipped two delivered waves silently. That gap is estate-wide — four open plans
+still lack one.
+

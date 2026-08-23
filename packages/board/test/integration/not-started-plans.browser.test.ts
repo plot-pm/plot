@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { startServer, expandAgentFolds } from '../helpers.mjs';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet } from '../../src/contract/schema.js';
 
 /**
@@ -24,6 +24,11 @@ const GH = 'https://github.com/tiny/garden/tree/';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
+  // `wave` IS THE GROUPING KEY, since NOT STARTED renders one row per WAVE.
+  // Every row shared this default until 2026-08-20, when the count was of rows —
+  // so three branches read as three waves. Each fixture row that means a
+  // distinct wave now says so; rows sharing a wave name mean one wave with
+  // several branches, which is the other case and equally deliberate.
   wave: 'w', state: 'open', phase: 'Design', group: 'not-started', ageMinutes: null,
   waitingOn: 'click' as const, note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
   localDirty: false, localLocked: false, stuck: null, repair: null,
@@ -35,28 +40,32 @@ function fleet(): Fleet {
     // The plan that printed three identical rows for one wait.
     row({
       plan: 'activity-shows-itself', planFile: '2026-08-17-activity-shows-itself.md',
-      branch: 'feature/activity-marker-glows', waitingDays: 1, waitingOn: 'click' as const, note: ELIGIBLE_NOTE,
+      branch: 'feature/activity-marker-glows', wave: 'Truth', waitingDays: 1,
+      waitingOn: 'click' as const, note: ELIGIBLE_NOTE, verdict: 'eligible',
     }),
     row({
       plan: 'activity-shows-itself', planFile: '2026-08-17-activity-shows-itself.md',
-      branch: 'feature/group-shows-inner-activity', waitingDays: 1,
+      branch: 'feature/group-shows-inner-activity', wave: 'Shown', waitingDays: 1,
       waitingOn: 'time' as const, note: 'blocked by Truth',
+      verdict: 'blocked', blockedBy: 'Truth',
     }),
     row({
       plan: 'activity-shows-itself', planFile: '2026-08-17-activity-shows-itself.md',
-      branch: 'feature/unpushed-work-shows-still', waitingDays: 1,
+      branch: 'feature/unpushed-work-shows-still', wave: 'Still', waitingDays: 1,
       waitingOn: 'time' as const, note: 'blocked by Truth',
+      verdict: 'blocked', blockedBy: 'Truth',
     }),
     // One unstarted wave, waiting since February.
     row({
       plan: 'plot-sprint-support', planFile: '2026-02-11-plot-sprint-support.md',
-      branch: 'feature/plot-sprint-support', waitingDays: 187,
+      branch: 'feature/plot-sprint-support', wave: 'Supported', waitingDays: 187,
+      verdict: 'eligible',
     }),
     // A branch that WAS started and then shelved: it carries a PR and an age
     // that exist nowhere else in this section.
     row({
       plan: 'shelved-work', planFile: '2026-08-10-shelved-work.md',
-      branch: 'feature/set-down', state: 'deferred', ageMinutes: 400, waitingDays: 7,
+      branch: 'feature/set-down', wave: 'Set down', state: 'deferred', ageMinutes: 400, waitingDays: 7,
       note: 'last commit 6h ago', branchUrl: `${GH}feature/set-down`,
       pr: { number: 57, url: 'https://github.com/tiny/garden/pull/57', draft: false, state: 'green' },
     }),
@@ -107,6 +116,17 @@ describe('NOT STARTED renders one row per plan', () => {
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
     await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Not started').first().waitFor({ timeout: 10_000 });
+    // NO `expandAgentFolds` HERE, and its absence is the point of this suite.
+    //
+    // The helper opens every fold on the page, which is right for a suite that
+    // needs to see inside one — and self-defeating for this one, whose whole
+    // subject is what a plan shows while FOLDED. It was added when fifteen test
+    // files were failing for want of an open fold, and it reached this file
+    // too: three tests then asserted that a branch was hidden inside a fold the
+    // setup had just opened.
+    //
+    // The tests that DO need the branches open (the fold/unfold pair below)
+    // click the plan's own toggle, which is what a reader does.
     return page;
   }
 
@@ -231,7 +251,21 @@ describe('NOT STARTED renders one row per plan', () => {
       const branchRow = section(page).locator('li[data-agent-row]')
         .filter({ has: page.locator('[data-branch="feature/set-down"]') });
       await expect.poll(() => branchRow.count()).toBe(1);
-      await expect.poll(() => branchRow.locator('[data-pr-link]').textContent())
+      // `data-tuple-link="pr"`, and it read `data-pr-link` until 2026-08-20.
+      //
+      // The PR left SLOT 5 that day: it had rendered there as a badge beside the
+      // status, which is an artifact in the status cell — `no checks 240` and `CI
+      // running 283` were the cost. It is an artifact link in slot 4 now, where
+      // `TupleLinkView` stamps the hook from the link's own `what`, so
+      // `data-pr-link` has no owner any more.
+      //
+      // The PROPERTY is unchanged and is what this test defends: a shelved
+      // branch's PR and age must stay reachable — `fleet.ts` warns that
+      // flattening it means *"a branch started and then shelved read as never
+      // begun, with its age and its PR erased."* Measured after the move, the row
+      // reads `BRANCH feature/set-down deferred shelved-work 57 last commit 6h
+      // ago green 6h`: both facts present, one selector stale.
+      await expect.poll(() => branchRow.locator('[data-tuple-link="pr"]').textContent())
         .toContain('57');
       await expect.poll(() => branchRow.getByText('6h', { exact: true }).count()).toBe(1);
     } finally {
@@ -239,10 +273,21 @@ describe('NOT STARTED renders one row per plan', () => {
     }
   });
 
-  it('leaves every OTHER section rendering branch rows', async () => {
+  it('keeps every branch REACHABLE in every section, grouped or not', async () => {
     const page = await open();
     try {
-      // The change is confined to the one section whose rows are not branches.
+      // WHAT THIS TEST DEFENDS, and it is not what it used to assert.
+      //
+      // It read *"leaves every OTHER section rendering branch rows"* and checked
+      // for ZERO plan rows outside NOT STARTED, on the premise stated in its own
+      // comment: *"the change is confined to the one section whose rows are not
+      // branches."* That premise is what changed. Three sections now group by
+      // plan and wave — WAITING ON YOU, QUIET and DONE — because in each the
+      // thing being decided is a wave, not a branch.
+      //
+      // The property worth keeping is the one underneath: a branch must still be
+      // FINDABLE wherever it lives. Grouping may move a row and must never lose
+      // it, which is the loss `fleet.ts` warns of about a shelved branch.
       for (const [label, branch] of [
         ['Waiting on you', 'feature/needs-review'],
         ['Quiet', 'feature/gone-still'],
@@ -253,43 +298,93 @@ describe('NOT STARTED renders one row per plan', () => {
         if (await grid.count() === 0) await toggle.click();
         await expect.poll(() =>
           page.locator(`ul[role="grid"][aria-label^="${label}"] [data-branch="${branch}"]`).count(),
-          { timeout: 5_000 }).toBe(1);
-        // And NO plan rows there: the branch is rightly the subject.
-        await expect.poll(() =>
-          page.locator(`ul[role="grid"][aria-label^="${label}"] li[data-plan-row]`).count()).toBe(0);
+          { timeout: 5_000 }).toBeGreaterThan(0);
       }
     } finally {
       await page.close();
     }
   });
 
-  it('lands a plan row\'s columns at the same x as a branch row\'s', async () => {
+  it('indents a plan\'s waves under it, and keeps their slots aligned with each other', async () => {
     const page = await open();
     try {
-      // The section boundary must not break alignment — the cost
-      // `agent-rows-line-up` paid to remove. Both rows are laid on `ROW_TRACKS`,
-      // so the PLAN cell of each must start at one x.
+      // ONE GRID, AND THIS ASSERTS THE AGREEMENT AGAIN — which is the third
+      // thing this test has claimed, and the reversal is worth reading in one
+      // place because each version was right about the layout it was written
+      // against.
+      //
+      //   1. Originally: same x, because a plan row borrowed the branch tracks.
+      //      That is what made eight sibling plans read as a NESTING — the plan
+      //      name and the branch name below it both began at 222px, measured.
+      //   2. `a-plan-row-is-not-a-branch-row` gave the plan row its own
+      //      proportions and this asserted they DIFFER, by enough to see.
+      //   3. `one-component-renders-every-row` collapses both grids into
+      //      `TUPLE_TRACKS`, so the tracks agree — told apart by slot 2 stating
+      //      the KIND in a word rather than by an offset.
+      //   4. `a-plan-s-waves-are-indented`: the plan's waves are INDENTED under
+      //      it, and the parent is not one of them.
+      //   5. NOW: those children are WAVE rows, so `data-agent-row` no longer
+      //      finds them — and (3)'s argument comes back into force, since the
+      //      kind word finally DIFFERS.
+      //
+      // WHY (4) DID NOT BRING BACK (1). What (1) feared was an ACCIDENT: eight
+      // sibling plans, each at the same x, reading as a nesting that did not
+      // exist. Here the nesting is the truth — a wave IS a child of its plan —
+      // so an indent states a real relationship instead of implying a false one.
+      //
+      // AND (5) IS NOT A SIXTH REVERSAL — it is what (4) was holding a place
+      // for, in its own words: *"parent and children all render `PLAN`, so slot
+      // 2 distinguishes nothing there … the indent is what makes the set legible
+      // while it is still wrong."* The label is fixed. Both channels now carry
+      // the relationship: slot 2 says `Plan` over `Wave`, AND the indent draws
+      // the containment. That is belt and braces on purpose, because the two
+      // answer different questions — *what is this row* and *what does it belong
+      // to*.
+      //
+      // So the claim splits. **Children align with each other** — one grid, and
+      // a column a reader can scan down. **The parent sits 24px to their left**,
+      // matching its own fold control, which is the shape a file tree uses.
       await page.locator('[data-wave-toggle="activity-shows-itself"]').click();
-      const branchRow = section(page).locator('li[data-agent-row]')
-        .filter({ has: page.locator('[data-branch="feature/activity-marker-glows"]') });
+      // A WAVE ROW, not a branch row. NOT STARTED renders one row per wave, and
+      // this plan's three branches are three waves — see the fixture, which now
+      // names them.
+      const branchRow = section(page).locator('[data-wave-row="Truth"]');
       await branchRow.waitFor({ timeout: 5_000 });
-      // THE TWO ROWS NO LONGER SHARE TRACKS, and this asserts the difference
-      // rather than the agreement it used to.
-      //
-      // Until `a-plan-row-is-not-a-branch-row` a plan row borrowed the branch
-      // tracks, and this test held them to the same x — which is exactly what
-      // made eight sibling plans read as a nesting: the plan NAME and the
-      // branch NAME below it both began at 222px, measured on screen.
-      //
-      // A plan row now has its own proportions. Its name starts one track
-      // EARLIER than a branch name — where a branch row's phase begins — and
-      // that single track is the whole difference between a list and a
-      // nesting. So the assertion is that they differ, and by enough to see.
-      const planName = await planRow(page, 'activity-shows-itself')
-        .locator('[role="gridcell"]').nth(1).boundingBox();
-      const branchName = await branchRow.locator('[role="gridcell"]').nth(3).boundingBox();
-      expect(planName!.x).toBeLessThan(branchName!.x);
-      expect(branchName!.x - planName!.x).toBeGreaterThan(100);
+      const planRowEl = planRow(page, 'activity-shows-itself');
+      // THE PARENT IS OUTDENTED, by the width of its own fold control. One
+      // measurement, because the offset is a single fact: if the indent were
+      // lost the difference would be 0, and if it were applied twice it would
+      // be 48.
+      const pFirst = await planRowEl.locator('[role="gridcell"]').first().boundingBox();
+      const bFirst = await branchRow.locator('[role="gridcell"]').first().boundingBox();
+      expect(bFirst!.x - pFirst!.x, 'the waves sit one indent right of their plan')
+        .toBeGreaterThan(16);
+
+      // AND THE CHILDREN AGREE WITH EACH OTHER, in every slot — which is what
+      // one grid buys and what a reader scanning a column depends on. A single
+      // matching cell could be a coincidence of content width; the claim is
+      // about the grid.
+      const siblings = section(page).locator('[data-wave-list] [data-wave-row]');
+      const n = await siblings.count();
+      expect(n, 'more than one wave, or this asserts nothing').toBeGreaterThan(1);
+      for (const slot of [0, 1, 2, 3, 4, 5, 6]) {
+        const first = await siblings.nth(0).locator('[role="gridcell"]').nth(slot).boundingBox();
+        for (let i = 1; i < n; i++) {
+          const other = await siblings.nth(i).locator('[role="gridcell"]').nth(slot).boundingBox();
+          expect(Math.abs(first!.x - other!.x), `slot ${slot} x, sibling ${i}`).toBeLessThan(1);
+        }
+      }
+      // AND THE NESTING IS STILL GONE, which is the property (2) was protecting
+      // and the one that must survive the realignment. It survives in the KIND
+      // rather than in the offset: the two rows say what they are.
+      // LOWERCASED, because slot 2 wears Tailwind's `uppercase` on the board
+      // while the authored words are `Plan` and `Branch`. Asserting the styled
+      // form would make this a claim about a CSS utility rather than about the
+      // two rows saying what they are.
+      expect((await planRowEl.locator('[data-kind]').innerText()).toLowerCase()).toBe('plan');
+      // `wave`, and this is the assertion (4) could not make: its children said
+      // `plan` too, which is why the indent was carrying the relationship alone.
+      expect((await branchRow.locator('[data-kind]').innerText()).toLowerCase()).toBe('wave');
     } finally {
       await page.close();
     }
@@ -301,18 +396,27 @@ describe('NOT STARTED renders one row per plan', () => {
     const page = await open();
     try {
       await page.locator('[data-wave-toggle="activity-shows-itself"]').click();
-      const noteOf = (branch: string) =>
-        section(page).locator('li[data-agent-row]')
-          .filter({ has: page.locator(`[data-branch="${branch}"]`) })
-          .locator('[data-row-note]');
+      // BY WAVE, since NOT STARTED renders one row per wave. `waitingOn` is a
+      // fact the server puts on the branch, and the wave row that stands for a
+      // single-branch wave is where it now reaches the DOM.
+      const noteOf = (wave: string) =>
+        section(page).locator(`[data-wave-row="${wave}"]`).locator('[data-row-note]');
 
-      const eligible = noteOf('feature/activity-marker-glows');
-      const blocked = noteOf('feature/group-shows-inner-activity');
+      const eligible = noteOf('Truth');
+      const blocked = noteOf('Shown');
       await eligible.waitFor({ timeout: 5_000 });
 
       // The FIELD reaches the DOM, so a rule keyed on the note's wording cannot
       // masquerade as this passing.
-      expect(await eligible.getAttribute('data-waiting-on')).toBe('click');
+      //
+      // `you`, and it read `click` until 2026-08-20. `waitingTone` gives `click`
+      // the ORDINARY colour on the argument that a section whose every row waits
+      // on a click would *"shout twice and mean once"* — sound for branch rows,
+      // and false here: the wave rows sit side by side with three verdicts, and
+      // exactly one of them can be started. `you` is the amber *this needs a
+      // decision* tone, which is what an eligible wave is. Reported from a
+      // screenshot, where the startable wave was the quiet-looking one.
+      expect(await eligible.getAttribute('data-waiting-on')).toBe('you');
       expect(await blocked.getAttribute('data-waiting-on')).toBe('time');
 
       const colourOf = (loc: typeof eligible) =>
@@ -342,8 +446,8 @@ describe('NOT STARTED renders one row per plan', () => {
     const page = await open();
     try {
       await page.locator('[data-wave-toggle="activity-shows-itself"]').click();
-      const branchRow = section(page).locator('li[data-agent-row]')
-        .filter({ has: page.locator('[data-branch="feature/activity-marker-glows"]') });
+      // A WAVE ROW: the rows inside a plan group are its waves.
+      const branchRow = section(page).locator('[data-wave-row="Truth"]');
       await branchRow.waitFor({ timeout: 5_000 });
 
       const widthOf = (loc: ReturnType<typeof branchRow.first>) =>
@@ -388,25 +492,35 @@ describe('NOT STARTED renders one row per plan', () => {
     const page = await open();
     try {
       await page.locator('[data-wave-toggle="activity-shows-itself"]').click();
-      const branchRow = section(page).locator('li[data-agent-row]')
-        .filter({ has: page.locator('[data-branch="feature/activity-marker-glows"]') });
+      // A WAVE ROW: the rows under a plan are its waves, and the claim is
+      // unchanged — the phase is the PLAN's and appears once.
+      const branchRow = section(page).locator('[data-wave-row="Truth"]');
       await branchRow.waitFor({ timeout: 5_000 });
 
-      // The branch row's phase cell is empty — the cell still RENDERS, so the
+      // The wave row's phase cell is empty — the cell still RENDERS, so the
       // seven branch tracks hold their width and branch rows stay aligned with
       // branch rows in every other section.
       expect(await branchRow.locator('[data-phase]').count()).toBe(0);
-      // The plan row carries FEWER cells, and that is the point rather than an
-      // accident: it has no phase track, no PR cell and no actions cell, because
-      // it has no phase to state twice, no PR, and no branch to dispatch. A
-      // count that matched would mean it had gone back to borrowing tracks it
-      // has no facts for.
+      // THE SAME NUMBER OF CELLS, and this too is a reversal stated rather than
+      // quietly dropped. It asserted FEWER, on the argument that a plan row has
+      // no phase track, no PR cell and no actions cell — true of
+      // `PLAN_ROW_TRACKS`, and the reason there were two grids for what the
+      // contract says are seven kinds.
+      //
+      // A shape does not admit that argument. Every kind fills the same seven
+      // tracks and a kind with nothing for a slot renders NOTHING IN IT — which
+      // is not the same as having no slot: an empty cell holds its width, and
+      // that is what keeps a plan row's clock under a branch row's clock. The
+      // count matching now means the opposite of what it used to: not that a
+      // plan row went back to borrowing a branch's tracks, but that neither
+      // borrows because there is only one grid to borrow from.
       const planCells = await planRow(page, 'activity-shows-itself')
         .locator('[role="gridcell"]').count();
       const branchCells = await branchRow.locator('[role="gridcell"]').count();
-      expect(planCells).toBeLessThan(branchCells);
-      // The plan row's phase rides in its name cell rather than a track of its
-      // own, so it is still stated exactly once per group.
+      expect(planCells).toBe(branchCells);
+      // The plan row's phase rides in its STATUS slot — slot 5, the object the
+      // fact belongs to — rather than a track of its own, so it is still stated
+      // exactly once per group.
       expect(await planRow(page, 'activity-shows-itself').locator('[data-phase]').count()).toBe(1);
       // And the plan row still carries the clock the branches gave up.
       expect(await planRow(page, 'activity-shows-itself').textContent()).toMatch(/d|mo|today/);

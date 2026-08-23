@@ -8,7 +8,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Released
 - **Type:** feature
 - **Story:** plot-board
 - **Sprint:**
@@ -16,6 +16,8 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20 by jwloka (in-session) — interrogated 2026-08-20; five decisions recorded — one component for all kinds, kind is a server-set field, seven kinds with four empty, age is since-last-change with the agent labelled, collapse goes last
+- **Delivered:** 2026-08-22, jwloka, PRs #293, #299, #301
+- **Released:** 2026-08-22, v2.7.0
 - **Started:** 2026-08-20, Jan Wloka, `feature/a-row-is-a-tuple`
 - **Started:** 2026-08-20, Jan Wloka, `feature/the-wave-and-the-phase-find-their-owners`
 - **Started:** 2026-08-20, Jan Wloka, `bug/one-component-renders-every-row`
@@ -78,10 +80,86 @@ carries none, a PR carries its plan and its branch.
 | Ticket | ticket | `Story` | `228: Fleet scan asks the host once per branch` | `fleet-scan-asks-the-host` | `open` | — |
 | Plan | plan | `Plan` | `fleet-scan-asks-the-host` | `idea/my-branch` | `draft` | `1d` |
 | PR | pr | `PR` | `57` | `fleet-scan-asks-the-host`, `feature/opus5-longhorizon-hardening` | `conflicts` | `25d` |
-| Build | build | `Build` | `CI:1860` | `PR 283` | `CI is running for PR #283` | `10m` |
-| Agent | agent | `Agent` | `@Dev-Agent` | `feature/opus5-longhorizon-hardening` | `thinking` | `13m` |
+| Build | build | `Build` | `CI:1860` | `feature/x`, and `283` where a PR exists | `CI is running` | `10m` |
+| Agent | agent | `Agent` | `f30b27a3` | `Shaped` (its wave), `plot-wt-…` (its worktree), `a-row-is-a-tuple` (its plan) | `thinking` | `session 27m · idle 4m` |
 | Branch | branch | `Branch` | `feature/opus5-longhorizon-hardening` | — | `conflicts` | `25d` |
-| Release | release | `Release` | `2.7.0` | `changeset-release/main` | `no-checks` | `12m` |
+| Release | release | `Release` | `2.7.0` | `240`, `changeset-release/main` | `no-checks` | `12m` |
+
+### The artifact links follow a rule, not a list
+
+Settled 2026-08-20: an item links **what it came from and what it travels on.**
+Two kinds make the pattern visible because they are the same shape:
+
+| kind | came from | travels on | artifact links |
+|---|---|---|---|
+| **PR** | a plan | a branch | **plan, branch** |
+| **Release** | a PR | a branch | **PR, branch** |
+| Build | — | a **branch** | **branch**, and its PR where one exists |
+| Ticket | — | — | the plan it became |
+| Plan | — | an idea branch | that branch |
+| Agent | — | a **wave** (which holds the branch) | **wave, worktree, plan** — three, the most of any kind |
+| Branch | — | **itself** | none |
+
+So a release carries **two** links exactly as a PR does, and the count is a
+consequence rather than a per-kind decision.
+
+**An agent works on a WAVE, not on a branch.** Settled 2026-08-20, and it follows
+from the wave being the thing that holds branches: an agent is dispatched to a
+wave's branch, so the wave is what it is working on and the branch arrives through
+it. Its three artifacts:
+
+| link | what it is |
+|---|---|
+| the **wave** | what it is working on — the branch comes with it |
+| the **worktree** | where it is working, which no other kind has |
+| the **plan** | what the work is for |
+
+The worktree is the one to notice: `an-agent-outlives-its-branch` records it in
+the manifest beside `branch`, so the data has been there since the registry
+landed — it was simply never rendered as an artifact. And it is the only artifact
+on this board that is **not a URL**: a browser refuses `file://` from
+`http://localhost`, so it is copied rather than followed, the rule `CopyFact`
+already applies.
+
+**A build's PR link is optional, and that is a fact about builds rather than a
+gap.** CI runs on a **branch** — a push builds whether or not anyone opened a PR,
+and the branch is what it checked out. Where a PR exists the build is also *for*
+that PR and links it; where none does, the build is no less real and links one
+thing. Settled 2026-08-20.
+
+This is why the artifact slot is zero-or-**more** rather than one-or-more: a
+branch links none, a build links one or two, a PR and a release link two. This is why the artifact slot is
+zero-or-more: a branch is its own vehicle and links nothing, a PR and a release
+each name two.
+
+**Nothing linked belongs in the status column.** Measured on the mock, a release
+rendered `⑂240` in its status because no second artifact slot was provided for
+it — so the link went where there was room. The status column says where the item
+stands and holds no destinations at all.
+
+**And both take their status from the same place.** A release's status is its
+PR's status — `conflicts`, `no checks`, a red build, green — exactly as a PR's is.
+Measured, the code already does this with one derivation and no per-kind branch
+(`tuple-row.ts:303`):
+
+    const status = row.pr ? prStatus(row.pr) : stateStatus(row);
+
+So the symmetry is complete, and it is worth stating because it means the release
+row needed **no** special handling and got some anyway. PR and release are the
+same shape throughout:
+
+| | PR | Release |
+|---|---|---|
+| name | the PR number | **the version** |
+| artifact links | plan, branch | **PR, branch** |
+| status | from its PR | **from its PR** |
+| age | since last change | since last change |
+
+The only real difference is the name, and it is the one thing that does not work:
+`releaseVersion()` reads `row.plan`, a release row has none, and the version lives
+in a PR title the contract does not carry. Everything else about a release was
+already right by construction — which is why the two visible defects were an
+extra link and a wrong name, not a missing status.
 
 **The kind is stated, not inferred — and it is a FIELD, not a derivation.**
 There is no `kind` on the contract today; a row's kind is implied by which
@@ -326,13 +404,13 @@ the wave and the plan phase — are relocated before the old column is deleted, 
 no pulse renders a row that has lost a fact and not yet gained its replacement.
 
 ### Shaped
-- `feature/a-row-is-a-tuple` — the contract carries the six slots and a `kind` field for all seven kinds, and ONE tuple row renders them, with **every named thing linked** — a PR row links its PR, its plan and its branch. The three existing row components keep working: this adds the row and the field, it deletes nothing. Tests: `kind` is set by the server for every row it emits and is never derived in the renderer; each of the seven kinds renders all six slots; a kind with no data renders no row rather than an empty one; the item name and the artifact name are separate links to separate destinations; a PR row renders three separate links; a branch row renders one and no empty artifact control; a row whose item has no URL renders its name as text; the kind is present without hovering; a ticket carries its age; **a release is its own kind and its menu offers no release action**; an agent's name is its session id, never an invented handle; no host call is added. (#293)
+- `feature/a-row-is-a-tuple` — the contract carries the six slots and a `kind` field for all seven kinds, and ONE tuple row renders them, with **every named thing linked** — a PR row links its PR, its plan and its branch. The three existing row components keep working: this adds the row and the field, it deletes nothing. Tests: `kind` is set by the server for every row it emits and is never derived in the renderer; each of the seven kinds renders all six slots; a kind with no data renders no row rather than an empty one; the item name and the artifact name are separate links to separate destinations; a PR row renders three separate links; a branch row renders one and no empty artifact control; a row whose item has no URL renders its name as text; the kind is present without hovering; a ticket carries its age; **a release is its own kind and its menu offers no release action**; an agent's name is its session id, never an invented handle; no host call is added. (#293) → #293
 
 ### Relocated
-- `feature/the-wave-and-the-phase-find-their-owners` — the two facts slot 2 displaces move to the objects they describe: the wave beside the branch name, extending `a-branch-row-names-its-wave` (#275); the plan phase into the plan heading, where `PlanRow` already states it. Absorbs bug/one-column-one-kind-of-fact and bug/the-kind-is-labelled-not-hovered from `waiting-on-you-says-what-kind-of-waiting`. Tests: a branch row prints no plan phase; a multi-wave plan's branches and a single-wave plan's branches read the same kind of word in slot 2; a PR row and a build row are not given a phase they do not have; a ticket is not labelled with a plan phase; the kind is readable without hovering, and no tooltip is the only place a kind is stated; the wave is still reachable for every branch that has one. (#299)
+- `feature/the-wave-and-the-phase-find-their-owners` — the two facts slot 2 displaces move to the objects they describe: the wave beside the branch name, extending `a-branch-row-names-its-wave` (#275); the plan phase into the plan heading, where `PlanRow` already states it. Absorbs bug/one-column-one-kind-of-fact and bug/the-kind-is-labelled-not-hovered from `waiting-on-you-says-what-kind-of-waiting`. Tests: a branch row prints no plan phase; a multi-wave plan's branches and a single-wave plan's branches read the same kind of word in slot 2; a PR row and a build row are not given a phase they do not have; a ticket is not labelled with a plan phase; the kind is readable without hovering, and no tooltip is the only place a kind is stated; the wave is still reachable for every branch that has one. (#299) → #299
 
 ### Collapsed
-- `bug/one-component-renders-every-row` — `Row`, `PlanRow` and `IssueRowView` are replaced by the tuple row; `ROW_TRACKS` and `PLAN_ROW_TRACKS` collapse to one grid. Absorbs feature/the-row-leads-with-its-subject: with slot 3 holding the item name, "which fact leads" is answered by construction, and what remains is deleting the per-kind leading logic. **Last on purpose** — it rewrites ~700 lines of the file that took 11 commits on 2026-08-20 and conflicted on nearly every merge, so it goes when no sibling branch is open against it. Tests: one grid renders a plan row, a branch row and a ticket row; no row prints a phase belonging to another object; **a PR row's dominant slot holds the PR and its branch is an artifact link**; **a merge conflict is still readable on the branch it belongs to**; a ticket no longer wears the branch tracks; the sections keep their membership; every assertion the three deleted components carried still has an owner.
+- `bug/one-component-renders-every-row` — `Row`, `PlanRow` and `IssueRowView` are replaced by the tuple row; `ROW_TRACKS` and `PLAN_ROW_TRACKS` collapse to one grid. Absorbs feature/the-row-leads-with-its-subject: with slot 3 holding the item name, "which fact leads" is answered by construction, and what remains is deleting the per-kind leading logic. **Last on purpose** — it rewrites ~700 lines of the file that took 11 commits on 2026-08-20 and conflicted on nearly every merge, so it goes when no sibling branch is open against it. Tests: one grid renders a plan row, a branch row and a ticket row; no row prints a phase belonging to another object; **a PR row's dominant slot holds the PR and its branch is an artifact link**; **a merge conflict is still readable on the branch it belongs to**; a ticket no longer wears the branch tracks; the sections keep their membership; every assertion the three deleted components carried still has an owner. (#301) → #301
 
 ## Open Points
 

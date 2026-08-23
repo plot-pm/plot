@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:**
 - **Story:** plot-board
@@ -12,6 +12,8 @@
 - **Approved:** 2026-08-19, Jan Wloka, plan-PR #196 merged
 - **Started:**
 - **Delivered:** 2026-08-19, jwloka, the track landed 2026-08-17 in `120a9bc` — see Notes
+- **Released:** 2026-08-18, v2.5.0
+
 ## Problem
 
 Reported from a screenshot minutes after the travelling dot landed: *the

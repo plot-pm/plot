@@ -1,7 +1,92 @@
 import { describe, it, expect } from 'vitest';
 import {
-  PlanMetaSchema, CardSchema, FleetBranchSchema, AgentRowSchema,
+  FLEET_CONTROLS_DEFAULT,
+  PlanMetaSchema, CardSchema, FleetBranchSchema, AgentRowSchema, AgentEntrySchema,
+  FleetSchema, ServerInfoSchema,
 } from '../../src/contract/schema';
+
+describe('ServerInfoSchema — the branch the server serves', () => {
+  it('carries the branch the server reported', () => {
+    const info = ServerInfoSchema.parse({
+      restartCommand: 'pnpm board', port: 7777, branch: 'feature/x',
+    });
+    expect(info.branch).toBe('feature/x');
+  });
+
+  it('defaults branch to "" for an older payload — absent is the same silence as detached', () => {
+    // A page held open across a server upgrade gets a pulse with no `branch`
+    // field. The honest default is empty, which the header renders as no
+    // element — the SAME nothing a detached HEAD produces. Defaulting to a
+    // placeholder like `unknown` would put a word on screen that reads as a
+    // branch name.
+    const info = ServerInfoSchema.parse({ restartCommand: '', port: 0 });
+    expect(info.branch).toBe('');
+  });
+});
+
+describe('AgentEntrySchema — liveness on the wire', () => {
+  const base = {
+    session: 'sess', branch: 'feature/x', worktree: '/wt',
+    command: 'claude -p "go"', startedAt: '2026-08-22T10:00:00Z',
+  };
+
+  it('carries the pid and the pulse-refreshed state', () => {
+    const e = AgentEntrySchema.parse({ ...base, pid: '4242', state: 'running' });
+    expect(e.pid).toBe('4242');
+    expect(e.state).toBe('running');
+  });
+
+  it('accepts each of the five states', () => {
+    for (const state of ['running', 'finished', 'waiting', 'stalled', 'unknown']) {
+      expect(AgentEntrySchema.parse({ ...base, state }).state).toBe(state);
+    }
+  });
+
+  it('defaults pid to "" and state to "unknown" for an older payload', () => {
+    // A reader may have the board's page open across a server upgrade. A pulse
+    // from before these fields existed must still validate rather than blank the
+    // page — and the honest default for a fact the old server never sent is
+    // "no pid" and "cannot say".
+    const e = AgentEntrySchema.parse(base);
+    expect(e.pid).toBe('');
+    expect(e.state).toBe('unknown');
+  });
+
+  it('rejects a state outside the five', () => {
+    expect(() => AgentEntrySchema.parse({ ...base, state: 'ended' })).toThrow();
+  });
+
+  it('defaults session to "" — a synthesized worktree has no launch id', () => {
+    // A worktree with no manifest is listed, but the session id is minted at
+    // launch and it never had one. `session` was the one required field; a
+    // synthesized entry needs it to default to the same "empty is real" value
+    // `branch` already carries, or the schema would reject the very entry the
+    // registry synthesizes to make the section truthful.
+    const e = AgentEntrySchema.parse({ branch: 'feature/x', worktree: '/wt' });
+    expect(e.session).toBe('');
+  });
+
+  it('carries previousPid and relaunches when a run was relaunched in place', () => {
+    // A relaunch overwrites `pid` and records what it displaced: `previousPid`
+    // is the corpse the row used to name, and `relaunches` is how many times
+    // this worktree has been restarted — a branch restarted three times is
+    // struggling, and nothing else on the board can say so.
+    const e = AgentEntrySchema.parse({
+      ...base, pid: '999', previousPid: '424242', relaunches: 3,
+    });
+    expect(e.previousPid).toBe('424242');
+    expect(e.relaunches).toBe(3);
+  });
+
+  it('defaults previousPid to "" and relaunches to 0 — a first dispatch records neither', () => {
+    // A manifest from a first dispatch (or an older server) carries neither
+    // field. The honest default is "nothing was displaced" and "restarted zero
+    // times", so an unrelaunched entry reads exactly as it did before.
+    const e = AgentEntrySchema.parse(base);
+    expect(e.previousPid).toBe('');
+    expect(e.relaunches).toBe(0);
+  });
+});
 
 describe('PlanMetaSchema — waves', () => {
   const base = { file: 'docs/plans/x.md', format: 'canonical', phase: 'approved' };
@@ -85,7 +170,7 @@ describe('CardSchema — pull requests', () => {
 
   it('carries each PR as a number plus the host-supplied url', () => {
     const card = CardSchema.parse({
-      ...base, phase: 'Endgame',
+      ...base, phase: 'Testing',
       prs: [{ number: 113, url: 'https://example.test/pr/113' }],
     });
     expect(card.prs).toEqual([{ number: 113, url: 'https://example.test/pr/113' }]);
@@ -167,6 +252,9 @@ describe('AgentRowSchema.pr', () => {
     });
     expect(parsed.pr).toEqual({
       number: 42, url: 'https://host/pr/42', draft: true, state: 'conflicts',
+      // Absent in the input, so `[]` — the older-pulse default. Empty is not a
+      // seventh meaning: a consumer that finds it empty falls back to `state`.
+      states: [],
     });
   });
 
@@ -218,5 +306,79 @@ describe('rounds — absent is not zero, on both sides of the contract', () => {
     // 0 means the skill ran, an absent key means it never did.
     expect(PlanMetaSchema.parse({ ...meta, rounds: 0 }).rounds).toBe(0);
     expect(CardSchema.parse({ ...card, rounds: 0 }).rounds).toBe(0);
+  });
+});
+
+describe('FleetSchema — the two shared fleet controls', () => {
+  // The minimum a Fleet needs, so the `fleetControls` field is what varies.
+  const base = {
+    generatedAt: '2026-08-22T00:00:00.000Z',
+    ageSeconds: 1,
+    ready: true,
+    error: null,
+    rows: [],
+    summary: { plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+    prAgeSeconds: null,
+    prError: null,
+  } as const;
+
+  it('carries the switch and the cap the server emitted', () => {
+    const fleet = FleetSchema.parse({ ...base, fleetControls: { autoDispatch: true, parallelAgents: 5 } });
+    expect(fleet.fleetControls.autoDispatch).toBe(true);
+    expect(fleet.fleetControls.parallelAgents).toBe(5);
+  });
+
+  it('defaults to switch off / cap 3 for a payload predating this wave', () => {
+    // The safe direction: a server that never heard of the controls reads as a
+    // fleet that is NOT serving its queue, since wave 3 acts only while the
+    // switch is on. Note the client CASTS this payload rather than parsing it,
+    // so the server emitting the field unconditionally was the whole safety
+    // argument — and it was not enough. A STUBBED payload never reaches the
+    // server at all, and 278 tests took a TypeError on 2026-08-22 proving it.
+    // The client now reads through `FLEET_CONTROLS_DEFAULT` as well; this
+    // default is the contract's honesty AND the client's fallback.
+    const fleet = FleetSchema.parse(base);
+    expect(fleet.fleetControls.autoDispatch).toBe(false);
+    expect(fleet.fleetControls.parallelAgents).toBe(3);
+  });
+});
+
+/**
+ * THE DEFAULT IS EXPORTED BECAUSE THE CLIENT CANNOT PARSE.
+ *
+ * `fleetControls` arrived as a required field with a Zod `.default()`, which
+ * runs where the payload is PARSED — the server. `packages/board/src/app`
+ * CASTS the fleet it fetches, so the default never ran there and
+ * `fleet.fleetControls.autoDispatch` threw a TypeError on any payload written
+ * before the field existed: a stubbed fixture, a cached response, a board
+ * mid-upgrade.
+ *
+ * That took the whole Agents tab down rather than one control. Measured
+ * 2026-08-22: 278 tests failed across 18 files, each waiting the full 10s for a
+ * section a TypeError had prevented from rendering — 3073s, and in CI a
+ * 15-minute step timeout that read as "the suite is too slow". It was one
+ * missing default.
+ *
+ * These assert the two halves of the fix separately, because each passes
+ * without the other: the constant EXISTS with the safe values, and the schema
+ * USES it rather than repeating the literal.
+ */
+describe('FLEET_CONTROLS_DEFAULT — one default, read by both sides', () => {
+  it('is off and 3: a fleet that dispatches nothing is the safe reading of silence', () => {
+    // Not merely "some object": the VALUES are the claim. A default that
+    // dispatched would turn an old payload into a running fleet.
+    expect(FLEET_CONTROLS_DEFAULT).toEqual({ autoDispatch: false, parallelAgents: 3 });
+  });
+
+  it('is what the schema falls back to, so the two cannot drift', () => {
+    // Parsing a payload with no `fleetControls` must produce exactly the
+    // constant the client reads. A second literal in the schema would pass
+    // every other test here and still let the two answers diverge.
+    const parsed = FleetSchema.parse({
+      generatedAt: '2026-08-22T00:00:00.000Z', ageSeconds: 1, ready: true, error: null,
+      rows: [], summary: { plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+      prAgeSeconds: null, prError: null,
+    });
+    expect(parsed.fleetControls).toEqual(FLEET_CONTROLS_DEFAULT);
   });
 });

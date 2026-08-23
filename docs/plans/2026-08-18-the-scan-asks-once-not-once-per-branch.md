@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Sprint:** the-board-tells-the-truth
@@ -13,7 +13,7 @@
 - **Approved:** 2026-08-18, jwloka, in-session
 - **Started:** 2026-08-18, Jan Wloka, `bug/the-scan-joins-one-pr-list`
 - **Delivered:** 2026-08-19, jwloka, PRs #232, #242, #245, #247
-- **Released:**
+- **Released:** 2026-08-22, v2.7.0
 - **Started:** 2026-08-19, Jan Wloka, `feature/the-board-renders-what-has-arrived`
 - **Started:** 2026-08-19, Jan Wloka, `feature/a-terminal-branch-is-asked-once`
 - **Started:** 2026-08-19, Jan Wloka, `bug/the-cadence-knows-what-a-refresh-costs`

@@ -8,7 +8,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Sprint:**
@@ -16,6 +16,8 @@
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Approved:** 2026-08-20, jwloka, in-session
+- **Delivered:** 2026-08-22, jwloka, PRs #259, #265, #289
+- **Released:** 2026-08-22, v2.7.0
 - **Started:** 2026-08-20, Jan Wloka, `feature/the-gates-know-design`
 - **Started:** 2026-08-20, Jan Wloka, `feature/the-design-column-means-design`
 
@@ -174,7 +176,7 @@ audited later.
 
 ### The phase exists
 
-- `feature/design-is-a-phase` — `plot-plan-meta.sh` normalises `design` as a seventh phase and reports its `Design:` record beside `Approved:`/`Delivered:`. Contract-level and additive: `test/reconcile/parser.test.mjs` must pass unedited, exactly as the `changelog` field did. Tests: a plan in phase Design parses; its `Design:` record is reported; a plan without one is unaffected; the existing six phases are byte-identical.
+- `feature/design-is-a-phase` — `plot-plan-meta.sh` normalises `design` as a seventh phase and reports its `Design:` record beside `Approved:`/`Delivered:`. Contract-level and additive: `test/reconcile/parser.test.mjs` must pass unedited, exactly as the `changelog` field did. Tests: a plan in phase Design parses; its `Design:` record is reported; a plan without one is unaffected; the existing six phases are byte-identical. → #259
 
 ### The gates know it
 
@@ -182,7 +184,7 @@ audited later.
 
 ### The board reads it
 
-- `feature/the-design-column-means-design` — `toBoardPhase` maps `design → Design`, and `approved` maps to Development whether or not a branch has started. Tests: a plan in Design appears in the Design column; an approved plan with no started branch appears in Development, not Design; the measured case — three approved-unstarted plans — moves out of Design; Discovery, Endgame and Released are unchanged.
+- `feature/the-design-column-means-design` — `toBoardPhase` maps `design → Design`, and `approved` maps to Development whether or not a branch has started. Tests: a plan in Design appears in the Design column; an approved plan with no started branch appears in Development, not Design; the measured case — three approved-unstarted plans — moves out of Design; Discovery, Endgame and Released are unchanged. → #289
 
 ## Notes
 

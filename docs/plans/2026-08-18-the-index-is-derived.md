@@ -4,12 +4,14 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Released
 - **Type:** feature
 - **Story:** plot-planning-model
 - **Review:** in-session
 - **Impl:** own branches
 - **Started:** 2026-08-20, Jan Wloka, `feature/the-lifecycle-does-not-need-the-symlink`
+- **Delivered:** 2026-08-22, jwloka, PRs #254, #256, #296
+- **Released:** 2026-08-22, v2.7.0
 
 ## Changelog
 
@@ -160,7 +162,7 @@ that could not find its own plan.
 
 ### Report
 
-- `feature/reconcile-calls-the-index-advisory` — once nothing reads `active/`, `plot-reconcile-scan.sh` section 5 stops reporting an unlinked plan as *orphaned* — it is not orphaned, it is fully visible — and reports index drift as the convenience-level finding it has become. Test: an unlinked plan produces no `attention` count; a symlink pointing nowhere still does.
+- `feature/reconcile-calls-the-index-advisory` — once nothing reads `active/`, `plot-reconcile-scan.sh` section 5 stops reporting an unlinked plan as *orphaned* — it is not orphaned, it is fully visible — and reports index drift as the convenience-level finding it has become. Test: an unlinked plan produces no `attention` count; a symlink pointing nowhere still does. → #256
 
 ### Stop depending
 
