@@ -1245,19 +1245,24 @@ describe('a deferred row answers to the phase too', () => {
       }],
       summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 0, blocked: 0, deferred: 1 },
     } as FleetPulse);
+    const rowsFor = (phase: string) =>
+      rowsFromPulse(pulseWith(phase), new Map(), 'plot', QUIET);
     const rowFor = (phase: string) =>
-      rowsFromPulse(pulseWith(phase), new Map(), 'plot', QUIET)
-        .find((r) => r.branch === 'feature/plot-sprint-support')!;
+      rowsFor(phase).find((r) => r.branch === 'feature/plot-sprint-support')!;
 
-    expect(rowFor('released').group).toBe('done');
+    // A RELEASED plan has drained: `plot-sprint-support` shipped in
+    // v1.0.0-beta.3, and a shipped plan is out of the board's scope, so its
+    // deferred branch yields NO row at all — not a DONE row. This is the
+    // release-scope drain, one level down from the merged case: the phase
+    // decides membership before the shelf refines a section it never reaches.
+    expect(rowsFor('released')).toEqual([]);
+    // A DELIVERED plan is unreleased — the core of the scope — and stays in
+    // DONE. The `deferred` FACT survives the move, so the badge still has
+    // something to render from; the phase decides the section, it does not
+    // erase what the plan said about the branch.
     expect(rowFor('delivered').group).toBe('done');
+    expect(rowFor('delivered').state).toBe('deferred');
     expect(rowFor('approved').group).toBe('not-started');
-    // And the `deferred` FACT survives the move - the badge still has something
-    // to render from, in DONE as in NOT STARTED. The phase decides the section;
-    // it does not erase what the plan said about the branch.
-    expect(rowFor('released').state).toBe('deferred');
-    // Nothing to wait for once the row has left the section, by construction.
-    expect(rowFor('released').waitingOn).toBe(null);
     expect(rowFor('approved').waitingOn).toBe('you');
   });
 });
@@ -1279,15 +1284,18 @@ describe('the section follows the plan through rowsFromPulse', () => {
     summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
   } as FleetPulse);
 
+  const rowsFor = (phase: string) =>
+    rowsFromPulse(pulseWith(phase), new Map(), 'plot', QUIET);
   const rowFor = (phase: string) =>
-    rowsFromPulse(pulseWith(phase), new Map(), 'plot', QUIET)
-      .find((r) => r.branch === 'feature/c')!;
+    rowsFor(phase).find((r) => r.branch === 'feature/c')!;
 
   it('places each phase in its documented section, end to end', () => {
     expect(rowFor('draft').group).toBe('waiting-on-you');
     expect(rowFor('approved').group).toBe('not-started');
     expect(rowFor('delivered').group).toBe('done');
-    expect(rowFor('released').group).toBe('done');
+    // A RELEASED plan has drained — DONE is the release scope, and a shipped
+    // plan is out of it — so it contributes NO row rather than a DONE one.
+    expect(rowsFor('released')).toEqual([]);
   });
 
   it('changes section on the next pulse when a plan is approved — nothing to clear', () => {
@@ -1303,8 +1311,13 @@ describe('the section follows the plan through rowsFromPulse', () => {
     // `waitingOn` is null outside `not-started` by construction — derived from
     // the group rather than re-decided — so a Draft row moving to WAITING ON
     // YOU cannot keep a colour that says it is claimable.
+    //
+    // `delivered`, not `released`: a released plan yields no row to ask (the
+    // release-scope drain), so a DELIVERED row — landed in DONE, still on the
+    // board — is the example of a row that left NOT STARTED and dropped its
+    // wait.
     expect(rowFor('draft').waitingOn).toBe(null);
-    expect(rowFor('released').waitingOn).toBe(null);
+    expect(rowFor('delivered').waitingOn).toBe(null);
     expect(rowFor('approved').waitingOn).toBe('click');
   });
 });
@@ -2110,6 +2123,67 @@ describe('rowsFromPulse', () => {
       // And the note is the branch's own, not the word `deferred`.
       expect(row.note).not.toBe('deferred');
       expect(row.group).toBe('not-started');
+    });
+  });
+
+  describe('DONE is the release scope — a released plan has drained', () => {
+    // DONE holds work that has landed and whose version has NOT shipped: the
+    // scope of the next release, waiting on its endgame test. `Released` is the
+    // leave-condition — /plot-release resolving the version is exactly *the
+    // release shipped* — so a released plan is out of the board's scope and its
+    // rows do not appear here. Measured 2026-08-23: 41 of 61 DONE rows were
+    // Released work the board had no further say over.
+    //
+    // A released plan is all-merged, all-complete by construction (the domain
+    // model measures 41/41), so this fixture is the estate's own shape.
+    const released: FleetPulse = {
+      ...pulse,
+      plans: [{
+        file: '2026-08-01-shipped-plan.md', phase: 'released',
+        waves: [{
+          name: 'Tracer', verdict: 'complete',
+          branches: [
+            { branch: 'feature/shipped-a', state: 'merged', deferred: false, claimed: '' },
+            { branch: 'feature/shipped-b', state: 'merged', deferred: false, claimed: '' },
+          ],
+        }],
+      }],
+      summary: { plans: 1, waves: 1, branches: 2, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+    };
+
+    it('drops a released plan\'s rows — the release drained DONE', () => {
+      const rows = rowsFromPulse(released, new Map(), 'plot', QUIET);
+      expect(rows).toEqual([]);
+    });
+
+    it('drains only the release — a delivered plan stays in DONE', () => {
+      // The one direction that is NOT symmetric: every wave complete is a
+      // measurement, releasing is a decision. A delivered plan is complete and
+      // unreleased — the core of the release scope — and it stays. Only the
+      // version shipping removes it, which is what makes DONE a queue that
+      // drains rather than an archive that decays.
+      const delivered: FleetPulse = {
+        ...released,
+        plans: [{ ...released.plans[0], phase: 'delivered' }],
+      };
+      const rows = rowsFromPulse(delivered, new Map(), 'plot', QUIET);
+      expect(rows).toHaveLength(2);
+      expect(rows.every((r) => r.group === 'done')).toBe(true);
+      expect(rows.every((r) => r.phase === 'Endgame')).toBe(true);
+    });
+
+    it('leaves a released row on a planless branch alone — it is not a plan', () => {
+      // The drain reads a PLAN's phase. A branch no plan names — a release
+      // branch, a loose PR — carries no phase to drain on, and reaches the board
+      // through its own path. Dropping it here would lose a row the release did
+      // not scope.
+      const loose = new Map([[
+        'changeset-release/main',
+        { number: 5, head: 'changeset-release/main', state: 'OPEN', draft: false,
+          checks: 'green', mergeable: 'mergeable', review: '', url: '' } as never,
+      ]]);
+      const rows = rowsFromPulse(released, new Map(), 'plot', QUIET, loose);
+      expect(rows.find((r) => r.branch === 'changeset-release/main')).toBeDefined();
     });
   });
 
