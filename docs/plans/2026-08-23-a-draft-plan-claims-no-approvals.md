@@ -10,7 +10,14 @@
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
-- **Impl:** same branch
+- **Impl:** own branches
+
+<!-- Corrected 2026-08-23 from `same branch`, which was wrong for this plan and
+     which plot-dispatch.sh correctly refused: `same branch` means the plan rides
+     the work branch and one PR carries plan + code, but this plan was written
+     directly to main and declares a named branch in ## Branches. Those two
+     cannot both be true. `own branches` is what the declared branch describes —
+     one branch fanning out from main. -->
 - **Approved:** 2026-08-23, Jan Wloka, in-session
 
 ## Approval

@@ -10,7 +10,7 @@
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
-- **Impl:** same branch
+- **Impl:** own branches
 - **Approved:** 2026-08-22, Jan Wloka, in-session
 
 ## Approval

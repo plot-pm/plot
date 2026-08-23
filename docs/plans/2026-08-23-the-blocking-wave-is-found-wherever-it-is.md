@@ -10,7 +10,7 @@
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
-- **Impl:** same branch
+- **Impl:** own branches
 
 ## Changelog
 
