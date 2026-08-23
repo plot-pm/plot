@@ -492,17 +492,30 @@ describe('a release is its own kind, and it carries only a mark', () => {
     expect(tupleFromRow(release).kind).toBe('release');
   });
 
-  it('names its PR where no version is known, rather than inventing a tag', () => {
+  it('names its PR where no version is known, AND SAYS SO with a #', () => {
     // Changesets names the branch after the BASE, not the version, so most
     // release rows honestly know no version. Deriving `2.7.0` would mean summing
     // pending bumps — *what would this ship* — the question the plan refuses to
     // answer on a board, because it makes the board where release decisions are
     // prepared.
+    //
+    // THE FALLBACK MUST SAY SO. A bare `300` in the name slot of a release row
+    // reads like a version — `3.0.0` truncated, a major, something a reader
+    // decides about — when it is only the PR the version could not be read from.
+    // The `#` is the universal mark for a PR/issue number, so `#300` can never
+    // be mistaken for the version the slot usually holds. The plan's test list
+    // ends on exactly this case: *falls back to the PR number and says so,
+    // rather than showing a number that reads like a version*.
     expect(releaseVersion(release)).toBe('');
-    expect(tupleFromRow(release).name.label).toBe('300');
-    // And where a version IS on the row, it leads — the version is what a
-    // reader decides about, and the PR is how it gets there.
+    expect(tupleFromRow(release).name.label).toBe('#300');
+    // And where a version IS on the row, it leads UNPREFIXED — the version is
+    // what a reader decides about, and it is a version, not a reference to one.
     expect(tupleFromRow({ ...release, plan: '2.7.0' }).name.label).toBe('2.7.0');
+    // The two are distinguishable at a glance, which is the whole point: a
+    // version never wears the `#`, a stand-in number always does.
+    expect(tupleFromRow(release).name.label.startsWith('#')).toBe(true);
+    expect(tupleFromRow({ ...release, plan: '2.7.0' }).name.label.startsWith('#'))
+      .toBe(false);
   });
 
   it('carries no action of its own — the tuple says what a row IS', () => {
