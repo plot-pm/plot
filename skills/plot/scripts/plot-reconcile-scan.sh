@@ -3,16 +3,16 @@
 # Usage: plot-reconcile-scan.sh [--no-fetch] [--no-pr] [--offline]
 #   --no-fetch  skip `git fetch`   --no-pr  skip git-host pr list
 #   --offline   both (no network)  — used by the ambient /plot hygiene line
-# Output: seven-section text report on stdout (each finding carries its exact
+# Output: eight-section text report on stdout (each finding carries its exact
 #         remediating command as copy-paste text — nothing is executed),
 #         terminated by a machine-countable summary line:
-#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 index_drift=0 pr_source=gh main=main
+#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 unsliced_waves=0 index_drift=0 pr_source=gh main=main
 #         Consumers that only need counts (the /plot dispatcher's hygiene
 #         line, /plot-reconcile's Automation Output) read that one line.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
 #
 # Reads the repo's plan files, symlink indexes, and git/git-host ref state and
-# emits a seven-section report. This is the COMPUTATIONAL half of the
+# emits an eight-section report. This is the COMPUTATIONAL half of the
 # reconciliation loop: mechanical, reproducible enumeration. The INFERENTIAL
 # half — deciding which drift to fix, which branch is truly stale, whether a
 # plan is ready to deliver — is the human's, guided by the /plot-reconcile
@@ -40,7 +40,15 @@
 #                                 DANGLING index symlinks (a link pointing at
 #                                 nothing is a broken pointer)
 #   6. Delivered but released   — delivered plans already inside a release tag
-#   7. Index drift              — CONVENIENCE level: a plan with no symlink, or
+#   7. Unsliced waves           — a `### ` wave heading carrying MORE THAN ONE
+#                                 branch line. A wave holds exactly one branch
+#                                 (MANIFESTO.md); one holding several is a shape
+#                                 /plot-reslice can repair. ACTIONABLE BUT
+#                                 NON-BLOCKING — someone runs /plot-reslice, so
+#                                 it sits before index drift, and it is kept out
+#                                 of the `attention` count for the same reason
+#                                 index drift is: nothing is blocked by a shape
+#   8. Index drift              — CONVENIENCE level: a plan with no symlink, or
 #                                 a phase-less file in the plan directory.
 #                                 Since #254 the phase grouping is derived from
 #                                 plan content, so nothing depends on these;
@@ -276,9 +284,16 @@ echo
 
 US=$'\x1f'
 plan_rows=""
+plan_json=""
 set -- "$PLAN_DIR"/[0-9]*.md
 if [ -f "${1:-}" ]; then
-  plan_rows=$("$script_dir/plot-plan-meta.sh" "$@" --prefixes "$PREFIX_RE" 2>/dev/null \
+  # ONE parser invocation for the whole sweep (see the single-pass note above).
+  # Captured raw as JSON lines so the unsliced-wave section (7) can read the
+  # `waves[]` structure without a second call and without a second parser — the
+  # parser is the format contract, and `a-plan-branch-can-be-a-parser-artifact`
+  # is the failure a hand-rolled branch count would reproduce.
+  plan_json=$("$script_dir/plot-plan-meta.sh" "$@" --prefixes "$PREFIX_RE" 2>/dev/null)
+  plan_rows=$(printf '%s\n' "$plan_json" \
     | jq -r '[.file, .phase, .phase_raw, .phase_alt, .phase_alt_raw,
               (.branches | join(" ")), (.prs | map(tostring) | join(",")),
               (.type // "")] | join("\u001f")')
@@ -399,7 +414,7 @@ symlinked_from() { # $1=index_dir $2=dated_basename
 }
 
 n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0; n_unrel=0
-n_idx=0
+n_unsliced=0; n_idx=0
 
 # ---------------------------------------------------------------------------
 # 1. Phase <-> symlink drift  (plot-managed plans only)
@@ -805,7 +820,76 @@ if [ -n "$unrel_out" ]; then printf '%b' "$unrel_out"; else echo "  (none)"; fi
 echo
 
 # ---------------------------------------------------------------------------
-# 7. Index drift (convenience level)
+# 7. Unsliced waves
+#
+# A wave holds exactly one branch (MANIFESTO.md): a `### ` heading carrying MORE
+# THAN ONE branch line is a shape /plot-reslice can repair. This section reports
+# every such heading — its plan file, its heading, and its branch count — and
+# repairs nothing. That is Manifesto Principle 3's split: this collects,
+# /plot-reslice and a person conclude.
+#
+# IT DOES NOT GATE, and that is load-bearing, not a preference. /plot-deliver's
+# delivery-landed gate and the /plot hygiene line both read `attention=` from
+# the footer; adding a cosmetic-by-nature finding to that count would make every
+# delivery in this repo stop on an unsliced wave that blocks nothing. An
+# unsliced wave is a SHAPE TO FIX, not a branch that cannot move — so it carries
+# its own footer counter (`unsliced_waves=`) exactly as index drift carries
+# `index_drift=`, and stays out of `attention`.
+#
+# PLACEMENT: it is actionable (someone runs /plot-reslice) where index drift is
+# pure convenience, so it sits BEFORE index drift — this is section 7, index
+# drift moved to 8. Sections 1-6 keep their numbers, so /plot-deliver's gate
+# marker (`sed -n '/^== 7./q;p'`) still stops before the first non-blocking
+# section: what used to be section 7 (index drift, non-blocking) is now this
+# section (unsliced waves, non-blocking), and the blocking set stays 1-6. The
+# marker text is therefore unchanged BY DESIGN — its meaning ("stop before the
+# non-blocking sections") is preserved because both non-blocking sections sit
+# at 7 and 8.
+#
+# The COUNT is branch LINES under the heading, taken from plot-plan-meta.sh's
+# `waves[]` — never a second parser. A backticked branch name in a plan's prose
+# is not a branch line (`a-plan-branch-can-be-a-parser-artifact`), and the
+# parser already draws that distinction; re-deriving it here would reproduce the
+# exact defect. A file with no `Phase:` is not a plan (phase == NONE) and is
+# skipped, the same rule section 1 applies. A `complete`/`released` wave is
+# history and still counts: hiding it would be lying about the estate, and
+# /plot-reslice declines the waves it should — that is a constraint on the
+# REPAIR, not on the REPORT.
+echo "== 7. Unsliced waves (a wave holds one branch — candidate /plot-reslice) =="
+unsliced_out=""
+if [ -n "$plan_json" ]; then
+  # One jq pass over the already-captured parser output, one record per
+  # multi-branch wave: file, heading (may be empty for an unnamed wave), branch
+  # count. Fields are joined with the ASCII unit separator (US, 0x1f) and read
+  # with IFS="$US" — NOT a tab: a wave with an empty name emits an empty middle
+  # field, and tab is IFS whitespace, so `read` would collapse the two adjacent
+  # tabs and shift the count into the name. This is the same reason plan_rows
+  # uses US above; @tsv here reproduced exactly that field-shift bug.
+  # Phase-less files (phase == "NONE") are dropped, matching "a file with no
+  # Phase: is not a plan".
+  while IFS="$US" read -r f wname wcount; do
+    [ -n "$f" ] || continue
+    base=$(basename "$f")
+    slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
+    # An unnamed wave (branches before any `### `) has no heading to name; say so
+    # rather than print an empty token.
+    disp="${wname:-(unnamed wave)}"
+    unsliced_out+="  $base — wave '$disp' carries $wcount branch lines (a wave holds one)\n"
+    # /plot-reslice is the repair, and it needs a human to name the slices and
+    # argue their order — so the verb is `reslice:`, not `fix:`: a person must
+    # decide, exactly as section 8's is `optional:`.
+    unsliced_out+="    reslice: /plot-reslice ${slug%.md}\n"
+    n_unsliced=$((n_unsliced + 1))
+  done < <(printf '%s\n' "$plan_json" \
+    | jq -r 'select(.phase != "NONE") | .file as $f
+             | .waves[]? | select((.branches | length) > 1)
+             | [$f, .name, (.branches | length | tostring)] | join("")')
+fi
+if [ -n "$unsliced_out" ]; then printf '%b' "$unsliced_out"; else echo "  (none — every wave holds a single branch)"; fi
+echo
+
+# ---------------------------------------------------------------------------
+# 8. Index drift (convenience level)
 #
 # A SEPARATE SECTION rather than a softer line inside section 5, because
 # section 5's count is load-bearing: /plot-deliver's delivery-landed gate and
@@ -818,10 +902,10 @@ echo
 # derived phase grouping (#254) already sees these plans, so the only thing
 # missing is the browsing convenience, and the printed command is `optional:`
 # for that reason — section 1's are `fix:`.
-echo "== 7. Index drift (convenience — nothing depends on these) =="
+echo "== 8. Index drift (convenience — nothing depends on these) =="
 if [ -n "$index_out" ]; then printf '%b' "$index_out"; else echo "  (none — the convenience indexes match the plans)"; fi
 echo
 
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel index_drift=$n_idx pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel unsliced_waves=$n_unsliced index_drift=$n_idx pr_source=$PR_SOURCE main=$MAIN"
 exit 0
