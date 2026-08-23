@@ -33,7 +33,6 @@ import type { AgentRow, BranchState, FleetPulse, WaitingGroup, WaveVerdict, Work
 // the verdict the scan already aggregated. So the two `Inverted` rules below
 // that `a-wave-is-one-row` fixes are re-asserted against THAT function, not
 // against a `classify` the fix deliberately left unchanged.
-<<<<<<< HEAD
 //
 // The RELEASE-SCOPE DRAIN sits one more layer up still, in `rowsFromPulse`: a
 // released plan is out of the board's scope, so its rows never reach a section
@@ -41,10 +40,7 @@ import type { AgentRow, BranchState, FleetPulse, WaitingGroup, WaveVerdict, Work
 // released plan is `done` — and the Released half of `DONE ⇒ Development or
 // Endgame` is re-asserted against `rowsFromPulse`, which is the layer that
 // drops it. `done-holds-finished-plans-only` is the commit that earns it.
-import { waveSection } from '../../src/app/components/AgentList.js';
-=======
 import { waveSection } from '../../src/app/lib/agent-rows/sections.js';
->>>>>>> 87475bbc (plot-board: move section-placement derivations to agent-rows/sections.ts)
 
 /**
  * A PR row as `classify` reads it — it consults `checks` and `mergeable`, never
