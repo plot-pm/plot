@@ -109,7 +109,7 @@ release gate. Nothing that reads it today reads anything different.
 | `in-progress` | implementation under way on a branch or wave | ≥1 `Started:` record, or ≥1 branch claimed |
 | `deliverable` | all waves reviewed and merged; ready for `/plot-deliver` | every wave complete, `phase` still `approved` |
 | `delivered` | reviewed and `/plot-deliver` was called | `phase: delivered` |
-| `released` | released; ready for `/plot-reconcile` | `phase: released` |
+| `released` | released — terminal | `phase: released` |
 
 **`reviewing` is deliberately absent.** An earlier draft proposed it for *every
 branch has an open PR, none merged*. It is dropped: a branch under review is
@@ -215,11 +215,15 @@ for no gain.
       sources.
 - [x] ~~Should `reviewing` require every branch or any?~~ **Dropped** — a branch
       under review is implementation in flight, and `in-progress` says so.
-- [ ] `released` is described as *ready for `/plot-reconcile`*. Confirm that is
-      the intended follow-on: reconcile is a hygiene sweep over the whole
-      estate, not a per-plan step, so a plan does not "await" it the way a
-      deliverable plan awaits `/plot-deliver`. Possibly the status is terminal
-      and the reconcile note is guidance rather than a state.
+- [x] ~~Is `released` *ready for `/plot-reconcile`*?~~ **No — settled
+      2026-08-23. `released` is TERMINAL.** Reconcile is an estate-wide hygiene
+      sweep, not a per-plan follow-on, so nothing awaits it the way a
+      `deliverable` plan awaits `/plot-deliver`.
+
+      The distinction is worth keeping because it is what makes `deliverable`
+      earn its place: a status names a state the plan is IN, and only where a
+      decision is outstanding does it also imply an action. `deliverable` has
+      one; `released` has none.
 
 ## Done when
 
