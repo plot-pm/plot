@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-23, Jan Wloka, in-session
 - **Started:** 2026-08-23, Jan Wloka, `feature/the-sprint-file-names-its-members`
+- **Started:** 2026-08-23, Jan Wloka, `feature/the-fleet-row-carries-its-sprint`
 
 ## Approval
 
