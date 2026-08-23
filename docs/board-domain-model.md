@@ -10,26 +10,50 @@ where an entity lacks something, that is stated rather than invented.
 
 ## The relations
 
-```
-                        ┌──────────┐
-                        │   PLAN   │  phase (Discovery→Development→Endgame→Released)
-                        └────┬─────┘
-                             │ 1..n   ordered — wave N waits on wave N-1
-                        ┌────▼─────┐
-                        │   WAVE   │  verdict (complete · eligible · blocked)
-                        └────┬─────┘
-                             │ 1..n   concurrent — no order within a wave
-                        ┌────▼─────┐
-                        │  BRANCH  │  state (open · wip · merged · deferred)
-                        └──┬────┬──┘
-                     0..n  │    │  0..1
-              ┌────────────▼┐  ┌▼──────────┐
-              │     PR      │  │  WORKLOG  │  worker (6 process + 2 task states)
-              └──────┬──────┘  └───────────┘
-                     │ 0..n
-              ┌──────▼──────┐
-              │    BUILD    │  conclusion (per check run)
-              └─────────────┘
+```mermaid
+erDiagram
+    PLAN   ||--|{ WAVE    : "ordered — wave N waits on N-1"
+    WAVE   ||--|{ BRANCH  : "concurrent"
+    BRANCH ||--o{ PR      : "0..n over its life"
+    BRANCH ||--o| WORKLOG : "agent outlives the branch"
+    PR     ||--o{ BUILD   : "one per check run"
+
+    PLAN {
+        string phase "STATUS — Discovery Development Endgame Released"
+        text   approved_delivered_released "detail only, never parsed"
+        array  started "its LENGTH is the fact"
+        string review_impl "ceremony answers"
+        string sprint_story_assignee "belonging"
+    }
+    WAVE {
+        string verdict "STATUS — complete eligible blocked"
+        string plan_name "identity pair — names repeat across plans"
+        string blockedBy "the wave holding this one back"
+        none   section "MISSING — re-derived per call site"
+        none   completeness "MISSING — every non-deferred branch merged"
+    }
+    BRANCH {
+        string state "STATUS — open wip merged deferred"
+        string name_url "the git ref"
+        string deferredReason "a human annotation"
+    }
+    PR {
+        string state "STATUS — green pending failing conflicts closed none unknown"
+        array  states "ordered, most-blocking first (PR 332)"
+        int    number "identity"
+        none   reviewDecision "ABSENT — fetched, never reaches the row"
+    }
+    WORKLOG {
+        string worker "STATUS — 6 process + 2 task states"
+        string session "the identity that outlives the branch"
+        string branch "'' means between branches — a real value"
+        bool   localDirty_localLocked "facts about a WORKTREE"
+    }
+    BUILD {
+        none conclusion "BORROWED — folded into pr.state"
+        none checkNames "only on a stuck row"
+        none runHistory "only on a stuck row"
+    }
 ```
 
 **Cardinalities that are not obvious, and each is measured:**
