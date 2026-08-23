@@ -99,34 +99,46 @@ release gate. Nothing that reads it today reads anything different.
 
 `status` is new, derived every scan from the plan's own waves:
 
-**The eight values, and what each is measured from:**
+**The seven values, and what each is measured from:**
 
-| `status` | measured from | phase it can occur in |
+| `status` | means | measured from |
 |---|---|---|
-| `draft` | plan exists, not approved, no branch pushed | Discovery |
-| `open` | approved, no branch claimed — waiting for an agent | Development |
-| `approved` | the approval record exists and nothing has started | Discovery → Development |
-| `in-progress` | at least one branch claimed or pushed, not all merged | Design, Development |
-| `reviewing` | every branch has an **open, non-draft PR**, none merged | Development |
-| `deliverable` | **every** wave complete, `phase` not yet Testing | Development |
-| `delivered` | `phase` is Testing — the decision followed | Testing |
-| `released` | `phase` is Released | Released |
+| `draft` | created; discovery is going on | `phase: draft`, no plan PR open |
+| `open` | discovery done; working toward approval | plan PR exists (draft or open) — `plot-pr-state.sh` |
+| `approved` | development is possible, implementation not started | `phase: approved` **and no `Started:` record** |
+| `in-progress` | implementation under way on a branch or wave | ≥1 `Started:` record, or ≥1 branch claimed |
+| `deliverable` | all waves reviewed and merged; ready for `/plot-deliver` | every wave complete, `phase` still `approved` |
+| `delivered` | reviewed and `/plot-deliver` was called | `phase: delivered` |
+| `released` | released; ready for `/plot-reconcile` | `phase: released` |
 
-**Three of these are echoes of the phase, deliberately.** `draft`, `delivered`
-and `released` restate a decision rather than measuring anything new. They are
-kept so a single field can be rendered without the reader also holding `phase` —
-but they must be *derived from* `phase`, never able to disagree with it.
+**`reviewing` is deliberately absent.** An earlier draft proposed it for *every
+branch has an open PR, none merged*. It is dropped: a branch under review is
+still implementation in flight, and `in-progress` already says so. Naming the
+sub-state would need a per-branch host call the scan avoids, and would split one
+answer into two that consumers must both handle.
 
-**`reviewing` is the one that needs a host call.** Branch state
-(`open · wip · merged · claimed · deferred`) does not distinguish *pushed* from
-*in review*; only a PR's `state`/`draft` pair does, and the scan already fetches
-those in `pr-list`. If that turns out to be unavailable on a given host, the
-honest degradation is `in-progress` — **never** a guessed `reviewing`.
+### `approved` and `in-progress` split on a record, not on a guess
 
-**`open` vs `approved` is a genuine question, flagged rather than settled.** Both
-mean *approved and nothing started*; `open` reads as available-to-claim and
-`approved` as the record existing. Two names for one measurement is one too
-many. See Open Questions.
+This is the pairing that makes the set work, and both halves are observable:
+
+- `plot-plan-meta.sh` parses **`Started:`** — written by `/plot-implement` and
+  by dispatch. Present means someone picked the plan up.
+- The fleet scan sees a **claim ref** on the remote for the same fact.
+
+So *approved but untouched* and *approved and running* are distinguishable
+without inference. `approved` is the queue the Start button serves;
+`in-progress` is what dispatch produced.
+
+### `open` is about the PLAN's own PR, not about availability
+
+`open` does **not** mean *available to claim* — that is `approved`. It means the
+plan is out for review: discovery finished, a plan PR is up, and approval has not
+landed. `plot-pr-state.sh <slug>` answers it directly, and it is the state
+`Review: pr` plans sit in between `/plot-idea` and `/plot-approve`.
+
+A plan whose `Review:` is `in-session` never has a plan PR, so it moves from
+`draft` to `approved` without passing through `open`. **That is correct, not a
+gap:** the review happened, in a session, and left no PR to observe.
 
 ### Never stored, and that is the point
 
@@ -197,33 +209,33 @@ for no gain.
 
 ### Open Questions
 
-- [ ] **`open` vs `approved` name the same measurement** — approved, nothing
-      started. Two values for one state means every consumer must handle both
-      and no reader can tell them apart. Pick one: `open` reads as
-      *available to claim*, which is what the board offers a Start button for;
-      `approved` restates the phase. Recommend `open`, decide deliberately.
-- [ ] Should `reviewing` require **every** branch to have an open PR, or *any*?
-      Every is stricter and matches `deliverable`'s shape; any would surface the
-      state sooner on a multi-branch wave. Every, unless a measurement says
-      otherwise.
-
-- [ ] Does `feature/merged-waves-reach-testing` (in flight) render this
-      unnecessary, or is it the thing that needs correcting? Its wave says it
-      *reports* the later phase — server-derived, never written — which is
-      honest but overloads `phase`. **Read its PR before implementing**: this
-      plan may become "give that derivation its own field" rather than a new
-      derivation.
-- [ ] Should `status` distinguish **blocked** — no wave complete and none
-      eligible, because an earlier wave is unmerged? It is derivable from
-      verdicts, and `not-started` currently hides it.
+- [x] ~~`open` vs `approved` name the same measurement?~~ **No — settled
+      2026-08-23.** `open` is the PLAN's own PR being up for review; `approved`
+      is development possible with nothing started. Different facts, different
+      sources.
+- [x] ~~Should `reviewing` require every branch or any?~~ **Dropped** — a branch
+      under review is implementation in flight, and `in-progress` says so.
+- [ ] `released` is described as *ready for `/plot-reconcile`*. Confirm that is
+      the intended follow-on: reconcile is a hygiene sweep over the whole
+      estate, not a per-plan step, so a plan does not "await" it the way a
+      deliverable plan awaits `/plot-deliver`. Possibly the status is terminal
+      and the reconcile note is guidance rather than a state.
 
 ## Done when
 
 - A plan whose every wave is complete and whose `phase` is `Approved` reports
   `status: deliverable`. Asserted against the five real cases in this estate.
-- **Every one of the eight values is reachable**, asserted one test each. A
+- **Every one of the seven values is reachable**, asserted one test each. A
   status nothing can produce is a value that will be read as meaningful and
   never be true — the failure `Discovery` had before Draft mapped to it.
+- **`approved` and `in-progress` split on the `Started:` record.** Asserted with
+  two otherwise-identical approved plans, one carrying the record. This is the
+  pairing the Start button and the fleet both depend on, and an implementation
+  that reads only `phase` collapses them.
+- **A plan with `Review: in-session` reaches `approved` without ever reporting
+  `open`.** Asserted directly — it has no plan PR to observe, and an
+  implementation that treats a missing PR as an error rather than as a legal
+  path breaks every in-session plan in the estate.
 - **`draft`, `delivered` and `released` never disagree with `phase`.** They are
   derived from it; a test that constructs a disagreement must fail.
 - The same plan still reports `phase: Approved`. Asserted in the **same** test —
@@ -259,7 +271,7 @@ re-derivations of it.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 2,
+  "round": 3,
   "questionHistory": [
     {"q": "Should this be a new phase in the lifecycle?", "a": "No - a phase is written, so it can only be as current as the last command run; the measurement is true the moment a branch merges", "category": "domain"},
     {"q": "Is the plan really the only entity without a measured status?", "a": "Yes - wave/branch/PR/worklog all carry measurements; the plan carries only phase, a decision", "category": "architecture"},
