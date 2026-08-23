@@ -1,6 +1,6 @@
 # DONE holds what is still yours
 
-> Two thirds of DONE is released work the board has no further say over, and the section wears an activity mark earned by a test fixture in a merged branch's stale worktree.
+> Two thirds of DONE is released work the board has no further say over, one row is a Draft plan, and the section wears an activity mark earned by a test fixture in a merged branch's stale worktree.
 
 ## Status
 
@@ -14,7 +14,7 @@
 
 ## Changelog
 
-- DONE now holds merged work awaiting testing, and drops released work the board has nothing further to say about. A finished row no longer reports activity because its worktree still holds an uncommitted file.
+- DONE now holds exactly the two phases it is about — `Development` (some waves still elsewhere) and `Endgame` (every wave merged, ready for the endgame) — and drops `Discovery` and `Released`. A finished row no longer reports activity because its worktree still holds an uncommitted file.
 
 <!-- Board impact: board-only. packages/board/src/app/components/AgentList.tsx
      (isActive / the DONE membership rule) and possibly src/server/fleet.ts's
@@ -105,21 +105,34 @@ worktree is a stale artifact of a fan-out, not a desk anyone is sitting at.
 They meet in one section and share no mechanism; either without the other leaves
 a real defect standing.
 
-**1. Membership — DONE means a PLAN that is merged and not yet released.**
+**1. Membership — DONE holds two phases and no others.**
 
-Two conditions, and both are about the plan rather than the row:
+The rule is the plan's **phase**, which every row already carries and which Plot
+derives from the plan's own transition records:
 
-- **Released leaves.** The phase every row already carries decides it.
-- **A plan with any wave still in flight leaves.** Its merged waves are
-  milestones, not deliveries; they belong wherever the plan's unfinished work
-  is, so the plan appears once and in the section that describes it.
+| phase | record | in DONE? | why |
+|---|---|---|---|
+| `Discovery` | none (Draft) | **no** | not approved; a merged wave here is not a result |
+| `Development` | `Approved:` | **yes** | partially done — some waves merged, others elsewhere |
+| `Endgame` | `Delivered:` | **yes** | every wave merged, ready for the endgame |
+| `Released` | `Released:` | **no** | shipped, and out of the board's scope |
 
-What remains is exactly the interval DONE is for: every wave merged, nothing
-released yet.
+Everything else is neither DONE nor RELEASED and belongs in the section its own
+state describes.
 
-Where released work goes is the open question below — dropped entirely, or
-behind a deliberate act. What must not happen is 41 rows of shipped work sitting
-where a reader looks for what needs testing.
+**There is no `Testing` phase, and `Endgame` is it.** The phase whose date comes
+from `Delivered:` is precisely *all waves merged, not yet released* — which is
+what "ready for testing" means here. The vocabulary already has the slot; it is
+named for what follows rather than for what is happening in it.
+
+> Worth deciding separately: whether `Endgame` should be renamed. It is the one
+> phase whose name describes the NEXT step rather than the state, which is why
+> the rule had to be explained rather than read off. Out of scope here.
+
+**`Discovery` in DONE is measurable today**, and it is the clearest case: the
+live payload has one — `a-wave-is-a-thing-not-a-label`, wave `Modelled`, merged
+and complete, on a plan that is still a **Draft**. A merged wave of an
+unapproved plan is not a delivery; the plan has not been agreed to yet.
 
 **2. A finished row is not active.**
 
@@ -155,20 +168,22 @@ never the motion mark. The same argument `localAhead` already won:
 
 ## Done when
 
-- No `Released` row appears in DONE. Asserted over a pulse containing released
-  and merged rows, with the merged ones still present — a test that only checks
-  the count falls passes an implementation that empties the section.
+- **DONE holds exactly `Development` and `Endgame`.** Asserted over a pulse
+  carrying all four phases, checking both directions: the two are present and
+  the other two are absent. A test that only counts rows falls for an
+  implementation that empties the section.
+- A **`Discovery`** row does not appear in DONE even when its wave is merged and
+  complete. That is the live shape (`a-wave-is-a-thing-not-a-label`, wave
+  `Modelled`), and it is the case a Released-only filter still gets wrong.
+- A row leaving DONE arrives **somewhere** — no row is dropped from the board by
+  this change unless it is `Released`. Asserted on the total: rows in minus rows
+  out, since a membership rule is the easy place to lose a row silently.
 - A **merged** row whose worktree is dirty reports **no** activity mark, and its
   section reports none because of it. Asserted with `localDirty: true` on a
   merged row: that is the exact live shape, and an implementation keyed on the
   fixture's filename passes every other test here.
 - A row in WORKING with `localDirty` still reports activity — the mark must
   keep working where it was right.
-- A plan with one merged wave and one wave still in flight puts **no** row in
-  DONE. Asserted on the four live shapes measured above, since a test built from
-  a single-wave plan cannot fail this way.
-- A plan whose every wave is merged and which is not released **is** in DONE —
-  the section must not empty itself, which is what an over-strict rule would do.
 - If the static stale-worktree mark is built, it is visibly not the motion mark.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
