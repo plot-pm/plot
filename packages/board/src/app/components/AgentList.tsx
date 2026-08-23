@@ -1821,6 +1821,7 @@ function HeaderRow() {
  */
 function PlanRow({
   group,
+  waves,
   onOpenPlan,
   expanded,
   onToggle,
@@ -1836,6 +1837,13 @@ function PlanRow({
   soleWave,
 }: {
   group: PlanGroup;
+  /**
+   * The fleet's server-derived waves — the list the head's count reads instead
+   * of re-grouping `group.rows`. See `waveSummaryFor`. Undefined on a pre-wave
+   * server's pulse (the board casts, so the field is absent rather than `[]`),
+   * and the summary then falls back to the row derivation.
+   */
+  waves?: Wave[];
   onOpenPlan?: AgentListProps['onOpenPlan'];
   /**
    * How many of this plan's waves belong in ANOTHER section — from
@@ -1899,11 +1907,12 @@ function PlanRow({
 }) {
   const waiting = planWaitingDays(group);
   // THE SECTION'S OWN WAVES, then how many are ELSEWHERE. `waveSummaryFor` counts
-  // what this section holds and is silent about the rest; `elsewhere` names the
-  // rest so a plan split across sections reads as split rather than as a whole
-  // plan two waves short. Joined with a middot when both speak; either alone
-  // stands on its own, and both empty renders nothing (the aside guards on it).
-  const here = waveSummaryFor(group);
+  // what this section holds — from the server's `waves` where the payload
+  // carries them — and is silent about the rest; `elsewhere` names the rest so a
+  // plan split across sections reads as split rather than as a whole plan two
+  // waves short. Joined with a middot when both speak; either alone stands on
+  // its own, and both empty renders nothing (the aside guards on it).
+  const here = waveSummaryFor(group, waves);
   const away = elsewhereNote(elsewhere);
   const summary = [here, away].filter(Boolean).join(' · ');
   const foldable = expanded !== null;
@@ -4750,6 +4759,7 @@ export function AgentList({
                       >
                         <PlanRow
                           group={group}
+                          waves={fleet.waves}
                           onOpenPlan={onOpenPlan}
                           expanded={expanded}
                           onToggle={foldable ? () => togglePlan(group.plan) : undefined}
@@ -5040,6 +5050,7 @@ export function AgentList({
                     {planHeads && (
                       <PlanRow
                         group={group}
+                        waves={fleet.waves}
                         onOpenPlan={onOpenPlan}
                         // THE FRESHEST BRANCH CLOCK, because `waitingDays` is
                         // null here.
