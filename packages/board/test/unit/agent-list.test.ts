@@ -18,8 +18,6 @@ import {
   runLinkLabel,
   storyRefusal,
   splitBranch,
-  prStateWord,
-  noteWithoutPr,
   readCollapsed,
   writeCollapsed,
   COLLAPSED_BY_DEFAULT,
@@ -43,16 +41,10 @@ import {
   watchedState,
   isUnreadable,
   sameWatched,
-  hostCannotReportCi,
-  HOST_CANNOT_REPORT_HINT,
-  hostAnswer,
-  HOST_ANSWER_HINT,
-  hostErrorState,
-  prNote,
-  issueNote,
   type WatchedState,
   type PlanGroup,
 } from '../../src/app/components/AgentList.js';
+import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, hostErrorState, issueNote, noteWithoutPr, prNote, prStateWord } from '../../src/app/lib/agent-rows/host-notes.js';
 import { isFinished, isStartable, rowKey, waitingLabel, waitingTone } from '../../src/app/lib/agent-rows/row-identity.js';
 import { groupByWave, groupedNote, waveDissent, waveLabel } from '../../src/app/lib/agent-rows/waves.js';
 // THE ONE GRID, from the component that owns it. It was `ROW_TRACKS` in
