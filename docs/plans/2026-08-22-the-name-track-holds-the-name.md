@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Issue:** <!-- optional -->
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-22, Jan Wloka, in-session
 - **Started:** 2026-08-23, Jan Wloka, `bug/the-name-track-holds-the-name`
+- **Delivered:** 2026-08-23
 
 ## Approval
 

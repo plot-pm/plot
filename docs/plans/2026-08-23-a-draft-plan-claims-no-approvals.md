@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
@@ -20,6 +20,7 @@
      one branch fanning out from main. -->
 - **Approved:** 2026-08-23, Jan Wloka, in-session
 - **Started:** 2026-08-23, Jan Wloka, `bug/a-wave-head-says-what-its-verdict-says`
+- **Delivered:** 2026-08-23
 
 ## Approval
 
