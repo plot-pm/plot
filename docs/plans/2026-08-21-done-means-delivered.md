@@ -192,7 +192,7 @@ PR creation is not a change to the delivery path.
 
 ### Named
 
-- `feature/the-phase-after-development-is-testing` — `Endgame` becomes `Testing`
+- `feature/the-phase-after-development-is-testing` → #361 — `Endgame` becomes `Testing`
   through `BOARD_PHASES`, its mapping and every reader. Tests: the contract enum
   carries `Testing` and not `Endgame`; `toBoardPhase('delivered')` returns it;
   the board column header reads it; no source file under `packages/board/src`
