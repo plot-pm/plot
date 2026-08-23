@@ -161,34 +161,61 @@ worker by hand — which is what Fix A keeps accurate.
 does: the worktree is classified by `plot-worker-state.sh`, which reads the
 worktree's own pid file. The manifest pid is not consulted.
 
-### Fix C — an agent with no manifest is still an agent
+### Fix C — absence of a manifest is not evidence of absence of an agent
 
-Measured 2026-08-23: **28 worktrees, 22 manifests.** Five real branch worktrees
-have no registry entry at all — among them
-`bug/the-kind-is-labelled-not-hovered`, which is the single branch the fleet
-scan currently reports as `waiting`. The registry cannot see the one agent most
-likely to need a person.
+Measured 2026-08-23: **28 worktrees, 22 manifests.** Six worktrees have no
+registry entry. **Round 4 looked at what they actually are, and the first
+justification for this fix did not survive it:**
 
-The cause is structural, not a bug: `plot-dispatch.sh` is the sole manifest
-writer, so a worktree made by hand — or by any path that is not a dispatch — has
-none. The registry's docstring calls its directory *"the whole truth about which
-agents exist"*, and that has quietly stopped being true.
+| worktree | what it is |
+|---|---|
+| `plot-wt-bug-one-column-one-kind-of-fact` | real dispatch, worker log, exit 1, **08-20** |
+| `plot-wt-bug-the-kind-is-labelled-not-hovered` | real dispatch, worker log, exit 0, **08-20** |
+| `plot-wt-feature-the-row-leads-with-its-subject` | real dispatch, worker log, exit 0, **08-20** |
+| `plot` | the main repo — **not an agent** |
+| `wt-gate3`, `plot-wt-folded-plan` | scratch directories |
 
-**This matters now for the same reason the rest of the plan does.** WORKING is
-about to render the `agents` array; an agent invisible there is one an operator
-cannot see, and — per the registry's own reasoning — *"an agent invisible during
-an outage is an agent that gets restarted into work it is already doing."* The
-same argument applies to an agent invisible because nobody wrote it a file.
+**None has a live worker.** The three real ones were dispatched on 08-20, at the
+boundary where manifests began — they are historical, not hand-made. So the
+claim that this fix rescues an invisible *live* agent is **false today**, and an
+earlier draft of this section asserted it.
 
-**The registry lists a worktree it can see, manifest or not.** For a worktree
-with no manifest it synthesizes an entry from what the worktree itself carries:
-the branch (`git branch --show-current`), the path, and the same pulse-refreshed
-state every other entry gets.
+**The fix survives on a different and better argument.** The registry cannot
+tell *why* a manifest is absent. Pre-registry dispatch, a manifest deleted by
+hand, a worktree made outside `plot-dispatch.sh`, a failed write — they are
+indistinguishable from the read side, and only one of them means *no agent was
+ever here*. Three of these six carry `.plot-worker.pid` and a worker log, which
+is positive evidence a worker ran; the registry currently discards that because
+a different file is missing.
 
-**What such an entry cannot have, and must not invent:**
+**Absent is not false** — the invariant this repo applies everywhere. "No
+manifest" is the absence of a record, not the presence of a fact that nothing
+happened.
+
+The value is bounded and should be stated as such: nothing live is hidden today,
+and this prevents a class rather than fixing an outage. It is worth doing here
+because the read path is already being changed and because WORKING is about to
+render this array.
+
+**The registry lists a worktree it can see and cannot rule out**, synthesizing
+an entry from the worktree itself: its branch, its path, and the same
+pulse-refreshed state every other entry gets.
+
+**Two exclusions, both from round 4's measurement:**
+
+- **The main repo is not an agent.** `git worktree list` includes the primary
+  checkout; it must not render as one.
+- **A worktree with no branch is not an agent row.** `wt-gate3` and
+  `plot-wt-folded-plan` are scratch. A worktree whose HEAD is detached or whose
+  branch is unreadable has nothing an agent row could be about.
+
+Without both, this fix adds three noise rows to the section it is meant to make
+truthful.
+
+**What a synthesized entry cannot have, and must not invent:**
 
 - **`session` is `''`.** It is the transcript's name and is minted at launch; a
-  worktree nobody dispatched has no session. This is the one field on
+  worktree with no manifest has none. This is the one field on
   `AgentEntrySchema` with no default, so the schema must gain one — `''`, the
   same *empty is a real value* rule `branch` already follows.
 - **`command` and `startedAt` are `''`.** They are launch facts. A start time
@@ -202,9 +229,8 @@ becomes the record of a *dispatch*, not the definition of an agent's
 *existence*. The worktree is what exists; the manifest is what Plot knows about
 how it came to be.
 
-**Precedence, so the two sources cannot both claim one worktree:** a manifest
-wins. Where a manifest names a worktree, that entry is used and nothing is
-synthesized for the same path.
+**Precedence:** where a manifest names a worktree, that entry is used and
+nothing is synthesized for the same path.
 
 ### Writing the manifest safely
 
@@ -308,8 +334,11 @@ with a live worktree is *classified* rather than skipped. Asserting it reads
 - An entry with **no worktree** still reads `unknown` and still lists. The
   registry must never drop an agent it cannot classify.
 - **A worktree with no manifest is listed**, carrying its branch and a real
-  state. Asserted against a hand-made worktree — measured 2026-08-23, five exist
-  here and one of them is the only branch the scan calls `waiting`.
+  state. Asserted against a worktree with a `.plot-worker.pid` and no manifest —
+  the shape three of the six measured here actually have.
+- **The main repo does not render as an agent**, and neither does a worktree
+  with no branch. Asserted directly: without these, this fix adds three noise
+  rows to the section it exists to make truthful.
 - A synthesized entry carries **`session: ''`** and no invented `command` or
   `startedAt`. Asserted directly: an implementation that fabricates a start time
   from the worktree's mtime passes "it is listed" and lies about a launch.
@@ -360,7 +389,7 @@ them.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 3,
+  "round": 4,
   "questionHistory": [
     {"q": "How should fix 2 be rewritten, given the pid-recycling claim is falsified but the pid gates refreshStates?", "a": "Drop the pid from the gate; check any entry with a worktree; fix the wrong docstring", "category": "technical"},
     {"q": "What should the manifest record on relaunch, given ContinueWithAnAnswer already computes previousPid?", "a": "Overwrite pid + startedAt AND persist previousPid/relaunches", "category": "domain"},
@@ -368,7 +397,8 @@ them.
     {"q": "How much concurrency safety should this plan carry for relaunches?", "a": "Atomic temp+rename in both writers; accept a lost increment rather than take a lock", "category": "nonFunctional"},
     {"q": "What should the plan say about nine rows changing from unknown to a real state?", "a": "State it as expected and assert the transition - but measurement showed all nine read `waiting` from a false positive in plot_worker_blocked, so assert classification, not the verdict", "category": "ux"},
     {"q": "Should the registry remove manifests whose worktree is gone?", "a": "Dropped - measured zero orphans; all 22 name a live worktree, so unknown falls to 0 after Fix B. Contract assertion kept, question deleted", "category": "domain"},
-    {"q": "Five worktrees have no manifest, including the only branch the scan calls waiting. Fold or separate?", "a": "Fold in as Fix C: the registry lists a worktree it can see, manifest or not; a manifest becomes the record of a dispatch rather than the definition of an agent's existence", "category": "architecture"}
+    {"q": "Five worktrees have no manifest, including the only branch the scan calls waiting. Fold or separate?", "a": "Fold in as Fix C: the registry lists a worktree it can see, manifest or not; a manifest becomes the record of a dispatch rather than the definition of an agent's existence", "category": "architecture"},
+    {"q": "Does Fix C's premise hold? Are those worktrees hand-made with live agents?", "a": "No - measured: 3 are real dispatches from 08-20 (pre-manifest), 1 is the main repo, 2 are scratch, and NONE has a live worker. Re-argued from `absence of a manifest is not evidence of absence of an agent`, and added two exclusions (main repo, no branch) without which the fix adds noise rows", "category": "technical"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
