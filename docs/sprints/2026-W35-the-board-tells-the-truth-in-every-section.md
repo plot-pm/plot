@@ -194,6 +194,11 @@ that record rather than deleted.
 
 ## Notes
 
+### Scope Changes
+
+- 2026-08-23: Added [a-marker-is-a-file-not-a-mention] to Must — `plot_worker_blocked` greps file CONTENTS, so 28 documenting files on main make every clean worker read `waiting`; WORKING showed 16 rows against 2 live agents, 13 of them this false positive. Dispatched.
+- 2026-08-23: Added [the-registry-names-a-live-agent] to Should — a dead pid displayed beside `running`, nine agents skipped by a gate on a value the classifier never reads. Dispatched.
+
 - 2026-08-23: opened from the scope deferred by
   `2026-W34-working-shows-the-agent`, whose own goal — *WORKING shows the agent*
   — was met at 8 of 11 items. That sprint's goal was reframed mid-timebox to this

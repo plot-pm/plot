@@ -190,7 +190,10 @@ Two properties this must keep:
   and waits for the brief before running the script; with no `Implement command`
   configured the button refuses and names it. **Depends on
   `an-approved-plan-offers-its-two-starts` WAVE 2**
-  (`feature/implement-runs-from-the-board`) — on the wave landing, not on its
+  (feature/implement-runs-from-the-board — no backticks: the parser reads a
+  backticked branch name under `## Branches` as a claim, and this CITES a
+  dependency rather than listing a branch this wave owns) — on the wave
+  landing, not on its
   plan PR merging. #313 merged 2026-08-22 and built nothing: `implement.ts` does
   not exist and no route is registered. A merged plan PR is a decision, not a
   route, and this branch adds the ordering rather than either. Tests: the brief exists before the worker starts; the two spawns are ordered, never concurrent; the slug is passed and the branch is not; a missing `Implement command` refuses with the key named, rather than starting a briefless agent; a failing `/plot-implement` does not start a worker; nothing about `/api/idea` changes.

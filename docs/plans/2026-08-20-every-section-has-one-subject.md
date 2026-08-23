@@ -348,7 +348,10 @@ changes what the section *is* and depends on the registry the same day landed.
 ### Inverted
 
 > **Depends on `approval-hands-the-work-to-agents` wave 1**
-> (`feature/the-registry-knows-which-agents-live`), and the dependency is not
+> (feature/the-registry-knows-which-agents-live — named without backticks: the
+> parser reads every backticked branch name under `## Branches` as a claim, and
+> this line CITES the dependency rather than listing a branch this wave owns),
+> and the dependency is not
 > tidiness. Measured 2026-08-22: WORKING derives from `worker: running` and
 > showed **2** rows, both alive — while `.plot/agents/` held **7** entries of
 > which **5 were dead processes**. The registry records a launch and nothing
