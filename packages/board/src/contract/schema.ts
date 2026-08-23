@@ -2384,8 +2384,16 @@ export type AgentState = z.infer<typeof AgentStateSchema>;
  * pulse, and `pid` is only the launch fact and the value a reader can go check.
  */
 export const AgentEntrySchema = z.object({
-  /** The session id, minted at launch. The identity, and the transcript's name. */
-  session: z.string(),
+  /**
+   * The session id, minted at launch. The identity, and the transcript's name.
+   *
+   * Defaults to `''` — the same *empty is a real value* rule `branch` follows.
+   * It is the id the runtime writes its transcript under, so a worktree with no
+   * manifest never had one, and the registry SYNTHESIZES an entry for such a
+   * worktree to make the section truthful. That entry must validate, so this is
+   * `''` rather than required: absent is a real state, not a rejection.
+   */
+  session: z.string().default(''),
   /** The branch it holds, or `''` while it holds none — empty is a real value. */
   branch: z.string().default(''),
   worktree: z.string().default(''),
@@ -2398,6 +2406,30 @@ export const AgentEntrySchema = z.object({
    * see `state`. Defaults to `''` so a pulse from before the field validates.
    */
   pid: z.string().default(''),
+  /**
+   * The pid this run DISPLACED when it relaunched in place, or `''` on a first
+   * dispatch that displaced nothing.
+   *
+   * A relaunch in an existing worktree overwrites `pid` with the new process and
+   * records the corpse here — the value the row used to name. `/api/continue`
+   * already computed this to show *replacing pid Y* and then threw it away;
+   * persisting it costs nothing at the write and keeps a fact the board could
+   * not otherwise recover once `pid` is overwritten. `''` (not a synthetic 0) so
+   * a first dispatch is byte-for-byte what it was before this field existed.
+   */
+  previousPid: z.string().default(''),
+  /**
+   * How many times this worktree's worker has been relaunched in place — 0 on a
+   * first dispatch.
+   *
+   * A read-modify-write on each relaunch, deliberately UNLOCKED: a lost
+   * increment costs an inaccurate diagnostic count, while a lock would introduce
+   * a stale-lock failure mode for a counter nothing yet acts on. A branch
+   * restarted three times is struggling, and this is the only place the board
+   * can say so. Defaults to 0 so a first dispatch and an older pulse both read
+   * as *never relaunched*.
+   */
+  relaunches: z.number().default(0),
   /**
    * Pulse-refreshed liveness. Defaults to `unknown` so an older pulse — which
    * never carried a state — validates as *cannot say* rather than blanking a

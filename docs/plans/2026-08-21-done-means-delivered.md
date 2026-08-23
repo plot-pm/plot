@@ -163,7 +163,7 @@ PR creation is not a change to the delivery path.
 
 ### Reached
 
-- `feature/merged-waves-reach-testing` — a plan whose every wave holds a merged
+- `feature/merged-waves-reach-testing` → #345 — a plan whose every wave holds a merged
   branch reports the phase after Development rather than Development. Tests: all
   waves merged → the later phase; one wave open → Development; a deferred branch
   does not block it, matching the scan's own rule; a plan already `delivered`

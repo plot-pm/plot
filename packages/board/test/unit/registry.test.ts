@@ -15,7 +15,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { parseManifest, readAgentRegistry, AGENT_MANIFEST_DIR } from '../../src/server/registry.js';
+import {
+  parseManifest, readAgentRegistry, gitWorktrees, AGENT_MANIFEST_DIR,
+} from '../../src/server/registry.js';
+import { execFileSync } from 'node:child_process';
 import { projectSlug } from '../../src/server/transcript.js';
 
 /** The real helper scripts, so the integration block can source the shell. */
@@ -268,18 +271,21 @@ describe('the state — pulse-refreshed liveness, landing on the entry', () => {
     assert.equal(got.find((e) => e.session === 's')?.state, 'stalled');
   });
 
-  it('reports `unknown` for an older manifest with no pid, and never asks the shell about it', () => {
-    // Absent is not a guess. A no-pid entry cannot be checked, so its state is
-    // `unknown` — and it must not even reach the liveness resolver, since there
-    // is nothing to ask about.
+  it('CLASSIFIES an older manifest with no pid but a live worktree — the pid never gated the answer', () => {
+    // Fix B. `plot-worker-state.sh` reads liveness from the WORKTREE — it is
+    // handed the worktree path and reads `$wt/.plot-worker.pid` for itself — so
+    // the manifest pid was never an input to the answer, only a ticket to be
+    // asked the question. Gating on it skipped nine entries here that name a
+    // worktree that exists and would have classified correctly. The entry must
+    // now reach the resolver and take its answer.
     let asked: string[] = [];
     manifest('a.json', { session: 'old', worktree: '/wt/old',
       startedAt: '2026-08-20T10:00:00Z' });
     const [e] = readAgentRegistry(root, home, {
       liveness: (wts) => { asked = wts; return wts.map(() => 'running'); },
     });
-    assert.equal(e.state, 'unknown');
-    assert.deepEqual(asked, [], 'a pid-less entry is never asked about');
+    assert.equal(e.state, 'running', 'a pid-less entry with a worktree is classified');
+    assert.deepEqual(asked, ['/wt/old'], 'and it IS asked about — the worktree is the only input');
   });
 
   it('reports `unknown` for an entry with a pid but no worktree to look in', () => {
@@ -309,6 +315,138 @@ describe('the state — pulse-refreshed liveness, landing on the entry', () => {
       liveness: fakeLiveness({ '/wt/a': 'running', '/wt/b': 'finished', '/wt/c': 'running' }),
     });
     assert.equal(got.filter((e) => e.state === 'running').length, 2);
+  });
+});
+
+describe('a worktree with no manifest is listed — absence of a record is not absence of an agent', () => {
+  // Fix C. The registry cannot tell WHY a manifest is absent — a pre-registry
+  // dispatch, a manifest deleted by hand, a worktree made outside the dispatcher,
+  // a failed write — and only one of those means no agent was ever here. So a
+  // worktree it can see and cannot rule out is synthesized as an entry rather
+  // than dropped. This does not rescue a live agent today; it prevents a class.
+
+  /** A worktree enumerator standing in for `git worktree list --porcelain`. */
+  const worktrees = (list: { path: string; branch: string; isMain?: boolean }[]) =>
+    () => list.map((w) => ({ ...w, isMain: w.isMain ?? false }));
+
+  const fakeLiveness = (byWorktree: Record<string, string>) =>
+    (wts: string[]): string[] => wts.map((wt) => byWorktree[wt] ?? 'unknown');
+
+  it('synthesizes an entry for a worktree no manifest names, carrying its branch and a real state', () => {
+    // No manifests at all, one real worktree — the shape three of the six
+    // measured here have (a .plot-worker.pid, no manifest).
+    const got = readAgentRegistry(root, home, {
+      worktrees: worktrees([{ path: '/wt/orphan', branch: 'feature/orphan' }]),
+      liveness: fakeLiveness({ '/wt/orphan': 'waiting' }),
+    });
+    assert.equal(got.length, 1);
+    assert.equal(got[0].worktree, '/wt/orphan');
+    assert.equal(got[0].branch, 'feature/orphan');
+    assert.equal(got[0].state, 'waiting', 'classified like any other entry');
+  });
+
+  it('gives a synthesized entry session="" and no invented command or startedAt', () => {
+    // A synthesized entry must not invent launch facts it does not have. `session`
+    // is minted at launch and this worktree has none; a startedAt guessed from
+    // mtime would read as a launch record and be false.
+    const [e] = readAgentRegistry(root, home, {
+      worktrees: worktrees([{ path: '/wt/orphan', branch: 'feature/orphan' }]),
+      liveness: fakeLiveness({ '/wt/orphan': 'running' }),
+    });
+    assert.equal(e.session, '', 'no launch id was ever minted');
+    assert.equal(e.command, '', 'no command to record');
+    assert.equal(e.startedAt, '', 'a guessed start time would be a false launch record');
+    assert.equal(e.model, undefined, 'transcript fields absent, not guessed');
+    assert.equal(e.contextTokens, undefined);
+  });
+
+  it('does NOT render the main repo as an agent', () => {
+    // `git worktree list` includes the primary checkout; it is not an agent.
+    const got = readAgentRegistry(root, home, {
+      worktrees: worktrees([
+        { path: '/repo', branch: 'main', isMain: true },
+        { path: '/wt/real', branch: 'feature/real' },
+      ]),
+      liveness: fakeLiveness({ '/wt/real': 'running' }),
+    });
+    assert.deepEqual(got.map((e) => e.worktree), ['/wt/real'], 'the main repo is excluded');
+  });
+
+  it('does NOT render a branchless worktree as an agent', () => {
+    // A detached or unreadable HEAD has nothing an agent row could be about —
+    // the scratch dirs wt-gate3 and plot-wt-folded-plan measured here.
+    const got = readAgentRegistry(root, home, {
+      worktrees: worktrees([
+        { path: '/wt/real', branch: 'feature/real' },
+        { path: '/wt/scratch', branch: '' },
+      ]),
+      liveness: fakeLiveness({ '/wt/real': 'running', '/wt/scratch': 'running' }),
+    });
+    assert.deepEqual(got.map((e) => e.worktree), ['/wt/real'], 'the branchless worktree is excluded');
+  });
+
+  it('does NOT synthesize where a manifest already names the worktree — no worktree appears twice', () => {
+    // Precedence: a manifest wins. The worktree it names is not synthesized again.
+    manifest('a.json', { session: 'has-manifest', branch: 'feature/known',
+      worktree: '/wt/known', pid: '42', startedAt: '2026-08-20T10:00:00Z' });
+    const got = readAgentRegistry(root, home, {
+      worktrees: worktrees([
+        { path: '/wt/known', branch: 'feature/known' },
+        { path: '/wt/new', branch: 'feature/new' },
+      ]),
+      liveness: fakeLiveness({ '/wt/known': 'running', '/wt/new': 'waiting' }),
+    });
+    const known = got.filter((e) => e.worktree === '/wt/known');
+    assert.equal(known.length, 1, 'the worktree appears once');
+    assert.equal(known[0].session, 'has-manifest', 'and it is the manifest entry, not a synthesized one');
+    assert.equal(got.length, 2, 'the manifest entry plus the one synthesized worktree');
+  });
+
+  it('lists nothing extra when every worktree already has a manifest', () => {
+    manifest('a.json', { session: 's', branch: 'feature/x', worktree: '/wt/x',
+      pid: '42', startedAt: '2026-08-20T10:00:00Z' });
+    const got = readAgentRegistry(root, home, {
+      worktrees: worktrees([{ path: '/wt/x', branch: 'feature/x' }]),
+      liveness: fakeLiveness({ '/wt/x': 'running' }),
+    });
+    assert.equal(got.length, 1);
+    assert.equal(got[0].session, 's');
+  });
+});
+
+describe('gitWorktrees — the real porcelain, parsed', () => {
+  // The default lister runs `git worktree list --porcelain`; this proves it
+  // against real git output rather than a hand-written fixture, so a change to
+  // the porcelain format fails here rather than silently in production.
+  let repo = '';
+  afterEach(() => {
+    if (repo) fs.rmSync(repo, { recursive: true, force: true });
+    repo = '';
+  });
+
+  it('marks the primary checkout isMain, names branches, and leaves a detached worktree branchless', () => {
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitwt-'));
+    const main = path.join(repo, 'main');
+    const g = (dir: string, ...a: string[]) =>
+      execFileSync('git', ['-C', dir, ...a], { stdio: ['ignore', 'pipe', 'ignore'] });
+    execFileSync('git', ['init', '-q', '-b', 'main', main], { stdio: 'ignore' });
+    g(main, 'config', 'user.email', 't@e.x');
+    g(main, 'config', 'user.name', 'T');
+    g(main, 'commit', '-q', '--allow-empty', '-m', 'root');
+    // A second worktree ON A BRANCH, and a third DETACHED at a commit.
+    g(main, 'branch', 'feature/side');
+    g(main, 'worktree', 'add', '-q', path.join(repo, 'side'), 'feature/side');
+    g(main, 'worktree', 'add', '-q', '--detach', path.join(repo, 'loose'), 'HEAD');
+
+    const got = gitWorktrees(main);
+    const primary = got.find((w) => w.path === fs.realpathSync(main));
+    const side = got.find((w) => w.branch === 'feature/side');
+    const loose = got.find((w) => w.path === fs.realpathSync(path.join(repo, 'loose')));
+
+    assert.ok(primary?.isMain, 'the primary checkout is flagged isMain');
+    assert.equal(side?.isMain, false, 'a linked worktree is not the main repo');
+    assert.equal(side?.branch, 'feature/side', 'refs/heads/ is stripped to the branch name');
+    assert.equal(loose?.branch, '', 'a detached worktree carries no branch');
   });
 });
 
