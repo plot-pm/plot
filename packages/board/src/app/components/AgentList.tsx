@@ -1856,6 +1856,9 @@ function PlanRow({
   ageMinutes,
   elsewhere = 0,
   soleWave,
+  dispatch,
+  pulse,
+  onStarting,
 }: {
   group: PlanGroup;
   /**
@@ -1934,6 +1937,22 @@ function PlanRow({
    * this estate: 35 of 54 plans have exactly one wave.
    */
   soleWave?: Wave | null;
+  /**
+   * Whether this server will dispatch, and why not — passed through to the
+   * `WaveActions` control the plan row carries for a ONE-WAVE plan.
+   *
+   * `soleWave` hides the wave row; this is how the *Start work* that row would
+   * have carried rides onto the plan row instead. Dispatch is one board-level
+   * binding, not a per-wave one: `plot-dispatch.sh` fans out the eligible wave,
+   * which for a one-wave plan is the only wave there is — no guessing, the worry
+   * that keeps dispatch off a multi-wave plan row. Absent off-board, where the
+   * control cannot act anyway.
+   */
+  dispatch?: DispatchInfo;
+  /** The pulse counter, passed through to `StartWorkButton` inside `WaveActions`. */
+  pulse?: number;
+  /** A Start-work click became outstanding (true) or settled (false). */
+  onStarting?: (active: boolean) => void;
 }) {
   const waiting = planWaitingDays(group);
   // THE SECTION'S OWN WAVES, then how many are ELSEWHERE. `waveSummaryFor` counts
@@ -2153,16 +2172,44 @@ function PlanRow({
         ) : null
       }
 
-      // THE MENU HOLDS EXACTLY ONE ACT, for exactly one reason: approving
-      // belongs to the PLAN. `plot-approve.sh` takes a plan and no branch, the
-      // server reports `approve` per plan, and the row that names the plan is
-      // the only honest place for it.
+      // THE PLAN'S OWN ACT — approving — belongs to the PLAN. `plot-approve.sh`
+      // takes a plan and no branch, the server reports `approve` per plan, and
+      // the row that names the plan is the only honest place for it. That is
+      // `PlanActions`, always present.
       //
-      // Dispatch does NOT belong here, and that half of the old argument
-      // stands: a `plot-dispatch` control would have to guess which of the
-      // plan's waves it meant, so the branch rows in the fold keep their own
-      // menus, where the row has already decided.
-      menu={<PlanActions plan={group.plan} card={card} approve={approve} commission={commission} deliver={deliver} implement={implement} dispatch={dispatch} pulse={pulse} onApproving={onApproving} />}
+      // AND, WHERE THE PLAN HAS EXACTLY ONE WAVE, that wave's *Start work* rides
+      // here too — because `one-wave-renders-as-its-plan` hid the wave row this
+      // control lived on, and hiding a row must not hide its control. The old
+      // worry — that a plan-row dispatch "would have to guess which of the
+      // plan's waves it meant" — is exactly what a ONE-wave plan does not have:
+      // there is one wave, so there is nothing to guess. `plot-dispatch.sh` fans
+      // out the eligible wave, and here that is the only wave there is.
+      //
+      // A MULTI-wave plan keeps this off: its wave rows still render and still
+      // carry their own `WaveActions`, so a plan-row control would be the guess
+      // the old comment warned of. The gate is `soleWave` being present AND
+      // `eligible` — the same `verdict === 'eligible'` gate a wave row applies,
+      // for the same reason (`isStartable`: a control whose usual state is "you
+      // cannot" teaches people to ignore controls).
+      //
+      // `WaveActions` is a SECOND `⋯` beside `PlanActions`, the same composition
+      // a wave row uses (`WaveActions` + `ResliceMenu` + `BranchMenu`): each
+      // disjoint act-family carries its own trigger. These are additional to the
+      // plan acts, never in place of them — a Draft one-wave plan shows both.
+      menu={
+        <>
+          <PlanActions plan={group.plan} card={card} approve={approve} commission={commission} deliver={deliver} implement={implement} dispatch={dispatch} pulse={pulse} onApproving={onApproving} />
+          {soleWave?.verdict === 'eligible' && card && dispatch ? (
+            <WaveActions
+              wave={soleWave.name || UNNAMED_WAVE}
+              card={card}
+              dispatch={dispatch}
+              pulse={pulse ?? 0}
+              onStarting={onStarting}
+            />
+          ) : null}
+        </>
+      }
     />
   );
 }
@@ -5164,6 +5211,11 @@ export function AgentList({
                           // A ONE-WAVE plan shows its wave's verdict on this row
                           // instead of nesting a wave row beneath it.
                           soleWave={soleWaveFor(group.plan, waves)}
+                          // …and the hidden wave row's *Start work* rides here
+                          // too, dispatching that one wave.
+                          dispatch={dispatch}
+                          pulse={pulse}
+                          onStarting={onStarting}
                         />
                         {/* The branches, folded. Removed from the tree rather
                             than hidden with CSS, the same as the section fold:
@@ -5502,6 +5554,11 @@ export function AgentList({
                         // A ONE-WAVE plan shows its wave's verdict on this row
                         // instead of nesting a wave row beneath it.
                         soleWave={soleWaveFor(group.plan, waves)}
+                        // …and the hidden wave row's *Start work* rides here
+                        // too, dispatching that one wave.
+                        dispatch={dispatch}
+                        pulse={pulse}
+                        onStarting={onStarting}
                       />
                     )}
                     {headed && !planHeads && (
