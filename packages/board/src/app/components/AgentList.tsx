@@ -18,6 +18,7 @@ import {
   UNNAMED_WAVE,
   isSpikeWave,
   FLEET_CONTROLS_DEFAULT,
+  RELEASE_BRANCH,
 } from '../../contract/schema.js';
 
 /**
@@ -2942,6 +2943,91 @@ function ActivityMark({ pace, place = 'row', inTrack = false }: { pace: Activity
  */
 export function isUnpushed(row: AgentRow): boolean {
   return (row.localAhead ?? 0) > 0;
+}
+
+/**
+ * Whether a branch is a RELEASE branch — a PR by mechanism, a release by
+ * meaning.
+ *
+ * The one measured instance is `changeset-release/main`, the branch Changesets
+ * opens and force-pushes as changesets accumulate. Nothing in `## Plot Config`
+ * declares a release-branch shape, and nothing else in the board detects one,
+ * so this is the first place that has to name it.
+ *
+ * THE PATTERN IS THE SERVER'S, imported rather than restated. `RELEASE_BRANCH`
+ * in `fleet.ts` carries the argument for why the name is matched in exactly one
+ * place — *"A second copy on the client would be the defect"* — and a regex
+ * literal here would be that copy. This function is the client-side spelling of
+ * the question, not a second answer to it.
+ *
+ * It landed as `return false` with a TODO, which is worse than absent: every
+ * release row silently took the ordinary PR kind, and the feature read as
+ * unbuilt rather than broken.
+ */
+export function isReleaseBranch(branch: string): boolean {
+  return RELEASE_BRANCH.test(branch);
+}
+
+/**
+ * What the reader is deciding about on this row — the fact that earns the
+ * dominant track.
+ *
+ * `PlanRow` already applies this rule and says so outright: *a plan row is not a
+ * branch row*, because a plan's branches are how it travels and not what is
+ * being judged. This extends the same rule to the rows that share `ROW_TRACKS`,
+ * where the `1fr` track held the BRANCH NAME whether or not the branch was the
+ * point — measured across three WAITING ON YOU rows, all `state=wip` with an
+ * open PR, all leading with the vehicle.
+ *
+ * **THE DISCRIMINATOR IS WHERE THE PROBLEM LIVES, not whether a PR exists.**
+ * That distinction is the whole finding, and the two cases it separates render
+ * identically today — a red badge beside a branch name — while sending the
+ * reader to different places:
+ *
+ * - A FAILING BUILD IS PR WORK. The check ran for the PR, the fix is a commit
+ *   that updates the PR, and the reader acts through it. The PR leads.
+ * - A MERGE CONFLICT IS BRANCH WORK. A conflict is a property of the branch
+ *   against its base; nothing about the PR resolves it. The reader checks out
+ *   the branch, rebases, pushes. The branch leads, EVEN WITH A PR OPEN.
+ *
+ * **Where both are true the conflict wins**, because it blocks the merge
+ * outright: a red build on an unmergeable PR is moot until the rebase happens,
+ * and fixing it first can be wasted work if the rebase changes what fails. The
+ * build failure is not lost — the row names it on a second line — which is the
+ * whole reason `pr.states` had to become a set before this rule could be
+ * written. With a single value the row never learned the build had failed.
+ *
+ * READ FROM `states`, NOT FROM `state`. `state` is the winner and would answer
+ * `conflicts` for the both-true row, which happens to be the right subject by
+ * accident — and would answer it for the plain conflict too, leaving the second
+ * line unwriteable. The set is what distinguishes the two.
+ *
+ * Exported for test: the both-true row is the case every simpler implementation
+ * gets wrong, and it is invisible in a payload that predates the set.
+ */
+export function rowSubject(row: Pick<AgentRow, 'pr' | 'branch'>): 'pr' | 'branch' | 'release' {
+  // A RELEASE IS ITS OWN KIND, and it is asked about FIRST — before the PR/branch
+  // question, because the answer is neither. `changeset-release/main` is a PR by
+  // mechanism and a release by meaning, and it is the one row nobody should merge
+  // by reflex: every changeset merged since it opened changes what it would ship,
+  // so the version in its title stops being the version it cuts. Leading with its
+  // number would make it look MORE like an ordinary PR, which is the direction
+  // that costs a reader something.
+  //
+  // That is a UI restatement of a rule this repo already holds outside the board:
+  // a release is outward-facing and only ever cut on an explicit request.
+  if (isReleaseBranch(row.branch)) return 'release';
+  // NO PR AT ALL: there is nothing else the row could lead with. Stated before
+  // the states are consulted rather than falling out of them, because an empty
+  // set on a row with no PR and an empty set on a payload predating the field
+  // are different situations and only one of them is this one.
+  if (!row.pr) return 'branch';
+  // A CONFLICT ANYWHERE IN THE SET, not `states[0] === 'conflicts'`. The head is
+  // the winner and a conflict always wins, so today those agree — but `includes`
+  // is what the rule actually means, and a future precedence change must not be
+  // able to silently move a conflicting row's subject back to the PR.
+  if (row.pr.states.includes('conflicts')) return 'branch';
+  return 'pr';
 }
 
 /**
