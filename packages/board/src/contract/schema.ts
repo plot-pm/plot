@@ -2343,6 +2343,24 @@ export const AgentEntrySchema = z.object({
 });
 export type AgentEntry = z.infer<typeof AgentEntrySchema>;
 
+/**
+ * The fleet controls a payload is READ AS when it carries none.
+ *
+ * Exported, and read by the client rather than only defaulted by Zod. The
+ * schema's `.default()` runs where the payload is PARSED, which is the server;
+ * `packages/board/src/app` casts the fleet it fetches and never parses it, so a
+ * client reading `fleet.fleetControls.autoDispatch` on an older payload throws
+ * and the whole Agents tab renders nothing.
+ *
+ * Measured 2026-08-22: every fixture predating this field — 40 selectors across
+ * five browser suites — took a 10s timeout waiting for a section that a
+ * TypeError had prevented from rendering at all. The suite read as slow (151s
+ * for 15 tests) and CI as a 15-minute timeout; both were this.
+ *
+ * Off and 3: a fleet that dispatches nothing is the safe reading of silence.
+ */
+export const FLEET_CONTROLS_DEFAULT = { autoDispatch: false, parallelAgents: 3 } as const;
+
 export const FleetSchema = z.object({
   generatedAt: z.string(),
   /** Seconds since the cached scan completed — the tab shows this. */
@@ -2555,7 +2573,7 @@ export const FleetSchema = z.object({
       autoDispatch: z.boolean(),
       parallelAgents: z.number().int(),
     })
-    .default({ autoDispatch: false, parallelAgents: 3 }),
+    .default(FLEET_CONTROLS_DEFAULT),
 });
 export type Fleet = z.infer<typeof FleetSchema>;
 

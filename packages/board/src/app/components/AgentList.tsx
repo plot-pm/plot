@@ -17,7 +17,25 @@ import {
   type RowKind,
   UNNAMED_WAVE,
   isSpikeWave,
+  FLEET_CONTROLS_DEFAULT,
 } from '../../contract/schema.js';
+
+/**
+ * A fleet's controls, or the declared default where the payload carries none.
+ *
+ * THE CLIENT CASTS THE FLEET, it does not parse it — so the schema's
+ * `.default()` never runs here and `fleet.fleetControls` is genuinely
+ * `undefined` on any payload written before the field existed (a stubbed
+ * fixture, a board mid-upgrade, a cached response). Reading through it threw
+ * and took the whole Agents tab down with it.
+ *
+ * `absent is not false`: an absent control block is *unknown*, and the safe
+ * reading of unknown here is the same one the schema declares — a fleet that
+ * dispatches nothing.
+ */
+function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents: number } {
+  return fleet.fleetControls ?? FLEET_CONTROLS_DEFAULT;
+}
 import { ApproveButton } from './ApproveButton.js';
 import { AutoDispatchSwitch, ParallelAgentsStepper } from './FleetControls.js';
 import { CommissionDesignButton } from './CommissionDesignButton.js';
@@ -6813,10 +6831,10 @@ export function AgentList({
                   SHARED state off `fleet.fleetControls` and write it back through
                   /api/fleet-controls; neither dispatches anything in this wave. */}
               {key === 'not-started' && (
-                <AutoDispatchSwitch value={fleet.fleetControls.autoDispatch} />
+                <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
               )}
               {key === 'working' && (
-                <ParallelAgentsStepper value={fleet.fleetControls.parallelAgents} />
+                <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} />
               )}
             </h2>
             {/* The body goes, the header stays — including its count. Removed
