@@ -172,6 +172,64 @@ count, and the fact that its branches disagree where they do. A row saying
 `merged` for a wave that is half open would be the same lie in fewer rows — the
 collapse must not buy density with accuracy.
 
+### Should the constraint model come first? Yes — and it mostly exists
+
+The states that decide where a wave shows up, measured on the live payload:
+
+```
+state      wip · open · deferred · merged                        (4)
+verdict    eligible · blocked · complete · null                  (4)
+phase      Discovery · Development · Endgame · Released · null   (5)
+waitingOn  click · time · null                                   (3)
+pr         6 states plus absent                                  (7)
+worker     8 states                                              (8)
+booleans   localDirty · localLocked · localAhead · stuck         (2^4)
+```
+
+The cross-product runs to tens of thousands of combinations. **The live board
+exercises roughly forty.** That gap is precisely where the defects have been:
+every one found today was correct for the shapes someone had an example of and
+wrong for a region nobody had looked at.
+
+**The decision point is already a single pure function.** `classify(state,
+verdict, ageMinutes, …, phase, workerState, …)` returns `{group, note, verdict}`
+in one place, and `fleet.ts` says of a neighbour that it is kept *"pure enough to
+assert exhaustively"*. Four test files already loop over state vocabularies.
+
+So this is not machinery to build. It is **an existing habit applied to the
+function that needs it**, and it is the cheapest of the three things this plan
+proposes:
+
+1. enumerate the input space and assert `classify` is **total** — every
+   combination yields a group, and the same combination always yields the same
+   one
+2. assert the **invariant** on the output: no `(plan, wave)` reaches two groups
+3. then change the model, with the enumeration as the safety net
+
+**This repo has already proved the technique twice, on this exact code.**
+`waitingOnFor` was evaluated over its whole input space and found to return
+`'you'` for exactly one input — while a comment beside it described a case that
+no longer existed. `canCommissionDesign` was proven satisfiable by **no**
+combination at all: a feature that could never fire, invisible to every
+example-based test and obvious the moment the space was enumerated.
+
+Two of today's five defects are the same shape. `groupedNote`'s `default:`
+returning *work landed* is a total-function defect — wrong for every word it does
+not know. DONE admitting a `Discovery` plan is another — wrong for a region of
+`phase` nobody had a fixture for.
+
+**Order, and it is the answer to "which first":** the enumeration is written
+against today's behaviour first, so it records what the board currently does
+before anything moves. Then the wave collapse runs against it, and every
+difference is either an intended fix or a regression the enumeration names. Doing
+it the other way round means changing the model with no map of what the change
+touched.
+
+**What it does not do.** An enumeration proves totality and consistency; it does
+not know which group is *right*. `Inverted` belonging in NOT STARTED is a
+judgement — the model can only insist the answer be single and stable. Keep
+those apart: the constraint model is a gate, the section rule is a decision.
+
 ### A wave in the payload, derived once on the server
 
 The server already computes wave verdicts — `plot-fleet-scan.sh` answers
@@ -242,6 +300,9 @@ a second answer to a question the scan already answers.
 
 ## Done when
 
+- The enumeration covers every value of `state`, `verdict`, `phase` and worker
+  state in combination, and `classify` yields exactly one group for each —
+  asserted before the model changes, so the diff afterwards is readable.
 - **A wave renders as exactly one row.** Asserted by counting rendered wave rows
   against distinct `(plan, wave)` pairs — they must be equal. The live board has
   14 waves occupying 38 rows, so this fails loudly today.
@@ -271,6 +332,10 @@ a second answer to a question the scan already answers.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
 ## Branches
+
+### Constrained
+
+- `feature/the-classifier-is-total` — enumerate the state cross-product against `classify`, asserting it is total and stable and that no `(plan, wave)` reaches two groups; written against today's behaviour so it records the baseline before anything moves
 
 ### One row
 
