@@ -276,15 +276,15 @@ delays the collision; it does not remove it.
   instruction and the classifier agree.
 - `pnpm test`, `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Branches
+## Waves
 
-### Named
 
 <!-- ONE wave, one branch: a predicate, its tests, and the one instruction that
      must agree with it. Splitting the instruction from the classifier would
      leave a window where workers are told one thing and measured by another. -->
 
-- `bug/a-marker-is-a-file-not-a-mention` — `plot_worker_blocked` looks for a `PLOT-BLOCKED*` file rather than grepping every file's contents, and `worker-question.ts` reads that file instead of re-grepping with its own copy of the pattern; `TODO(you|human)` is dropped, the shared constant is deleted from both, and the `Worker command` names the file it asks for → #342
+### Named (Branch: bug/a-marker-is-a-file-not-a-mention, PR: #342)
+- `plot_worker_blocked` looks for a `PLOT-BLOCKED*` file rather than grepping every file's contents, and `worker-question.ts` reads that file instead of re-grepping with its own copy of the pattern; `TODO(you|human)` is dropped, the shared constant is deleted from both, and the `Worker command` names the file it asks for
 
 ## Notes
 

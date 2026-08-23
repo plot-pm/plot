@@ -292,14 +292,14 @@ marker livelier would spend the rate limit the backoff exists to protect,
 to sharpen a signal nobody asked to be sharper. The whole change is that
 the client remembers one value.
 
-## Branches
+## Waves
 
-### Row
 
-- `feature/status-column-earns-its-width` — `ROW_TRACKS` gives the status
+### Row (Branch: feature/status-column-earns-its-width, PR: #180)
+- `ROW_TRACKS` gives the status
   column 14rem, and the row marks a watched-value transition for ~3 s
   wherever it now sits: silent on first sighting, restarting on a second
-  change, `motion-reduce`-safe, `aria-hidden` → #180
+  change, `motion-reduce`-safe, `aria-hidden`
 
 **One wave, and the first draft had two.** Splitting them was the
 instinct — the width is one number on one exported constant, the flash is

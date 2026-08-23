@@ -151,22 +151,22 @@ that could not find its own plan.
 - [ ] If `active/` becomes advisory, what does `plot-reconcile-scan.sh` section
       5 report — nothing, or "your convenience index is out of date"?
 
-## Branches
+## Waves
 
 <!-- Populated 2026-08-18, after the measurement above. Three waves, ordered so
      each is independently valuable and none forces the next. -->
 
-### Derive
 
-- `feature/the-scan-derives-its-plan-list` — `plot-fleet-scan.sh` enumerates plans from the plan directory and groups them by their declared phase, rather than by which symlinks exist in `active/`. `active/` keeps working; nothing depends on it being right. Test: a plan with no symlink must appear, and a symlink pointing at a delivered plan must not resurrect it. → #254
+### Derive (Branch: feature/the-scan-derives-its-plan-list, PR: #254)
+- `plot-fleet-scan.sh` enumerates plans from the plan directory and groups them by their declared phase, rather than by which symlinks exist in `active/`. `active/` keeps working; nothing depends on it being right. Test: a plan with no symlink must appear, and a symlink pointing at a delivered plan must not resurrect it.
 
-### Report
 
-- `feature/reconcile-calls-the-index-advisory` — once nothing reads `active/`, `plot-reconcile-scan.sh` section 5 stops reporting an unlinked plan as *orphaned* — it is not orphaned, it is fully visible — and reports index drift as the convenience-level finding it has become. Test: an unlinked plan produces no `attention` count; a symlink pointing nowhere still does. → #256
+### Report (Branch: feature/reconcile-calls-the-index-advisory, PR: #256)
+- once nothing reads `active/`, `plot-reconcile-scan.sh` section 5 stops reporting an unlinked plan as *orphaned* — it is not orphaned, it is fully visible — and reports index drift as the convenience-level finding it has become. Test: an unlinked plan produces no `attention` count; a symlink pointing nowhere still does.
 
-### Stop depending
 
-- `feature/the-lifecycle-does-not-need-the-symlink` — `/plot-idea` and `/plot-deliver` no longer depend on symlink maintenance for correctness. Whether they keep creating symlinks for human browsing is the first Open Point; this branch makes the lifecycle correct either way. Test: a plan created without a symlink is dispatchable, deliverable, and visible on the board. → #296
+### Stop depending (Branch: feature/the-lifecycle-does-not-need-the-symlink, PR: #296)
+- `/plot-idea` and `/plot-deliver` no longer depend on symlink maintenance for correctness. Whether they keep creating symlinks for human browsing is the first Open Point; this branch makes the lifecycle correct either way. Test: a plan created without a symlink is dispatchable, deliverable, and visible on the board.
 
 ## Notes
 

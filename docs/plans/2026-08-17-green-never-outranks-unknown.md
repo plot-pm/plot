@@ -216,13 +216,13 @@ minute of honesty.
 
 **No change to the fleet scan.** This is entirely in the board's fold.
 
-## Branches
+## Waves
 
-### Precedence
 
-- `bug/green-never-outranks-unknown` — `prState` returns `unknown` when
+### Precedence (Branch: bug/green-never-outranks-unknown, PR: #192)
+- `prState` returns `unknown` when
   `mergeable` is `unknown`, before consulting `checks`; the note says
-  which fact is missing → #192
+  which fact is missing
 
 ## Done when
 

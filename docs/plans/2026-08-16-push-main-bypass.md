@@ -293,9 +293,10 @@ the first one is wanted here.
       only printed? Argues against itself: the plan would carry a fact about
       *how it was written* rather than about the work, and git already has it.
 
-## Branches
+## Waves
 
-- `feature/push-main-bypass` — the push helper (`classify` split out for testing), its three call sites, removal of `plot-approve`'s no-op branch deletion, the optional `Story:` template field, the `no story` card badge, and tests → #115
+### Implementation (Branch: feature/push-main-bypass, PR: #115)
+- the push helper (`classify` split out for testing), its three call sites, removal of `plot-approve`'s no-op branch deletion, the optional `Story:` template field, the `no story` card badge, and tests
 
 <!-- One branch: the helper and its callers are one change. Splitting them
      would land a helper nothing calls, or callers of a helper that does not

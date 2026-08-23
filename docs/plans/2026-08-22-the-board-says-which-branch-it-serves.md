@@ -129,11 +129,11 @@ compete with the row states beneath it.
   startup. Assert by construction (where the value is computed), not by timing.
 - `pnpm build:board` run and the artifact committed; `pnpm run test:board` green.
 
-## Branches
+## Waves
 
-### Named
 
-- `feature/the-board-says-which-branch-it-serves` — add the branch to `serverInfo`, render it in the header, and prove the detached case renders nothing → #337
+### Named (Branch: feature/the-board-says-which-branch-it-serves, PR: #337)
+- add the branch to `serverInfo`, render it in the header, and prove the detached case renders nothing
 
 ## Notes
 

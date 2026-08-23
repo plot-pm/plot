@@ -287,27 +287,27 @@ reloads) is a browser-storage concern and explicitly optional.
 - Toggling writes nothing to the estate — no phase moves, no file changes.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Branches
+## Waves
 
-### Carried
 
-- `feature/the-fleet-row-carries-its-sprint` — `AgentRow` gains `sprint`, set in the server where the row is created by joining `planFile` to the SPRINT FILE's member list; rows with no plan, and plans no sprint lists, carry `''`. No client change, no filtering yet
+### Carried (Branch: feature/the-fleet-row-carries-its-sprint)
+- `AgentRow` gains `sprint`, set in the server where the row is created by joining `planFile` to the SPRINT FILE's member list; rows with no plan, and plans no sprint lists, carry `''`. No client change, no filtering yet
 
-### Counted
 
-- `feature/the-fleet-knows-its-sprints` — the fleet payload carries each Active sprint with its target release and its four `status` counts, aggregated server-side from `plan.status`
+### Counted (Branch: feature/the-fleet-knows-its-sprints)
+- the fleet payload carries each Active sprint with its target release and its four `status` counts, aggregated server-side from `plan.status`
 
-### Reported
 
-- `feature/the-sweep-reports-sprint-drift` — `plot-reconcile-scan.sh` gains a section naming any plan whose `Sprint:` field disagrees with the sprint listing it, or is empty while a sprint lists it; machine-countable footer entry, and `attention=` unchanged
+### Reported (Branch: feature/the-sweep-reports-sprint-drift)
+- `plot-reconcile-scan.sh` gains a section naming any plan whose `Sprint:` field disagrees with the sprint listing it, or is empty while a sprint lists it; machine-countable footer entry, and `attention=` unchanged
 
-### Filtered
 
-- `feature/the-agents-tab-filters-to-the-sprint` — the control: toggle, the counts, the disabled-with-totals state, one row per active sprint, and plan-less rows always visible
+### Filtered (Branch: feature/the-agents-tab-filters-to-the-sprint)
+- the control: toggle, the counts, the disabled-with-totals state, one row per active sprint, and plan-less rows always visible
 
-### Repointed
 
-- `feature/the-board-filter-reads-the-sprint-file` — the EXISTING Board-tab sprint filter (`App.tsx`, `sprintFilterOptions`) joins on the sprint file's member list rather than `card.sprint`, so one rule serves both tabs and the live two-slug split stops halving the sprint
+### Repointed (Branch: feature/the-board-filter-reads-the-sprint-file)
+- the EXISTING Board-tab sprint filter (`App.tsx`, `sprintFilterOptions`) joins on the sprint file's member list rather than `card.sprint`, so one rule serves both tabs and the live two-slug split stops halving the sprint
 
 ## Notes
 

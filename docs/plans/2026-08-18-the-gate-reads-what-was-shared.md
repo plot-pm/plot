@@ -143,9 +143,10 @@ rules are written down.
       operator who sees the line knows the gate did not run — which is the whole
       difference between failing open and failing silently.
 
-## Branches
+## Waves
 
-- `bug/the-gate-reads-what-was-shared` — read the plan blob from `origin/$MAIN` in **both** gates: `plot-dispatch.sh` (line 232) and `plot-phase-gate.sh` (line 145). Name the ref in every refusal, and add `--allow-local` as the explicit escape for the dispatch side. The two diverge only on the unresolvable case — dispatch refuses, the hook allows-and-says-so — and the divergence is deliberate, not an oversight. → #215
+### Implementation (Branch: bug/the-gate-reads-what-was-shared, PR: #215)
+- read the plan blob from `origin/$MAIN` in **both** gates: `plot-dispatch.sh` (line 232) and `plot-phase-gate.sh` (line 145). Name the ref in every refusal, and add `--allow-local` as the explicit escape for the dispatch side. The two diverge only on the unresolvable case — dispatch refuses, the hook allows-and-says-so — and the divergence is deliberate, not an oversight.
 
   Tests, in both directions and for both consumers: a shared approval hidden by a parked checkout must dispatch; a local-only approval must be refused; the hook must still allow a commit when `origin/$MAIN` is unreadable *and* must emit the unverified line when it does.
 

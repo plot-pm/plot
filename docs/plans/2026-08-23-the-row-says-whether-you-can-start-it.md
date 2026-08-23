@@ -139,11 +139,11 @@ start this*.
   it here.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Branches
+## Waves
 
-### Answered
 
-- `bug/the-row-says-whether-you-can-start-it` — slot 5 carries startability derived from phase, state and verdict; `eligible` stays on the payload and stops being what a row displays
+### Answered (Branch: bug/the-row-says-whether-you-can-start-it)
+- slot 5 carries startability derived from phase, state and verdict; `eligible` stays on the payload and stops being what a row displays
 
 ## Notes
 

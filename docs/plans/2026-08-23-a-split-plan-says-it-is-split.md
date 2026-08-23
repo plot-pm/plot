@@ -220,13 +220,12 @@ first* at 13 characters, and the offender is 53.
   report does not fail the parse.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Branches
+## Waves
 
-### Contained
 
-- `bug/the-wave-name-stays-in-its-cell` — the wave name clips like every other cell and keeps its full text on hover; follow whatever `the-name-track-holds-the-name` settled about the shared row geometry → #347
+### Contained (Branch: bug/the-wave-name-stays-in-its-cell, PR: #347)
+- the wave name clips like every other cell and keeps its full text on hover; follow whatever `the-name-track-holds-the-name` settled about the shared row geometry
 
-### Stated
 
 <!-- `feature/a-split-plan-counts-what-is-elsewhere` MOVED on 2026-08-23 to
      the-wave-is-a-thing-the-board-can-hold, wave `Consumed`. The tuple's
@@ -234,7 +233,8 @@ first* at 13 characters, and the offender is 53.
      on `bug/a-wave-is-one-row` in a wave Plot enforces.
 
      The branch below stayed: the parser check is independent of any of it. -->
-- `feature/the-sweep-names-a-prose-wave` — `plot-plan-meta.sh` reports an over-long wave name and the reconcile sweep surfaces it, without failing the parse → #358
+### Stated (Branch: feature/the-sweep-names-a-prose-wave, PR: #358)
+- `plot-plan-meta.sh` reports an over-long wave name and the reconcile sweep surfaces it, without failing the parse
 
 ## Notes
 

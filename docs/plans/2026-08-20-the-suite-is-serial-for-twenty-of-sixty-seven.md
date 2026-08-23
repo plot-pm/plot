@@ -192,13 +192,13 @@ Recorded so the measurement is not lost, but they need no branch:
       in *Where the time is* was taken with three or four agents running. The
       split may still be worth it; the 42 % is not established.
 
-## Branches
+## Waves
 
-### Fix the race first
-- `bug/the-timeout-test-does-not-race-the-clock` — the killed-search assertion stops depending on a 1 ms budget beating a process launch. Tests: a killed search answers `""` and does not reject; the assertion holds with the file count reduced to nothing, proving it no longer depends on search duration; it holds under `--fileParallelism`; ten consecutive runs agree. → #292
+### Fix the race first (Branch: bug/the-timeout-test-does-not-race-the-clock, PR: #292)
+- the killed-search assertion stops depending on a 1 ms budget beating a process launch. Tests: a killed search answers `""` and does not reject; the assertion holds with the file count reduced to nothing, proving it no longer depends on search duration; it holds under `--fileParallelism`; ten consecutive runs agree.
 
-### Then split
-- `feature/unit-tests-run-in-parallel` (PR #298) — vitest projects separate the 47 unit files from the 20 browser files, so each carries the parallelism it needs. Tests: the browser project still runs serially; the unit project runs in parallel; the whole suite passes ten consecutive times; the suite's wall-clock is recorded in the PR so the next reader knows what it bought.
+### Then split (Branch: feature/unit-tests-run-in-parallel)
+- (PR #298) — vitest projects separate the 47 unit files from the 20 browser files, so each carries the parallelism it needs. Tests: the browser project still runs serially; the unit project runs in parallel; the whole suite passes ten consecutive times; the suite's wall-clock is recorded in the PR so the next reader knows what it bought.
 
 ## Notes
 

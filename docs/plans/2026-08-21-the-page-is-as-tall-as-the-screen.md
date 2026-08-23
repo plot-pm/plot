@@ -91,11 +91,11 @@ The first two are real candidates; the third is listed to be refused.
 - [ ] Does any test currently depend on the 13px overflow? A test asserting the
       page scrolls would pass today for this reason rather than for its own.
 
-## Branches
+## Waves
 
-### Fits
 
-- `bug/the-page-is-as-tall-as-the-screen` — attribute the 13px, give the
+### Fits (Branch: bug/the-page-is-as-tall-as-the-screen)
+- attribute the 13px, give the
   viewport minimum to exactly one element in the chain, and assert
   `scrollHeight <= clientHeight` on a board whose content fits.
 

@@ -260,15 +260,15 @@ alongside the write.
       belongs to `/plot-approve`, `/plot-implement` and `/plot-deliver` equally,
       so it wants its own plan; recorded here so it does not sink again.
 
-## Branches
+## Waves
 
-### Check
 
-- `bug/scan-unreleased-delivered` — reconcile section for delivered-but-shipped plans, the footer counter, and the back-fill of the six existing plans → #111
+### Check (Branch: bug/scan-unreleased-delivered, PR: #111)
+- reconcile section for delivered-but-shipped plans, the footer counter, and the back-fill of the six existing plans
 
-### Write
 
-- `feature/release-marks-plans` — `/plot-release` writes Phase + `Released:` per included plan, idempotently, gated on the check → #112
+### Write (Branch: feature/release-marks-plans, PR: #112)
+- `/plot-release` writes Phase + `Released:` per included plan, idempotently, gated on the check
 
 <!-- Two waves, one branch each, in this order because the write's gate IS
      the check. The first draft had them the other way round, which would

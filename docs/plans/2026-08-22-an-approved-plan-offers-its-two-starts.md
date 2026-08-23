@@ -163,11 +163,11 @@ spawn cannot report its result in the response.
       plan needs it again for each wave. This is what widened the gate from
       `!started` to `eligible > 0`.
 
-## Branches
+## Waves
 
-### Offered
 
-- `feature/a-ready-plan-names-its-two-starts` — the two controls, their gating
+### Offered (Branch: feature/a-ready-plan-names-its-two-starts)
+- the two controls, their gating
   and their refusals; no new server behaviour. `PlanActions` gains Implement
   and Dispatch, gated on **approved and `waveSummary.eligible > 0`**, with
   Dispatch posting to the existing `/api/dispatch` without a `--max`. Implement
@@ -181,9 +181,9 @@ spawn cannot report its result in the response.
   slug and no cap; each shows its refusal reason when its binding is
   unavailable; both are keyboard reachable and announce their state.
 
-### Run
 
-- `feature/implement-runs-from-the-board` — the route behind Implement, and the
+### Run (Branch: feature/implement-runs-from-the-board)
+- the route behind Implement, and the
   unattended clause the skill is missing. `/api/implement` spawns the
   `Implement command` detached, mirroring `/api/idea`'s guards, log path and
   202, and refuses with a reason when the key is absent. `/plot-implement`

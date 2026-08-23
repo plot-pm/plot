@@ -187,11 +187,11 @@ end, and builds a control only if the walk finds one missing.
       through by the compatibility rule (*absent is not a guess*) while every
       named-but-unknown phase goes to `done`. This plan leaves both as they are.
 
-## Branches
+## Waves
 
-### Reachable
 
-- `bug/the-plan-row-carries-the-plan-decisions` — move both plan-level acts to → #325
+### Reachable (Branch: bug/the-plan-row-carries-the-plan-decisions, PR: #325)
+- move both plan-level acts to
   the plan head and delete their row-level twins. Approve already works there;
   Commission design needs the `commission` prop threaded to that call site and
   the same `isDraft(card)` gate. `canCommissionDesign` and the row's
@@ -216,9 +216,9 @@ end, and builds a control only if the walk finds one missing.
   phase is unchanged. `fleet.test.ts:1122` is rewritten, carrying the
   superseded argument and why it was superseded.
 
-### Started
 
-- `feature/an-approved-plan-offers-start-work` — prove the path end to end: → #331
+### Started (Branch: feature/an-approved-plan-offers-start-work, PR: #331)
+- prove the path end to end:
   approve a Draft plan and confirm its row reaches NOT STARTED carrying a
   working Start work. Tests: a browser test walking Draft → Approve → the row
   appears in NOT STARTED → Start work is offered and dispatches. No new

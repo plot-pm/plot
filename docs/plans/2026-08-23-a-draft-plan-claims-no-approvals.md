@@ -206,11 +206,11 @@ bug. The defect is *a fallback that asserts*, not *drafts specifically*.
   single-branch case cannot detect it.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Branches
+## Waves
 
-### Derived
 
-- `bug/a-wave-head-says-what-its-verdict-says` — `groupedNote` answers only for words it knows; the ternary falls through to the verdict for everything else → #338
+### Derived (Branch: bug/a-wave-head-says-what-its-verdict-says, PR: #338)
+- `groupedNote` answers only for words it knows; the ternary falls through to the verdict for everything else
 
 ## Notes
 

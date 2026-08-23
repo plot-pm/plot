@@ -175,12 +175,13 @@ so its Draft phase is invisible for the identical reason. The rule as stated —
 covers it. Do not narrow the implementation to `idea/` only; the prefix list is
 config and all of it should be searched.
 
-## Branches
+## Waves
 
-- `bug/board-shows-discovery` — `toBoardPhase` maps Draft to Discovery, the
+### Implementation (Branch: bug/board-shows-discovery, PR: #130)
+- `toBoardPhase` maps Draft to Discovery, the
   swimlane filter goes, plan files are additionally sourced from prefixed
   branches via the local ref mirror, canonical paths restored after parsing;
-  tests in `packages/board` → #130
+  tests in `packages/board`
 
 One branch. The two changes are a single behaviour — a column that fills — and
 splitting them would ship a remap that changes nothing visible, then a source

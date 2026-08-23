@@ -115,18 +115,18 @@ row sits.
 It does not add a fourth verdict, a progress bar, or an estimate. The
 three verdicts the scan computes are the three the board shows.
 
-## Branches
+## Waves
 
-### Carrier
 
-- `feature/the-row-carries-its-verdict` — `verdict` becomes a field on → #257
+### Carrier (Branch: feature/the-row-carries-its-verdict, PR: #257)
+- `verdict` becomes a field on
   `AgentRowSchema`, written by `classify()`, additive and defaulted; the
   `complete`/`blocked` collapse at `fleet.ts:1054` is split so a finished
   wave stops claiming to block
 
-### Line
 
-- `feature/a-branch-row-names-its-wave` — a branch row states which wave it belongs to, in every section. **Not a wave row of its own**, and the measurement is why. → #275
+### Line (Branch: feature/a-branch-row-names-its-wave, PR: #275)
+- a branch row states which wave it belongs to, in every section. **Not a wave row of its own**, and the measurement is why.
 
   A row rather than a label was the first design, and it does not survive counting the estate. Measured 2026-08-20 across the 16 unreleased plans: **32 waves over 46 branches, and only 8 of those waves hold more than one branch.** A wave row would add 32 rows to 46 — **+70%** — to group something that in three cases out of four has exactly one member. That is the defect `a-plan-row-is-not-a-branch-row` removed this week, one level down: a level that claims to group what needs no grouping.
 
@@ -157,9 +157,9 @@ three verdicts the scan computes are the three the board shows.
 
   Tests: a branch row names its wave in every section that holds branch rows, **wherever the plan has more than one wave**; a single-wave plan shows no wave label whether or not its wave is named — assert both the unnamed and the named case, since the named single-wave plan is what a presence check would get wrong; a plan whose branches all sit in one wave still has its rows group; consecutive branches of one wave read as one group without repeating the name on each row; row height and column alignment are unchanged; below `CARD_BELOW_PX` nothing regresses.
 
-### Count
 
-- `feature/a-blocked-wave-names-its-blocker` — the blocked wave's row → #286
+### Count (Branch: feature/a-blocked-wave-names-its-blocker, PR: #286)
+- the blocked wave's row
   names which wave it waits for and how many branches are outstanding
 
 ## Done when

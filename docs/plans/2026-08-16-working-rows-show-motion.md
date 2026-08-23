@@ -241,20 +241,19 @@ order, which would put that explanation out of reach for anyone not hovering
 with a mouse. `aria-disabled` keeps it focusable and announced while
 suppressing activation.
 
-## Branches
+## Waves
 
-### Motion
 
-- `feature/working-rows-pulse` — a pulsing dot on `working` rows, one animation
-  for the whole group, disabled under `prefers-reduced-motion` → #148
+### Motion (Branch: feature/working-rows-pulse, PR: #148)
+- a pulsing dot on `working` rows, one animation
+  for the whole group, disabled under `prefers-reduced-motion`
 
-### Density
 
-- `feature/agent-groups-collapse` — group headers toggle; `quiet` and `done`
+### Density (Branch: feature/agent-groups-collapse, PR: #153)
+- group headers toggle; `quiet` and `done`
   start collapsed with their counts still visible; the state persists in
   `localStorage`; NOT STARTED sorts by waiting age, freshest first; row actions
   move into a three-dot overflow menu, dimmed and explained where none apply
-  → #153
 
 Two branches, useful independently — one touches a row, the other a section
 header — but **sequential, motion first**. They edit the same component, and

@@ -364,19 +364,19 @@ the interesting one.
       gap. The board is where it was reported, so the board is where this
       starts.
 
-## Branches
+## Waves
 
-### Seeing it
 
-- `bug/the-row-shows-what-it-withholds` — the five display findings above, in one branch: a section break reads as a bigger break than a row break; a plan group draws an edge so it stops absorbing what follows it; the plan row hosts the approval that belongs to a plan; a deferred row states the reason recorded in its annotation; and every pointer target reaches 24 x 24 px of hit area with the fold toggle distinguishable at a glance. → #290
+### Seeing it (Branch: bug/the-row-shows-what-it-withholds, PR: #290)
+- the five display findings above, in one branch: a section break reads as a bigger break than a row break; a plan group draws an edge so it stops absorbing what follows it; the plan row hosts the approval that belongs to a plan; a deferred row states the reason recorded in its annotation; and every pointer target reaches 24 x 24 px of hit area with the fold toggle distinguishable at a glance.
 
   **One branch rather than five, and the reason is measured rather than tidy.** All five edit `AgentList.tsx`, and that file conflicted on *every* merge today — four times, each costing an artifact rebase. Five branches would mean four rebases and five CI rounds, against a CI that hung eleven times today on the Playwright step alone (10 to 57 minutes each). The findings are also one kind of change: none adds a data source, none touches the server, and a reviewer reading them together sees the pattern the plan is named for. Plot's convention is a branch per finding, and it is broken here deliberately — the convention exists to keep a branch reviewable, and five small display fixes in one file are more reviewable together than four rebases apart.
 
   Tests, per finding: the gap above a section heading exceeds the gap between two rows in the same group; a plan group renders a boundary after its last branch and rows following it in the section — issue rows among them — sit outside it, with the count beside the plan name matching the rows inside; a Draft plan row offers approval and a plan past Draft does not, absent with its reason when the server reports `approve.available: false`; a branch annotated with a deferral reason renders it while a bare `<!-- deferred -->` still reads as deferred without one; each pointer target measures at least 24 px in both directions and the fold state is distinguishable from a screenshot. Throughout: branch rows stay aligned column-for-column across every section, row height is unchanged at the default width, and below `CARD_BELOW_PX` nothing regresses.
 
-### Saying it
 
-- `bug/eligible-says-whether-it-can-start` — a NOT STARTED row distinguishes *ready* from *needs a brief*. `fleet.ts` collects `briefExists` per branch — one `existsSync`, measured at 0.2 ms per pulse for 60 branches — and the row renders it. Second wave rather than beside the first, because this one crosses the server: it is the only finding here that adds a field to the board row, and keeping it apart means the display work can land while the contract change is reviewed on its own terms. Tests: a branch with a brief reads as ready; one without names the gap and does not invite a dispatch; the phrasing never claims a person is missing when a file is; an unreadable `.plot/briefs` directory reads as unknown rather than as "no brief". PR #297.
+### Saying it (Branch: bug/eligible-says-whether-it-can-start)
+- a NOT STARTED row distinguishes *ready* from *needs a brief*. `fleet.ts` collects `briefExists` per branch — one `existsSync`, measured at 0.2 ms per pulse for 60 branches — and the row renders it. Second wave rather than beside the first, because this one crosses the server: it is the only finding here that adds a field to the board row, and keeping it apart means the display work can land while the contract change is reviewed on its own terms. Tests: a branch with a brief reads as ready; one without names the gap and does not invite a dispatch; the phrasing never claims a person is missing when a file is; an unreadable `.plot/briefs` directory reads as unknown rather than as "no brief". PR #297.
 
 ## Notes
 

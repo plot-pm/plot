@@ -202,15 +202,15 @@ actionable and buys less: the startable plans are already marked, and
 burying a six-month-old plan under a fresh one would hide exactly the
 drift this section exists to surface.
 
-## Branches
+## Waves
 
-### Grouping
 
-- `feature/not-started-counts-plans` — NOT STARTED renders one row per
+### Grouping (Branch: feature/not-started-counts-plans, PR: #191)
+- NOT STARTED renders one row per
   plan with the plan's clock and a wave summary derived from its own
   rows, the branches folded beneath it and expandable; the section sorts
   by `waitingDays`, oldest first; deferred branches keep their own rows
-  under their plan; the indicator sits with the plan → #191
+  under their plan; the indicator sits with the plan
 
 ## Done when
 
