@@ -75,7 +75,7 @@ A plan head in a section states the count of its waves that are **not** here,
 and renders only the waves that belong to this section:
 
 ```
-▶ PLAN  waves-name-themselves  (2)  1 wave elsewhere       Development
+▶ PLAN  waves-name-themselves  (2/3)   Development
         WAVE  Parsed   #321  infra/the-parser-reads-a-wave-heading  complete
         WAVE  Written  #330  infra/the-template-writes-waves        complete
 ```
@@ -85,11 +85,40 @@ complete in DONE, `Migrated` eligible in NOT STARTED. The head shows `(2)`,
 which is honest about the section and silent about the plan, so a reader sees
 two complete waves and nothing saying a third exists.
 
-**A count, not a destination.** `1 wave elsewhere` rather than `1 in NOT
-STARTED`: the number is what tells a reader whether this head is the whole plan,
-which is the question. Naming the section costs width the row does not have (see
+**As a TUPLE in the count the head already has, not a second element.** The head
+renders `(2)` today; it becomes `(2/3)` — *two of this plan's three waves are
+here*. Three characters, no new component, and it replaces the `1 wave
+elsewhere` phrasing this plan first proposed, which needs sixteen to say less.
+
+```
+▶ PLAN  waves-name-themselves  (2/3)   Development
+```
+
+**A count, not a destination.** `(2/3)` rather than `1 in NOT STARTED`: the
+number is what tells a reader whether this head is the whole plan, which is the
+question. Naming the section costs width the row does not have (see
 `the-name-track-holds-the-name`) and invites the reader to go somewhere the row
 they want is already waiting for them under its own plan head.
+
+**One notation, read the same way in every section.** In DONE, `(2/3)` says a
+wave is unfinished; in NOT STARTED, `(1/3)` says two are elsewhere. The reader
+learns one rule — *this head is part of a larger plan* — rather than a
+per-section vocabulary.
+
+**Not a progress bar, and the refusal is the same one this board has made
+twice.** A bar over 2–6 units has too few states to read as progress, and the
+activity mark's docstring records why the shape keeps being rejected: rotation
+and traversal *"imply progress toward completion, which nothing here measures"*.
+Waves are not units of equal size — `Migrated` in `waves-name-themselves` is an
+85-file migration and `Written` was a template edit — so a half-filled bar
+claims a plan is halfway done when it may be a twentieth done by effort. **The
+count is honest; a bar interpolates.**
+
+Measured 2026-08-23, and it decides the cost question too: **4 of 38 plans span
+more than one section**, and the median plan has 2 waves (max 6). A dedicated
+progress element on every head would pay width on 34 plans to inform about 4.
+A denominator on a count that is already rendered costs nothing on the other 34,
+because `(3/3)` and `(3)` are the same width and the same news.
 
 **And the elsewhere waves are NOT rendered here.** A wave belongs to the section
 its state describes, once. Showing an in-progress wave under DONE is what put
@@ -147,17 +176,32 @@ first* at 13 characters, and the offender is 53.
 
 ## Done when
 
-- A plan head whose plan has waves in other sections states **how many** — the
-  live shape is `waves-name-themselves`, 3 waves with 1 elsewhere, so the head in
-  DONE reads `1 wave elsewhere`. Asserted on rendered text.
+- A plan head whose plan has waves in other sections renders the tuple — the
+  live shape is `waves-name-themselves`, so its head in DONE reads `(2/3)`.
+  Asserted on rendered text.
+- A plan wholly inside one section renders the **plain count**, not `(3/3)`.
+  A denominator that is always present stops being a signal, and this is the
+  assertion that keeps the tuple meaning *something is elsewhere*.
 - The head renders **only** this section's waves. Asserted as absence: the
   elsewhere wave must not appear under this head, since rendering it is the
   defect `done-holds-what-is-still-yours` removes and "show everything" is the
   tempting reading of *say it is split*.
 - Every head of a split plan carries the count, not just one — a reader arriving
   at either section gets the same answer.
-- Singular and plural both read correctly (`1 wave elsewhere`, `2 waves
-  elsewhere`).
+- The denominator is the plan's TOTAL wave count, never the row count.
+  `every-section-has-one-subject` renders 4 rows over 3 waves, so its denominator
+  is 3.
+- **A wave that appears in two sections is counted once, on both heads.**
+  `every-section-has-one-subject`'s `Inverted` is a two-branch wave with one
+  branch merged and one open, so it renders in DONE and in NOT STARTED. Both
+  heads read `(3/3)` under a naive numerator, which would say *all here* on two
+  heads that each show a part.
+
+  Settle this with `done-holds-what-is-still-yours` before implementing: under
+  its wave-verdict rule `Inverted` is not complete and leaves DONE entirely, at
+  which point DONE reads `(2/3)` and NOT STARTED `(1/3)` and the tuple is
+  well-defined again. **The two plans must agree here, and this is the case that
+  proves whether they do.**
 - A plan wholly inside one section gains **no** marker. Otherwise the marker
   means nothing.
 - A wave named with 53 characters clips inside its cell and paints over no
