@@ -2530,6 +2530,38 @@ branch_state() {
     # all (the no-ref arm returns first). If a future change makes `ahead`
     # something other than "commits `$MAIN` lacks", THIS is the invariant that
     # would break — the ancestry must move back, not be missed.
+    #
+    # A RESURRECTED REF BREAKS THE PREMISE ABOVE, and the join already knows.
+    # The reasoning "a merge that deleted the ref never reaches here" holds only
+    # while the ref STAYS deleted. `delete_branch_on_merge` is on, so the host
+    # removes it — and a worktree that still holds the branch can push it back
+    # afterwards, which a fleet does routinely. The ref then exists again while
+    # the work is on `$MAIN` under a DIFFERENT commit, because a squash merge
+    # rewrites it: `ahead > 0` (the pre-squash commits are unreachable from
+    # `$MAIN`), `real > 0` (they are real work), and this arm calls finished
+    # work `wip`.
+    #
+    # Measured 2026-08-23: `bug/done-holds-finished-plans-only`, PR #356 merged,
+    # read `wip` for three hours. Its wave reported "3 merged, the rest not yet"
+    # over four merged branches and never completed, so the plan sat in
+    # Development with nothing left to do.
+    #
+    # `wip` is the WORST of the wrong answers, which is why this earns a check
+    # rather than a note: it means *an agent is working here*, so a leftover
+    # worktree reads as an occupied desk and the row asks a reader to wait for
+    # something that finished.
+    #
+    # FREE, and that is what licenses it HERE. The state comes from the cache
+    # `prefill_pr_states` already filled from ONE repo-wide `pr-list`, so this
+    # adds no host call — asking per branch on this arm would put 22 calls back
+    # into every scan on this repo and undo the change that removed them. Where
+    # the list did not arrive the cache is empty, `host_pr_state` answers `-`,
+    # and the local walk decides exactly as it does today.
+    #
+    # ONLY `MERGED` MAY OVERRIDE the walk, and only toward `merged`. `OPEN`
+    # means a PR exists for work still in flight — which is what `wip` already
+    # says — and `CLOSED` or `NONE` are not evidence that anything landed.
+    if [ "$(host_pr_state "$br")" = MERGED ]; then echo "merged"; return; fi
     echo "wip"; return
   fi
   # Nothing of its own. NOT a claim: that shape is indistinguishable from

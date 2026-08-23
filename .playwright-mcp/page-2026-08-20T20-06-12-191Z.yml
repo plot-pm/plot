@@ -1,0 +1,286 @@
+- generic [ref=f3e3]:
+  - banner [ref=f3e4]:
+    - heading "Plot" [level=1] [ref=f3e5]
+    - navigation "Views" [ref=f3e6]:
+      - button "Board" [ref=f3e7]
+      - button "Agents" [ref=f3e8]
+  - main [ref=f3e9]:
+    - generic [ref=f3e11]:
+      - generic [ref=f3e12]:
+        - generic [ref=f3e13]:
+          - heading [level=2] [ref=f3e14]:
+            - button "Waiting on you (4)" [expanded] [ref=f3e15]:
+              - generic [ref=f3e16]: ▸
+              - generic [ref=f3e17]: ⚠
+              - text: Waiting on you
+              - generic [ref=f3e18]: (4)
+          - grid "Waiting on you — agent branches" [ref=f3e19]:
+            - row [ref=f3e20]:
+              - columnheader "Marks" [ref=f3e21]
+              - columnheader "Kind" [ref=f3e22]
+              - columnheader "Name" [ref=f3e23]
+              - columnheader "Related" [ref=f3e24]
+              - columnheader "Status" [ref=f3e25]
+              - columnheader "Age" [ref=f3e26]
+              - columnheader "Actions" [ref=f3e27]
+            - rowgroup [ref=f3e28]:
+              - row [ref=f3e29]:
+                - gridcell [ref=f3e30]
+                - gridcell "PR" [ref=f3e31]
+                - gridcell [ref=f3e32]:
+                  - link "57" [ref=f3e35] [cursor=pointer]:
+                    - /url: https://example.invalid/pull/57
+                - gridcell [ref=f3e37]:
+                  - link "opus5-longhorizon-hardening" [ref=f3e38] [cursor=pointer]:
+                    - /url: /plan/docs%2Fplans%2F2026-07-25-opus5-longhorizon-hardening.md
+                  - link "feature/opus5-longhorizon-hardening" [ref=f3e42] [cursor=pointer]:
+                    - /url: https://example.invalid/tree/feature/opus5-longhorizon-hardening
+                    - generic [ref=f3e45]:
+                      - generic [ref=f3e46]: feature/opus5-longhoriz
+                      - generic [ref=f3e47]: on-hardening
+                - gridcell "conflicts" [ref=f3e48]
+                - gridcell "25d" [ref=f3e50]
+                - gridcell [ref=f3e51]:
+                  - button "Actions for feature/opus5-longhorizon-hardening" [ref=f3e53]: ⋯
+            - rowgroup [ref=f3e54]:
+              - row [ref=f3e55]:
+                - gridcell [ref=f3e56]
+                - gridcell "Branch" [ref=f3e57]
+                - gridcell "bug/a-branch-with-no-pr Shaped" [ref=f3e58]:
+                  - link "bug/a-branch-with-no-pr" [ref=f3e61] [cursor=pointer]:
+                    - /url: https://example.invalid/tree/bug/a-branch-with-no-pr
+                    - generic [ref=f3e62]:
+                      - generic [ref=f3e63]: bug/a-branc
+                      - generic [ref=f3e64]: h-with-no-pr
+                  - generic "Wave Shaped — the slice of the plan this branch belongs to" [ref=f3e65]: Shaped
+                - gridcell "a-row-is-a-tuple pushed, no PR yet" [ref=f3e66]:
+                  - link "a-row-is-a-tuple" [ref=f3e67] [cursor=pointer]:
+                    - /url: /plan/docs%2Fplans%2F2026-08-20-a-row-is-a-tuple.md
+                  - generic "pushed, no PR yet" [ref=f3e71]
+                - gridcell "open" [ref=f3e72]
+                - gridcell "3d" [ref=f3e74]
+                - gridcell [ref=f3e75]:
+                  - button "Actions for bug/a-branch-with-no-pr" [ref=f3e77]: ⋯
+            - rowgroup [ref=f3e78]:
+              - row [ref=f3e79]:
+                - gridcell [ref=f3e80]
+                - gridcell "Release" [ref=f3e81]
+                - gridcell [ref=f3e82]:
+                  - link "240" [ref=f3e85] [cursor=pointer]:
+                    - /url: https://example.invalid/pull/240
+                - gridcell [ref=f3e87]:
+                  - link "changeset-release/main" [ref=f3e88] [cursor=pointer]:
+                    - /url: https://example.invalid/tree/changeset-release/main
+                    - generic [ref=f3e91]:
+                      - generic [ref=f3e92]: changeset-
+                      - generic [ref=f3e93]: release/main
+                - gridcell "no checks Pull request 240" [ref=f3e94]:
+                  - generic [ref=f3e95]: no checks
+                  - link [ref=f3e96] [cursor=pointer]:
+                    - /url: https://example.invalid/pull/240
+                    - img "Pull request" [ref=f3e97]
+                    - text: "240"
+                - gridcell "12m" [ref=f3e99]
+                - gridcell [ref=f3e100]:
+                  - button "Actions for changeset-release/main" [ref=f3e102]: ⋯
+            - row [ref=f3e103]:
+              - gridcell [ref=f3e104]
+              - gridcell "Story" [ref=f3e105]
+              - gridcell [ref=f3e106]:
+                - 'link "228: Fleet scan asks the host once per branch" [ref=f3e109] [cursor=pointer]':
+                  - /url: https://example.invalid/issues/228
+              - gridcell
+              - gridcell "open fleet-scan-asks-the-host-once" [ref=f3e111]:
+                - generic [ref=f3e112]: open
+                - generic "Fleet scan asks the host once per branch" [ref=f3e113]: fleet-scan-asks-the-host-once
+              - gridcell "2d" [ref=f3e114]
+              - gridcell [ref=f3e115]:
+                - 'button "Actions for issue #228" [ref=f3e117]': ⋯
+        - generic [ref=f3e118]:
+          - heading [level=2] [ref=f3e119]:
+            - button "Working (1)" [expanded] [ref=f3e120]:
+              - generic [ref=f3e121]: ▸
+              - generic [ref=f3e122]: 🤖
+              - text: Working
+              - generic [ref=f3e123]: (1)
+          - grid "Working — agent branches" [ref=f3e127]:
+            - row [ref=f3e128]:
+              - columnheader "Marks" [ref=f3e129]
+              - columnheader "Kind" [ref=f3e130]
+              - columnheader "Name" [ref=f3e131]
+              - columnheader "Related" [ref=f3e132]
+              - columnheader "Status" [ref=f3e133]
+              - columnheader "Age" [ref=f3e134]
+              - columnheader "Actions" [ref=f3e135]
+            - rowgroup [ref=f3e136]:
+              - row [ref=f3e137]:
+                - gridcell [ref=f3e138]
+                - gridcell "Agent" [ref=f3e143]
+                - gridcell "feature/an-agent-is-working Inverted" [ref=f3e144]:
+                  - link "feature/an-agent-is-working" [ref=f3e147] [cursor=pointer]:
+                    - /url: https://example.invalid/tree/feature/an-agent-is-working
+                    - generic [ref=f3e148]:
+                      - generic [ref=f3e149]: feature/an-agen
+                      - generic [ref=f3e150]: t-is-working
+                  - generic "Wave Inverted — the slice of the plan this branch belongs to" [ref=f3e151]: Inverted
+                - gridcell "every-section-has-one-subject worker running (pid 12345)" [ref=f3e152]:
+                  - link "every-section-has-one-subject" [ref=f3e153] [cursor=pointer]:
+                    - /url: /plan/docs%2Fplans%2F2026-08-20-every-section-has-one-subject.md
+                  - generic "worker running (pid 12345)" [ref=f3e157]
+                - gridcell "open" [ref=f3e158]
+                - gridcell "27m" [ref=f3e160]
+                - gridcell [ref=f3e161]:
+                  - button "Actions for feature/an-agent-is-working" [ref=f3e163]: ⋯
+        - generic [ref=f3e164]:
+          - heading [level=2] [ref=f3e165]:
+            - button "Waiting on a machine (1)" [expanded] [ref=f3e166]:
+              - generic [ref=f3e167]: ▸
+              - generic [ref=f3e168]: ⏳
+              - text: Waiting on a machine
+              - generic [ref=f3e169]: (1)
+          - grid "Waiting on a machine — agent branches" [ref=f3e170]:
+            - row [ref=f3e171]:
+              - columnheader "Marks" [ref=f3e172]
+              - columnheader "Kind" [ref=f3e173]
+              - columnheader "Name" [ref=f3e174]
+              - columnheader "Related" [ref=f3e175]
+              - columnheader "Status" [ref=f3e176]
+              - columnheader "Age" [ref=f3e177]
+              - columnheader "Actions" [ref=f3e178]
+            - rowgroup [ref=f3e179]:
+              - row [ref=f3e180]:
+                - gridcell [ref=f3e181]
+                - gridcell "Build" [ref=f3e182]
+                - gridcell [ref=f3e183]:
+                  - link "feature/a-build-is-running" [ref=f3e186] [cursor=pointer]:
+                    - /url: https://example.invalid/tree/feature/a-build-is-running
+                    - generic [ref=f3e187]:
+                      - generic [ref=f3e188]: feature/a-buil
+                      - generic [ref=f3e189]: d-is-running
+                - 'gridcell "CI is running for PR #283" [ref=f3e190]'
+                - gridcell "CI running Pull request 283" [ref=f3e192]:
+                  - generic [ref=f3e193]: CI running
+                  - link [ref=f3e194] [cursor=pointer]:
+                    - /url: https://example.invalid/pull/283
+                    - img "Pull request" [ref=f3e195]
+                    - text: "283"
+                - gridcell "10m" [ref=f3e197]
+                - gridcell
+        - generic [ref=f3e198]:
+          - heading [level=2] [ref=f3e199]:
+            - button "Not started (1)" [expanded] [ref=f3e200]:
+              - generic [ref=f3e201]: ▸
+              - generic [ref=f3e202]: 📋
+              - text: Not started
+              - generic [ref=f3e203]: (1)
+          - grid "Not started — agent branches" [ref=f3e204]:
+            - row [ref=f3e205]:
+              - columnheader "Marks" [ref=f3e206]
+              - columnheader "Kind" [ref=f3e207]
+              - columnheader "Name" [ref=f3e208]
+              - columnheader "Related" [ref=f3e209]
+              - columnheader "Status" [ref=f3e210]
+              - columnheader "Age" [ref=f3e211]
+              - columnheader "Actions" [ref=f3e212]
+            - rowgroup [ref=f3e213]:
+              - row [ref=f3e214]:
+                - gridcell [ref=f3e215]:
+                  - button "Hide the branches of fleet-scan-asks-the-host" [expanded] [active] [ref=f3e216]:
+                    - generic [ref=f3e217]: ▸
+                - gridcell "Plan" [ref=f3e218]
+                - gridcell [ref=f3e219]:
+                  - link "fleet-scan-asks-the-host" [ref=f3e222] [cursor=pointer]:
+                    - /url: /plan/docs%2Fplans%2F2026-08-20-fleet-scan-asks-the-host.md
+                - gridcell "3 waves" [ref=f3e224]:
+                  - generic "Waves of this plan that nothing has started — counted in this section" [ref=f3e225]: 3 waves
+                - gridcell "Design" [ref=f3e226]:
+                  - 'generic "Phase: Design" [ref=f3e227]': Design
+                - gridcell "waiting1d" [ref=f3e228]
+                - gridcell
+              - row [ref=f3e229]:
+                - gridcell [ref=f3e230]
+                - gridcell "Wave" [ref=f3e231]
+                - gridcell "Shaped" [ref=f3e232]:
+                  - 'generic "plan: Shaped" [ref=f3e235]': Shaped
+                - gridcell [ref=f3e237]:
+                  - link "feature/the-scan-asks-once" [ref=f3e238] [cursor=pointer]:
+                    - /url: https://example.invalid/tree/feature/the-scan-asks-once
+                    - generic [ref=f3e241]:
+                      - generic [ref=f3e242]: feature/the-sc
+                      - generic [ref=f3e243]: an-asks-once
+                - gridcell "eligible" [ref=f3e244]:
+                  - 'generic "The scan''s verdict for this wave: eligible" [ref=f3e245]': eligible
+                - gridcell "1d" [ref=f3e246]
+                - gridcell
+              - row [ref=f3e247]:
+                - gridcell [ref=f3e248]
+                - gridcell "Wave" [ref=f3e249]
+                - gridcell "Relocated" [ref=f3e250]:
+                  - 'generic "plan: Relocated" [ref=f3e253]': Relocated
+                - gridcell "Shaped feature/the-wave-finds-its-owner" [ref=f3e255]:
+                  - 'generic "plan: Shaped" [ref=f3e256]': Shaped
+                  - link "feature/the-wave-finds-its-owner" [ref=f3e260] [cursor=pointer]:
+                    - /url: https://example.invalid/tree/feature/the-wave-finds-its-owner
+                    - generic [ref=f3e263]:
+                      - generic [ref=f3e264]: feature/the-wave-fin
+                      - generic [ref=f3e265]: ds-its-owner
+                - gridcell "blocked" [ref=f3e266]:
+                  - 'generic "The scan''s verdict for this wave: blocked" [ref=f3e267]': blocked
+                - gridcell "1d" [ref=f3e268]
+                - gridcell
+              - row [ref=f3e269]:
+                - gridcell [ref=f3e270]:
+                  - button "Show the branches of wave Moved" [ref=f3e271]:
+                    - generic [ref=f3e272]: ▸
+                - gridcell "Wave" [ref=f3e273]
+                - gridcell "Moved" [ref=f3e274]:
+                  - 'generic "plan: Moved" [ref=f3e277]': Moved
+                - gridcell "Relocated bug/the-old-column-goes bug/the-badge-goes-too" [ref=f3e279]:
+                  - 'generic "plan: Relocated" [ref=f3e280]': Relocated
+                  - link "bug/the-old-column-goes" [ref=f3e284] [cursor=pointer]:
+                    - /url: https://example.invalid/tree/bug/the-old-column-goes
+                    - generic [ref=f3e287]:
+                      - generic [ref=f3e288]: bug/the-old
+                      - generic [ref=f3e289]: "-column-goes"
+                  - link "bug/the-badge-goes-too" [ref=f3e290] [cursor=pointer]:
+                    - /url: https://example.invalid/tree/bug/the-badge-goes-too
+                    - generic [ref=f3e293]:
+                      - generic [ref=f3e294]: bug/the-ba
+                      - generic [ref=f3e295]: dge-goes-too
+                - gridcell "blocked · 2 left" [ref=f3e296]:
+                  - 'generic "The scan''s verdict for this wave: blocked" [ref=f3e297]': blocked · 2 left
+                - gridcell "1d" [ref=f3e298]
+                - gridcell
+        - generic [ref=f3e299]:
+          - heading "Quiet still thinking, or dead?" [level=2] [ref=f3e300]:
+            - generic [ref=f3e301]: 💤
+            - text: Quiet
+            - generic [ref=f3e302]: still thinking, or dead?
+          - grid "Quiet — agent branches" [ref=f3e303]:
+            - row [ref=f3e304]:
+              - columnheader "Marks" [ref=f3e305]
+              - columnheader "Kind" [ref=f3e306]
+              - columnheader "Name" [ref=f3e307]
+              - columnheader "Related" [ref=f3e308]
+              - columnheader "Status" [ref=f3e309]
+              - columnheader "Age" [ref=f3e310]
+              - columnheader "Actions" [ref=f3e311]
+            - row [ref=f3e312]:
+              - gridcell "none" [ref=f3e313]
+        - generic [ref=f3e314]:
+          - heading "Done merged" [level=2] [ref=f3e315]:
+            - generic [ref=f3e316]: ✅
+            - text: Done
+            - generic [ref=f3e317]: merged
+          - grid "Done — agent branches" [ref=f3e318]:
+            - row [ref=f3e319]:
+              - columnheader "Marks" [ref=f3e320]
+              - columnheader "Kind" [ref=f3e321]
+              - columnheader "Name" [ref=f3e322]
+              - columnheader "Related" [ref=f3e323]
+              - columnheader "Status" [ref=f3e324]
+              - columnheader "Age" [ref=f3e325]
+              - columnheader "Actions" [ref=f3e326]
+            - row [ref=f3e327]:
+              - gridcell "none" [ref=f3e328]
+      - paragraph [ref=f3e329]: 9 branches across 4 plans · scanned 4s ago · PR data 4s ago

@@ -2805,6 +2805,80 @@ case "$1" in
 esac
 `;
 
+test('fleet: a resurrected ref does not hide a merge', () => {
+  // THE MEASURED FAILURE, reproduced. `delete_branch_on_merge` removes the ref
+  // at merge; a worktree still holding the branch can push it back afterwards,
+  // which a fleet does routinely. The ref exists again while the work sits on
+  // main under a DIFFERENT commit, because a squash merge rewrites it.
+  //
+  // The local walk then sees commits main lacks — the pre-squash originals —
+  // and calls finished work `wip`. Measured 2026-08-23:
+  // `bug/done-holds-finished-plans-only` (PR #356, merged) read `wip` for three
+  // hours and its wave never completed.
+  //
+  // ASSERTED AS `merged`, NOT MERELY "NOT wip". `wip` is the worst wrong
+  // answer — it claims an agent is working here — but `open` and `claimed` are
+  // wrong too, and a test that only forbids `wip` passes an implementation that
+  // swaps one wrong verdict for another.
+  const f = makeRepo('plot-fleet-resurrected-', N_WAVE(1));
+  // Work on the branch, pushed — the ref exists.
+  f.work('feature/b0', 'w.txt');
+  f.push('-u', 'origin', 'feature/b0');
+  git(f.dir, 'checkout', '-q', 'main');
+  // The SQUASH: main gains equivalent content under its own commit, so the
+  // branch's commits stay unreachable from main and the walk finds no evidence.
+  fs.writeFileSync(path.join(f.dir, 'w.txt'), 'squashed\n');
+  git(f.dir, 'add', '-A');
+  git(f.dir, 'commit', '-qm', 'squashed work (#1)');
+  git(f.dir, 'push', '-q', 'origin', 'main');
+
+  // The host is the only witness that the PR merged.
+  const MERGED_HOST = `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":1,"state":"MERGED","draft":false,"url":"x"}' ;;
+  pr-list) echo '{"number":1,"title":"w","state":"MERGED","head":"feature/b0"}' ;;
+  *) echo "{}" ;;
+esac
+`;
+  const { out, ops } = countCalls(f, MERGED_HOST, ['--json', 'p']);
+  assert.match(out, /"state":"merged"/,
+    `a branch whose PR the list reports MERGED must read merged, not wip: ${out}`);
+  // And it must stay free: the join already holds the answer.
+  assert.equal(ops.filter((o) => o === 'pr-state').length, 0,
+    `the has-ref arm must read the cache, not the host: ${ops.join(',')}`);
+
+  f.cleanup();
+});
+
+test('fleet: real work in flight is still wip', () => {
+  // THE OTHER DIRECTION, and the one the fix above could break. A branch with
+  // an OPEN PR and commits main lacks is genuinely in flight; only `MERGED` may
+  // override the local walk, and only toward `merged`.
+  const f = makeRepo('plot-fleet-still-wip-', N_WAVE(1));
+  f.work('feature/b0', 'w.txt');
+  f.push('-u', 'origin', 'feature/b0');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const OPEN_HOST = `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":1,"state":"OPEN","draft":false,"url":"x"}' ;;
+  pr-list) echo '{"number":1,"title":"w","state":"OPEN","head":"feature/b0"}' ;;
+  *) echo "{}" ;;
+esac
+`;
+  const { out } = countCalls(f, OPEN_HOST, ['--json', 'p']);
+  assert.match(out, /"state":"wip"/,
+    `an OPEN PR over unlanded commits is still wip: ${out}`);
+
+  f.cleanup();
+});
+
 test('fleet: an arrived list answers for the branches it omits', () => {
   // THE DEFECT, as a count. A plan's unstarted branches have no ref and no PR,
   // so the join cannot serve them — and before this fix each one asked the host
