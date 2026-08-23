@@ -90,6 +90,37 @@ describe('liveAgentCount — a slot is occupied by running OR waiting', () => {
     // its slot; a finished/stalled/unknown one does not.
     expect(liveAgentCount(agents)).toBe(2);
   });
+
+  it('does not count a live agent whose branch has already merged', () => {
+    // THE MEASURED DEFECT. On 2026-08-24 seven registry entries reported a live
+    // pid and FIVE sat on branches whose PRs had merged hours earlier — `claude`
+    // processes that outlived their work. They consumed five of twelve slots
+    // that nothing was using, and the fleet declined to dispatch work it had
+    // room for.
+    //
+    // A live process is necessary and not sufficient: liveness takes two facts.
+    const agents = [agent('feature/a', 'running'), agent('feature/done', 'running')];
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [['feature/a', 'open'], ['feature/done', 'merged']]),
+    ]]]);
+    expect(liveAgentCount(agents, p)).toBe(1);
+  });
+
+  it('counts a live agent the pulse does not mention', () => {
+    // THE DIRECTION, and it is deliberate: this may only ever REMOVE an entry
+    // from the count. A branch the pulse says nothing about is not evidence of
+    // anything, so it stays counted — a scan that could not see a plan errs
+    // toward the cap rather than through it.
+    const agents = [agent('feature/unseen', 'running')];
+    const p = pulse([['2026-08-22-p.md', 'approved', [wave('W', 'eligible', [['feature/other', 'open']])]]]);
+    expect(liveAgentCount(agents, p)).toBe(1);
+  });
+
+  it('is unchanged without a pulse', () => {
+    // The pulse is optional, so every existing caller keeps its answer.
+    const agents = [agent('feature/a', 'running'), agent('feature/b', 'waiting')];
+    expect(liveAgentCount(agents)).toBe(2);
+  });
 });
 
 describe('planAutoDispatch — the switch gate', () => {

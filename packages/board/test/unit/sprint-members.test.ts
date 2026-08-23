@@ -19,10 +19,19 @@ function writeSprint(body: string): string {
 const STATUS = `## Status\n\n- **Phase:** Active\n- **Release:** 9.9.0\n`;
 
 describe('parseSprintFile — members', () => {
-  it("reads this repo's own W35 file: 19 distinct plans, each with slug and tier", () => {
-    // The case the whole plan exists for. The W35 file lists 22 checkbox lines,
-    // but `the-wave-is-a-thing-the-board-can-hold` appears four times (one line
-    // per wave), so the sprint contains 19 distinct plans.
+  it("reads this repo's own W35 file: every checkbox line, deduplicated by slug", () => {
+    // The case the whole plan exists for: a plan carrying several waves takes one
+    // checkbox line per wave, and the member list must collapse them to one
+    // entry. `the-wave-is-a-thing-the-board-can-hold` is the live example —
+    // four lines, one plan.
+    //
+    // ASSERTED AS A RELATION, NOT A NUMBER. An earlier version pinned `19`,
+    // which was true on the day it was written and false the moment the sprint
+    // legitimately gained two plans — it failed for a reason that was not a
+    // regression, and the fix was to edit the number, which teaches nobody
+    // anything. What this file is FOR is that duplicates collapse, so it
+    // asserts exactly that: fewer members than lines, every slug distinct, and
+    // the known multi-wave plan present exactly once.
     const abs = path.resolve(
       __dirname,
       '../../../../docs/sprints/2026-W35-the-board-tells-the-truth-in-every-section.md',
@@ -30,7 +39,15 @@ describe('parseSprintFile — members', () => {
     const card = parseSprintFile(abs);
     expect(card).not.toBeNull();
     const members = card!.members;
-    expect(members).toHaveLength(19);
+    // Fewer members than checkbox lines: at least one plan was collapsed.
+    const lines = fs.readFileSync(abs, 'utf8').split('\n')
+      .filter((l) => /^- \[[ x]\] \[/.test(l)).length;
+    expect(members.length).toBeLessThan(lines);
+    // Every slug distinct — the collapse is complete, not partial.
+    expect(new Set(members.map((m) => m.slug)).size).toBe(members.length);
+    // The live multi-wave plan appears exactly once, however many waves it has.
+    expect(members.filter((m) => m.slug === 'the-wave-is-a-thing-the-board-can-hold'))
+      .toHaveLength(1);
     // Every member carries a slug and a tier.
     for (const m of members) {
       expect(m.slug).toBeTruthy();

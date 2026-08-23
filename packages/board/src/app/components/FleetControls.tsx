@@ -130,7 +130,7 @@ export function AutoDispatchSwitch({ value }: { value: boolean }) {
  * expected interaction — a reader who lands on it with Tab can change it without
  * reaching for the two buttons.
  */
-export function ParallelAgentsStepper({ value }: { value: number }) {
+export function ParallelAgentsStepper({ value, working }: { value: number; working?: number }) {
   const [count, setCount] = useState(value);
   const [busy, setBusy] = useState(false);
   const writing = useRef(false);
@@ -209,6 +209,29 @@ export function ParallelAgentsStepper({ value }: { value: number }) {
       <span aria-hidden className="ml-0.5">
         parallel agents
       </span>
+      {/*
+        WHAT THE CAP IS BEING SPENT ON. The stepper alone states a budget and
+        never its balance, so a reader deciding whether to start something had to
+        count rows to learn whether the fleet had room.
+
+        COUNTS THE SAME THING THE DISPATCHER DOES — `liveAgentCount`, a live
+        process whose branch has NOT landed. Deriving a second count here is how
+        a control comes to disagree with the rule it describes, and a reader
+        acting on `9 free` that the dispatcher does not honour is worse served
+        than one shown nothing.
+
+        Absent rather than zero when the count is unknown: a pulse that could not
+        report agents must not render `0 working`, which reads as an idle fleet.
+      */}
+      {typeof working === 'number' && (
+        <span
+          data-fleet-working
+          className="ml-1.5 text-slate-500 dark:text-slate-400 tabular-nums"
+          title={`${working} of ${count} slots in use — a live worker whose branch has not landed`}
+        >
+          · {working} working
+        </span>
+      )}
     </span>
   );
 }
