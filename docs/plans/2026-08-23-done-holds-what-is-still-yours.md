@@ -14,7 +14,7 @@
 
 ## Changelog
 
-- DONE now holds exactly the two phases it is about — `Development` (some waves still elsewhere) and `Endgame` (every wave merged, ready for the endgame) — and drops `Discovery` and `Released`. A finished row no longer reports activity because its worktree still holds an uncommitted file.
+- DONE now holds only work that is actually finished at every level — the plan's phase, the wave's verdict, and the branch's state. It holds exactly the two phases it is about — `Development` (some waves still elsewhere) and `Endgame` (every wave merged, ready for the endgame) — and drops `Discovery` and `Released`. A finished row no longer reports activity because its worktree still holds an uncommitted file.
 
 <!-- Board impact: board-only. packages/board/src/app/components/AgentList.tsx
      (isActive / the DONE membership rule) and possibly src/server/fleet.ts's
@@ -61,6 +61,32 @@ rather than a quiet omission.
 **The plan is the unit of doneness, not the wave.** A wave finishing is
 progress; a plan finishing is a result. DONE answers *what is ready to test*,
 and only a plan can be.
+
+### A merged branch of an unfinished wave appears in DONE
+
+The same category error one level down, and the row says it out loud.
+`every-section-has-one-subject` renders four rows:
+
+```
+wave=Inverted  state=open    verdict=eligible  group=not-started  "eligible — nobody has taken it"
+wave=Removed   state=merged  verdict=complete  group=done         "merged"
+wave=Surfaced  state=merged  verdict=complete  group=done         "merged"
+wave=Inverted  state=merged  verdict=eligible  group=done         "merged — wave still open"
+```
+
+`Inverted` is a **two-branch wave**: `the-registry-knows-which-agents-live`
+merged (PR #327), `working-is-about-agents` is still open. So the wave appears
+twice — once in NOT STARTED for its unstarted branch, once in DONE for its
+merged one.
+
+**`state` and `verdict` answer different questions**, and DONE is reading the
+wrong one. `state=merged` is about THIS BRANCH; `verdict=eligible` is about the
+WAVE, and eligible means there is unclaimed work left in it. The note already
+prints the contradiction — *merged — wave still open* — beneath a heading that
+claims the work is done.
+
+Measured: exactly **1 of 61** DONE rows has a non-`complete` verdict, and it is
+this one. Rare, and precisely the kind of rare that survives review.
 
 ### The section wears an activity mark it did not earn
 
@@ -120,6 +146,17 @@ derives from the plan's own transition records:
 Everything else is neither DONE nor RELEASED and belongs in the section its own
 state describes.
 
+**And the row's WAVE must be complete, not merely its branch.** A merged branch
+whose wave is still `eligible` or `blocked` stays out: the wave has unclaimed or
+unfinished work, so nothing about it is ready. The board already computes this
+(`verdict`) and already prints it (*merged — wave still open*); DONE simply is
+not reading it.
+
+Three questions, three levels, and DONE must answer all three: is the PLAN in a
+phase that belongs here, is the WAVE complete, and is the BRANCH merged. Reading
+only the branch is what puts a half-finished wave under a heading that says
+done.
+
 **There is no `Testing` phase, and `Endgame` is it.** The phase whose date comes
 from `Delivered:` is precisely *all waves merged, not yet released* — which is
 what "ready for testing" means here. The vocabulary already has the slot; it is
@@ -175,6 +212,10 @@ never the motion mark. The same argument `localAhead` already won:
 - A **`Discovery`** row does not appear in DONE even when its wave is merged and
   complete. That is the live shape (`a-wave-is-a-thing-not-a-label`, wave
   `Modelled`), and it is the case a Released-only filter still gets wrong.
+- A merged branch whose **wave verdict** is not `complete` does not appear in
+  DONE. The live shape is `every-section-has-one-subject` / `Inverted`
+  (`state=merged`, `verdict=eligible`) — **1 of 61 rows**, so a test built from
+  the common case cannot fail this way and a phase-only filter keeps it.
 - A row leaving DONE arrives **somewhere** — no row is dropped from the board by
   this change unless it is `Released`. Asserted on the total: rows in minus rows
   out, since a membership rule is the easy place to lose a row silently.
