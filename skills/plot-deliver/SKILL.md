@@ -327,7 +327,7 @@ delivery that skipped CI should not be discovered by accident.
 
 ### 7b. Delivery-Landed Gate
 
-Delivery is a multi-step write (flip phase, write the `Delivered:` record, commit, push) — the biggest drift source in practice is a delivery that half-lands. The index move is no longer one of the steps that can half-land it: it is best-effort, and section 7 of the scan reports its absence as convenience rather than drift. This step is a **gate, not a rule**: the objective, checkable condition is *the reconcile scan's own output shows no drift for the plan you just delivered*. You cannot answer "did the delivery land?" without running the scan and reading its result — so run it, and **show the real output**. Do not declare delivery complete (do not proceed to the Summary) on a self-asserted claim; proceed only on the pasted evidence below.
+Delivery is a multi-step write (flip phase, write the `Delivered:` record, commit, push) — the biggest drift source in practice is a delivery that half-lands. The index move is no longer one of the steps that can half-land it: it is best-effort, and section 8 (index drift) of the scan reports its absence as convenience rather than drift. This step is a **gate, not a rule**: the objective, checkable condition is *the reconcile scan's own output shows no drift for the plan you just delivered*. You cannot answer "did the delivery land?" without running the scan and reading its result — so run it, and **show the real output**. Do not declare delivery complete (do not proceed to the Summary) on a self-asserted claim; proceed only on the pasted evidence below.
 
 Run the scan and capture both its `summary:` footer and the targeted grep:
 
@@ -336,7 +336,7 @@ Run the scan and capture both its `summary:` footer and the targeted grep:
 tail -1 /tmp/plot-deliver-gate.txt   # the summary: footer — paste this as the gate artifact
 ```
 
-Grep the **findings that block**, not every mention of the plan. Sections 1, 2 and 5 are defects; section 7 is the convenience index, and a delivered plan that never had a symlink appears there by design:
+Grep the **findings that block**, not every mention of the plan. Sections 1, 2 and 5 are defects; sections 7 (unsliced waves) and 8 (the convenience index) are non-blocking, and a delivered plan that never had a symlink appears in 8 by design. The marker stops at section 7, so both non-blocking sections are excluded — an unsliced wave is a shape to fix, not a half-landed delivery:
 
 ```bash
 sed -n '/^== 7\./q;p' /tmp/plot-deliver-gate.txt | grep "YYYY-MM-DD-<slug>.md"
@@ -349,7 +349,8 @@ Read the **grep's exit result**, which is the gate condition (the scan fetches f
 
 Two expected non-failures (neither trips the gate — the grep does not match branch lines):
 
-- The plan may appear in **section 7 (index drift)** — no symlink in either index. Since the phase grouping is derived from plan content this blocks nothing, which is why the gate grep stops before section 7. Do not treat it as a half-landed delivery and do not create the symlink to silence it.
+- The plan may appear in **section 8 (index drift)** — no symlink in either index. Since the phase grouping is derived from plan content this blocks nothing, which is why the gate grep stops at section 7 (excluding both 7 and 8). Do not treat it as a half-landed delivery and do not create the symlink to silence it.
+- The plan may appear in **section 7 (unsliced waves)** — a wave carrying more than one branch. That is a shape `/plot-reslice` can repair, not a delivery fault; it is non-blocking and the gate grep already excludes it. Do not treat it as a half-landed delivery.
 - The just-merged **impl branches** may now show in section 3 as deletion candidates — that is normal post-delivery housekeeping, not a failed delivery. Mention it in the summary as optional cleanup (the printed `git push origin --delete <branch>` commands), don't act unasked.
 - If the scan is genuinely unavailable (older plot install, or it errors — e.g. `jq` missing, which the scan now reports on stderr and exits non-zero), you cannot clear the gate by asserting success. Skip the step **explicitly**, and say so in the Summary in place of the gate evidence: `Delivery-landed gate: SKIPPED — scan unavailable (<reason>)`. The delivery itself is unaffected, but the reader must see the check did not run.
 
@@ -378,7 +379,7 @@ Print:
   delivery — report the index move, if it happened, as a separate convenience
   line, and say so plainly if it was skipped)
 - All implementation PRs: merged
-- Delivery-landed gate: paste the **actual** `summary:` footer line the scan produced in step 7b (the objective artifact — not the words "verified" or "clean"), e.g. `summary: drift=0 merged_not_delivered=0 stale=… claims=… attention=0 concurrent=… unreleased_delivered=… index_drift=… pr_source=… main=…`. If the gate was skipped, print `Delivery-landed gate: SKIPPED — scan unavailable (<reason>)` instead. Add any optional branch-cleanup commands the scan suggested.
+- Delivery-landed gate: paste the **actual** `summary:` footer line the scan produced in step 7b (the objective artifact — not the words "verified" or "clean"), e.g. `summary: drift=0 merged_not_delivered=0 stale=… claims=… attention=0 concurrent=… unreleased_delivered=… unsliced_waves=… index_drift=… pr_source=… main=…`. If the gate was skipped, print `Delivery-landed gate: SKIPPED — scan unavailable (<reason>)` instead. Add any optional branch-cleanup commands the scan suggested.
 - If the plan has a Sprint field: show sprint progress ("N/M sprint items delivered")
 - Progress: `[ ] Draft > [ ] Approved > [x] Delivered > [ ] Released`
 - Type reminder:
