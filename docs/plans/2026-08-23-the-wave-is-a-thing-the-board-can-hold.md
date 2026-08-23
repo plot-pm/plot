@@ -91,6 +91,23 @@ row.**
 
 ## Design
 
+### The invariant
+
+Two clauses, at two levels, and keeping them apart is what makes the rule
+implementable:
+
+> **A plan may appear in several sections — but only as ONE row per section.**
+> **A wave may appear in only ONE section — as one row.**
+
+The plan-level clause is already satisfied and must stay that way: 43
+`(plan, section)` pairs render today, 4 plans span more than one section, and
+each has a single head where it appears. A plan legitimately has work in several
+states; splitting its head per section is how the board says so. Nothing here
+changes that, and `a-split-plan-says-it-is-split` is what makes the split
+legible.
+
+The wave-level clause is the one being broken, in two ways at once.
+
 ### The starting rule: one wave, one row, one section
 
 **A wave renders as exactly one row.** Not one row per branch that happens to
@@ -98,6 +115,22 @@ share the name — one row, in one section. This is the operator's rule and it i
 the right first move, because it forces every disagreement into the open: a
 single row must pick a single state, so the question *which answer wins* can no
 longer be avoided by rendering both.
+
+**The repetition is INSIDE one section, not across sections** — which is why the
+plan-level clause survives untouched:
+
+```
+the-agent-panel-shows-the-agent  / done    6 rows, 2 distinct waves
+a-held-branch-says-who-holds-it  / done    5 rows, 2 distinct waves
+opus5-longhorizon-hardening      / quiet   6 rows, 2 distinct waves
+waiting-on-you-says-…            / done    6 rows, 3 distinct waves
+working-shows-the-agent          / done    6 rows, 6 distinct waves   ← correct
+```
+
+Four rows of pure duplication under one head in the first case, and the last line
+shows the shape when it is right: six waves, six rows. The rule does not thin a
+plan that genuinely has six waves; it removes the branches a wave repeats itself
+over.
 
 It is also cheap, which the measurement decides rather than intuition:
 
@@ -212,6 +245,13 @@ a second answer to a question the scan already answers.
 - **A wave renders as exactly one row.** Asserted by counting rendered wave rows
   against distinct `(plan, wave)` pairs — they must be equal. The live board has
   14 waves occupying 38 rows, so this fails loudly today.
+- **A plan still renders one head per section it has work in, and several
+  sections is legal.** Asserted on the 4 plans that span sections today: each
+  keeps a head in each, with one head per section and no head lost. This is the
+  clause an over-eager reading of *one row* would break, collapsing a plan into a
+  single section and hiding the work elsewhere.
+- A plan with six genuine waves in one section still renders six rows
+  (`working-shows-the-agent` / done). The rule removes repetition, never waves.
 - A wave has **one** section. Asserted on `every-section-has-one-subject` /
   `Inverted` (one merged branch, one open): it appears once, and in NOT STARTED,
   because a wave with unmerged work is not done.
