@@ -180,7 +180,7 @@ spawn cannot report its result in the response.
   **neither appears** on a Draft plan, a delivered plan, or on any branch or
   wave row; Start work on an eligible wave row is untouched; Dispatch posts the
   slug and no cap; each shows its refusal reason when its binding is
-  unavailable; both are keyboard reachable and announce their state.
+  unavailable; both are keyboard reachable and announce their state. → #364
 
 ### Run
 
