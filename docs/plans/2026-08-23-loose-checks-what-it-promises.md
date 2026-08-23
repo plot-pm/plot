@@ -163,11 +163,11 @@ rebase risk, not breakage risk.
 - The comment and the code agree; whichever is edited, they say the same thing.
 - `pnpm test` and `pnpm run test:e2e` green.
 
-## Branches
+## Waves
 
-### Verified
 
-- `bug/loose-checks-the-rollup` — `pr_ready` reads the check rollup from the scan's existing `pr-list` call and accepts only `green`; `--loose` degrades to strict wherever the rollup cannot be had
+### Verified (Branch: bug/loose-checks-the-rollup)
+- `pr_ready` reads the check rollup from the scan's existing `pr-list` call and accepts only `green`; `--loose` degrades to strict wherever the rollup cannot be had
 
 ## Notes
 

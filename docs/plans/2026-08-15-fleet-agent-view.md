@@ -225,24 +225,24 @@ the board's data depend on how it asked rather than on what it asked for.
       blocked-and-unstarted is not, and showing them identically may invite
       dispatching work whose seam has not landed.
 
-## Branches
+## Waves
 
-### Tracer
 
-- `feature/fleet-scan-json` — add `--json` to `plot-fleet-scan.sh`, emitting the
-  existing internal state vocabulary; human output unchanged → #102
+### Tracer (Branch: feature/fleet-scan-json, PR: #102)
+- add `--json` to `plot-fleet-scan.sh`, emitting the
+  existing internal state vocabulary; human output unchanged
   Layers: shell derivation → JSON contract → a test that parses it
   Proves: the scan's internal structure survives serialisation without a second
   derivation, which is the assumption the other two branches rest on
   Status: Not started
 
-### Server
 
-- `feature/fleet-api` — `buildFleet()` + cached refresh cycle + `/api/fleet` + zod schema + waiting-group mapping → #103
+### Server (Branch: feature/fleet-api, PR: #103)
+- `buildFleet()` + cached refresh cycle + `/api/fleet` + zod schema + waiting-group mapping
 
-### Client
 
-- `feature/fleet-tab` — tab bar in `App.tsx`, `AgentList.tsx`, five groups, 4 s poll, degraded states → #104
+### Client (Branch: feature/fleet-tab, PR: #104)
+- tab bar in `App.tsx`, `AgentList.tsx`, five groups, 4 s poll, degraded states
 
 <!-- Three waves, not two: fleet-api and fleet-tab both rebuild the checked-in
      690 KB bundle skills/plot/scripts/board/board-server.mjs, so running them

@@ -136,7 +136,7 @@ than a blank.
 - [ ] Does a subagent (`agent-<short>.jsonl`) deserve its own row, or is it detail
       behind the parent session?
 
-## Branches
+## Waves
 
 Only the sizing branch. **The identity half moved** to the Registry wave of
 `2026-08-17-working-shows-the-agent.md`, which is approved and was re-opened on
@@ -144,8 +144,8 @@ Only the sizing branch. **The identity half moved** to the Registry wave of
 wave already keys an agent on its session id *because* the id survives the branch
 — which is the operator's requirement, not a second design.
 
-### Sized
-- `bug/the-command-has-a-size` (PR #294) — three wrapped lines collapsed, scrollable when expanded, words broken at word boundaries. Tests: collapsed renders three lines and includes the brief's path; expanded is bounded and scrolls rather than growing; the log pane keeps its height in both states; `break-all` is gone and a long space-separated command wraps at spaces; **Copy still yields the original string in both states**; an empty command renders nothing. → #294
+### Sized (Branch: bug/the-command-has-a-size, PR: #294)
+- (PR #294) — three wrapped lines collapsed, scrollable when expanded, words broken at word boundaries. Tests: collapsed renders three lines and includes the brief's path; expanded is bounded and scrolls rather than growing; the log pane keeps its height in both states; `break-all` is gone and a long space-separated command wraps at spaces; **Copy still yields the original string in both states**; an empty command renders nothing.
 
 ## What moved, and why
 

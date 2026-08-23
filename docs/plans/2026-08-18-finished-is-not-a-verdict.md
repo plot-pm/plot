@@ -154,15 +154,15 @@ it worth reporting.
       once. Answering this by inspection rather than by asking is why the plan
       grew a wave.
 
-## Branches
+## Waves
 
-### One implementation
 
-- `bug/one-worker-state-not-two` — collapse the duplicate. `plot-fleet-scan.sh`'s inline copy (~line 444) and `plot-dispatch.sh`'s `worker_state()` (line 136) become one source. No behaviour changes: the six states, their names, and their outputs stay exactly as they are. Test: both consumers report the same state for the same worktree across all six cases, driven from one fixture. → #218
+### One implementation (Branch: bug/one-worker-state-not-two, PR: #218)
+- collapse the duplicate. `plot-fleet-scan.sh`'s inline copy (~line 444) and `plot-dispatch.sh`'s `worker_state()` (line 136) become one source. No behaviour changes: the six states, their names, and their outputs stay exactly as they are. Test: both consumers report the same state for the same worktree across all six cases, driven from one fixture.
 
-### The seventh state
 
-- `bug/finished-is-not-a-verdict` — `stalled`, the `TODO(you)`/`TODO(human)` marker check, the editor-leftover exclusion, and the classification order — added **once**, to the merged implementation. Tests: a worktree with an open PR and dirty files reads `finished`; one with a marker reads `waiting`; one with uncommitted work and no PR reads `stalled`; one with only a `.tmp1` reads `finished`. → #219
+### The seventh state (Branch: bug/finished-is-not-a-verdict, PR: #219)
+- `stalled`, the `TODO(you)`/`TODO(human)` marker check, the editor-leftover exclusion, and the classification order — added **once**, to the merged implementation. Tests: a worktree with an open PR and dirty files reads `finished`; one with a marker reads `waiting`; one with uncommitted work and no PR reads `stalled`; one with only a `.tmp1` reads `finished`.
 
 ## Notes
 

@@ -242,15 +242,15 @@ Recorded so the next reader does not add them:
   not touch the mapping.
 - `pnpm run test:board` and `pnpm run test:reconcile` green.
 
-## Branches
+## Waves
 
-### Carried
 
-- `feature/the-row-carries-the-plans-records` — `approved`, `started[]`, `assignee`, `sprint`, `story`, `review`, `impl` reach the row verbatim from `PlanMeta`
+### Carried (Branch: feature/the-row-carries-the-plans-records)
+- `approved`, `started[]`, `assignee`, `sprint`, `story`, `review`, `impl` reach the row verbatim from `PlanMeta`
 
-### Read
 
-- `feature/the-board-reads-approval-not-phase` — the places that infer approval from phase read the record instead; absent stays absent
+### Read (Branch: feature/the-board-reads-approval-not-phase)
+- the places that infer approval from phase read the record instead; absent stays absent
 
 ## Notes
 

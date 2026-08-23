@@ -220,9 +220,10 @@ evidence of *location*, and the modal is asking about location.
 - A changeset is present.
 - macOS ships bash 3.2: no `declare -A`, no bash-4-only constructs.
 
-## Branches
+## Waves
 
-- `bug/fleet-sees-local-work` — `local_dirty` in the scan's JSON, `classify()` lifts dirty worktrees out of quiet, tests for both directions → #137
+### Implementation (Branch: bug/fleet-sees-local-work, PR: #137)
+- `local_dirty` in the scan's JSON, `classify()` lifts dirty worktrees out of quiet, tests for both directions
 
 <!-- One branch: the scan field and its only consumer are one change, and
      landing either alone leaves a field nobody reads or a reader with no

@@ -432,7 +432,7 @@ never the motion mark. The same argument `localAhead` already won:
 - If the static stale-worktree mark is built, it is visibly not the motion mark.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Branches
+## Waves
 
 <!-- `bug/done-holds-finished-plans-only` MOVED on 2026-08-23 to
      the-wave-is-a-thing-the-board-can-hold, wave `Consumed`. Its verdict rule is
@@ -443,9 +443,9 @@ never the motion mark. The same argument `localAhead` already won:
      The branch below stayed: it reads worktree and worker facts, not wave
      placement, so nothing blocks it. -->
 
-### Still
 
-- `bug/a-finished-row-is-not-active` — a finished row reports neither a pulse nor a live worker state: `isActive` ignores worktree facts on merged or deferred work, and a `failed`/`waiting` worker on a landed branch reads as stale rather than as current. The rule is the row's finishedness, never a filename → #336
+### Still (Branch: bug/a-finished-row-is-not-active, PR: #336)
+- a finished row reports neither a pulse nor a live worker state: `isActive` ignores worktree facts on merged or deferred work, and a `failed`/`waiting` worker on a landed branch reads as stale rather than as current. The rule is the row's finishedness, never a filename
 
 ## Notes
 

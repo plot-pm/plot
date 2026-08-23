@@ -96,16 +96,16 @@ two-value rule guards against.
       folds branch PR states onto a folded plan row; a plan whose waves are
       eligible has no equivalent fold today. Probably a separate finding.
 
-## Branches
+## Waves
 
-### Toned
 
-- `bug/an-eligible-wave-takes-the-actionable-tone` — `eligible` joins the
+### Toned (Branch: bug/an-eligible-wave-takes-the-actionable-tone, PR: #343)
+- `eligible` joins the
   emerald branch of `statusTone`. Tests: `statusTone('eligible')` returns the
   emerald class, the same one `green` returns; `blocked` still returns `''`;
   `complete` still returns `''`; the rose group is unchanged; a wave row
   rendering `eligible` carries the tone in the DOM, and the WORD is unchanged —
-  colour reinforces it rather than replacing it. → #343
+  colour reinforces it rather than replacing it.
 
 ## Notes
 

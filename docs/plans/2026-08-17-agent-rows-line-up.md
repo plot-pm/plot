@@ -274,24 +274,24 @@ readers who hear rather than see, since a bare `157` announces nothing.
 inline SVG or the existing text glyph, so the artifact stays self-contained the
 way the rest of the board is.
 
-## Branches
+## Waves
 
-### Data
 
-- `feature/pr-state-travels-as-a-field` — `AgentPr` carries the PR's condition
+### Data (Branch: feature/pr-state-travels-as-a-field, PR: #165)
+- `AgentPr` carries the PR's condition
   as a value; `pr-list --rich` fetches `mergeable`; `classify()` sets it, and
-  `conflicts` becomes distinguishable from `no checks` → #165
+  `conflicts` becomes distinguishable from `no checks`
 
-### Presentation
 
-- `feature/agent-rows-line-up` — the row becomes a grid with fixed tracks and
+### Presentation (Branch: feature/agent-rows-line-up, PR: #175)
+- the row becomes a grid with fixed tracks and
   gains `role="grid"` semantics; the PR cell renders number, icon and state
-  badge from the fields rather than searching a sentence → #175
-### Rounds
+  badge from the fields rather than searching a sentence
 
-- `feature/card-shows-interrogation-rounds` — `plot-plan-meta.sh` reports the
+### Rounds (Branch: feature/card-shows-interrogation-rounds, PR: #177)
+- `plot-plan-meta.sh` reports the
   interrogation round; a Draft card wears it as a badge, and wears nothing where
-  no interrogation has happened → #177
+  no interrogation has happened
 
 **The rounds badge is its own wave rather than sharing Presentation**, and the
 reason is the same one that keeps the first two apart: it adds a field to

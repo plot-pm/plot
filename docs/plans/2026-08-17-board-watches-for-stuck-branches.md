@@ -323,27 +323,27 @@ Resolving an artifact conflict on a branch is not merging it.
 **No new data source.** Conflicts come from `merge-tree`, states from the
 existing scan, CI from the PR state the contract already carries.
 
-## Branches
+## Waves
 
-### Detection
 
-- `feature/scan-reports-stuck-branches` — the scan names the four stuck
+### Detection (Branch: feature/scan-reports-stuck-branches, PR: #183)
+- the scan names the four stuck
   states with their evidence; read-only, stateless, machine-countable
-  footer → #183
+  footer
 
-### Display
 
-- `feature/board-shows-stuck-branches` — a stuck branch says so in its
+### Display (Branch: feature/board-shows-stuck-branches, PR: #185)
+- a stuck branch says so in its
   row, naming which of the four and why; anything the pulse cannot fix
   offers its action **on the row with an animated cue**, not inside the
-  three-dot menu, through the existing guarded route → #185
+  three-dot menu, through the existing guarded route
 
-### Repair
 
-- `feature/pulse-resolves-artifact-conflicts` — the one granted write:
+### Repair (Branch: feature/pulse-resolves-artifact-conflicts, PR: #186)
+- the one granted write:
   an artifact-only conflict is repaired by a script the server runs, which
   merges, takes a side, rebuilds, runs `test:board`, and pushes only
-  on green; refuses any conflict set that is not exactly the artifact → #186
+  on green; refuses any conflict set that is not exactly the artifact
 
   **Built as a script rather than as a dispatched agent**, which is a
   departure from the sentence above and from this plan's own Design

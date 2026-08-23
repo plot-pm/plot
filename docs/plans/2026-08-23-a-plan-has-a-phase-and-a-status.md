@@ -283,11 +283,11 @@ for no gain.
 - `status` appears nowhere on disk. Assert by grep: no plan file gains a field.
 - `pnpm test`, `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Branches
+## Waves
 
-### Measured
 
-- `feature/a-plan-reports-its-status` — the contract gains a derived `status` on the plan row, computed from its waves in the server, with `phase` untouched and the release gate proved unchanged → #374
+### Measured (Branch: feature/a-plan-reports-its-status, PR: #374)
+- the contract gains a derived `status` on the plan row, computed from its waves in the server, with `phase` untouched and the release gate proved unchanged
 
 ## Notes
 

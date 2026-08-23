@@ -280,19 +280,19 @@ rendered result, because step 1 proved that is where display defects live.
       simply not carry it? Decides whether *unavailable* is a permanent state
       there or a gap to close later.
 
-## Branches
+## Waves
 
-### PR data
 
-- `feature/fleet-pr-data` — widen `plot-host.sh` (checks + review), fetch it in the refresh cycle, fill the two groups, `prSource` honesty → #106
+### PR data (Branch: feature/fleet-pr-data, PR: #106)
+- widen `plot-host.sh` (checks + review), fetch it in the refresh cycle, fill the two groups, `prSource` honesty
 
-### Columns
 
-- `feature/board-phase-columns` — five columns, leadership colour, Approved split on `started_raw` → #108
+### Columns (Branch: feature/board-phase-columns, PR: #108)
+- five columns, leadership colour, Approved split on `started_raw`
 
-### Swimlanes
 
-- `feature/board-swimlanes` — stories as rows, Discovery as row header, `(no story)` row → #109
+### Swimlanes (Branch: feature/board-swimlanes, PR: #109)
+- stories as rows, Discovery as row header, `(no story)` row
 
 <!-- Three waves, one branch each. All three rebuild the checked-in board
      bundle, so none may run concurrently — the same collision that shaped

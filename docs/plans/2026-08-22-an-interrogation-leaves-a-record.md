@@ -179,22 +179,22 @@ anyway.
       count, or does the count belong to the draft phase only? Today nothing
       would stop it; nothing depends on the answer yet either.
 
-## Branches
+## Waves
 
-### Written
 
-- `bug/the-skill-records-its-rounds` — `challenge-the-plan/SKILL.md` writes the
+### Written (Branch: bug/the-skill-records-its-rounds, PR: #323)
+- `challenge-the-plan/SKILL.md` writes the
   `CHALLENGE-THE-PLAN-METADATA` block after each round, and the slash command
   stops duplicating the specification and points at the skill instead. Tests: a
   plan interrogated once reports `rounds: 1` through `plot-plan-meta.sh`; a
   second round reports 2 rather than replacing the block with a fresh one; a
   round that changes no decision still increments; a plan with no block still
   omits the key entirely rather than reporting 0; a malformed block is reported
-  as absent, which is the parser's existing behaviour and must not regress. → #323
+  as absent, which is the parser's existing behaviour and must not regress.
 
-### Recorded
 
-- `docs/the-six-say-they-were-challenged` — the six interrogated plans that are
+### Recorded (Branch: docs/the-six-say-they-were-challenged, PR: #328)
+- the six interrogated plans that are
   on `main` receive a metadata block with `round: 1` and an empty
   `questionHistory`, each noting that the history was not reconstructable. The
   two on unmerged branches are named in the plan, not blocked on. Tests: each of
@@ -202,7 +202,7 @@ anyway.
   JSON changes at all** — the 24 that already carry counts are untouched, which
   is the property that makes a hand-written block safe to add in bulk; a plan
   whose block was added reports the same `branches`, `prs` and `waves` as
-  before. → #328
+  before.
 
 ## Notes
 

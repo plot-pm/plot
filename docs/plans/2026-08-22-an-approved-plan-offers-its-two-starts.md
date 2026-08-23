@@ -164,11 +164,11 @@ spawn cannot report its result in the response.
       plan needs it again for each wave. This is what widened the gate from
       `!started` to `eligible > 0`.
 
-## Branches
+## Waves
 
-### Offered
 
-- `feature/a-ready-plan-names-its-two-starts` — the two controls, their gating
+### Offered (Branch: feature/a-ready-plan-names-its-two-starts, PR: #364)
+- the two controls, their gating
   and their refusals; no new server behaviour. `PlanActions` gains Implement
   and Dispatch, gated on **approved and `waveSummary.eligible > 0`**, with
   Dispatch posting to the existing `/api/dispatch` without a `--max`. Implement
@@ -180,11 +180,11 @@ spawn cannot report its result in the response.
   **neither appears** on a Draft plan, a delivered plan, or on any branch or
   wave row; Start work on an eligible wave row is untouched; Dispatch posts the
   slug and no cap; each shows its refusal reason when its binding is
-  unavailable; both are keyboard reachable and announce their state. → #364
+  unavailable; both are keyboard reachable and announce their state.
 
-### Run
 
-- `feature/implement-runs-from-the-board` — the route behind Implement, and the
+### Run (Branch: feature/implement-runs-from-the-board, PR: #371)
+- the route behind Implement, and the
   unattended clause the skill is missing. `/api/implement` spawns the
   `Implement command` detached, mirroring `/api/idea`'s guards, log path and
   202, and refuses with a reason when the key is absent. `/plot-implement`
@@ -196,7 +196,7 @@ spawn cannot report its result in the response.
   does; the log path is per-plan and readable back; **the skill's unattended
   shape is declared and carries a `PLOT-UNASKED` line**, which
   `test/reconcile/unattended.test.mjs` already checks for every skill that
-  declares one. → #371
+  declares one.
 
 ## Notes
 

@@ -142,13 +142,13 @@ separation `agent-view-phase` argued for the waiting age. *"2 commits not
 pushed"* answers a question no timestamp can: it names an action, and the
 action belongs to a specific machine.
 
-## Branches
+## Waves
 
-### Signal
 
-- `bug/fleet-sees-unpushed-commits` — `local_ahead` in the scan's JSON;
+### Signal (Branch: bug/fleet-sees-unpushed-commits, PR: #149)
+- `local_ahead` in the scan's JSON;
   `classify()` lifts a branch out of quiet when commits exist locally that the
-  remote lacks; the row says how many, distinctly from `local_dirty` → #149
+  remote lacks; the row says how many, distinctly from `local_dirty`
 
 One branch: this is one field, one classifier rule and one row string, on top
 of a mechanism already built and shipped.
