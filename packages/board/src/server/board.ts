@@ -12,6 +12,7 @@ import {
   type Column,
   type CardPr,
   type Phase,
+  type PlanStatus,
   type SprintCard,
   type SprintMember,
   type StoryCard,
@@ -438,6 +439,76 @@ export function allWavesMerged(meta: PlanMeta, pulse: FleetPulse | null): boolea
 }
 
 /**
+ * Whether the pulse shows a claim ref on any of this plan's branches — the
+ * fleet's half of the *someone picked this up* fact that `Started:` records are
+ * the plan file's half of.
+ *
+ * A claim is a pushed ref, the atomic act of taking a branch; the `claimed`
+ * annotation in the file is only its reflection. So `in-progress` splits from
+ * `approved` on EITHER signal — a `Started:` record OR a claim the scan saw —
+ * because both mean the same thing and either can arrive first.
+ *
+ * Joined on basename, the same key `allWavesMerged` uses. Absent plan, cold
+ * cache, or an unmatched name all read as *no claim*, which is the honest
+ * answer: the scan has said nothing to the contrary.
+ */
+function anyBranchClaimed(meta: PlanMeta, pulse: FleetPulse | null): boolean {
+  const plan = pulse?.plans.find((p) => p.file === path.basename(meta.file));
+  if (!plan) return false;
+  return plan.waves.some((w) => w.branches.some((b) => b.state === 'claimed'));
+}
+
+/**
+ * A plan's MEASURED status — one of seven, derived every scan and stored
+ * nowhere. See {@link PlanStatus} for the contract and the measurement-vs-
+ * decision distinction this field exists to hold.
+ *
+ * Composed from the plan file (`meta`: phase, review channel, `Started:` count)
+ * and the pulse (merge state, claim refs). It returns a string and touches
+ * nothing — no phase is flipped, no record written — exactly as `allWavesMerged`
+ * returns a boolean and `deriveWaves` returns waves.
+ *
+ * The phase is read FIRST, and three of the seven are read straight off it:
+ * `released`, `delivered`, and the two draft-side values. Those three can never
+ * disagree with `phase` because they ARE the phase — a test that constructs a
+ * disagreement (a delivered plan with an open branch) must still read
+ * `delivered`, and this ordering is why.
+ *
+ * Only within `approved` does the measurement matter, and it splits three ways
+ * in a fixed order:
+ *   - `deliverable` first — every non-deferred branch merged (`allWavesMerged`),
+ *     the decision outstanding. It is the value that earns the field, so it is
+ *     tested before the two that would otherwise also hold.
+ *   - `in-progress` — a `Started:` record OR a claim ref: someone picked it up.
+ *   - `approved` — none of the above: the queue the Start button serves.
+ *
+ * `open` vs `draft` is the draft-side split, and it is about the PLAN's own PR,
+ * not availability. `Review: pr` is the channel that leaves a PR to observe; a
+ * draft plan on it is out for approval (`open`). A `Review: in-session` plan has
+ * no plan PR and moves draft → approved WITHOUT passing through `open` — a legal
+ * path, not an error, and the reason this reads the channel rather than probing
+ * for a PR that a whole class of plans never has.
+ */
+export function planStatus(meta: PlanMeta, pulse: FleetPulse | null): PlanStatus {
+  switch (meta.phase) {
+    case 'released':
+      return 'released';
+    case 'delivered':
+      return 'delivered';
+    case 'approved':
+      if (allWavesMerged(meta, pulse)) return 'deliverable';
+      if (meta.started_raw.length > 0 || anyBranchClaimed(meta, pulse)) return 'in-progress';
+      return 'approved';
+    default:
+      // Draft, Design, and anything the mapper does not advance past the
+      // draft side. `open` is the plan's own PR being up — `Review: pr` — and
+      // everything else is `draft`. An in-session plan has no plan PR, so it is
+      // `draft` here and `approved` above, never `open` between them.
+      return meta.review === 'pr' ? 'open' : 'draft';
+  }
+}
+
+/**
  * Where this plan's branches are checked out on THIS machine, from the pulse.
  *
  * Presence, not dirtiness — the inverse of what lifts a row's group, and
@@ -830,12 +901,18 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // makes from here (`docs/board-domain-model.md`). Guarded on `mapped` rather
     // than `meta.phase` so a plan the mapper already advanced past Development —
     // `delivered`, `released` — is left exactly where it was, untouched.
-    // The measurement, computed ONCE and reused for both the column and the
-    // card's `deliverable` bit below. A plan is deliverable exactly when it is
-    // in Development and every non-deferred branch has merged — which is also
-    // the condition that bumps its card into Testing. Reusing the one boolean
-    // keeps the card's affordance and the auto-bump in lockstep by construction.
-    const deliverable = mapped === 'Development' && allWavesMerged(meta, pulse);
+    // The plan's MEASURED status, computed ONCE and read three ways below: the
+    // card's `status` field, its `deliverable` bit, and the auto-bump into
+    // Testing. `deliverable` is now DERIVED from `status` rather than computed
+    // beside it — `status === 'deliverable'` is the one word the plan settled
+    // the Deliver button's rule on, so the affordance, the column bump and the
+    // reported status cannot disagree by construction. `planStatus` reports
+    // `deliverable` exactly when the plan is approved and every non-deferred
+    // branch has merged, which is the same condition the old inline boolean
+    // tested — with the `mapped === 'Development'` guard folded into its own
+    // phase switch (`released`/`delivered` return before the merge test).
+    const status = planStatus(meta, pulse);
+    const deliverable = status === 'deliverable';
     const phase = deliverable ? toBoardPhase('delivered')! : mapped;
     if (!phase) continue;
     const slug = planSlug(relPath);
@@ -888,12 +965,19 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // dispatcher has run this plan*), and the client leaves the entry off either
     // way. The log's contents never ride the pulse — see `dispatchLogExists`.
     if (dispatchLogExists(repoRoot, slug)) card.hasDispatchLog = true;
+    // The plan's MEASURED status — always attached, because every card that
+    // reaches the board has one of the seven (a plan the mapper drops never
+    // becomes a card). Unlike `deliverable` below, absent is NOT a meaningful
+    // value here: a card with no status is one an older server built, and the
+    // client falls back to reading `phase` and `deliverable` as it did before
+    // the field. It is derived from the SAME `planStatus` call the `deliverable`
+    // bit and the column bump read, so all three agree by construction.
+    card.status = status;
     // The affordance the Deliver control reads. Attached only when true, like
     // the fields above: absent and false are the same statement (*this plan is
     // not deliverable*), and the client leaves the control off either way. It is
-    // the SAME boolean the column bump used, so a card in Testing that is not
-    // marked here is a plan already delivered — its decision made — and must
-    // offer nothing.
+    // `status === 'deliverable'`, so a card in Testing that is not marked here is
+    // a plan already delivered — its decision made — and must offer nothing.
     if (deliverable) card.deliverable = true;
     cards.push(card);
   }
