@@ -177,18 +177,23 @@ one that will, and it leaves a file that is 8000 lines for no stated reason.
 - [x] ~~One module or several?~~ **Several — settled 2026-08-23.** One module
       ends the serialisation; six end the accidental collisions. The subjects
       come from the export names and are listed above.
-- [ ] Should the six land as **one PR or six**? Six are individually reviewable,
-      but they all edit `AgentList.tsx`'s import block, so they would serialise
-      on exactly the file this plan exists to unblock — each rebasing across the
-      last. **Recommend one PR**, reviewed module by module through its commits:
-      the diff is large but every hunk is a move, and the green suite is the
-      claim. Decide before starting.
+- [x] ~~One PR or six?~~ **One — settled 2026-08-23.** Six would each edit
+      `AgentList.tsx`'s import block and serialise on exactly the file this plan
+      exists to unblock, each rebasing across the last.
+
+      **One PR, six commits — one per module.** The diff is large and that is
+      accepted: every hunk is a move, the commits are the review unit, and the
+      green suite is the claim. A reviewer reads `git log -p` per module rather
+      than one 3000-line diff.
 - [ ] Should the 13 test files import from the new module directly, or keep
       importing from `AgentList.tsx`? Directly is honest; it is also 13 more
       files in the diff. Decide before starting, not per-file.
 
 ## Done when
 
+- **One commit per module**, each moving exactly that module's functions and
+  nothing else. A commit that touches two modules is a review unit nobody asked
+  for; a commit that moves and edits is not a move.
 - `AgentList.tsx` no longer holds the derivations, and is **materially smaller**
   — state the before and after line counts in the PR body.
 - **Each module is about one subject**, and its name says which. A module that
@@ -225,10 +230,11 @@ surface cannot be worked on by two branches, and this fleet routinely wants four
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 2,
+  "round": 3,
   "questionHistory": [
     {"q": "Is the region above the first component actually pure?", "a": "Not quite - grep showed 25 JSX hits and 10 hook uses. Reading them: the hits are <AgentRow generic type parameters, not markup, and only useChangeMarks is a real hook. The cut is derivations, not a line number", "category": "technical"},
     {"q": "One derivations module, or several by subject?", "a": "SEVERAL - operator call. One ends the serialisation; six end the ACCIDENTAL collisions, so two branches on unrelated subjects share no file. Subjects taken from export names: host-notes, collapse, waves, activity, row-identity, actions", "category": "architecture"},
+    {"q": "Six PRs or one?", "a": "ONE - operator call. Six would each edit AgentList.tsx's import block and serialise on the file this unblocks. One PR, six commits, one per module: the commits are the review unit", "category": "implementation"},
     {"q": "Split the components too?", "a": "No - they share props and conventions, and doing both produces a diff nobody can review against a behaviour-preservation claim", "category": "tradeOffs"},
     {"q": "Move only the functions that actually collided?", "a": "No - fixes the collision that happened rather than the one that will, and leaves 8000 lines for no stated reason", "category": "tradeOffs"}
   ],
