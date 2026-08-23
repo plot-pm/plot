@@ -170,7 +170,7 @@ describe('CardSchema — pull requests', () => {
 
   it('carries each PR as a number plus the host-supplied url', () => {
     const card = CardSchema.parse({
-      ...base, phase: 'Endgame',
+      ...base, phase: 'Testing',
       prs: [{ number: 113, url: 'https://example.test/pr/113' }],
     });
     expect(card.prs).toEqual([{ number: 113, url: 'https://example.test/pr/113' }]);

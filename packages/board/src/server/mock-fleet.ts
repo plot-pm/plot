@@ -442,7 +442,7 @@ export function mockCards(): Column[] {
       ],
     },
     {
-      phase: 'Endgame',
+      phase: 'Testing',
       cards: [
         card({
           slug: 'opus5-longhorizon-hardening',

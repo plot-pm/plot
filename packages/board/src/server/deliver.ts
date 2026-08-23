@@ -29,11 +29,11 @@ import {
  * **Delivery is a DECISION, and this button is a person making it.** The domain
  * model is explicit (`docs/board-domain-model.md`): *every wave being complete
  * is a measurement; delivering is a decision. A measurement cannot make a
- * commitment.* The board bumps a fully-merged plan's card into Endgame on its
+ * commitment.* The board bumps a fully-merged plan's card into Testing on its
  * own — that is the measurement — but flips no phase and writes no `Delivered:`
  * record. This route is the seam where the decision is made: it spawns
  * `/plot-deliver`, which verifies the merges once more and moves the plan. So
- * reaching Endgame must never imply this was pressed, and this must never fire
+ * reaching Testing must never imply this was pressed, and this must never fire
  * automatically — which is why it is a click and not a consequence of the bump.
  *
  * **What the agent produces is a delivered plan, and the board writes NONE of
@@ -157,7 +157,7 @@ function resolvePlanBySlug(opts: BuildBoardOptions, slug: string): string | null
 /**
  * Whether a plan is deliverable, and if not, why — the precondition the route
  * rests on, and deliberately the same arithmetic `buildBoard` applies when it
- * auto-bumps a fully-merged plan's card into Endgame.
+ * auto-bumps a fully-merged plan's card into Testing.
  *
  * A discriminated verdict rather than a bare boolean, because the route owes
  * three different refusals to three different states, and the card that offers
@@ -169,7 +169,7 @@ function resolvePlanBySlug(opts: BuildBoardOptions, slug: string): string | null
  *    landed work at all. `allWavesMerged`'s own `merged > 0` guard folds the
  *    empty case in here: a plan nobody built is not deliverable.
  *  - `deliverable` — Development phase, every non-deferred branch merged. The
- *    exact card `buildBoard` moves into Endgame and marks `deliverable`.
+ *    exact card `buildBoard` moves into Testing and marks `deliverable`.
  *
  * Read through `plot-plan-meta.sh`, the one parser that owns the plan format,
  * and against the SAME pulse the board renders from (`pulseFor`) — never
@@ -218,7 +218,7 @@ export function deliverability(opts: BuildBoardOptions, slug: string): Deliverab
  * Three instructions ride with it, and each answers a property this route rests
  * on:
  *
- * 1. **Verify, THEN deliver.** The board's Endgame bump is a measurement the
+ * 1. **Verify, THEN deliver.** The board's Testing bump is a measurement the
  *    plan file does not record; `/plot-deliver` re-checks the merges for itself
  *    (cross-repo aware, #350's PR-by-branch match included) so nothing is
  *    delivered on a stale pulse. If a branch is not merged, STOP and say which —
@@ -244,7 +244,7 @@ export function composeDeliverPrompt(input: { slug: string; planFile: string }):
     `/plot-deliver ${slug}`,
     '',
     `Read the plan at ${planFile}. The board has MEASURED this plan complete —`,
-    'every non-deferred branch has merged — and bumped its card into Endgame. That',
+    'every non-deferred branch has merged — and bumped its card into Testing. That',
     'measurement is not the decision: delivering flips the phase and records it,',
     'and this is a person asking you to make that decision now.',
     '',
@@ -331,7 +331,7 @@ export interface DeliverDeps {
  * Detached and answered 202 immediately, for the reason `/api/reslice`
  * documents: this server is single-threaded, and awaiting an agent would freeze
  * every viewer's board. The outcome is read back from the status route; and
- * because delivering moves the plan out of Endgame, success is the card leaving
+ * because delivering moves the plan out of Testing, success is the card leaving
  * the column on the next refresh, which the board re-derives from git.
  *
  * ## What it refuses, and why each refusal exists
