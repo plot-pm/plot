@@ -32,25 +32,46 @@ import { splitBranch, KIND_ICON_PATH,
 import type { RowKind } from '../../contract/schema.js';
 
 /**
- * The tuple's tracks — six slots, and the FOURTH is the flexible one.
+ * The tuple's tracks — six slots. Slot 3 (the NAME) is floor-and-grow, slot 4
+ * (the links) is the flexible one.
  *
  * ```
- * 1.5rem  4.5rem  12rem   1fr     8rem     4.5rem   1.25rem
- * marks   kind    name    links   status   age      menu
+ * 1.5rem  4.5rem  minmax(12rem,auto)  1fr   8rem    4.5rem  1.25rem
+ * marks   kind    name                links status  age     menu
  * ```
  *
- * **The links track takes `1fr`, where a branch row's own NAME used to.** That
- * is the one geometric consequence of slot 4 being zero-or-more: a PR carries
- * two links and a branch none, so the track that varies is the track that must
- * absorb the slack. Every other slot is bounded by what it holds — a kind is
- * one word, a status is one word, an age is four characters.
+ * **Slot 3 is `minmax(12rem, auto)`: 12rem is the floor, and it grows into the
+ * slack slot 4 is not using.** The name is the row's most identifying value, and
+ * on a plan-group head slot 4 is EMPTY — so a fixed 12rem name track clipped the
+ * name while `1fr` absorbed width the name needed. The floor keeps a narrow
+ * viewport unchanged (the name track is never below 12rem); the `auto` ceiling
+ * lets a long name claim room a branch row's links would otherwise take.
  *
- * The fixed tracks total 508 px and the six gaps and 24 px of padding add 96,
- * so the grid needs **604 px** before the links track gets a pixel — under the
- * 640 px `sm` breakpoint the rest of the board turns into cards at, with 36 px
- * to spare. That arithmetic is the constraint `ROW_TRACKS` records having
- * crossed by 8 px once, and any widening of a fixed track has to be checked
- * against it again.
+ * **The links track keeps `1fr`.** Slot 4 is still the zero-or-more slot — a PR
+ * carries two links and a branch none — and it stays the one track that ABSORBS
+ * the slack. Every other slot is bounded by what it holds: a kind is one word, a
+ * status is one word, an age is four characters.
+ *
+ * ## Overridden 2026-08-23: edges no longer line up between rows
+ *
+ * Each row is its own CSS grid, so `auto` sizes to THAT row's content. A plan
+ * head with a 44-char name grows slot 3 wider than a branch row beneath it whose
+ * name is short — so the slot-4 edge no longer lines up between a plan head and a
+ * branch row. That was the property `agent-rows-line-up` paid to establish, and
+ * it is DELIBERATELY given up here. The operator decided on 2026-08-23 that
+ * rendering the full name is worth the misalignment: a reader who cannot read the
+ * name loses more than a reader whose columns do not align. Do NOT read this as a
+ * regression and revert slot 3 to a fixed width to "restore" alignment — the
+ * misalignment is the accepted cost of the fix, not an accident of it. (The marks
+ * track, slot 1, is still 1.5rem-first and DOES stay aligned; only slots 3+ move.)
+ *
+ * The fixed tracks — every track but slot 3's grow and slot 4's `1fr` — plus
+ * slot 3's 12rem FLOOR total 508 px, and the six gaps and 24 px of padding add
+ * 96, so the grid needs **604 px** before the links track gets a pixel — under
+ * the 640 px `sm` breakpoint the rest of the board turns into cards at, with
+ * 36 px to spare. `minmax` keeps the floor at 12rem, so the figure is unchanged
+ * from the fixed-12rem grid this replaced; a later widening of a floor still has
+ * to be checked against it.
  *
  * > These numbers read 496 / 580 / 60 until 2026-08-20, when the collapse gave
  * > the constant a test that computes them. The error was one uncounted GAP:
@@ -61,10 +82,10 @@ import type { RowKind } from '../../contract/schema.js';
  *
  * The MARKS track is 1.5rem and comes first, matching the existing rows, so the
  * activity marks of a tuple row and of a `Row` beside it stay in one vertical
- * line — the property `agent-rows-line-up` paid to establish.
+ * line — the one part of `agent-rows-line-up` this change keeps.
  */
 export const TUPLE_TRACKS =
-  'grid-cols-[1.5rem_4.5rem_12rem_1fr_8rem_4.5rem_1.25rem]';
+  'grid-cols-[1.5rem_4.5rem_minmax(12rem,auto)_1fr_8rem_4.5rem_1.25rem]';
 
 /**
  * SLOT 1's CELL — the marks track, and it is declared HERE because the tuple is
