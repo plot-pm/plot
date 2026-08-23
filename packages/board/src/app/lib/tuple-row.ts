@@ -315,8 +315,13 @@ export function statusTone(status: string): string {
   if (/^(conflicts|checks failing|failed|stalled)/.test(status)) {
     return 'text-rose-700 dark:text-rose-400';
   }
-  // The good news, and the only other colour: green checks, finished work.
-  if (/^(green|delivered|finished)/.test(status)) {
+  // The good news, and the only other colour: green checks, finished work, and
+  // an `eligible` wave — the state a reader ACTS on by starting it. `eligible`
+  // joins this branch for the reason `green` is here: the rule is *colour what
+  // a reader acts on*, not *colour the problem*, and a PR you can merge and a
+  // wave you can start are the same prompt in one column. Still two colours,
+  // not three — a word moves into a group that exists.
+  if (/^(green|delivered|finished|eligible)/.test(status)) {
     return 'text-emerald-700 dark:text-emerald-500';
   }
   return '';
