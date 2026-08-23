@@ -942,6 +942,12 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // above. Whether a given plan is deliverable rides on each card's own
     // `deliverable` bit, which this walker DOES know and sets above.
     deliver: { available: false, reason: '' },
+    // And once more for implementing an approved plan — the same socket question,
+    // the same hand overwriting it in index.ts. Unavailable here means *this
+    // walker cannot say*, never *the answer is no*, exactly as the seven above.
+    // Whether a given plan has eligible work rides on each card's own
+    // `waveSummary`, which the fleet fills in, not this walker.
+    implement: { available: false, reason: '' },
     checklist: readChecklist(repoRoot, readConfig(opts, 'Release directory', 'docs/releases/')),
     // The plan slugs the board actually found, so a sprint member naming a
     // renamed or deleted plan is flagged rather than silently dropped. `slug` on

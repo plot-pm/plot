@@ -39,6 +39,7 @@ import { CommissionDesignButton } from './CommissionDesignButton.js';
 import { CreatePlanButton } from './CreatePlanButton.js';
 import { ResliceButton } from './ResliceButton.js';
 import { DeliverButton } from './DeliverButton.js';
+import { ImplementButton } from './ImplementButton.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { isDraft, isApproved } from './PlanCard.js';
 import { StartWorkButton } from './StartWorkButton.js';
@@ -1673,6 +1674,16 @@ export interface AgentListProps {
    * complete enough to.
    */
   deliver?: DispatchInfo;
+  /**
+   * Whether this server will act on `Implement`, and why not — the eighth
+   * capability, reaching the PLAN rows with eligible work. Same binding as
+   * `idea`, `commission`, `reslice` and `deliver` today (all spawn a plot agent
+   * that writes to this disk), kept its own prop for the reason those are: one
+   * flag for two capabilities is how they diverge. Read together with the card's
+   * `hasEligibleWork` — this says the board can act, that says the plan has work
+   * to start.
+   */
+  implement?: DispatchInfo;
   /** Bumps once per BOARD refresh; the Start work button counts these. */
   pulse?: number;
   /** A Start work click became outstanding (true) or settled (false). */
@@ -1836,6 +1847,7 @@ function PlanRow({
   approve,
   commission,
   deliver,
+  implement,
   dispatch,
   pulse = 0,
   onApproving,
@@ -1900,6 +1912,10 @@ function PlanRow({
       end of the lifecycle, threaded to `PlanActions`, gated on the card's
       `deliverable` bit rather than on a Draft phase. */
   deliver?: DispatchInfo;
+  /** Whether this server will act on Implement — the plan head's complement to
+      Dispatch on an approved plan, threaded to `PlanActions`, gated on the card
+      having eligible work. */
+  implement?: DispatchInfo;
   /** Whether this server will act on Dispatch — same binding as Start work,
       threaded to `PlanActions` for the plan-level "dispatch all" action. */
   dispatch?: DispatchInfo;
@@ -2144,7 +2160,7 @@ function PlanRow({
       // stands: a `plot-dispatch` control would have to guess which of the
       // plan's waves it meant, so the branch rows in the fold keep their own
       // menus, where the row has already decided.
-      menu={<PlanActions plan={group.plan} card={card} approve={approve} commission={commission} deliver={deliver} dispatch={dispatch} pulse={pulse} onApproving={onApproving} />}
+      menu={<PlanActions plan={group.plan} card={card} approve={approve} commission={commission} deliver={deliver} implement={implement} dispatch={dispatch} pulse={pulse} onApproving={onApproving} />}
     />
   );
 }
@@ -3001,33 +3017,6 @@ function hasEligibleWork(card: Card | null): boolean {
 }
 
 /**
- * Implement: dispatches `/plot-implement <slug>` via an agent spawned from the
- * board. The route does not exist yet — Wave 2 of the plan adds it — so this
- * renders present-but-refused with the reason.
- *
- * The control follows `DeliverButton`'s pattern: rendered whenever the gate
- * passes, stating its own refusal where the server cannot act. A control that
- * vanishes when refused is a control the reader cannot learn about, and a
- * refusal that names itself is what this board settles on.
- */
-function ImplementButton({ slug: _slug }: { slug: string }) {
-  // Wave 2 adds the route and the `implement` binding. Until then, the button
-  // is always refused with a reason that names what is missing.
-  const reason = 'route not yet available — Wave 2 adds /api/implement';
-  return (
-    <button
-      type="button"
-      aria-disabled
-      title={reason}
-      className="cursor-not-allowed text-xs font-medium text-slate-400 no-underline dark:text-slate-600"
-    >
-      Implement
-      <span className="sr-only"> — unavailable: {reason}</span>
-    </button>
-  );
-}
-
-/**
  * Dispatch all: fans out all eligible branches of this plan in one click.
  *
  * The difference from `StartWorkButton` is the CAP: Start work posts with
@@ -3188,6 +3177,7 @@ function PlanActions({
   approve,
   commission,
   deliver,
+  implement,
   dispatch,
   pulse = 0,
   onApproving,
@@ -3212,6 +3202,15 @@ function PlanActions({
    * one, because a plan head has one `⋯`.
    */
   deliver?: DispatchInfo;
+  /**
+   * Whether the server will act on Implement, and why not — the FOURTH act, and
+   * the complement of Dispatch on an approved plan. Approve and Commission gate
+   * on a Draft plan and Deliver on a `deliverable` card; Implement (with
+   * Dispatch) gates on eligible work. Passed under its own name so the item
+   * states its own refusal and a later split of the spawn authorities changes
+   * one prop.
+   */
+  implement?: DispatchInfo;
   /**
    * Whether the server will act on Dispatch, and why not — the same binding
    * Start work uses to fan out one branch at a time. Used by `DispatchAllButton`
@@ -3360,14 +3359,14 @@ function PlanActions({
             </div>
           )}
           {/* The approved acts: Implement and Dispatch. Rendered whenever the
-              plan has eligible work, EVEN WHEN the server refuses or the route
-              is missing — each states its own refusal inside. The menu opens
-              when hasEligible, so these are never alone in an empty menu.
-              Implement is present-but-refused until Wave 2 adds its route;
-              Dispatch posts to /api/dispatch with no cap. */}
-          {hasEligible && (
+              plan has eligible work, EVEN WHEN the server refuses — each states
+              its own refusal inside. The menu opens when hasEligible, so these
+              are never alone in an empty menu. Implement posts to /api/implement
+              and reads its outcome back; Dispatch posts to /api/dispatch with no
+              cap. */}
+          {hasEligible && implement && (
             <div role="menuitem" className="px-2 py-1 text-left">
-              <ImplementButton slug={card.slug} />
+              <ImplementButton slug={card.slug} implement={implement} onActing={onApproving} />
             </div>
           )}
           {hasEligible && dispatch && (
@@ -4331,6 +4330,7 @@ export function AgentList({
   commission,
   reslice,
   deliver,
+  implement,
   continueWith,
   idea,
   pulse = 0,
@@ -5000,6 +5000,7 @@ export function AgentList({
                           approve={approve}
                           commission={commission}
                           deliver={deliver}
+                          implement={implement}
                           dispatch={dispatch}
                           pulse={pulse}
                           onApproving={onStarting}
@@ -5334,6 +5335,7 @@ export function AgentList({
                         approve={approve}
                         commission={commission}
                         deliver={deliver}
+                        implement={implement}
                         dispatch={dispatch}
                         pulse={pulse}
                         onApproving={onStarting}
