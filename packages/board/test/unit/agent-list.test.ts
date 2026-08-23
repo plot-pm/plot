@@ -43,6 +43,8 @@ import {
   waveSection,
   rowsBySection,
   waveKeyOf,
+  waveDissent,
+  groupedNote,
   LOCK_ECHO_MS,
   rowKey,
   watchedState,
@@ -222,6 +224,34 @@ describe('rowsBySection — Inverted stops splitting across two sections', () =>
     const planless = row({ plan: '', wave: '', branch: 'feature/orphan', group: 'quiet', verdict: null });
     const out = rowsBySection([planless]);
     expect(out[0]).toBe(planless);
+  });
+});
+
+describe('waveDissent — the collapsed row does not read `merged` for a half-open wave', () => {
+  it('reports how many merged when branches disagree — the Inverted case', () => {
+    // One merged, one open: the row speaks for both, so it must state that some
+    // landed and some did not, not a plain `merged`.
+    expect(waveDissent([
+      row({ state: 'merged' }), row({ state: 'open' }),
+    ])).toBe(1);
+  });
+
+  it('is null when every branch agrees — the count already tells the story', () => {
+    expect(waveDissent([row({ state: 'merged' }), row({ state: 'merged' })])).toBeNull();
+    expect(waveDissent([row({ state: 'open' }), row({ state: 'wip' })])).toBeNull();
+  });
+
+  it('does not count a DEFERRED branch as disagreement — it is exempt by design', () => {
+    // A wave of {merged, deferred} agrees that everything wanted has landed.
+    expect(waveDissent([row({ state: 'merged' }), row({ state: 'deferred' })])).toBeNull();
+  });
+
+  it('feeds groupedNote, which then says so rather than the section word', () => {
+    // With a dissent the note names the split; without one it keeps the ordinary
+    // sentence for the section word.
+    expect(groupedNote('to review', 1)).toMatch(/1 merged/);
+    expect(groupedNote('to review', null)).toBe('work landed — waiting to be merged');
+    expect(groupedNote('delivered', null)).toBe('landed — nothing left in it');
   });
 });
 

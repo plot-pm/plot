@@ -853,14 +853,41 @@ export function groupByPlan(rows: AgentRow[]): PlanGroup[] {
 }
 
 /**
+ * How many of a wave's branches have MERGED, where its branches disagree on
+ * state — or null where they agree and the single count already tells the story.
+ *
+ * A collapsed wave row speaks for several branches now, so it must not read
+ * plain `merged` for a wave that is half open — *"the same lie in fewer rows"*.
+ *
+ * `deferred` is NOT a disagreement: a deferred branch is exempt from the merge
+ * gate by design, so a wave of {merged, deferred} agrees that everything wanted
+ * has landed. The split that matters is merged vs. genuinely-unfinished
+ * (open · wip · claimed).
+ */
+export function waveDissent(rows: AgentRow[]): number | null {
+  const merged = rows.filter((r) => r.state === 'merged').length;
+  const unfinished = rows.filter(
+    (r) => r.state === 'open' || r.state === 'wip' || r.state === 'claimed',
+  ).length;
+  return merged > 0 && unfinished > 0 ? merged : null;
+}
+
+/**
  * The sentence a GROUPED wave row carries, by what its count means — for the two
- * words a count actually names, and NOTHING for any other.
+ * words a count actually names, a disagreement where one exists, and NOTHING for
+ * any other word.
  *
  * Each answer says what the wave IS, and none of them is *may this be started* —
  * which is the only thing the verdict can say, and the reason these rows do not
  * use it. `delivered` and `stalled` are the whole vocabulary: DONE folds
  * delivered branches, QUIET folds stalled ones, and those are the only sections
  * where the count carries a meaning a sentence can state.
+ *
+ * WHERE THE WAVE'S BRANCHES DISAGREE, the note says so and outranks the word:
+ * `mergedCount` branches have landed while the rest have not, and a row reading
+ * a single settled word over a half-open wave would be the collapse buying
+ * density with accuracy. Null `mergedCount` is a wave whose branches agree, and
+ * it keeps the ordinary sentence.
  *
  * A NOTE IS DERIVED, NEVER DEFAULTED INTO. The default used to assert `work
  * landed — waiting to be merged` for ANY unrecognised word, and `to approve` — a
@@ -875,8 +902,13 @@ export function groupByPlan(rows: AgentRow[]): PlanGroup[] {
  * ternary falls through it to the VERDICT — the value that actually describes an
  * ungrouped-meaning wave, and the arm that was dead for every multi-branch wave
  * while this function answered for words it did not understand.
+ *
+ * THE DISSENT ARM IS CHECKED FIRST AND STILL CANNOT RESURRECT THE DEFAULT: it
+ * fires only on a measured disagreement, so it never speaks for a wave with no
+ * merged branch at all — which is the population the default was lying about.
  */
-export function groupedNote(word: string | undefined): string {
+export function groupedNote(word: string | undefined, mergedCount?: number | null): string {
+  if (mergedCount != null) return `${mergedCount} merged, the rest not yet`;
   switch (word) {
     case 'delivered': return 'landed — nothing left in it';
     case 'stalled': return 'nothing has moved here for a while';
@@ -5199,7 +5231,9 @@ function WaveRow({
     // A grouped wave with an unrecognised word is exactly the wave the verdict
     // describes, so it derives the same value a single-branch wave does.
     soleRow ? soleNote
-      : (groupedCount !== undefined ? groupedNote(groupedWord) : '')
+      : (groupedCount !== undefined
+        ? groupedNote(groupedWord, waveDissent(group.rows))
+        : '')
         || (group.verdict === 'eligible' ? 'approved — nobody has taken it'
           : group.verdict === 'blocked' ? 'an earlier wave has to land first'
             : '');
