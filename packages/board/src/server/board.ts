@@ -850,6 +850,10 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // same hand overwriting it in index.ts. Unavailable here means *this walker
     // cannot say*, never *the answer is no*, exactly as the four above.
     commission: { available: false, reason: '' },
+    // And once more for reslicing a tangled wave — the same socket question,
+    // the same hand overwriting it in index.ts. Unavailable here means *this
+    // walker cannot say*, never *the answer is no*, exactly as the five above.
+    reslice: { available: false, reason: '' },
     checklist: readChecklist(repoRoot, readConfig(opts, 'Release directory', 'docs/releases/')),
     sprints: collectSprints(repoRoot, sprintDir),
     stories: collectStories(repoRoot, storyDir),

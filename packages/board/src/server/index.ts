@@ -24,6 +24,7 @@ import {
 } from './approve.js';
 import { handleIdea, ideaAvailability, ideaStatus } from './idea.js';
 import { commissionAvailability, commissionStatus, handleCommission } from './commission.js';
+import { handleReslice, resliceAvailability, resliceStatus } from './reslice.js';
 // Inlined at build time by esbuild's text loader — the artifact is a single
 // self-contained file, served from memory (no filesystem static serving, so no
 // path-traversal surface).
@@ -153,6 +154,21 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     // Draft exactly as Approve is. It ships the `Design` phase minimally rather
     // than as a refusal: #259 landed the phase and nothing filled it.
     { path: '/api/commission', verb: 'commissioning design', handle: handleCommission },
+    // POST /api/reslice — a plan's tangled wave is sliced into one wave per branch.
+    //
+    // The same class of route as /api/commission, and the same binding: it
+    // spawns a plot agent that writes to this disk. It is SLUG-scoped — it acts
+    // on the plan the `unsliced-wave` row already names — and it asks the plan's
+    // own waves (through `plot-plan-meta.sh`) whether one holds more than one
+    // live branch before spawning, because reslicing is a repair for exactly the
+    // shape the row reports.
+    //
+    // IT WRITES NONE OF THE SLICE ITSELF. `/plot-reslice` reads the branches,
+    // proposes an order, and ASKS a person before rewriting `## Branches` — the
+    // order is judgement the board cannot make. This is the standing rule for
+    // board writes: reuse the agent-spawn shape for a judgement act rather than
+    // inventing a lifecycle transition.
+    { path: '/api/reslice', verb: 'reslicing a wave', handle: handleReslice },
     // POST /api/claim — reserve one branch of a plan, and return what resulted.
     //
     // Wraps `plot-dispatch.sh --no-start`, which already claims by pushing a ref
@@ -263,6 +279,13 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         // flag for two capabilities is how they diverge when a later change
         // makes only one of them local.
         commission: commissionAvailability(HOST),
+        // A SIXTH flag, and the SAME binding as `idea` and `commission` today —
+        // reslicing spawns the same plot agent that turns an issue into a plan.
+        // It stays a field of its own for the reason every flag above it does:
+        // one flag for two capabilities is how they diverge when a later change
+        // makes only one of them local. The `unsliced-wave` row reads it to
+        // decide whether *Slice this wave* acts or names its refusal.
+        reslice: resliceAvailability(HOST),
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(board));
@@ -492,6 +515,21 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     res.end(
       SLUG_RE.test(slug)
         ? JSON.stringify(commissionStatus(opts, slug))
+        : JSON.stringify({ error: 'slug must be a plan slug' }),
+    );
+    return;
+  }
+
+  // What happened to a reslice somebody asked for — the same read-it-back shape
+  // `/api/commission/<slug>` has, slug-keyed. Because `/plot-reslice` asks
+  // before it writes, a reslice may move no row at all, so the button watches
+  // this for the command's own words on a refusal.
+  if (url.pathname.startsWith('/api/reslice/')) {
+    const slug = url.pathname.slice('/api/reslice/'.length);
+    res.writeHead(SLUG_RE.test(slug) ? 200 : 400, { 'Content-Type': 'application/json' });
+    res.end(
+      SLUG_RE.test(slug)
+        ? JSON.stringify(resliceStatus(opts, slug))
         : JSON.stringify({ error: 'slug must be a plan slug' }),
     );
     return;

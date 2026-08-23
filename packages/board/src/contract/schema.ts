@@ -488,6 +488,17 @@ export const BoardSchema = z.object({
    */
   commission: DispatchInfoSchema.default({ available: false, reason: '' }),
   /**
+   * Whether "Slice this wave" will act — the sixth capability, twin of `idea`
+   * and `commission`: it spawns a plot agent (`/plot-reslice`) that rewrites a
+   * plan's `## Branches` on this disk, so it answers the same localhost binding
+   * they do. It stays its own field for the reason `approve`/`commission`
+   * record — one flag for two capabilities is how they diverge when a later
+   * change makes only one of them local. Same default as the five above: an
+   * older server sends nothing and a newer client hides the control rather than
+   * offering one that 403s.
+   */
+  reslice: DispatchInfoSchema.default({ available: false, reason: '' }),
+  /**
    * Newest release checklist, for the Endgame column: what is left before
    * signoff. null when no checklist exists or none could be parsed — the board
    * shows no badge rather than a guessed count.
