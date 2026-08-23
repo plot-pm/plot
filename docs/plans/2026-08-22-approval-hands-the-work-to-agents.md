@@ -213,7 +213,7 @@ cap; they are not one, and nothing here should honour them.)
 
 ### Served
 
-- `feature/an-eligible-wave-starts-itself` — while the switch is on, eligible
+- `feature/an-eligible-wave-starts-itself` → #359 — while the switch is on, eligible
   waves of approved plans dispatch, honouring `plot-dispatch.sh`'s existing
   caps. Tests: an eligible wave of an approved plan dispatches with no click;
   a **blocked** wave does not; a **draft** plan's wave does not; a branch
