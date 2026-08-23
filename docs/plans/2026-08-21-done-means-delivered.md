@@ -172,7 +172,7 @@ PR creation is not a change to the delivery path.
 
 ### Verified
 
-- `feature/deliver-finds-prs-without-annotations` — `/plot-deliver` matches
+- `feature/deliver-finds-prs-without-annotations` → #350 — `/plot-deliver` matches
   merged PR heads to branch names where a plan carries no `→ #N` annotation,
   which is what `plot-reconcile-scan.sh` already does. Tests: a plan with zero
   annotations and all branches merged verifies; one with an unmerged branch
