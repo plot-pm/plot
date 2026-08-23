@@ -40,6 +40,9 @@ import {
   ActivityEcho,
   activeRowKeys,
   groupByWave,
+  waveSection,
+  rowsBySection,
+  waveKeyOf,
   LOCK_ECHO_MS,
   rowKey,
   watchedState,
@@ -120,6 +123,105 @@ describe('groupByPlan', () => {
 
   it('returns nothing for no rows', () => {
     expect(groupByPlan([])).toEqual([]);
+  });
+});
+
+describe('waveSection — a wave has ONE section, chosen by its verdict not a branch', () => {
+  // A wave's rows, described the way the estate describes `Inverted`: same plan,
+  // same wave name, one merged branch and one open branch, the verdict held
+  // constant (every branch of a wave carries the same one).
+  const waveRows = (
+    branches: { state: AgentRow['state']; group: AgentRow['group'] }[],
+    verdict: AgentRow['verdict'],
+  ): AgentRow[] => branches.map((b, i) => row({
+    plan: 'p', wave: 'W', branch: `feature/b${i}`, verdict, state: b.state, group: b.group,
+  }));
+
+  it('sends a COMPLETE wave to its merged branch\'s section — DONE', () => {
+    // Every branch merged, verdict complete: the wave is finished and belongs
+    // where its merged work sits. It takes the merged branch\'s group rather
+    // than asserting `done`, so a phase-adjusted placement survives untouched.
+    const rows = waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'merged', group: 'done' }],
+      'complete',
+    );
+    expect(waveSection(rows)).toBe('done');
+  });
+
+  it('sends an ELIGIBLE wave to where its UNFINISHED work is — never the merged branch', () => {
+    // `Inverted` in miniature: one merged (→ done), one open (→ not-started),
+    // verdict eligible. A wave with unmerged work is not done, so it goes to
+    // NOT STARTED — and it must NOT read the merged branch\'s `done`.
+    const rows = waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'open', group: 'not-started' }],
+      'eligible',
+    );
+    expect(waveSection(rows)).toBe('not-started');
+  });
+
+  it('sends a BLOCKED wave to where its unfinished work waits', () => {
+    const rows = waveRows(
+      [{ state: 'open', group: 'not-started' }, { state: 'wip', group: 'quiet' }],
+      'blocked',
+    );
+    // The first unmerged branch\'s section — the wave\'s outstanding work.
+    expect(waveSection(rows)).toBe('not-started');
+  });
+
+  it('keeps a verdict-less wave on its rows\' own group — nothing to aggregate on', () => {
+    // A pre-verdict pulse carries no wave verdict; inventing a section here
+    // would be the guess this function exists to remove.
+    const rows = waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'merged', group: 'done' }],
+      null,
+    );
+    expect(waveSection(rows)).toBe('done');
+  });
+});
+
+describe('rowsBySection — Inverted stops splitting across two sections', () => {
+  it('rewrites every branch of a mixed wave to the ONE section the wave belongs in', () => {
+    // The live defect: a merged branch carrying `group: done` and an open branch
+    // carrying `group: not-started`, one eligible wave. Filtering by `r.group`
+    // put them in two sections. After re-sectioning both read `not-started`.
+    const rows = [
+      row({ plan: 'p', wave: 'Inverted', branch: 'feature/a', state: 'merged', group: 'done', verdict: 'eligible' }),
+      row({ plan: 'p', wave: 'Inverted', branch: 'feature/b', state: 'open', group: 'not-started', verdict: 'eligible' }),
+    ];
+    const out = rowsBySection(rows);
+    expect(out.map((r) => r.group)).toEqual(['not-started', 'not-started']);
+    // Every (plan, wave) reaches exactly one section — the invariant.
+    const sections = new Set(out.map((r) => r.group));
+    expect(sections.size).toBe(1);
+  });
+
+  it('leaves a uniform wave untouched — identity preserved, not re-allocated', () => {
+    const rows = [
+      row({ plan: 'p', wave: 'Done', branch: 'feature/a', state: 'merged', group: 'done', verdict: 'complete' }),
+      row({ plan: 'p', wave: 'Done', branch: 'feature/b', state: 'merged', group: 'done', verdict: 'complete' }),
+    ];
+    const out = rowsBySection(rows);
+    // Same objects back where nothing changed — the fleet is shared and cast.
+    expect(out[0]).toBe(rows[0]);
+    expect(out[1]).toBe(rows[1]);
+  });
+
+  it('does not merge two DIFFERENT plans that share a wave name', () => {
+    const rows = [
+      row({ plan: 'p1', wave: 'Shaped', branch: 'feature/a', state: 'open', group: 'not-started', verdict: 'eligible' }),
+      row({ plan: 'p2', wave: 'Shaped', branch: 'feature/b', state: 'merged', group: 'done', verdict: 'complete' }),
+    ];
+    const out = rowsBySection(rows);
+    // p1's wave is eligible → not-started; p2's is complete → done. The shared
+    // name must not fuse them.
+    expect(out.find((r) => r.plan === 'p1')?.group).toBe('not-started');
+    expect(out.find((r) => r.plan === 'p2')?.group).toBe('done');
+  });
+
+  it('leaves a planless / wave-less row alone — it is its own subject', () => {
+    const planless = row({ plan: '', wave: '', branch: 'feature/orphan', group: 'quiet', verdict: null });
+    const out = rowsBySection([planless]);
+    expect(out[0]).toBe(planless);
   });
 });
 
