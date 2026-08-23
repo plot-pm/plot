@@ -20,6 +20,7 @@
 - **Started:** 2026-08-23, Jan Wloka, `bug/the-wave-leaves-the-kind-alone`
 - **Started:** 2026-08-23, Jan Wloka, `bug/the-wave-leaves-the-kind-alone`
 - **Started:** 2026-08-23, Jan Wloka, `bug/a-release-is-its-version`
+- **Started:** 2026-08-23, Jan Wloka, `bug/the-wave-leaves-the-kind-alone`
 
 ## Approval
 
