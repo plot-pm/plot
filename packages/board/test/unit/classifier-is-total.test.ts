@@ -24,15 +24,22 @@
 // silently land in the unknown-phase arm (→ DONE) and prove nothing.
 
 import { describe, it, expect } from 'vitest';
-import { classify } from '../../src/server/fleet.js';
+import { classify, rowsFromPulse } from '../../src/server/fleet.js';
 import type { PrRecord } from '../../src/server/fleet.js';
-import type { AgentRow, BranchState, WaitingGroup, WaveVerdict, WorkerState } from '../../src/contract/schema.js';
+import type { AgentRow, BranchState, FleetPulse, WaitingGroup, WaveVerdict, WorkerState } from '../../src/contract/schema.js';
 // WHERE THE WAVE'S SECTION NOW LIVES. `classify` answers per BRANCH and still
 // does — a merged branch of an eligible wave is `done` to it, correctly, for a
 // branch. The wave's ONE section is decided a layer up, by `waveSection` reading
 // the verdict the scan already aggregated. So the two `Inverted` rules below
 // that `a-wave-is-one-row` fixes are re-asserted against THAT function, not
 // against a `classify` the fix deliberately left unchanged.
+//
+// The RELEASE-SCOPE DRAIN sits one more layer up still, in `rowsFromPulse`: a
+// released plan is out of the board's scope, so its rows never reach a section
+// at all. `classify` is again left unchanged — per branch, a merged branch of a
+// released plan is `done` — and the Released half of `DONE ⇒ Development or
+// Endgame` is re-asserted against `rowsFromPulse`, which is the layer that
+// drops it. `done-holds-finished-plans-only` is the commit that earns it.
 import { waveSection } from '../../src/app/components/AgentList.js';
 
 /**
@@ -386,17 +393,20 @@ describe('the twelve rules that HOLD — asserted over fixtures', () => {
   });
 });
 
-describe('the six failing rules — four still fail, two were fixed by `a-wave-is-one-row`', () => {
+describe('the six failing rules — three still fail, three were fixed a layer above `classify`', () => {
   // Each test asserts (a) the fixture case that VIOLATES the rule classifies the
   // way the defect makes it, and (b) the measured passing count as a documented
   // constant. When the named plan lands its fix, the fixture assertion flips and
   // this test fails — which is the whole reason it is an assertion and not a
   //
-  // TWO HAVE NOW MOVED. `a-wave-is-one-row` raised `every wave has EXACTLY ONE
-  // section` (81/82 → 82/82) and `eligible ⇒ no branch merged` (19/20 → 20/20)
-  // by giving a wave one section a layer above `classify`. Their numbers are
-  // raised here, deliberately, in the commit that earns them. The remaining four
-  // still carry today's failing numbers and wait on their own plans.
+  // THREE HAVE NOW MOVED, each by a fix a LAYER ABOVE `classify`. `a-wave-is-one-row`
+  // raised `every wave has EXACTLY ONE section` (81/82 → 82/82) and `eligible ⇒
+  // no branch merged` (19/20 → 20/20) via `waveSection`. `done-holds-finished-plans-only`
+  // raised the Released half of `DONE ⇒ Development or Endgame` (19/61 → 19/20)
+  // via `rowsFromPulse`, which drains a released plan before it reaches a
+  // section. Their numbers are raised here, deliberately, in the commit that
+  // earns them. The remaining three still carry today's failing numbers and wait
+  // on their own plans.
   // skip.
 
   it('DONE ⇒ verdict complete (FAILS 60/61 — `Inverted`)', () => {
@@ -414,24 +424,52 @@ describe('the six failing rules — four still fail, two were fixed by `a-wave-i
     expect(MEASURED_PASSING).toBe(MEASURED_TOTAL - 1);
   });
 
-  it('DONE ⇒ phase Development or Endgame (FAILS 19/61 — 41 Released, 1 Discovery)', () => {
-    // The violator: a merged branch of a RELEASED plan reads DONE, though a
-    // shipped plan is out of the board's scope entirely. The merged arm is
-    // phase-blind — it never asks whether the plan already shipped.
+  it('DONE ⇒ phase Development or Endgame (NOW 19/20 — `done-holds-finished-plans-only` drained Released)', () => {
+    // WAS 19/61: 41 Released rows and 1 Discovery row sat in DONE. The Released
+    // 41 are now drained. Their number is raised here, deliberately, in the
+    // commit that earns them — leaving the ONE Discovery row as the last
+    // violator, which `a-draft-plan-claims-no-approvals` will clear.
+    //
+    // The fix is NOT in `classify`. Per branch, a merged branch of a released
+    // plan is still `done` — correct FOR A BRANCH, since the branch did land —
+    // which is why the fixture below is unchanged. It is in `rowsFromPulse`,
+    // which reads the PLAN's phase and drops a released plan's rows before they
+    // reach any section: a shipped plan is out of the board's scope, and DONE is
+    // the release scope, not an archive of what already shipped.
     const released = section({ state: 'merged', verdict: 'complete', phase: PHASE.Released });
-    expect(released).toBe('done'); // the defect: a shipped plan's row in DONE
-    // And a Discovery-plan (draft) merged branch also reaches DONE — one such row
-    // in the estate.
+    expect(released).toBe('done'); // classify, per branch, is unchanged and right
+
+    // The plan, run through the render path, contributes NO row — so no released
+    // wave reaches DONE any more. A released plan is all-merged, all-complete by
+    // construction (the domain model measures 41/41), so this is its own shape.
+    const releasedPlan: FleetPulse = {
+      main: 'main', head: 'abc1234',
+      plans: [{
+        file: '2026-08-01-shipped-plan.md', phase: 'released',
+        waves: [{
+          name: 'W', verdict: 'complete',
+          branches: [{ branch: 'feature/shipped', state: 'merged', deferred: false, claimed: '' }],
+        }],
+      }],
+      summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+    };
+    expect(rowsFromPulse(releasedPlan, new Map(), 'plot', QUIET)).toEqual([]);
+
+    // The Discovery violator STILL fails — its fix is a sibling's. A draft
+    // plan's merged branch still reaches DONE, both per branch and rendered,
+    // because `rowsFromPulse` drains only `released`.
     const discovery = section({ state: 'merged', verdict: 'complete', phase: PHASE.Discovery });
-    expect(discovery).toBe('done'); // the defect: a draft plan's merged wave in DONE
-    // Measured: only 19 of 61 DONE rows are Development or Endgame; 41 are
-    // Released and 1 is Discovery. `done-holds-what-is-still-yours` removes the
-    // Released rows and `a-draft-plan-claims-no-approvals` the Discovery one.
+    expect(discovery).toBe('done'); // the remaining defect: a draft plan's merged wave in DONE
+
+    // Measured: DONE held 61 rows; #339 sent `Inverted`'s incomplete merged
+    // branch to NOT STARTED (61 → 60), and this branch drains the 41 Released
+    // (60 → 19 finished-and-unreleased + 1 Discovery = 20). So 19 of 20 rendered
+    // DONE rows are Development or Endgame; the one Discovery row is the last to
+    // fall, to `a-draft-plan-claims-no-approvals`.
     const MEASURED_PASSING = 19;
-    const MEASURED_TOTAL = 61;
-    const RELEASED_ROWS = 41;
+    const MEASURED_TOTAL = 20;
     const DISCOVERY_ROWS = 1;
-    expect(MEASURED_PASSING + RELEASED_ROWS + DISCOVERY_ROWS).toBe(MEASURED_TOTAL);
+    expect(MEASURED_PASSING + DISCOVERY_ROWS).toBe(MEASURED_TOTAL);
   });
 
   it('DONE ⇒ no live worker on finished work (FAILS 58/61 — 3 stale)', () => {

@@ -4217,6 +4217,37 @@ export function rowsFromPulse(
   // seen from inside either plan that makes it.
   const doubleClaimed = doubleClaimedBranches(pulse);
   for (const plan of pulse.plans) {
+    // A RELEASED PLAN HAS DRAINED, and the board has nothing left to say about
+    // it. DONE is the RELEASE SCOPE — work that has landed and whose version has
+    // NOT shipped, waiting on its endgame test — and `Released` is exactly the
+    // leave-condition: `/plot-release` resolves the version from `git tag
+    // --contains`, so `released` means *the release shipped* rather than a date
+    // that can drift. The section is a queue that drains, not an archive that
+    // decays, and cutting the version empties it.
+    //
+    // DROPPED HERE, at the PLAN, not filtered per row in `classify`. Three
+    // reasons this is the plan's decision and not the branch's:
+    //   - The scope is the plan's. A plan releases with ALL its waves at once —
+    //     there is no partial release — so a released plan's every branch is out
+    //     of scope together, and asking the question once per plan says that.
+    //   - `classify` answers with one of six WaitingGroups and has no "not
+    //     rendered" among them; a released row it kept would have to land in a
+    //     section, and every section is a call to action a shipped plan is not.
+    //   - This is the ONE place a row may be dropped from the board — the
+    //     membership rule's easy failure is losing a live row silently, so the
+    //     drop is confined to the single phase that licenses it and nothing else
+    //     leaves for any other reason.
+    //
+    // `released` ONLY, never `delivered`: a delivered plan is complete and
+    // unreleased — the core of the scope, ready for the endgame — and it stays.
+    // The asymmetry is the design: every wave being complete is a MEASUREMENT,
+    // releasing is a DECISION, and only the decision drains the queue.
+    //
+    // The rolling window is why this fires at all: the scan admits plans
+    // delivered or released inside the last 24 h, so a freshly-released plan
+    // reaches this loop and would otherwise crowd DONE with shipped work — 41 of
+    // 61 DONE rows, measured 2026-08-23.
+    if (plan.phase === 'released') continue;
     // WHICH earlier wave is blocking — the plan's FIRST incomplete one, read
     // once per plan rather than searched per row.
     //

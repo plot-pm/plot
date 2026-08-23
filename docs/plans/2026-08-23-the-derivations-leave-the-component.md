@@ -283,7 +283,7 @@ one that will, and it leaves a file that is 8000 lines for no stated reason.
 
 ### Moved
 
-- `infra/the-derivations-leave-the-component` — move the derivations into eight subject modules under `app/lib/agent-rows/`, docstrings intact, no re-exports, and update the 14 importing files
+- `infra/the-derivations-leave-the-component` — move the derivations into eight subject modules under `app/lib/agent-rows/`, docstrings intact, no re-exports, and update the 14 importing files → #357
 
 ### Rendered
 
