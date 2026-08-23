@@ -138,6 +138,55 @@ and for the same reason: this is a shape to fix, not a branch that cannot move.
 Without this, the two sources drift silently and the back-reference decays into
 decoration. With it, the filter is never wrong and the drift is visible.
 
+### The sprint file's MEMBER LIST has to be parsed — nothing reads it today
+
+Measured 2026-08-23, and it is more work than "repoint a join":
+
+- `collectSprints` (`board.ts:563`) reads `docs/sprints/active/` and calls
+  `parseSprintFile`, which extracts **slug, title and phase only**.
+- A card's sprint comes from one line — `if (meta.sprint) card.sprint =
+  meta.sprint` (`board.ts:787`) — the plan's own self-declared field.
+
+**Nothing anywhere parses the `- [ ] [slug]` lines.** There is no code that can
+say which plans a sprint contains, which is why the join has to be the plan's
+field and why the active sprint shows 6 of 19.
+
+So wave 1 carries a real addition: **`parseSprintFile` learns to read its
+members** — the checkbox lines, their slug, and which MoSCoW tier they sit under.
+That list becomes the membership the filter joins on, and the plan's `Sprint:`
+field becomes the back-reference it always should have been.
+
+**Parse the tier too, not just the slug.** The counts this plan renders are
+per-sprint today, but Must/Should/Could is the shape a reader asks about next,
+and the line already carries it. Reading it now costs nothing; adding it later
+means re-parsing every sprint file.
+
+**A slug in the sprint file naming no plan is reported, never dropped.** The
+sweep wave already exists for the reverse case (a plan whose `Sprint:` disagrees);
+this is the same fault from the other side and belongs in the same section.
+
+### Filtering is a VIEW — it must not change what the server fetches
+
+The filter narrows what a reader sees. It must **not** narrow what the pulse
+collects, and the reason is measured in `fleet.ts`:
+
+> A board left open a working day made ~1400 Bitbucket requests just watching,
+> and reached `HTTP 429 — Rate limit for this resource has been exceeded`
+> account-wide, with every `bb` call from the operator's own shell failing too.
+
+`pr-list` is **one call for the whole repo** on GitHub, three on Bitbucket —
+independent of how many plans are on screen. Filtering server-side would not
+reduce that call; it would only risk a second, per-sprint query shape that costs
+more, not less.
+
+**And the cache is shared.** The pulse feeds every consumer — the Board tab, the
+Agents tab, the scan's terminal-state cache. A fetch narrowed to one sprint would
+starve the others and make the filter's state leak into data nobody filtered.
+
+So: **the server fetches everything, once; the client hides what the sprint does
+not contain.** If a future measurement shows the pulse itself is too expensive,
+that is a cost plan about the pulse — not about this filter.
+
 ### The row already knows its plan
 
 `AgentRow` carries **`planFile`** (`schema.ts:1727`) — the file the row's plan
@@ -287,6 +336,10 @@ reloads) is a browser-storage concern and explicitly optional.
   real members; the fix must not swallow them while widening the active one.
 - **Both tabs answer the same membership question the same way.** Asserted by
   construction: one function, two callers.
+- **The pulse fetches the same data with the filter on and off.** Asserted by
+  counting host invocations with a PATH-stubbed CLI — the technique #228 used.
+  A filter that changes what is fetched is a different feature with a rate limit
+  attached.
 - **A row with no plan (`planFile: ''`) stays visible under the filter** — a
   release row, an issue row, an agent holding no branch. Asserted directly: the
   obvious `row.sprint === active` predicate removes all of them, and passes
@@ -306,9 +359,13 @@ reloads) is a browser-storage concern and explicitly optional.
 
 ## Branches
 
+### Parsed
+
+- `feature/the-sprint-file-names-its-members` — `parseSprintFile` parses the `- [ ] [slug]` lines into a member list with its MoSCoW tier; a slug naming no plan is reported, not dropped. No client change
+
 ### Carried
 
-- `feature/the-fleet-row-carries-its-sprint` — `AgentRow` gains `sprint`, set in the server where the row is created by joining `planFile` to the SPRINT FILE's member list; rows with no plan, and plans no sprint lists, carry `''`. No client change, no filtering yet
+- `feature/the-fleet-row-carries-its-sprint` — `AgentRow` gains `sprint`, set in the server where the row is created by joining `planFile` to that member list; rows with no plan, and plans no sprint lists, carry `''`. No client change, no filtering yet
 
 ### Counted
 
@@ -345,7 +402,7 @@ estate gains a fifth definition of *done* and the phase/status work buys nothing
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 6,
+  "round": 7,
   "questionHistory": [
     {"q": "Which tab does the filter belong on?", "a": "AGENTS TAB ONLY - operator decision, against my Board-tab recommendation. The Agents tab is where work is watched; the missing sprint field on the fleet row is the work, not an argument against it", "category": "architecture"},
     {"q": "What does the counter count?", "a": "plan.status values from a-plan-has-a-phase-and-a-status, read not recomputed; a fifth local definition of done is the defect being fixed", "category": "domain"},
