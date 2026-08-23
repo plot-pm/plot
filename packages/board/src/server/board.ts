@@ -392,6 +392,51 @@ export function summariseFromPulse(meta: PlanMeta, pulse: FleetPulse | null): Wa
 }
 
 /**
+ * True when every one of a plan's non-deferred branches has merged — the
+ * checkable input that lets a plan reach the phase after Development on its own.
+ *
+ * *Every wave being complete is a measurement; delivering is a decision*
+ * (`docs/board-domain-model.md`). This is that measurement, and only that: it
+ * asserts the code has landed, which git already knows, and nothing more. The
+ * board never flips a phase to `delivered` from it — see `buildBoard`, which
+ * moves the CARD's column and writes no record.
+ *
+ * Merge state is read from the PULSE, never the plan file: a `merged` branch is
+ * one the scan resolved against `origin/<main>`, which is the same derivation
+ * `plot-fleet-scan.sh` applies when it prints `merged_not_delivered`. Reusing it
+ * rather than rebuilding it is the whole point — the plan file carries no merge
+ * record, and inventing one here would answer a different question than the scan.
+ *
+ * A deferred branch is exempt, matching the scan's own rule: a shelved branch is
+ * not outstanding work, so a plan holding six merged and three deferred branches
+ * (measured on the Endgame plans) is as complete as one holding nine merged.
+ *
+ * Returns false — the plan stays in Development — in three cases that must not be
+ * confused with each other but share one answer here:
+ *  - no pulse, or the pulse does not know this plan: git has said nothing, and
+ *    "nothing said" is not "all merged". A cold cache keeps a plan where it was.
+ *  - any non-deferred branch is not `merged`: one open wave and the work is not
+ *    done, which is the negative the plan insists be asserted directly.
+ *  - the plan has NO non-deferred branch (all deferred, or none at all): there
+ *    is no landed work to testify to, so "every branch merged" is vacuously true
+ *    and substantively false. The explicit `merged > 0` guard is what stops the
+ *    empty reduction from promoting a plan nobody built.
+ */
+export function allWavesMerged(meta: PlanMeta, pulse: FleetPulse | null): boolean {
+  const plan = pulse?.plans.find((p) => p.file === path.basename(meta.file));
+  if (!plan) return false;
+  let merged = 0;
+  for (const wave of plan.waves) {
+    for (const b of wave.branches) {
+      if (b.state === 'deferred') continue;
+      if (b.state !== 'merged') return false;
+      merged += 1;
+    }
+  }
+  return merged > 0;
+}
+
+/**
  * Where this plan's branches are checked out on THIS machine, from the pulse.
  *
  * Presence, not dirtiness — the inverse of what lifts a row's group, and
@@ -702,7 +747,21 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // board and rowPhase compose the one mapping, and passing the real value
     // keeps this call honest rather than hard-coding a flag the answer ignores.
     const started = meta.started_raw.length > 0;
-    const phase = toBoardPhase(meta.phase, started);
+    const mapped = toBoardPhase(meta.phase, started);
+    if (!mapped) continue;
+    // An approved plan whose every non-deferred branch has merged reaches the
+    // phase after Development on its own — the code has landed and git can prove
+    // it, so the column need not wait for a person to remember `/plot-deliver`.
+    // This computes the CARD's column and nothing else: no phase is flipped in
+    // the plan file, no `Delivered:` record is written, no PR is merged. Reaching
+    // the column asserts the work landed; delivering stays a decision a person
+    // makes from here (`docs/board-domain-model.md`). Guarded on `mapped` rather
+    // than `meta.phase` so a plan the mapper already advanced past Development —
+    // `delivered`, `released` — is left exactly where it was, untouched.
+    const phase =
+      mapped === 'Development' && allWavesMerged(meta, pulse)
+        ? toBoardPhase('delivered')!
+        : mapped;
     if (!phase) continue;
     const slug = planSlug(relPath);
     const card: Card = {
@@ -731,8 +790,11 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // or an unreadable one — leaves the field off the card.
     if (meta.rounds !== undefined) card.rounds = meta.rounds;
     // Kept for the tile's Ready/In-progress badge; the column now says the same
-    // thing, but a Development card still benefits from the explicit flag.
-    if (meta.phase === 'approved') card.started = started;
+    // thing, but a Development card still benefits from the explicit flag. Gated
+    // on the card's OWN phase, not the plan's: an approved plan whose waves have
+    // all merged has been bumped out of Development, and the Ready/In-progress
+    // badge is a Development affordance that must not ride along into Endgame.
+    if (phase === 'Development') card.started = started;
     // Computed for every plan that HAS waves, single-wave ones included. The
     // old `> 1` guard was right about "2 waves · 3 branches" being noise on a
     // one-wave plan and wrong about the rest: whether anyone is working on a
