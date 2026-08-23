@@ -1826,6 +1826,7 @@ function HeaderRow() {
  */
 function PlanRow({
   group,
+  waves,
   onOpenPlan,
   expanded,
   onToggle,
@@ -1842,6 +1843,13 @@ function PlanRow({
   soleWave,
 }: {
   group: PlanGroup;
+  /**
+   * The fleet's server-derived waves — the list the head's count reads instead
+   * of re-grouping `group.rows`. See `waveSummaryFor`. Undefined on a pre-wave
+   * server's pulse (the board casts, so the field is absent rather than `[]`),
+   * and the summary then falls back to the row derivation.
+   */
+  waves?: Wave[];
   onOpenPlan?: AgentListProps['onOpenPlan'];
   /**
    * The plan's clock in minutes, where the APPROVAL clock is not the one running.
@@ -1901,7 +1909,7 @@ function PlanRow({
   soleWave?: Wave | null;
 }) {
   const waiting = planWaitingDays(group);
-  const summary = waveSummaryFor(group);
+  const summary = waveSummaryFor(group, waves);
   const foldable = expanded !== null;
   // THE PHASE IS THE PLAN'S, and slot 5 is where a fact about the plan is true.
   // Read from the group's rows rather than from a plan field, because a row is
@@ -4956,6 +4964,7 @@ export function AgentList({
                       >
                         <PlanRow
                           group={group}
+                          waves={fleet.waves}
                           onOpenPlan={onOpenPlan}
                           expanded={expanded}
                           onToggle={foldable ? () => togglePlan(group.plan) : undefined}
@@ -5242,6 +5251,7 @@ export function AgentList({
                     {planHeads && (
                       <PlanRow
                         group={group}
+                        waves={fleet.waves}
                         onOpenPlan={onOpenPlan}
                         // THE FRESHEST BRANCH CLOCK, because `waitingDays` is
                         // null here.
