@@ -14,6 +14,7 @@
 - **Approved:** 2026-08-23, Jan Wloka, in-session
 - **Started:** 2026-08-23, Jan Wloka, `bug/the-wave-name-stays-in-its-cell`
 - **Started:** 2026-08-23, Jan Wloka, `bug/the-wave-name-stays-in-its-cell`
+- **Started:** 2026-08-23, Jan Wloka, `feature/the-sweep-names-a-prose-wave`
 
 ## Approval
 
