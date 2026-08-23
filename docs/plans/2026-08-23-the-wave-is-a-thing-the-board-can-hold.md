@@ -419,7 +419,7 @@ the case.
 
 ### Constrained
 
-- `feature/the-classifier-is-total` — enumerate the state cross-product against `classify`, asserting it is total and stable and that no `(plan, wave)` reaches two groups; plus the eighteen section rules, the six currently-failing ones written as **explicit expected-failures carrying today's measured numbers** (`DONE => verdict complete` expects 60 of 61, not "fails") so that fixing one breaks its test and forces a deliberate update
+- `feature/the-classifier-is-total` — enumerate the state cross-product against `classify`, asserting it is total and stable and that no `(plan, wave)` reaches two groups; plus the eighteen section rules, the six currently-failing ones written as **explicit expected-failures carrying today's measured numbers** (`DONE => verdict complete` expects 60 of 61, not "fails") so that fixing one breaks its test and forces a deliberate update → #334
 
 ### One row
 
