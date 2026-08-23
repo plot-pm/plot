@@ -1,6 +1,6 @@
-# The derivations leave the component
+# The derivations leave the component, by subject
 
-> `AgentList.tsx` is 8104 lines and 90 exports, and every one of the last 60 commits to it touched it. Four of eight currently-claimable branches want this one file, so the fleet serialises on a component that is mostly not a component.
+> `AgentList.tsx` is 8104 lines and 90 exports, and every one of the last 60 commits to it touched it. Four of eight currently-claimable branches want this one file. One module would end the serialisation; several cohesive ones end the *accidental* collisions too — two branches on unrelated subjects should not meet at all.
 
 ## Status
 
@@ -14,7 +14,7 @@
 
 ## Changelog
 
-- The row derivations move out of `AgentList.tsx` into their own module, so branches that change what a row *says* no longer collide with branches that change how it *renders*.
+- The row derivations move out of `AgentList.tsx` into modules grouped by subject, so two branches working on unrelated things no longer edit the same file.
 
 <!-- Board impact: pure refactor. Moves code out of
      packages/board/src/app/components/AgentList.tsx into a new module and
@@ -68,11 +68,52 @@ one hook that has to stay behind.
 
 ## Design
 
-### One move, not a redesign
+### The modules follow the churn, not a taxonomy
+
+Where the last 40 commits actually landed:
+
+```
+lines     0- 999   32 hunks
+lines  1000-1999   15
+lines  2000-2999    9
+lines  3000-3999    5
+lines  4000-4999   21
+lines  5000-5999   13
+```
+
+Two hot regions: the derivations (0–3000, **56 hunks**) and the row components
+(4000–6000, **34**). The subjects inside the first are already legible from the
+export names, and they are what the modules should be:
+
+| module | subject | exports include |
+|---|---|---|
+| `host-notes.ts` | what the host and its PRs can say | `hostAnswer`, `hostErrorState`, `hostCannotReportCi`, `prNote`, `issueNote`, `machineNote`, `HOST_ANSWER_HINT` |
+| `collapse.ts` | what is folded, and remembered | `readCollapsed`, `writeCollapsed`, `isCollapsible`, `COLLAPSED_BY_DEFAULT` |
+| `waves.ts` | grouping rows into waves and describing them | `groupByWave`, `waveLabel`, `waveSummaryFor`, `waveDissent`, `groupedNote`, `showPlanHeading` |
+| `activity.ts` | motion, change marks, pace | `activeRowKeys`, `changedRows`, `activityPace`, `groupPace`, `watchedState`, `CHANGE_MARK_MS` |
+| `row-identity.ts` | what a row IS and how it is keyed | `rowKey`, `isFinished`, `isUnbegun`, `isUnreadable`, `sortByWaiting`, `planWaitingDays` |
+| `actions.ts` | what a row offers | `offersAction`, `offersChangedFiles`, `changedFilesLabel`, `repairWord` |
+
+**This is the whole point of the change.** One module would end the
+serialisation — the fleet could at least queue. Six end the *accidental*
+collisions: a branch changing wave grouping and a branch changing host notes now
+have no file in common, and neither rebases across the other.
+
+Today's evidence that the split is along the right seam: **#339 conflicted on
+`groupedNote`** while rewriting wave rendering. Under this cut, `groupedNote` is
+in `waves.ts` with the grouping that actually uses it — the conflict would have
+been a real one about waves, not an accident of shared residence.
+
+### One move per module, not a redesign
 
 `AgentList.tsx` keeps its 18 components and its shell. The derivations move to
-`packages/board/src/app/lib/agent-rows.ts`, beside the existing `tuple-row.ts`
-and `filters.ts` — the directory that already holds this kind of code.
+`packages/board/src/app/lib/agent-rows/`, beside the existing `tuple-row.ts` and
+`filters.ts` — the directory that already holds this kind of code.
+
+**A function goes where its SUBJECT is, not where its line number was.** The
+table above is derived from what the exports are about; if a function does not
+fit any of the six, that is a finding worth reporting rather than a seventh
+module invented to hold one thing.
 
 **`useChangeMarks` stays in the component file.** It is a hook; it belongs with
 the components that call it. Do not move it to keep a line-number boundary tidy.
@@ -133,10 +174,15 @@ one that will, and it leaves a file that is 8000 lines for no stated reason.
 
 ### Open Questions
 
-- [ ] Does `agent-rows.ts` want to be one module or several
-      (`derive.ts` / `classify.ts` / `notes.ts`)? 65 exports in one file is
-      better than 90 in an 8000-line one, and still large. Prefer one module for
-      this move — a second split is easier to argue once the first has landed.
+- [x] ~~One module or several?~~ **Several — settled 2026-08-23.** One module
+      ends the serialisation; six end the accidental collisions. The subjects
+      come from the export names and are listed above.
+- [ ] Should the six land as **one PR or six**? Six are individually reviewable,
+      but they all edit `AgentList.tsx`'s import block, so they would serialise
+      on exactly the file this plan exists to unblock — each rebasing across the
+      last. **Recommend one PR**, reviewed module by module through its commits:
+      the diff is large but every hunk is a move, and the green suite is the
+      claim. Decide before starting.
 - [ ] Should the 13 test files import from the new module directly, or keep
       importing from `AgentList.tsx`? Directly is honest; it is also 13 more
       files in the diff. Decide before starting, not per-file.
@@ -145,6 +191,12 @@ one that will, and it leaves a file that is 8000 lines for no stated reason.
 
 - `AgentList.tsx` no longer holds the derivations, and is **materially smaller**
   — state the before and after line counts in the PR body.
+- **Each module is about one subject**, and its name says which. A module that
+  ends up holding "the rest" means the cut was wrong — report it rather than
+  shipping a `misc.ts`.
+- **No module imports another** except where a genuine dependency exists, and any
+  such import is named in the PR body. Six modules that all import each other are
+  one module with extra files, and would not reduce collisions at all.
 - **`pnpm run test:board` is green with no test file edited except its imports.**
   This is the assertion that makes it a refactor: any change to a test's
   *expectations* means behaviour moved, and the move is then wrong.
@@ -159,7 +211,7 @@ one that will, and it leaves a file that is 8000 lines for no stated reason.
 
 ### Moved
 
-- `infra/the-derivations-leave-the-component` — move the 65 pure derivations from `AgentList.tsx` to `app/lib/agent-rows.ts` with their docstrings intact, update the 14 importing files, and change no behaviour
+- `infra/the-derivations-leave-the-component` — move the 65 pure derivations from `AgentList.tsx` into six subject modules under `app/lib/agent-rows/` with their docstrings intact, update the 14 importing files, and change no behaviour
 
 ## Notes
 
@@ -173,9 +225,10 @@ surface cannot be worked on by two branches, and this fleet routinely wants four
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {"q": "Is the region above the first component actually pure?", "a": "Not quite - grep showed 25 JSX hits and 10 hook uses. Reading them: the hits are <AgentRow generic type parameters, not markup, and only useChangeMarks is a real hook. The cut is derivations, not a line number", "category": "technical"},
+    {"q": "One derivations module, or several by subject?", "a": "SEVERAL - operator call. One ends the serialisation; six end the ACCIDENTAL collisions, so two branches on unrelated subjects share no file. Subjects taken from export names: host-notes, collapse, waves, activity, row-identity, actions", "category": "architecture"},
     {"q": "Split the components too?", "a": "No - they share props and conventions, and doing both produces a diff nobody can review against a behaviour-preservation claim", "category": "tradeOffs"},
     {"q": "Move only the functions that actually collided?", "a": "No - fixes the collision that happened rather than the one that will, and leaves 8000 lines for no stated reason", "category": "tradeOffs"}
   ],
