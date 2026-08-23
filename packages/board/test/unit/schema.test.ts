@@ -55,6 +55,37 @@ describe('AgentEntrySchema — liveness on the wire', () => {
   it('rejects a state outside the five', () => {
     expect(() => AgentEntrySchema.parse({ ...base, state: 'ended' })).toThrow();
   });
+
+  it('defaults session to "" — a synthesized worktree has no launch id', () => {
+    // A worktree with no manifest is listed, but the session id is minted at
+    // launch and it never had one. `session` was the one required field; a
+    // synthesized entry needs it to default to the same "empty is real" value
+    // `branch` already carries, or the schema would reject the very entry the
+    // registry synthesizes to make the section truthful.
+    const e = AgentEntrySchema.parse({ branch: 'feature/x', worktree: '/wt' });
+    expect(e.session).toBe('');
+  });
+
+  it('carries previousPid and relaunches when a run was relaunched in place', () => {
+    // A relaunch overwrites `pid` and records what it displaced: `previousPid`
+    // is the corpse the row used to name, and `relaunches` is how many times
+    // this worktree has been restarted — a branch restarted three times is
+    // struggling, and nothing else on the board can say so.
+    const e = AgentEntrySchema.parse({
+      ...base, pid: '999', previousPid: '424242', relaunches: 3,
+    });
+    expect(e.previousPid).toBe('424242');
+    expect(e.relaunches).toBe(3);
+  });
+
+  it('defaults previousPid to "" and relaunches to 0 — a first dispatch records neither', () => {
+    // A manifest from a first dispatch (or an older server) carries neither
+    // field. The honest default is "nothing was displaced" and "restarted zero
+    // times", so an unrelaunched entry reads exactly as it did before.
+    const e = AgentEntrySchema.parse(base);
+    expect(e.previousPid).toBe('');
+    expect(e.relaunches).toBe(0);
+  });
 });
 
 describe('PlanMetaSchema — waves', () => {

@@ -365,7 +365,7 @@ with a live worktree is *classified* rather than skipped. Asserting it reads
      wave 1's behaviour while both touched registry.ts anyway. The `Done when`
      list keeps them separately assertable, which is what a split would buy. -->
 
-- `bug/the-registry-names-a-live-agent` — the launch stamp replaces any pid line and records `previousPid`/`relaunches` from both spawn paths; `refreshStates` classifies every entry with a worktree rather than gating on a pid the classifier never reads; a worktree with no manifest is listed as a synthesized entry rather than being invisible; the liveness docstring is corrected to match
+- `bug/the-registry-names-a-live-agent` — the launch stamp replaces any pid line and records `previousPid`/`relaunches` from both spawn paths; `refreshStates` classifies every entry with a worktree rather than gating on a pid the classifier never reads; a worktree with no manifest is listed as a synthesized entry rather than being invisible; the liveness docstring is corrected to match → #344
 
 ## Notes
 
