@@ -438,6 +438,68 @@ constraints, and they are what the board actually needs:
   2026-08-19 had shipped in v2.5.0, and dates get this wrong where ancestry
   cannot.
 
+### Read down: what each phase requires of the other entities
+
+The table above reads across the plan's own fields. This one reads **down** — for
+a given plan phase, what must be true of its waves, branches, PRs and worklogs.
+Measured over all 106 rows on the live board.
+
+| plan `phase` | wave `verdict` | branch `state` | pr | worklog `worker` |
+|---|---|---|---|---|
+| **Discovery** | eligible · blocked *(complete: 1)* | **open** *(merged: 1)* | **none** *(1 exception)* | **elsewhere — always** |
+| **Development** | any of the three | wip · open · merged | optional | finished · elsewhere · failed |
+| **Endgame** | **complete — always** | merged, or **deferred** | expected | any |
+| **Released** | **complete — always** | **merged — always** | **present — always** | elsewhere · finished |
+
+```
+DISCOVERY    28 rows   verdict: 12 eligible · 15 blocked · 1 complete
+                       state:   27 open · 1 merged        pr: 1 of 28    worker: 28/28 elsewhere
+DEVELOPMENT  26 rows   verdict:  9 eligible ·  8 blocked · 9 complete
+                       state:    9 open · 7 wip · 10 merged   pr: 17 of 26
+ENDGAME       9 rows   verdict:  9 complete   state: 6 merged · 3 deferred   pr: 7 of 9
+RELEASED     41 rows   verdict: 41 complete   state: 41 merged              pr: 41 of 41
+```
+
+### The three invariants this proves
+
+**1. Released is total.** 41 of 41 rows: every wave `complete`, every branch
+`merged`, every branch has a PR. **Zero exceptions across the whole estate.** A
+released plan whose row shows anything else is a defect, and this is strong
+enough to assert rather than merely expect.
+
+**2. Endgame requires every wave complete — 9 of 9** — while its branches split
+`merged` (6) and `deferred` (3). That is correct and is the rule's most easily
+mis-stated part: **a deferred branch is exempt from the merge gate**, because its
+annotation is a human decision that the work is not needed. *Every wave complete*
+and *every branch merged* are not the same constraint.
+
+**3. The worklog is absent at both ends.** `elsewhere` on 28 of 28 Discovery rows
+and 39 of 41 Released rows — an agent is only meaningfully present during
+Development. A worker state other than `elsewhere` on a Released row would mean a
+process is holding work that shipped.
+
+### Discovery's two exceptions are real
+
+One Discovery row is `merged` with a `complete` wave and a PR — work done before
+the plan was approved. **This is not corruption and must not be refused.**
+
+It is, however, exactly the row that put a Draft plan into DONE. The constraint
+is not *this cannot happen*; it is *the board must render it as what it is* — a
+merged branch of an unapproved plan, which belongs nowhere near a section that
+means ready-to-test.
+
+### What this gives the classifier
+
+`feature/the-classifier-is-total` enumerates the cross-product. These four rows
+are the **oracle** for the regions the live board actually reaches: any
+combination the enumeration produces that contradicts a *total* column above
+(Released ⇒ complete/merged/PR; Endgame ⇒ complete) is a defect in `classify`,
+not a novel state.
+
+The remaining regions — Development's nine combinations, Discovery's exceptions —
+are where judgement is still required, and the enumeration can only insist the
+answer be single and stable there.
+
 ### The wave constraint the phases imply
 
 A phase is a claim about the plan; a **wave verdict** is a claim about a slice.
