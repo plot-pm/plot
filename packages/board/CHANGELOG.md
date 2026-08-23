@@ -1,5 +1,107 @@
 # @plot-pm/board
 
+## 0.8.0
+
+### Minor Changes
+
+- [#332](https://github.com/plot-pm/plot/pull/332) [`2c2f604`](https://github.com/plot-pm/plot/commit/2c2f6044790b8b1ad2c8e26ef409d509c91af797) Thanks [@jwloka](https://github.com/jwloka)! - A PR row reports every condition it is in, not only the most blocking one. `pr.states` is an ordered set, most-blocking first, and `pr.state` is now derived as its head rather than computed beside it — so a PR that both conflicts and has a failed build no longer loses the build failure before the row is built.
+
+- [#339](https://github.com/plot-pm/plot/pull/339) [`2a450a2`](https://github.com/plot-pm/plot/commit/2a450a24de743039bc66b086ca19de6e1095c951) Thanks [@jwloka](https://github.com/jwloka)! - board: a wave renders as exactly one row in exactly one section
+
+  A wave existed only as rows that share a name, and the board decided each row's
+  section from that branch's own state. When a wave's branches disagreed —
+  `Inverted`: one merged, one open — the merged branch went to DONE and the open
+  one to NOT STARTED, so the wave rendered in two sections at once.
+
+  A wave now lands in ONE section, chosen from its verdict and its plan's phase and
+  nothing else: a complete wave sits with its merged work, and a wave with any
+  unmerged branch is where its unfinished work is. `Inverted` appears once, in NOT
+  STARTED. The collapsed wave row states how many branches it speaks for and says
+  so when they disagree, so the density is not bought with accuracy.
+
+- [#337](https://github.com/plot-pm/plot/pull/337) [`423dcb9`](https://github.com/plot-pm/plot/commit/423dcb9157504555b1e3e2a607b54e1133e3164d) Thanks [@jwloka](https://github.com/jwloka)! - The board header names the branch its server is serving from. `pnpm board` serves the artifact built in whichever of this repo's 22+ worktrees it was started in, so a reader who sees a layout they changed can now tell whether they are looking at that branch's artifact or another's. `serverInfo()` reads `git branch --show-current` once at startup and memoises it — the fork stays off the per-request path. A detached HEAD (several worktrees here are) reports empty and the header renders no element, rather than a chip reading `unknown` or a fabricated short SHA. The name is muted secondary weight: context, not one of the two states a reader acts on.
+
+### Patch Changes
+
+- [#336](https://github.com/plot-pm/plot/pull/336) [`d156a3a`](https://github.com/plot-pm/plot/commit/d156a3a0e179f22325ed60f53c4000cf85c3ac6c) Thanks [@jwloka](https://github.com/jwloka)! - board: a finished row reports neither a pulse nor a live worker
+
+  DONE wore a green activity mark it did not earn, and some of its rows presented a
+  worker state that had already gone stale. Both were one category error in one
+  file: a LOCAL fact — a worktree's contents, a worklog's last recorded worker —
+  answering a question about work that is FINISHED. Measured on the live board
+  2026-08-23, seven DONE rows reported activity and every one was dirty on the same
+  file: `test/fixtures/tiny-garden/.plot/state/last-pulse.json`, the fixture the
+  board suite rewrites when it runs. The board was reporting activity caused by
+  running its own tests.
+
+  The domain model states the boundary — _a local fact may DESCRIBE a row and may
+  never ORDER the fleet_ — and these two reads crossed it.
+
+  Decided and enforced:
+
+  - **The guard is finishedness, never a filename.** A new `isFinished(row)` is
+    `state === 'merged' || state === 'deferred'` — the branch's own ref state,
+    which every reader can verify. Ignoring `last-pulse.json` specifically would
+    silence today's instance and leave the rule wrong: any uncommitted file in any
+    stale worktree brings the mark back looking like a new bug.
+  - **`isActive` now screens both finished states, not only `merged`.** One of the
+    seven marked rows was `deferred` with a dirty worktree; the merged-only guard
+    let it through. A finished row reports no pulse regardless of what its worktree
+    holds.
+  - **A finished wave-of-one no longer shows a live worker.** The worker outlives
+    its branch, so its last state can survive the merge — `waiting` is a LIVE
+    worker and reached the wave row's status slot, reading as _someone owes this an
+    answer_ under a heading that says done. A new `soleRowStatus` skips the live
+    worker on a finished row and falls back to the PR then the branch state.
+  - **The mark keeps working where it was right.** A WORKING row with `localDirty`,
+    and an unfinished wave with a live worker, are unchanged — the regression that
+    matters is asserted directly.
+
+  Client-side only: no schema or server change. A stale worktree on a merged branch
+  is still a real condition worth a STATIC mark of its own; that mark is a later
+  wave and this never gives it the motion one.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#338](https://github.com/plot-pm/plot/pull/338) [`02d8fcc`](https://github.com/plot-pm/plot/commit/02d8fcce6b4a1810b92a3dbffa894602eb1f8bfa) Thanks [@jwloka](https://github.com/jwloka)! - board: a folded wave head says what its verdict says, never that work landed
+
+  `groupedNote`'s fallback returned `work landed — waiting to be merged` for any
+  unrecognised word, and the `waveNote` call site short-circuited on
+  `groupedCount !== undefined` before the verdict could correct it. Since
+  `groupedCount` is defined for every multi-branch wave, the two verdict arms were
+  dead for every wave with more than one branch — so a `to approve` wave, whose
+  plan is still in review with no PR opened and nothing pushed, rendered a claim
+  that a merge was pending. Measured 2026-08-23, five live `blocked` waves each
+  asserted work had landed, two lines above their own rows reading _plan not
+  approved yet — still in review_.
+
+  Decided and enforced:
+
+  - **A note is DERIVED, never defaulted into.** `groupedNote` answers only for the
+    two words a count can mean (`delivered`, `stalled`) and returns `''` for any
+    other. Empty is falsy, so `waveNote` falls through to the verdict — the value
+    that actually describes the wave.
+  - **No phase special-case.** Checking `phase === 'Discovery'` would silence
+    today's instance and leave the fallback wrong for every other unrecognised
+    word. The defect is a fallback that asserts, not drafts specifically.
+  - **A multi-branch wave can reach the verdict arms at all** — the `waveNote`
+    ternary now `|| verdict` rather than short-circuiting on the count, so both
+    `eligible` and `blocked` grouped waves render their verdict sentence.
+
+- [#334](https://github.com/plot-pm/plot/pull/334) [`55ec8fb`](https://github.com/plot-pm/plot/commit/55ec8fbaa8f1b2bb7ba703c52f09334fdd9478b5) Thanks [@jwloka](https://github.com/jwloka)! - board: the section rules become an executable test
+
+  The eighteen section rules were measured against the live payload and written
+  down; nothing re-ran them. This pins them as tests, asserting today's behaviour —
+  twelve rules that hold and six that do not, each failing one carrying its measured
+  number so that fixing it BREAKS the test and forces a deliberate update.
+
+  Also asserts `classify` is total over the state cross-product and stable across
+  repeated evaluation.
+
 ## 0.7.0
 
 ### Minor Changes
@@ -151,11 +253,11 @@ N +` stepper in the **WORKING** header asks _how many agents at once?_ Each
   controls and their shared state on top of wave 1's live registry, and it
   dispatches nothing — the dispatch loop is wave 3.
 
-  <!--
-  bumps:
-    skills:
-      plot: minor
-  -->
+    <!--
+    bumps:
+      skills:
+        plot: minor
+    -->
 
 ### Patch Changes
 
@@ -353,11 +455,11 @@ N +` stepper in the **WORKING** header asks _how many agents at once?_ Each
   never mounted, and it fails against the pre-fix code for the stated reason:
   the Commission design item is absent without the prop.
 
-  <!--
-  bumps:
-    skills:
-      plot: patch
-  -->
+    <!--
+    bumps:
+      skills:
+        plot: patch
+    -->
 
   ## And a wave said _nobody has taken it_ over finished work
 
@@ -1216,10 +1318,10 @@ has taken it`. The server was right on every field — the row sat in
   Nothing new reads the prose: `verdict` and `blockedBy` remain the fields a
   consumer reads, and this only sharpens the sentence a person sees.
 
-    <!--
-    bumps:
-      skills:
-    -->
+      <!--
+      bumps:
+        skills:
+      -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched. `blockedNote` gains an optional argument, so every existing caller is
@@ -1309,10 +1411,10 @@ story, waveSummary`, and a branch row carried `branch, path`. Zero of seven
   PR for this branch_, which was never a decision about the contract so much as
   this cache filter leaking into it.
 
-    <!--
-    bumps:
-      skills:
-    -->
+      <!--
+      bumps:
+        skills:
+      -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched, and `plot-fleet-scan.sh` already resolves each branch's PR to decide
@@ -1522,10 +1624,10 @@ story, waveSummary`, and a branch row carried `branch, path`. Zero of seven
   order, a new status flashes then sorts in, the panel is absent when there is
   nothing to report, and the footer line stays at the foot and unchanged.
 
-    <!--
-    bumps:
-      skills:
-    -->
+      <!--
+      bumps:
+        skills:
+      -->
 
 - [#287](https://github.com/plot-pm/plot/pull/287) [`50ef368`](https://github.com/plot-pm/plot/commit/50ef3681fb332ecc2b862af18a6722d1ca9dd9f6) Thanks [@jwloka](https://github.com/jwloka)! - board: a failing check shows its step and its age, and its file list moves to the menu
 
@@ -1924,10 +2026,10 @@ bottom 801.3125 in 800px` — the footer really is past the fold there, by 1.3px
   the test says in a comment why it does not — and the defect gets its own plan,
   `2026-08-21-the-page-is-as-tall-as-the-screen.md`.
 
-    <!--
-    bumps:
-      skills:
-    -->
+      <!--
+      bumps:
+        skills:
+      -->
 
   No skill version bumps: this is a board-side rendering change only. No helper
   script decides how a section is drawn, `/api/fleet` loses and gains no field,
@@ -2275,11 +2377,11 @@ null` on every row in this section while `ageMinutes` read real values. A plan i
   by construction (a plan's branches move through the lifecycle together), so the
   predicate can demand that every row be wave-grouped rather than handle a mixture.
 
-    <!--
-    bumps:
-      skills:
-        plot: patch
-    -->
+      <!--
+      bumps:
+        skills:
+          plot: patch
+      -->
 
 - [#300](https://github.com/plot-pm/plot/pull/300) [`93a1e41`](https://github.com/plot-pm/plot/commit/93a1e415ca5903a50280ade19899bb21ecb06b98) Thanks [@jwloka](https://github.com/jwloka)! - board: an agent is the machine, so it never appears in WAITING ON A MACHINE
 
@@ -2471,10 +2573,10 @@ null` on every row in this section while `ageMinutes` read real values. A plan i
   on the pulse, so a brief written between two scans shows up on the next pulse
   instead of waiting out the scan's cadence.
 
-    <!--
-    bumps:
-      skills:
-    -->
+      <!--
+      bumps:
+        skills:
+      -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched, and the `/api/fleet` payload gains a field rather than changing one —
@@ -2977,10 +3079,10 @@ spawn`. Every number is measured, not estimated — the worktree count and the
   field — the estate is appended to the existing `error` string, which the tab
   already renders as `Last scan failed: …`.
 
-    <!--
-    bumps:
-      skills:
-    -->
+      <!--
+      bumps:
+        skills:
+      -->
 
   The estate report is board-side only. `plot-fleet-scan.sh` is deliberately not
   changed: a SIGKILLed scan cannot append its own diagnosis, so the measurement is
@@ -3610,10 +3712,10 @@ at startup; pruning stale worktrees cuts both the count and the per-spawn cost`.
   as the follow-up: this change's job is to stop asserting a false cause, not to
   find the true one.
 
-    <!--
-    bumps:
-      skills:
-    -->
+      <!--
+      bumps:
+        skills:
+      -->
 
   Board-side only, and no schema change: the estate rides the existing `error`
   string. `plot-fleet-scan.sh` is untouched for the same reason it was untouched
@@ -3899,12 +4001,12 @@ at startup; pruning stale worktrees cuts both the count and the per-spawn cost`.
   a row's `⋯` menu holds — so no skill's behaviour changed.
 
 - [#219](https://github.com/plot-pm/plot/pull/219) [`a4ecf36`](https://github.com/plot-pm/plot/commit/a4ecf3632db03b9c40f7062a304eabcd742f481e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-        bumps:
-          skills:
-            plot: minor
-            plot-dispatch: minor
-            plot-fleet: minor
-        -->
+          bumps:
+            skills:
+              plot: minor
+              plot-dispatch: minor
+              plot-fleet: minor
+          -->
 
   plot: `finished` is not a verdict
 
@@ -4054,10 +4156,10 @@ failing` since the previous day, and [#203](https://github.com/plot-pm/plot/issu
   than a review comment — the window where rows are git-fresh and host-unfetched
   is not an edge case, it is most of every minute.
 
-        <!--
-        bumps:
-          skills:
-        -->
+          <!--
+          bumps:
+            skills:
+          -->
 
   No skill version bumps: this is a board-side change only. Nothing under
   `skills/` reads or documents what the Agents tab prints in an empty section,
@@ -4564,11 +4666,11 @@ time`), computed server-side where the wave verdict and the plan phase
   here, because this same change reworded a neighbouring note. The client
   no longer imports any note constant.
 
-            <!--
-            bumps:
-              skills:
-                plot: patch
-            -->
+              <!--
+              bumps:
+                skills:
+                  plot: patch
+              -->
 
 - [#182](https://github.com/plot-pm/plot/pull/182) [`07eeceb`](https://github.com/plot-pm/plot/commit/07eecebe6b1d915e1d05fe8d35391c1bbb02f903) Thanks [@jwloka](https://github.com/jwloka)! - A row on the Agents tab now marks itself when something is actually being written to it, rather than when it happens to sit in the WORKING group.
 

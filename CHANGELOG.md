@@ -1,5 +1,56 @@
 # plot
 
+## 2.9.0
+
+### Minor Changes
+
+- [#335](https://github.com/plot-pm/plot/pull/335) [`9401ea3`](https://github.com/plot-pm/plot/commit/9401ea3c2e00199d045991c92a40aa5004742bab) Thanks [@jwloka](https://github.com/jwloka)! - Add `/plot-reslice`: a spoke command that slices a plan's multi-branch wave
+  into one wave per branch. It reads the entangled branches — their diffs, PRs
+  and conflicts — proposes one named wave each in an argued dependency order,
+  asks a person to confirm the order, then rewrites only the plan's
+  `## Branches` section, leaving the branch names and the rest of the file
+  untouched. A plan already one-branch-per-wave yields no proposal, a
+  `complete` wave is left alone, and unattended it stops with a `PLOT-UNASKED:`
+  line rather than writing the source of truth without confirmation.
+
+  <!--
+  bumps:
+    skills:
+      plot-reslice: minor
+  -->
+
+- [#341](https://github.com/plot-pm/plot/pull/341) [`c6cc01d`](https://github.com/plot-pm/plot/commit/c6cc01df3979800b3086537f69ce55178640e2d3) Thanks [@jwloka](https://github.com/jwloka)! - `plot-reconcile-scan.sh` gains a section reporting unsliced waves: every `### `
+  wave heading that carries more than one branch line, named with its plan file,
+  its heading and its branch count, plus a machine-countable `unsliced_waves=`
+  footer entry the way each existing section has one. A wave holds exactly one
+  branch (MANIFESTO.md); one holding several is a shape `/plot-reslice` can
+  repair, so each finding prints `reslice: /plot-reslice <slug>`.
+
+  It REPORTS and repairs nothing — the Principle 3 split: this collects,
+  `/plot-reslice` and a person conclude. The section is deliberately non-blocking:
+  it is placed as section 7 (index drift renumbered to 8) and kept out of the
+  `attention=` count that gates `/plot-deliver` and the `/plot` hygiene line,
+  because an unsliced wave is a shape to fix, not a branch that cannot move.
+  Branch counts come from `plot-plan-meta.sh`'s `waves[]` — never a second parser —
+  so a backticked branch name in a plan's prose is not counted; a phase-less file
+  is skipped (it is not a plan); and a `complete` wave is history that still
+  counts, since hiding it would misreport the estate.
+
+  The `/plot-deliver` delivery-landed gate is unaffected: its stop marker
+  (`sed -n '/^== 7./q;p'`) already excludes the two non-blocking sections at 7
+  and 8, so it needs no change; only its prose is updated to name the new section.
+  `/plot-reconcile` (the scan's interpreter) and `/plot`'s hygiene line have their
+  prose, example footers and Automation Output updated to name the new section and
+  its `unsliced_waves=` count and to renumber index drift to 8.
+
+  <!--
+  bumps:
+    skills:
+      plot: minor
+      plot-deliver: patch
+      plot-reconcile: patch
+  -->
+
 ## 2.7.0
 
 ### Minor Changes
@@ -46,13 +97,13 @@ auth status` exits 0 and prints "Keycloak: signed in" for a slug that does not
   keys are read back by the skill to check auth against the right instance, and
   the skill says plainly that the board does not yet display Jenkins status.
 
-  <!--
-  bumps:
-    skills:
-      plot-board-setup: minor
-      plot-init: patch
-      plot: patch
-  -->
+    <!--
+    bumps:
+      skills:
+        plot-board-setup: minor
+        plot-init: patch
+        plot: patch
+    -->
 
 - [#253](https://github.com/plot-pm/plot/pull/253) [`2e389a1`](https://github.com/plot-pm/plot/commit/2e389a12eef6c928fc8b8127103b1c04df8c512d) Thanks [@jwloka](https://github.com/jwloka)! - plot-sprint: sprint creation proposes the plans that serve the goal
 
@@ -240,12 +291,12 @@ auth status` exits 0 and prints "Keycloak: signed in" for a slug that does not
   `/plot-idea` unattended stops without one and writes no plan file, which is
   exactly the exit-0-having-done-nothing failure `docs/unattended.md` documents.
 
-  <!--
-  bumps:
-    skills:
-      plot: minor
-      plot-idea: minor
-  -->
+    <!--
+    bumps:
+      skills:
+        plot: minor
+        plot-idea: minor
+    -->
 
 - [#242](https://github.com/plot-pm/plot/pull/242) [`5c2cf58`](https://github.com/plot-pm/plot/commit/5c2cf58faaade305776a7bc1a6cc52a570260058) Thanks [@jwloka](https://github.com/jwloka)! - The board renders what has arrived
 
@@ -767,13 +818,13 @@ plan (decision log / note?)`. What changes is the claim, and that it no longer
   slices the report at section 7 (`sed -n '/^== 7\./q;p'`) before grepping, so the
   sections that mean _defect_ still block and the convenience section never does.
 
-  <!--
-  bumps:
-    skills:
-      plot: minor
-      plot-reconcile: minor
-      plot-deliver: patch
-  -->
+    <!--
+    bumps:
+      skills:
+        plot: minor
+        plot-reconcile: minor
+        plot-deliver: patch
+    -->
 
 - [#265](https://github.com/plot-pm/plot/pull/265) [`e50de93`](https://github.com/plot-pm/plot/commit/e50de93c0d075efa36ee4b211cf62542ee0f3a7e) Thanks [@jwloka](https://github.com/jwloka)! - plot: the two pre-Approved gates know the Design phase
 
@@ -1054,11 +1105,11 @@ api rate_limit')` that feeds the pure parser, and it returns null on any throw s
   the throttle is `feature/every-host-consumer-slows-down`; the banner and the note
   that say a spent budget from an unreachable host are the two `Says` branches.
 
-  <!--
-  bumps:
-    skills:
-      plot: minor
-  -->
+    <!--
+    bumps:
+      skills:
+        plot: minor
+    -->
 
 ### Patch Changes
 
@@ -1799,12 +1850,12 @@ api rate_limit')` that feeds the pure parser, and it returns null on any throw s
   -->
 
 - [#219](https://github.com/plot-pm/plot/pull/219) [`a4ecf36`](https://github.com/plot-pm/plot/commit/a4ecf3632db03b9c40f7062a304eabcd742f481e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-      bumps:
-        skills:
-          plot: minor
-          plot-dispatch: minor
-          plot-fleet: minor
-      -->
+        bumps:
+          skills:
+            plot: minor
+            plot-dispatch: minor
+            plot-fleet: minor
+        -->
 
   plot: `finished` is not a verdict
 
@@ -2030,11 +2081,11 @@ api rate_limit')` that feeds the pure parser, and it returns null on any throw s
   -->
 
 - [#215](https://github.com/plot-pm/plot/pull/215) [`2175cb5`](https://github.com/plot-pm/plot/commit/2175cb561ec6d4e6cd1518e131b3a32556ebd73e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-        bumps:
-          skills:
-            plot: patch
-            plot-dispatch: patch
-        -->
+          bumps:
+            skills:
+              plot: patch
+              plot-dispatch: patch
+          -->
 
   plot: the phase gate reads the plan from the shared ref
 
@@ -2277,11 +2328,11 @@ kill` guard inside `cleanup` would abort the trap whenever `pid` was empty and
   skip the tempfile removal — the handler that exists to prevent a leak would
   become one.
 
-        <!--
-        bumps:
-          skills:
-            plot: patch
-        -->
+          <!--
+          bumps:
+            skills:
+              plot: patch
+          -->
 
 - [#214](https://github.com/plot-pm/plot/pull/214) [`890163c`](https://github.com/plot-pm/plot/commit/890163cb551d97c1e5bd34279ad2cbc4d0922e3b) Thanks [@jwloka](https://github.com/jwloka)! - Board test suite retries git calls when index.lock is held by the servers scan
 
