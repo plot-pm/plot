@@ -44,7 +44,6 @@ import {
   rowsBySection,
   waveKeyOf,
   waveDissent,
-  groupedNote,
   LOCK_ECHO_MS,
   rowKey,
   watchedState,
@@ -259,9 +258,19 @@ describe('waveDissent — the collapsed row does not read `merged` for a half-op
   it('feeds groupedNote, which then says so rather than the section word', () => {
     // With a dissent the note names the split; without one it keeps the ordinary
     // sentence for the section word.
+    //
+    // `to review` IS THE POINT OF THE FIRST TWO LINES, and it is deliberately not
+    // the word in the third. It is a word `groupedNote` does not recognise, and
+    // an unrecognised word returns '' so the caller's ternary falls through to
+    // the VERDICT — the default used to assert `work landed — waiting to be
+    // merged` over five live blocked waves whose branches had never been touched.
+    // A dissent still outranks that: a MEASURED disagreement is a fact about
+    // branches that exist, so it speaks even for a word with no sentence.
     expect(groupedNote('to review', 1)).toMatch(/1 merged/);
-    expect(groupedNote('to review', null)).toBe('work landed — waiting to be merged');
+    expect(groupedNote('to review', null)).toBe('');
+    // And a word that DOES have a sentence keeps it when its branches agree.
     expect(groupedNote('delivered', null)).toBe('landed — nothing left in it');
+    expect(groupedNote('delivered', 2)).toMatch(/2 merged/);
   });
 });
 
