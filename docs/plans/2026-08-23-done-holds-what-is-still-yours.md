@@ -444,7 +444,7 @@ never the motion mark. The same argument `localAhead` already won:
 
 ### Still
 
-- `bug/a-finished-row-is-not-active` — a finished row reports neither a pulse nor a live worker state: `isActive` ignores worktree facts on merged or deferred work, and a `failed`/`waiting` worker on a landed branch reads as stale rather than as current. The rule is the row's finishedness, never a filename
+- `bug/a-finished-row-is-not-active` — a finished row reports neither a pulse nor a live worker state: `isActive` ignores worktree facts on merged or deferred work, and a `failed`/`waiting` worker on a landed branch reads as stale rather than as current. The rule is the row's finishedness, never a filename → #336
 
 ## Notes
 
