@@ -360,7 +360,7 @@ changes what the section *is* and depends on the registry the same day landed.
 > ago. The inversion is right and its input is not ready: entries must be able
 > to say whether they are alive first.
 
-- `feature/working-is-about-agents` — WORKING renders the `agents` list rather than branch rows, each naming its agent with the branch as an artifact link; the four agentless paths into `working` (`unstarted`, `last commit N ago`, `locked`, `held`) go to the section their state belongs to. Tests: a running agent appears once, identified by its session, with its branch linked; **a branch with no agent does not appear in WORKING** — held, uncommitted, and write-locked branches all leave it carrying the marks they already have; **a `locked` worktree with no worker is not called working**; an agent holding **no** branch is listed, which is what the registry exists for; two agents on two branches are two rows; the same agent is never two rows; no other section loses a row.
+- `feature/working-is-about-agents` #362 — WORKING renders the `agents` list rather than branch rows, each naming its agent with the branch as an artifact link; the four agentless paths into `working` (`unstarted`, `last commit N ago`, `locked`, `held`) go to the section their state belongs to. Tests: a running agent appears once, identified by its session, with its branch linked; **a branch with no agent does not appear in WORKING** — held, uncommitted, and write-locked branches all leave it carrying the marks they already have; **a `locked` worktree with no worker is not called working**; an agent holding **no** branch is listed, which is what the registry exists for; two agents on two branches are two rows; the same agent is never two rows; no other section loses a row.
 
 ## Notes
 

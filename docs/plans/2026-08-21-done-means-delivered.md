@@ -15,6 +15,7 @@
 - **Started:** 2026-08-23, Jan Wloka, `feature/merged-waves-reach-testing`
 - **Started:** 2026-08-23, Jan Wloka, `feature/deliver-finds-prs-without-annotations`
 - **Started:** 2026-08-23, Jan Wloka, `feature/the-plan-row-offers-deliver`
+- **Started:** 2026-08-23, Jan Wloka, `feature/the-phase-after-development-is-testing`
 
 ## Approval
 
@@ -191,7 +192,7 @@ PR creation is not a change to the delivery path.
 
 ### Named
 
-- `feature/the-phase-after-development-is-testing` — `Endgame` becomes `Testing`
+- `feature/the-phase-after-development-is-testing` → #361 — `Endgame` becomes `Testing`
   through `BOARD_PHASES`, its mapping and every reader. Tests: the contract enum
   carries `Testing` and not `Endgame`; `toBoardPhase('delivered')` returns it;
   the board column header reads it; no source file under `packages/board/src`

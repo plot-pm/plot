@@ -35,6 +35,7 @@ import { repairFor, startRepair } from './resolver.js';
 import type { BuildBoardOptions } from './board.js';
 import { readBridge, writeBridge } from './pulse-bridge.js';
 import { readFleetControls } from './fleet-controls.js';
+import { maybeAutoDispatch } from './auto-dispatch.js';
 import { readAgentRegistry } from './registry.js';
 import type { AgentEntry } from './registry.js';
 import { workerQuestions } from './worker-question.js';
@@ -355,6 +356,22 @@ interface CacheEntry {
    * dispatch has run — a fact, not a failure.
    */
   agents: AgentEntry[];
+  /**
+   * Branches AUTO-DISPATCH has started this session whose claim/manifest the
+   * next pulse cannot yet see.
+   *
+   * `plot-dispatch.sh` is spawned detached, so a branch dispatched on one pulse
+   * may show neither a claim ref nor a manifest on the very next one. Counting
+   * only the registry against the cap would then dispatch it a second time and
+   * let the fleet reach 2N. This set holds such branches against the cap until a
+   * pulse confirms them (claimed, merged, gone, or held by a live registry
+   * entry), at which point `pruneInFlight` retires them.
+   *
+   * IN MEMORY AND NOWHERE ELSE, like `terminal` above: it describes what THIS
+   * process did, a restart re-derives from git, and it must never become a
+   * second source of truth about a repo whose only one is git.
+   */
+  autoInFlight: Set<string>;
   prs: Map<string, PrRecord> | null;
   /**
    * The same records keyed by PR NUMBER. The fleet tab asks "what is this
@@ -1930,6 +1947,27 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // `startRepair` decides. This loop only offers it every branch and it
     // refuses all but one state — see `mayResolve`.
     maybeRepair(opts, complete, entry.prs);
+
+    // THE SECOND AUTOMATIC WRITE — wave 3, the switch that does something.
+    //
+    // Beside `maybeRepair` and of the same kind: on the SCAN's clock, inside its
+    // success path, from a pulse that actually landed — a dispatch from a failed
+    // scan would act on refs that may have moved. Off the request path entirely,
+    // so it is a route nobody can reach.
+    //
+    // Reads the controls FRESH so a switch flipped this pulse takes effect now,
+    // and counts liveness from `entry.agents`, the registry this same refresh
+    // just repopulated. The in-flight set is the ONE piece of state that spans
+    // pulses — assigned whole, never mutated, so the cache's one-directional
+    // rule holds. It withholds the next dispatch when the switch is off or the
+    // cap is at its live count; it NEVER signals a running worker.
+    entry.autoInFlight = maybeAutoDispatch(
+      opts,
+      complete,
+      readFleetControls(opts),
+      entry.agents,
+      entry.autoInFlight,
+    );
   } catch (err) {
     // A failed refresh NEVER overwrites a good result. Replacing real state
     // with emptiness because one scan failed is what makes a monitoring view
@@ -1975,6 +2013,9 @@ export function freshCacheEntry(): CacheEntry {
     // `unsupported` before the first lookup, never `answered`: a board that
     // has not asked must not render an empty inbox as a clear one.
     issues: [], issueAnswer: 'unsupported', issueError: null, agents: [],
+    // Empty at construction — nothing was dispatched before this process began,
+    // and a restart re-derives liveness from git rather than trusting a set.
+    autoInFlight: new Set(),
     prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prAt: null, prError: null,
     // 0, so the first fetch happens immediately rather than a minute in.
     prNextAt: 0, prNextIsBackoff: false,

@@ -1,15 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import {
+  describe,
+  it,
+  expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  groupByPlan,
-  waveLabel,
   UNNAMED_WAVE,
-  countdown,
-  waitingLabel,
-  showPlanHeading,
-  isStartable,
-  isLive,
-  isCollapsible,
   noActionReason,
   menuState,
   openTarget,
@@ -18,49 +13,16 @@ import {
   runLinkLabel,
   storyRefusal,
   splitBranch,
-  prStateWord,
-  noteWithoutPr,
-  groupedNote,
-  readCollapsed,
-  writeCollapsed,
-  COLLAPSED_BY_DEFAULT,
-  CARD_BELOW_PX,
-  GROUPS,
-  CHANGE_MARK_MS,
-  ChangeMarks,
-  changedRows,
-  isActive,
-  isFinished,
-  soleRowStatus,
   isUnpushed,
-  waitingTone,
-  activityPace,
-  groupPace,
-  ACTIVITY_MARK_PLACE,
-  ActivityEcho,
-  activeRowKeys,
-  groupByWave,
-  waveSection,
-  rowsBySection,
-  waveKeyOf,
-  waveDissent,
-  wavesElsewhere,
-  elsewhereNote,
-  LOCK_ECHO_MS,
-  rowKey,
-  watchedState,
-  isUnreadable,
-  sameWatched,
-  hostCannotReportCi,
-  HOST_CANNOT_REPORT_HINT,
-  hostAnswer,
-  HOST_ANSWER_HINT,
-  hostErrorState,
-  prNote,
-  issueNote,
-  type WatchedState,
-  type PlanGroup,
 } from '../../src/app/components/AgentList.js';
+import { CARD_BELOW_PX, COLLAPSED_BY_DEFAULT, isCollapsible, readCollapsed, writeCollapsed } from '../../src/app/lib/agent-rows/collapse.js';
+import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_MARK_MS, ChangeMarks, LOCK_ECHO_MS, activeRowKeys, activityPace, changedRows, groupPace, isUnreadable, sameWatched, type WatchedState, watchedState } from '../../src/app/lib/agent-rows/activity.js';
+import { isActive, isLive, soleRowStatus } from '../../src/app/lib/agent-rows/stuck.js';
+import { GROUPS, groupByPlan, rowsBySection, showPlanHeading, type PlanGroup, waveKeyOf, waveSection } from '../../src/app/lib/agent-rows/sections.js';
+import { countdown } from '../../src/app/lib/agent-rows/actions.js';
+import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, hostErrorState, issueNote, noteWithoutPr, prNote, prStateWord } from '../../src/app/lib/agent-rows/host-notes.js';
+import { isFinished, isStartable, rowKey, waitingLabel, waitingTone } from '../../src/app/lib/agent-rows/row-identity.js';
+import { groupByWave, groupedNote, waveDissent, waveLabel } from '../../src/app/lib/agent-rows/waves.js';
 // THE ONE GRID, from the component that owns it. It was `ROW_TRACKS` in
 // `AgentList.tsx` beside a second grid; `one-component-renders-every-row`
 // collapsed both into this.
