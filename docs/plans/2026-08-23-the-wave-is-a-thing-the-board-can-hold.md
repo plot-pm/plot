@@ -14,6 +14,7 @@
 - **Approved:** 2026-08-23, Jan Wloka, in-session
 - **Started:** 2026-08-23, Jan Wloka, `feature/the-classifier-is-total`
 - **Started:** 2026-08-23, Jan Wloka, `bug/a-wave-is-one-row`
+- **Started:** 2026-08-23, Jan Wloka, `feature/the-contract-carries-a-wave`
 
 ## Approval
 
