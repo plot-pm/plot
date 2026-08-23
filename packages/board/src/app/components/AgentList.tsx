@@ -12,6 +12,7 @@ import {
   type Stuck,
   type StuckState,
   type WaitingGroup,
+  type Wave,
   type WaveVerdict,
   type AgentEntry,
   type RowKind,
@@ -882,6 +883,57 @@ export function waveDissent(rows: AgentRow[]): number | null {
     (r) => r.state === 'open' || r.state === 'wip' || r.state === 'claimed',
   ).length;
   return merged > 0 && unfinished > 0 ? merged : null;
+}
+
+/**
+ * How many of a PLAN's waves belong in a DIFFERENT section from this head's.
+ *
+ * A plan may legitimately span sections — a wave merged into DONE while a later
+ * one waits in NOT STARTED — and the board draws it one head per section, each
+ * heading only the waves that section holds. That is right, but until now the
+ * omission was SILENT: `waveSummaryFor` counts the waves in THIS section and says
+ * nothing of the rest, so the visible half of a three-wave plan reads
+ * indistinguishably from a plan that only ever had two. The reader cannot tell a
+ * split plan from a whole one, which is the exact confusion
+ * `a-split-plan-says-it-is-split` was filed for.
+ *
+ * READS THE SERVER-DERIVED WAVES, never re-derives them. `deriveWaves` already
+ * answered which ONE section each `(plan, wave)` belongs in — the whole point of
+ * `the-wave-is-a-thing-the-board-can-hold` — so this counts that answer rather
+ * than picking a predicate and disagreeing with it. Before that entity existed
+ * the numerator was undefined: a mixed wave was in two sections at once, so
+ * *"how many of my waves are not here"* had no single answer. It does now, which
+ * is why this branch waited on `a-wave-is-one-row`.
+ *
+ * JOINED ON `plan`, which is half a wave's identity — wave names repeat across
+ * plans, so a namesake wave of another plan must not count as this plan's.
+ *
+ * GUARDS THE ABSENT PAYLOAD. `fleet.waves` defaults to `[]` at parse time, but
+ * the board CASTS the payload rather than parsing it (`board as Board`), so a
+ * pre-wave pulse leaves `waves` `undefined` — the `FLEET_CONTROLS_DEFAULT` trap,
+ * shipped once already. A missing list is *nothing to report*, which is zero.
+ *
+ * Exported for test — the namesake and absent-payload cases are the two a naive
+ * `waves.length - here` gets wrong while looking right on a single split plan.
+ */
+export function wavesElsewhere(
+  waves: Wave[] | undefined, plan: string, section: WaitingGroup,
+): number {
+  if (!waves) return 0;
+  return waves.filter((w) => w.plan === plan && w.section !== section).length;
+}
+
+/**
+ * The fragment a plan head appends to its wave summary — *1 wave elsewhere* — or
+ * the empty string where nothing is elsewhere, so the caller renders nothing
+ * rather than a bare *0 elsewhere*.
+ *
+ * A sibling of `waveSummaryFor`'s own empty-string contract: the count belongs to
+ * the plan, and a count of zero is a fact the head has no reason to state.
+ */
+export function elsewhereNote(count: number): string {
+  if (count <= 0) return '';
+  return `${count} wave${count === 1 ? '' : 's'} elsewhere`;
 }
 
 /**
@@ -4619,9 +4671,18 @@ function PlanRow({
   commission,
   onApproving,
   ageMinutes,
+  elsewhere = 0,
 }: {
   group: PlanGroup;
   onOpenPlan?: AgentListProps['onOpenPlan'];
+  /**
+   * How many of this plan's waves belong in ANOTHER section — from
+   * `wavesElsewhere`, computed at the call site where the server's `fleet.waves`
+   * and this head's section are both in scope. The head states the number so a
+   * plan split across sections is legible as split; zero appends nothing. See
+   * `elsewhereNote`.
+   */
+  elsewhere?: number;
   /**
    * The plan's clock in minutes, where the APPROVAL clock is not the one running.
    *
@@ -4662,7 +4723,14 @@ function PlanRow({
   onApproving?: (active: boolean) => void;
 }) {
   const waiting = planWaitingDays(group);
-  const summary = waveSummaryFor(group);
+  // THE SECTION'S OWN WAVES, then how many are ELSEWHERE. `waveSummaryFor` counts
+  // what this section holds and is silent about the rest; `elsewhere` names the
+  // rest so a plan split across sections reads as split rather than as a whole
+  // plan two waves short. Joined with a middot when both speak; either alone
+  // stands on its own, and both empty renders nothing (the aside guards on it).
+  const here = waveSummaryFor(group);
+  const away = elsewhereNote(elsewhere);
+  const summary = [here, away].filter(Boolean).join(' · ');
   const foldable = expanded !== null;
   // THE PHASE IS THE PLAN'S, and slot 5 is where a fact about the plan is true.
   // Read from the group's rows rather than from a plan field, because a row is
@@ -4838,16 +4906,19 @@ function PlanRow({
         </span>
       ) : null}
       aside={
-        // THE WAVE SUMMARY — *3 waves, first eligible*. It answers *which slice
-        // of this plan* in the plan's own terms, which are the only terms this
-        // row has: the branches it would otherwise name do not exist yet. In
-        // slot 4 beside the branch link for the same reason a branch row's wave
-        // badge is there — it qualifies the item rather than pointing anywhere.
+        // THE WAVE SUMMARY — *3 waves, first eligible*, then *· 1 wave
+        // elsewhere*. It answers *which slice of this plan* in the plan's own
+        // terms, which are the only terms this row has: the branches it would
+        // otherwise name do not exist yet. In slot 4 beside the branch link for
+        // the same reason a branch row's wave badge is there — it qualifies the
+        // item rather than pointing anywhere. The `elsewhere` clause makes the
+        // section-scoping legible: a plan split across sections says how many of
+        // its waves this head does NOT speak for.
         summary ? (
           <span
             data-wave-summary
             className="truncate text-slate-500 dark:text-slate-400"
-            title="Waves of this plan that nothing has started — counted in this section"
+            title="Waves of this plan in this section — and how many sit in another"
           >
             {summary}
           </span>
@@ -7456,6 +7527,12 @@ export function AgentList({
                           approve={approve}
                           commission={commission}
                           onApproving={onStarting}
+                          // HOW MANY OF THIS PLAN'S WAVES ARE IN ANOTHER SECTION.
+                          // Read from the server's `fleet.waves`, keyed on the
+                          // section this head renders in (`key`), so a plan whose
+                          // first wave already merged into DONE says as much here
+                          // rather than reading two-wave when it is three.
+                          elsewhere={wavesElsewhere(fleet.waves, group.plan, key)}
                         />
                         {/* The branches, folded. Removed from the tree rather
                             than hidden with CSS, the same as the section fold:
@@ -7741,6 +7818,12 @@ export function AgentList({
                         approve={approve}
                         commission={commission}
                         onApproving={onStarting}
+                        // HOW MANY OF THIS PLAN'S WAVES ARE ELSEWHERE — the same
+                        // count the NOT STARTED head carries, keyed on THIS
+                        // section (`key`). A DONE head whose plan also has an
+                        // unstarted wave says so here rather than reading as a
+                        // plan wholly done.
+                        elsewhere={wavesElsewhere(fleet.waves, group.plan, key)}
                       />
                     )}
                     {headed && !planHeads && (
