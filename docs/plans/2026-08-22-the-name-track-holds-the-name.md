@@ -192,7 +192,7 @@ change is wrong — do not edit the test to fit the change.
      the second would rebase onto a moved track. The `Done when` list keeps them
      separately assertable, which is what the split would have bought. -->
 
-- `bug/the-name-track-holds-the-name` — give slot 3 a floor-and-grow track (A) and let the name use the room it has (B); keep exactly one flexible track and leave the breakpoint arithmetic test unmodified
+- `bug/the-name-track-holds-the-name` — give slot 3 a floor-and-grow track (A) and let the name use the room it has (B); keep exactly one flexible track and leave the breakpoint arithmetic test unmodified → #340
 
 ## Notes
 
