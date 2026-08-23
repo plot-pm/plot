@@ -1,6 +1,7 @@
 import {
   type AgentRow,
   type WaitingGroup,
+  type Wave,
 } from '../../../contract/schema.js';
 import { type WaveGroup, groupByWave } from './waves.js';
 import { isStartable, isUnbegun } from './row-identity.js';
@@ -250,54 +251,55 @@ export function groupByPlan(rows: AgentRow[]): PlanGroup[] {
  * their branch is a label that labels nothing, the same reason
  * `showPlanHeading` refuses a nameless plan.
  */
-export function waveGroupsFor(rows: AgentRow[], section: WaitingGroup): WaveGroup[] {
-  // WHICH ROWS a wave may claim, per section — and the predicate differs because
-  // the sections ask different questions.
+export function waveGroupsFor(
+  rows: AgentRow[],
+  section: WaitingGroup,
+  waves?: Wave[],
+): WaveGroup[] {
+  // WHICH ROWS a wave may claim, per section. This is now a LOOKUP against the
+  // server-derived wave, not a per-section computation — `the-sections-ask-the-wave`.
   //
-  //   WAITING ON YOU  a branch with an open PR: the work is landed and somebody
-  //                   has to merge it. Three PRs of one wave are ONE decision.
-  //   QUIET           a branch that stopped moving. Two stale branches of one
-  //                   wave are one wave that stalled, which is the readable
-  //                   fact; two unrelated stale rows are not.
-  //   DONE            a branch that landed. The wave is what was delivered.
+  // The wave carries the ONE answer to *which section does this wave belong in*
+  // (`Wave.section`, derived once in `deriveWaves` from completeness). The four
+  // grouping sections used to re-derive that answer from a row's `state`, and
+  // three of them spelled the identical predicate `r.state !== 'merged'` while
+  // DONE spelled its inverse. That IS the derivation this plan removes: a wave
+  // the server calls done but holding a not-yet-merged row, or a not-started
+  // wave with one stray merged branch (`Inverted`), placed the row by its own
+  // state and disagreed with the wave.
+  //
+  //   DONE   claims a wave the server placed in DONE  — `Wave.section === 'done'`.
+  //   others claim a wave the server placed elsewhere — `Wave.section !== 'done'`.
+  //
+  // The REAL DISTINCTION that survives is done-vs-not-done, and it is the wave's
+  // to answer. QUIET's *stalled* and WAITING ON YOU's *reviewable* are per-BRANCH
+  // facts (`row.group`, from `classify`) that already sectioned these rows before
+  // this function ran — `rowsBySection` routed the whole wave to one section, so
+  // by here a section's rows are its rows and the only question left is whether
+  // the wave they form is finished.
   //
   // WORKING and WAITING ON A MACHINE are absent on purpose: an agent works and a
-  // build runs, and neither is a wave — the grammar
-  // `every-section-has-one-subject` settles it, and a wave row in either would
-  // claim a subject that section does not have.
-  const claims =
-    // WAITING ON YOU HOLDS TWO KINDS OF WAIT, and the predicate was only
-    // recognising one.
-    //
-    // `isReviewable` — a branch with an open PR — is *the work is done, merge
-    // it*. But a branch whose PLAN is still in review is also waiting on a
-    // person: to approve the plan. Measured on the live board, that is **12 of
-    // the 14** wave-bearing rows in this section, all reading `open` with the
-    // note *plan not approved yet — still in review* — and none of them grouped,
-    // so the section showed 12 near-identical branch rows where it should show a
-    // plan and its waves.
-    //
-    // So a wave claims any branch that belongs to it. What differs per section is
-    // what must be EXCLUDED: a merged branch is done, and `done` wants only
-    // those.
-    section === 'waiting-on-you' ? ((r: AgentRow) => r.state !== 'merged')
-      // NOT STARTED, and its absence was an omission rather than a decision.
-      // The paragraph above explains why WORKING and WAITING ON A MACHINE are
-      // excluded — an agent and a build are not waves — and says nothing
-      // whatever about this one, because nothing was meant by it.
-      //
-      // The section renders waves regardless: measured, `activity-shows-itself`
-      // draws a plan head and three wave rows there. What `[]` cost was the
-      // FOLD DEFAULT, which asks this function how many waves a plan has — so
-      // a plan of three waves counted zero, fell to the one-wave branch, and
-      // opened. A plan of four is five lines, and the crowding the fold exists
-      // to answer was answered nowhere in the one section that is nothing but
-      // unstarted plans.
-      : section === 'not-started' ? ((r: AgentRow) => r.state !== 'merged')
-        : section === 'quiet' ? ((r: AgentRow) => r.state !== 'merged')
-          : section === 'done' ? ((r: AgentRow) => r.state === 'merged')
-            : null;
-  if (!claims) return [];
+  // build runs, and neither is a wave — the grammar `every-section-has-one-subject`
+  // settles it, and a wave row in either would claim a subject that section does
+  // not have.
+  if (section === 'working' || section === 'waiting-on-machine') return [];
+  // THE CAST GUARD. The client CASTS the fleet payload (`board as Board`), so a
+  // Zod `.default([])` never fires and `fleet.waves` is `undefined` on a pulse
+  // from a server predating #349 — not `[]`. An absent wave list, or a wave a
+  // partial pulse has not carried yet, falls back to the row's own state: the
+  // exact behaviour this replaces, so a pre-wave board renders as it did before
+  // rather than dropping every wave. Guarded, per `FLEET_CONTROLS_DEFAULT`.
+  const wantsDone = section === 'done';
+  const sectionOf = new Map<string, WaitingGroup>();
+  for (const w of waves ?? []) sectionOf.set(waveKeyOf(w.plan, w.name), w.section);
+  const claims = (r: AgentRow): boolean => {
+    const waveSection = sectionOf.get(waveKeyOf(r.plan, r.wave));
+    // The wave answered: keep the row iff the wave's section matches what THIS
+    // section wants (DONE ⇔ the wave is done).
+    if (waveSection !== undefined) return (waveSection === 'done') === wantsDone;
+    // No wave to ask — the fallback, byte-for-byte the old predicate.
+    return wantsDone ? r.state === 'merged' : r.state !== 'merged';
+  };
   // NO `length > 1` THRESHOLD, and its removal is the correction that matters.
   //
   // It was there on `showsWaveFold`'s reasoning — *a heading over one row saves
@@ -335,8 +337,8 @@ export function waveGroupsFor(rows: AgentRow[], section: WaitingGroup): WaveGrou
  * rather than by re-deriving the predicate, because two spellings of *which rows
  * are grouped* is how a row ends up rendered twice or not at all.
  */
-export function ungroupedRows(rows: AgentRow[], section: WaitingGroup): AgentRow[] {
-  const claimed = new Set(waveGroupsFor(rows, section).flatMap((wg) => wg.rows));
+export function ungroupedRows(rows: AgentRow[], section: WaitingGroup, waves?: Wave[]): AgentRow[] {
+  const claimed = new Set(waveGroupsFor(rows, section, waves).flatMap((wg) => wg.rows));
   return rows.filter((r) => !claimed.has(r));
 }
 
