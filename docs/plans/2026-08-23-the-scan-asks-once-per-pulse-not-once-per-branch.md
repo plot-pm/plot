@@ -4,13 +4,18 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** <!-- optional -->
 - **Issue:** #228
 - **Story:** <!-- optional -->
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-23, Jan Wloka, in-session
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Changelog
 
@@ -314,6 +319,63 @@ Recorded here so the collision is a known fact at dispatch time rather than a
 surprise at merge time, which is what the scope-guard section of a brief exists
 for.
 
+### The way back: a named switch, not a rebuild
+
+`PLOT_SCAN_ASK_ALWAYS=1` restores the host call unconditionally. Unset or `0`
+— the default — derives `NONE` from an arrived list.
+
+**It works on the next pulse, with no rebuild.** The scan is a shell script the
+board re-executes every cycle, so an operator watching a wave that will not
+complete can set the variable and have the old behaviour back immediately. The
+board artifact is not involved and nothing needs redeploying.
+
+This follows the shape this repo already uses for exactly this situation:
+`--allow-local`, `--during-release`, `PLOT_BOARD_REPAIR` — a named escape whose
+existence is the admission that the automatic behaviour can be wrong. **It
+subtracts and never adds**: it can only restore asking, never suppress it, so
+setting it can cost budget but cannot produce a wrong answer.
+
+The permanent undo is reverting the commit. The switch buys the minutes between
+noticing and reverting, which is the window in which a wave silently fails to
+complete.
+
+### The reader sees nothing, and that is the requirement
+
+`NONE` never reaches the board. It is internal to the scan: `branch_state` turns
+it into `open`, and the 28 branches render in NOT STARTED as `open` with no PR
+and no age — before and after, identically.
+
+**A visible change would mean the fix is wrong**, which is exactly what the
+state-map assertion in `Done when` demands. This section exists so that nobody
+implementing it reaches for a reader-facing improvement while they are in here:
+whether the board should distinguish *no PR yet* from *PR state unknown* is a
+real question about board honesty during an outage, and it belongs to a plan
+about what the board shows, not to one about what the scan costs.
+
+### Three degradation paths that must not derive `NONE`
+
+Each is a way the list can be incomplete while looking present, and each must
+fall through to asking rather than to a fabricated answer:
+
+**Bitbucket's list is capped per state.** Issue #333 records `bb pr list`
+returning silently partial results past 50 PRs per state. A partial list is not
+an arrived one, and treating it as authoritative would report real PRs as
+absent on every Bitbucket repo large enough to matter. **Assert the degradation
+on the `bb` adapter specifically** — the GitHub path passing proves nothing
+about it.
+
+**The cache directory may not exist.** `HOST_STATE_CACHE` is `mktemp -d`, which
+fails on a read-only or full `/tmp`. `prefill_pr_states` then returns early and
+writes no `.list-arrived` marker — so the marker's absence must keep `--ask`
+live. This is the failure that turns a disk problem into a fleet reported as
+having no PRs, and it is one line away in either direction.
+
+**The count is per SCAN, never global.** Every scan gets its own `mktemp` cache,
+so N concurrent boards each pay the first-pass cost independently. The assertion
+is therefore *0 `pr view` and 1 `pr list` per scan* — an hourly figure would
+vary with how many boards happen to be running and would stop meaning anything
+the moment someone opened a second one.
+
 ### Not chosen: raise `PR_REFRESH_MS` or throttle the scan
 
 Rejected, and #228 drew the distinction this plan keeps:
@@ -367,7 +429,9 @@ fetched the list.
   sites are in scope. Asserted by counting invocations with a PATH-stubbed host
   CLI — the technique #228 and #232 both used — not by reading the code. Today
   that number is 28 per scan on this repo (29 calls, of which 1 is the
-  `pr-list`). The target is exactly: `pr view` 0, `pr list` 1.
+  `pr-list`). The target is exactly: `pr view` 0, `pr list` 1, **per scan** —
+  never an hourly figure, which would vary with how many boards happen to be
+  running and would stop meaning anything the moment someone opened a second.
 - **The proof is a stubbed single scan, not a timed window.** A test that runs a
   board for N seconds and extrapolates an hourly rate depends on machine speed,
   scan duration and runner load — it would flake in CI and its failures would
@@ -397,6 +461,18 @@ fetched the list.
   inference rather than by measurement. A failure here means the timers are
   triggered by something besides their timer, and this plan named the wrong
   scope.
+- **A cache directory that could not be created keeps `--ask` live.** With
+  `HOST_STATE_CACHE` forced empty (simulating a `mktemp -d` failure on a
+  read-only or full `/tmp`), no `.list-arrived` marker exists and every branch
+  must reach the host exactly as it does today. A disk problem must not become a
+  fleet reported as having no PRs.
+- **Bitbucket degrades rather than deriving.** `bb pr list` is silently partial
+  past 50 PRs per state (#333), so the `bb` adapter must not treat its list as
+  authoritative. Asserted against the `bb` path specifically — a passing GitHub
+  test proves nothing here.
+- **`PLOT_SCAN_ASK_ALWAYS=1` restores the old behaviour** on the next scan, with
+  no rebuild. Asserted directly: with it set, the per-branch call count returns
+  to today's. The switch may only ever restore asking, never suppress it.
 - The terminal cache still serves and still validates against plan and main
   OIDs; this plan does not weaken it and adds nothing to what it remembers.
 - `pnpm test`, `pnpm run test:reconcile` and `pnpm run test:board` green.
@@ -451,20 +527,23 @@ from a premise the layout no longer held.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 2,
+  "round": 3,
   "questionHistory": [
     {"q": "Whose reasoning wins: derive-NONE, or merged_by_host's docstring defending --ask?", "a": "List is authoritative after a successful pr-list; truncation is the bound and must be asserted", "category": "technical"},
     {"q": "Is the 2.4% timer claim proven, or inferred from four concurrent boards?", "a": "Inferred - added a Done-when measuring one isolated board over 300s", "category": "nonFunctional"},
-    {"q": "Should the plan address the 5s timer over a 28s scan?", "a": "Stay scoped; record the hazard so a future speed-up does not multiply per-branch cost", "category": "tradeOffs"},
-    {"q": "Failure direction: a squash-merged branch outside the list would read open forever", "a": "Safe by construction (NONE cannot claim merged); assert the state map is byte-identical before and after", "category": "technical"},
-    {"q": "pr_ready is a second unbatched per-branch call on the --loose path - include it?", "a": "Fix both here, so the zero-calls assertion is absolute; recorded the collision with loose-checks-the-rollup and the rebase ordering", "category": "technical"},
-    {"q": "Prove the fix with a stubbed single scan or a timed live window?", "a": "Stubbed single scan - deterministic, CI-safe; per-hour cost follows arithmetically", "category": "nonFunctional"}
+    {"q": "Should the plan address the 5s timer over a 28s scan?", "a": "Stay scoped; record the hazard", "category": "tradeOffs"},
+    {"q": "Failure direction: a squash-merged branch outside the list would read open forever", "a": "Safe by construction; assert the state map is unchanged in both directions", "category": "technical"},
+    {"q": "pr_ready is a second unbatched per-branch call on --loose - include it?", "a": "Fix both here; recorded the collision with loose-checks-the-rollup and the rebase ordering", "category": "technical"},
+    {"q": "Prove with a stubbed single scan or a timed live window?", "a": "Stubbed single scan - deterministic, CI-safe", "category": "nonFunctional"},
+    {"q": "How is this rolled back if the drain does not stop?", "a": "PLOT_SCAN_ASK_ALWAYS=1 restores asking on the next pulse, no rebuild; revert is the permanent undo", "category": "technical"},
+    {"q": "Should the board distinguish 'no PR yet' from 'PR state unknown'?", "a": "No - NONE never reaches the board; a visible change would mean the fix is wrong. Separate plan if the outage case misleads readers", "category": "ux"},
+    {"q": "Which remaining risks deserve assertions?", "a": "All three: Bitbucket partial lists (#333), mktemp -d failure keeping --ask live, and a per-scan rather than global count", "category": "nonFunctional"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
-    "technical": {"stack": false, "architecture": true, "implementation": true},
-    "domain": false,
-    "ux": false,
+    "technical": {"stack": true, "architecture": true, "implementation": true},
+    "domain": true,
+    "ux": true,
     "nonFunctional": {"security": false, "performance": true, "scalability": true},
     "tradeOffs": true
   }
