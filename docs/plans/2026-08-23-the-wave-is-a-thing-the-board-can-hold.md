@@ -426,7 +426,7 @@ the case.
 
 ### Modelled
 
-- `feature/the-contract-carries-a-wave` — a `Wave` with identity, branches, verdict, section and completeness, derived once where the verdicts already are, and carried in the payload
+- `feature/the-contract-carries-a-wave` — a `Wave` with identity, branches, verdict, section and completeness, derived once where the verdicts already are, and carried in the payload → #349
 
 ### Consumed
 
