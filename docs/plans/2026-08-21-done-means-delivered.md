@@ -15,6 +15,7 @@
 - **Started:** 2026-08-23, Jan Wloka, `feature/merged-waves-reach-testing`
 - **Started:** 2026-08-23, Jan Wloka, `feature/deliver-finds-prs-without-annotations`
 - **Started:** 2026-08-23, Jan Wloka, `feature/the-plan-row-offers-deliver`
+- **Started:** 2026-08-23, Jan Wloka, `feature/the-phase-after-development-is-testing`
 
 ## Approval
 
