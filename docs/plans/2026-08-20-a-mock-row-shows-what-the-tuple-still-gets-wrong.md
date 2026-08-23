@@ -18,6 +18,7 @@
 - **Approved:** 2026-08-23, Jan Wloka, in-session
 - **Assignee:** jwloka
 - **Started:** 2026-08-23, Jan Wloka, `bug/the-wave-leaves-the-kind-alone`
+- **Started:** 2026-08-23, Jan Wloka, `bug/the-wave-leaves-the-kind-alone`
 
 ## Approval
 
