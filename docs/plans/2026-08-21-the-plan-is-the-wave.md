@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-22, Jan Wloka, plan-PR #305 merged
 - **Started:** 2026-08-23, Jan Wloka, `feature/the-plan-row-carries-wave-actions`
+- **Started:** 2026-08-23, Jan Wloka, `feature/one-wave-renders-as-its-plan`
 
 ## Changelog
 
