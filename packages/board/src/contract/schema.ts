@@ -291,6 +291,28 @@ export const CardSchema = z.object({
    */
   hasDispatchLog: z.boolean().optional(),
   /**
+   * Whether this plan is DELIVERABLE — every non-deferred branch merged, and the
+   * plan not yet delivered. The affordance signal the Deliver control reads.
+   *
+   * **A measurement, not a decision.** *Every wave being complete is a
+   * measurement; delivering is a decision* (`docs/board-domain-model.md`). This
+   * bit says the measurement holds — the code has landed and git can prove it —
+   * and nothing more: reaching it flips no phase and writes no `Delivered:`
+   * record. Delivering stays a person's click on the control this gates.
+   *
+   * Set ONLY on a card the server auto-bumped from Development into Endgame
+   * because `allWavesMerged` held (see `buildBoard`). An already-`delivered`
+   * plan also lands in Endgame, and it deliberately does NOT carry this — its
+   * decision was already made, so the control it would gate must not appear.
+   * That asymmetry is the whole reason this is its own bit rather than
+   * `phase === 'Endgame'`.
+   *
+   * Optional and absent-when-false, the discipline of `worktrees`/`hasDispatchLog`
+   * above: a plan that is not deliverable, and an older server that never looked,
+   * both read as *not deliverable* — which leaves the control off either way.
+   */
+  deliverable: z.boolean().optional(),
+  /**
    * The date belonging to THIS card's phase, as `YYYY-MM-DD` — or "" where the
    * plan records none.
    *
@@ -498,6 +520,24 @@ export const BoardSchema = z.object({
    * offering one that 403s.
    */
   reslice: DispatchInfoSchema.default({ available: false, reason: '' }),
+  /**
+   * Whether "Deliver" will act — the seventh capability, twin of `idea`,
+   * `commission` and `reslice`: it spawns a plot agent (`/plot-deliver`) that
+   * flips a plan's phase on this disk, so it answers the same localhost binding
+   * they do. It stays its own field for the reason `approve`/`commission`/
+   * `reslice` record — one flag for two capabilities is how they diverge when a
+   * later change makes only one of them local.
+   *
+   * **It answers only half the question the control needs.** This field says
+   * whether THIS BOARD can act; whether a given plan is *deliverable* — every
+   * non-deferred branch merged — is `Card.deliverable`, computed per plan from
+   * the pulse. A control that consulted this flag alone would offer Deliver on a
+   * plan with an open branch, which `/plot-deliver` (and this route) refuses.
+   *
+   * Same default as the six above: an older server sends nothing and a newer
+   * client hides the control rather than offering one that 403s.
+   */
+  deliver: DispatchInfoSchema.default({ available: false, reason: '' }),
   /**
    * Newest release checklist, for the Endgame column: what is left before
    * signoff. null when no checklist exists or none could be parsed — the board

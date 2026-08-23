@@ -758,10 +758,13 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // makes from here (`docs/board-domain-model.md`). Guarded on `mapped` rather
     // than `meta.phase` so a plan the mapper already advanced past Development —
     // `delivered`, `released` — is left exactly where it was, untouched.
-    const phase =
-      mapped === 'Development' && allWavesMerged(meta, pulse)
-        ? toBoardPhase('delivered')!
-        : mapped;
+    // The measurement, computed ONCE and reused for both the column and the
+    // card's `deliverable` bit below. A plan is deliverable exactly when it is
+    // in Development and every non-deferred branch has merged — which is also
+    // the condition that bumps its card into Endgame. Reusing the one boolean
+    // keeps the card's affordance and the auto-bump in lockstep by construction.
+    const deliverable = mapped === 'Development' && allWavesMerged(meta, pulse);
+    const phase = deliverable ? toBoardPhase('delivered')! : mapped;
     if (!phase) continue;
     const slug = planSlug(relPath);
     const card: Card = {
@@ -813,6 +816,13 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // dispatcher has run this plan*), and the client leaves the entry off either
     // way. The log's contents never ride the pulse — see `dispatchLogExists`.
     if (dispatchLogExists(repoRoot, slug)) card.hasDispatchLog = true;
+    // The affordance the Deliver control reads. Attached only when true, like
+    // the fields above: absent and false are the same statement (*this plan is
+    // not deliverable*), and the client leaves the control off either way. It is
+    // the SAME boolean the column bump used, so a card in Endgame that is not
+    // marked here is a plan already delivered — its decision made — and must
+    // offer nothing.
+    if (deliverable) card.deliverable = true;
     cards.push(card);
   }
 
@@ -854,6 +864,12 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // the same hand overwriting it in index.ts. Unavailable here means *this
     // walker cannot say*, never *the answer is no*, exactly as the five above.
     reslice: { available: false, reason: '' },
+    // And once more for delivering a fully-merged plan — the same socket
+    // question, the same hand overwriting it in index.ts. Unavailable here means
+    // *this walker cannot say*, never *the answer is no*, exactly as the six
+    // above. Whether a given plan is deliverable rides on each card's own
+    // `deliverable` bit, which this walker DOES know and sets above.
+    deliver: { available: false, reason: '' },
     checklist: readChecklist(repoRoot, readConfig(opts, 'Release directory', 'docs/releases/')),
     sprints: collectSprints(repoRoot, sprintDir),
     stories: collectStories(repoRoot, storyDir),
