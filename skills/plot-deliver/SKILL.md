@@ -123,17 +123,25 @@ Run the helper:
 ../plot/scripts/plot-impl-status.sh <slug>
 ```
 
-**Back-fill missing PR annotations first.** The `→ #N` (or
-`→ owner/repo#N`) Branches annotations are written when a PR becomes
-known — by the implementing session at PR-creation time per its brief,
-or, failing that, by THIS step: for each branch line without an
-annotation, resolve `../plot/scripts/plot-host.sh pr-state <branch>`
-(add `--repo <owner/repo>` for `Impl: other repo` plans) and append
-`→ #<number>` to the line, committing the plan update. Only then read:
+**Annotations are a convenience here, not a precondition.** The helper reads the
+`## Branches` section per BRANCH: a line carrying `→ #N` (or a cross-repo
+`→ owner/repo#N`) resolves by that number, and a line WITHOUT one falls back to
+matching the branch NAME against the heads of merged PRs — the same derivation
+`plot-reconcile-scan.sh` uses in section 2, so the verification works on a plan
+whose worker never annotated. All host access stays inside `plot-host.sh`
+(a single bundled `pr-list --state merged` for the whole plan, then a per-PR
+`pr-state`); nothing here calls `gh`/`bb` directly.
 
-```bash
-../plot/scripts/plot-impl-status.sh <slug>
-```
+Matching does NOT weaken the gate: a branch with no merged PR head and no
+annotation resolves nothing — it is never fabricated as merged — so a plan with
+an unmerged branch still fails this step and is named in 4b below.
+
+**Optionally back-fill the annotations you resolved.** The `→ #N` annotations
+persist the mapping for the next reader (and for tools that read the plan file
+rather than the host, like `plot-reconcile-scan.sh`'s release check). This is
+housekeeping, not a gate: for each un-annotated branch line the helper
+resolved, append `→ #<number>` and commit the plan update. Delivery proceeds
+whether or not you do.
 
 Or for each PR number found in the Branches section:
 
