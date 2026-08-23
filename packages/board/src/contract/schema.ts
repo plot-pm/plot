@@ -761,6 +761,27 @@ export function isSpikeWave(wave: string): boolean {
   return SPIKE_WAVES.some((s) => w === s || w === `${s} bullet` || w === `${s} bullets`);
 }
 
+/**
+ * Is this wave the SOLE wave of its plan — so the plan row carries its status?
+ *
+ * A plan with exactly one wave renders that wave's status on the plan row
+ * rather than nesting a wave row beneath it: the wave adds no information
+ * beyond what the plan itself says. The test is `planWaveCount === 1`,
+ * evaluated on DECLARED waves (the plan's `### ` headings), not on how many
+ * remain unfinished.
+ *
+ * Measured on this estate: 35 of 54 plans have exactly one wave. Every plan
+ * that shipped before the multi-wave convention (2026-03-15) is one-wave by
+ * construction, and 19 of the 35 are that vintage. The other 16 are genuinely
+ * small plans whose scope never needed slicing.
+ *
+ * A Wave whose `planWaveCount` defaults (because the server predates this
+ * field) answers `false` — show the wave row, the safe reading of unknown.
+ */
+export function isOneWavePlan(wave: { planWaveCount?: number }): boolean {
+  return wave.planWaveCount === 1;
+}
+
 export const WaveVerdictSchema = z.enum(['complete', 'eligible', 'blocked']);
 export type WaveVerdict = z.infer<typeof WaveVerdictSchema>;
 
@@ -1538,6 +1559,24 @@ export const WaveSchema = z.object({
    * than choosing which to trust.
    */
   complete: z.boolean(),
+  /**
+   * HOW MANY WAVES THE PLAN DECLARES — the count a plan row needs to decide
+   * whether to show a separate wave row.
+   *
+   * A plan with exactly one wave renders that wave's status on the PLAN row
+   * rather than nesting a wave row beneath it: the wave adds no information
+   * beyond what the plan itself says, and a second row costs vertical space
+   * without earning it. The test is `planWaveCount === 1`, evaluated on the
+   * DECLARED wave count (the plan's `### ` headings), not on how many remain
+   * unfinished.
+   *
+   * Defaulted so a pulse from a server predating this field still validates:
+   * absent means *show every wave row*, and 2 is the minimal count at which
+   * every wave row appears. Null would be the honest shape for *unknown*, but
+   * a client ternary that read `planWaveCount === 1` would treat `null` as
+   * *multi-wave* anyway, and a default of 2 is that same rule spelled once.
+   */
+  planWaveCount: z.number().default(2),
 });
 export type Wave = z.infer<typeof WaveSchema>;
 
