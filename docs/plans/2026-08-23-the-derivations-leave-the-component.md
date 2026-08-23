@@ -123,10 +123,10 @@ the components that call it. Do not move it to keep a line-number boundary tidy.
 - **No behaviour change.** No function is rewritten, renamed, merged, or split.
 - **No signature change.** If a helper's shape is wrong, that is a different
   plan.
-- **Re-export from `AgentList.tsx`** so the 14 importing files keep working, or
-  update all 14 — decide once and do it consistently. Prefer updating the
-  imports: a re-export leaves the file named as the source of things it no longer
-  holds.
+- **No re-exports.** All 14 importing files point at the module that owns the
+  function. A re-export block would leave `AgentList.tsx` naming every symbol it
+  no longer holds — and being edited by every module change, which is the
+  contention this plan removes.
 
 ### The docstrings travel with the code
 
@@ -185,9 +185,15 @@ one that will, and it leaves a file that is 8000 lines for no stated reason.
       accepted: every hunk is a move, the commits are the review unit, and the
       green suite is the claim. A reviewer reads `git log -p` per module rather
       than one 3000-line diff.
-- [ ] Should the 13 test files import from the new module directly, or keep
-      importing from `AgentList.tsx`? Directly is honest; it is also 13 more
-      files in the diff. Decide before starting, not per-file.
+- [x] ~~Direct imports, or re-exports from `AgentList.tsx`?~~ **Direct, and no
+      re-exports — settled 2026-08-23.**
+
+      Re-exports would have left `AgentList.tsx` naming all 65 symbols in an
+      export block, so every module change still edits it and the file stays the
+      place branches meet. That reduces line count without reducing contention,
+      which is the one thing this plan exists to do.
+
+      Cost accepted: 13 more files in the diff, each a one-line import change.
 
 ## Done when
 
@@ -196,6 +202,11 @@ one that will, and it leaves a file that is 8000 lines for no stated reason.
   for; a commit that moves and edits is not a move.
 - `AgentList.tsx` no longer holds the derivations, and is **materially smaller**
   — state the before and after line counts in the PR body.
+- **`AgentList.tsx` re-exports nothing.** Assert by grep: no `export {` block
+  forwarding a moved symbol. This is the assertion that separates a real split
+  from a line-count reduction — every other assertion here passes with a
+  re-export block in place, and so would the whole refactor while changing
+  nothing about contention.
 - **Each module is about one subject**, and its name says which. A module that
   ends up holding "the rest" means the cut was wrong — report it rather than
   shipping a `misc.ts`.
@@ -230,10 +241,11 @@ surface cannot be worked on by two branches, and this fleet routinely wants four
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 3,
+  "round": 4,
   "questionHistory": [
     {"q": "Is the region above the first component actually pure?", "a": "Not quite - grep showed 25 JSX hits and 10 hook uses. Reading them: the hits are <AgentRow generic type parameters, not markup, and only useChangeMarks is a real hook. The cut is derivations, not a line number", "category": "technical"},
     {"q": "One derivations module, or several by subject?", "a": "SEVERAL - operator call. One ends the serialisation; six end the ACCIDENTAL collisions, so two branches on unrelated subjects share no file. Subjects taken from export names: host-notes, collapse, waves, activity, row-identity, actions", "category": "architecture"},
+    {"q": "Direct imports or re-exports from AgentList.tsx?", "a": "DIRECT, no re-exports - operator call. A re-export block leaves AgentList.tsx naming all 65 symbols and edited by every module change: line count down, contention unchanged", "category": "implementation"},
     {"q": "Six PRs or one?", "a": "ONE - operator call. Six would each edit AgentList.tsx's import block and serialise on the file this unblocks. One PR, six commits, one per module: the commits are the review unit", "category": "implementation"},
     {"q": "Split the components too?", "a": "No - they share props and conventions, and doing both produces a diff nobody can review against a behaviour-preservation claim", "category": "tradeOffs"},
     {"q": "Move only the functions that actually collided?", "a": "No - fixes the collision that happened rather than the one that will, and leaves 8000 lines for no stated reason", "category": "tradeOffs"}
