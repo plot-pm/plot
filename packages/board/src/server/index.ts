@@ -25,6 +25,7 @@ import {
 import { handleIdea, ideaAvailability, ideaStatus } from './idea.js';
 import { commissionAvailability, commissionStatus, handleCommission } from './commission.js';
 import { handleReslice, resliceAvailability, resliceStatus } from './reslice.js';
+import { handleDeliver, deliverAvailability, deliverStatus } from './deliver.js';
 // Inlined at build time by esbuild's text loader — the artifact is a single
 // self-contained file, served from memory (no filesystem static serving, so no
 // path-traversal surface).
@@ -169,6 +170,23 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     // board writes: reuse the agent-spawn shape for a judgement act rather than
     // inventing a lifecycle transition.
     { path: '/api/reslice', verb: 'reslicing a wave', handle: handleReslice },
+    // POST /api/deliver — a fully-merged plan is delivered.
+    //
+    // The same class of route as /api/reslice, and the same binding: it spawns a
+    // plot agent (`/plot-deliver`) that flips a plan's phase on this disk. It is
+    // SLUG-scoped — it acts on the plan the Endgame card already names — and it
+    // asks the plan's own waves (through `plot-plan-meta.sh`, against the pulse
+    // the board renders from) whether every non-deferred branch has merged before
+    // spawning, because delivering a plan whose work is not done is the gate #350
+    // kept.
+    //
+    // DELIVERY IS A DECISION, NOT THE MEASUREMENT. The board bumps a fully-merged
+    // plan's card into Endgame on its own — that is the measurement — but flips no
+    // phase. This route is where a person makes the decision to deliver, and it
+    // writes none of the transition itself: `/plot-deliver` re-verifies the merges
+    // and moves the plan. This is the standing rule for board writes: reuse the
+    // agent-spawn shape for a lifecycle act rather than inventing the transition.
+    { path: '/api/deliver', verb: 'delivering a plan', handle: handleDeliver },
     // POST /api/claim — reserve one branch of a plan, and return what resulted.
     //
     // Wraps `plot-dispatch.sh --no-start`, which already claims by pushing a ref
@@ -286,6 +304,14 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         // makes only one of them local. The `unsliced-wave` row reads it to
         // decide whether *Slice this wave* acts or names its refusal.
         reslice: resliceAvailability(HOST),
+        // A SEVENTH flag, and the SAME binding as `idea`, `commission` and
+        // `reslice` today — delivering spawns the same plot agent that turns an
+        // issue into a plan. It stays a field of its own for the reason every
+        // flag above it does: one flag for two capabilities is how they diverge
+        // when a later change makes only one of them local. Read together with a
+        // card's `deliverable` bit by the row — the binding says whether this
+        // BOARD can act, the card says whether the PLAN is complete enough to.
+        deliver: deliverAvailability(HOST),
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(board));
@@ -530,6 +556,21 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     res.end(
       SLUG_RE.test(slug)
         ? JSON.stringify(resliceStatus(opts, slug))
+        : JSON.stringify({ error: 'slug must be a plan slug' }),
+    );
+    return;
+  }
+
+  // What happened to a delivery somebody asked for — the same read-it-back shape
+  // `/api/reslice/<slug>` has, slug-keyed. A delivery moves the card out of
+  // Endgame only once its phase flips, so the button watches this for the
+  // command's own words on a refusal.
+  if (url.pathname.startsWith('/api/deliver/')) {
+    const slug = url.pathname.slice('/api/deliver/'.length);
+    res.writeHead(SLUG_RE.test(slug) ? 200 : 400, { 'Content-Type': 'application/json' });
+    res.end(
+      SLUG_RE.test(slug)
+        ? JSON.stringify(deliverStatus(opts, slug))
         : JSON.stringify({ error: 'slug must be a plan slug' }),
     );
     return;
