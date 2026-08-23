@@ -93,10 +93,10 @@ type: feature
 
 - \`bug/gamma\` — impl
 `);
-  // Section 7a: a file with no phase field — not a plan (#254's rule), so it
+  // Section 8a: a file with no phase field — not a plan (#254's rule), so it
   // is a convenience-level note, NOT an attention finding.
   write('plans/2026-01-04-legacy.md', `# Legacy pre-plot notes\n`);
-  // Section 7b: plot-managed plan with no symlink in either index. Visible to
+  // Section 8b: plot-managed plan with no symlink in either index. Visible to
   // the derived phase grouping since #254 — a browsing gap, not an orphan.
   write('plans/2026-01-05-omega.md', `# Omega
 
@@ -114,7 +114,7 @@ type: feature
 - **Phase:** Superseded
 - **Type:** feature
 `);
-  // Section 7 (terminal routing): a Superseded plan with NO symlink — its
+  // Section 8 (terminal routing): a Superseded plan with NO symlink — its
   // suggested link must target delivered/ (the terminal index), not active/.
   write('plans/2026-01-07-tau.md', `# Tau
 
@@ -131,7 +131,7 @@ type: feature
   fs.symlinkSync('../2026-01-03-gamma.md', path.join(repo, 'plans', 'active', 'gamma.md'));
   fs.symlinkSync('../2026-01-06-sigma.md', path.join(repo, 'plans', 'active', 'sigma.md'));
   // Section 5: a link whose target does not exist. THE CONTRAST the advisory
-  // demotion has to preserve — a missing link is a browsing gap (section 7),
+  // demotion has to preserve — a missing link is a browsing gap (section 8),
   // a link pointing at nothing is a broken pointer and still needs attention.
   fs.symlinkSync('../2026-01-99-vanished.md', path.join(repo, 'plans', 'active', 'vanished.md'));
 
@@ -184,25 +184,27 @@ test('scan: section 4 shows divergence for the active plan branch', () => {
   assert.match(report, /bug\/gamma — 1 ahead \/ 0 behind origin\/main/);
 });
 
-test('scan: section 7 reports an unlinked plan at convenience level, not as attention', () => {
+test('scan: section 8 reports an unlinked plan at convenience level, not as attention', () => {
   // Since #254 the phase grouping is derived from plan content, so an unlinked
   // plan is fully visible and the old "(orphaned)" verdict expired. It stays
   // listed — the symlink is still a browsing convenience — but as `optional:`
-  // in section 7, and it must not appear in section 5.
+  // in index drift (section 8 since the unsliced-wave section took 7), and it
+  // must not appear in section 5.
   const sections = splitSections(report);
-  assert.match(sections['7'], /2026-01-05-omega\.md — phase 'Approved', no symlink in plans\/active\/ or plans\/delivered\/ \(browsing only\)/);
-  assert.match(sections['7'], /optional: ln -s \.\.\/2026-01-05-omega\.md plans\/active\/omega\.md/);
+  assert.match(sections['8'], /2026-01-05-omega\.md — phase 'Approved', no symlink in plans\/active\/ or plans\/delivered\/ \(browsing only\)/);
+  assert.match(sections['8'], /optional: ln -s \.\.\/2026-01-05-omega\.md plans\/active\/omega\.md/);
   assert.doesNotMatch(sections['5'], /2026-01-05-omega\.md/);
   // The word that expired must be gone from the whole report for this plan.
   assert.doesNotMatch(report, /2026-01-05-omega\.md[^\n]*orphaned/);
 });
 
-test('scan: section 7 calls a phase-less file a non-plan, agreeing with plot-fleet-scan.sh', () => {
+test('scan: section 8 calls a phase-less file a non-plan, agreeing with plot-fleet-scan.sh', () => {
   // #254 decided a file whose phase parses as NONE is not a plan. This script
   // used to call the same file a plan needing attention; that split is closed
-  // in #254's direction, and the file stays visible at convenience level.
+  // in #254's direction, and the file stays visible at convenience level
+  // (index drift, section 8 since the unsliced-wave section took 7).
   const sections = splitSections(report);
-  assert.match(sections['7'], /2026-01-04-legacy\.md — no phase field → not a plan/);
+  assert.match(sections['8'], /2026-01-04-legacy\.md — no phase field → not a plan/);
   assert.doesNotMatch(sections['5'], /2026-01-04-legacy\.md/);
 });
 
@@ -212,7 +214,7 @@ test('scan: section 5 still flags a DANGLING index symlink as attention', () => 
   // repoint or remove is a judgment the script cannot make.
   const sections = splitSections(report);
   assert.match(sections['5'], /plans\/active\/vanished\.md — symlink target missing: \.\.\/2026-01-99-vanished\.md \(dangling index link\)/);
-  assert.doesNotMatch(sections['7'], /vanished\.md/);
+  assert.doesNotMatch(sections['8'], /vanished\.md/);
 });
 
 test('scan: section 1 flags a Superseded plan still symlinked in active/ (terminal drift)', () => {
@@ -220,10 +222,10 @@ test('scan: section 1 flags a Superseded plan still symlinked in active/ (termin
   assert.match(report, /fix: git rm plans\/active\/sigma\.md && ln -s \.\.\/2026-01-06-sigma\.md plans\/delivered\/sigma\.md && git add -A/);
 });
 
-test('scan: section 7 routes an unlinked Superseded plan to delivered/, not active/', () => {
+test('scan: section 8 routes an unlinked Superseded plan to delivered/, not active/', () => {
   const sections = splitSections(report);
-  assert.match(sections['7'], /2026-01-07-tau\.md — phase 'Superseded', no symlink/);
-  assert.match(sections['7'], /optional: ln -s \.\.\/2026-01-07-tau\.md plans\/delivered\/tau\.md/);
+  assert.match(sections['8'], /2026-01-07-tau\.md — phase 'Superseded', no symlink/);
+  assert.match(sections['8'], /optional: ln -s \.\.\/2026-01-07-tau\.md plans\/delivered\/tau\.md/);
   // Guard against regression to the old wrong default (active/) — issue #33.
   assert.doesNotMatch(report, /ln -s \.\.\/2026-01-07-tau\.md plans\/active\/tau\.md/);
 });
@@ -248,9 +250,11 @@ test('scan: summary footer carries machine-countable finding counts', () => {
   // when the derived phase grouping (#254) made an unlinked plan visible, and
   // asserting the NUMBER is what proves the demotion rather than a reworded
   // line. concurrent: beta + gamma branches of active plans (sigma has none).
+  // unsliced_waves: 0 — every plan in this fixture carries at most one branch
+  // per wave, so the new section is silent and contributes a zero counter.
   const last = report.trim().split('\n').at(-1);
   assert.equal(last,
-    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 index_drift=3 pr_source=degraded main=main');
+    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 unsliced_waves=0 index_drift=3 pr_source=degraded main=main');
 });
 
 test('scan: --offline skips git-host PR enumeration and reports pr_source=off', () => {
@@ -783,4 +787,210 @@ test('scan: containment is skipped, not guessed, when PR state is unavailable', 
   const body = section3(out);
   assert.equal(body.filter((l) => l.includes('contained in open PR')).length, 0);
   assert.match(out, /PR state: skipped \(--no-pr\)/);
+});
+
+// ---------------------------------------------------------------------------
+// Section 7: unsliced waves (a `### ` heading carrying more than one branch).
+//
+// A FOURTH fixture. This section is pure plan parsing — it reads the parser's
+// waves[] and needs no git host — so the repo is minimal, like the first
+// fixture, and runs --offline. The properties under test are the ones the plan
+// line names: a multi-branch wave is reported ONCE with its file/heading/count;
+// single-branch-only plans are silent; a phase-less file is skipped; the footer
+// counter matches the number of findings; and — the property a naive
+// implementation breaks — `attention=` is unchanged by an unsliced wave.
+// ---------------------------------------------------------------------------
+
+let uwTmp, uwRepo, uwReport, uwSections;
+
+before(() => {
+  uwTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-uw-'));
+  const origin = path.join(uwTmp, 'origin.git');
+  uwRepo = path.join(uwTmp, 'repo');
+  git(uwTmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(uwTmp, 'clone', '-q', origin, uwRepo);
+  git(uwRepo, 'config', 'user.email', 'test@example.invalid');
+  git(uwRepo, 'config', 'user.name', 'Plot Test');
+  git(uwRepo, 'config', 'commit.gpgsign', 'false');
+
+  const w = (rel, content) => {
+    const p = path.join(uwRepo, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content);
+  };
+
+  w('CLAUDE.md', `# Fixture project
+
+## Plot Config
+
+- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+- **Plan directory:** plans/
+- **Active index:** plans/active/
+- **Delivered index:** plans/delivered/
+`);
+
+  // A plan with a FIVE-branch wave — the shape /plot-reslice repairs. It must be
+  // reported ONCE, with its file, its heading, and count 5, never five times.
+  // The plan also carries a second, one-branch wave that must NOT be reported —
+  // proving the count is per-heading, not per-plan.
+  w('plans/2026-02-01-tangled.md', `# Tangled
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+### Tracer
+- \`feature/tangled-spike\` — the tracer, one branch, must stay silent
+
+### Implementation
+- \`feature/tangled-one\` — first
+- \`feature/tangled-two\` — second
+- \`feature/tangled-three\` — third
+- \`feature/tangled-four\` — fourth
+- \`feature/tangled-five\` — fifth
+`);
+
+  // A plan whose waves each hold exactly one branch — must be entirely silent.
+  w('plans/2026-02-02-tidy.md', `# Tidy
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+### First
+- \`feature/tidy-a\` — alone
+
+### Second
+- \`feature/tidy-b\` — alone
+`);
+
+  // A plan in the NEW ## Waves spelling whose one wave carries a single branch
+  // (in the heading) and whose prose description names two more branches in
+  // backticks. This is where the branch-LINES-not-backticked-names distinction
+  // is structurally guaranteed: in ## Waves the branch comes from the heading,
+  // so the description's backticked names contribute nothing
+  // (a-plan-branch-can-be-a-parser-artifact). The parser reads 1 branch, so the
+  // section is silent — a hand-rolled backtick count would wrongly read 3.
+  w('plans/2026-02-03-prose.md', `# Prose
+
+## Status
+
+- **Phase:** Approved
+- **Type:** docs
+
+## Waves
+
+### Only (Branch: docs/prose-real)
+- supersedes \`docs/prose-old\` and \`docs/prose-older\`
+`);
+
+  // A phase-less file — a decision log, not a plan. It carries a multi-branch
+  // "wave" in a ## Branches section, but with no Phase: it is skipped, the same
+  // rule the rest of the scan applies. Catches a second parser that would treat
+  // every .md in plans/ as a plan.
+  w('plans/2026-02-04-notes.md', `# Worker report, not a plan
+
+## Branches
+
+### Implementation
+- \`feature/notes-x\` — one
+- \`feature/notes-y\` — two
+- \`feature/notes-z\` — three
+`);
+
+  // A COMPLETE (delivered) plan with a multi-branch wave. It is history, but the
+  // report still counts it — hiding it would lie about the estate; /plot-reslice
+  // declines it, which is a constraint on the repair, not on the report.
+  w('plans/2026-02-05-shipped.md', `# Shipped
+
+## Status
+
+- **Phase:** Delivered
+- **Type:** feature
+
+## Branches
+
+### Landed
+- \`feature/shipped-one\` — merged → #10
+- \`feature/shipped-two\` — merged → #11
+`);
+
+  fs.mkdirSync(path.join(uwRepo, 'plans', 'active'), { recursive: true });
+  fs.mkdirSync(path.join(uwRepo, 'plans', 'delivered'), { recursive: true });
+  // Link every plan so index drift (section 8) stays silent — keeps this
+  // fixture's footer focused on unsliced_waves without unrelated noise.
+  fs.symlinkSync('../2026-02-01-tangled.md', path.join(uwRepo, 'plans', 'active', 'tangled.md'));
+  fs.symlinkSync('../2026-02-02-tidy.md', path.join(uwRepo, 'plans', 'active', 'tidy.md'));
+  fs.symlinkSync('../2026-02-03-prose.md', path.join(uwRepo, 'plans', 'active', 'prose.md'));
+  fs.symlinkSync('../2026-02-05-shipped.md', path.join(uwRepo, 'plans', 'delivered', 'shipped.md'));
+
+  git(uwRepo, 'add', '-A');
+  git(uwRepo, 'commit', '-q', '-m', 'plans');
+  git(uwRepo, 'push', '-q', 'origin', 'main');
+
+  uwReport = execFileSync('bash', [scan, '--offline'], { encoding: 'utf8', cwd: uwRepo });
+  uwSections = splitSections(uwReport);
+});
+after(() => fs.rmSync(uwTmp, { recursive: true, force: true }));
+
+test('scan: section 7 reports a 5-branch wave once, with its file, heading and count', () => {
+  const hits = uwSections['7'].split('\n')
+    .filter((l) => l.includes('2026-02-01-tangled.md') && l.includes('carries'));
+  assert.equal(hits.length, 1, `expected exactly one tangled finding, got:\n${hits.join('\n')}`);
+  assert.match(hits[0], /wave 'Implementation' carries 5 branch lines \(a wave holds one\)/);
+  // The one-branch Tracer wave in the same plan must not appear.
+  assert.doesNotMatch(uwSections['7'], /wave 'Tracer'/);
+  // And the actionable command a person runs — reslice:, not fix:.
+  assert.match(uwSections['7'], /reslice: \/plot-reslice tangled/);
+});
+
+test('scan: section 7 is silent for a plan whose waves each hold one branch', () => {
+  assert.doesNotMatch(uwSections['7'], /2026-02-02-tidy\.md/);
+});
+
+test('scan: section 7 counts branch LINES, not backticked names in prose', () => {
+  // prose.md has one branch line whose description names two more branches in
+  // backticks. Counting names would read it as 3; the parser reads 1, so silent.
+  assert.doesNotMatch(uwSections['7'], /2026-02-03-prose\.md/);
+});
+
+test('scan: section 7 skips a phase-less file — a decision log is not a plan', () => {
+  // notes.md carries a 3-branch wave but no Phase:, so it is not a plan and the
+  // section must not report it. Catches a second parser that treats every .md
+  // in plans/ as a plan.
+  assert.doesNotMatch(uwSections['7'], /2026-02-04-notes\.md/);
+});
+
+test('scan: section 7 still counts a complete (delivered) multi-branch wave', () => {
+  // A complete wave is history and still counts here — hiding it would lie about
+  // the estate. /plot-reslice declines it; that is on the repair, not the report.
+  const hits = uwSections['7'].split('\n')
+    .filter((l) => l.includes('2026-02-05-shipped.md') && l.includes('carries'));
+  assert.equal(hits.length, 1, `expected one shipped finding, got:\n${hits.join('\n')}`);
+  assert.match(hits[0], /wave 'Landed' carries 2 branch lines/);
+});
+
+test('scan: section 7 footer counter matches the number of findings', () => {
+  // tangled (Implementation, 5) + shipped (Landed, 2) = 2 findings. The counter
+  // is wired to the same variable the body increments — a footer wired to a
+  // different variable is a bug no single-finding assertion above can see.
+  const bodyFindings = uwSections['7'].split('\n').filter((l) => l.includes('carries')).length;
+  assert.equal(bodyFindings, 2, `expected 2 body findings, got ${bodyFindings}`);
+  const footer = uwReport.trim().split('\n').at(-1);
+  assert.match(footer, /\bunsliced_waves=2\b/);
+});
+
+test('scan: an unsliced wave leaves attention= unchanged — the section does NOT gate', () => {
+  // THE property a naive implementation breaks, and the one every other test
+  // above passes without. An unsliced wave is a shape to fix, not a branch that
+  // cannot move — /plot-deliver's gate and the /plot hygiene line read
+  // attention= from this footer, and a cosmetic finding must not inflate it.
+  const footer = uwReport.trim().split('\n').at(-1);
+  assert.match(footer, /\battention=0\b/);
 });
