@@ -35,7 +35,7 @@ import { repairFor, startRepair } from './resolver.js';
 import { collectSprints, readConfig, type BuildBoardOptions } from './board.js';
 import { readBridge, writeBridge } from './pulse-bridge.js';
 import { readFleetControls } from './fleet-controls.js';
-import { maybeAutoDispatch } from './auto-dispatch.js';
+import { maybeAutoDispatch, liveAgentCount } from './auto-dispatch.js';
 import { readAgentRegistry } from './registry.js';
 import type { AgentEntry } from './registry.js';
 import { workerQuestions } from './worker-question.js';
@@ -5003,6 +5003,17 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
     // client casts this payload rather than parsing it: a Zod `.default` never
     // fires client-side, so a field the server left off would reach the renderer
     // as `undefined`. It is emitted every time, cold cache included.
-    fleetControls: readFleetControls(opts),
+    // WITH THE CAP'S BALANCE, from the same rule the dispatcher applies. The
+    // client cannot compute this: `liveAgentCount` lives in `auto-dispatch.ts`,
+    // which is server-only, and a second implementation in the renderer is how a
+    // control comes to disagree with the rule it describes.
+    //
+    // Only when a pulse exists. Without one there is nothing to say which
+    // branches have landed, so the count would silently over-report by counting
+    // finished agents as busy — and `working` is optional precisely so that
+    // silence renders as nothing rather than as an idle fleet.
+    fleetControls: entry.pulse
+      ? { ...readFleetControls(opts), working: liveAgentCount(entry.agents, entry.pulse) }
+      : readFleetControls(opts),
   };
 }

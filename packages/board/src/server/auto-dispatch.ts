@@ -82,15 +82,53 @@ export function planSlug(file: string): string {
 const LIVE_STATES = new Set<AgentEntry['state']>(['running', 'waiting']);
 
 /**
+ * Every branch this pulse reports as landed — merged, or deferred by the plan.
+ *
+ * Built once per call rather than per agent: the pulse is walked in full for a
+ * membership test that every entry then asks, and the walk is over waves the
+ * scan has already derived.
+ */
+function landedBranches(pulse: FleetPulse): Set<string> {
+  const landed = new Set<string>();
+  for (const plan of pulse.plans ?? []) {
+    for (const wave of plan.waves ?? []) {
+      for (const b of wave.branches ?? []) {
+        if (b.state === 'merged' || b.deferred) landed.add(b.branch);
+      }
+    }
+  }
+  return landed;
+}
+
+/**
  * How many registry entries occupy a concurrency slot right now.
  *
  * Read from the registry the scan just refreshed, so it is this pulse's liveness
  * and not a stale one. It is HALF of the budget denominator; the other half is
  * the in-flight set of branches dispatched but not yet visible here — see
  * {@link planAutoDispatch}.
+ *
+ * LIVENESS TAKES TWO FACTS, NOT ONE. A live process is necessary and is not
+ * sufficient: an agent whose branch has already MERGED is finished work holding
+ * a handle, not capacity in use. `plot-worker-state.sh` cannot make this call —
+ * it answers about the PROCESS, in its own words "six PROCESS states", and has
+ * no view of whether the branch landed. The board holds both facts, so the join
+ * belongs here.
+ *
+ * Measured 2026-08-24: seven registry entries reported a live pid, and FIVE of
+ * them sat on branches whose PRs had merged hours earlier (#360, #361, #362,
+ * #364, #367) — `claude` processes that outlived their work. Counting them
+ * consumed five of twelve slots that nothing was using, and the fleet declined
+ * to dispatch work it had room for.
+ *
+ * The direction is deliberate: this may only ever REMOVE an entry from the
+ * count. A branch the pulse does not mention is not evidence of anything and
+ * stays counted, so a scan that could not see a plan errs toward the cap rather
+ * than through it.
  */
-export function liveAgentCount(agents: AgentEntry[]): number {
-  return agents.filter((a) => LIVE_STATES.has(a.state)).length;
+export function liveAgentCount(agents: AgentEntry[], pulse?: FleetPulse): number {
+  const landed = pulse ? landedBranches(pulse) : new Set<string>();
+  return agents.filter((a) => LIVE_STATES.has(a.state) && !(a.branch && landed.has(a.branch))).length;
 }
 
 /**
@@ -310,7 +348,7 @@ export function maybeAutoDispatch(
   const plans = planAutoDispatch({
     controls,
     pulse,
-    liveCount: liveAgentCount(agents),
+    liveCount: liveAgentCount(agents, pulse),
     inFlight: pruned,
   });
   if (plans.length === 0) return pruned;
