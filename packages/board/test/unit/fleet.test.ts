@@ -1360,7 +1360,7 @@ describe('rowPhase — derived from the PAIR, never from the plan file alone', (
     expect(rowPhase('approved', 'open')).toBe('Development');
   });
 
-  it('keeps a delivered plan at Endgame when a late commit lands', () => {
+  it('keeps a delivered plan at Testing when a late commit lands', () => {
     // "git wins" is about an ABSENT record, not about overruling a recorded
     // decision. A missing `Started:` line is nobody having written something
     // down; a commit after delivery contradicts something a human wrote, and a
@@ -1369,8 +1369,8 @@ describe('rowPhase — derived from the PAIR, never from the plan file alone', (
     // Load-bearing: the SYMMETRIC implementation — git evidence overriding the
     // plan in both directions — passes every other test in this file and fails
     // only here. Without it, a plan goes visibly backwards for a typo fix.
-    expect(rowPhase('delivered', 'wip')).toBe('Endgame');
-    expect(rowPhase('delivered', 'merged')).toBe('Endgame');
+    expect(rowPhase('delivered', 'wip')).toBe('Testing');
+    expect(rowPhase('delivered', 'merged')).toBe('Testing');
     expect(rowPhase('released', 'wip')).toBe('Released');
   });
 
@@ -1389,7 +1389,7 @@ describe('rowPhase — derived from the PAIR, never from the plan file alone', (
   });
 
   it('leaves a deferred branch alone once the plan is past deciding', () => {
-    expect(rowPhase('delivered', 'deferred')).toBe('Endgame');
+    expect(rowPhase('delivered', 'deferred')).toBe('Testing');
     expect(rowPhase('released', 'deferred')).toBe('Released');
   });
 
@@ -2072,11 +2072,11 @@ describe('rowsFromPulse', () => {
       expect(rows.find((r) => r.branch === 'feature/d')!.phase).toBe('Development');
     });
 
-    it('keeps a delivered plan\'s rows at Endgame despite fresh commits', () => {
+    it('keeps a delivered plan\'s rows at Testing despite fresh commits', () => {
       // `feature/b` is four minutes old in this fixture — a commit under a plan
       // already marked delivered, which must not reverse the phase.
       const rows = rowsFromPulse(withPhase('delivered'), ages, 'plot', QUIET);
-      expect(rows.every((r) => r.phase === 'Endgame')).toBe(true);
+      expect(rows.every((r) => r.phase === 'Testing')).toBe(true);
     });
 
     it('leaves it null on a pulse from a scan that reports no phase', () => {
@@ -2169,7 +2169,7 @@ describe('rowsFromPulse', () => {
       const rows = rowsFromPulse(delivered, new Map(), 'plot', QUIET);
       expect(rows).toHaveLength(2);
       expect(rows.every((r) => r.group === 'done')).toBe(true);
-      expect(rows.every((r) => r.phase === 'Endgame')).toBe(true);
+      expect(rows.every((r) => r.phase === 'Testing')).toBe(true);
     });
 
     it('leaves a released row on a planless branch alone — it is not a plan', () => {

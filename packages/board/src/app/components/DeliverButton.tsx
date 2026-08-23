@@ -6,13 +6,13 @@ import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
  * *Deliver* — the decision a person makes about a plan the board has measured
  * complete.
  *
- * A plan whose every non-deferred branch has merged is bumped into Endgame by
+ * A plan whose every non-deferred branch has merged is bumped into Testing by
  * the server on its own; that bump is a MEASUREMENT (*docs/board-domain-model.md*:
  * every wave being complete is a measurement, delivering is a decision). This
  * control is where the decision is made: it spawns `/plot-deliver`, which
  * re-verifies the merges, flips the phase to Delivered and moves the plan. It
  * does not itself change the plan — and it is never fired automatically, so
- * reaching Endgame never implies it was pressed.
+ * reaching Testing never implies it was pressed.
  *
  * The interaction is `ResliceButton`'s, to the letter and deliberately: arm on
  * the first click, act on the second, cancel on a click elsewhere or Escape. It
@@ -23,10 +23,10 @@ import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
  * part a reader needs before committing to it.
  *
  * **Nothing is asserted from the reply.** A delivery moves the card out of
- * Endgame only once its phase flips, which the board re-derives from git on the
+ * Testing only once its phase flips, which the board re-derives from git on the
  * next refresh. So the click's outcome is read back from `GET /api/deliver/<slug>`
  * only to surface the command's own words on a refusal; success is the card
- * leaving Endgame, which the board sees for itself.
+ * leaving Testing, which the board sees for itself.
  *
  * This component is rendered ONLY on a `deliverable` card (see `PlanActions`),
  * the same way `ResliceButton` renders only on an `unsliced-wave` row — so the
@@ -133,7 +133,7 @@ export function DeliverButton({ slug, deliver, onActing }: DeliverButtonProps) {
         }
         if (body.state === 'done') {
           // Nothing to assert: the command exited 0, and whether it moved the
-          // plan is answered by the card leaving Endgame on the next board poll —
+          // plan is answered by the card leaving Testing on the next board poll —
           // derived from git, never from this reply.
           setState({ kind: 'idle' });
           return;

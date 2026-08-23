@@ -132,22 +132,22 @@ describe('merged waves reach the phase after Development on their own', () => {
 
   it('moves an all-merged approved plan out of Development into the later column', () => {
     assert.ok(!cardIn(board, 'Development', ALL_MERGED), 'an all-merged plan must leave Development');
-    assert.ok(cardIn(board, 'Endgame', ALL_MERGED), 'it reaches the phase after Development');
+    assert.ok(cardIn(board, 'Testing', ALL_MERGED), 'it reaches the phase after Development');
   });
 
   it('counts a deferred branch as exempt — merged-beside-deferred also reaches it', () => {
     assert.ok(!cardIn(board, 'Development', WITH_DEFERRED), 'a deferred branch does not hold the plan back');
-    assert.ok(cardIn(board, 'Endgame', WITH_DEFERRED), 'six-merged-three-deferred is complete');
+    assert.ok(cardIn(board, 'Testing', WITH_DEFERRED), 'six-merged-three-deferred is complete');
   });
 
   it('leaves a plan with one open branch in Development — assert the negative', () => {
     // An implementation that flags everything passes only the positive tests.
     assert.ok(cardIn(board, 'Development', ONE_OPEN), 'one open branch means the work is not done');
-    assert.ok(!cardIn(board, 'Endgame', ONE_OPEN), 'and it has NOT reached the later phase');
+    assert.ok(!cardIn(board, 'Testing', ONE_OPEN), 'and it has NOT reached the later phase');
   });
 
   it('does not drag or double-move an already delivered plan', () => {
-    assert.ok(cardIn(board, 'Endgame', DELIVERED), 'a delivered plan stays where the mapper put it');
+    assert.ok(cardIn(board, 'Testing', DELIVERED), 'a delivered plan stays where the mapper put it');
     assert.ok(!cardIn(board, 'Development', DELIVERED), 'and is never pulled back to Development');
   });
 

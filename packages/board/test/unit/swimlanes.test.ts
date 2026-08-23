@@ -67,7 +67,7 @@ describe('buildLanes', () => {
       card('under-review', 'plot-board', 'Discovery'),
       card('waiting', 'plot-board', 'Design'),
       card('in-flight', 'plot-board', 'Development'),
-      card('merged', 'plot-board', 'Endgame'),
+      card('merged', 'plot-board', 'Testing'),
       card('shipped', 'plot-board', 'Released'),
     ];
     const board: Board = {

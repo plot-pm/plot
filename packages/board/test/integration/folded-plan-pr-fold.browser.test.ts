@@ -71,7 +71,7 @@ function fleet(): Fleet {
     row({
       plan: 'all-green', planFile: '2026-08-11-all-green.md',
       branch: 'feature/ag-one', wave: 'Only', state: 'deferred', waitingDays: 2,
-      phase: 'Endgame', branchUrl: `${GH}feature/ag-one`, pr: pr(210, 'green'),
+      phase: 'Testing', branchUrl: `${GH}feature/ag-one`, pr: pr(210, 'green'),
     }),
 
     // ── planHeads PATH: WAITING ON YOU, folded plan over open PRs ──
@@ -187,7 +187,7 @@ describe('a folded plan folds its branches PR states onto its head', () => {
     try {
       await expect.poll(() =>
         planRow(page, 'all-green').locator('[data-phase]').getAttribute('data-phase'))
-        .toBe('Endgame');
+        .toBe('Testing');
       // No badge — nothing to act on.
       expect(await fold(page, 'all-green').count()).toBe(0);
     } finally {
