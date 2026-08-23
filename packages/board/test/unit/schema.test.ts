@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
+  FLEET_CONTROLS_DEFAULT,
   PlanMetaSchema, CardSchema, FleetBranchSchema, AgentRowSchema, AgentEntrySchema,
+  FleetSchema,
 } from '../../src/contract/schema';
 
 describe('AgentEntrySchema — liveness on the wire', () => {
@@ -251,5 +253,79 @@ describe('rounds — absent is not zero, on both sides of the contract', () => {
     // 0 means the skill ran, an absent key means it never did.
     expect(PlanMetaSchema.parse({ ...meta, rounds: 0 }).rounds).toBe(0);
     expect(CardSchema.parse({ ...card, rounds: 0 }).rounds).toBe(0);
+  });
+});
+
+describe('FleetSchema — the two shared fleet controls', () => {
+  // The minimum a Fleet needs, so the `fleetControls` field is what varies.
+  const base = {
+    generatedAt: '2026-08-22T00:00:00.000Z',
+    ageSeconds: 1,
+    ready: true,
+    error: null,
+    rows: [],
+    summary: { plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+    prAgeSeconds: null,
+    prError: null,
+  } as const;
+
+  it('carries the switch and the cap the server emitted', () => {
+    const fleet = FleetSchema.parse({ ...base, fleetControls: { autoDispatch: true, parallelAgents: 5 } });
+    expect(fleet.fleetControls.autoDispatch).toBe(true);
+    expect(fleet.fleetControls.parallelAgents).toBe(5);
+  });
+
+  it('defaults to switch off / cap 3 for a payload predating this wave', () => {
+    // The safe direction: a server that never heard of the controls reads as a
+    // fleet that is NOT serving its queue, since wave 3 acts only while the
+    // switch is on. Note the client CASTS this payload rather than parsing it,
+    // so the server emitting the field unconditionally was the whole safety
+    // argument — and it was not enough. A STUBBED payload never reaches the
+    // server at all, and 278 tests took a TypeError on 2026-08-22 proving it.
+    // The client now reads through `FLEET_CONTROLS_DEFAULT` as well; this
+    // default is the contract's honesty AND the client's fallback.
+    const fleet = FleetSchema.parse(base);
+    expect(fleet.fleetControls.autoDispatch).toBe(false);
+    expect(fleet.fleetControls.parallelAgents).toBe(3);
+  });
+});
+
+/**
+ * THE DEFAULT IS EXPORTED BECAUSE THE CLIENT CANNOT PARSE.
+ *
+ * `fleetControls` arrived as a required field with a Zod `.default()`, which
+ * runs where the payload is PARSED — the server. `packages/board/src/app`
+ * CASTS the fleet it fetches, so the default never ran there and
+ * `fleet.fleetControls.autoDispatch` threw a TypeError on any payload written
+ * before the field existed: a stubbed fixture, a cached response, a board
+ * mid-upgrade.
+ *
+ * That took the whole Agents tab down rather than one control. Measured
+ * 2026-08-22: 278 tests failed across 18 files, each waiting the full 10s for a
+ * section a TypeError had prevented from rendering — 3073s, and in CI a
+ * 15-minute step timeout that read as "the suite is too slow". It was one
+ * missing default.
+ *
+ * These assert the two halves of the fix separately, because each passes
+ * without the other: the constant EXISTS with the safe values, and the schema
+ * USES it rather than repeating the literal.
+ */
+describe('FLEET_CONTROLS_DEFAULT — one default, read by both sides', () => {
+  it('is off and 3: a fleet that dispatches nothing is the safe reading of silence', () => {
+    // Not merely "some object": the VALUES are the claim. A default that
+    // dispatched would turn an old payload into a running fleet.
+    expect(FLEET_CONTROLS_DEFAULT).toEqual({ autoDispatch: false, parallelAgents: 3 });
+  });
+
+  it('is what the schema falls back to, so the two cannot drift', () => {
+    // Parsing a payload with no `fleetControls` must produce exactly the
+    // constant the client reads. A second literal in the schema would pass
+    // every other test here and still let the two answers diverge.
+    const parsed = FleetSchema.parse({
+      generatedAt: '2026-08-22T00:00:00.000Z', ageSeconds: 1, ready: true, error: null,
+      rows: [], summary: { plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+      prAgeSeconds: null, prError: null,
+    });
+    expect(parsed.fleetControls).toEqual(FLEET_CONTROLS_DEFAULT);
   });
 });

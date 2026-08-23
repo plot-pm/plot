@@ -2343,6 +2343,24 @@ export const AgentEntrySchema = z.object({
 });
 export type AgentEntry = z.infer<typeof AgentEntrySchema>;
 
+/**
+ * The fleet controls a payload is READ AS when it carries none.
+ *
+ * Exported, and read by the client rather than only defaulted by Zod. The
+ * schema's `.default()` runs where the payload is PARSED, which is the server;
+ * `packages/board/src/app` casts the fleet it fetches and never parses it, so a
+ * client reading `fleet.fleetControls.autoDispatch` on an older payload throws
+ * and the whole Agents tab renders nothing.
+ *
+ * Measured 2026-08-22: every fixture predating this field — 40 selectors across
+ * five browser suites — took a 10s timeout waiting for a section that a
+ * TypeError had prevented from rendering at all. The suite read as slow (151s
+ * for 15 tests) and CI as a 15-minute timeout; both were this.
+ *
+ * Off and 3: a fleet that dispatches nothing is the safe reading of silence.
+ */
+export const FLEET_CONTROLS_DEFAULT = { autoDispatch: false, parallelAgents: 3 } as const;
+
 export const FleetSchema = z.object({
   generatedAt: z.string(),
   /** Seconds since the cached scan completed — the tab shows this. */
@@ -2532,6 +2550,30 @@ export const FleetSchema = z.object({
   issueAnswer: IssueAnswerSchema.default('unsupported'),
   /** The failure, when `issueAnswer` is `failed` — shown, never swallowed. */
   issueError: z.string().nullable().default(null),
+  /**
+   * The two fleet controls, SHARED across every board reading this repo.
+   *
+   * The switch belongs to NOT STARTED (*is the queue being served?*) and the
+   * cap to WORKING (*how many agents at once?*), each rendered on the section it
+   * is about. They ride here rather than in `localStorage` on purpose: they
+   * spawn agents that write code, so two people reading one board must not
+   * disagree about whether the fleet is running — the board's one departure from
+   * *view state in the URL, convenience in localStorage*. The server reads them
+   * from `.plot/state/fleet-controls.json` on every render, seeded from
+   * `## Plot Config`; the client renders these values and POSTs a change to
+   * `/api/fleet-controls`, holding no authoritative copy of its own.
+   *
+   * Defaults `{ autoDispatch: false, parallelAgents: 3 }` so a payload from a
+   * server predating this wave still validates and reads as a fleet that is not
+   * serving its queue — the safe direction, since this wave dispatches nothing
+   * and wave 3 acts only while the switch is on.
+   */
+  fleetControls: z
+    .object({
+      autoDispatch: z.boolean(),
+      parallelAgents: z.number().int(),
+    })
+    .default(FLEET_CONTROLS_DEFAULT),
 });
 export type Fleet = z.infer<typeof FleetSchema>;
 

@@ -17,8 +17,27 @@ import {
   type RowKind,
   UNNAMED_WAVE,
   isSpikeWave,
+  FLEET_CONTROLS_DEFAULT,
 } from '../../contract/schema.js';
+
+/**
+ * A fleet's controls, or the declared default where the payload carries none.
+ *
+ * THE CLIENT CASTS THE FLEET, it does not parse it — so the schema's
+ * `.default()` never runs here and `fleet.fleetControls` is genuinely
+ * `undefined` on any payload written before the field existed (a stubbed
+ * fixture, a board mid-upgrade, a cached response). Reading through it threw
+ * and took the whole Agents tab down with it.
+ *
+ * `absent is not false`: an absent control block is *unknown*, and the safe
+ * reading of unknown here is the same one the schema declares — a fleet that
+ * dispatches nothing.
+ */
+function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents: number } {
+  return fleet.fleetControls ?? FLEET_CONTROLS_DEFAULT;
+}
 import { ApproveButton } from './ApproveButton.js';
+import { AutoDispatchSwitch, ParallelAgentsStepper } from './FleetControls.js';
 import { CommissionDesignButton } from './CommissionDesignButton.js';
 import { CreatePlanButton } from './CreatePlanButton.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
@@ -6799,6 +6818,23 @@ export function AgentList({
                   {tally}
                   {groupMark}
                 </>
+              )}
+              {/* THE TWO FLEET CONTROLS, each on the section it is ABOUT and
+                  OUTSIDE the collapse button above — a control nested in the
+                  fold's `<button>` would be a button inside a button, invalid
+                  markup that swallows its own clicks. Placed here they sit in the
+                  same header flex row whether or not the section folds, and the
+                  spinbutton keeps its own keyboard handling clear of the fold's.
+
+                  The switch belongs to NOT STARTED (*is the queue served?*) and
+                  the stepper to WORKING (*how many at once?*). Both read the
+                  SHARED state off `fleet.fleetControls` and write it back through
+                  /api/fleet-controls; neither dispatches anything in this wave. */}
+              {key === 'not-started' && (
+                <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
+              )}
+              {key === 'working' && (
+                <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} />
               )}
             </h2>
             {/* The body goes, the header stays — including its count. Removed
