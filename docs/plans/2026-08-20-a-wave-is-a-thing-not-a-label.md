@@ -11,11 +11,12 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Superseded
 - **Type:** feature
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
+- **Superseded:** 2026-08-23, by `the-wave-is-a-thing-the-board-can-hold`
 - **Assignee:** jwloka
 
 ## Problem
@@ -402,3 +403,26 @@ Worth noting that the scan was right all along. It has emitted
 `{name, verdict, branches}` per wave since waves existed; the board read the name,
 dropped the verdict onto the wrong object, and rebuilt the verdict as English in
 `blockedNote`. Every piece was present.
+
+## Superseded
+
+Absorbed 2026-08-23 by `the-wave-is-a-thing-the-board-can-hold`, which was
+written without finding this plan first — a duplicate the estate produced because
+it builds faster than it re-reads itself.
+
+**This plan was right, and earlier.** Its summary states the defect exactly: *the
+scan already reports a wave as an object with its own verdict, and the board
+flattens it.* Everything the newer plan measured is downstream of that sentence.
+
+The newer plan survives for three reasons, none of them about being better
+written:
+
+- it carries the **measurements** — 82 waves, 14 rendering as several rows, one
+  in two sections
+- it carries the **domain model** those measurements produced
+  (`docs/board-domain-model.md`), which is the release's specification
+- its **waves encode a dependency Plot enforces**, and three branches from two
+  other plans have already moved into them. Merging backwards would strand those.
+
+Nothing in this plan is lost: its claim is the newer plan's thesis, and this
+record is here so the duplication is visible rather than tidied away.

@@ -84,20 +84,60 @@ and whose version has not shipped, waiting on the endgame test the next release
 will be. A section that answers *what needs testing* with rows shipped months ago
 cannot serve the release it exists for.
 
+### The Must Have test, and it is checkable
+
+**A plan is Must Have only if one of the eighteen executed section rules still
+fails once everything else has landed.** Not *important*, not *related* — the
+rules are the release's success condition, so the test is whether they can go
+green without it.
+
+Applied honestly, that promotes one item nobody had scoped and demotes one that
+sounds mandatory:
+
+| plan | does a rule fail without it? | tier |
+|---|---|---|
+| `the-wave-is-a-thing-the-board-can-hold` | yes — *every wave has exactly one section* fails 81/82 | **Must** |
+| `done-holds-what-is-still-yours` | yes — three DONE rules fail 60/61, 19/61, 58/61 | **Must** |
+| `done-means-delivered` | **yes** — 16 fully-merged plans still read `Approved`, so *DONE ⇒ phase Development or Endgame* is measured against a wrong phase | **Must** |
+| `a-wave-is-one-branch` | **yes** — an unsliced wave has no single verdict, so *a wave has one section* is undefined over it | **Must** |
+| `a-draft-plan-claims-no-approvals` | **no** — the head's sentence is not a membership rule | Should |
+| `a-mock-row-shows-what-the-tuple-still-gets-wrong` | **no** — it makes the rules *easier to test*, not able to pass | Should |
+
+**Two of those deserve their reasoning stated, because both readings are
+defensible.**
+
+`done-means-delivered` was not scoped at all until this review, and it is the
+most load-bearing item in the sprint. Sixteen plans have every branch merged and
+still read `Approved`. DONE's membership rule reads the plan's phase — so the
+filter can be implemented perfectly and still show the wrong rows, because the
+phase it reads was never advanced. **A rule measured against a wrong input cannot
+go green.**
+
+`a-mock-row-shows-what-the-tuple-still-gets-wrong` is the one demotion, and it
+was named mandatory in review. Under the stated test it is Should: a deterministic
+mock makes the eighteen rules far easier to assert, and round 2 concluded the
+fixtures must otherwise be hand-built — but hand-built fixtures *work*. The rules
+can go green without it. **It is the strongest Should Have in the sprint and
+should be taken first among them**; if the hand-built fixtures prove unworkable
+in practice, promote it rather than letting the rules go untested.
+
 ### Must Have
 
+- [ ] [done-means-delivered] Sixteen fully-merged plans still read `Approved` — DONE's membership reads the phase, so the filter is measured against a wrong input until this lands
+- [ ] [a-wave-is-one-branch] An unsliced wave — five branches under one wave, blocked 26 days — has no single verdict, so *a wave has one section* is undefined over it
 - [ ] [the-wave-is-a-thing-the-board-can-hold] Wave *Constrained* — the eighteen section rules become an executable test, written against today's behaviour so the baseline is recorded before anything moves
 - [ ] [the-wave-is-a-thing-the-board-can-hold] Wave *One row* — a wave renders as exactly one row in exactly one section; a wave with any unmerged branch is where its unfinished work is
 - [ ] [the-wave-is-a-thing-the-board-can-hold] Wave *Modelled* — the contract carries a `Wave` with identity, branches, verdict, section and completeness, derived once where the verdicts already are
 - [ ] [the-wave-is-a-thing-the-board-can-hold] Wave *Consumed* — DONE holds the release scope, and the split head counts what is elsewhere without rendering it
 - [ ] [done-holds-what-is-still-yours] A finished row reports neither a pulse nor a live worker state — the activity mark and the stale worker are one category error in one file
-- [ ] [a-draft-plan-claims-no-approvals] A wave head says what its verdict says — the `default:` that asserts *work landed* about branches that do not exist
 
 ### Should Have
 
+- [ ] [a-mock-row-shows-what-the-tuple-still-gets-wrong] `PLOT_BOARD_MOCK` renders one row per kind — the deterministic fixture the eighteen rules assert against. **Take this first**: without it every rule test hand-builds its own pulse
+- [ ] [a-draft-plan-claims-no-approvals] A wave head says what its verdict says — the `default:` that asserts *work landed* about branches that do not exist
 - [ ] [a-plan-moves-through-the-sections] Approve on the plan row, the plan reaches NOT STARTED, Start work takes it — one lifecycle path walked end to end
-- [ ] [a-startable-wave-says-so] An eligible wave takes the actionable tone — `statusTone` colours what a reader acts on, and starting work is the most actionable thing on the board
-- [ ] [an-interrogation-leaves-a-record] The round count reaches the plan file — the board has the field, the parser reads it, and nothing has written it since 2026-08-17
+- [ ] [a-startable-wave-says-so] An eligible wave takes the actionable tone — `statusTone` colours what a reader acts on
+- [ ] [an-interrogation-leaves-a-record] The round count reaches the plan file — the board has the field, the parser reads it, nothing has written it since 2026-08-17
 - [ ] [a-split-plan-says-it-is-split] The wave name stays in its cell, and the sweep names a prose wave — a 53-character name currently paints over its neighbours
 
 ### Could Have
@@ -107,11 +147,39 @@ cannot serve the release it exists for.
 - [ ] [the-blocking-wave-is-found-wherever-it-is] The blocked mark finds its target across sections — and says so when it cannot
 - [ ] [the-board-says-which-branch-it-serves] The header names the branch the board is serving from
 - [ ] [the-plan-the-board-holds] The row carries the plan's own records rather than re-deriving them
+- [ ] [the-page-is-as-tall-as-the-screen] Every board scrolls by 13px whatever it contains
 - [ ] [loose-checks-what-it-promises] `--loose` verifies green rather than not-draft
 
-### Carried in
+### Out of scope, and why — 27 open plans, 20 not in this sprint
 
-- [ ] Decide PR #57 — *Harden Plot against documented Opus 5 long-horizon failure modes*. Open since 2026-07-25, `mergeable_state: dirty`, **29 days stale**. Inherited from `2026-W34-the-board-tells-the-truth`, which closed on 2026-08-23 two versions after its release shipped. Carried rather than absorbed: it is a decision nobody has taken, and a closing sprint must not tick one of those. The decision is *merge it, rebase it, or close it* — not *do the work in it*
+Reviewed on 2026-08-23 against the release goal. **Scoped by plan, not by
+story**: `plot-board` holds six open plans and only three serve this goal, while
+`plot-planning-model` holds four of which one does. A story spans releases by
+design — pulling one in wholesale would bring the page height and the ticket
+router along with the wave model, and neither is a section rule.
+
+Notable exclusions, each with a reason rather than an omission:
+
+- **`opus5-longhorizon-hardening`** (6 branches, story `plot-gates`) — the
+  largest open plan and the oldest. Its PR #57 is carried in below as a decision,
+  not as work. Nothing in it bears on section truth.
+- **`a-dispatch-hands-over-a-brief`** (3 branches) — dispatch ergonomics. Real,
+  and orthogonal.
+- **`a-ticket-becomes-a-plan-or-a-story`** (1) — a router for tickets. Adjacent to
+  the board and not about what a section admits.
+- **`the-plan-is-the-wave`**, **`waves-name-themselves`**,
+  **`an-approved-plan-offers-its-two-starts`**, **`approval-hands-the-work-to-agents`**,
+  **`every-section-has-one-subject`** — all Approved, all in flight or adjacent.
+  `every-section-has-one-subject` in particular owns `Inverted`, the wave this
+  sprint's pivot is about — but the fix lives in the wave model, not in that plan.
+- **`the-budget-is-spent-where-it-is-needed`** — host budget, unrelated.
+
+**One plan was superseded during this review**: `a-wave-is-a-thing-not-a-label`
+said *the scan reports a wave as an object and the board flattens it* — the same
+defect as `the-wave-is-a-thing-the-board-can-hold`, written earlier and found
+later. The newer plan survives because it carries the measurements, the domain
+model and the enforced wave dependency; the older one is marked Superseded with
+that record rather than deleted.
 
 ### Deferred
 
