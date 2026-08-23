@@ -170,8 +170,8 @@ to pick one, and picking is what the wave rows are for.
 
 ### Offered
 
-- `feature/the-plan-row-carries-wave-actions` — where wave 1 removes a wave
-  row, the actions that row carried move onto the plan row with it. Concretely
+- `feature/the-plan-row-carries-wave-actions` → #368 — where wave 1 removes a
+  wave row, the actions that row carried move onto the plan row with it. Concretely
   that is **Start work**: a wave row's own control, dispatching that wave with
   `--max 1`. It is NOT Approve, Implement or Dispatch — those are plan-level
   acts that `an-approved-plan-offers-its-two-starts` (PR #313) gates on
