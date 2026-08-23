@@ -556,13 +556,23 @@ export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow
     // otherwise. The version is the thing a reader is deciding about — *is
     // 2.7.0 ready* — and the PR is how it gets there; where no version has
     // been read, the number is the honest name rather than an invented tag.
+    //
+    // THE FALLBACK SAYS SO WITH A `#`. A bare `300` where a version usually sits
+    // reads like a version — a truncated `3.0.0`, a major nobody typed — and the
+    // one row this matters most on (`changeset-release/main`, the control a person
+    // reaches for at the end of a sprint) is the one that must never be decoded.
+    // The `#` is the universal mark for a PR reference, so `#300` cannot be read
+    // as the version the slot otherwise holds; the version case stays UNPREFIXED
+    // because it IS a version, not a reference to one. This is the plan's last
+    // test: *falls back to the PR number and says so, rather than showing a
+    // number that reads like a version*.
     const version = releaseVersion(row);
     return {
       ...base,
       name: version && row.pr
         ? { what: 'pr', label: version, href: row.pr.url }
         : row.pr
-          ? { what: 'pr', label: `${row.pr.number}`, href: row.pr.url }
+          ? { what: 'pr', label: `#${row.pr.number}`, href: row.pr.url }
           : { what: 'branch', label: row.branch, href: row.branchUrl },
       // THE PR IS AN ARTIFACT, and this is where it belongs. A release row
       // rendered `no checks 240` — the number inside the STATUS cell, which is

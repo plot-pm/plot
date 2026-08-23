@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:** <!-- optional -->
 - **Issue:** <!-- optional -->
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-22, Jan Wloka, in-session
 - **Started:** 2026-08-23, Jan Wloka, `feature/the-board-says-which-branch-it-serves`
+- **Delivered:** 2026-08-23
 
 ## Approval
 

@@ -124,30 +124,30 @@ in practice, promote it rather than letting the rules go untested.
 ### Must Have
 
 - [ ] [done-means-delivered] Sixteen fully-merged plans still read `Approved` — DONE's membership reads the phase, so the filter is measured against a wrong input until this lands
-- [ ] [a-wave-is-one-branch] An unsliced wave — five branches under one wave, blocked 26 days — has no single verdict, so *a wave has one section* is undefined over it
+- [x] [a-wave-is-one-branch] An unsliced wave — five branches under one wave, blocked 26 days — has no single verdict, so *a wave has one section* is undefined over it <!-- status: delivered, branches: 3/3 -->
 - [ ] [the-wave-is-a-thing-the-board-can-hold] Wave *Constrained* — the eighteen section rules become an executable test, written against today's behaviour so the baseline is recorded before anything moves
 - [ ] [the-wave-is-a-thing-the-board-can-hold] Wave *One row* — a wave renders as exactly one row in exactly one section; a wave with any unmerged branch is where its unfinished work is
 - [ ] [the-wave-is-a-thing-the-board-can-hold] Wave *Modelled* — the contract carries a `Wave` with identity, branches, verdict, section and completeness, derived once where the verdicts already are
 - [ ] [the-wave-is-a-thing-the-board-can-hold] Wave *Consumed* — DONE holds the release scope, and the split head counts what is elsewhere without rendering it
-- [ ] [done-holds-what-is-still-yours] A finished row reports neither a pulse nor a live worker state — the activity mark and the stale worker are one category error in one file
-- [ ] [a-marker-is-a-file-not-a-mention] A marker is a file, not a mention — `plot_worker_blocked` greps file CONTENTS, so 28 documenting files on main make every clean worker read `waiting` and the board offer a question lifted from a brief
+- [x] [done-holds-what-is-still-yours] A finished row reports neither a pulse nor a live worker state — the activity mark and the stale worker are one category error in one file <!-- status: delivered, branches: 1/1 -->
+- [x] [a-marker-is-a-file-not-a-mention] A marker is a file, not a mention — `plot_worker_blocked` greps file CONTENTS, so 28 documenting files on main make every clean worker read `waiting` and the board offer a question lifted from a brief <!-- status: delivered, branches: 1/1 -->
 
 ### Should Have
 
 - [ ] [a-mock-row-shows-what-the-tuple-still-gets-wrong] `PLOT_BOARD_MOCK` renders one row per kind — the deterministic fixture the eighteen rules assert against. **Take this first**: without it every rule test hand-builds its own pulse
-- [ ] [a-draft-plan-claims-no-approvals] A wave head says what its verdict says — the `default:` that asserts *work landed* about branches that do not exist
-- [ ] [a-plan-moves-through-the-sections] Approve on the plan row, the plan reaches NOT STARTED, Start work takes it — one lifecycle path walked end to end
-- [ ] [a-startable-wave-says-so] An eligible wave takes the actionable tone — `statusTone` colours what a reader acts on
+- [x] [a-draft-plan-claims-no-approvals] A wave head says what its verdict says — the `default:` that asserts *work landed* about branches that do not exist <!-- status: delivered, branches: 1/1 -->
+- [x] [a-plan-moves-through-the-sections] Approve on the plan row, the plan reaches NOT STARTED, Start work takes it — one lifecycle path walked end to end <!-- status: delivered, branches: 2/2 -->
+- [x] [a-startable-wave-says-so] An eligible wave takes the actionable tone — `statusTone` colours what a reader acts on <!-- status: delivered, branches: 1/1 -->
 - [x] [an-interrogation-leaves-a-record] The round count reaches the plan file — the board has the field, the parser reads it, nothing has written it since 2026-08-17 <!-- status: delivered, pr: #323, branches: 2/2 -->
 - [ ] [a-split-plan-says-it-is-split] The wave name stays in its cell, and the sweep names a prose wave — a 53-character name currently paints over its neighbours
-- [ ] [the-registry-names-a-live-agent] The registry names a live agent — a dead pid displayed beside `running`, nine agents skipped by a gate on a value the classifier never reads, and six worktrees with no entry at all
+- [x] [the-registry-names-a-live-agent] The registry names a live agent — a dead pid displayed beside `running`, nine agents skipped by a gate on a value the classifier never reads, and six worktrees with no entry at all <!-- status: delivered, branches: 1/1 -->
 
 ### Could Have
 
-- [ ] [the-name-track-holds-the-name] The name track holds the name — 80% of plan slugs exceed the visible width while the branch beside them renders in full
+- [x] [the-name-track-holds-the-name] The name track holds the name — 80% of plan slugs exceed the visible width while the branch beside them renders in full <!-- status: delivered, branches: 1/1 -->
 - [ ] [a-folded-row-still-says-what-matters] A folded head carries its tally and says what is live
 - [ ] [the-blocking-wave-is-found-wherever-it-is] The blocked mark finds its target across sections — and says so when it cannot
-- [ ] [the-board-says-which-branch-it-serves] The header names the branch the board is serving from
+- [x] [the-board-says-which-branch-it-serves] The header names the branch the board is serving from <!-- status: delivered, branches: 1/1 -->
 - [ ] [the-plan-the-board-holds] The row carries the plan's own records rather than re-deriving them
 - [ ] [the-page-is-as-tall-as-the-screen] Every board scrolls by 13px whatever it contains
 - [ ] [loose-checks-what-it-promises] `--loose` verifies green rather than not-draft

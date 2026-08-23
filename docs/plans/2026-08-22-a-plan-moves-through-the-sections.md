@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** working-shows-the-agent
 - **Story:** plot-planning-model
@@ -15,6 +15,7 @@
 - **Started:** 2026-08-22, Jan Wloka, `bug/the-plan-row-carries-the-plan-decisions`
 - **Started:** 2026-08-22, Jan Wloka, `bug/the-plan-row-carries-the-plan-decisions`
 - **Started:** 2026-08-22, Jan Wloka, `feature/an-approved-plan-offers-start-work`
+- **Delivered:** 2026-08-23
 
 ## Approval
 
@@ -190,7 +191,7 @@ end, and builds a control only if the walk finds one missing.
 
 ### Reachable
 
-- `bug/the-plan-row-carries-the-plan-decisions` — move both plan-level acts to
+- `bug/the-plan-row-carries-the-plan-decisions` — move both plan-level acts to → #325
   the plan head and delete their row-level twins. Approve already works there;
   Commission design needs the `commission` prop threaded to that call site and
   the same `isDraft(card)` gate. `canCommissionDesign` and the row's
@@ -217,7 +218,7 @@ end, and builds a control only if the walk finds one missing.
 
 ### Started
 
-- `feature/an-approved-plan-offers-start-work` — prove the path end to end:
+- `feature/an-approved-plan-offers-start-work` — prove the path end to end: → #331
   approve a Draft plan and confirm its row reaches NOT STARTED carrying a
   working Start work. Tests: a browser test walking Draft → Approve → the row
   appears in NOT STARTED → Start work is offered and dispatches. No new

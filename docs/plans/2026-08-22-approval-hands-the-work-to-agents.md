@@ -16,6 +16,7 @@
 - **Started:** 2026-08-22, Jan Wloka, `feature/the-registry-knows-which-agents-live`
 - **Started:** 2026-08-22, Jan Wloka, `feature/the-registry-knows-which-agents-live`
 - **Started:** 2026-08-22, Jan Wloka, `feature/the-sections-carry-the-fleet-controls`
+- **Started:** 2026-08-23, Jan Wloka, `feature/an-eligible-wave-starts-itself`
 
 ## Approval
 
