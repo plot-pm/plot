@@ -678,6 +678,125 @@ export function noteWithoutPr(note: string, pr: AgentRow['pr']): string {
   return at === -1 ? '' : rest.slice(at + 3);
 }
 
+/**
+ * The one section a WAVE belongs in — a function of the wave, never of a single
+ * branch.
+ *
+ * ## Why this exists
+ *
+ * A row carries `group`, and `group` is the section `classify` gave THAT BRANCH.
+ * When a wave's branches disagree on `state` — one merged, one open — they carry
+ * different `group`s, and filtering the fleet by `r.group === key` puts the wave
+ * in two sections at once. That is `every-section-has-one-subject / Inverted`,
+ * and the domain model names the cause: *"the verdict already aggregates every
+ * branch; reading one branch's state is what places the wave twice"*.
+ *
+ * ## The rule, settled by the plan
+ *
+ * **A wave is where its UNFINISHED work is.** A wave with any unmerged branch is
+ * not done, whatever its merged branches say. So:
+ *
+ * The defect is NARROW, and so is this. The only split it resolves is `Inverted`:
+ * a wave whose SCAN VERDICT says it is not finished (`eligible` or `blocked`),
+ * yet which holds at least one merged branch AND at least one genuinely-
+ * unfinished one (open · wip · claimed). The verdict is the wave-level truth the
+ * merged branch's `state` contradicts — the scan aggregated every branch and
+ * still called the wave unfinished, so the merged branch is a slice of an
+ * unfinished wave, not a finished one. The wave is where its unfinished work is,
+ * so that merged branch moves to the unfinished branch's section.
+ *
+ * THE VERDICT IS THE GATE, and it has to be. Two shapes look mixed but are not
+ * the defect:
+ *
+ * - a wave with NO verdict (`null` — a pre-verdict pulse, or a synthetic row).
+ *   The scan said nothing to aggregate on, and inventing a placement from branch
+ *   states is the very guess this function exists to remove. Leave it.
+ * - a wave whose branches merely sit in different sections for some OTHER reason
+ *   — a build running on the machine, a PR failing review, all of them unmerged.
+ *   The board means to show a build in WAITING ON A MACHINE and a reviewable PR
+ *   in WAITING ON YOU; the domain model marks those sections as holding processes
+ *   and builds, not waves. There is no merged branch to have split it, so the
+ *   merged+unfinished guard already excludes it — measured on the mock,
+ *   `Modelled`'s build was dragged off the machine section under a rule that
+ *   omitted this, which is why the guard is here.
+ *
+ * A `complete` verdict never reaches the relocation: a complete wave has every
+ * non-deferred branch merged, so it has no genuinely-unfinished branch and the
+ * guard returns null (its rows already share DONE, subject to phase). Returning
+ * null means *leave these rows where they are*. When it does fire, it reads the
+ * section off an existing branch's `group` — never re-classifying — so no second
+ * answer can drift from the scan's.
+ *
+ * Exported for test — the mixed wave is the case an implementation that reads
+ * branch state gets wrong while passing every uniform-wave assertion.
+ */
+export function waveSection(rows: AgentRow[]): WaitingGroup | null {
+  // The scan's verdict for the wave — every branch carries the same one, so the
+  // first non-null answers. No verdict, or `complete`, is not the `Inverted`
+  // defect: don't relocate.
+  const verdict = rows.find((r) => r.verdict !== null)?.verdict ?? null;
+  if (verdict !== 'eligible' && verdict !== 'blocked') return null;
+  const merged = rows.find((r) => r.state === 'merged');
+  const unfinished = rows.find(
+    (r) => r.state === 'open' || r.state === 'wip' || r.state === 'claimed',
+  );
+  // Both present under a not-finished verdict: the `Inverted` split. The wave is
+  // where its unfinished work is, so the merged branch joins the unfinished
+  // branch's section — never the reverse. A deferred branch is exempt from the
+  // merge gate, so {merged, deferred} is not a split.
+  if (merged && unfinished) return unfinished.group;
+  return null;
+}
+
+/**
+ * A wave's identity as a Map key — plan plus name, the pair `openWaves` keys on
+ * and the pair the domain model calls a wave's id. The `\0` separator cannot
+ * appear in either half, so the join is unambiguous. Module-level and exported
+ * so the re-sectioning here and the fold state in the component form one
+ * spelling of the identity — two would let a wave move sections here but keep
+ * its old fold key there.
+ */
+export function waveKeyOf(plan: string, wave: string): string {
+  return `${plan}\0${wave}`;
+}
+
+/**
+ * The fleet's rows re-sectioned so every wave lands in exactly ONE section.
+ *
+ * The board filters rows into sections by `r.group`. This rewrites `group` on
+ * every row of a wave that `waveSection` says has a split to resolve, so
+ * `Inverted`'s merged and open branches move together instead of splitting. A
+ * wave with no split (`waveSection` returns null) is untouched — its rows keep
+ * their own groups, which is what leaves a running build on the machine section.
+ *
+ * Keyed on `(plan, wave)` because a wave's identity is that pair and names
+ * repeat across plans. A planless or wave-less row (`wave === ''`) is its own
+ * subject and keeps its group: it is a PR-map row, not a wave.
+ *
+ * Returns a new array with new row objects where a group changed; the input is
+ * not mutated, because the fleet is cast from the payload and shared.
+ */
+export function rowsBySection(rows: AgentRow[]): AgentRow[] {
+  const byWave = new Map<string, AgentRow[]>();
+  for (const r of rows) {
+    if (r.wave === '') continue;
+    const key = waveKeyOf(r.plan, r.wave);
+    const list = byWave.get(key);
+    if (list) list.push(r);
+    else byWave.set(key, [r]);
+  }
+  const sectionOf = new Map<string, WaitingGroup>();
+  for (const [key, waveRows] of byWave) {
+    const section = waveSection(waveRows);
+    if (section !== null) sectionOf.set(key, section);
+  }
+  return rows.map((r) => {
+    if (r.wave === '') return r;
+    const section = sectionOf.get(waveKeyOf(r.plan, r.wave));
+    return section === undefined || section === r.group ? r : { ...r, group: section };
+  });
+}
+
 /** One plan's rows within a waiting-group, in the order they arrived. */
 export interface PlanGroup {
   plan: string;
@@ -745,14 +864,41 @@ export function groupByPlan(rows: AgentRow[]): PlanGroup[] {
 }
 
 /**
+ * How many of a wave's branches have MERGED, where its branches disagree on
+ * state — or null where they agree and the single count already tells the story.
+ *
+ * A collapsed wave row speaks for several branches now, so it must not read
+ * plain `merged` for a wave that is half open — *"the same lie in fewer rows"*.
+ *
+ * `deferred` is NOT a disagreement: a deferred branch is exempt from the merge
+ * gate by design, so a wave of {merged, deferred} agrees that everything wanted
+ * has landed. The split that matters is merged vs. genuinely-unfinished
+ * (open · wip · claimed).
+ */
+export function waveDissent(rows: AgentRow[]): number | null {
+  const merged = rows.filter((r) => r.state === 'merged').length;
+  const unfinished = rows.filter(
+    (r) => r.state === 'open' || r.state === 'wip' || r.state === 'claimed',
+  ).length;
+  return merged > 0 && unfinished > 0 ? merged : null;
+}
+
+/**
  * The sentence a GROUPED wave row carries, by what its count means — for the two
- * words a count actually names, and NOTHING for any other.
+ * words a count actually names, a disagreement where one exists, and NOTHING for
+ * any other word.
  *
  * Each answer says what the wave IS, and none of them is *may this be started* —
  * which is the only thing the verdict can say, and the reason these rows do not
  * use it. `delivered` and `stalled` are the whole vocabulary: DONE folds
  * delivered branches, QUIET folds stalled ones, and those are the only sections
  * where the count carries a meaning a sentence can state.
+ *
+ * WHERE THE WAVE'S BRANCHES DISAGREE, the note says so and outranks the word:
+ * `mergedCount` branches have landed while the rest have not, and a row reading
+ * a single settled word over a half-open wave would be the collapse buying
+ * density with accuracy. Null `mergedCount` is a wave whose branches agree, and
+ * it keeps the ordinary sentence.
  *
  * A NOTE IS DERIVED, NEVER DEFAULTED INTO. The default used to assert `work
  * landed — waiting to be merged` for ANY unrecognised word, and `to approve` — a
@@ -767,8 +913,13 @@ export function groupByPlan(rows: AgentRow[]): PlanGroup[] {
  * ternary falls through it to the VERDICT — the value that actually describes an
  * ungrouped-meaning wave, and the arm that was dead for every multi-branch wave
  * while this function answered for words it did not understand.
+ *
+ * THE DISSENT ARM IS CHECKED FIRST AND STILL CANNOT RESURRECT THE DEFAULT: it
+ * fires only on a measured disagreement, so it never speaks for a wave with no
+ * merged branch at all — which is the population the default was lying about.
  */
-export function groupedNote(word: string | undefined): string {
+export function groupedNote(word: string | undefined, mergedCount?: number | null): string {
+  if (mergedCount != null) return `${mergedCount} merged, the rest not yet`;
   switch (word) {
     case 'delivered': return 'landed — nothing left in it';
     case 'stalled': return 'nothing has moved here for a while';
@@ -5091,7 +5242,9 @@ function WaveRow({
     // A grouped wave with an unrecognised word is exactly the wave the verdict
     // describes, so it derives the same value a single-branch wave does.
     soleRow ? soleNote
-      : (groupedCount !== undefined ? groupedNote(groupedWord) : '')
+      : (groupedCount !== undefined
+        ? groupedNote(groupedWord, waveDissent(group.rows))
+        : '')
         || (group.verdict === 'eligible' ? 'approved — nobody has taken it'
           : group.verdict === 'blocked' ? 'an earlier wave has to land first'
             : '');
@@ -6615,7 +6768,7 @@ export function AgentList({
   const agentByBranch = new Map((fleet?.agents ?? []).map((a) => [a.branch, a]));
 
   const [openWaves, setOpenWaves] = useState<Set<string>>(() => new Set());
-  const waveKey = (plan: string, wave: string) => `${plan}\0${wave}`;
+  const waveKey = waveKeyOf;
   const toggleWave = (plan: string, wave: string) => {
     setOpenWaves((prev) => {
       const next = new Set(prev);
@@ -6767,7 +6920,7 @@ export function AgentList({
           banners as well; a section break has to read as a bigger break than a
           row break (35–36 px rows, `py-2`), and 16 px was not it. */}
       <div data-sections className="space-y-8">
-      {GROUPS.map(({ key, icon, label, hint }) => {
+      {(() => { const sectionedRows = rowsBySection(fleet.rows); return GROUPS.map(({ key, icon, label, hint }) => {
         // EVERY SECTION IS ITS `group`, WAITING ON A MACHINE INCLUDED. It
         // asked a second question until 2026-08-20 — admitting any row that
         // carried a process — and that is what listed live agents as machines
@@ -6775,9 +6928,16 @@ export function AgentList({
         // alone; it is called by name here because the section's membership is
         // the thing that plan settled, and a reader who follows the rule back
         // should land on the argument rather than on a bare comparison.
+        //
+        // FILTERED OVER `sectionedRows`, NOT `fleet.rows`. A wave whose branches
+        // disagree on `state` carries two `group`s on its rows and would split
+        // across two sections; `rowsBySection` rewrites every row of such a wave
+        // to the ONE section the wave belongs in (a wave is where its unfinished
+        // work is), so `Inverted`'s merged and open branches land together. A
+        // uniform wave is untouched — its rows already share a group.
         const rows = key === 'waiting-on-machine'
-          ? fleet.rows.filter(inMachineSection)
-          : fleet.rows.filter((r) => r.group === key);
+          ? sectionedRows.filter(inMachineSection)
+          : sectionedRows.filter((r) => r.group === key);
         // WAITING ON YOU is the section for what needs a human DECISION, and an
         // unplanned issue is exactly that — the decision being *is this worth a
         // plan?* rather than *fix it*. No other section can hold it: the row has
@@ -7762,7 +7922,7 @@ export function AgentList({
             )}
           </section>
         );
-      })}
+      }); })()}
       </div>
 
       {/* The ages are the honesty: a stale source says so rather than looking

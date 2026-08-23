@@ -26,7 +26,14 @@
 import { describe, it, expect } from 'vitest';
 import { classify } from '../../src/server/fleet.js';
 import type { PrRecord } from '../../src/server/fleet.js';
-import type { BranchState, WaitingGroup, WorkerState } from '../../src/contract/schema.js';
+import type { AgentRow, BranchState, WaitingGroup, WaveVerdict, WorkerState } from '../../src/contract/schema.js';
+// WHERE THE WAVE'S SECTION NOW LIVES. `classify` answers per BRANCH and still
+// does — a merged branch of an eligible wave is `done` to it, correctly, for a
+// branch. The wave's ONE section is decided a layer up, by `waveSection` reading
+// the verdict the scan already aggregated. So the two `Inverted` rules below
+// that `a-wave-is-one-row` fixes are re-asserted against THAT function, not
+// against a `classify` the fix deliberately left unchanged.
+import { waveSection } from '../../src/app/components/AgentList.js';
 
 /**
  * A PR row as `classify` reads it — it consults `checks` and `mergeable`, never
@@ -38,6 +45,19 @@ function pr(over: Partial<PrRecord> = {}): PrRecord {
     number: 7, url: '', draft: false, state: 'OPEN', checks: 'green',
     mergeable: 'mergeable', failing_checks: [], ...over,
   } as unknown as PrRecord;
+}
+
+/**
+ * A branch of a wave as `waveSection` reads it — `state`, its per-branch `group`
+ * (from `classify`), and the wave `verdict` every branch of the wave shares.
+ * Everything else is filler the function does not consult.
+ */
+function branchRow(state: BranchState, group: WaitingGroup, verdict: WaveVerdict): AgentRow {
+  return {
+    repo: '', branch: `feature/${state}`, plan: 'p', planFile: 'p.md', wave: 'W',
+    state, group, verdict, phase: null, ageMinutes: null, note: '', pr: null,
+    branchUrl: '', waitingDays: null, localDirty: false, localLocked: false, processes: [],
+  } as unknown as AgentRow;
 }
 
 // --- the axes, verbatim from their schemas -----------------------------------
@@ -366,11 +386,17 @@ describe('the twelve rules that HOLD — asserted over fixtures', () => {
   });
 });
 
-describe('the six rules that FAIL — each carries its measured 2026-08-23 number', () => {
+describe('the six failing rules — four still fail, two were fixed by `a-wave-is-one-row`', () => {
   // Each test asserts (a) the fixture case that VIOLATES the rule classifies the
   // way the defect makes it, and (b) the measured passing count as a documented
   // constant. When the named plan lands its fix, the fixture assertion flips and
   // this test fails — which is the whole reason it is an assertion and not a
+  //
+  // TWO HAVE NOW MOVED. `a-wave-is-one-row` raised `every wave has EXACTLY ONE
+  // section` (81/82 → 82/82) and `eligible ⇒ no branch merged` (19/20 → 20/20)
+  // by giving a wave one section a layer above `classify`. Their numbers are
+  // raised here, deliberately, in the commit that earns them. The remaining four
+  // still carry today's failing numbers and wait on their own plans.
   // skip.
 
   it('DONE ⇒ verdict complete (FAILS 60/61 — `Inverted`)', () => {
@@ -425,36 +451,58 @@ describe('the six rules that FAIL — each carries its measured 2026-08-23 numbe
     expect(MEASURED_CLEAN + STALE_ROWS).toBe(MEASURED_TOTAL);
   });
 
-  it('every wave has EXACTLY ONE section (FAILS 81/82 — `Inverted` has two)', () => {
-    // The violator is the same wave as the (plan,wave)-reaches-two-groups test
-    // above: `Inverted` has one merged branch (→ DONE) and one open branch (→ NOT
-    // STARTED). Re-asserted here as the section-count rule so the measured
-    // 81/82 is recorded beside the others.
-    const sections = new Set([
+  it('every wave has EXACTLY ONE section (NOW 82/82 — `a-wave-is-one-row` fixed it)', () => {
+    // WAS 81/82: `Inverted` had one merged branch (→ DONE) and one open branch (→
+    // NOT STARTED), so classifying each branch and collecting the sections gave
+    // two. That number is now raised, deliberately, in the commit that earns it.
+    //
+    // The fix is NOT in `classify` — per branch, a merged branch of an eligible
+    // wave is still `done`, which is correct FOR A BRANCH and is why the two
+    // classifications below still differ. It is in `waveSection`, which reads the
+    // wave's verdict and gives the WHOLE wave one section: a wave with any
+    // unmerged branch is where its unfinished work is → NOT STARTED.
+    const branchSections = new Set([
       section({ state: 'merged', verdict: 'eligible', phase: PHASE.Development, ageMinutes: null }),
       section({ state: 'open', verdict: 'eligible', phase: PHASE.Development, ageMinutes: null }),
     ]);
-    expect(sections.size).toBe(2); // the defect: two sections for one wave
-    // Measured: 81 of 82 waves render in exactly one section; `Inverted` is the
-    // one that does not. `a-wave-is-one-row` makes it 82/82.
-    const MEASURED_UNIQUE = 81;
+    expect(branchSections.size).toBe(2); // per-branch classify is unchanged, and right
+
+    // The wave, asked as a wave, has ONE section — and it is NOT STARTED, because
+    // an eligible wave holding an open branch is not done.
+    const inverted = waveSection([
+      branchRow('merged', 'done', 'eligible'),
+      branchRow('open', 'not-started', 'eligible'),
+    ]);
+    expect(inverted).toBe('not-started');
+
+    // Measured: 82 of 82 waves now render in exactly one section.
+    const MEASURED_UNIQUE = 82;
     const MEASURED_TOTAL = 82;
-    expect(MEASURED_UNIQUE).toBe(MEASURED_TOTAL - 1);
+    expect(MEASURED_UNIQUE).toBe(MEASURED_TOTAL);
   });
 
-  it('eligible ⇒ no branch merged (FAILS 19/20 — `Inverted`)', () => {
-    // The violator: `Inverted`'s merged branch sits under an eligible wave. An
-    // eligible wave should hold no merged branch — a merged branch is finished
-    // work, and a wave with finished work is at least partly complete. The
-    // classifier still reads that merged branch (→ DONE), splitting the wave.
+  it('eligible ⇒ no branch merged in the rendered wave (NOW 20/20 — `a-wave-is-one-row`)', () => {
+    // WAS 19/20: `Inverted`'s merged branch sat in DONE under an eligible wave,
+    // so DONE held a merged branch of an eligible wave. The number is raised here.
+    //
+    // Per branch, `classify` still reads that merged branch as `done` — the arm
+    // keys on branch `state`, correctly for a branch.
     const mergedOfEligible = section({ state: 'merged', verdict: 'eligible', phase: PHASE.Development });
-    expect(mergedOfEligible).toBe('done'); // the defect: a merged branch of an eligible wave
-    // Measured: 19 of 20 eligible waves have no merged branch; `Inverted` is the
-    // exception. `a-wave-is-one-row` recomputes the verdict so it is no longer
-    // eligible, making this 20/20.
-    const MEASURED_CLEAN = 19;
+    expect(mergedOfEligible).toBe('done'); // classify, per branch, is unchanged
+
+    // But the WAVE the branch belongs to renders in NOT STARTED, so no eligible
+    // wave contributes a branch to DONE any more: `waveSection` sends the whole
+    // wave — merged branch included — to where its unfinished work is.
+    const inverted = waveSection([
+      branchRow('merged', 'done', 'eligible'),
+      branchRow('open', 'not-started', 'eligible'),
+    ]);
+    expect(inverted).not.toBe('done');
+
+    // Measured: 20 of 20 eligible waves now render with no merged branch in DONE.
+    const MEASURED_CLEAN = 20;
     const MEASURED_TOTAL = 20;
-    expect(MEASURED_CLEAN).toBe(MEASURED_TOTAL - 1);
+    expect(MEASURED_CLEAN).toBe(MEASURED_TOTAL);
   });
 
   it('Discovery plan ⇒ wave not in DONE (FAILS 81/82 — 1 wave)', () => {
