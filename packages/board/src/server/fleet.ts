@@ -4350,7 +4350,28 @@ export function rowsFromPulse(
         // go to read it*. They are the same record on an open branch and differ
         // only after a merge, which is precisely the case that was losing its
         // link.
-        const linked = prsByHeadMap?.get(b.branch) ?? pr;
+        //
+        // A CLOSED PR IS AN ENDED ARTIFACT, NOT AN ENDED BRANCH. `prOutranks`
+        // already prefers an open PR over a closed one — "a head can carry
+        // several PRs over its life — a closed attempt and its reopened
+        // successor" — but it ranks what EXISTS and never asks whether the
+        // winner is worth showing. Where a head's ONLY PR is closed, that rank
+        // hands the row a withdrawn attempt.
+        //
+        // Measured 2026-08-24: ten branches were in exactly that state, every
+        // one of them with a single closed PR. `feature/the-plan-row-carries-
+        // wave-actions` rendered `worker finished — review it` over a PR closed
+        // as superseded an hour earlier, so the board asked a reader to review
+        // something that had been withdrawn.
+        //
+        // THE WAVE LIVES ON IN THE BRANCH. Work continues toward another PR, so
+        // hiding the closed one leaves the row saying what remains true — the
+        // branch, its wave, its git state — and stops it citing an artifact that
+        // ended. This is a display decision and touches no verdict: `classify`
+        // already receives `pr` (open-only), so the wave arithmetic is
+        // unchanged either way.
+        const held = prsByHeadMap?.get(b.branch) ?? null;
+        const linked = held && held.state === 'CLOSED' ? pr : (held ?? pr);
         const { group, note, verdict } = classify(
           b.state, wave.verdict, age, quietMinutes, pr, b.local_dirty, b.local_ahead,
           // The plan's own phase, which the pulse has carried since #140 and
