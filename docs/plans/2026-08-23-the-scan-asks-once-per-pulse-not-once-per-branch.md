@@ -80,9 +80,17 @@ of the 28 branches asked:  0 appear in the pr-list response
                           28 appear nowhere in it
 ```
 
-Every branch that costs a round trip is one with **no pull request** —
+Every branch that costs a round trip has **no ref and no pull request** —
 `bug/loose-checks-the-rollup`, `bug/the-blocking-wave-is-found-wherever-it-is`,
-and 26 more. They are claimed branches nobody has opened a PR for.
+and 26 more. Measured: 28 of the 29 have no `refs/remotes/origin/` entry at all.
+
+**They are branches an approved plan NAMES and nobody has started.** Not claimed
+branches — a claim pushes a ref, and these have none. `plot-host.sh pr-state`
+answers `{"state":"NONE"}` for each, which is the one state `terminal_learn`
+refuses to cache, so they are re-asked on every scan for the life of the plan.
+
+That population only grows: every approved plan adds its unstarted branches to
+it, and they stay until somebody dispatches them.
 
 **The scan pays a network round trip to re-learn that a branch still has no PR,
 once per branch, every scan, forever.** Nothing about that answer can change
@@ -140,6 +148,15 @@ The two timers total **120/hr — 2.4% of the budget.** They are correctly
 throttled and are not worth touching. `refreshPrs` in particular is the fix
 from #226 working exactly as designed.
 
+**This row is a claim, not yet a measurement, and the plan says so.** A 4-minute
+window recorded ~30 `pr-list` + `issue-list` calls inside 10 seconds — roughly
+27x the timer rate. That was attributed to four board processes running
+concurrently, each with its own timer, staggered: an inference from `ps`, not a
+controlled measurement. The `Done when` list therefore carries an assertion that
+one isolated board fires each timer at its stated rate. **If it does not, this
+table is wrong and the plan has missed a second defect** — which is the outcome
+this assertion exists to catch rather than to confirm.
+
 ### The per-board multiplier, measured
 
 Four board processes were running simultaneously on this machine, from four
@@ -181,8 +198,36 @@ so a caller passing `--ask` never reaches it. The change is to test
 answer, and asking the host cannot improve on it.
 
 `--ask` then means *ask if nobody could otherwise tell me*, rather than *ask
-unconditionally* — which is what its two call sites (lines 736, 755) actually
-want.
+unconditionally* — which is what its ONE call site, `merged_by_host`, actually
+wants.
+
+### The docstring this contradicts, and why the list wins
+
+`merged_by_host` argues the opposite, and the argument has to be met rather than
+ignored:
+
+> THE ONE CALLER THAT MAY ASK PER BRANCH (PR #216). It is reached only from the
+> no-ref arm of `branch_state`, for a branch the repo-wide list **may
+> legitimately not contain**.
+
+That was right when the join keyed differently. It is no longer: `pr-list`
+returns every PR in the repo, so **after a successful list, a branch missing
+from it has no PR** — absence is the answer, not the absence of one. Verified
+against this repo: 300 PRs returned, 279 with deleted refs, all present in the
+list and all answered by the join.
+
+**The bound that makes this true, and it must be asserted.** The list is
+authoritative only while it is COMPLETE. `PR_LIST_LIMIT` defaults to 1000 and
+this repo has 359 PRs, so there is headroom today — but a truncated list would
+make a real PR read `NONE`, which is worse than the cost being fixed. Issue #333
+records exactly that failure on Bitbucket, where the join is silently partial
+past 50 PRs per state.
+
+So the derivation is licensed by completeness, and completeness is a property
+the code must check rather than assume: **if the list came back at the limit, it
+may be truncated, and `--ask` must stay live for that scan.** A count equal to
+the limit is not evidence of exactly-the-limit PRs; it is evidence of *at least*
+the limit, which is not a complete list.
 
 ### What must remain, and why it is not an exception
 
@@ -200,6 +245,25 @@ PR #216 added the `--ask` arm for branches with no ref, whose state the join
 could not supply. That gap is closed: the join keys by name and serves them
 (279 of 300 here). What is left in `--ask` is the population the join answers
 with silence — and after a successful list, silence IS the answer.
+
+### The cadence coupling this leaves behind, stated rather than fixed
+
+The board's timer is 5 s and one scan takes **28 s**, so scans run
+back-to-back: the cadence is set by the scan's own duration, not by the timer.
+
+**That inverts the usual relationship between speed and cost.** Every second cut
+from the scan buys another scan per hour, and each scan carries the per-branch
+calls with it — so optimising the scan for latency, which this repo has done
+repeatedly and deliberately (#262, the `rev-list` batching noted in `fleet.ts`),
+makes the host traffic strictly worse while every measurement of the change
+looks like an improvement.
+
+This plan does not add a floor between scans. It does not need one: once the
+per-branch calls are gone, a scan costs ONE `pr-list` however often it runs, and
+the coupling becomes harmless rather than merely smaller. **Recorded because the
+next person to speed the scan up should know that doing so multiplies whatever
+per-branch cost remains** — and because if this fix is ever partially reverted,
+the cadence is what turns a small regression into an exhausted budget.
 
 ### Not chosen: raise `PR_REFRESH_MS` or throttle the scan
 
@@ -259,6 +323,18 @@ fetched the list.
   break. **A test suite that only covers the success path passes an
   implementation that reports an entire fleet as having no PRs during an
   outage.**
+- A **truncated** list does not answer for anybody. With `PR_LIST_LIMIT` forced
+  low enough that the list comes back full, `--ask` stays live and a branch whose
+  PR exists still resolves to its real state. **This is the assertion that keeps
+  the derivation honest**: a list that may be incomplete is not evidence of
+  absence, and #333 records this exact failure on Bitbucket.
+- **One isolated board fires each 60 s timer at its stated rate.** Measured over
+  a 300 s window with no other board process running: at most 6 `pr-list` and 6
+  `issue-list` calls. This is not a regression guard on this plan's change — it
+  is the check on the *ruled-out* table above, whose burst was explained by
+  inference rather than by measurement. A failure here means the timers are
+  triggered by something besides their timer, and this plan named the wrong
+  scope.
 - The terminal cache still serves and still validates against plan and main
   OIDs; this plan does not weaken it and adds nothing to what it remembers.
 - `pnpm test`, `pnpm run test:reconcile` and `pnpm run test:board` green.
@@ -301,3 +377,22 @@ That a confident comment recorded the measurement behind it is what made this
 diagnosable at all — the same shape as
 `the-blocking-wave-is-found-wherever-it-is`, where a careful docstring reasoned
 from a premise the layout no longer held.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "Whose reasoning wins: the plan's derive-NONE, or merged_by_host's docstring defending --ask?", "a": "List is authoritative after a successful pr-list; truncation is the bound and must be asserted", "category": "technical"},
+    {"q": "Is the 2.4% timer claim proven, or inferred from four concurrent boards?", "a": "Inferred — added a Done-when assertion measuring one isolated board over 300s", "category": "nonFunctional"},
+    {"q": "Should the plan address the 5s timer over a 28s scan (cost scales inversely with duration)?", "a": "Stay scoped; record the hazard in Design so a future speed-up does not multiply per-branch cost", "category": "tradeOffs"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "domain": false,
+    "ux": false,
+    "nonFunctional": {"security": false, "performance": true, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
