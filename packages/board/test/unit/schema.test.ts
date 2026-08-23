@@ -2,8 +2,27 @@ import { describe, it, expect } from 'vitest';
 import {
   FLEET_CONTROLS_DEFAULT,
   PlanMetaSchema, CardSchema, FleetBranchSchema, AgentRowSchema, AgentEntrySchema,
-  FleetSchema,
+  FleetSchema, ServerInfoSchema,
 } from '../../src/contract/schema';
+
+describe('ServerInfoSchema — the branch the server serves', () => {
+  it('carries the branch the server reported', () => {
+    const info = ServerInfoSchema.parse({
+      restartCommand: 'pnpm board', port: 7777, branch: 'feature/x',
+    });
+    expect(info.branch).toBe('feature/x');
+  });
+
+  it('defaults branch to "" for an older payload — absent is the same silence as detached', () => {
+    // A page held open across a server upgrade gets a pulse with no `branch`
+    // field. The honest default is empty, which the header renders as no
+    // element — the SAME nothing a detached HEAD produces. Defaulting to a
+    // placeholder like `unknown` would put a word on screen that reads as a
+    // branch name.
+    const info = ServerInfoSchema.parse({ restartCommand: '', port: 0 });
+    expect(info.branch).toBe('');
+  });
+});
 
 describe('AgentEntrySchema — liveness on the wire', () => {
   const base = {
