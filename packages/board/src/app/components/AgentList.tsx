@@ -1550,19 +1550,55 @@ export function isLive(row: AgentRow): boolean {
  * So the question is asked of `isActive` alone, which reads the three local
  * fields and nothing else. `useActivity` no longer filters by group.
  */
+/**
+ * Is this row's WORK over — landed or called off — whatever its worktree holds?
+ *
+ * **`merged || deferred`, and nothing about a worktree or a worker.** These are
+ * the two ways a branch's work ends: `merged` landed it, `deferred` is a human
+ * deciding it is not needed. Both are the branch's own `state`, a fact about the
+ * git ref every reader can verify — never the local checkout only one machine
+ * can see.
+ *
+ * The whole class of DONE defect this session cleared is a LOCAL fact answering
+ * a FINISHED-work question: a merged branch whose stale worktree still held an
+ * edited test fixture reported *someone is writing here*, and a merged branch
+ * whose worklog never cleared reported a `waiting` worker as though the run were
+ * live. The domain model states the boundary — *a local fact may DESCRIBE a row
+ * and may never ORDER the fleet* — and this predicate is the one question both
+ * reads must ask first: is there any writing left to observe at all? On a
+ * finished row there is not, so a worktree or worker signal on it is stale
+ * bookkeeping, not a pulse.
+ *
+ * NOT keyed on the dirty file's name. Ignoring `last-pulse.json` would silence
+ * today's instance and leave the rule wrong — any uncommitted file in any stale
+ * worktree brings it back looking like a new bug. The defect is the CATEGORY,
+ * asking a live question of finished work, and this names the category.
+ *
+ * Exported for test, and reused: `isActive` and the wave-of-one status read are
+ * the two places that were asking the live question, and they ask this instead.
+ */
+export function isFinished(row: Pick<AgentRow, 'state'>): boolean {
+  return row.state === 'merged' || row.state === 'deferred';
+}
+
 export function isActive(
   row: Pick<AgentRow, 'worker' | 'pr' | 'state'>,
 ): boolean {
-  // A MERGED BRANCH IS NOT ACTIVE, whatever is still running against it.
+  // A FINISHED BRANCH IS NOT ACTIVE, whatever is still running against it.
   //
   // Measured on screen: a row in DONE carrying the activity mark. Both halves
-  // were individually true — `state: merged` and a local signal — and the row
-  // said two things that cannot both be acted on. The mark says *work is
-  // happening on this branch*, and after the merge there is no work on it left
-  // to happen; `classify` sends merged branches to `done` before it looks at
-  // any signal, and this predicate agrees with that rather than contradicting
-  // it one layer up.
-  if (row.state === 'merged') return false;
+  // were individually true — `state: merged` (or `deferred`) and a local
+  // signal — and the row said two things that cannot both be acted on. The mark
+  // says *work is happening on this branch*, and after the branch is finished
+  // there is no work on it left to happen; `classify` sends such branches to
+  // `done` before it looks at any signal, and this predicate agrees with that
+  // rather than contradicting it one layer up.
+  //
+  // `deferred` and not only `merged`, because both are finished: one of the
+  // seven rows wearing the mark on the live board was `deferred` with a dirty
+  // worktree. The guard is finishedness (`isFinished`), never merged-ness — the
+  // same reason it is not keyed on the dirty file's name.
+  if (isFinished(row)) return false;
   // A PROCESS, AND ONLY A PROCESS — an agent working or a build running.
   //
   // This read `localLocked || localDirty` until 2026-08-22, and those are not
@@ -1587,6 +1623,37 @@ export function isActive(
   // longer does is claim a process is running.
   if (LIVE_WORKERS.has(row.worker)) return true;
   return row.pr?.state === 'pending';
+}
+
+/**
+ * Slot 5 for a WAVE OF ONE — the branch's own status, folded onto the wave row.
+ *
+ * A wave of one gets no fold, so this row is the only one that branch gets and
+ * carries the status a branch row would have shown. Three sources, in order:
+ *
+ *   1. a LIVE worker (`workerStatus`) — *somebody is on this right now*, which
+ *      outranks the others because it is the only one about activity;
+ *   2. the PR condition (`prStatus`) — `green`, `checks failing`;
+ *   3. the bare branch state (`stateStatus`) — `delivered`, `deferred`.
+ *
+ * **But a live worker is screened out on a FINISHED row**, and that is the fix.
+ * The worker outlives its branch (`AgentEntry`: *"a branch is what an agent is
+ * working on, never what it is"*), so its last recorded state can survive the
+ * merge. Measured 2026-08-23, three DONE rows carried `worker: waiting`/`failed`
+ * on branches that were `merged` or `deferred`; `waiting` is a LIVE worker, so
+ * it reached this slot and read as *someone owes this an answer* under a heading
+ * that says done. On a finished row there is no run to be waiting on, so the
+ * worker is skipped and the row falls back to its PR then its state — the same
+ * category error as the activity mark, and it asks the same `isFinished` first.
+ *
+ * Exported for test — the negative (a `waiting` worker on a merged wave) is the
+ * half a `LIVE_WORKERS`-only gate gets wrong, since `waiting` is in that set.
+ */
+export function soleRowStatus(
+  row: Pick<AgentRow, 'worker' | 'pr' | 'state'>,
+): string {
+  if (!isFinished(row) && LIVE_WORKERS.has(row.worker)) return workerStatus(row.worker);
+  return row.pr ? prStatus(row.pr) : stateStatus(row as AgentRow);
 }
 
 /**
@@ -4940,9 +5007,12 @@ function WaveRow({
         // it with a fact about a process nobody is waiting on. `running`,
         // `waiting` and `stalled` are the three that mean *somebody is on this,
         // or should be* — the rest are history, and history loses to the PR.
-        soleStatus: soleRow && LIVE_WORKERS.has(soleRow.worker)
-          ? workerStatus(soleRow.worker)
-          : soleRow?.pr ? prStatus(soleRow.pr) : (soleRow ? stateStatus(soleRow) : ''),
+        //
+        // And a live worker loses to the PR on a FINISHED wave too, because the
+        // worker outlives its branch and its last state can survive the merge —
+        // `soleRowStatus` screens it out on a merged or deferred row, the same
+        // finishedness guard `isActive` applies to the activity mark.
+        soleStatus: soleRow ? soleRowStatus(soleRow) : '',
         // AND ITS PR AND PLAN, for the same reason: a wave of one has no fold, so
         // this row is the ONLY row that branch gets and everything reachable from
         // a branch row has to be reachable from here.
