@@ -78,6 +78,7 @@ Two designs shaped this, and it is worth being precise about what was taken and 
 | [plot-dispatch](skills/plot-dispatch/) | Fan out a plan across several agents — one worktree and one worker per eligible branch |
 | [plot-merge-queue](skills/plot-merge-queue/) | Safe merge order for finished branches, with collision prediction |
 | [plot-fleet](skills/plot-fleet/) | Fleet pulse — which branch waves are eligible to start, which branches are claimed |
+| [plot-reslice](skills/plot-reslice/) | Slice a multi-branch wave into one wave per branch — proposes named waves in an argued order, a person confirms |
 | [ralph-plot-sprint](skills/ralph-plot-sprint/) | Automated sprint runner (extension) |
 | [challenge-the-plan](skills/challenge-the-plan/) | Deep plan interrogation — adaptive interviews across technical, domain, UX, non-functional dimensions (companion) |
 | [story-tracking](skills/story-tracking/) | Multi-session work tracking in markdown folders (companion — stories are the long-running umbrella around plans) |

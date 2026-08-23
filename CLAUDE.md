@@ -71,6 +71,7 @@ Plot is a hub-and-spoke skill system:
 | Coordination | `plot-dispatch/` | Fan out an approved plan: one worktree + one detached worker per eligible branch, each claimed by ref push (the writing half of the fleet) |
 | Coordination | `plot-merge-queue/` | Safe merge order + collision prediction for a plan's finished branches (read-only; merges nothing) |
 | Coordination | `plot-fleet/` | Fleet pulse — which branch waves are complete/eligible/blocked, which branches are claimed (read-only, stateless) |
+| Coordination | `plot-reslice/` | Slice a plan's multi-branch wave into one wave per branch — reads the branches' diffs and PRs, proposes named waves in an argued dependency order, a person confirms before it rewrites only the `## Branches` section |
 | Automation | `ralph-plot-sprint/` | Automated sprint runner (shell loop wrapper) |
 | Companion | `challenge-the-plan/` | Deep plan interrogation (design-phase: idea → challenge → approve) — usable standalone, not a plot spoke |
 | Companion | `story-tracking/` | Multi-session work tracking (stories = umbrella around plans) — usable standalone, not a plot spoke |
