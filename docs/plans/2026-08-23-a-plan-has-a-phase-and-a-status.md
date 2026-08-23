@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-23, Jan Wloka, in-session
+- **Started:** 2026-08-23, Jan Wloka, `feature/a-plan-reports-its-status`
 
 ## Approval
 
@@ -286,7 +287,7 @@ for no gain.
 
 ### Measured
 
-- `feature/a-plan-reports-its-status` — the contract gains a derived `status` on the plan row, computed from its waves in the server, with `phase` untouched and the release gate proved unchanged
+- `feature/a-plan-reports-its-status` — the contract gains a derived `status` on the plan row, computed from its waves in the server, with `phase` untouched and the release gate proved unchanged → #374
 
 ## Notes
 

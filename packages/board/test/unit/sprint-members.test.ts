@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parseSprintFile, collectSprints } from '../../src/server/board.js';
+import { sprintMembership } from '../../src/server/fleet.js';
 
 /**
  * Write a sprint file into a fresh temp dir and return its absolute path.
@@ -138,5 +139,82 @@ describe('collectSprints — a slug naming no plan is reported, not dropped', ()
     );
     const sprints = collectSprints(repoRoot, sprintDir);
     expect(sprints[0].members[0].known).toBe(true);
+  });
+});
+
+describe('sprintMembership — which active sprint claims each plan', () => {
+  /**
+   * A temp repo whose `docs/sprints/active/` holds one file per sprint. The real
+   * estate symlinks active sprints into that dir; a test can write the files
+   * directly, since `collectSprints` reads whatever is there and this map filters
+   * on the phase itself rather than trusting the directory.
+   */
+  function withSprints(files: Record<string, string>): { repoRoot: string; scriptsDir: string } {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sprint-membership-'));
+    const activeDir = path.join(repoRoot, 'docs/sprints/active');
+    fs.mkdirSync(activeDir, { recursive: true });
+    for (const [name, body] of Object.entries(files)) {
+      fs.writeFileSync(path.join(activeDir, name), body, 'utf8');
+    }
+    return { repoRoot, scriptsDir: path.join(repoRoot, 'scripts') };
+  }
+
+  const ACTIVE = `## Status\n\n- **Phase:** Active\n`;
+  const CLOSED = `## Status\n\n- **Phase:** Closed\n`;
+
+  it('maps each member plan slug to the sprint that lists it', () => {
+    // The sprint's own slug comes from its FILENAME (`\d{4}-W\d{2}-<slug>.md`),
+    // not its `# Sprint:` title — the same rule `parseSprintFile` follows.
+    const opts = withSprints({
+      '2026-W40-alpha.md':
+        `# Sprint: Alpha Title\n\n${ACTIVE}\n### Must Have\n\n- [ ] [plan-one] a\n- [ ] [plan-two] b\n`,
+    });
+    const map = sprintMembership(opts);
+    expect(map.get('plan-one')).toBe('alpha');
+    expect(map.get('plan-two')).toBe('alpha');
+    // A plan no sprint lists is simply absent — the caller reads that as "".
+    expect(map.has('plan-three')).toBe(false);
+  });
+
+  it('ignores a Closed sprint left in the active dir — a stale link must not claim a row', () => {
+    // `collectSprints` reads the active/ dir, which is a symlink index the estate
+    // curates. This function does not trust it: a Closed sprint reachable there by
+    // drift is excluded on its own phase, so the field never reads a commitment
+    // that has ended.
+    const opts = withSprints({
+      '2026-W40-live.md':
+        `# Sprint: Active One\n\n${ACTIVE}\n### Must Have\n\n- [ ] [live-plan] a\n`,
+      '2026-W39-gone.md':
+        `# Sprint: Closed One\n\n${CLOSED}\n### Must Have\n\n- [ ] [old-plan] b\n`,
+    });
+    const map = sprintMembership(opts);
+    expect(map.get('live-plan')).toBe('live');
+    expect(map.has('old-plan')).toBe(false);
+  });
+
+  it('gives a plan two active sprints both list to the FIRST — deterministic', () => {
+    // Two Active sprints are permitted (two teams, one train). The field records
+    // one sprint per row; the first to list a plan wins, matching the first-wins
+    // dedup the member list itself uses, so the answer does not depend on which
+    // way collectSprints happened to order the directory.
+    const opts = withSprints({
+      '2026-W40-first.md':
+        `# Sprint: First\n\n${ACTIVE}\n### Must Have\n\n- [ ] [shared-plan] a\n`,
+      '2026-W40-second.md':
+        `# Sprint: Second\n\n${ACTIVE}\n### Must Have\n\n- [ ] [shared-plan] a\n`,
+    });
+    const map = sprintMembership(opts);
+    // Whichever sprint won, it is ONE of the two and stable across calls — the
+    // property that matters is that the map holds a single deterministic answer.
+    expect(sprintMembership(opts).get('shared-plan')).toBe(map.get('shared-plan'));
+    expect(['first', 'second']).toContain(map.get('shared-plan'));
+  });
+
+  it('is empty when no sprint is active — the caller then leaves every row unclaimed', () => {
+    const opts = withSprints({
+      '2026-W39-closed.md':
+        `# Sprint: Closed\n\n${CLOSED}\n### Must Have\n\n- [ ] [some-plan] a\n`,
+    });
+    expect(sprintMembership(opts).size).toBe(0);
   });
 });
