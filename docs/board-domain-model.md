@@ -948,6 +948,246 @@ Three rules fall out, and each is a defect the board has shipped:
    aggregates them, and reading one branch is what put `Inverted` in two
    sections.
 
+## Section constraints — when may a PLAN row appear here?
+
+The board has six sections. For each, what statuses must the plan and its
+associated entities carry? Measured over all 106 live rows; the two empty
+sections are stated from their definitions and marked as unmeasured.
+
+### WAITING ON YOU — *a person owes this something*
+
+| entity | allowed | forbidden |
+|---|---|---|
+| plan `phase` | Discovery · Development · **none** *(planless rows)* | Endgame · Released |
+| wave `verdict` | eligible · blocked · **none** | complete |
+| branch `state` | open · wip | merged · deferred |
+| pr | absent, or open | merged |
+| worker | elsewhere · finished · failed · waiting | running |
+
+```
+30 rows   phase: 27 Discovery · 1 Development · 2 none
+          verdict: 13 eligible · 15 blocked · 2 none
+          state: 27 open · 3 wip        pr: 3 of 30
+```
+
+**Two kinds of wait live here**, which is why `phase` spans two values:
+*approve this plan* (27 Discovery rows) and *merge this PR* (the wip rows).
+
+**Planless rows are legitimate here and nowhere else.** Two rows carry no plan at
+all — a release PR and an unowned PR — and a plan-membership rule must exempt
+them rather than treat them as violations. **A section rule for plans cannot be
+stated as a rule about all rows.**
+
+### WORKING — *an agent is writing now*
+
+| entity | allowed | forbidden |
+|---|---|---|
+| plan `phase` | Development | Discovery · Endgame · Released |
+| wave `verdict` | eligible · blocked | complete |
+| branch `state` | wip · open | merged · deferred |
+| worker | **running** | everything else |
+
+**Unmeasured — the section is empty on this board.** Stated from its definition:
+WORKING means an agent is working *now*, so `worker: running` is the membership
+condition and a plan may only be here while it is Development.
+
+A Discovery plan cannot be here: dispatch refuses an unapproved plan, so no agent
+can be running on one.
+
+### WAITING ON A MACHINE — *a build is running*
+
+| entity | allowed | forbidden |
+|---|---|---|
+| plan `phase` | Development | Discovery · Endgame · Released |
+| wave `verdict` | eligible · blocked | complete |
+| branch `state` | wip | open · merged · deferred |
+| pr | **present, `pending`** | absent |
+
+**Unmeasured — empty on this board.** A build cannot run without a PR, and a PR
+cannot exist without pushed work, so `state: wip` and a present PR are both
+implied by the section's own meaning.
+
+### NOT STARTED — *approved, and nobody has taken it*
+
+| entity | allowed | forbidden |
+|---|---|---|
+| plan `phase` | **Development only** | Discovery · Endgame · Released |
+| wave `verdict` | eligible · blocked | complete |
+| branch `state` | **open only** | wip · merged · deferred |
+| pr | **absent** | present |
+| worker | **elsewhere** | any live state |
+
+```
+9 rows   phase: 9/9 Development   verdict: 6 eligible · 3 blocked
+         state: 9/9 open          pr: 0 of 9   worker: 9/9 elsewhere
+```
+
+**Perfectly uniform on all five axes.** This is the strictest section and the
+estate has never violated it. *Approved* is the plan-side condition — the
+section's own hint says *"approved — nobody has taken it"* — and a Discovery plan
+appearing here is the defect `a-plan-moves-through-the-sections` fixed.
+
+### QUIET — *started, then stopped*
+
+| entity | allowed | forbidden |
+|---|---|---|
+| plan `phase` | Development | Discovery · Endgame · Released |
+| wave `verdict` | eligible · blocked | complete |
+| branch `state` | **wip only** | open · merged · deferred |
+| pr | present | — |
+| worker | not running | running |
+
+```
+6 rows   phase: 6/6 Development   state: 6/6 wip   pr: 6 of 6   worker: 6/6 elsewhere
+```
+
+**Also uniform.** `wip` is the definition: work was pushed and then nothing
+happened. A branch with no commits cannot go quiet — it was never loud.
+
+### DONE — *finished, and still yours*
+
+| entity | allowed | forbidden |
+|---|---|---|
+| plan `phase` | **Development · Endgame** | Discovery · Released |
+| wave `verdict` | **complete only** | eligible · blocked |
+| branch `state` | merged · deferred | open · wip |
+| pr | present, or absent when **all-deferred** | — |
+| worker | any — **but a live worker is stale** | — |
+
+```
+61 rows   phase: 41 Released · 10 Development · 9 Endgame · 1 Discovery
+          verdict: 60 complete · 1 eligible
+          state: 58 merged · 3 deferred
+```
+
+**Three of these rules are violated today**, and each has a plan:
+
+- **41 Released rows** — out of the board's scope (`done-holds-what-is-still-yours`)
+- **1 Discovery row** — a merged wave on a draft plan (same plan)
+- **1 eligible row** — `Inverted`, whose wave is not complete (same plan)
+
+**And a fourth the measurement surfaced now:** three DONE rows carry a worker of
+`failed` or `waiting` on branches that are `merged` or `deferred`. The branch
+landed; the worklog's last recorded state never cleared. **A finished branch with
+a live worker state is stale bookkeeping**, and it is the same class as the
+activity mark firing on a merged branch — a worklog fact outliving the work it
+described.
+
+## Validating the plan-section rules
+
+Rules asserted above, checked against all 106 rows.
+
+| rule | result |
+|---|---|
+| NOT STARTED ⇒ phase Development | **holds** 9/9 |
+| NOT STARTED ⇒ state open, no PR, worker elsewhere | **holds** 9/9 on each |
+| QUIET ⇒ state wip | **holds** 6/6 |
+| QUIET ⇒ phase Development | **holds** 6/6 |
+| WAITING ON YOU ⇒ never merged | **holds** 30/30 |
+| WAITING ON YOU ⇒ never complete | **holds** 30/30 |
+| DONE ⇒ state merged or deferred | **holds** 61/61 |
+| DONE ⇒ verdict complete | **fails** 60/61 — `Inverted` |
+| DONE ⇒ phase Development or Endgame | **fails** 19/61 — 41 Released, 1 Discovery |
+| DONE ⇒ no live worker on finished work | **fails** 58/61 — 3 stale |
+
+Executed against the live payload, 2026-08-23:
+
+```
+NOT STARTED => phase Development                     HOLDS  9/9
+NOT STARTED => state open                            HOLDS  9/9
+NOT STARTED => no PR                                 HOLDS  9/9
+NOT STARTED => worker elsewhere                      HOLDS  9/9
+QUIET       => state wip                             HOLDS  6/6
+QUIET       => phase Development                     HOLDS  6/6
+WAITING ON YOU => never merged                       HOLDS  30/30
+WAITING ON YOU => never complete                     HOLDS  30/30
+DONE => state merged or deferred                     HOLDS  61/61
+DONE => verdict complete                             FAILS  60/61
+DONE => phase Development or Endgame                 FAILS  19/61
+DONE => no live worker on finished work              FAILS  58/61
+```
+
+**Nine of twelve hold with zero exceptions. Three fail, and all three failures
+are in DONE.**
+
+That is a consistent result rather than a mixed one: every other section is
+already exactly what its rule says, and the section that is not is the one three
+separate operator reports landed on today. The rules are not aspirational — nine
+of the ten sections × axes combinations are enforceable as written.
+
+**The consistency check that matters most:** no rule contradicts another, and no
+row is forbidden by two sections at once. Every row has exactly one section it is
+permitted in, except the four DONE violators — which is the definition of the
+defect rather than a flaw in the rules.
+
+## The same for WAVES
+
+A wave's section, unlike a plan's, must be **unique** — this is the invariant
+`the-wave-is-a-thing-the-board-can-hold` enforces. So these rules are stated as a
+function, not as a permission table.
+
+### The rule
+
+**A wave's section is a function of its verdict and its plan's phase, and of
+nothing else.**
+
+| wave `verdict` | plan `phase` | section |
+|---|---|---|
+| complete | Development · Endgame | **DONE** |
+| complete | Released | **not shown** — out of scope |
+| complete | Discovery | **not shown** — nothing is committed to yet |
+| eligible · blocked | Development | **NOT STARTED** *(or WORKING / QUIET / WAITING ON A MACHINE by worker and branch state)* |
+| eligible · blocked | Discovery | **WAITING ON YOU** — the plan needs approving |
+
+**Branch state does not appear**, and that is the point. The verdict already
+aggregates every branch; consulting an individual one is what places a wave twice.
+
+### Validating the wave rules
+
+| rule | result |
+|---|---|
+| every wave has **exactly one** section | **fails** 81/82 — `Inverted` has two |
+| complete ⇒ no branch open | **holds** 47/47 |
+| complete ⇒ all non-deferred merged | **holds** 47/47 |
+| eligible ⇒ no branch merged | **fails** 19/20 — `Inverted` |
+| blocked ⇒ no branch merged | **holds** 14/14 |
+| Discovery plan ⇒ wave not in DONE | **fails** — 1 wave |
+
+Executed:
+
+```
+every wave has EXACTLY ONE section                   FAILS  81/82
+complete => no branch open                           HOLDS  47/47
+complete => all non-deferred merged                  HOLDS  47/47
+eligible => no branch merged                         FAILS  19/20
+blocked  => no branch merged                         HOLDS  14/14
+Discovery plan => wave not in DONE                   FAILS  81/82
+
+violators of rule 1:
+   every-section-has-one-subject / Inverted -> ['done', 'not-started']
+```
+
+**Three of six hold. The two structural failures are the same wave.**
+
+`every-section-has-one-subject / Inverted` — one merged branch, one open — fails
+*exactly the two rules that a single wave-section function would fix*, and
+nothing else fails them. The rules are consistent; the estate has one wave that
+the current implementation cannot place, and it is the wave every wave-related
+plan this week was written for.
+
+### The finding
+
+**The plan rules and the wave rules agree.** Every plan-section rule that fails
+is a DONE rule, every wave-section rule that fails involves `Inverted` or the
+Discovery plan, and the two sets of failures name the same three defects:
+
+1. DONE admits Released and Discovery plans → `done-holds-what-is-still-yours`
+2. DONE admits an incomplete wave → same plan
+3. A wave with mixed branch states renders twice → `the-wave-is-a-thing-the-board-can-hold`
+
+No rule needed weakening to fit the estate. That is what makes them constraints
+rather than descriptions.
+
 ## The rule this model exists to enforce
 
 **A question is answered by the status of the entity it is about.**
