@@ -139,7 +139,7 @@ in practice, promote it rather than letting the rules go untested.
 - [x] [a-plan-moves-through-the-sections] Approve on the plan row, the plan reaches NOT STARTED, Start work takes it — one lifecycle path walked end to end <!-- status: delivered, branches: 2/2 -->
 - [x] [a-startable-wave-says-so] An eligible wave takes the actionable tone — `statusTone` colours what a reader acts on <!-- status: delivered, branches: 1/1 -->
 - [x] [an-interrogation-leaves-a-record] The round count reaches the plan file — the board has the field, the parser reads it, nothing has written it since 2026-08-17 <!-- status: delivered, pr: #323, branches: 2/2 -->
-- [ ] [a-split-plan-says-it-is-split] The wave name stays in its cell, and the sweep names a prose wave — a 53-character name currently paints over its neighbours
+- [x] [a-split-plan-says-it-is-split] The wave name stays in its cell, and the sweep names a prose wave — a 53-character name currently paints over its neighbours <!-- status: delivered, pr: #347, branches: 2/2 -->
 - [x] [the-registry-names-a-live-agent] The registry names a live agent — a dead pid displayed beside `running`, nine agents skipped by a gate on a value the classifier never reads, and six worktrees with no entry at all <!-- status: delivered, branches: 1/1 -->
 
 ### Could Have
