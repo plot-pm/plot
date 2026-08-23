@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-23, Jan Wloka, in-session
 - **Started:** 2026-08-23, Jan Wloka, `bug/the-wave-name-stays-in-its-cell`
+- **Started:** 2026-08-23, Jan Wloka, `bug/the-wave-name-stays-in-its-cell`
 
 ## Approval
 

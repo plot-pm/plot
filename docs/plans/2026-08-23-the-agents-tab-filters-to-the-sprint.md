@@ -60,6 +60,70 @@ grouped by phase; narrowing it answers a question nobody had.
 **What that costs, stated plainly:** the fleet payload has no sprint field, so
 this plan has to put one there. That is the work, and it is worth it.
 
+### A sprint filter already exists on the Board tab — and it is broken
+
+**Found in round 5**, and it changes what this plan is. `App.tsx:93` already
+holds a sprint filter with URL sync and per-option plan counts, and
+`sprintFilterOptions` (`app/lib/filters.ts:49`) builds its choices from
+`card.sprint` — the field round 4 measured as unreliable.
+
+Live, 2026-08-23:
+
+```
+board cards                                        107
+  no sprint at all                                  88
+  the-board-tells-the-truth-in-every-section         6
+  the-board-tells-the-truth                          5   ← a typo'd back-reference
+  working-shows-the-agent                            8
+```
+
+The active sprint is **split across two slugs**, so the existing filter can
+never show more than **6 of 19** — and a reader selecting the sprint sees a
+third of it with no indication anything is missing.
+
+**So this plan fixes it rather than working beside it.** The Board filter is
+repointed at the same membership the Agents filter uses: one join rule, two
+tabs. Leaving it would give the estate two sprint filters answering the same
+word differently, on two tabs of one board — and the wrong one would keep
+showing 6 of 19.
+
+The typo'd split is repaired as a consequence, not as a separate errand.
+
+### Membership comes from the SPRINT FILE, not the plan's `Sprint:` field
+
+**Measured 2026-08-23, and it breaks the obvious implementation:**
+
+```
+plans the sprint file lists            19
+plans carrying `Sprint:` back to it     5
+plans with the field empty, an unfilled
+  placeholder, or absent entirely      14
+```
+
+A filter joining on `plan.Sprint` would show **5 of 19** and silently hide the
+rest — including `done-means-delivered` and `the-wave-is-a-thing-the-board-can-hold`,
+the sprint's two largest Must Haves. It would look like it worked.
+
+**So membership is read from the sprint file's `- [ ] [slug]` list.** That is
+the file a person edits when they commit to a sprint, it is always complete by
+construction, and it cannot drift from itself.
+
+The plan's `Sprint:` field stays as a **back-reference** — useful when reading a
+plan alone, and allowed to be stale without breaking the filter.
+
+### The disagreement is reported, not silently tolerated
+
+Making the field non-authoritative must not make it meaningless. **The reconcile
+sweep gains a finding:** a plan whose `Sprint:` names a different sprint than the
+one listing it, or a sprint member whose field is empty.
+
+Reported, never gating — the same rule the unsliced-wave section (#341) follows,
+and for the same reason: this is a shape to fix, not a branch that cannot move.
+**`attention=` is unchanged.**
+
+Without this, the two sources drift silently and the back-reference decays into
+decoration. With it, the filter is never wrong and the drift is visible.
+
 ### The row already knows its plan
 
 `AgentRow` carries **`planFile`** (`schema.ts:1727`) — the file the row's plan
@@ -194,6 +258,18 @@ reloads) is a browser-storage concern and explicitly optional.
 
 - With an Active sprint, the toggle narrows the Agents tab to that sprint's
   plans, and every hidden row belongs to a plan the sprint does not name.
+- **All 19 of the current sprint's plans survive the filter**, not the 5 whose
+  `Sprint:` field happens to be filled. Asserted against this estate: joining on
+  the field instead of the list shows 5 of 19 and passes any test written from
+  the sprint's own membership.
+- **A plan whose `Sprint:` disagrees with the file is reported by the sweep** and
+  does not change what the filter shows.
+- **The existing Board-tab filter shows all 19 too.** Asserted against this
+  estate, where it currently shows 6 — the active sprint is split across
+  `the-board-tells-the-truth-in-every-section` and `the-board-tells-the-truth`.
+  A test written from either slug alone passes the broken implementation.
+- **Both tabs answer the same membership question the same way.** Asserted by
+  construction: one function, two callers.
 - **A row with no plan (`planFile: ''`) stays visible under the filter** — a
   release row, an issue row, an agent holding no branch. Asserted directly: the
   obvious `row.sprint === active` predicate removes all of them, and passes
@@ -215,15 +291,23 @@ reloads) is a browser-storage concern and explicitly optional.
 
 ### Carried
 
-- `feature/the-fleet-row-carries-its-sprint` — `AgentRow` gains `sprint`, set in the server where the row is created by joining `planFile` to the plan's `Sprint:` field; rows with no plan carry `''`. No client change, no filtering yet
+- `feature/the-fleet-row-carries-its-sprint` — `AgentRow` gains `sprint`, set in the server where the row is created by joining `planFile` to the SPRINT FILE's member list; rows with no plan, and plans no sprint lists, carry `''`. No client change, no filtering yet
 
 ### Counted
 
 - `feature/the-fleet-knows-its-sprints` — the fleet payload carries each Active sprint with its target release and its four `status` counts, aggregated server-side from `plan.status`
 
+### Reported
+
+- `feature/the-sweep-reports-sprint-drift` — `plot-reconcile-scan.sh` gains a section naming any plan whose `Sprint:` field disagrees with the sprint listing it, or is empty while a sprint lists it; machine-countable footer entry, and `attention=` unchanged
+
 ### Filtered
 
 - `feature/the-agents-tab-filters-to-the-sprint` — the control: toggle, the counts, the disabled-with-totals state, one row per active sprint, and plan-less rows always visible
+
+### Repointed
+
+- `feature/the-board-filter-reads-the-sprint-file` — the EXISTING Board-tab sprint filter (`App.tsx`, `sprintFilterOptions`) joins on the sprint file's member list rather than `card.sprint`, so one rule serves both tabs and the live two-slug split stops halving the sprint
 
 ## Notes
 
@@ -244,12 +328,14 @@ estate gains a fifth definition of *done* and the phase/status work buys nothing
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 3,
+  "round": 5,
   "questionHistory": [
     {"q": "Which tab does the filter belong on?", "a": "AGENTS TAB ONLY - operator decision, against my Board-tab recommendation. The Agents tab is where work is watched; the missing sprint field on the fleet row is the work, not an argument against it", "category": "architecture"},
     {"q": "What does the counter count?", "a": "plan.status values from a-plan-has-a-phase-and-a-status, read not recomputed; a fifth local definition of done is the defect being fixed", "category": "domain"},
     {"q": "What happens with no active sprint?", "a": "Toggle disabled but VISIBLE, showing unreleased estate totals - a control that vanishes teaches the reader it does not exist", "category": "ux"},
     {"q": "Does filtering by sprint make the tab readable? Measured 120 rows, 113 of them waves, 47 plans, sprint commits to 19", "a": "No - it lands at ~45 rows because one plan can contribute 7 waves. ACCEPTED as scope: density belongs to a-folded-plan-says-what-it-hides and the wave modelling. The claim is `these rows are the sprint`, not `the tab is short`", "category": "tradeOffs"},
+    {"q": "Does a sprint filter already exist?", "a": "YES - App.tsx:93 on the BOARD tab, with URL sync, joining on card.sprint. Live it shows the active sprint split across two slugs (6 and 5) out of 19, so it can never show more than a third. This plan repoints it at the same membership rather than building a second filter beside it", "category": "architecture"},
+    {"q": "Is the plan Sprint: field a reliable join key?", "a": "NO - measured 19 plans in the sprint file, only 5 carry the back-reference; 14 empty/placeholder/absent. Membership now reads the sprint FILE, the field becomes a back-reference, and the reconcile sweep reports disagreement", "category": "technical"},
     {"q": "How broad is the plan-less row class?", "a": "Exactly 2 of 120 - the release row and an unplanned PR. Assertion kept: the count is not the argument, the release row is the control you reach for at sprint end", "category": "ux"}
   ],
   "deferredItems": [],

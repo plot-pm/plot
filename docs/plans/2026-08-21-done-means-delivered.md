@@ -14,6 +14,7 @@
 - **Approved:** 2026-08-23, Jan Wloka, in-session
 - **Started:** 2026-08-23, Jan Wloka, `feature/merged-waves-reach-testing`
 - **Started:** 2026-08-23, Jan Wloka, `feature/deliver-finds-prs-without-annotations`
+- **Started:** 2026-08-23, Jan Wloka, `feature/the-plan-row-offers-deliver`
 
 ## Approval
 
@@ -181,7 +182,7 @@ PR creation is not a change to the delivery path.
 
 ### Offered
 
-- `feature/the-plan-row-offers-deliver` — the plan row gains a `Deliver` action
+- `feature/the-plan-row-offers-deliver` → #351 — the plan row gains a `Deliver` action
   spawning `/plot-deliver <slug>`, wrapping the skill rather than writing the
   transition. Tests: the item appears only on a plan whose waves are all merged;
   it is absent where the server would refuse and NAMES the refusal on the

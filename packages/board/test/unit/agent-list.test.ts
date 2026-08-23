@@ -2581,23 +2581,33 @@ describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
     // 1's icon beside the activity marks; the MENU track is last and holds
     // whatever the kind offers.
     expect(tracks()).toEqual(
-      ['1.5rem', '4.5rem', '12rem', '1fr', '8rem', '4.5rem', '1.25rem']);
+      ['1.5rem', '4.5rem', 'minmax(12rem,auto)', '1fr', '8rem', '4.5rem', '1.25rem']);
   });
 
   it('flexes the LINKS track and no other', () => {
-    // THE ONE TRACK THAT VARIES IS THE ONE THAT MUST ABSORB THE SLACK, and
-    // which track that is moved with the collapse. Under `ROW_TRACKS` it was
-    // the BRANCH — the longest and most variable value on a branch row. Slot 4
-    // is now the zero-or-more slot: a branch carries no artifact link and a PR
-    // carries two, so the variation moved and the `1fr` moved with it.
+    // THE ONE TRACK THAT ABSORBS THE SLACK IS `1fr`, AND THERE IS EXACTLY ONE.
+    // That is the property this asserts, and it survived the 2026-08-23 change
+    // to slot 3 verbatim: slot 4 (the links) is still the zero-or-more slot — a
+    // branch carries no artifact link and a PR carries two — so it takes the
+    // leftover width, and no other track does.
     //
-    // The pairing that matters, and the reason this asserts the shape rather
-    // than only the number: `minmax(9rem, auto)` or `max-content` would both
-    // make a column wider and both let an edge move between rows — passing
-    // "the slot got more space" while undoing what fixed tracks are for.
-    // Exactly one track may be flexible.
-    const flexible = tracks().filter((t) => !/^[\d.]+rem$/.test(t));
-    expect(flexible).toEqual(['1fr']);
+    // The predicate CHANGED because the shape did. It used to read "one track is
+    // not `Nrem`", which was a sound proxy for "one track flexes" while every
+    // other track was a fixed rem. Slot 3 is now `minmax(12rem, auto)`, which is
+    // NOT a fixed rem and is NOT the slack absorber either: an `auto` ceiling
+    // grows a track to its content and then YIELDS the remaining free space to
+    // the `fr` track, so `minmax(12rem, auto)` and `1fr` do different things and
+    // only `1fr` absorbs the slack. Testing "not `Nrem`" would now wrongly count
+    // slot 3 as flexible; testing `=== '1fr'` names the slack absorber directly.
+    //
+    // Why this still forbids what the old predicate forbade: `minmax(9rem, auto)`
+    // as a SECOND grow-track, or a second `1fr`, or `max-content` used to absorb
+    // slack — none of those is `1fr`, so a shape with two slack-takers still
+    // fails "exactly one `1fr`". What the change deliberately ADMITS is the ONE
+    // `minmax` on slot 3, whose misalignment cost the operator accepted on
+    // 2026-08-23 (see `TUPLE_TRACKS`' docstring) so the name renders in full.
+    const slackAbsorbers = tracks().filter((t) => t === '1fr');
+    expect(slackAbsorbers).toEqual(['1fr']);
   });
 
   it('needs less than the card breakpoint before the links track gets a pixel', () => {
@@ -2627,9 +2637,21 @@ describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
     const GAP_PX = 12;
     const PADDING_PX = 24;
     const gapsAndPadding = (tracks().length - 1) * GAP_PX + PADDING_PX;
+    // THE MINIMUM WIDTH A TRACK RESERVES, in px. `1fr` reserves nothing before
+    // the grid reaches its intrinsic width, so it is excluded. A fixed `Nrem`
+    // reserves `N * 16`. Slot 3's `minmax(12rem, auto)` reserves its FLOOR — the
+    // `auto` ceiling only claims more once the grid is already past 604px, which
+    // is exactly the point this arithmetic guards. So the figure below is the
+    // 12rem floor, unchanged from the fixed-12rem grid this replaced: `minmax`
+    // did not move the breakpoint math, which is what let the 508/604/36 numbers
+    // come out identical after the 2026-08-23 change (see `TUPLE_TRACKS`).
+    const floorRem = (t: string) => {
+      const minmax = /^minmax\(([\d.]+)rem,/.exec(t);
+      return minmax ? Number.parseFloat(minmax[1]) : Number.parseFloat(t);
+    };
     const fixedPx = tracks()
       .filter((t) => t !== '1fr')
-      .reduce((sum, t) => sum + Number.parseFloat(t) * 16, 0);
+      .reduce((sum, t) => sum + floorRem(t) * 16, 0);
     expect(fixedPx).toBe(508);
     expect(fixedPx + gapsAndPadding).toBeLessThan(CARD_BELOW_PX);
     // AND THE HEADROOM IS NAMED, so a later widening has to argue with a
