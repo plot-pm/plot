@@ -209,7 +209,7 @@ bug. The defect is *a fallback that asserts*, not *drafts specifically*.
 
 ### Derived
 
-- `bug/a-wave-head-says-what-its-verdict-says` — `groupedNote` answers only for words it knows; the ternary falls through to the verdict for everything else
+- `bug/a-wave-head-says-what-its-verdict-says` — `groupedNote` answers only for words it knows; the ternary falls through to the verdict for everything else → #338
 
 ## Notes
 
