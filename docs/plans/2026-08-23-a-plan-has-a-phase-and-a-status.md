@@ -99,12 +99,34 @@ release gate. Nothing that reads it today reads anything different.
 
 `status` is new, derived every scan from the plan's own waves:
 
-| `status` | when |
-|---|---|
-| `not-started` | no wave has a merged branch |
-| `in-progress` | some waves complete, not all |
-| `deliverable` | **every** wave complete, and `phase` is not yet Delivered |
-| `settled` | the decision has caught up — `phase` is Delivered or Released |
+**The eight values, and what each is measured from:**
+
+| `status` | measured from | phase it can occur in |
+|---|---|---|
+| `draft` | plan exists, not approved, no branch pushed | Discovery |
+| `open` | approved, no branch claimed — waiting for an agent | Development |
+| `approved` | the approval record exists and nothing has started | Discovery → Development |
+| `in-progress` | at least one branch claimed or pushed, not all merged | Design, Development |
+| `reviewing` | every branch has an **open, non-draft PR**, none merged | Development |
+| `deliverable` | **every** wave complete, `phase` not yet Testing | Development |
+| `delivered` | `phase` is Testing — the decision followed | Testing |
+| `released` | `phase` is Released | Released |
+
+**Three of these are echoes of the phase, deliberately.** `draft`, `delivered`
+and `released` restate a decision rather than measuring anything new. They are
+kept so a single field can be rendered without the reader also holding `phase` —
+but they must be *derived from* `phase`, never able to disagree with it.
+
+**`reviewing` is the one that needs a host call.** Branch state
+(`open · wip · merged · claimed · deferred`) does not distinguish *pushed* from
+*in review*; only a PR's `state`/`draft` pair does, and the scan already fetches
+those in `pr-list`. If that turns out to be unavailable on a given host, the
+honest degradation is `in-progress` — **never** a guessed `reviewing`.
+
+**`open` vs `approved` is a genuine question, flagged rather than settled.** Both
+mean *approved and nothing started*; `open` reads as available-to-claim and
+`approved` as the record existing. Two names for one measurement is one too
+many. See Open Questions.
 
 ### Never stored, and that is the point
 
@@ -159,7 +181,31 @@ Tempting, and it is roughly what the board does today. Rejected: it makes one
 field sometimes-a-decision and sometimes-a-measurement, so no reader can know
 which they hold. The model's whole distinction collapses.
 
+### The phase vocabulary this assumes
+
+The five phases are **Discovery · Design · Development · Testing · Released**.
+
+`Endgame` is the current name for Testing in
+`packages/board/src/contract/schema.ts:142` and `:534`. Renaming it is
+**`feature/the-phase-after-development-is-testing`**, the fourth wave of
+`done-means-delivered` — not this branch. This plan uses *Testing* throughout
+because that is the settled name; if it lands first, the rename wave has one
+fewer site to change, and if it lands second, nothing here needs revisiting.
+
+**Do not rename it here.** Two branches renaming one enum value is a conflict
+for no gain.
+
 ### Open Questions
+
+- [ ] **`open` vs `approved` name the same measurement** — approved, nothing
+      started. Two values for one state means every consumer must handle both
+      and no reader can tell them apart. Pick one: `open` reads as
+      *available to claim*, which is what the board offers a Start button for;
+      `approved` restates the phase. Recommend `open`, decide deliberately.
+- [ ] Should `reviewing` require **every** branch to have an open PR, or *any*?
+      Every is stricter and matches `deliverable`'s shape; any would surface the
+      state sooner on a multi-branch wave. Every, unless a measurement says
+      otherwise.
 
 - [ ] Does `feature/merged-waves-reach-testing` (in flight) render this
       unnecessary, or is it the thing that needs correcting? Its wave says it
@@ -175,12 +221,17 @@ which they hold. The model's whole distinction collapses.
 
 - A plan whose every wave is complete and whose `phase` is `Approved` reports
   `status: deliverable`. Asserted against the five real cases in this estate.
+- **Every one of the eight values is reachable**, asserted one test each. A
+  status nothing can produce is a value that will be read as meaningful and
+  never be true — the failure `Discovery` had before Draft mapped to it.
+- **`draft`, `delivered` and `released` never disagree with `phase`.** They are
+  derived from it; a test that constructs a disagreement must fail.
 - The same plan still reports `phase: Approved`. Asserted in the **same** test —
   the two fields must be independently observable, and a test that only checks
   the new one passes an implementation that quietly moved the old.
 - A plan with **one** wave open reports `in-progress`, not `deliverable`.
 - A **deferred** branch does not block `deliverable`, matching the scan's rule.
-- A `delivered` plan reports `settled`, not `deliverable` — the decision has
+- A plan in Testing reports `delivered`, not `deliverable` — the decision has
   caught up.
 - **The release gate is byte-identical.** Asserted by running it against a
   `deliverable` plan and getting the same refusal as today. This is the
@@ -208,7 +259,7 @@ re-derivations of it.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {"q": "Should this be a new phase in the lifecycle?", "a": "No - a phase is written, so it can only be as current as the last command run; the measurement is true the moment a branch merges", "category": "domain"},
     {"q": "Is the plan really the only entity without a measured status?", "a": "Yes - wave/branch/PR/worklog all carry measurements; the plan carries only phase, a decision", "category": "architecture"},
