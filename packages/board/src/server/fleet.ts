@@ -26,6 +26,7 @@ import {
   type StuckRun,
   type WaitingGroup,
   type WaitingOn,
+  type Wave,
   type WaveVerdict,
   type WorkerState,
 } from '../contract/schema.js';
@@ -2283,6 +2284,59 @@ export function waitingOnFor(
 export function waveVerdict(verdict: string): WaveVerdict | null {
   const parsed = WaveVerdictSchema.safeParse(verdict);
   return parsed.success ? parsed.data : null;
+}
+
+/**
+ * The one WAVE ENTITY, assembled from the pulse where the verdicts already are.
+ *
+ * The scan emits `plan → wave → branch` with a verdict per wave; this flattens
+ * it to one {@link Wave} per `(plan, wave)`, carrying what a wave is asked
+ * about — its identity, its branches, its verdict, its ONE section, its
+ * completeness — so no consumer has to re-derive any of it from the rows. That
+ * re-derivation, at 33 call sites choosing 33 predicates, is the defect
+ * `the-wave-is-a-thing-the-board-can-hold` exists to end; this is the single
+ * answer they read instead.
+ *
+ * DERIVED ONCE, HERE, FROM THE SCAN. `verdict` is the scan's own, parsed
+ * through the same `waveVerdict` gate the row uses — never re-computed.
+ * `complete` reads the branch states this pulse already carries; `section`
+ * follows from `complete`. No host call, no second scan: every field is a
+ * reading of `pulse`, which `rowsFromPulse` has already been handed.
+ *
+ * The plan identity is the DISPLAY name — the basename with its date prefix and
+ * `.md` stripped — the exact spelling `rowsFromPulse` writes into a row's
+ * `plan`, so a consumer joining a wave to its rows reads one string from both.
+ */
+export function deriveWaves(pulse: FleetPulse): Wave[] {
+  const waves: Wave[] = [];
+  for (const plan of pulse.plans) {
+    const planName = plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
+    for (const wave of plan.waves) {
+      // COMPLETE = every NON-DEFERRED branch merged. A deferred branch is exempt
+      // — `plot-deliver` skips it in its own completeness gate — so {merged,
+      // deferred} is complete and {merged, open} is not. A wave with only
+      // deferred branches has nothing left to merge and is complete.
+      const complete = wave.branches.every((b) => b.deferred || b.state === 'merged');
+      // ONE SECTION, derived from completeness rather than from the verdict: a
+      // wave with a merged branch and an open one cannot read `done` however its
+      // verdict aggregates. A wave never reaches `working` or `waiting-on-machine`
+      // — an agent works and a build runs, a wave does neither — so the only two
+      // homes are `done` and `not-started`, and where it is not done it is where
+      // its unfinished work is: not-started.
+      const section: WaitingGroup = complete ? 'done' : 'not-started';
+      waves.push({
+        plan: planName,
+        // `(unnamed)` where the plan named no wave — the same substitution the
+        // row makes, so both spell an unnamed wave one way.
+        name: wave.name || '(unnamed)',
+        branches: wave.branches.map((b) => b.branch),
+        verdict: waveVerdict(wave.verdict),
+        section,
+        complete,
+      });
+    }
+  }
+  return waves;
 }
 
 /**
@@ -4784,6 +4838,13 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
     error: entry.error,
     shrink: entry.shrink,
     rows,
+    // THE WAVES, derived once from the same pulse the rows came from — beside
+    // `rows`, not left for the client to re-group. Emitted unconditionally: []
+    // on a cold cache, because the client CASTS this payload and a Zod
+    // `.default([])` never fires client-side. A field the server left off would
+    // reach the renderer as `undefined`, the `fleetControls` lesson from
+    // 2026-08-22.
+    waves: entry.pulse ? deriveWaves(entry.pulse) : [],
     summary: entry.pulse?.summary ?? EMPTY_SUMMARY,
     // COUNTED FROM THE ROWS, never tallied beside the decision that made them.
     // A counter incremented in parallel with a classification is a second

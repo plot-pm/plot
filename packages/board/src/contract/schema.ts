@@ -1399,6 +1399,109 @@ export const WaitingGroupSchema = z.enum([
 export type WaitingGroup = z.infer<typeof WaitingGroupSchema>;
 
 /**
+ * A WAVE the contract carries — the entity `plan → wave → branch` names in the
+ * middle, given a place to live for the first time.
+ *
+ * Until now a wave existed only as ROWS THAT SHARE A STRING: every `AgentRow`
+ * carries `wave` (its name) and `verdict`, and anything a wave *has* — its
+ * section, its completeness, the branches under it — was re-derived at every
+ * call site that asked, from a predicate the asker chose. Measured: 33 call
+ * sites reached for `.wave`, and five defects were those derivations
+ * disagreeing (`the-wave-is-a-thing-the-board-can-hold`). This is the same move
+ * the board already made one level down, when `TupleRow` replaced two row
+ * components with one thing that has a `kind`: **the abstraction goes where the
+ * repetition is, not into the renderer.**
+ *
+ * DERIVED ONCE, SERVER-SIDE — `deriveWaves` in `fleet.ts`, where the scan's
+ * verdicts already are. The renderer must not recompute any part of it. The
+ * same rule `kind` settled: *a derivation is a guess with a rule attached, and
+ * the server is the only place that knows why the row exists.*
+ *
+ * A WAVE HAS A `verdict` AND INHERITS A `phase`; IT NEVER HAS A PHASE OF ITS
+ * OWN. Every wave of a plan shares that plan's phase — measured across the
+ * estate, zero plans have waves reporting different phases — so a phase on the
+ * Wave would be a field that only ever repeats the plan's. It is deliberately
+ * absent; read the plan's phase where a wave's phase is wanted.
+ */
+export const WaveSchema = z.object({
+  /**
+   * WHICH PLAN this wave belongs to — the plan's basename, exactly as a row
+   * carries it in `plan`. Half of a wave's identity: names repeat across plans
+   * (`Tracer`, `Implementation`), so `plan` alone does not name a wave and
+   * `name` alone does not either. The pair is the id `openWaves` already keys
+   * on and `waveKeyOf` already spells; this field is its first half.
+   */
+  plan: z.string(),
+  /**
+   * THE WAVE'S NAME — its `### ` heading in the plan file, or `(unnamed)` where
+   * the plan divided its work into no named waves. `UNNAMED_WAVE` is the value
+   * the server already substitutes on a row (`fleet.ts`, `wave.name || …`), and
+   * the same value is carried here so a consumer joining a Wave to its rows
+   * reads one spelling from both. A wave with no name is NOT hidden and does not
+   * fail — six such waves exist, all in plans predating the naming convention.
+   */
+  name: z.string(),
+  /**
+   * THE BRANCHES this wave HOLDS, by name — its contents, whatever each
+   * branch's individual state. The containment link, pointing DOWN: a wave has
+   * branches, a branch does not have a wave. Zero-or-more, and this is the kind
+   * that uses the upper end of that: a five-branch wave lists five.
+   *
+   * Names rather than whole rows, because the rows already travel in `rows` and
+   * a consumer that wants a branch's full state joins on the name. Carrying the
+   * row twice would be two copies of one fact, the drift this entity exists to
+   * end.
+   */
+  branches: z.array(z.string()),
+  /**
+   * THE SCAN'S VERDICT for the wave — `complete | eligible | blocked`,
+   * forwarded UNCHANGED from `plot-fleet-scan.sh`. Never re-derived here: the
+   * scan aggregated every branch and answered, and this is that answer
+   * travelling outward.
+   *
+   * NULL WHERE THE SCAN REPORTED NONE — a pulse from a scan whose verdict this
+   * board does not recognise, the same honest absence `AgentRow.verdict`
+   * keeps. Absent is not a guess; a wave with null here has no verdict a
+   * consumer may assert.
+   */
+  verdict: WaveVerdictSchema.nullable(),
+  /**
+   * THE ONE SECTION this wave belongs in — derived once, here, so no consumer
+   * has to pick a predicate and disagree with the next one.
+   *
+   * A wave whose every non-deferred branch is merged is `done`; otherwise the
+   * wave is where its UNFINISHED work is, which for a wave is `not-started` —
+   * `the-wave-is-a-thing-the-board-can-hold` settles that a wave never reaches
+   * `working` (an agent works, a wave does not) or `waiting-on-machine` (a wave
+   * is not a build). This is the wave-level answer; a branch's own `group` is
+   * finer and stays on the row.
+   *
+   * Derived from `complete` below rather than from `verdict`, and the two agree
+   * on a healthy fleet — but completeness reads the branch states directly, so
+   * a wave with a merged branch and an open one cannot report `done` however
+   * its verdict reads. The mixed `Inverted` wave is the case this closes: one
+   * merged branch, one open, and the scan still calling the wave unfinished.
+   */
+  section: WaitingGroupSchema,
+  /**
+   * WHETHER EVERY NON-DEFERRED BRANCH IS MERGED — the wave's completeness,
+   * asked once and answered the same everywhere it is read.
+   *
+   * A deferred branch is exempt: `plot-deliver` skips deferred branches in its
+   * own completeness gate, so `{merged, deferred}` is a complete wave and
+   * `{merged, open}` is not. A wave with only deferred branches (nothing to
+   * merge) is complete — there is no unfinished work in it.
+   *
+   * SEPARATE FROM `verdict`, deliberately. `verdict` is the scan's aggregate;
+   * this reads the branch states this payload carries. They agree today, and
+   * keeping both lets a consumer that has one check it against the other rather
+   * than choosing which to trust.
+   */
+  complete: z.boolean(),
+});
+export type Wave = z.infer<typeof WaveSchema>;
+
+/**
  * The four ways a branch can be unable to MOVE — as distinct from what it IS.
  *
  * `classify` answers *what is this branch*: claimed, eligible, blocked, working.
@@ -2561,6 +2664,28 @@ export const FleetSchema = z.object({
    */
   shrink: PulseShrinkSchema.nullable().default(null),
   rows: z.array(AgentRowSchema),
+  /**
+   * THE WAVES this fleet holds — one entry per `(plan, wave)`, derived once on
+   * the server beside the rows. See {@link WaveSchema} for what a wave is and
+   * why it is a thing the contract carries rather than a string re-grouped by
+   * every consumer.
+   *
+   * BESIDE `rows`, NOT DERIVED FROM THEM BY THE CLIENT — the `issues`/`agents`
+   * precedent, and the whole point of the entity. A row is a branch that names
+   * its wave; this is the wave that holds branches, and the section/completeness
+   * it carries are the answers a consumer would otherwise re-derive from the
+   * rows and disagree about.
+   *
+   * Defaults to [] so a client talking to an older server still validates. BUT
+   * THE DEFAULT DOES NOT SAVE A CLIENT THAT CASTS: a Zod `.default()` fires only
+   * at parse time, and the board CASTS this payload (`board as Board`) rather
+   * than parsing it, so a renderer reading `fleet.waves` on a pre-wave pulse
+   * gets `undefined`, not `[]`. This repo has shipped that bug before
+   * (`FLEET_CONTROLS_DEFAULT`, 2026-08-22). A consumer must guard for the
+   * absent case, and the server emits this field unconditionally — cold cache
+   * included — so a live server never leaves it off.
+   */
+  waves: z.array(WaveSchema).default([]),
   summary: FleetPulseSchema.shape.summary,
   /**
    * How many branches cannot move, and in which of the four ways.
