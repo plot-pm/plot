@@ -76,12 +76,48 @@ lesson once, in the same file:
 A renderer-side join would have to re-read plan metadata the client does not
 hold, and would go wrong first on exactly the rows that have no plan.
 
+### What the filter actually removes, measured
+
+Live payload, 2026-08-23:
+
+```
+rows on the Agents tab           120   (113 waves, 5 branches, 1 PR, 1 release)
+distinct plans behind them        47
+plans the active sprint commits to 19
+```
+
+So the filter takes the tab from **120 rows to roughly 45** — a real improvement
+and **not** a scannable list. One plan can contribute seven wave rows
+(`the-wave-is-a-thing-the-board-can-hold` does), so sprint membership alone
+cannot make the tab short.
+
+**That is accepted, deliberately.** Wave-level density is a different problem and
+already has owners: `a-folded-plan-says-what-it-hides`,
+`a-split-plan-says-it-is-split`, and the wave modelling in
+`the-wave-is-a-thing-the-board-can-hold`. Folding under the filter was proposed
+and **rejected as scope**: it would duplicate behaviour another plan owns, and
+two plans implementing folding is worse than a long list.
+
+The claim this plan may make is *"these rows are the sprint's"*, not *"the tab
+is now short"*. Stating that here so a reader is not disappointed by 45 rows.
+
 ### Rows with no plan are not filtered out
 
-A release row, an issue row, and an agent holding no branch have `planFile: ''`.
-They belong to no sprint and **must remain visible under the filter**, because
-they are not out of scope — they are outside the question. Hiding them would
-make the filter delete the fleet's own furniture.
+Measured, they are **exactly two of the 120 rows** — and both are load-bearing:
+
+```
+RELEASE  changeset-release/main    ← how a release is cut
+PR       #57 (no plan behind it)   ← precisely what a sprint view must not hide
+```
+
+An earlier draft called this a broad class of rows. It is not; it is two. **The
+assertion stands anyway**, because the count is not the argument: the release
+row is the control you reach for at the end of a sprint, and an unplanned PR is
+the thing most worth noticing. They belong to no sprint because they are
+*outside the question*, not out of scope.
+
+Hiding them would make the filter delete the fleet's own furniture — and the
+naive predicate does exactly that.
 
 **This is the assertion a naive implementation fails**: filtering on
 `row.sprint === activeSprint` silently removes every plan-less row.
@@ -208,11 +244,13 @@ estate gains a fifth definition of *done* and the phase/status work buys nothing
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 2,
+  "round": 3,
   "questionHistory": [
     {"q": "Which tab does the filter belong on?", "a": "AGENTS TAB ONLY - operator decision, against my Board-tab recommendation. The Agents tab is where work is watched; the missing sprint field on the fleet row is the work, not an argument against it", "category": "architecture"},
     {"q": "What does the counter count?", "a": "plan.status values from a-plan-has-a-phase-and-a-status, read not recomputed; a fifth local definition of done is the defect being fixed", "category": "domain"},
-    {"q": "What happens with no active sprint?", "a": "Toggle disabled but VISIBLE, showing unreleased estate totals - a control that vanishes teaches the reader it does not exist", "category": "ux"}
+    {"q": "What happens with no active sprint?", "a": "Toggle disabled but VISIBLE, showing unreleased estate totals - a control that vanishes teaches the reader it does not exist", "category": "ux"},
+    {"q": "Does filtering by sprint make the tab readable? Measured 120 rows, 113 of them waves, 47 plans, sprint commits to 19", "a": "No - it lands at ~45 rows because one plan can contribute 7 waves. ACCEPTED as scope: density belongs to a-folded-plan-says-what-it-hides and the wave modelling. The claim is `these rows are the sprint`, not `the tab is short`", "category": "tradeOffs"},
+    {"q": "How broad is the plan-less row class?", "a": "Exactly 2 of 120 - the release row and an unplanned PR. Assertion kept: the count is not the argument, the release row is the control you reach for at sprint end", "category": "ux"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
