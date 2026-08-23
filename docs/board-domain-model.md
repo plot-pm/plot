@@ -603,6 +603,118 @@ Stated as a constraint: **a wave's section is a function of its verdict and its
 plan's phase, and of nothing else.** Reading any individual branch's `state` to
 place a wave is what produces two placements for one wave.
 
+## What branch states change, and what they cannot
+
+A branch state moves for its own reasons — someone pushes, a PR merges, a human
+writes a `deferred:` annotation. The question is what moves with it.
+
+**The answer is asymmetric, and the asymmetry is the whole design.**
+
+```mermaid
+flowchart LR
+    B["BRANCH state<br/>open · wip · merged · deferred"]
+    W["WAVE verdict<br/>complete · eligible · blocked"]
+    P["PLAN phase<br/>Draft → Approved → Delivered → Released"]
+
+    B -- "computed every scan<br/>(a MEASUREMENT)" --> W
+    W -. "gates what may start<br/>never writes" .-> B
+    B -- "changes NOTHING<br/>automatically" --x P
+    P -- "gates whether work may<br/>begin at all" --> W
+```
+
+### Branch → wave: automatic, continuous, a pure function
+
+`plot-fleet-scan.sh` computes the verdict from branch states on **every scan**:
+
+```sh
+outstanding=0
+for branch in wave:
+    [ "$st" = "deferred" ] && continue      # deferred branches do not count
+    case "$st" in
+      merged) ;;                            # settled
+      *) outstanding=$((outstanding + 1)) ;; # everything else is outstanding
+    esac
+
+if   [ "$outstanding" -eq 0 ]; then verdict="complete"
+elif [ "$prior_ok" -eq 1 ];    then verdict="eligible"
+else                                verdict="blocked"; fi
+```
+
+So a branch state change moves its wave's verdict **immediately and without
+anyone deciding**:
+
+| a branch becomes | its wave becomes |
+|---|---|
+| the **last** non-deferred branch to merge | `complete` |
+| `deferred` when it was the only outstanding one | `complete` — nothing left to do |
+| `open` again (a reopened PR) | back to `eligible` or `blocked` |
+| anything, while a prior wave is incomplete | still `blocked` — priors dominate |
+
+**Nobody writes a verdict.** It exists only as a derivation, re-taken every scan.
+That is why it can be trusted as the wave's status and why storing it would be
+the mistake.
+
+**And it cascades.** A wave turning `complete` makes the *next* wave `eligible`,
+because `prior_ok` is threaded through the loop in order. One branch merging can
+therefore unblock a wave three positions later.
+
+### Branch → plan: nothing. A phase is a decision, not a measurement
+
+**No script derives a plan phase from branch states.** Searched: the only writers
+are `plot-approve.sh`, which *flips* `Draft → Approved` when a human approves, and
+`/plot-deliver`, which *writes* `Approved → Delivered` after checking that every
+non-deferred branch merged.
+
+So merging the last branch of the last wave changes **nothing** about the plan.
+The plan sits at `Approved` with every wave `complete` until somebody runs
+`/plot-deliver`. That is not a defect — it is the lifecycle's design:
+
+> approval and implementation start are two events *(Manifesto)*
+
+and so are completion and delivery. **A measurement cannot make a commitment.**
+
+### Which makes the two statuses different kinds of thing
+
+| | wave `verdict` | plan `phase` |
+|---|---|---|
+| **kind** | a **measurement** | a **decision** |
+| written by | nobody — derived | a human, via a command |
+| changes | every scan | at a lifecycle event |
+| storage | none; re-derived | recorded in the plan file |
+| can be wrong by | a stale scan | nobody having run the command |
+
+**This explains the estate's shape exactly.** A Draft plan with a complete wave
+(`a-wave-is-a-thing-not-a-label`) is a measurement that moved while no decision
+followed. Three released plans with no released record are decisions taken
+without the bookkeeping. Neither is corruption; they are the two halves coming
+apart, which they can, because one is automatic and the other is not.
+
+### The gates run the other way
+
+Influence flows up as measurement; **constraint flows down as permission**:
+
+- **plan phase gates the wave.** A Draft plan's branches may not be dispatched —
+  `plot-dispatch.sh` reads the phase from `origin/<main>` and **fails closed**
+  when it cannot. A wave of a Draft plan is not startable however eligible its
+  verdict says it is.
+- **wave verdict gates the branch.** `blocked` means no branch of this wave may
+  be claimed; `--next` will not name one. This is the only ordering Plot enforces.
+- **branch state gates nothing.** It is the leaf: it reports, and nothing asks
+  its permission.
+
+### What this means for the board
+
+Three rules fall out, and each is a defect the board has shipped:
+
+1. **Never derive a plan phase from branch states.** Nothing in Plot does, so a
+   board that did would be inventing a lifecycle. *DONE admitting a Discovery
+   plan was this defect in reverse — a section decided from branch state while
+   the phase said otherwise.*
+2. **Never store a wave verdict.** It is a derivation and it changes every scan.
+3. **Never place a wave by any single branch's state.** The verdict already
+   aggregates them, and reading one branch is what put `Inverted` in two
+   sections.
+
 ## The rule this model exists to enforce
 
 **A question is answered by the status of the entity it is about.**
