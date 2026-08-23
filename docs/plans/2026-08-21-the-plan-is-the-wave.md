@@ -162,7 +162,7 @@ to pick one, and picking is what the wave rows are for.
 
 ### Shown
 
-- `feature/one-wave-renders-as-its-plan` — a plan declaring exactly one wave
+- `feature/one-wave-renders-as-its-plan` → #360 — a plan declaring exactly one wave
   renders no wave row; the plan row carries the wave's status. Tests: a
   one-wave plan yields a plan row and no wave row; a two-wave plan is
   unchanged; a plan whose second wave has merged still renders both, because
