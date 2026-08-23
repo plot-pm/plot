@@ -44,23 +44,28 @@ That is right, and it is not the defect. The defect is that the measurement
 *"every wave of this plan is complete"* is real, is useful, and **has nowhere to
 be recorded** — so it gets pushed into the one field that must not carry it.
 
-### Measured, 2026-08-23
-
-Of the 19 plans in the current sprint:
+### Measured across one day, 2026-08-23 — and the number is the wrong thing to watch
 
 ```
-delivered (phase caught up)        1
-ALL WAVES MERGED, phase Approved   5   ← a measurement with no home
-some waves merged                  2
-nothing started                   11
+morning     5 approved plans, every branch merged, phase still Approved
+afternoon   9   (refilled as the day's work landed)
+evening     0   (a person spent an hour delivering all nine by hand)
 ```
 
-**Five plans whose every branch has landed still read `Approved`.** Every
-consumer that asks *is this done?* gets a different answer depending on which
-fact it happens to read:
+**The count is zero right now because somebody emptied it, not because the gap
+closed.** It refilled from 5 to 9 in a single afternoon of ordinary merging, and
+it will refill again the next time a wave lands.
 
-- the release gate reads `phase` → all five are unfinished
-- a branch-based counter reads git → all five are done
+**So the case is the RATE, not a snapshot.** A plan argued from "there are 5 of
+these today" reads as fixed the moment the number is 0 — which it is, tonight,
+and which proves nothing. What recurs is the mechanism: a branch merges, the
+measurement changes, and no decision follows until a person notices.
+
+Every consumer that asks *is this plan done?* still gets a different answer
+depending on which fact it reads:
+
+- the release gate reads `phase` → the plans were unfinished all afternoon
+- a branch-based counter reads git → they were done
 - `plot-sprint-release.sh` reported `MUST: 8 open` while branch truth was
   `2 done, 2 partial, 1 open`
 
@@ -139,6 +144,23 @@ landed. `plot-pr-state.sh <slug>` answers it directly, and it is the state
 A plan whose `Review:` is `in-session` never has a plan PR, so it moves from
 `draft` to `approved` without passing through `open`. **That is correct, not a
 gap:** the review happened, in a session, and left no PR to observe.
+
+### The Deliver button does not remove the need — it needs this
+
+`#351` shipped after this plan was written: the plan row now offers **Deliver**,
+so the decision is one click rather than a hand-edit. That could look like the
+cheaper fix — make delivering easy and stop modelling the state.
+
+It is not, for one reason: **the button has to appear somewhere, and something
+has to decide where.** Today that decision would be re-derived at the control,
+which is the fifth place answering *is this plan done?* — the exact defect this
+plan exists to end.
+
+With `status`, the button's rule is one word: offer Deliver where
+`status === 'deliverable'`. Without it, the control computes the answer again
+and can disagree with the release gate about the same plan.
+
+**So the button is the strongest argument FOR the field, not against it.**
 
 ### Never stored, and that is the point
 
@@ -275,10 +297,12 @@ re-derivations of it.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 3,
+  "round": 4,
   "questionHistory": [
     {"q": "Should this be a new phase in the lifecycle?", "a": "No - a phase is written, so it can only be as current as the last command run; the measurement is true the moment a branch merges", "category": "domain"},
     {"q": "Is the plan really the only entity without a measured status?", "a": "Yes - wave/branch/PR/worklog all carry measurements; the plan carries only phase, a decision", "category": "architecture"},
+    {"q": "Does the case still reproduce? deliverable is 0 today", "a": "Yes - the count is 0 because a person emptied it by hand this evening. It went 5 -> 9 -> 0 in one day. The case is the RATE, not a snapshot; a plan argued from a count reads as fixed the moment the count is 0", "category": "domain"},
+    {"q": "Does #351's Deliver button make the field unnecessary?", "a": "The opposite - the button must decide WHERE to appear, and without `status` that decision is a fifth place answering `is this done?`. With it the rule is one word", "category": "architecture"},
     {"q": "Does the in-flight merged-waves-reach-testing already do this?", "a": "It derives a later BOARD phase without writing - honest, but it overloads `phase` to carry a measurement; open question flags reading its PR first", "category": "technical"}
   ],
   "deferredItems": [],

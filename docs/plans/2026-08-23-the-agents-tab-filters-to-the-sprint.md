@@ -4,13 +4,19 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** <!-- optional -->
 - **Issue:** <!-- optional -->
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-23, Jan Wloka, in-session
+- **Started:** 2026-08-23, Jan Wloka, `feature/the-sprint-file-names-its-members`
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Changelog
 
@@ -70,16 +76,30 @@ holds a sprint filter with URL sync and per-option plan counts, and
 Live, 2026-08-23:
 
 ```
-board cards                                        107
-  no sprint at all                                  88
-  the-board-tells-the-truth-in-every-section         6
-  the-board-tells-the-truth                          5   ← a typo'd back-reference
-  working-shows-the-agent                            8
+board cards                                        108
+  no sprint at all                                  89
+  the-board-tells-the-truth-in-every-section          6   ← the ACTIVE sprint
+  the-board-tells-the-truth                           5   ← W34, Closed
+  working-shows-the-agent                             8   ← Closed
 ```
 
-The active sprint is **split across two slugs**, so the existing filter can
-never show more than **6 of 19** — and a reader selecting the sprint sees a
-third of it with no indication anything is missing.
+**The active sprint shows 6 of its 19 plans.** A reader selecting it sees under
+a third of the commitment, with nothing indicating the rest exists.
+
+### A correction to round 5, kept rather than edited away
+
+An earlier round of this plan called `the-board-tells-the-truth` a **typo'd
+back-reference** splitting the active sprint across two slugs. **That is false.**
+It is a real sprint — `docs/sprints/2026-W34-the-board-tells-the-truth.md`,
+phase Closed — and the five plans naming it belong to it correctly.
+
+So the filter is not halving one sprint; it is offering three legitimate
+sprints, two of them closed. **The defect is narrower than round 5 claimed**, and
+the fix is unchanged: the active sprint still shows 6 of 19, because 14 of its
+plans carry no back-reference at all.
+
+The wrong reading is recorded because a reviewer who checks the typo claim finds
+it false and has no way to tell which of the plan's other measurements survived.
 
 **So this plan fixes it rather than working beside it.** The Board filter is
 repointed at the same membership the Agents filter uses: one join rule, two
@@ -123,6 +143,55 @@ and for the same reason: this is a shape to fix, not a branch that cannot move.
 
 Without this, the two sources drift silently and the back-reference decays into
 decoration. With it, the filter is never wrong and the drift is visible.
+
+### The sprint file's MEMBER LIST has to be parsed — nothing reads it today
+
+Measured 2026-08-23, and it is more work than "repoint a join":
+
+- `collectSprints` (`board.ts:563`) reads `docs/sprints/active/` and calls
+  `parseSprintFile`, which extracts **slug, title and phase only**.
+- A card's sprint comes from one line — `if (meta.sprint) card.sprint =
+  meta.sprint` (`board.ts:787`) — the plan's own self-declared field.
+
+**Nothing anywhere parses the `- [ ] [slug]` lines.** There is no code that can
+say which plans a sprint contains, which is why the join has to be the plan's
+field and why the active sprint shows 6 of 19.
+
+So wave 1 carries a real addition: **`parseSprintFile` learns to read its
+members** — the checkbox lines, their slug, and which MoSCoW tier they sit under.
+That list becomes the membership the filter joins on, and the plan's `Sprint:`
+field becomes the back-reference it always should have been.
+
+**Parse the tier too, not just the slug.** The counts this plan renders are
+per-sprint today, but Must/Should/Could is the shape a reader asks about next,
+and the line already carries it. Reading it now costs nothing; adding it later
+means re-parsing every sprint file.
+
+**A slug in the sprint file naming no plan is reported, never dropped.** The
+sweep wave already exists for the reverse case (a plan whose `Sprint:` disagrees);
+this is the same fault from the other side and belongs in the same section.
+
+### Filtering is a VIEW — it must not change what the server fetches
+
+The filter narrows what a reader sees. It must **not** narrow what the pulse
+collects, and the reason is measured in `fleet.ts`:
+
+> A board left open a working day made ~1400 Bitbucket requests just watching,
+> and reached `HTTP 429 — Rate limit for this resource has been exceeded`
+> account-wide, with every `bb` call from the operator's own shell failing too.
+
+`pr-list` is **one call for the whole repo** on GitHub, three on Bitbucket —
+independent of how many plans are on screen. Filtering server-side would not
+reduce that call; it would only risk a second, per-sprint query shape that costs
+more, not less.
+
+**And the cache is shared.** The pulse feeds every consumer — the Board tab, the
+Agents tab, the scan's terminal-state cache. A fetch narrowed to one sprint would
+starve the others and make the filter's state leak into data nobody filtered.
+
+So: **the server fetches everything, once; the client hides what the sprint does
+not contain.** If a future measurement shows the pulse itself is too expensive,
+that is a cost plan about the pulse — not about this filter.
 
 ### The row already knows its plan
 
@@ -265,11 +334,18 @@ reloads) is a browser-storage concern and explicitly optional.
 - **A plan whose `Sprint:` disagrees with the file is reported by the sweep** and
   does not change what the filter shows.
 - **The existing Board-tab filter shows all 19 too.** Asserted against this
-  estate, where it currently shows 6 — the active sprint is split across
-  `the-board-tells-the-truth-in-every-section` and `the-board-tells-the-truth`.
-  A test written from either slug alone passes the broken implementation.
+  estate, where it shows **6** — the other 13 plans carry no `Sprint:` field, so
+  a join on `card.sprint` cannot see them. A test written from the 6 that do
+  carry it passes the broken implementation.
+- **A Closed sprint is still selectable and still correct.** `the-board-tells-
+  the-truth` (W34) and `working-shows-the-agent` are real closed sprints with
+  real members; the fix must not swallow them while widening the active one.
 - **Both tabs answer the same membership question the same way.** Asserted by
   construction: one function, two callers.
+- **The pulse fetches the same data with the filter on and off.** Asserted by
+  counting host invocations with a PATH-stubbed CLI — the technique #228 used.
+  A filter that changes what is fetched is a different feature with a rate limit
+  attached.
 - **A row with no plan (`planFile: ''`) stays visible under the filter** — a
   release row, an issue row, an agent holding no branch. Asserted directly: the
   obvious `row.sprint === active` predicate removes all of them, and passes
@@ -289,9 +365,13 @@ reloads) is a browser-storage concern and explicitly optional.
 
 ## Branches
 
+### Parsed
+
+- `feature/the-sprint-file-names-its-members` — `parseSprintFile` parses the `- [ ] [slug]` lines into a member list with its MoSCoW tier; a slug naming no plan is reported, not dropped. No client change
+
 ### Carried
 
-- `feature/the-fleet-row-carries-its-sprint` — `AgentRow` gains `sprint`, set in the server where the row is created by joining `planFile` to the SPRINT FILE's member list; rows with no plan, and plans no sprint lists, carry `''`. No client change, no filtering yet
+- `feature/the-fleet-row-carries-its-sprint` — `AgentRow` gains `sprint`, set in the server where the row is created by joining `planFile` to that member list; rows with no plan, and plans no sprint lists, carry `''`. No client change, no filtering yet
 
 ### Counted
 
@@ -328,12 +408,13 @@ estate gains a fifth definition of *done* and the phase/status work buys nothing
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 5,
+  "round": 7,
   "questionHistory": [
     {"q": "Which tab does the filter belong on?", "a": "AGENTS TAB ONLY - operator decision, against my Board-tab recommendation. The Agents tab is where work is watched; the missing sprint field on the fleet row is the work, not an argument against it", "category": "architecture"},
     {"q": "What does the counter count?", "a": "plan.status values from a-plan-has-a-phase-and-a-status, read not recomputed; a fifth local definition of done is the defect being fixed", "category": "domain"},
     {"q": "What happens with no active sprint?", "a": "Toggle disabled but VISIBLE, showing unreleased estate totals - a control that vanishes teaches the reader it does not exist", "category": "ux"},
     {"q": "Does filtering by sprint make the tab readable? Measured 120 rows, 113 of them waves, 47 plans, sprint commits to 19", "a": "No - it lands at ~45 rows because one plan can contribute 7 waves. ACCEPTED as scope: density belongs to a-folded-plan-says-what-it-hides and the wave modelling. The claim is `these rows are the sprint`, not `the tab is short`", "category": "tradeOffs"},
+    {"q": "Was `the-board-tells-the-truth` a typo splitting the active sprint?", "a": "NO - round 5 got this wrong. It is a real Closed W34 sprint and its 5 plans belong to it. The filter offers three legitimate sprints, two closed. The defect is narrower: the active sprint shows 6 of 19 because 14 plans lack the back-reference. Fix unchanged; the wrong reading is recorded rather than edited away", "category": "technical"},
     {"q": "Does a sprint filter already exist?", "a": "YES - App.tsx:93 on the BOARD tab, with URL sync, joining on card.sprint. Live it shows the active sprint split across two slugs (6 and 5) out of 19, so it can never show more than a third. This plan repoints it at the same membership rather than building a second filter beside it", "category": "architecture"},
     {"q": "Is the plan Sprint: field a reliable join key?", "a": "NO - measured 19 plans in the sprint file, only 5 carry the back-reference; 14 empty/placeholder/absent. Membership now reads the sprint FILE, the field becomes a back-reference, and the reconcile sweep reports disagreement", "category": "technical"},
     {"q": "How broad is the plan-less row class?", "a": "Exactly 2 of 120 - the release row and an unplanned PR. Assertion kept: the count is not the argument, the release row is the control you reach for at sprint end", "category": "ux"}
