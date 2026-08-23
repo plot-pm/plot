@@ -30,7 +30,7 @@ import {
  * reading of unknown here is the same one the schema declares — a fleet that
  * dispatches nothing.
  */
-function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents: number } {
+function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents: number; working?: number } {
   return fleet.fleetControls ?? FLEET_CONTROLS_DEFAULT;
 }
 import { ApproveButton } from './ApproveButton.js';
@@ -4840,7 +4840,7 @@ export function AgentList({
                 <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
               )}
               {key === 'working' && (
-                <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} />
+                <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} working={fleetControlsOf(fleet).working} />
               )}
             </h2>
             {/* The body goes, the header stays — including its count. Removed

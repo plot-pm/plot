@@ -3036,6 +3036,21 @@ export const FleetSchema = z.object({
     .object({
       autoDispatch: z.boolean(),
       parallelAgents: z.number().int(),
+      /**
+       * How many slots are IN USE — the cap's balance, not another budget.
+       *
+       * Derived by the server with `liveAgentCount`, the same rule the
+       * dispatcher measures the cap against: a live process whose branch has
+       * NOT landed. Published rather than re-derived in the client because
+       * `auto-dispatch.ts` is server-only, and a second implementation is how a
+       * control comes to disagree with the rule it describes.
+       *
+       * OPTIONAL, and absent is not zero. A payload from a server predating
+       * this field, or a pulse that could not read the registry, must render
+       * nothing rather than `0 working` — which reads as an idle fleet and is
+       * the exact claim such a pulse cannot make.
+       */
+      working: z.number().int().optional(),
     })
     .default(FLEET_CONTROLS_DEFAULT),
 });

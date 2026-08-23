@@ -29,6 +29,21 @@ node_modules/
 # it there. This catches the nested ones every fixture produces on a test run.
 **/.plot/state/
 
+# The agent registry — one manifest per dispatched worker, and machine-local for
+# the same reason the pulse above is. Each holds a `pid` and an ABSOLUTE
+# `worktree` path (`/Users/.../plot-wt-<branch>`): facts true only on the machine
+# that wrote them, and in another clone either meaningless or — worse — a pid
+# that matches some unrelated process.
+#
+# Measured 2026-08-24: 54 manifests were on main and 48 of those were dead, one
+# per agent ever dispatched here. Nothing reaps a tracked file, so the directory
+# had become a graveyard shared with everyone who clones rather than a register
+# of what is running.
+#
+# THE REGISTRY STILL WORKS. The board reads the DIRECTORY, never git — untracking
+# changes what is shared, not what is recorded.
+.plot/agents/
+
 # A dispatched worker's own traces, written into ITS worktree by
 # `plot-dispatch.sh`: the pid it started, the exit code it ended with, and the
 # console log in between. Machine-local for the same reason as `.plot/state/` —
