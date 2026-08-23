@@ -1,0 +1,1 @@
+../2026-08-23-the-wave-is-a-thing-the-board-can-hold.md

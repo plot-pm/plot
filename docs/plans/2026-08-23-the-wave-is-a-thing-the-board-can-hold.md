@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:** <!-- optional -->
 - **Issue:** <!-- optional -->
@@ -20,6 +20,7 @@
 - **Started:** 2026-08-23, Jan Wloka, `feature/the-head-asks-the-wave`
 - **Started:** 2026-08-23, Jan Wloka, `bug/done-holds-finished-plans-only`
 - **Started:** 2026-08-23, Jan Wloka, `feature/a-split-plan-counts-what-is-elsewhere`
+- **Delivered:** 2026-08-23
 
 ## Approval
 
