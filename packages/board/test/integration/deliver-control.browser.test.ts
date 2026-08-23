@@ -70,10 +70,10 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
   } as Fleet;
 }
 
-/** A card, defaulted to the deliverable `landed` plan in Endgame. */
+/** A card, defaulted to the deliverable `landed` plan in Testing. */
 function card(over: Record<string, unknown> = {}) {
   return {
-    slug: 'landed', title: 'A landed plan', type: 'feature', phase: 'Endgame',
+    slug: 'landed', title: 'A landed plan', type: 'feature', phase: 'Testing',
     path: 'p-landed.md', prs: [], phaseDate: '', deliverable: true, ...over,
   };
 }
@@ -86,10 +86,10 @@ function board(over: Record<string, unknown> = {}) {
       { phase: 'Discovery', cards: [] },
       { phase: 'Design', cards: [] },
       { phase: 'Development', cards: [] },
-      // `landed` is deliverable; `other` is an Endgame card with NO bit — e.g. a
-      // plan already delivered, which lands in Endgame too and must offer nothing.
+      // `landed` is deliverable; `other` is an Testing card with NO bit — e.g. a
+      // plan already delivered, which lands in Testing too and must offer nothing.
       {
-        phase: 'Endgame',
+        phase: 'Testing',
         cards: [
           card(),
           card({ slug: 'other', title: 'Another plan', path: 'p-other.md', deliverable: undefined }),
