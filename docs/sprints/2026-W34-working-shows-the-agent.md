@@ -7,9 +7,9 @@
 
 ## Status
 
-- **Phase:** Active
+- **Phase:** Closed
 - **Start:** 2026-08-19
-- **End:** 2026-08-26
+- **End:** 2026-08-26 (closed 2026-08-23)
 - **Release:** 2.8.0
 
 ## Sprint Goal
@@ -93,13 +93,6 @@ the release it is meant to serve.
 - [x] [working-shows-the-agent] Wave *Asking* — a `waiting` worker keeps its place in WORKING with what it waits on, instead of being filed as finished
 - [x] [working-shows-the-agent] Wave *Log* — the board serves a worker's log from its deterministic path; a WORKING row offers it
 - [x] [the-pulse-measures-progress-not-elapsed-time] `changed_ago_seconds` — a row says when work last changed, so a long job and a dead one stop reading alike
-- [ ] [a-startable-wave-says-so] An eligible wave takes the actionable tone — statusTone colours what a reader acts on, and starting work is the most actionable thing on the board
-- [ ] [an-interrogation-leaves-a-record] The round count reaches the plan file — the board has the field, the parser reads it, and nothing has written it since 2026-08-17
-- [ ] [a-plan-moves-through-the-sections] Approve and Commission design on the plan row, the plan appears in NOT STARTED, Start work takes it — one lifecycle path, two waves
-- [ ] [the-wave-is-a-thing-the-board-can-hold] Wave *One row* — a wave renders as exactly one row in exactly one section; the wave that renders in two is the pivot every other membership rule waits on
-- [ ] [the-wave-is-a-thing-the-board-can-hold] Wave *Consumed* — DONE holds the release scope and the split head counts what is elsewhere; both blocked until the wave has one section, and Plot enforces it
-- [ ] [done-holds-what-is-still-yours] A finished row reports neither a pulse nor a live worker state — the activity mark and the stale worker are one category error in one file
-- [ ] [a-draft-plan-claims-no-approvals] A wave head says what its verdict says — the `default:` that asserts *work landed* about branches that do not exist
 
 ### Should Have
 
@@ -109,7 +102,6 @@ the release it is meant to serve.
 - [x] [plot-board-setup] Wave *Skill* — the adoption spoke (dispatched 2026-08-19)
 - [x] [working-shows-the-agent] Wave *Answer* — a continuation run in the same worktree, prompted with the brief and the answer (pulled from Deferred 2026-08-19)
 
-- [ ] [the-wave-is-a-thing-the-board-can-hold] Wave *Constrained* — the section rules become an executable test rather than a document, recording today's behaviour before anything moves
 
 ### Could Have
 
@@ -157,3 +149,32 @@ The goal was chosen over two larger readings of "a working agent section" —
 answering an agent from the board, and a `.plot/agents/` registry giving each
 agent an identity that outlives its branch. Both were rejected for this timebox
 on the plan's own argument about wave order, not on effort.
+
+## Deferred to 2.9.0
+
+Moved 2026-08-23, as a scope change rather than a failure. The sprint's own goal
+— *WORKING shows the agent* — was met; the goal was then **reframed** mid-sprint
+to *the board tells the truth in every section*, and that reframing is what these
+items belong to.
+
+Fourteen plans bear on board truth, totalling **30 branches**. With three days
+left in the timebox that is not a schedule, so the whole scope moves to a release
+that can hold it, with `docs/board-domain-model.md` as its specification.
+
+- [a-startable-wave-says-so] An eligible wave takes the actionable tone
+- [an-interrogation-leaves-a-record] The round count reaches the plan file
+- [a-plan-moves-through-the-sections] One lifecycle path, two waves
+- [the-wave-is-a-thing-the-board-can-hold] Waves *Constrained*, *One row*, *Modelled*, *Consumed*
+- [done-holds-what-is-still-yours] A finished row reports no pulse and no live worker
+- [a-draft-plan-claims-no-approvals] A wave head says what its verdict says
+
+## Notes
+
+- 2026-08-23: goal reframed from *WORKING shows the agent* to *the board tells
+  the truth in every section*, after the three remaining Must Haves turned out to
+  be board-truth items rather than agent-listing ones. Recorded because judging
+  the sprint against a goal set after its work began would misread the record.
+- 2026-08-23: sprint closed with its **original** goal met — 8 of 11 items
+  delivered, WORKING listing agents with freshness and blocked questions,
+  answerable in place. The reframed scope moved to 2.9.0 rather than being
+  crammed into three days.
