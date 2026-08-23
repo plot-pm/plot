@@ -8,6 +8,7 @@ import { pulseFor } from './fleet.js';
 import type { FleetPulse } from '../contract/schema.js';
 import { branchFromPulse } from './agent-panel.js';
 import { markerIn } from './worker-question.js';
+import { manifestForWorktree, writeManifestStamp } from './manifest-stamp.js';
 
 /**
  * Continuing an answered agent — the board's SECOND state-changing route, and
@@ -547,6 +548,21 @@ export async function handleContinue(
       // reporting a failure that would invite a second spawn into the same
       // worktree.
       console.error('continuation started but its pid could not be recorded:', err);
+    }
+    // STAMP THE MANIFEST — the path the reported defect came from. This route
+    // spawns directly and never runs `plot-dispatch.sh`, so the dispatcher's awk
+    // fix does not reach it; the manifest that names this worktree would keep
+    // pointing at the process that already exited. `stampManifest` is the same
+    // contract the awk implements (parity-tested), so a continued worker and a
+    // dispatched one leave an identical manifest. A missing manifest is not a
+    // failure — an older worktree has none, and the worker runs regardless —
+    // which is why `writeManifestStamp` is a no-op there rather than a throw.
+    const manifest = manifestForWorktree(opts.repoRoot, found.worktree);
+    if (manifest) {
+      writeManifestStamp(manifest, {
+        pid: String(pid),
+        startedAt: new Date().toISOString(),
+      });
     }
   }
   json(202, {

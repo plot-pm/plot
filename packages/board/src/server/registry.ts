@@ -9,7 +9,12 @@ import { transcriptDir, transcriptFile, readTranscriptFacts } from './transcript
  * per pulse, read by three consumers (the concurrency cap, WORKING's rows, the
  * stale-manifest problem).
  *
- * - `running` — the pid answers `kill -0`; the agent is on the machine now.
+ * - `running` — the worktree's own `.plot-worker.pid` answers `kill -0`; the
+ *   agent is on the machine now. Liveness is read from the WORKTREE by
+ *   `plot-worker-state.sh`, never from the manifest pid — `bashLiveness` hands the
+ *   resolver a worktree path and the shell reads `$wt/.plot-worker.pid` for
+ *   itself. The manifest pid is a display fact a reader can go check, not an
+ *   input to this answer.
  * - `finished` — the pid is gone and the tree shows the work reached review or
  *   nothing was left behind. The stale-manifest cure: an entry corrects itself
  *   here on the next pulse rather than persisting.
@@ -83,6 +88,13 @@ export interface AgentEntry {
    */
   pid: string;
   /**
+   * The pid this run displaced when it relaunched in place, or `''` on a first
+   * dispatch. Written by the launch stamp — see `manifest-stamp.ts`.
+   */
+  previousPid: string;
+  /** How many times this worktree's worker has been relaunched — 0 on a first dispatch. */
+  relaunches: number;
+  /**
    * Whether this agent is still running — the fact the registry exists to
    * answer, refreshed on every pulse from {@link AgentState}. `unknown` where it
    * could not be decided; never a guess.
@@ -128,6 +140,12 @@ export function parseManifest(json: string): AgentEntry | null {
     command: typeof o.command === 'string' ? o.command : '',
     startedAt: typeof o.startedAt === 'string' ? o.startedAt : '',
     pid: readPid(o.pid),
+    // A relaunch stamp records both; a first dispatch records neither, so an
+    // older or unrelaunched manifest defaults to "displaced nothing, never
+    // restarted". `previousPid` is read leniently (any string), because unlike
+    // `pid` it is a display fact only — nothing checks liveness against it.
+    previousPid: typeof o.previousPid === 'string' ? o.previousPid : '',
+    relaunches: typeof o.relaunches === 'number' && o.relaunches >= 0 ? o.relaunches : 0,
     // A launch fact carries no liveness. State is decided per pulse in
     // `readAgentRegistry`; a manifest never asserts it, so it starts `unknown`.
     state: 'unknown',
@@ -198,7 +216,32 @@ export interface ReadRegistryOptions {
    * the default {@link bashLiveness} reuses `plot-worker-state.sh`.
    */
   liveness?: LivenessResolver;
+  /**
+   * Enumerate the repo's worktrees, for Fix C — synthesizing an entry for a
+   * worktree no manifest names. Injected in tests; in production the default
+   * {@link gitWorktrees} runs `git worktree list --porcelain`. When it throws or
+   * is absent, nothing is synthesized and only manifest-backed entries list — the
+   * registry never fails a read for want of the worktree list.
+   */
+  worktrees?: WorktreeLister;
 }
+
+/**
+ * One worktree as the registry needs it: its path, the branch it holds, and
+ * whether it is the repo's PRIMARY checkout.
+ *
+ * `isMain` and an empty `branch` are the two exclusions Fix C draws: the main
+ * repo is not an agent, and a branchless (detached/unreadable) worktree has
+ * nothing an agent row could be about.
+ */
+export interface WorktreeInfo {
+  path: string;
+  branch: string;
+  isMain: boolean;
+}
+
+/** Enumerate the repo's worktrees. Injected in tests; default {@link gitWorktrees}. */
+export type WorktreeLister = () => WorktreeInfo[];
 
 export function readAgentRegistry(
   repoRoot: string,
@@ -210,7 +253,10 @@ export function readAgentRegistry(
   try {
     names = fs.readdirSync(dir);
   } catch {
-    return [];
+    // No manifest directory — no dispatch has ever run through it. This is not a
+    // throw: a worktree with no manifest may still be synthesized below, so the
+    // read continues rather than returning here.
+    names = [];
   }
   const out: AgentEntry[] = [];
   for (const name of names) {
@@ -236,19 +282,83 @@ export function readAgentRegistry(
     }
     out.push(entry);
   }
+  // Fix C: a worktree no manifest names is still an agent the registry cannot
+  // rule out. Synthesize one entry per such worktree — but never for a path a
+  // manifest already claims (a manifest wins), never for the main repo, and never
+  // for a branchless worktree. Both `path` and its realpath are held in the seen
+  // set because a manifest records the resolved path and git may report either.
+  const claimed = new Set<string>();
+  for (const e of out) {
+    if (!e.worktree) continue;
+    claimed.add(e.worktree);
+    try {
+      claimed.add(fs.realpathSync(e.worktree));
+    } catch {
+      /* the worktree may be gone; the raw path is enough to dedupe */
+    }
+  }
+  {
+    const lister = opts.worktrees ?? (() => gitWorktrees(repoRoot));
+    let worktrees: WorktreeInfo[] = [];
+    try {
+      worktrees = lister();
+    } catch {
+      worktrees = []; // The listing failed; synthesize nothing rather than throw.
+    }
+    for (const wt of worktrees) {
+      if (wt.isMain) continue; // The main repo is not an agent.
+      if (wt.branch === '') continue; // A branchless worktree is not an agent row.
+      if (claimed.has(wt.path)) continue; // A manifest already names this path.
+      out.push(synthesizeEntry(wt));
+    }
+  }
   refreshStates(out, opts.liveness ?? defaultLiveness(opts.scriptsDir));
   // Newest first, by launch time. A manifest with no `startedAt` sorts last
-  // rather than first: an unknown time must not claim to be the most recent.
+  // rather than first: an unknown time must not claim to be the most recent. A
+  // synthesized entry has no `startedAt` and so sorts among those last, which is
+  // right — the registry knows least about it.
   return out.sort((a, b) => (b.startedAt || '').localeCompare(a.startedAt || ''));
+}
+
+/**
+ * An entry for a worktree the registry can see but has no manifest for.
+ *
+ * It invents NOTHING it does not have. `session` is `''` — the id is minted at
+ * launch and this worktree has none, so the transcript join (which keys on the
+ * session) is skipped and the transcript fields stay absent, exactly the
+ * *a missing transcript costs fields, not entries* rule applied to an entry that
+ * never had one. `command` and `startedAt` are `''`: they are launch facts, and a
+ * start time guessed from the worktree's mtime would read as a launch record and
+ * be false. `pid` is `''`; the state is refreshed from the worktree by the pulse
+ * like any other entry.
+ *
+ * A manifest becomes the record of a DISPATCH, not the definition of an agent's
+ * existence — the worktree is what exists.
+ */
+function synthesizeEntry(wt: WorktreeInfo): AgentEntry {
+  return {
+    session: '',
+    branch: wt.branch,
+    worktree: wt.path,
+    command: '',
+    startedAt: '',
+    pid: '',
+    previousPid: '',
+    relaunches: 0,
+    state: 'unknown',
+  };
 }
 
 /**
  * Refresh each entry's {@link AgentEntry.state} from liveness, in place.
  *
- * Only entries with BOTH a pid and a worktree are checkable — a pid says there
- * was a process, a worktree says where to look for what it left behind. The rest
- * stay `unknown`, and are never handed to the resolver: there is nothing to ask
- * about, and asking would let a resolver's guess become a state.
+ * An entry is checkable when it names a WORKTREE — that is the only input the
+ * resolver takes. `plot-worker-state.sh` is handed the worktree path and reads
+ * `$wt/.plot-worker.pid` for itself; the manifest pid is never consulted, so
+ * gating on it asked for a ticket the questioner does not read and skipped nine
+ * entries here whose worktree existed and would have answered correctly. An entry
+ * with no worktree stays `unknown` and is never handed to the resolver — there is
+ * nothing to look in, and asking would let a guess become a state.
  *
  * ONE batch call for all checkable entries, so the default resolver forks bash
  * once per pulse rather than once per agent. A resolver that throws, or returns
@@ -256,7 +366,7 @@ export function readAgentRegistry(
  * list its agents even when it cannot classify them.
  */
 function refreshStates(entries: AgentEntry[], liveness: LivenessResolver): void {
-  const checkable = entries.filter((e) => e.pid !== '' && e.worktree !== '');
+  const checkable = entries.filter((e) => e.worktree !== '');
   if (checkable.length === 0) return;
   let answers: string[];
   try {
@@ -317,4 +427,50 @@ function bashLiveness(scriptsDir: string, worktrees: string[]): string[] {
   const parts = out.split('\0');
   if (parts.length > 0 && parts[parts.length - 1] === '') parts.pop();
   return parts;
+}
+
+/**
+ * The default worktree lister — `git worktree list --porcelain` for Fix C.
+ *
+ * The porcelain form emits one block per worktree: a `worktree <path>` line,
+ * then `HEAD <sha>`, then EITHER `branch refs/heads/<name>` OR `detached`. The
+ * FIRST block is always the primary checkout — the main repo — which is the one
+ * exclusion git itself hands us; a block with no `branch` line is branchless and
+ * carries `branch: ''`, the other exclusion.
+ *
+ * Throws on any git failure (no repo, git absent), and `readAgentRegistry`
+ * catches it into "synthesize nothing": the worktree list is an enrichment, never
+ * a dependency the listing can fail on.
+ */
+export function gitWorktrees(repoRoot: string): WorktreeInfo[] {
+  const out = execFileSync('git', ['worktree', 'list', '--porcelain'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  const infos: WorktreeInfo[] = [];
+  let cur: { path: string; branch: string } | null = null;
+  let first = true;
+  const flush = () => {
+    if (cur) {
+      infos.push({ path: cur.path, branch: cur.branch, isMain: first });
+      first = false;
+      cur = null;
+    }
+  };
+  for (const line of out.split('\n')) {
+    if (line.startsWith('worktree ')) {
+      flush();
+      cur = { path: line.slice('worktree '.length), branch: '' };
+    } else if (line.startsWith('branch ') && cur) {
+      // `branch refs/heads/feature/x` → `feature/x`. A ref outside refs/heads is
+      // left whole rather than mangled — an agent row still names something real.
+      const ref = line.slice('branch '.length);
+      cur.branch = ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref;
+    }
+    // `detached` and every other porcelain key leave `branch` as '' — the
+    // branchless exclusion, decided by the absence of a `branch` line.
+  }
+  flush();
+  return infos;
 }
