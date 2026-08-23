@@ -114,6 +114,25 @@ both must reject. `--loose` degrades to strict when readiness cannot be
 established, which is the rule the surrounding code already follows: *an
 unverifiable claim of readiness is not readiness*.
 
+### Overlaps `the-scan-asks-once-per-pulse-not-once-per-branch`
+
+That plan removes the scan's per-branch host calls, and `pr_ready` is one of the
+two call sites it names — so **both plans rewrite this function**, from
+different motives:
+
+- **This plan changes the PREDICATE** — accept only a `green` rollup, which is
+  why `pr-list --rich` is needed at all.
+- **That plan changes the SOURCE** — read from the cache `prefill_pr_states`
+  already fills, so no host call is made per branch.
+
+They compose: the source change does not decide what counts as ready, and the
+predicate change does not decide where the data comes from. Whichever lands
+first, the other rebases onto it. **If this plan lands first, its `pr-list
+--rich` read already removes the per-branch call**, and that plan's `pr_ready`
+work becomes a verification rather than an edit.
+
+Recorded on both sides so the collision is known at dispatch time.
+
 ### Not chosen: relax the comment instead
 
 The cheaper fix is to stop promising green. Rejected: the promise is the reason

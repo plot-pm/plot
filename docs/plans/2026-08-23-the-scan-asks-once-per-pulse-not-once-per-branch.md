@@ -265,6 +265,55 @@ next person to speed the scan up should know that doing so multiplies whatever
 per-branch cost remains** — and because if this fix is ever partially reverted,
 the cadence is what turns a small regression into an exhausted budget.
 
+### The second call site: `pr_ready` on the `--loose` path
+
+`merged_by_host` is not the only per-branch caller. **`pr_ready` (line 1540)
+calls `plot-host.sh pr-state` directly**, bypassing both the join and the cache:
+
+```sh
+pr_ready() {
+  local br="$1" js
+  js=$("$script_dir/plot-host.sh" pr-state "$br" </dev/null 2>/dev/null) || return 1
+  ...
+```
+
+It runs only under `--loose`, which is opt-in, off by default, and unused by the
+board — so it contributes **nothing** to the measured drain, and every number in
+this plan was taken without it. It is in scope anyway, because the Done-when
+this plan wants to assert is *zero per-branch host calls*, and an assertion
+qualified by a flag is one a later change can slip past.
+
+**Both call sites, one fix, one absolute assertion.**
+
+#### The collision with `loose-checks-what-it-promises`, and how it resolves
+
+That plan (Draft) owns `bug/loose-checks-the-rollup`, whose one-line summary is:
+
+> `pr_ready` reads the check rollup from the scan's existing `pr-list` call and
+> accepts only `green`
+
+**That is the same edit to the same function**, reached from a different
+motive: it needs the check rollup, which `pr-state` structurally cannot return,
+and getting it from the batched `pr-list` removes the per-branch call as a side
+effect. Two branches rewriting `pr_ready` would collide at merge.
+
+The resolution is ordering, not duplication:
+
+- **This plan changes `pr_ready`'s SOURCE** — read the state from the same
+  cache `prefill_pr_states` fills, no host call.
+- **`loose-checks-the-rollup` changes `pr_ready`'s PREDICATE** — accept only a
+  green rollup, which requires `pr-list --rich`.
+
+Whichever lands first, the other rebases onto it: the source change does not
+decide what counts as ready, and the predicate change does not decide where the
+data comes from. **If `loose-checks-the-rollup` lands first, this plan's
+`pr_ready` work is already done** and this section becomes a verification rather
+than an edit — check the call is gone, keep the assertion, change nothing.
+
+Recorded here so the collision is a known fact at dispatch time rather than a
+surprise at merge time, which is what the scope-guard section of a brief exists
+for.
+
 ### Not chosen: raise `PR_REFRESH_MS` or throttle the scan
 
 Rejected, and #228 drew the distinction this plan keeps:
@@ -307,10 +356,23 @@ fetched the list.
 
 ## Done when
 
+- **THE STATE MAP IS UNCHANGED.** Run the scan on this repo before and after the
+  change and diff the branch→state map: **no branch may change state in either
+  direction.** This is a COST change, not a state change, so any difference at
+  all is a bug — including the one that looks like an improvement. This is the
+  assertion that catches a fix which quietly stops calling the host for a branch
+  the host would have answered `MERGED` about.
 - An **idle** board makes **no per-branch host call** on a pulse whose `pr-list`
-  succeeded. Asserted by counting invocations with a PATH-stubbed host CLI — the
-  technique #228 and #232 both used — not by reading the code. Today that number
-  is 28 per scan on this repo.
+  succeeded — **on the default path and under `--loose` alike**, since both call
+  sites are in scope. Asserted by counting invocations with a PATH-stubbed host
+  CLI — the technique #228 and #232 both used — not by reading the code. Today
+  that number is 28 per scan on this repo (29 calls, of which 1 is the
+  `pr-list`). The target is exactly: `pr view` 0, `pr list` 1.
+- **The proof is a stubbed single scan, not a timed window.** A test that runs a
+  board for N seconds and extrapolates an hourly rate depends on machine speed,
+  scan duration and runner load — it would flake in CI and its failures would
+  teach nobody anything. One scan under a stubbed `PATH` is deterministic, and
+  the per-hour figure follows arithmetically from it.
 - A branch **absent from a successfully-fetched list** resolves to `NONE` with no
   host call, on the `--ask` path as well as the plain one. This is the defect;
   assert it directly.
@@ -343,7 +405,16 @@ fetched the list.
 
 ### Derived
 
-- `bug/an-arrived-list-answers-for-the-branches-it-omits` — test `.list-arrived` before the `--ask` host call, so a branch the list omits resolves to `NONE` without a round trip; keep the host call for the case where the list never arrived
+<!-- ONE branch for two call sites, deliberately. `merged_by_host` and
+     `pr_ready` are the same defect in the same file, and the assertion that
+     licenses the change — ZERO per-branch calls — cannot be written for one of
+     them alone: a Done-when qualified by a flag is one a later change slips
+     past. Splitting them would also put two agents in `plot-fleet-scan.sh`'s
+     host path at once, and the second would rebase onto a moved call.
+     See the collision note in Design for the ordering against
+     `loose-checks-the-rollup`, which edits `pr_ready`'s predicate. -->
+
+- `bug/an-arrived-list-answers-for-the-branches-it-omits` — test `.list-arrived` before the `--ask` host call in `merged_by_host`, and read `pr_ready` from the same cache, so a branch the list omits resolves without a round trip on either path; keep the host call for the case where the list never arrived or came back at the limit
 
 ## Notes
 
@@ -380,18 +451,21 @@ from a premise the layout no longer held.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
-    {"q": "Whose reasoning wins: the plan's derive-NONE, or merged_by_host's docstring defending --ask?", "a": "List is authoritative after a successful pr-list; truncation is the bound and must be asserted", "category": "technical"},
-    {"q": "Is the 2.4% timer claim proven, or inferred from four concurrent boards?", "a": "Inferred — added a Done-when assertion measuring one isolated board over 300s", "category": "nonFunctional"},
-    {"q": "Should the plan address the 5s timer over a 28s scan (cost scales inversely with duration)?", "a": "Stay scoped; record the hazard in Design so a future speed-up does not multiply per-branch cost", "category": "tradeOffs"}
+    {"q": "Whose reasoning wins: derive-NONE, or merged_by_host's docstring defending --ask?", "a": "List is authoritative after a successful pr-list; truncation is the bound and must be asserted", "category": "technical"},
+    {"q": "Is the 2.4% timer claim proven, or inferred from four concurrent boards?", "a": "Inferred - added a Done-when measuring one isolated board over 300s", "category": "nonFunctional"},
+    {"q": "Should the plan address the 5s timer over a 28s scan?", "a": "Stay scoped; record the hazard so a future speed-up does not multiply per-branch cost", "category": "tradeOffs"},
+    {"q": "Failure direction: a squash-merged branch outside the list would read open forever", "a": "Safe by construction (NONE cannot claim merged); assert the state map is byte-identical before and after", "category": "technical"},
+    {"q": "pr_ready is a second unbatched per-branch call on the --loose path - include it?", "a": "Fix both here, so the zero-calls assertion is absolute; recorded the collision with loose-checks-the-rollup and the rebase ordering", "category": "technical"},
+    {"q": "Prove the fix with a stubbed single scan or a timed live window?", "a": "Stubbed single scan - deterministic, CI-safe; per-hour cost follows arithmetically", "category": "nonFunctional"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
     "technical": {"stack": false, "architecture": true, "implementation": true},
     "domain": false,
     "ux": false,
-    "nonFunctional": {"security": false, "performance": true, "scalability": false},
+    "nonFunctional": {"security": false, "performance": true, "scalability": true},
     "tradeOffs": true
   }
 }
