@@ -317,8 +317,11 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     roots.push(root);
 
     const first = await postTo(root, { branch: BRANCH, answer: 'go' }, deps(wt));
-    // The marker must exist again for the second continuation to be accepted.
-    fs.writeFileSync(path.join(wt, 'QUESTION.md'), 'PLOT-BLOCKED: and again?');
+    // The marker must exist for the second continuation to be accepted. The
+    // `true` worker never cleared the first run's marker, so a PLOT-BLOCKED* FILE
+    // is still in the tree — but write a fresh one by name to be explicit, since
+    // `markerIn` finds the marker by filename, not by content.
+    fs.writeFileSync(path.join(wt, 'PLOT-BLOCKED-again.md'), 'PLOT-BLOCKED: and again?');
     // The pulse's previousPid comes from `worker_pid`; point it at the pid the
     // first relaunch wrote, as a fresh pulse would.
     const firstPid = (first.body as { pid: string }).pid;
