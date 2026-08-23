@@ -11,7 +11,7 @@ import { type AgentRow, type Fleet, type Card, type Column } from '../../src/con
  * Plan file: docs/plans/2026-08-22-an-approved-plan-offers-its-two-starts.md
  *
  * An approved plan (`phase === 'Development'`) with eligible work offers:
- *   - **Implement** — present but refused until wave 2 adds `/api/implement`
+ *   - **Implement** — posts to `/api/implement` (wave 2 gave it its route)
  *   - **Dispatch** — posts to `/api/dispatch` with no `--max` cap
  *
  * Both gate on **approved AND waveSummary.eligible > 0**. This is the test suite
@@ -117,6 +117,7 @@ function approvedBoard(cards: Card[], over: Record<string, unknown> = {}) {
     continue: { available: false, reason: '' },
     idea: { available: false, reason: '' },
     commission: { available: true, reason: '' },
+    implement: { available: true, reason: '' },
     server: { restartCommand: '', port: 0 },
     ...over,
   };
@@ -128,6 +129,15 @@ function approvedBoard(cards: Card[], over: Record<string, unknown> = {}) {
 function dispatchUnavailableBoard(cards: Card[]) {
   return approvedBoard(cards, {
     dispatch: { available: false, reason: 'bound to 0.0.0.0, not localhost' },
+  });
+}
+
+/**
+ * Board with the implement binding UNavailable — to test its refusal reason.
+ */
+function implementUnavailableBoard(cards: Card[]) {
+  return approvedBoard(cards, {
+    implement: { available: false, reason: 'bound to 0.0.0.0, not localhost' },
   });
 }
 
@@ -262,19 +272,53 @@ describe('an approved plan offers Implement and Dispatch', () => {
     }
   });
 
-  it('Implement shows its refusal reason (route not yet available)', async () => {
-    // Implement is present but disabled until Wave 2 adds `/api/implement`.
+  it('Implement acts — it posts to /api/implement when the binding is available', async () => {
+    // Wave 2 gave Implement its route. Where it used to render present-but-refused
+    // ("route not yet available"), it now ACTS: enabled, and a click POSTs the
+    // slug to /api/implement. This is the anti-contract this branch flips — the
+    // test that asserted the refusal is the one that had to change.
     const page = await open();
+    let posted: { url: string; body: string } | null = null;
+    await page.route('**/api/implement', (route) => {
+      posted = { url: route.request().url(), body: route.request().postData() ?? '' };
+      route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ ok: true, slug: 'beans' }) });
+    });
+    // The button polls GET /api/implement/<slug> after it posts; answer it done
+    // so the poll settles rather than hanging the run.
+    await page.route('**/api/implement/*', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ state: 'done', message: '', log: '' }) }));
     try {
       await openPlanMenu(page, 'beans');
       const menu = planHead(page, 'beans').locator('[role="menu"]');
       const implement = menu.getByRole('button', { name: 'Implement' });
       await expect.poll(() => implement.count()).toBe(1);
-      // It should have aria-disabled and a title/reason.
-      const isDisabled = await implement.getAttribute('aria-disabled');
-      expect(isDisabled).toBeTruthy();
-      const title = await implement.getAttribute('title');
-      expect(title).toContain('route not yet available');
+      // It is NOT refused — no aria-disabled, and its title is the act, not a
+      // "route not yet available" apology.
+      expect(await implement.getAttribute('aria-disabled')).toBeFalsy();
+      expect(await implement.getAttribute('title')).not.toContain('route not yet available');
+      await implement.click();
+      // The click posted the slug, and nothing else, to /api/implement.
+      await expect.poll(() => posted !== null, { timeout: 10_000 }).toBe(true);
+      expect(JSON.parse(posted!.body)).toEqual({ slug: 'beans' });
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('Implement shows its refusal reason when the implement binding is unavailable', async () => {
+    // Off localhost the binding refuses, and the control names it rather than
+    // vanishing — the same present-but-refused shape Dispatch uses.
+    const page = await open(
+      approvedFleet(),
+      implementUnavailableBoard([approvedCard('beans', 'p-beans.md')]),
+    );
+    try {
+      await openPlanMenu(page, 'beans');
+      const menu = planHead(page, 'beans').locator('[role="menu"]');
+      const implement = menu.getByRole('button', { name: 'Implement' });
+      await expect.poll(() => implement.count()).toBe(1);
+      expect(await implement.getAttribute('aria-disabled')).toBeTruthy();
+      expect(await implement.getAttribute('title')).toContain('0.0.0.0');
     } finally {
       await page.close();
     }

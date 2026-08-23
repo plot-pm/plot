@@ -60,6 +60,12 @@ const WRITE_ROUTES = [
   // this test reads that table back out of the artifact: a write route absent
   // from this list fails the coverage assertion below.
   { path: '/api/deliver', body: { slug: 'ship-the-widget' } },
+  // Implement spawns a plot agent that prepares an approved plan on this disk —
+  // the same class of write as /api/deliver, and gated by the same loopback
+  // boundary. Added here because the router dispatches from a TABLE and this
+  // test reads that table back out of the artifact: a write route absent from
+  // this list fails the coverage assertion below.
+  { path: '/api/implement', body: { slug: 'ship-the-widget' } },
   { path: '/api/claim', body: { slug: 'ship-the-widget' } },
   { path: '/api/transition', body: { slug: 'ship-the-widget', transition: 'approve' } },
   // Sets the two shared fleet controls (auto-dispatch switch, parallel-agent
