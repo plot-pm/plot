@@ -1,6 +1,6 @@
-# The board filters to the sprint
+# The Agents tab filters to the sprint
 
-> The board shows 106 rows across every plan the estate has ever held. A sprint is a commitment about a subset of them, and nothing on the board can show you that subset or say how much of it is done.
+> The Agents tab shows every branch and wave the estate holds. A sprint is a commitment about a subset of them, and nothing on the tab where work is actually watched can show you that subset or say how much of it is done.
 
 ## Status
 
@@ -14,7 +14,7 @@
 
 ## Changelog
 
-- The Board tab gains a sprint filter that narrows it to the active sprint's plans, and states that sprint's progress and its target release as numbers.
+- The Agents tab gains a sprint filter that narrows it to the active sprint's plans, and states that sprint's progress and its target release as numbers.
 
 <!-- Board impact: contract + server + client. SprintCardSchema gains a release
      target and four counts; the Board tab gains one control. No plan-format
@@ -41,31 +41,56 @@ Neither is wrong; they answer different questions. **That disagreement is what
 `a-plan-has-a-phase-and-a-status` exists to end**, and this plan is its first
 consumer.
 
-### Why the Board tab and not the Agents tab
+### The Agents tab is where the work is watched
 
-Measured in the payloads:
+**Operator decision, 2026-08-23: the filter belongs on the Agents tab, and not
+on the Board tab at all.**
 
-- **`/api/board`** already carries `sprint` per card (`schema.ts:20`) and a
-  `sprints` array (`:496`). The join this filter needs is already on the wire.
-- **`/api/fleet`** carries **no sprint field at all** — not on a row, not at the
-  top level.
+An earlier draft of this plan recommended the opposite, from a measurement:
+`/api/board` already carries `sprint` per card, `/api/fleet` carries none, so
+the Board tab could filter today. That is true and it is the wrong reason to
+choose. **Cheapness is not a subject.**
 
-So the Board tab can filter today and the Agents tab cannot without new plumbing.
+The Agents tab is where a person looks to see what is moving and what needs
+them — waves, branches, blocked workers, things waiting on a decision. That is
+where "is this in our sprint?" is actually asked, and where an out-of-scope row
+is actually noise. The Board tab is a lifecycle overview whose cards are already
+grouped by phase; narrowing it answers a question nobody had.
 
-That is convenient, but the deciding argument is what each tab is *for*: the
-Agents tab answers **who is working right now**, and hiding a running agent
-because its plan is out of scope would break the one section whose purpose is to
-show every agent. A sprint is about *what the team committed to*, which is a
-lifecycle question — the Board tab's subject.
+**What that costs, stated plainly:** the fleet payload has no sprint field, so
+this plan has to put one there. That is the work, and it is worth it.
 
-**Agents stays unfiltered, deliberately.** If it later needs one, it needs a
-`sprint` on the fleet row first, and that is a separate plan.
+### The row already knows its plan
+
+`AgentRow` carries **`planFile`** (`schema.ts:1727`) — the file the row's plan
+lives in. A sprint is a field on that plan, so the join exists; nothing needs to
+be inferred from a branch name.
+
+**Set the sprint on the row where the row is CREATED, in the server** — never
+derived in the renderer from `planFile`. The contract already paid for that
+lesson once, in the same file:
+
+> `kind` is set where the row is CREATED, because the server is the only place
+> that knows why the row exists. … A derivation is a guess with a rule attached.
+
+A renderer-side join would have to re-read plan metadata the client does not
+hold, and would go wrong first on exactly the rows that have no plan.
+
+### Rows with no plan are not filtered out
+
+A release row, an issue row, and an agent holding no branch have `planFile: ''`.
+They belong to no sprint and **must remain visible under the filter**, because
+they are not out of scope — they are outside the question. Hiding them would
+make the filter delete the fleet's own furniture.
+
+**This is the assertion a naive implementation fails**: filtering on
+`row.sprint === activeSprint` silently removes every plan-less row.
 
 ## Design
 
 ### The control states what it filters
 
-One control at the top of the Board tab, showing the sprint's name, its target
+One control at the top of the Agents tab, showing the sprint's name, its target
 release, and its counts:
 
 ```
@@ -131,38 +156,51 @@ reloads) is a browser-storage concern and explicitly optional.
 
 ## Done when
 
-- With an Active sprint, the toggle narrows the Board tab to that sprint's
+- With an Active sprint, the toggle narrows the Agents tab to that sprint's
   plans, and every hidden row belongs to a plan the sprint does not name.
+- **A row with no plan (`planFile: ''`) stays visible under the filter** — a
+  release row, an issue row, an agent holding no branch. Asserted directly: the
+  obvious `row.sprint === active` predicate removes all of them, and passes
+  every other assertion here.
+- `sprint` is set **in the server**, at row creation. Asserted by construction —
+  where the value comes from — not by reading a rendered string.
 - The control shows the sprint's **target release** and four counts, taken from
-  `plan.status` and not recomputed. Asserted by construction — where the value
-  comes from — not by comparing numbers.
+  `plan.status` and not recomputed.
 - **With no Active sprint the toggle is present, disabled, and shows unreleased
   estate totals.** Asserted directly: this is the state a naive implementation
   hides, and hiding it passes every other assertion here.
 - **Two Active sprints render two rows**, each with its own release and counts.
-- The Agents tab is unchanged. Asserted, because the obvious implementation
+- **The Board tab is unchanged.** Asserted, because the obvious implementation
   filters "the board" and reaches both tabs.
 - Toggling writes nothing to the estate — no phase moves, no file changes.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
 ## Branches
 
+### Carried
+
+- `feature/the-fleet-row-carries-its-sprint` — `AgentRow` gains `sprint`, set in the server where the row is created by joining `planFile` to the plan's `Sprint:` field; rows with no plan carry `''`. No client change, no filtering yet
+
 ### Counted
 
-- `feature/the-sprint-card-carries-its-numbers` — `SprintCardSchema` gains the target release and the four `status` counts, aggregated per active sprint on the server; no client change
+- `feature/the-fleet-knows-its-sprints` — the fleet payload carries each Active sprint with its target release and its four `status` counts, aggregated server-side from `plan.status`
 
 ### Filtered
 
-- `feature/the-board-filters-to-the-sprint` — the Board tab's control: toggle, the counts, the disabled-with-totals state, and one row per active sprint
+- `feature/the-agents-tab-filters-to-the-sprint` — the control: toggle, the counts, the disabled-with-totals state, one row per active sprint, and plan-less rows always visible
 
 ## Notes
 
 Asked for 2026-08-23, after a sprint status that took four scripts and a hand
 join to answer — and produced two defensible numbers that disagreed.
 
-The scope question (*which tab?*) was settled by measurement rather than taste:
-`/api/board` already carries `sprint` per card, `/api/fleet` carries none. The
-tabs' subjects agree with that split, which is the more durable reason.
+The scope question (*which tab?*) was answered by the operator against this
+plan's own first recommendation. I proposed the Board tab because `/api/board`
+already carries `sprint` and `/api/fleet` does not — a measurement about cost,
+offered as though it were a measurement about fit. The Agents tab is where work
+is watched and where an out-of-scope row is noise; the Board tab is a lifecycle
+overview already grouped by phase. **Cheapness is not a subject**, and the
+missing field is the work rather than an argument against it.
 
 This plan is deliberately the **first consumer** of `plan.status` rather than
 another producer of the same answer. If it ships computing its own counts, the
@@ -170,9 +208,9 @@ estate gains a fifth definition of *done* and the phase/status work buys nothing
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
-    {"q": "Which tab does the filter belong on?", "a": "Board only - /api/board already carries sprint per card and /api/fleet carries none; and hiding a running agent would break the section whose purpose is showing every agent", "category": "architecture"},
+    {"q": "Which tab does the filter belong on?", "a": "AGENTS TAB ONLY - operator decision, against my Board-tab recommendation. The Agents tab is where work is watched; the missing sprint field on the fleet row is the work, not an argument against it", "category": "architecture"},
     {"q": "What does the counter count?", "a": "plan.status values from a-plan-has-a-phase-and-a-status, read not recomputed; a fifth local definition of done is the defect being fixed", "category": "domain"},
     {"q": "What happens with no active sprint?", "a": "Toggle disabled but VISIBLE, showing unreleased estate totals - a control that vanishes teaches the reader it does not exist", "category": "ux"}
   ],

@@ -1,1 +1,0 @@
-../2026-08-23-the-board-filters-to-the-sprint.md
