@@ -4,13 +4,19 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
-- **Sprint:** <!-- optional -->
+- **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-23, Jan Wloka, in-session
+- **Started:** 2026-08-23, Jan Wloka, `bug/the-registry-names-a-live-agent`
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Changelog
 

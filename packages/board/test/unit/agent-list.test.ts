@@ -40,6 +40,10 @@ import {
   ActivityEcho,
   activeRowKeys,
   groupByWave,
+  waveSection,
+  rowsBySection,
+  waveKeyOf,
+  waveDissent,
   LOCK_ECHO_MS,
   rowKey,
   watchedState,
@@ -120,6 +124,153 @@ describe('groupByPlan', () => {
 
   it('returns nothing for no rows', () => {
     expect(groupByPlan([])).toEqual([]);
+  });
+});
+
+describe('waveSection — resolves the Inverted split, gated on the verdict', () => {
+  // A wave's rows: same plan, same wave name, branches described by their state,
+  // per-branch group (what `classify` gave each), and the wave verdict every
+  // branch shares.
+  const waveRows = (
+    branches: { state: AgentRow['state']; group: AgentRow['group'] }[],
+    verdict: AgentRow['verdict'] = 'eligible',
+  ): AgentRow[] => branches.map((b, i) => row({
+    plan: 'p', wave: 'W', branch: `feature/b${i}`, state: b.state, group: b.group, verdict,
+  }));
+
+  it('sends the merged branch to where the unfinished work is — the Inverted split', () => {
+    // Verdict eligible (not finished), one merged (→ done), one open (→
+    // not-started). A wave with unmerged work is where its unfinished work is, so
+    // the merged branch joins NOT STARTED — never the reverse.
+    expect(waveSection(waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'open', group: 'not-started' }],
+    ))).toBe('not-started');
+  });
+
+  it('reads the unfinished branch\'s own section — quiet where that is where it sits', () => {
+    expect(waveSection(waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'wip', group: 'quiet' }],
+      'blocked',
+    ))).toBe('quiet');
+  });
+
+  it('returns null when the wave carries NO verdict — nothing to aggregate on', () => {
+    // A pre-verdict pulse, or a synthetic row: the scan said nothing, so a merged
+    // branch beside an open one is not proof of an Inverted split. Don't guess.
+    expect(waveSection(waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'open', group: 'not-started' }],
+      null,
+    ))).toBeNull();
+  });
+
+  it('returns null for a COMPLETE wave — every branch merged, no split', () => {
+    expect(waveSection(waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'merged', group: 'done' }],
+      'complete',
+    ))).toBeNull();
+  });
+
+  it('returns null for an all-unmerged wave spanning process sections — a build stays put', () => {
+    // The Modelled shape: a PR in review and a build on the machine, both wip, no
+    // merged branch. Not a placement defect; collapsing them would move the build
+    // off WAITING ON A MACHINE, which is where the board means to show it.
+    expect(waveSection(waveRows([
+      { state: 'wip', group: 'waiting-on-you' },
+      { state: 'wip', group: 'waiting-on-machine' },
+    ]))).toBeNull();
+  });
+
+  it('does not treat {merged, deferred} as a split — a deferred branch is exempt', () => {
+    expect(waveSection(waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'deferred', group: 'not-started' }],
+    ))).toBeNull();
+  });
+});
+
+describe('rowsBySection — Inverted stops splitting across two sections', () => {
+  it('rewrites every branch of a mixed wave to the ONE section the wave belongs in', () => {
+    // The live defect: a merged branch carrying `group: done` and an open branch
+    // carrying `group: not-started`, one eligible wave. Filtering by `r.group`
+    // put them in two sections. After re-sectioning both read `not-started`.
+    const rows = [
+      row({ plan: 'p', wave: 'Inverted', branch: 'feature/a', state: 'merged', group: 'done', verdict: 'eligible' }),
+      row({ plan: 'p', wave: 'Inverted', branch: 'feature/b', state: 'open', group: 'not-started', verdict: 'eligible' }),
+    ];
+    const out = rowsBySection(rows);
+    expect(out.map((r) => r.group)).toEqual(['not-started', 'not-started']);
+    // Every (plan, wave) reaches exactly one section — the invariant.
+    const sections = new Set(out.map((r) => r.group));
+    expect(sections.size).toBe(1);
+  });
+
+  it('leaves a uniform wave untouched — identity preserved, not re-allocated', () => {
+    const rows = [
+      row({ plan: 'p', wave: 'Done', branch: 'feature/a', state: 'merged', group: 'done', verdict: 'complete' }),
+      row({ plan: 'p', wave: 'Done', branch: 'feature/b', state: 'merged', group: 'done', verdict: 'complete' }),
+    ];
+    const out = rowsBySection(rows);
+    // Same objects back where nothing changed — the fleet is shared and cast.
+    expect(out[0]).toBe(rows[0]);
+    expect(out[1]).toBe(rows[1]);
+  });
+
+  it('does not merge two DIFFERENT plans that share a wave name', () => {
+    // p1 is a genuine split (merged + open) → its merged branch joins NOT
+    // STARTED. p2 is all-merged (no split) → untouched. The shared wave name
+    // must not fuse them: keying on (plan, wave) keeps them apart.
+    const rows = [
+      row({ plan: 'p1', wave: 'Shaped', branch: 'feature/a', state: 'merged', group: 'done', verdict: 'eligible' }),
+      row({ plan: 'p1', wave: 'Shaped', branch: 'feature/b', state: 'open', group: 'not-started', verdict: 'eligible' }),
+      row({ plan: 'p2', wave: 'Shaped', branch: 'feature/c', state: 'merged', group: 'done', verdict: 'complete' }),
+    ];
+    const out = rowsBySection(rows);
+    expect(out.filter((r) => r.plan === 'p1').map((r) => r.group))
+      .toEqual(['not-started', 'not-started']);
+    expect(out.find((r) => r.plan === 'p2')?.group).toBe('done');
+  });
+
+  it('leaves a planless / wave-less row alone — it is its own subject', () => {
+    const planless = row({ plan: '', wave: '', branch: 'feature/orphan', group: 'quiet', verdict: null });
+    const out = rowsBySection([planless]);
+    expect(out[0]).toBe(planless);
+  });
+});
+
+describe('waveDissent — the collapsed row does not read `merged` for a half-open wave', () => {
+  it('reports how many merged when branches disagree — the Inverted case', () => {
+    // One merged, one open: the row speaks for both, so it must state that some
+    // landed and some did not, not a plain `merged`.
+    expect(waveDissent([
+      row({ state: 'merged' }), row({ state: 'open' }),
+    ])).toBe(1);
+  });
+
+  it('is null when every branch agrees — the count already tells the story', () => {
+    expect(waveDissent([row({ state: 'merged' }), row({ state: 'merged' })])).toBeNull();
+    expect(waveDissent([row({ state: 'open' }), row({ state: 'wip' })])).toBeNull();
+  });
+
+  it('does not count a DEFERRED branch as disagreement — it is exempt by design', () => {
+    // A wave of {merged, deferred} agrees that everything wanted has landed.
+    expect(waveDissent([row({ state: 'merged' }), row({ state: 'deferred' })])).toBeNull();
+  });
+
+  it('feeds groupedNote, which then says so rather than the section word', () => {
+    // With a dissent the note names the split; without one it keeps the ordinary
+    // sentence for the section word.
+    //
+    // `to review` IS THE POINT OF THE FIRST TWO LINES, and it is deliberately not
+    // the word in the third. It is a word `groupedNote` does not recognise, and
+    // an unrecognised word returns '' so the caller's ternary falls through to
+    // the VERDICT — the default used to assert `work landed — waiting to be
+    // merged` over five live blocked waves whose branches had never been touched.
+    // A dissent still outranks that: a MEASURED disagreement is a fact about
+    // branches that exist, so it speaks even for a word with no sentence.
+    expect(groupedNote('to review', 1)).toMatch(/1 merged/);
+    expect(groupedNote('to review', null)).toBe('');
+    // And a word that DOES have a sentence keeps it when its branches agree.
+    expect(groupedNote('delivered', null)).toBe('landed — nothing left in it');
+    expect(groupedNote('delivered', 2)).toMatch(/2 merged/);
   });
 });
 

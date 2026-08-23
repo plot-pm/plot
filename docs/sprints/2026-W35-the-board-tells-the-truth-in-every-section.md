@@ -130,6 +130,7 @@ in practice, promote it rather than letting the rules go untested.
 - [ ] [the-wave-is-a-thing-the-board-can-hold] Wave *Modelled* — the contract carries a `Wave` with identity, branches, verdict, section and completeness, derived once where the verdicts already are
 - [ ] [the-wave-is-a-thing-the-board-can-hold] Wave *Consumed* — DONE holds the release scope, and the split head counts what is elsewhere without rendering it
 - [ ] [done-holds-what-is-still-yours] A finished row reports neither a pulse nor a live worker state — the activity mark and the stale worker are one category error in one file
+- [ ] [a-marker-is-a-file-not-a-mention] A marker is a file, not a mention — `plot_worker_blocked` greps file CONTENTS, so 28 documenting files on main make every clean worker read `waiting` and the board offer a question lifted from a brief
 
 ### Should Have
 
@@ -139,6 +140,7 @@ in practice, promote it rather than letting the rules go untested.
 - [ ] [a-startable-wave-says-so] An eligible wave takes the actionable tone — `statusTone` colours what a reader acts on
 - [x] [an-interrogation-leaves-a-record] The round count reaches the plan file — the board has the field, the parser reads it, nothing has written it since 2026-08-17 <!-- status: delivered, pr: #323, branches: 2/2 -->
 - [ ] [a-split-plan-says-it-is-split] The wave name stays in its cell, and the sweep names a prose wave — a 53-character name currently paints over its neighbours
+- [ ] [the-registry-names-a-live-agent] The registry names a live agent — a dead pid displayed beside `running`, nine agents skipped by a gate on a value the classifier never reads, and six worktrees with no entry at all
 
 ### Could Have
 
