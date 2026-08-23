@@ -689,6 +689,68 @@ followed. Three released plans with no released record are decisions taken
 without the bookkeeping. Neither is corruption; they are the two halves coming
 apart, which they can, because one is automatic and the other is not.
 
+### Build → wave, and build → plan: nothing at all
+
+**The build affects neither.** Traced through `plot-fleet-scan.sh`: the verdict
+computation reads `state` — `merged` · `wip` · `open` · `deferred` — and never
+consults a check result. A branch with a red build and a branch with a green one
+are the same input.
+
+That is consistent rather than surprising: **build is the entity with no home**,
+so it has nothing to influence with. It is a *display* fact, rendered on the row
+that carries its PR, and read by a human deciding whether to merge.
+
+| does build state change… | answer |
+|---|---|
+| the branch's `state`? | **no** — `merged` is about the ref, not the checks |
+| the wave's `verdict`? | **no** — the verdict counts outstanding branches |
+| the plan's `phase`? | **no** — a phase is a decision |
+| whether the next wave may start? | **no** — see the defect below |
+
+**The one place a human's build judgement enters the model is the merge.** A
+person (or a merge queue) reads the build, decides, and merges — and *that* moves
+the branch state, which moves the verdict. So the build's influence is entirely
+mediated by a decision, exactly like the plan phase's.
+
+### A defect: `--loose` promises green and checks not-draft
+
+`--loose` lets a prior wave count as satisfied by **pushed** work rather than
+merged work, buying throughput at the cost of rebase risk. Its own comment states
+the danger it exists to prevent:
+
+> An earlier version accepted ANY pushed commit — strictly weaker than promised,
+> and dangerous: **red CI** or a draft PR would open the next wave, so it built on
+> a seam that was not merely unlanded but possibly broken.
+>
+> Readiness must be VERIFIED, never assumed.
+
+The verification is `pr_ready`:
+
+```sh
+pr_ready() {
+  js=$(plot-host.sh pr-state "$br") || return 1
+  grep -q '"state":"OPEN"'  || return 1
+  grep -q '"draft":false'
+}
+```
+
+**It checks open-and-not-draft. It never looks at the checks.** A PR with a
+failing build satisfies `pr_ready` and opens the next wave — which is precisely
+the "red CI" case the comment says was fixed.
+
+Two things are true and only one is implemented: the *draft* half of the promise
+is verified, the *green* half is not. `plot-host.sh pr-state` does not return a
+check rollup at all — `pr-list --rich` does, and `pr_ready` calls `pr-state`.
+
+**Severity is bounded**: `--loose` is opt-in and off by default, so the strict
+path — where only `merged` settles a branch — is unaffected and remains the only
+one the board uses. But the flag's documented promise is not the flag's behaviour,
+and a reader trusting the comment gets the weaker guarantee.
+
+**Worth a plan of its own**, not folding into another: either `pr_ready` gains
+the rollup (via `pr-list --rich`, which the scan already calls once) or the
+comment stops promising green. Naming it here so it is not lost.
+
 ### The gates run the other way
 
 Influence flows up as measurement; **constraint flows down as permission**:
