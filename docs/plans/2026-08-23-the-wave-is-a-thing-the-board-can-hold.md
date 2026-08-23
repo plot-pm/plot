@@ -421,7 +421,7 @@ the case.
 
 ### One row
 
-- `bug/a-wave-is-one-row` — a wave renders as exactly one row in exactly one section; a wave with any unmerged branch is where its unfinished work is, and the row states its branch count and any disagreement between them
+- `bug/a-wave-is-one-row` — a wave renders as exactly one row in exactly one section; a wave with any unmerged branch is where its unfinished work is, and the row states its branch count and any disagreement between them → #339
 
 ### Modelled
 
