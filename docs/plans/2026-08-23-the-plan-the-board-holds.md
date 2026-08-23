@@ -90,10 +90,18 @@ approval into a five-valued lifecycle. It cannot say *who* approved, *when*, or
 `a-draft-plan-claims-no-approvals` had to check the plan file by hand to answer
 *is it partially approved*: the board could not have said.
 
-**2. `started_raw` is unread, so the board infers what it could know.** A plan
-records `Started:` per branch. The board instead derives *started* from branch
-state — which is why an approved-but-unstarted plan and one whose worker died
-look alike.
+**2. `started_raw` is unread, so the board infers what it could count.** A plan
+records `Started:` per branch and the parser emits them as an **array** — so
+*has this started* is `started_raw.length > 0`, a structural question needing no
+string handling at all. The board instead derives *started* from branch state,
+which is why an approved-but-unstarted plan and one whose worker died look alike.
+
+Measured: of 10 approved plans, **5 have started and 5 have not** — the same
+`phase`, the same `Development` column, and opposite answers to *can I pick this
+up*. `toBoardPhase` still carries the scar of an earlier attempt at this
+distinction: its second parameter is `_started`, underscore-prefixed and unused,
+removed because forking the PHASE on it manufactured a Design column. The fact
+is worth having; the phase was the wrong place to put it.
 
 ## Design
 
@@ -148,9 +156,30 @@ the records specifically: an empty `delivered_raw` on a delivered plan means
 
 Add to the payload's plan facts, from `PlanMeta`, unchanged:
 
-- `approved` — the record **as text**, `""` where absent. Not parsed into
-  date/who/channel: 12 of 78 use a different grammar today.
-- `started[]` — the records as written, one per started branch
+**The board never parses a record. It reads what the parser already structured.**
+
+That distinction is the whole of this section, and it is easy to lose: *"read
+`started_raw`"* sounds like string handling and is not. `plot-plan-meta.sh`
+already did the parsing — it emits `started_raw` as a **JSON array**, one entry
+per `Started:` line. So:
+
+| question | answered by | is it parsing? |
+|---|---|---|
+| has anything started? | `started_raw.length > 0` | **no** — array emptiness |
+| how many branches started? | `started_raw.length` | **no** |
+| who approved, when, how? | the text of `approved_raw` | **not answered** — shown, not read |
+
+The two fields carry the same suffix and are not the same kind of thing.
+`started_raw` is a **list the parser built**; `approved_raw` is **one line
+somebody wrote**. The board may count the first and may only display the second.
+
+Add to the payload's plan facts, from `PlanMeta`:
+
+- `started` — the **array**, carried as-is. Its LENGTH is the fact the board
+  uses; its entries are detail.
+- `approved` — the record **as text**, `""` where absent. Never split into
+  date/who/channel: 12 of 78 use a different grammar today, so any parser is
+  wrong on twelve plans the day it ships.
 - `assignee`, `sprint`, `story` — as the plan states them, `""` where absent
 - `review`, `impl` — the two ceremony answers
 
@@ -188,6 +217,10 @@ Recorded so the next reader does not add them:
 
 ## Done when
 
+- **No `*_raw` string is split, matched or destructured anywhere in the board.**
+  Asserted by construction — the only permitted operations on a record are
+  *render it* and, for the array-valued `started`, *count it*. This is the
+  assertion that keeps the next reader from adding a date parser.
 - A row carries the plan's `approved` record **as text**, and it is empty for a
   Draft — the live shape is `a-dispatch-hands-over-a-brief`, Draft with an empty
   `Approved:`.

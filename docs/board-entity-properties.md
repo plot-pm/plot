@@ -144,6 +144,61 @@ only the stuck path consumes it.
 row. It is where wave properties went when there was nowhere else to put them —
 evidence for the missing abstraction rather than a counter-example to it.
 
+## Five statuses, five owners
+
+The recurring confusion has one shape: **each entity has its own status, and the
+board reads one owner's status to answer another owner's question.**
+
+| owner | field | values | answers |
+|---|---|---|---|
+| **plan** | `phase` | Discovery · Development · Endgame · Released | *is this committed to, and how far has it gone* |
+| **wave** | `verdict` | complete · eligible · blocked | *may this slice be started, is it finished* |
+| **branch** | `state` | open · wip · merged · deferred | *what happened to this ref* |
+| **PR** | `pr.state` | green · pending · failing · conflicts · closed · none · unknown | *what does the host say about this proposal* |
+| **worker** | `worker` | 8 defined, 4 seen | *is an agent alive, waiting, stalled* |
+| *(derived)* | `group` | waiting-on-you · working · not-started · quiet · done | *which section a row renders in* |
+
+**`group` is the only one that is not a property of anything** — it is the
+function of the other five, and it is where every defect has surfaced.
+
+### The confusions this names
+
+Each of today's five defects is one row of this table being read for another
+row's question:
+
+- a **merged branch** (`state`) put a row in DONE while its **wave** was still
+  `eligible` — branch status answering a wave question
+- **DONE** admitted a `Discovery` **plan** — no plan status consulted at all
+- a **draft plan**'s wave head claimed *work landed* — a note defaulted rather
+  than derived from any status
+- the **activity mark** fired on `localDirty`, a **worktree** fact, for a
+  **branch** whose work was finished
+- **`phase`** was asked *has work started*, which is a **plan record**
+  (`started_raw`) and not a phase at all
+
+### The rule
+
+**A question is answered by the status of the entity it is about.** Where an
+answer needs several — and `group` genuinely does — the combination happens in
+exactly one place, `classify`, and nowhere else.
+
+That is what makes `group` safe to derive and unsafe to re-derive: five inputs,
+one function, one output. Every second derivation is a place for two of these
+five to be read in the wrong order.
+
+### What is NOT a status
+
+- **`## Status`** in a plan file is a *section*, holding Phase, Type, Sprint,
+  Review, Impl. Not a field.
+- **`status: z.string()`** (schema.ts:339) is a **story** lifecycle status, from
+  story-tracking front matter. A different entity again.
+- **`tuple.status`** is the row's slot-5 *word* — a rendering of whichever status
+  the row's kind makes relevant, coloured by `statusTone`.
+
+Three existing meanings of the word, which is why adding a plan-level `status`
+would make a fourth. The front-matter fixture that `phase_alt` guards is exactly
+a plan carrying `status:` and `phase:` that disagree.
+
 ## What this says about the constraint model
 
 **The section a wave shows up in is a function of at least:** `state` (4) ×
