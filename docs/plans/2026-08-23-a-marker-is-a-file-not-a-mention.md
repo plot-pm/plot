@@ -1,6 +1,6 @@
 # A marker is a file, not a mention
 
-> `plot_worker_blocked` greps every file's CONTENTS for `PLOT-BLOCKED:`. Twenty-eight tracked files on main contain that string because they document the feature — `CLAUDE.md` among them. A pristine checkout where no worker has ever run reads `waiting`.
+> `plot_worker_blocked` greps every file's CONTENTS for `PLOT-BLOCKED:`, and twenty-eight tracked files on main contain that string because they document the feature — `CLAUDE.md` among them. Wherever no PR fact masks it, a clean worktree reads `waiting` and the board offers an operator a question lifted from a brief.
 
 ## Status
 
@@ -52,8 +52,37 @@ packages/board/test/unit/continue-route.test.ts
 ```
 
 Every worktree is a checkout of `main`, so **every worktree in this repo
-contains the marker before any worker starts.** `waiting` is therefore
-unconditional here: no clean exit can ever read `finished`.
+contains the marker before any worker starts.**
+
+### Where it bites, measured — and where it does not
+
+An earlier draft said `waiting` was *unconditional here*. Measured against the
+live board, that is too strong, and the correction is the useful part:
+
+| caller | PR fact passed | result |
+|---|---|---|
+| `plot-fleet-scan.sh` (branch rows) | `pr` where a PR exists | `finished` ×20, `waiting` ×1 |
+| `registry.ts` (agent rows) | `''`, always | `waiting` ×9 of 9 |
+
+**An open or merged PR outranks the marker** — it is the first test in
+`plot_worker_task_state`, and it is why the scan mostly escapes. Verified on one
+branch directly:
+
+```
+plot_worker_task_state <wt> ""    → waiting
+plot_worker_task_state <wt> "pr"  → finished
+```
+
+The registry passes an empty PR fact **by design**: its docstring records that it
+*"must not be behind anything that can fail"*, so it cannot afford the host call.
+That decision is right and is not what this plan changes. The consequence is that
+the registry falls through to the marker grep every time, and every one of its
+nine worktree-bearing entries reads `waiting`.
+
+So the honest claim: **the false positive is masked wherever a PR fact is
+available, and bites wherever it is not.** The registry is the population with no
+PR fact, by construction — which is also the population WORKING is about to
+render.
 
 ### The docstring states the property that fails
 
@@ -131,6 +160,41 @@ question into a file"* — which does not name the file at all. A prefix match o
 `PLOT-BLOCKED*` accepts what workers actually produce; the instruction should be
 tightened in the same change to name the file, so the two agree going forward.
 
+### The second copy, which fabricates a question
+
+`worker-question.ts` declares **its own copy** of the pattern (line 28) and
+re-greps the worktree (line 131) to answer *what is it waiting on*. Its
+docstring names the duplication as deliberate:
+
+> A SECOND COPY OF A PATTERN, and that is the honest cost of this change rather
+> than an oversight.
+
+The cost is larger than a maintenance burden. Grepping a pristine worktree
+returns:
+
+```
+*worker waiting on you: PLOT-BLOCKED: which adapter should the fallback use?*
+```
+
+That is a **documentation example**, lifted from a brief. The board does not
+merely mislabel the row — it presents an operator with a fabricated question and
+a control to answer it. Answering it writes a prompt into a worktree whose worker
+never asked anything.
+
+**Both are fixed here, in one branch.** `worker-question.ts` reads the marker
+file the classifier found, rather than re-deriving where the marker is:
+
+- `markerIn` replaces its `git grep` subprocess with a read of `PLOT-BLOCKED*`.
+- `firstMarkerLine` is **unchanged**. It already takes text and is already
+  exported for direct testing; a file's contents suit it exactly as grep output
+  did, including the leading-comment stripping.
+- The pattern constant is **deleted from both files**. Nothing is left to keep
+  in sync, which is the duplication its own docstring asked to be rid of.
+
+Fixing only the classifier would leave the pair inconsistent — a row labelled
+`finished` that still offers a fabricated question — which is worse than today's
+consistent wrongness.
+
 ### What is lost, and why it is acceptable
 
 Contents-matching accepts a marker in **any** file — a worker that wrote its
@@ -167,10 +231,10 @@ delays the collision; it does not remove it.
 
 ### Open Questions
 
-- [ ] Should the file's **contents** still be read, once found? The board's
-      *Continue with an answer* flow shows the worker's question, and
-      `worker-question.ts` already reads it. Confirm that path keys off the file
-      rather than off this classifier — if it re-greps, it inherits the same bug.
+- [x] ~~Does the *Continue with an answer* path re-grep?~~ **Answered in round
+      2: it does**, with its own copy of the pattern, and it surfaces a
+      documentation example as a worker's question. Both are fixed in this
+      branch — see *The second copy* above.
 - [ ] Should a marker file be required at the worktree ROOT, or found at any
       depth? Root is stricter and is where every observed marker sits; any-depth
       would catch a worker that wrote into a subdirectory. Prefer root, but
@@ -192,6 +256,15 @@ delays the collision; it does not remove it.
 - A file merely **containing** the string `PLOT-BLOCKED:` — a doc, a brief, a
   test fixture — does **not** make the worktree `waiting`. Assert with a fixture
   file, since this is the exact regression to prevent.
+- **A pristine worktree yields no question text.** Asserted against
+  `worker-question.ts` directly — this is the fabricated-question defect, and a
+  fix to the classifier alone passes every assertion above while leaving it.
+- A worktree with a real marker file **does** yield its first line, with leading
+  comment syntax stripped. `firstMarkerLine`'s existing tests must pass
+  unmodified: it is unchanged, and editing them would mean the fix reached
+  further than intended.
+- **Neither file declares the marker pattern any more.** Assert by grep: the
+  duplicated constant is gone from both, so there is nothing left to drift.
 - The `Worker command` in `CLAUDE.md` names the file it wants written, so the
   instruction and the classifier agree.
 - `pnpm test`, `pnpm run test:board` green; artifact rebuilt and committed.
@@ -204,7 +277,7 @@ delays the collision; it does not remove it.
      must agree with it. Splitting the instruction from the classifier would
      leave a window where workers are told one thing and measured by another. -->
 
-- `bug/a-marker-is-a-file-not-a-mention` — `plot_worker_blocked` looks for a `PLOT-BLOCKED*` file rather than grepping every file's contents; `TODO(you|human)` is dropped; the `Worker command` names the file it asks for
+- `bug/a-marker-is-a-file-not-a-mention` — `plot_worker_blocked` looks for a `PLOT-BLOCKED*` file rather than grepping every file's contents, and `worker-question.ts` reads that file instead of re-grepping with its own copy of the pattern; `TODO(you|human)` is dropped, the shared constant is deleted from both, and the `Worker command` names the file it asks for
 
 ## Notes
 
@@ -213,19 +286,23 @@ unskips nine registry entries, and the expectation was that they would surface a
 mix of `finished`/`waiting`/`stalled`. All nine read `waiting`; none held a
 marker file. Checking why produced this.
 
-The two plans are independent and this one is the more urgent: the registry fix
-changes who gets classified, while this one decides whether the classification
-means anything. `the-registry-names-a-live-agent` deliberately asserts that its
+The two plans are independent, and round 2 showed exactly how they meet: the
+registry passes an empty PR fact by design, which is precisely the condition
+under which this bug is unmasked. So the registry fix increases this bug's
+audience — it unskips nine entries into a classifier that will mislabel them —
+which is the argument for landing this one first. `the-registry-names-a-live-agent` deliberately asserts that its
 nine entries are **classified** rather than that they read `waiting`, so that it
 does not pin this bug in place.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {"q": "Is the false positive real, or an artefact of untracked files in one worktree?", "a": "Real and universal: 28 tracked files on main match, CLAUDE.md included; a pristine detached checkout reads waiting", "category": "technical"},
     {"q": "Is this a regression, and when did it start?", "a": "Never worked — git log -S puts the classifier and CLAUDE.md's documentation of the marker in the same commit, a4ecf363", "category": "technical"},
-    {"q": "Exclude the documenting paths instead?", "a": "Rejected — a denylist that grows with every mention, and it leaves the property (a mention is a marker) intact", "category": "tradeOffs"}
+    {"q": "Exclude the documenting paths instead?", "a": "Rejected — a denylist that grows with every mention, and it leaves the property (a mention is a marker) intact", "category": "tradeOffs"},
+    {"q": "Is `waiting` really unconditional in this repo?", "a": "No - too strong. The PR fact outranks the marker, so the scan mostly reads finished; the registry passes an empty PR fact by design and so bites 9 of 9. Claim narrowed to: masked where a PR fact exists, bites where it does not", "category": "technical"},
+    {"q": "Should the duplicated pattern in worker-question.ts be fixed here too?", "a": "Yes, one branch - it re-greps and surfaces a documentation example as a worker question; fixing only the classifier leaves a finished row still offering a fabricated question", "category": "ux"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
