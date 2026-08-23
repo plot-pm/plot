@@ -2772,6 +2772,101 @@ test('fleet: host calls do not grow with the branch count', () => {
   large.cleanup();
 });
 
+// A plan naming `n` branches that NOBODY HAS STARTED — no ref, no PR.
+//
+// THE POPULATION THE JOIN CANNOT SERVE, and the one that was costing a round
+// trip per branch per scan. `makeInFlightRepo` pushes every branch precisely so
+// none takes the no-ref arm; this fixture is its complement, and the two
+// together separate the join's flat cost from the no-ref arm's.
+//
+// Measured on the plot repo 2026-08-23: 28 of 29 host calls in one scan were
+// for branches in exactly this state — named by an approved plan, never
+// started. Each asked the host to re-learn `NONE`, on every scan, forever.
+function makeUnstartedRepo(prefix, n) {
+  return makeRepo(prefix, N_WAVE(n));
+}
+
+// A host whose `pr-list` ANSWERS. The stub above emits nothing for `pr-list`,
+// which is the DEGRADED path — no list, so every branch must still be asked.
+// Deriving absence is licensed only by a list that arrived complete, so a test
+// of the derivation needs a host that supplies one.
+//
+// It returns one unrelated PR: enough for the list to be non-empty and well
+// under any limit, so it reads as COMPLETE, while naming none of the fixture's
+// branches — which is the case under test, a branch the complete list omits.
+const LISTING_HOST = `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":0,"state":"NONE","draft":false,"url":""}' ;;
+  pr-list) echo '{"number":1,"title":"unrelated","state":"MERGED","head":"other/branch"}' ;;
+  *) echo "{}" ;;
+esac
+`;
+
+test('fleet: an arrived list answers for the branches it omits', () => {
+  // THE DEFECT, as a count. A plan's unstarted branches have no ref and no PR,
+  // so the join cannot serve them — and before this fix each one asked the host
+  // to confirm it still had no PR, every scan.
+  //
+  // Asserted as ZERO `pr-state` calls rather than as "fewer than before": an
+  // implementation that merely cached the answer WITHIN a scan would reduce the
+  // count without removing the round trip, and would pass a comparative test
+  // while leaving the per-pulse cost exactly where it was.
+  const f = makeUnstartedRepo('plot-fleet-unstarted-', 8);
+  const { ops } = countCalls(f, LISTING_HOST);
+  const asked = ops.filter((o) => o === 'pr-state').length;
+  const listed = ops.filter((o) => o === 'pr-list').length;
+
+  assert.equal(asked, 0,
+    `a complete list answers for every branch it omits; got ${asked} ` +
+    `pr-state calls (${ops.join(',')})`);
+  assert.equal(listed, 1, `exactly one pr-list per scan; got ${listed}`);
+
+  f.cleanup();
+});
+
+test('fleet: without a list, every branch is still asked', () => {
+  // THE FAILURE DIRECTION, and the half an optimisation breaks first. Absent is
+  // not false: a scan whose `pr-list` returned nothing has NOT established that
+  // these branches lack PRs, and reporting them as such would render a whole
+  // fleet as unstarted during an outage.
+  //
+  // `COUNTING_HOST` emits nothing for `pr-list`, so no completeness marker is
+  // written and the derivation must not fire.
+  const f = makeUnstartedRepo('plot-fleet-nolist-', 8);
+  const { ops } = countCalls(f);
+  const asked = ops.filter((o) => o === 'pr-state').length;
+
+  assert.ok(asked > 0,
+    `an absent list must fall through to asking, not derive absence; ` +
+    `got ${asked} pr-state calls (${ops.join(',')})`);
+
+  f.cleanup();
+});
+
+test('fleet: PLOT_SCAN_ASK_ALWAYS restores the host call', () => {
+  // THE WAY BACK. The switch may only ever restore asking, never suppress it,
+  // so an operator watching a wave that will not complete can have the old
+  // behaviour on the next scan without a rebuild.
+  const f = makeUnstartedRepo('plot-fleet-askalways-', 8);
+  const h = hostShim(LISTING_HOST);
+  const calls = path.join(h.dir, 'calls.txt');
+  execFileSync('bash', [h.scan, 'p'], {
+    encoding: 'utf8', cwd: f.dir,
+    env: { ...process.env, PLOT_TEST_CALLS: calls, PLOT_SCAN_ASK_ALWAYS: '1' },
+  });
+  const ops = fs.existsSync(calls)
+    ? fs.readFileSync(calls, 'utf8').split('\n').filter(Boolean) : [];
+  h.cleanup();
+
+  assert.ok(ops.filter((o) => o === 'pr-state').length > 0,
+    `PLOT_SCAN_ASK_ALWAYS=1 must restore the per-branch call; got ${ops.join(',')}`);
+
+  f.cleanup();
+});
+
 // Count GIT spawns, not host calls. A shim earlier on PATH than the real git
 // records every invocation's subcommand and execs through, so the number is the
 // process count the scan actually pays for.

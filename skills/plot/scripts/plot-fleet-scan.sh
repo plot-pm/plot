@@ -500,8 +500,12 @@ prefill_pr_states() {
   # string compare. Reading the rank back from the file with `$(cat …)` would
   # be a fork PER DUPLICATE ROW, which is what this loop was rewritten to avoid.
   local last=""
+  # Rows parsed, for the completeness test below. Counted here because this is
+  # the one place every row passes through.
+  _pr_rows=0
   while IFS="	" read -r st br; do
     [ -n "$br" ] && [ -n "$st" ] || continue
+    _pr_rows=$((_pr_rows + 1))
     [ "$br" = "$last" ] && continue
     last="$br"
     printf '%s' "$st" > "$HOST_STATE_CACHE/$br" 2>/dev/null || true
@@ -531,6 +535,36 @@ EOF
   # with a dot, and the key encoding maps only `_` and `/`, so no branch key can
   # begin with one either. The separation is git's rule, not a lucky prefix.
   printf '1' > "$HOST_STATE_CACHE/.list-arrived" 2>/dev/null || true
+  # THE LIST WAS WHOLE — a stronger claim than `.list-arrived`, and the only one
+  # that licenses deriving `NONE` from a cache miss.
+  #
+  # `.list-arrived` says the host answered. This says the answer was not
+  # truncated, which arrival alone cannot establish: a list returned AT the
+  # limit is evidence of *at least* that many PRs, never of exactly that many.
+  # Deriving absence from a partial list would report a real PR as having none —
+  # strictly worse than the per-branch cost being removed, and the failure #333
+  # records on Bitbucket, where `bb pr list` is silently partial past 50 PRs per
+  # state.
+  #
+  # Counted from the rows actually parsed rather than from the raw payload, so a
+  # malformed line that the `sed` skipped cannot inflate the count into a false
+  # claim of completeness. Fewer rows than the limit means the host had no more
+  # to give; equal to it means it may have.
+  #
+  # AN EMPTY LIST IS NOT A COMPLETE ONE, and the test that caught this is the
+  # reason it is written down. A host that exits 0 while printing nothing —
+  # a stub, a backend that cannot list, a payload whose shape changed — parses
+  # to zero rows, and zero is `< PR_LIST_LIMIT`, so a completeness test on the
+  # limit ALONE reads a silent failure as "this repo has no PRs" and derives
+  # `NONE` for every branch. That is the outage-renders-a-fleet-unstarted
+  # failure this whole guard exists to prevent, reached from the other side.
+  #
+  # A repository genuinely holding zero PRs loses nothing by being asked: it has
+  # no branches with PRs for the join to serve either, so the cost is zero calls
+  # in both readings.
+  if [ "$_pr_rows" -gt 0 ] && [ "$_pr_rows" -lt "$PR_LIST_LIMIT" ] 2>/dev/null; then
+    printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null || true
+  fi
 }
 prefill_pr_states
 
@@ -570,6 +604,39 @@ host_pr_state() { # $1=branch [--ask] → OPEN|MERGED|CLOSED|NONE|-
   [ -n "$HOST_STATE_CACHE" ] && cache="$HOST_STATE_CACHE/$(cache_key "$br")"
   if [ -n "$cache" ] && [ -f "$cache" ]; then
     printf '%s' "$(cat "$cache" 2>/dev/null)"
+    return
+  fi
+  # THE ARRIVED LIST ANSWERS FOR THE BRANCHES IT OMITS, and it is tested BEFORE
+  # the host call rather than after it. `pr-list` returns every PR in the repo,
+  # so once it has arrived COMPLETE, a branch missing from the cache has no PR:
+  # absence is the answer, not the absence of one. Asking the host can only
+  # confirm what the list already said, at one round trip per branch.
+  #
+  # MEASURED, 2026-08-23: 28 of 29 host calls in a scan were for branches with
+  # no ref and no PR — branches an approved plan NAMES and nobody has started.
+  # Each cost a round trip to re-learn `NONE`, every scan, forever. One board
+  # spent ~3,600 calls/hour that way and emptied a 5000/hour budget in ~78
+  # minutes; four boards were running.
+  #
+  # COMPLETENESS IS THE LICENCE, and it is checked rather than assumed. A list
+  # returned AT the limit may be truncated — a count equal to the limit is
+  # evidence of *at least* that many PRs, never of exactly that many — and
+  # deriving `NONE` from a partial list would report a real PR as absent, which
+  # is worse than the cost this removes. `bb pr list` is silently partial past
+  # 50 PRs per state (#333), which is that failure already observed on one host.
+  # `.list-complete` is written only when the list is known whole; without it
+  # this arm does not fire and the host is asked exactly as before.
+  #
+  # `PLOT_SCAN_ASK_ALWAYS=1` restores the old behaviour on the NEXT SCAN with no
+  # rebuild — the scan is a script the board re-executes every cycle. It may
+  # only ever restore asking, never suppress it, so setting it can cost budget
+  # but cannot produce a wrong answer.
+  if [ "$ask" = "--ask" ] && [ "${PLOT_SCAN_ASK_ALWAYS:-0}" != 1 ] \
+     && [ -n "$HOST_STATE_CACHE" ] && [ -f "$HOST_STATE_CACHE/.list-complete" ]; then
+    # Not in a complete list = no PR. Cached so a second caller for the same
+    # branch reads the file rather than re-deriving.
+    [ -n "$cache" ] && printf '%s' 'NONE' > "$cache" 2>/dev/null
+    printf '%s' 'NONE'
     return
   fi
   if [ "$ask" = "--ask" ]; then
@@ -1537,8 +1604,38 @@ merged_by_subject() { # $1=branch → 0 when a conforming merge names it
 }
 
 # Is this branch's PR ready to merge — open, not draft? Unknown counts as NO.
+# READS THE SHARED CACHE, never the host directly. `prefill_pr_states` has
+# already fetched every PR in the repo in one call, so asking `pr-state` per
+# branch here was the same N+1 the rest of the scan removed — surviving on the
+# one path the board does not use, which is why it went unmeasured. `--loose` is
+# opt-in and off by default, so this contributed nothing to the measured drain;
+# it is fixed here so the *zero per-branch calls* property holds without a
+# qualifier, and a qualifier is what a later change slips past.
+#
+# DRAFT IS NOT ANSWERED BY THE JOIN, and that is the honest limitation. The
+# cache holds a STATE word (`OPEN`/`MERGED`/`CLOSED`/`NONE`) and carries no
+# draft flag, so a draft PR reads `OPEN` here. `--loose` therefore falls back to
+# the host for a branch the cache calls OPEN — the only case that still needs
+# it — and answers locally for every other, which is the whole population that
+# was costing calls. A `MERGED`, `CLOSED` or `NONE` branch is not ready and no
+# round trip can change that.
+#
+# `loose-checks-what-it-promises` replaces the PREDICATE here with a green-rollup
+# test read from `pr-list --rich`; that change removes this last host call too,
+# since the rollup carries `isDraft`. The two edits compose — this one decides
+# where the data comes from, that one what counts as ready.
 pr_ready() {
-  local br="$1" js
+  local br="$1" js st
+  # `--ask`, so the DEGRADED path is unchanged: with no list to derive from,
+  # this resolves exactly as it did before — a host call, and `--loose` keeps
+  # working on a repo whose `pr-list` cannot answer. With a complete list, the
+  # same call returns `NONE` for free and the branch is rejected below without
+  # any round trip, which is the population that was costing them.
+  st=$(host_pr_state "$br" --ask)
+  case "$st" in
+    OPEN) ;;                      # may still be a draft — the check below asks
+    *)    return 1 ;;             # MERGED, CLOSED, NONE, `-`: not ready
+  esac
   js=$("$script_dir/plot-host.sh" pr-state "$br" </dev/null 2>/dev/null) || return 1
   printf '%s' "$js" | grep -q '"state":"OPEN"' || return 1
   printf '%s' "$js" | grep -q '"draft":false'
