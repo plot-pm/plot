@@ -196,6 +196,25 @@ change is wrong — do not edit the test to fit the change.
 
 ## Notes
 
+### Overridden 2026-08-23
+
+Two decisions this plan settled were deliberately overridden by the operator on
+2026-08-23, after a worker measured the settled mechanism in Chromium and found
+it self-contradictory (`minmax(12rem, auto)` renders the full name but breaks the
+per-row column alignment the plan also required, because each row is its own CSS
+grid so `auto` sizes to that row's content).
+
+- **Slot 3 ships `minmax(12rem, auto)` as planned.**
+- **The `agent-rows-line-up` alignment requirement is WITHDRAWN.** Column edges
+  no longer line up between a plan head and a branch row beneath it. That
+  misalignment is the accepted cost of rendering the name in full; a reader who
+  cannot read the name loses more than one whose columns do not align. (The marks
+  track, slot 1, still lines up — only slots 3+ move.)
+- **The guard test was edited** — not weakened. The track-equality assertion, the
+  flexible-track predicate, and the `fixedPx` floor derivation were each
+  re-expressed so they still test the same property against the `minmax` shape.
+  The 508 / 604 / 36 arithmetic is unchanged because the floor stays 12rem.
+
 Found from a board screenshot at ultra-wide width, where the empty space beside a
 clipped name made the fixed track visible. The first reading of the defect — "we
 keep abbreviating the plan's name" — is right about the symptom; the cause is
