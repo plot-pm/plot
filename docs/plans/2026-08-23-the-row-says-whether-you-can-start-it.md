@@ -21,159 +21,104 @@
 
 ## Motivation
 
-Measured on the live board, 2026-08-23:
+Measured on the live board, **2026-08-23 (re-measured after the day's merges)**:
 
 ```
-rows whose wave is eligible          25
-rows a reader could actually start    8
+rows whose wave is eligible          26
+rows a reader could actually start    ~5
 ```
 
-**Seventeen rows say `eligible` and cannot be started.** The reasons are all
-facts the board already holds:
+**Twenty-one rows say `eligible` and cannot be started**, and every reason is a
+fact the board already holds:
 
 ```
-plan not approved — the phase gate fails closed      12
-work already pushed — someone is on it                3
-already claimed by another session                    1
-already merged                                        1
+plan is Discovery/Draft — the phase gate refuses    13
+already wip — someone is on it                       6
+already claimed by another session                   1
+already merged                                       1
 ```
 
-### The same defect on a WAVE HEAD, and there it is also false
+`eligible` answers *has every prior wave landed*. That is true, it is what
+`plot-fleet-scan.sh` means by the word, and it is **not the question a reader
+asks of a row.** They ask *can I start this*, and on 21 of 26 rows the honest
+answer is no.
 
-Reported in the same session: a folded wave head in WAITING ON YOU reads
-**"work landed — waiting to be merged"** and a reader cannot act on it.
+### The measurement moved, and got worse
 
-**It is worse than unactionable — it is untrue.** Traced 2026-08-23 on
-`a-dispatch-hands-over-a-brief`: no PR was ever opened on any of its three
-branches, no ref was ever pushed, and nobody merged anything. The sentence is
-false in every part.
+An earlier draft of this plan recorded 25 eligible / 8 startable. Re-measuring
+today gives 26 / ~5 — the ratio did not improve as the estate churned, which is
+what makes this structural rather than a bad afternoon.
 
-It comes from `groupedNote`'s fallback (`AgentList.tsx:753`):
+### What is NOT in scope any more: the wave-head note
 
-```ts
-default: return 'work landed — waiting to be merged';   // any unrecognised word
-```
+This plan also cited a second defect — a folded wave head reading **"work landed
+— waiting to be merged"** over branches where no PR was opened and no ref pushed.
 
-**A `default:` that asserts.** Any word the switch does not know produces a claim
-about landed work.
+**That is fixed.** `groupedNote`'s false fallback was removed in **#339**
+(merged 2026-08-23) and the sentence no longer appears anywhere in
+`packages/board/src`. Verified by grep before dropping it.
 
-**That is the same shape as `eligible`, one level up:**
-
-| | what it says | what the reader asks |
-|---|---|---|
-| branch row | `eligible` — every prior wave landed | can I start this? |
-| wave head | *work landed, waiting to be merged* | is there something for me to do? |
-
-Both put a value in the reader's slot that answers a different question — and
-both sit beside a note or a row that holds the right answer. On the live board
-right now, 22 of 25 WAITING ON YOU rows say **"plan not approved yet — still in
-review"**, which *is* actionable: approve it. The heads above them do not.
-
-`a-draft-plan-claims-no-approvals` (Draft, in this sprint) owns the `default:`
-fix. **This plan and that one are the same finding at two levels** — a row's
-status and a head's note — and should be read together. Where they meet, that
-plan owns the note and this one owns the status word.
-
-### `eligible` is a correct answer to the wrong question
-
-The scan computes three wave verdicts:
-
-```sh
-if   outstanding == 0 ; then verdict="complete"
-elif prior_ok == 1    ; then verdict="eligible"
-else                        verdict="blocked"
-fi
-```
-
-`eligible` means exactly one thing: **every prior wave in this plan has landed.**
-It is a fact about **ordering inside a plan**, and it is the right fact for the
-scan to compute — `--next` uses it, and the wave model rests on it.
-
-It is not what a reader of a row is asking. **They are asking *can I start this*,
-and that question has four gates, of which wave order is one:**
-
-| gate | owner | refuses |
-|---|---|---|
-| wave order | the scan | a prior wave has not landed |
-| **plan phase** | `plot-dispatch.sh`, fails closed | **an unapproved plan** |
-| the claim | the ref push | a branch another session took |
-| a live worktree | dispatch | unlanded work at an occupied desk |
-
-The board reports the first and stays silent on the other three, so a status word
-that reads like permission is true one time in three.
-
-### The board already computes the right answer, one cell away
-
-The note beside the status already says it:
-
-> **approved — nobody has taken it**
-
-That sentence *is* the dispatchable answer, rendered on the same row — while the
-status word next to it says `eligible`. The row holds both the question a reader
-asks and the answer to a different one, and puts the wrong one in the slot that
-reads as a verdict.
-
-**Every input is present.** `phase`, `state`, `verdict` and the claim all reach
-the row. Nothing needs fetching; one derivation needs relocating.
+It is recorded here rather than deleted silently, because a plan that ships a
+fix for a defect that no longer exists spends a branch and misleads its
+reviewer — and because the two halves shared a cause worth remembering: a word
+chosen for what the code could compute rather than for what a reader needed.
 
 ## Design
 
-### The row's status answers the reader's question
+### The row states a STARTABILITY verdict, and `eligible` stops being shown
 
-Slot 5 stops carrying the wave's ordering verdict and starts carrying **whether
-this can be started**, with the reason when it cannot:
+One word, computed from every fact the board already holds — prior waves landed
+**and** the plan approved **and** not claimed **and** nothing already pushed:
 
-```
-startable                     approved, open, unclaimed — go
-needs approval                the plan is a draft
-taken                         claimed, or work already pushed
-blocked by <wave>             an earlier wave has not landed
-```
+| the row says | live count | what a reader does |
+|---|---|---|
+| `start work` | ~5 | start it |
+| `waiting on approval` | 13 | approve the plan, or leave it |
+| `someone is on it` | 8 | nothing — and that is a real answer |
 
-**`blocked` survives unchanged** — it is already an act-shaped answer, and the
-`blockedBy` link makes it navigable. Only `eligible` is replaced, because it is
-the one verdict that reads as permission and is not.
+Every one of those is actionable or explicitly closes the question. `eligible`
+was neither.
 
-### The verdict does not go away — it stops being the row's status
+### `eligible` survives where it is true — in the SCAN
 
-`verdict` remains on the payload, remains the scan's answer, and remains what
-`--next` and the wave model consult. **This changes what a ROW SAYS, not what the
-system computes.** The wave keeps its verdict; the row stops borrowing it to
-answer a different question.
+**This changes the board's word, not the model's.** `plot-fleet-scan.sh` keeps
+`eligible` and keeps meaning *every prior wave landed*: it is a correct
+measurement about waves, other components read it, and the fleet's ordering
+depends on it.
 
-That distinction is the model's (`docs/board-domain-model.md`): a question is
-answered by the status of the entity it is about. *Can I start this branch* is a
-question about a **branch's availability**, not about a **wave's ordering**.
+What changes is that the **row** stops rendering a wave-ordering fact as though
+it were an instruction. The verdict is still on the wire; the row derives its
+own word from it plus the plan phase and the branch state.
 
-### `statusTone` follows, and it finally has something to colour
+**Derive it in the server, where the row is created.** `schema.ts`'s standing
+rule: *"a derivation is a guess with a rule attached"* — and the renderer does
+not hold the plan phase to join on.
 
-The tone rule is *colour what a reader acts on*. Today `eligible` takes the
-actionable tone — which paints twelve unapproved plans as ready to start.
+### The phase gate is the biggest single reason, and it must be named
 
-Under this change **`startable` takes it and means it.** `a-startable-wave-says-so`
-(Draft, in this sprint) proposed exactly that colouring; this plan is the reason
-it can be correct rather than misleading, and the two should land together or
-that plan should be folded here.
+Thirteen of twenty-six eligible rows belong to **Discovery/Draft** plans, where
+`plot-phase-gate.sh` refuses the commit. The row must not merely fail to offer a
+start — it must say the plan needs approving, because that is a thing the reader
+can go and do.
 
-### What NOT to do
+### Not chosen: keep `eligible` and add a note beside it
 
-**Do not remove `eligible` from the payload.** It is the wave's verdict, the
-scan's own vocabulary, and the basis of the ordering the whole fleet depends on.
-This is a rendering change.
-
-**Do not compute a fifth vocabulary.** The four answers above are derived from
-`phase`, `state` and `verdict` — all present. A new field would be a fifth place
-that knows how to answer, which is the defect class this release exists to remove.
+Considered and rejected 2026-08-23. The note would carry the actionable half
+while the reader still reads an unactionable word first, and the board would
+show two facts where one answer was wanted. The row's job is to answer *can I
+start this*.
 
 ### Open Questions
 
-- [ ] Does `taken` distinguish *claimed but nothing pushed* from *work in
-      progress*? They are different situations — a claim may be a dead worker —
-      and the board has `state: claimed` versus `wip` to tell them apart. Probably
-      yes, but it adds a fifth word.
-- [ ] Should the eight startable rows offer *Start work* and the seventeen others
-      not? The plan-head actions already gate on something similar; check
-      `an-approved-plan-offers-its-two-starts` before adding a second gate.
+- [ ] Does `someone is on it` need to distinguish **claimed** (a session took
+      the ref) from **wip** (commits pushed)? Both mean *not yours*, which is
+      the actionable content. Prefer one word unless a reader needs to chase the
+      claimant.
+- [ ] Should a row whose plan is Draft offer **Approve** directly, now that the
+      plan row carries plan-level actions? It would close the loop the count
+      exposes — 13 rows one click from startable — but it puts a lifecycle
+      decision on a branch row, which `a-plan-moves-through-the-sections`
+      deliberately moved to the plan head.
 
 ## Done when
 
@@ -213,3 +158,22 @@ verdict; *can I start this* is a question about a branch's availability.
 The fix is small because the board already has every input and already renders
 the right sentence in the note. What is wrong is which of the two goes in the
 slot that reads as a verdict.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "Does the defect still reproduce?", "a": "Yes and worse - re-measured 26 eligible / ~5 startable, against the draft's 25/8. 13 are Discovery plans the phase gate refuses, 8 are wip/claimed/merged", "category": "technical"},
+    {"q": "Is the wave-head note half still real?", "a": "No - groupedNote's false 'work landed' fallback was removed by #339 today and the string is absent from packages/board/src. Dropped from scope, recorded rather than deleted", "category": "technical"},
+    {"q": "Replace the word, or keep eligible and add a note?", "a": "REPLACE - a startability verdict. A note leaves the reader reading an unactionable word first. eligible survives in the SCAN, where it is a true measurement about waves", "category": "ux"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": true, "architecture": true, "implementation": true},
+    "domain": true,
+    "ux": {"happyPath": true, "edgeCases": true, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
