@@ -521,6 +521,57 @@ export function waveSummaryFor(group: PlanGroup, waves?: Wave[]): string {
 }
 
 /**
+ * How many of a PLAN's waves belong in a DIFFERENT section from this head's.
+ *
+ * A plan may legitimately span sections — a wave merged into DONE while a later
+ * one waits in NOT STARTED — and the board draws it one head per section, each
+ * heading only the waves that section holds. That is right, but until now the
+ * omission was SILENT: `waveSummaryFor` counts the waves in THIS section and says
+ * nothing of the rest, so the visible half of a three-wave plan reads
+ * indistinguishably from a plan that only ever had two. The reader cannot tell a
+ * split plan from a whole one, which is the exact confusion
+ * `a-split-plan-says-it-is-split` was filed for.
+ *
+ * READS THE SERVER-DERIVED WAVES, never re-derives them. `deriveWaves` already
+ * answered which ONE section each `(plan, wave)` belongs in — the whole point of
+ * `the-wave-is-a-thing-the-board-can-hold` — so this counts that answer rather
+ * than picking a predicate and disagreeing with it. Before that entity existed
+ * the numerator was undefined: a mixed wave was in two sections at once, so
+ * *"how many of my waves are not here"* had no single answer. It does now, which
+ * is why this branch waited on `a-wave-is-one-row`.
+ *
+ * JOINED ON `plan`, which is half a wave's identity — wave names repeat across
+ * plans, so a namesake wave of another plan must not count as this plan's.
+ *
+ * GUARDS THE ABSENT PAYLOAD. `fleet.waves` defaults to `[]` at parse time, but
+ * the board CASTS the payload rather than parsing it (`board as Board`), so a
+ * pre-wave pulse leaves `waves` `undefined` — the `FLEET_CONTROLS_DEFAULT` trap,
+ * shipped once already. A missing list is *nothing to report*, which is zero.
+ *
+ * Exported for test — the namesake and absent-payload cases are the two a naive
+ * `waves.length - here` gets wrong while looking right on a single split plan.
+ */
+export function wavesElsewhere(
+  waves: Wave[] | undefined, plan: string, section: WaitingGroup,
+): number {
+  if (!waves) return 0;
+  return waves.filter((w) => w.plan === plan && w.section !== section).length;
+}
+
+/**
+ * The fragment a plan head appends to its wave summary — *1 wave elsewhere* — or
+ * the empty string where nothing is elsewhere, so the caller renders nothing
+ * rather than a bare *0 elsewhere*.
+ *
+ * A sibling of `waveSummaryFor`'s own empty-string contract: the count belongs to
+ * the plan, and a count of zero is a fact the head has no reason to state.
+ */
+export function elsewhereNote(count: number): string {
+  if (count <= 0) return '';
+  return `${count} wave${count === 1 ? '' : 's'} elsewhere`;
+}
+
+/**
  * Does this plan row earn an expander?
  *
  * Only where opening it REVEALS something. A plan with one branch beneath it

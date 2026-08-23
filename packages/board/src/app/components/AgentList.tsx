@@ -70,7 +70,7 @@ import { TupleLinkView, TupleRowView } from './TupleRow.js';
 import { isCollapsible, readCollapsed, writeCollapsed } from '../lib/agent-rows/collapse.js';
 import { ACTIVITY_MARK_PLACE, ActivityEcho, type ActivityPace, ChangeMarks, type WatchedState, activeRowKeys, activityPace, changedRows, groupPace } from '../lib/agent-rows/activity.js';
 import { offersChangedFiles, soleRowStatus, stuckEvidence, stuckWord } from '../lib/agent-rows/stuck.js';
-import { GROUPS, type PlanGroup, groupByPlan, planWaitingDays, rowsBySection, showPlanHeading, showsWaveFold, sortByWaiting, ungroupedRows, waveGroupsFor, waveKeyOf, waveSummaryFor } from '../lib/agent-rows/sections.js';
+import { GROUPS, type PlanGroup, elsewhereNote, groupByPlan, planWaitingDays, rowsBySection, showPlanHeading, showsWaveFold, sortByWaiting, ungroupedRows, waveGroupsFor, wavesElsewhere, waveKeyOf, waveSummaryFor } from '../lib/agent-rows/sections.js';
 import { changedFilesLabel, repairWord, shrinkNote } from '../lib/agent-rows/actions.js';
 import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, inMachineSection, issueNote, machineNote, noteWithoutPr, prNote } from '../lib/agent-rows/host-notes.js';
 import { briefGapNote, isStartable, isUnbegun, needsBrief, rowKey, waitingTone } from '../lib/agent-rows/row-identity.js';
@@ -1833,6 +1833,7 @@ function PlanRow({
   deliver,
   onApproving,
   ageMinutes,
+  elsewhere = 0,
   soleWave,
 }: {
   group: PlanGroup;
@@ -1844,6 +1845,14 @@ function PlanRow({
    */
   waves?: Wave[];
   onOpenPlan?: AgentListProps['onOpenPlan'];
+  /**
+   * How many of this plan's waves belong in ANOTHER section — from
+   * `wavesElsewhere`, computed at the call site where the server's `fleet.waves`
+   * and this head's section are both in scope. The head states the number so a
+   * plan split across sections is legible as split; zero appends nothing. See
+   * `elsewhereNote`.
+   */
+  elsewhere?: number;
   /**
    * The plan's clock in minutes, where the APPROVAL clock is not the one running.
    *
@@ -1897,7 +1906,15 @@ function PlanRow({
   soleWave?: Wave | null;
 }) {
   const waiting = planWaitingDays(group);
-  const summary = waveSummaryFor(group, waves);
+  // THE SECTION'S OWN WAVES, then how many are ELSEWHERE. `waveSummaryFor` counts
+  // what this section holds — from the server's `waves` where the payload
+  // carries them — and is silent about the rest; `elsewhere` names the rest so a
+  // plan split across sections reads as split rather than as a whole plan two
+  // waves short. Joined with a middot when both speak; either alone stands on
+  // its own, and both empty renders nothing (the aside guards on it).
+  const here = waveSummaryFor(group, waves);
+  const away = elsewhereNote(elsewhere);
+  const summary = [here, away].filter(Boolean).join(' · ');
   const foldable = expanded !== null;
   // THE PHASE IS THE PLAN'S, and slot 5 is where a fact about the plan is true.
   // Read from the group's rows rather than from a plan field, because a row is
@@ -2087,16 +2104,19 @@ function PlanRow({
         </span>
       ) : null}
       aside={
-        // THE WAVE SUMMARY — *3 waves, first eligible*. It answers *which slice
-        // of this plan* in the plan's own terms, which are the only terms this
-        // row has: the branches it would otherwise name do not exist yet. In
-        // slot 4 beside the branch link for the same reason a branch row's wave
-        // badge is there — it qualifies the item rather than pointing anywhere.
+        // THE WAVE SUMMARY — *3 waves, first eligible*, then *· 1 wave
+        // elsewhere*. It answers *which slice of this plan* in the plan's own
+        // terms, which are the only terms this row has: the branches it would
+        // otherwise name do not exist yet. In slot 4 beside the branch link for
+        // the same reason a branch row's wave badge is there — it qualifies the
+        // item rather than pointing anywhere. The `elsewhere` clause makes the
+        // section-scoping legible: a plan split across sections says how many of
+        // its waves this head does NOT speak for.
         summary ? (
           <span
             data-wave-summary
             className="truncate text-slate-500 dark:text-slate-400"
-            title="Waves of this plan that nothing has started — counted in this section"
+            title="Waves of this plan in this section — and how many sit in another"
           >
             {summary}
           </span>
@@ -4756,6 +4776,12 @@ export function AgentList({
                           commission={commission}
                           deliver={deliver}
                           onApproving={onStarting}
+                          // HOW MANY OF THIS PLAN'S WAVES ARE IN ANOTHER SECTION.
+                          // Read from the server's `fleet.waves`, keyed on the
+                          // section this head renders in (`key`), so a plan whose
+                          // first wave already merged into DONE says as much here
+                          // rather than reading two-wave when it is three.
+                          elsewhere={wavesElsewhere(fleet.waves, group.plan, key)}
                           // A ONE-WAVE plan shows its wave's verdict on this row
                           // instead of nesting a wave row beneath it.
                           soleWave={soleWaveFor(group.plan, waves)}
@@ -5082,6 +5108,12 @@ export function AgentList({
                         commission={commission}
                         deliver={deliver}
                         onApproving={onStarting}
+                        // HOW MANY OF THIS PLAN'S WAVES ARE ELSEWHERE — the same
+                        // count the NOT STARTED head carries, keyed on THIS
+                        // section (`key`). A DONE head whose plan also has an
+                        // unstarted wave says so here rather than reading as a
+                        // plan wholly done.
+                        elsewhere={wavesElsewhere(fleet.waves, group.plan, key)}
                         // A ONE-WAVE plan shows its wave's verdict on this row
                         // instead of nesting a wave row beneath it.
                         soleWave={soleWaveFor(group.plan, waves)}
