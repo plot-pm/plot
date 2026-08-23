@@ -1,0 +1,8 @@
+- generic [ref=f5e3]:
+  - banner [ref=f5e4]:
+    - heading "Plot" [level=1] [ref=f5e5]
+    - navigation "Views" [ref=f5e6]:
+      - button "Board" [ref=f5e7]
+      - button "Agents" [ref=f5e8]
+  - main [ref=f5e9]:
+    - paragraph [ref=f5e10]: Loading…
