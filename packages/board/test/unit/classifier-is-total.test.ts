@@ -40,7 +40,7 @@ import type { AgentRow, BranchState, FleetPulse, WaitingGroup, WaveVerdict, Work
 // released plan is `done` — and the Released half of `DONE ⇒ Development or
 // Testing` is re-asserted against `rowsFromPulse`, which is the layer that
 // drops it. `done-holds-finished-plans-only` is the commit that earns it.
-import { waveSection } from '../../src/app/components/AgentList.js';
+import { waveSection } from '../../src/app/lib/agent-rows/sections.js';
 
 /**
  * A PR row as `classify` reads it — it consults `checks` and `mergeable`, never

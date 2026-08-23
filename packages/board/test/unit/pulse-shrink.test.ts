@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { pulseShrink } from '../../src/server/fleet.js';
-import { shrinkNote } from '../../src/app/components/AgentList.js';
+import { shrinkNote } from '../../src/app/lib/agent-rows/actions.js';
 import { FleetSchema, type FleetPulse } from '../../src/contract/schema.js';
 
 // The defect, measured 2026-08-18: rows vanished from the Agents tab and came
