@@ -234,7 +234,7 @@ first* at 13 characters, and the offender is 53.
      on `bug/a-wave-is-one-row` in a wave Plot enforces.
 
      The branch below stayed: the parser check is independent of any of it. -->
-- `feature/the-sweep-names-a-prose-wave` — `plot-plan-meta.sh` reports an over-long wave name and the reconcile sweep surfaces it, without failing the parse
+- `feature/the-sweep-names-a-prose-wave` — `plot-plan-meta.sh` reports an over-long wave name and the reconcile sweep surfaces it, without failing the parse → #358
 
 ## Notes
 

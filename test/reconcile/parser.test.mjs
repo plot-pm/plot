@@ -149,6 +149,31 @@ test('plan-meta: waves group branches by ### subheading, deferred flagged', () =
   ]);
 });
 
+test('plan-meta: a wave name past the threshold is reported in long_wave_names', () => {
+  // A wave name is a label; a 53-character sentence is a plan-authoring mistake
+  // the board can only render badly. The parser REPORTS it in a top-level
+  // `long_wave_names` array — a REPORT, never a refusal: the waves[] array is
+  // unchanged and the plan still parses. The threshold is a judgement: the
+  // longest legitimate name here (`Offered first`, 13 chars) stays silent, the
+  // offender (53 chars) is named.
+  const actual = parse('canonical-prose-wave-name.md');
+  assert.deepEqual(actual.long_wave_names,
+    ['Moved — recorded here so the plan states what it started']);
+  // The report does not fail the parse: all three waves still come through,
+  // names intact — nothing was shortened, nothing was dropped.
+  assert.deepEqual(actual.waves.map((w) => w.name),
+    ['Shaped', 'Moved — recorded here so the plan states what it started', 'Offered first']);
+});
+
+test('plan-meta: a plan whose wave names are all labels reports an empty long_wave_names', () => {
+  // Empty is the field a consumer reads to know there is nothing to fix — the
+  // field is ALWAYS present (an array), never omitted, so `.long_wave_names`
+  // never reads as undefined. canonical-waves.md carries `Tracer`,
+  // `Implementation`, `Wave 3` — all short.
+  const actual = parse('canonical-waves.md');
+  assert.deepEqual(actual.long_wave_names, []);
+});
+
 test('plan-meta: a plan without ### subheadings is a single unnamed wave', () => {
   // Backwards compatibility: every pre-wave plan behaves as one wave, all
   // branches eligible at once — exactly today's semantics.

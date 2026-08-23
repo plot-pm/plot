@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { repairWord, offersAction } from '../../src/app/components/AgentList.js';
+import {
+  describe,
+  it,
+  expect } from 'vitest';
+import { offersAction, repairWord } from '../../src/app/lib/agent-rows/actions.js';
 import {
   RepairSchema, StuckStateSchema, type Repair, type StuckState,
 } from '../../src/contract/schema.js';
