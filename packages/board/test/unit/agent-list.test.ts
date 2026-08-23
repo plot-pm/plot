@@ -128,56 +128,63 @@ describe('groupByPlan', () => {
   });
 });
 
-describe('waveSection — a wave has ONE section, chosen by its verdict not a branch', () => {
-  // A wave's rows, described the way the estate describes `Inverted`: same plan,
-  // same wave name, one merged branch and one open branch, the verdict held
-  // constant (every branch of a wave carries the same one).
+describe('waveSection — resolves the Inverted split, gated on the verdict', () => {
+  // A wave's rows: same plan, same wave name, branches described by their state,
+  // per-branch group (what `classify` gave each), and the wave verdict every
+  // branch shares.
   const waveRows = (
     branches: { state: AgentRow['state']; group: AgentRow['group'] }[],
-    verdict: AgentRow['verdict'],
+    verdict: AgentRow['verdict'] = 'eligible',
   ): AgentRow[] => branches.map((b, i) => row({
-    plan: 'p', wave: 'W', branch: `feature/b${i}`, verdict, state: b.state, group: b.group,
+    plan: 'p', wave: 'W', branch: `feature/b${i}`, state: b.state, group: b.group, verdict,
   }));
 
-  it('sends a COMPLETE wave to its merged branch\'s section — DONE', () => {
-    // Every branch merged, verdict complete: the wave is finished and belongs
-    // where its merged work sits. It takes the merged branch\'s group rather
-    // than asserting `done`, so a phase-adjusted placement survives untouched.
-    const rows = waveRows(
+  it('sends the merged branch to where the unfinished work is — the Inverted split', () => {
+    // Verdict eligible (not finished), one merged (→ done), one open (→
+    // not-started). A wave with unmerged work is where its unfinished work is, so
+    // the merged branch joins NOT STARTED — never the reverse.
+    expect(waveSection(waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'open', group: 'not-started' }],
+    ))).toBe('not-started');
+  });
+
+  it('reads the unfinished branch\'s own section — quiet where that is where it sits', () => {
+    expect(waveSection(waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'wip', group: 'quiet' }],
+      'blocked',
+    ))).toBe('quiet');
+  });
+
+  it('returns null when the wave carries NO verdict — nothing to aggregate on', () => {
+    // A pre-verdict pulse, or a synthetic row: the scan said nothing, so a merged
+    // branch beside an open one is not proof of an Inverted split. Don't guess.
+    expect(waveSection(waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'open', group: 'not-started' }],
+      null,
+    ))).toBeNull();
+  });
+
+  it('returns null for a COMPLETE wave — every branch merged, no split', () => {
+    expect(waveSection(waveRows(
       [{ state: 'merged', group: 'done' }, { state: 'merged', group: 'done' }],
       'complete',
-    );
-    expect(waveSection(rows)).toBe('done');
+    ))).toBeNull();
   });
 
-  it('sends an ELIGIBLE wave to where its UNFINISHED work is — never the merged branch', () => {
-    // `Inverted` in miniature: one merged (→ done), one open (→ not-started),
-    // verdict eligible. A wave with unmerged work is not done, so it goes to
-    // NOT STARTED — and it must NOT read the merged branch\'s `done`.
-    const rows = waveRows(
-      [{ state: 'merged', group: 'done' }, { state: 'open', group: 'not-started' }],
-      'eligible',
-    );
-    expect(waveSection(rows)).toBe('not-started');
+  it('returns null for an all-unmerged wave spanning process sections — a build stays put', () => {
+    // The Modelled shape: a PR in review and a build on the machine, both wip, no
+    // merged branch. Not a placement defect; collapsing them would move the build
+    // off WAITING ON A MACHINE, which is where the board means to show it.
+    expect(waveSection(waveRows([
+      { state: 'wip', group: 'waiting-on-you' },
+      { state: 'wip', group: 'waiting-on-machine' },
+    ]))).toBeNull();
   });
 
-  it('sends a BLOCKED wave to where its unfinished work waits', () => {
-    const rows = waveRows(
-      [{ state: 'open', group: 'not-started' }, { state: 'wip', group: 'quiet' }],
-      'blocked',
-    );
-    // The first unmerged branch\'s section — the wave\'s outstanding work.
-    expect(waveSection(rows)).toBe('not-started');
-  });
-
-  it('keeps a verdict-less wave on its rows\' own group — nothing to aggregate on', () => {
-    // A pre-verdict pulse carries no wave verdict; inventing a section here
-    // would be the guess this function exists to remove.
-    const rows = waveRows(
-      [{ state: 'merged', group: 'done' }, { state: 'merged', group: 'done' }],
-      null,
-    );
-    expect(waveSection(rows)).toBe('done');
+  it('does not treat {merged, deferred} as a split — a deferred branch is exempt', () => {
+    expect(waveSection(waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'deferred', group: 'not-started' }],
+    ))).toBeNull();
   });
 });
 
@@ -209,14 +216,17 @@ describe('rowsBySection — Inverted stops splitting across two sections', () =>
   });
 
   it('does not merge two DIFFERENT plans that share a wave name', () => {
+    // p1 is a genuine split (merged + open) → its merged branch joins NOT
+    // STARTED. p2 is all-merged (no split) → untouched. The shared wave name
+    // must not fuse them: keying on (plan, wave) keeps them apart.
     const rows = [
-      row({ plan: 'p1', wave: 'Shaped', branch: 'feature/a', state: 'open', group: 'not-started', verdict: 'eligible' }),
-      row({ plan: 'p2', wave: 'Shaped', branch: 'feature/b', state: 'merged', group: 'done', verdict: 'complete' }),
+      row({ plan: 'p1', wave: 'Shaped', branch: 'feature/a', state: 'merged', group: 'done', verdict: 'eligible' }),
+      row({ plan: 'p1', wave: 'Shaped', branch: 'feature/b', state: 'open', group: 'not-started', verdict: 'eligible' }),
+      row({ plan: 'p2', wave: 'Shaped', branch: 'feature/c', state: 'merged', group: 'done', verdict: 'complete' }),
     ];
     const out = rowsBySection(rows);
-    // p1's wave is eligible → not-started; p2's is complete → done. The shared
-    // name must not fuse them.
-    expect(out.find((r) => r.plan === 'p1')?.group).toBe('not-started');
+    expect(out.filter((r) => r.plan === 'p1').map((r) => r.group))
+      .toEqual(['not-started', 'not-started']);
     expect(out.find((r) => r.plan === 'p2')?.group).toBe('done');
   });
 
