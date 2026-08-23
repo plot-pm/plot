@@ -283,7 +283,7 @@ delays the collision; it does not remove it.
      must agree with it. Splitting the instruction from the classifier would
      leave a window where workers are told one thing and measured by another. -->
 
-- `bug/a-marker-is-a-file-not-a-mention` — `plot_worker_blocked` looks for a `PLOT-BLOCKED*` file rather than grepping every file's contents, and `worker-question.ts` reads that file instead of re-grepping with its own copy of the pattern; `TODO(you|human)` is dropped, the shared constant is deleted from both, and the `Worker command` names the file it asks for
+- `bug/a-marker-is-a-file-not-a-mention` — `plot_worker_blocked` looks for a `PLOT-BLOCKED*` file rather than grepping every file's contents, and `worker-question.ts` reads that file instead of re-grepping with its own copy of the pattern; `TODO(you|human)` is dropped, the shared constant is deleted from both, and the `Worker command` names the file it asks for → #342
 
 ## Notes
 
