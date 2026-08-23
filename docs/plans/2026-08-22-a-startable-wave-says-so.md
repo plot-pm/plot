@@ -14,6 +14,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-23, Jan Wloka, in-session
+- **Started:** 2026-08-23, Jan Wloka, `bug/an-eligible-wave-takes-the-actionable-tone`
 
 ## Approval
 
