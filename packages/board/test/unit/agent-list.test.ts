@@ -5,7 +5,6 @@ import {
 import { readFileSync } from 'node:fs';
 import {
   UNNAMED_WAVE,
-  isCollapsible,
   noActionReason,
   menuState,
   openTarget,
@@ -14,12 +13,9 @@ import {
   runLinkLabel,
   storyRefusal,
   splitBranch,
-  readCollapsed,
-  writeCollapsed,
-  COLLAPSED_BY_DEFAULT,
-  CARD_BELOW_PX,
   isUnpushed,
 } from '../../src/app/components/AgentList.js';
+import { CARD_BELOW_PX, COLLAPSED_BY_DEFAULT, isCollapsible, readCollapsed, writeCollapsed } from '../../src/app/lib/agent-rows/collapse.js';
 import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_MARK_MS, ChangeMarks, LOCK_ECHO_MS, activeRowKeys, activityPace, changedRows, groupPace, isUnreadable, sameWatched, type WatchedState, watchedState } from '../../src/app/lib/agent-rows/activity.js';
 import { isActive, isLive, soleRowStatus } from '../../src/app/lib/agent-rows/stuck.js';
 import { GROUPS, groupByPlan, rowsBySection, showPlanHeading, type PlanGroup, waveKeyOf, waveSection } from '../../src/app/lib/agent-rows/sections.js';
