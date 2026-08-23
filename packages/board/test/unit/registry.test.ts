@@ -268,18 +268,21 @@ describe('the state — pulse-refreshed liveness, landing on the entry', () => {
     assert.equal(got.find((e) => e.session === 's')?.state, 'stalled');
   });
 
-  it('reports `unknown` for an older manifest with no pid, and never asks the shell about it', () => {
-    // Absent is not a guess. A no-pid entry cannot be checked, so its state is
-    // `unknown` — and it must not even reach the liveness resolver, since there
-    // is nothing to ask about.
+  it('CLASSIFIES an older manifest with no pid but a live worktree — the pid never gated the answer', () => {
+    // Fix B. `plot-worker-state.sh` reads liveness from the WORKTREE — it is
+    // handed the worktree path and reads `$wt/.plot-worker.pid` for itself — so
+    // the manifest pid was never an input to the answer, only a ticket to be
+    // asked the question. Gating on it skipped nine entries here that name a
+    // worktree that exists and would have classified correctly. The entry must
+    // now reach the resolver and take its answer.
     let asked: string[] = [];
     manifest('a.json', { session: 'old', worktree: '/wt/old',
       startedAt: '2026-08-20T10:00:00Z' });
     const [e] = readAgentRegistry(root, home, {
       liveness: (wts) => { asked = wts; return wts.map(() => 'running'); },
     });
-    assert.equal(e.state, 'unknown');
-    assert.deepEqual(asked, [], 'a pid-less entry is never asked about');
+    assert.equal(e.state, 'running', 'a pid-less entry with a worktree is classified');
+    assert.deepEqual(asked, ['/wt/old'], 'and it IS asked about — the worktree is the only input');
   });
 
   it('reports `unknown` for an entry with a pid but no worktree to look in', () => {

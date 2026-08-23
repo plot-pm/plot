@@ -9,7 +9,12 @@ import { transcriptDir, transcriptFile, readTranscriptFacts } from './transcript
  * per pulse, read by three consumers (the concurrency cap, WORKING's rows, the
  * stale-manifest problem).
  *
- * - `running` — the pid answers `kill -0`; the agent is on the machine now.
+ * - `running` — the worktree's own `.plot-worker.pid` answers `kill -0`; the
+ *   agent is on the machine now. Liveness is read from the WORKTREE by
+ *   `plot-worker-state.sh`, never from the manifest pid — `bashLiveness` hands the
+ *   resolver a worktree path and the shell reads `$wt/.plot-worker.pid` for
+ *   itself. The manifest pid is a display fact a reader can go check, not an
+ *   input to this answer.
  * - `finished` — the pid is gone and the tree shows the work reached review or
  *   nothing was left behind. The stale-manifest cure: an entry corrects itself
  *   here on the next pulse rather than persisting.
@@ -83,6 +88,13 @@ export interface AgentEntry {
    */
   pid: string;
   /**
+   * The pid this run displaced when it relaunched in place, or `''` on a first
+   * dispatch. Written by the launch stamp — see `manifest-stamp.ts`.
+   */
+  previousPid: string;
+  /** How many times this worktree's worker has been relaunched — 0 on a first dispatch. */
+  relaunches: number;
+  /**
    * Whether this agent is still running — the fact the registry exists to
    * answer, refreshed on every pulse from {@link AgentState}. `unknown` where it
    * could not be decided; never a guess.
@@ -128,6 +140,12 @@ export function parseManifest(json: string): AgentEntry | null {
     command: typeof o.command === 'string' ? o.command : '',
     startedAt: typeof o.startedAt === 'string' ? o.startedAt : '',
     pid: readPid(o.pid),
+    // A relaunch stamp records both; a first dispatch records neither, so an
+    // older or unrelaunched manifest defaults to "displaced nothing, never
+    // restarted". `previousPid` is read leniently (any string), because unlike
+    // `pid` it is a display fact only — nothing checks liveness against it.
+    previousPid: typeof o.previousPid === 'string' ? o.previousPid : '',
+    relaunches: typeof o.relaunches === 'number' && o.relaunches >= 0 ? o.relaunches : 0,
     // A launch fact carries no liveness. State is decided per pulse in
     // `readAgentRegistry`; a manifest never asserts it, so it starts `unknown`.
     state: 'unknown',
@@ -245,10 +263,13 @@ export function readAgentRegistry(
 /**
  * Refresh each entry's {@link AgentEntry.state} from liveness, in place.
  *
- * Only entries with BOTH a pid and a worktree are checkable — a pid says there
- * was a process, a worktree says where to look for what it left behind. The rest
- * stay `unknown`, and are never handed to the resolver: there is nothing to ask
- * about, and asking would let a resolver's guess become a state.
+ * An entry is checkable when it names a WORKTREE — that is the only input the
+ * resolver takes. `plot-worker-state.sh` is handed the worktree path and reads
+ * `$wt/.plot-worker.pid` for itself; the manifest pid is never consulted, so
+ * gating on it asked for a ticket the questioner does not read and skipped nine
+ * entries here whose worktree existed and would have answered correctly. An entry
+ * with no worktree stays `unknown` and is never handed to the resolver — there is
+ * nothing to look in, and asking would let a guess become a state.
  *
  * ONE batch call for all checkable entries, so the default resolver forks bash
  * once per pulse rather than once per agent. A resolver that throws, or returns
@@ -256,7 +277,7 @@ export function readAgentRegistry(
  * list its agents even when it cannot classify them.
  */
 function refreshStates(entries: AgentEntry[], liveness: LivenessResolver): void {
-  const checkable = entries.filter((e) => e.pid !== '' && e.worktree !== '');
+  const checkable = entries.filter((e) => e.worktree !== '');
   if (checkable.length === 0) return;
   let answers: string[];
   try {

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 
 /**
  * The launch stamp — ONE contract, and this is one of its two implementations.
@@ -129,6 +130,50 @@ export function stampManifest(text: string, stamp: Stamp): string {
     `  "relaunches": ${relaunches},`,
   );
   return filtered.join('\n') + eol;
+}
+
+/** Where the dispatcher writes manifests, relative to the repo root. */
+const AGENT_MANIFEST_DIR = '.plot/agents';
+
+/**
+ * The manifest file that names this worktree, or `''` when none does.
+ *
+ * `/api/continue` knows the WORKTREE it is relaunching in but not the session id
+ * the manifest is named for, so the file is found by matching the `worktree`
+ * field rather than by rebuilding a path. The dispatcher records the RESOLVED
+ * worktree path (`realpathSync`), while a pulse may hand back either form, so the
+ * match is tried against both the path as given and its realpath.
+ *
+ * `''` on any failure — no agents directory, an unreadable file — because a
+ * missing manifest is not an error: the worker runs regardless and the stamp is
+ * a best-effort display fact. The caller treats `''` as *nothing to stamp*.
+ */
+export function manifestForWorktree(repoRoot: string, worktree: string): string {
+  if (!worktree) return '';
+  const dir = path.join(repoRoot, AGENT_MANIFEST_DIR);
+  let real = worktree;
+  try {
+    real = fs.realpathSync(worktree);
+  } catch {
+    /* the worktree may be gone; match on the given path alone */
+  }
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return '';
+  }
+  for (const name of names) {
+    if (!name.endsWith('.json')) continue;
+    const full = path.join(dir, name);
+    try {
+      const wt = JSON.parse(fs.readFileSync(full, 'utf8'))?.worktree;
+      if (typeof wt === 'string' && (wt === worktree || wt === real)) return full;
+    } catch {
+      continue; // Not a manifest this reader recognises; skip it.
+    }
+  }
+  return '';
 }
 
 /**
