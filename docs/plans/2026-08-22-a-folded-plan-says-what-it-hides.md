@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
@@ -14,6 +14,7 @@
 - **Started:** 2026-08-22, Jan Wloka, `feature/a-folded-plan-says-what-it-hides`
 - **Started:** 2026-08-22, Jan Wloka, `feature/a-folded-plan-says-what-it-hides`
 - **Delivered:** 2026-08-22, jwloka, PRs #319
+- **Released:** 2026-08-23, v2.8.0
 
 ## Changelog
 

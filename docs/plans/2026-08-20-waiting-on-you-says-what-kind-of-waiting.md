@@ -8,7 +8,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Story:** plot-board
 - **Sprint:**
@@ -23,6 +23,7 @@
 - **Started:** 2026-08-20, Jan Wloka, `bug/a-failure-is-shown-not-dumped`
 - **Started:** 2026-08-20, Jan Wloka, `bug/plans-of-equal-age-order-by-name`
 - **Delivered:** 2026-08-22, jwloka, PRs #280, #287, #288
+- **Released:** 2026-08-22, v2.7.0
 
 ## Problem
 
