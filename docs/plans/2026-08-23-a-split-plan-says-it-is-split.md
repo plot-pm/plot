@@ -69,17 +69,40 @@ sentence runs under the status and age cells beside it.
 
 ## Design
 
-### Say the plan is split, on both heads
+### Say how many waves are elsewhere — and show none of them
 
-Where a plan renders in more than one section, each head states it — in the
-section's own terms, since that is what the reader is looking at:
+A plan head in a section states the count of its waves that are **not** here,
+and renders only the waves that belong to this section:
 
 ```
-▶ PLAN  waiting-on-you-says-what-kind-of-waiting  5 of 6 waves · 1 in WORKING
+▶ PLAN  waves-name-themselves  (2)  1 wave elsewhere       Development
+        WAVE  Parsed   #321  infra/the-parser-reads-a-wave-heading  complete
+        WAVE  Written  #330  infra/the-template-writes-waves        complete
 ```
 
-The other head carries the mirror. Both are true statements about the same plan,
-and neither pretends to be the whole of it.
+The live shape, measured 2026-08-23: three waves — `Parsed` and `Written`
+complete in DONE, `Migrated` eligible in NOT STARTED. The head shows `(2)`,
+which is honest about the section and silent about the plan, so a reader sees
+two complete waves and nothing saying a third exists.
+
+**A count, not a destination.** `1 wave elsewhere` rather than `1 in NOT
+STARTED`: the number is what tells a reader whether this head is the whole plan,
+which is the question. Naming the section costs width the row does not have (see
+`the-name-track-holds-the-name`) and invites the reader to go somewhere the row
+they want is already waiting for them under its own plan head.
+
+**And the elsewhere waves are NOT rendered here.** A wave belongs to the section
+its state describes, once. Showing an in-progress wave under DONE is what put
+`merged — wave still open` beneath a heading that says done — the defect
+`done-holds-what-is-still-yours` fixes. This must not reintroduce it in the name
+of completeness.
+
+> This replaces an earlier proposal in this plan to mark both heads with the
+> other's section name. The operator's form is better and the reason is worth
+> keeping: a count answers *is this all of it*, which is what a reader of a
+> section head is asking, while a destination answers *where is the rest*, which
+> they can get by scrolling. Two heads each naming the other also reads as one
+> thing split in half; a count reads as a whole with a part elsewhere.
 
 **Why not merge the plan into one section instead:** because the sections are
 the board's primary organisation and they are right — a wave being worked and a
@@ -115,20 +138,26 @@ first* at 13 characters, and the offender is 53.
 
 ### Open Questions
 
-- [ ] Should the split marker name the other section (`1 in WORKING`) or only
-      state that there is one (`part of this plan is elsewhere`)? Naming it is
-      more useful and costs width the row does not have; decide against the
-      row's real geometry, not in the abstract.
+- [x] Should the split marker name the other section, or only count? **Count** —
+      settled by the operator 2026-08-23: *"tell me how many WAVES are missing
+      as a number, but don't show the still-in-progress waves here."*
 - [ ] Does the fold interact? A split plan folded in one section and open in
       another is two different states for one plan, which may be fine or may
       read as inconsistent.
 
 ## Done when
 
-- A plan with waves in two sections renders a marker on **both** heads saying so.
-  Asserted with a pulse that puts two waves of one plan in different sections —
-  the assertion must fail if only one head is marked, since marking the "source"
-  head alone is the tempting half-fix.
+- A plan head whose plan has waves in other sections states **how many** — the
+  live shape is `waves-name-themselves`, 3 waves with 1 elsewhere, so the head in
+  DONE reads `1 wave elsewhere`. Asserted on rendered text.
+- The head renders **only** this section's waves. Asserted as absence: the
+  elsewhere wave must not appear under this head, since rendering it is the
+  defect `done-holds-what-is-still-yours` removes and "show everything" is the
+  tempting reading of *say it is split*.
+- Every head of a split plan carries the count, not just one — a reader arriving
+  at either section gets the same answer.
+- Singular and plural both read correctly (`1 wave elsewhere`, `2 waves
+  elsewhere`).
 - A plan wholly inside one section gains **no** marker. Otherwise the marker
   means nothing.
 - A wave named with 53 characters clips inside its cell and paints over no
@@ -148,7 +177,7 @@ first* at 13 characters, and the offender is 53.
 
 ### Stated
 
-- `feature/a-split-plan-says-so` — both heads of a plan spread across sections say the plan continues elsewhere
+- `feature/a-split-plan-counts-what-is-elsewhere` — each head of a plan spread across sections states how many of its waves are not in this section, and renders none of them
 - `feature/the-sweep-names-a-prose-wave` — `plot-plan-meta.sh` reports an over-long wave name and the reconcile sweep surfaces it, without failing the parse
 
 ## Notes
