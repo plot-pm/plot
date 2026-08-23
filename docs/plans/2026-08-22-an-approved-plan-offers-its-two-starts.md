@@ -196,7 +196,7 @@ spawn cannot report its result in the response.
   does; the log path is per-plan and readable back; **the skill's unattended
   shape is declared and carries a `PLOT-UNASKED` line**, which
   `test/reconcile/unattended.test.mjs` already checks for every skill that
-  declares one.
+  declares one. → #371
 
 ## Notes
 

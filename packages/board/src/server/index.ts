@@ -26,6 +26,7 @@ import { handleIdea, ideaAvailability, ideaStatus } from './idea.js';
 import { commissionAvailability, commissionStatus, handleCommission } from './commission.js';
 import { handleReslice, resliceAvailability, resliceStatus } from './reslice.js';
 import { handleDeliver, deliverAvailability, deliverStatus } from './deliver.js';
+import { handleImplement, implementAvailability, implementStatus } from './implement.js';
 // Inlined at build time by esbuild's text loader — the artifact is a single
 // self-contained file, served from memory (no filesystem static serving, so no
 // path-traversal surface).
@@ -187,6 +188,21 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     // and moves the plan. This is the standing rule for board writes: reuse the
     // agent-spawn shape for a lifecycle act rather than inventing the transition.
     { path: '/api/deliver', verb: 'delivering a plan', handle: handleDeliver },
+    // POST /api/implement — an approved plan is prepared for implementation.
+    //
+    // The same class of route as /api/deliver, and the same binding: it spawns a
+    // plot agent (`/plot-implement`) on this disk. It is SLUG-scoped — it acts on
+    // the plan the approved row names — and it is the entrance a person walks:
+    // the staleness preflight, the branch, the hand-off brief, the `Started:`
+    // record, prepared for ONE wave rather than fanned out. Dispatch (above, via
+    // /api/dispatch) is the other start; the board offers both on the plan row
+    // because which one applies is the operator's call, not the server's.
+    //
+    // Added here because the router dispatches from a TABLE and the loopback gate
+    // is inherited by construction — see write-gate.ts and the note in
+    // implement.ts for why one surviving per-handler copy would let the named
+    // opt-in mean different things on different routes.
+    { path: '/api/implement', verb: 'implementing a plan', handle: handleImplement },
     // POST /api/claim — reserve one branch of a plan, and return what resulted.
     //
     // Wraps `plot-dispatch.sh --no-start`, which already claims by pushing a ref
@@ -312,6 +328,14 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         // card's `deliverable` bit by the row — the binding says whether this
         // BOARD can act, the card says whether the PLAN is complete enough to.
         deliver: deliverAvailability(HOST),
+        // An EIGHTH flag, and the SAME binding as `idea`, `commission`,
+        // `reslice` and `deliver` today — implementing spawns the same class of
+        // plot agent. It stays a field of its own for the reason every flag
+        // above it does: one flag for two capabilities is how they diverge when
+        // a later change makes only one of them local. Read together with a
+        // card's `hasEligibleWork` by the row — the binding says whether this
+        // BOARD can act, the card says whether the plan has work to start.
+        implement: implementAvailability(HOST),
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(board));
@@ -571,6 +595,22 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     res.end(
       SLUG_RE.test(slug)
         ? JSON.stringify(deliverStatus(opts, slug))
+        : JSON.stringify({ error: 'slug must be a plan slug' }),
+    );
+    return;
+  }
+
+  // What happened to an implement somebody asked for — the same read-it-back
+  // shape `/api/deliver/<slug>` has, slug-keyed. `/plot-implement` moves no
+  // card (it prepares work rather than changing a plan's phase), so the button
+  // has nothing to watch move and reads this for the command's own words —
+  // whether it stopped on drift, or prepared a wave.
+  if (url.pathname.startsWith('/api/implement/')) {
+    const slug = url.pathname.slice('/api/implement/'.length);
+    res.writeHead(SLUG_RE.test(slug) ? 200 : 400, { 'Content-Type': 'application/json' });
+    res.end(
+      SLUG_RE.test(slug)
+        ? JSON.stringify(implementStatus(opts, slug))
         : JSON.stringify({ error: 'slug must be a plan slug' }),
     );
     return;

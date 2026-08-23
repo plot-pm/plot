@@ -89,6 +89,13 @@ Verdict, per the guidance principle (name the signal, advise):
   back to `/plot-idea`. The user decides; record material amendments in
   the plan before starting.
 
+> **Unattended (`PLOT_UNATTENDED=1`):** on drift, stop and report — do not
+> pick one of the three options and proceed. Which re-validation the drift
+> needs is a verdict, not a default, and there is nobody here to give it.
+> Name what moved so a person can act on it, then leave the plan and the
+> worktree untouched.
+> `PLOT-UNASKED: How should this plan's drift be handled? — stopped — drift reported; no branch created and no amendment written`
+
 > **Smaller models:** gather the mechanical signals (age, commit list on
 > touched paths), present them, and ask the user for the verdict.
 
