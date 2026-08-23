@@ -10,12 +10,24 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-23, Jan Wloka, in-session
 - **Assignee:** jwloka
+- **Started:** 2026-08-23, Jan Wloka, `bug/the-wave-leaves-the-kind-alone`
+- **Started:** 2026-08-23, Jan Wloka, `bug/the-wave-leaves-the-kind-alone`
+- **Started:** 2026-08-23, Jan Wloka, `bug/a-release-is-its-version`
+
+## Approval
+
+- **Assignee:** Jan Wloka
+
+## Changelog
+
+- `PLOT_BOARD_MOCK` renders one row of every kind, so the board's rendering can be exercised without a real estate, a fleet, or a git host.
 
 ## Problem
 
@@ -248,12 +260,12 @@ permanent is a track that cannot show a moment.
 ### Sized
 
 ### Placed
-- `bug/the-wave-leaves-the-kind-alone` — the wave renders beside the branch name only, and never beside the kind slot. Tests: a branch row's wave is adjacent to its branch name; **no `data-wave` element sits in the kind's track**; a plan row shows no wave; the kind slot's column contains only kind labels, asserted by reading every cell in it.
+- `bug/the-wave-leaves-the-kind-alone` → #346 — the wave renders beside the branch name only, and never beside the kind slot. Tests: a branch row's wave is adjacent to its branch name; **no `data-wave` element sits in the kind's track**; a plan row shows no wave; the kind slot's column contains only kind labels, asserted by reading every cell in it.
 
 ### Marked
 
 ### Named
-- `bug/a-release-is-its-version` — a release's name is the version being cut, read from the PR title through a new contract field; its PR and its branch are **artifact links in slot 4**, never in the status column; a ticket's artifact link carries the same prefix every other kind's does. Tests: `PrSchema` carries the PR title and the row passes it through; a release row's name is `2.7.0`, not `240`; **the status column of a release contains no link** — asserted by looking for anchors in that cell, not by matching text; the PR and the branch both appear as labelled artifact links; a release whose PR title names no version falls back to the PR number **and says so**, rather than showing a number that reads like a version; a ticket's artifact link renders a `PLAN` prefix; every kind with an artifact link labels it.
+- `bug/a-release-is-its-version` → #352 — a release's name is the version being cut, read from the PR title through a new contract field; its PR and its branch are **artifact links in slot 4**, never in the status column; a ticket's artifact link carries the same prefix every other kind's does. Tests: `PrSchema` carries the PR title and the row passes it through; a release row's name is `2.7.0`, not `240`; **the status column of a release contains no link** — asserted by looking for anchors in that cell, not by matching text; the PR and the branch both appear as labelled artifact links; a release whose PR title names no version falls back to the PR number **and says so**, rather than showing a number that reads like a version; a ticket's artifact link renders a `PLAN` prefix; every kind with an artifact link labels it.
 
 ## Notes
 

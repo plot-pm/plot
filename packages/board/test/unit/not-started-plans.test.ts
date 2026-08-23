@@ -1,17 +1,11 @@
-import { describe, it, expect } from 'vitest';
 import {
-  isUnbegun,
-  planWaitingDays,
-  sortByWaiting,
-  waveSummaryFor,
-  showsWaveFold,
-  groupByPlan,
-  type PlanGroup,
-  groupByWave,
-  waveGroupsFor,
-  ungroupedRows,
-} from '../../src/app/components/AgentList.js';
-import { ELIGIBLE_NOTE, type AgentRow } from '../../src/contract/schema.js';
+  describe,
+  it,
+  expect } from 'vitest';
+import { groupByPlan, planWaitingDays, showsWaveFold, sortByWaiting, type PlanGroup, ungroupedRows, waveGroupsFor, waveSummaryFor } from '../../src/app/lib/agent-rows/sections.js';
+import { groupByWave } from '../../src/app/lib/agent-rows/waves.js';
+import { isUnbegun } from '../../src/app/lib/agent-rows/row-identity.js';
+import { ELIGIBLE_NOTE, type AgentRow, type Wave } from '../../src/contract/schema.js';
 
 /**
  * NOT STARTED counts PLANS — the decisions, as pure functions.
@@ -421,6 +415,92 @@ describe('waveGroupsFor — which sections group by wave, and from which rows', 
     ];
     const grouped = waveGroupsFor(rows, 'waiting-on-you').flatMap((g) => g.rows);
     const loose = ungroupedRows(rows, 'waiting-on-you');
+    expect(grouped.length + loose.length).toBe(rows.length);
+    expect(new Set([...grouped, ...loose]).size).toBe(rows.length);
+  });
+});
+
+describe('waveGroupsFor — asks the server-derived wave, not a per-section state predicate', () => {
+  const pr = (n: number) => ({ number: n, url: `https://h/pr/${n}`, draft: false, state: 'green' as const });
+
+  /** A server-derived Wave, the entity #349 put on `fleet.waves`. */
+  const wave = (over: Partial<Wave> = {}): Wave => ({
+    plan: 'a-plan', name: 'Modelled', branches: [], verdict: 'complete',
+    section: 'done', complete: true, ...over,
+  });
+
+  it('claims a DONE wave the server marks done, even where a row is not yet merged', () => {
+    // THE DISCRIMINATING CASE. The old predicate kept only `r.state === 'merged'`
+    // for DONE, so a wave the SERVER calls done (`section: 'done'`) but holding a
+    // row that still reads `wip` would lose that row — two answers to *is this
+    // wave done*, the row's and the wave's, disagreeing. Asking the wave, the
+    // whole wave is DONE's and every one of its rows renders under it.
+    const rows = [
+      row({ wave: 'Modelled', branch: 'a', state: 'merged', pr: pr(1) }),
+      row({ wave: 'Modelled', branch: 'b', state: 'wip', pr: pr(2) }),
+    ];
+    const waves = [wave({ name: 'Modelled', branches: ['a', 'b'], section: 'done', complete: true })];
+    const groups = waveGroupsFor(rows, 'done', waves);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].rows.map((r) => r.branch)).toEqual(['a', 'b']);
+    // …and a non-done section does NOT also claim it — one wave, one section.
+    expect(waveGroupsFor(rows, 'not-started', waves)).toHaveLength(0);
+  });
+
+  it('keeps a NOT-STARTED wave out of DONE though a stray row is merged', () => {
+    // The converse, and the `Inverted` shape in miniature. A wave the server
+    // calls `not-started` (its unfinished work is what places it) holds one
+    // merged branch. The old `=== 'merged'` predicate would drag that lone row
+    // into DONE; the wave says the whole wave is not-started, so DONE claims none
+    // of it.
+    const rows = [
+      row({ wave: 'Inverted', branch: 'a', state: 'merged' }),
+      row({ wave: 'Inverted', branch: 'b', state: 'open' }),
+    ];
+    const waves = [wave({ name: 'Inverted', branches: ['a', 'b'], verdict: 'eligible', section: 'not-started', complete: false })];
+    expect(waveGroupsFor(rows, 'done', waves)).toHaveLength(0);
+    expect(waveGroupsFor(rows, 'not-started', waves).map((g) => g.rows.map((r) => r.branch)))
+      .toEqual([['a', 'b']]);
+  });
+
+  it('groups NOTHING in WORKING or WAITING ON A MACHINE — a wave is not an agent or a build', () => {
+    // The grammar survives the move: a wave never claims these sections whatever
+    // its own section says, because an agent works and a build runs and neither
+    // is a wave.
+    const rows = [
+      row({ wave: 'Modelled', branch: 'a', state: 'wip', pr: pr(1) }),
+      row({ wave: 'Modelled', branch: 'b', state: 'wip', pr: pr(2) }),
+    ];
+    const waves = [wave({ name: 'Modelled', branches: ['a', 'b'], section: 'not-started', complete: false })];
+    expect(waveGroupsFor(rows, 'working', waves)).toHaveLength(0);
+    expect(waveGroupsFor(rows, 'waiting-on-machine', waves)).toHaveLength(0);
+  });
+
+  it('falls back to the row-state predicate when the wave list is ABSENT — a pre-wave pulse', () => {
+    // THE CAST GUARD. The client casts the payload, so `fleet.waves` is
+    // `undefined` on a pulse from a server predating #349 — not `[]`, because a
+    // Zod `.default()` never reaches a cast. Undefined must degrade to the old
+    // behaviour rather than throw or drop every wave.
+    const rows = [
+      row({ wave: 'Modelled', branch: 'a', state: 'wip', pr: pr(1) }),
+      row({ wave: 'Modelled', branch: 'b', state: 'wip', pr: pr(2) }),
+    ];
+    const groups = waveGroupsFor(rows, 'waiting-on-you', undefined);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].rows.map((r) => r.branch)).toEqual(['a', 'b']);
+  });
+
+  it('still renders every row exactly once through ungroupedRows', () => {
+    // `ungroupedRows` is the complement over the same input and the same wave
+    // list, so a row grouped by the wave lookup is not also loose.
+    const rows = [
+      row({ wave: 'Modelled', branch: 'a', state: 'merged' }),
+      row({ wave: 'Modelled', branch: 'b', state: 'wip' }),
+      row({ wave: '', branch: 'c', state: 'merged' }),
+    ];
+    const waves = [wave({ name: 'Modelled', branches: ['a', 'b'], section: 'done', complete: true })];
+    const grouped = waveGroupsFor(rows, 'done', waves).flatMap((g) => g.rows);
+    const loose = ungroupedRows(rows, 'done', waves);
     expect(grouped.length + loose.length).toBe(rows.length);
     expect(new Set([...grouped, ...loose]).size).toBe(rows.length);
   });

@@ -315,8 +315,13 @@ export function statusTone(status: string): string {
   if (/^(conflicts|checks failing|failed|stalled)/.test(status)) {
     return 'text-rose-700 dark:text-rose-400';
   }
-  // The good news, and the only other colour: green checks, finished work.
-  if (/^(green|delivered|finished)/.test(status)) {
+  // The good news, and the only other colour: green checks, finished work, and
+  // an `eligible` wave — the state a reader ACTS on by starting it. `eligible`
+  // joins this branch for the reason `green` is here: the rule is *colour what
+  // a reader acts on*, not *colour the problem*, and a PR you can merge and a
+  // wave you can start are the same prompt in one column. Still two colours,
+  // not three — a word moves into a group that exists.
+  if (/^(green|delivered|finished|eligible)/.test(status)) {
     return 'text-emerald-700 dark:text-emerald-500';
   }
   return '';
@@ -360,6 +365,74 @@ export function prStatus(pr: NonNullable<AgentRow['pr']>): string {
     case 'closed': return 'closed';
     default: return '';
   }
+}
+
+/**
+ * The state a PR object reports, as the wire carries it — `AgentRow.pr.state`.
+ *
+ * Named so the fold below can take a list of them without spelling the enum
+ * twice; `PrStateSchema` in the contract is the one authority for the values.
+ */
+export type PrState = NonNullable<AgentRow['pr']>['state'];
+
+/**
+ * What a FOLDED PLAN says about the PR states beneath it — one worst-case word,
+ * with a count where more than one branch carries it.
+ *
+ * A collapsed plan head shows its phase and nothing about the branches under it,
+ * so a folded group gives a reader no reason to open it even when a PR two rows
+ * down is red. Reported from the live board as *"Wo ist 304?"* — a failing PR
+ * sitting under a plan row that read only `Discovery`. This is that orientation:
+ * the plan is canonical and slot 5 keeps its phase; this rides BESIDE it.
+ *
+ * ## The precedence — `conflicts > failing > pending > (green/quiet)`
+ *
+ * `conflicts` outranks `failing` for the reason `rowKind` already gives it
+ * precedence: no PR resolves a conflict, so the errand is a REBASE and it is the
+ * reader's, where a failing check is the machine's report on work already
+ * pushed. A plan carrying both should send the reader to the harder errand.
+ *
+ * `pending` is included — a running build is not an errand, but *a machine is
+ * working here* is worth a folded reader knowing. The consumer renders it
+ * DIMMER than the two actionable words; this function only reports which word.
+ *
+ * ## What earns NO word — the quiet states, and why they are one set here
+ *
+ * `green`, `none`, `unknown` and `closed` all return `null`: nothing to act on.
+ * A badge on every plan is a badge nobody reads, and *green plans get no badge*
+ * is the decision this enforces. `none`/`unknown` are the host declining to
+ * answer — a row printing its own ignorance in a slot a reader scans has said
+ * nothing, the rule `prStatus` states for `unknown`. `closed` is abandoned
+ * work, not a state a reader chases.
+ *
+ * A branch with NO PR at all contributes no state — a plan of unstarted
+ * branches folds to nothing, which is right: there is no PR errand to hide.
+ *
+ * ## The WORD, not `pr.state`
+ *
+ * It returns `prStatus`'s vocabulary (`conflicts`, `checks failing`, `CI
+ * running`) rather than the raw enum, so slot 5 reads ONE vocabulary whether the
+ * word came from a single branch or a fold of five — the collapse's own argument
+ * for `statusTone` being keyed on the word.
+ */
+export function planPrAggregate(
+  states: readonly (PrState | null | undefined)[],
+): { word: string; count: number; state: PrState } | null {
+  // The order IS the precedence — the first state present in the fold wins, and
+  // its count is how many branches carry exactly it. `green`/`none`/`unknown`/
+  // `closed` are absent from this list on purpose: they earn no word, so a fold
+  // of only those states falls through and returns null.
+  const RANKED: PrState[] = ['conflicts', 'failing', 'pending'];
+  for (const state of RANKED) {
+    const count = states.filter((s) => s === state).length;
+    if (count > 0) {
+      // The WORD from the same table a single-row plan reads, so the fold and a
+      // lone branch say the same thing for the same state. `prStatus` takes a PR
+      // object; only `state` decides the word, so a minimal one suffices.
+      return { word: prStatus({ number: 0, url: '', draft: false, state, states: [state] }), count, state };
+    }
+  }
+  return null;
 }
 
 /**
@@ -483,13 +556,23 @@ export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow
     // otherwise. The version is the thing a reader is deciding about — *is
     // 2.7.0 ready* — and the PR is how it gets there; where no version has
     // been read, the number is the honest name rather than an invented tag.
+    //
+    // THE FALLBACK SAYS SO WITH A `#`. A bare `300` where a version usually sits
+    // reads like a version — a truncated `3.0.0`, a major nobody typed — and the
+    // one row this matters most on (`changeset-release/main`, the control a person
+    // reaches for at the end of a sprint) is the one that must never be decoded.
+    // The `#` is the universal mark for a PR reference, so `#300` cannot be read
+    // as the version the slot otherwise holds; the version case stays UNPREFIXED
+    // because it IS a version, not a reference to one. This is the plan's last
+    // test: *falls back to the PR number and says so, rather than showing a
+    // number that reads like a version*.
     const version = releaseVersion(row);
     return {
       ...base,
       name: version && row.pr
         ? { what: 'pr', label: version, href: row.pr.url }
         : row.pr
-          ? { what: 'pr', label: `${row.pr.number}`, href: row.pr.url }
+          ? { what: 'pr', label: `#${row.pr.number}`, href: row.pr.url }
           : { what: 'branch', label: row.branch, href: row.branchUrl },
       // THE PR IS AN ARTIFACT, and this is where it belongs. A release row
       // rendered `no checks 240` — the number inside the STATUS cell, which is
@@ -831,7 +914,7 @@ export interface PlanRowFacts {
  * Project a plan into the six slots.
  *
  * **The phase belongs HERE**, and this is the object it describes. 71 branch
- * rows printed their plan's phase — 36 `Development`, 26 `Endgame`, 9 `Design`
+ * rows printed their plan's phase — 36 `Development`, 26 `Testing`, 9 `Design`
  * — a fact about the plan on a row about something else. Slot 5 on the PLAN row
  * is where that fact is true.
  *

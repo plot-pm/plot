@@ -120,37 +120,13 @@ Re-ask all "Mark for later" questions for final validation.
 
 ## State Persistence
 
-State is tracked via HTML comment embedded in plan file:
-
-```html
-<!-- CHALLENGE-THE-PLAN-METADATA
-{
-  "round": 3,
-  "questionHistory": [
-    {"q": "Why JWT over sessions?", "a": "Stateless scaling", "category": "technical"},
-    {"q": "Token expiry duration?", "a": "15min access, 7day refresh", "category": "technical"}
-  ],
-  "deferredItems": [
-    {"q": "How to handle token refresh race conditions?", "category": "technical", "context": "Authentication section"}
-  ],
-  "categoriesCovered": {
-    "technical": {"stack": true, "architecture": true, "implementation": false},
-    "domain": false,
-    "ux": {"happyPath": false, "edgeCases": false, "errors": false, "accessibility": false},
-    "nonFunctional": {"security": false, "performance": false, "scalability": false},
-    "tradeOffs": false
-  }
-}
-END-CHALLENGE-THE-PLAN-METADATA -->
-```
-
-**State Reconstruction:**
-1. Read plan file
-2. Extract metadata comment (regex: `<!-- CHALLENGE-THE-PLAN-METADATA\n(.*?)\nEND-CHALLENGE-THE-PLAN-METADATA -->`)
-3. Parse JSON to reconstruct state
-4. If no metadata, initialize fresh state
-5. After each round, serialize state back to metadata comment
-6. Update metadata in place (Edit tool on plan file)
+State is tracked via a `CHALLENGE-THE-PLAN-METADATA` HTML comment embedded in the
+plan file — its shape, its read-modify-write update rules, and the round count it
+carries are specified once, in the `challenge-the-plan` skill under
+**Phase 5b: Record the round**. This command and that skill must not hold two
+descriptions of the same block: the skill is where the interrogation happens and
+the block is written, so it is the single entrance to the specification and this
+command points at it.
 
 ## Adaptive Depth Strategy
 

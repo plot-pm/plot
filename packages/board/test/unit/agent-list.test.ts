@@ -1,15 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import {
+  describe,
+  it,
+  expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  groupByPlan,
-  waveLabel,
   UNNAMED_WAVE,
-  countdown,
-  waitingLabel,
-  showPlanHeading,
-  isStartable,
-  isLive,
-  isCollapsible,
   noActionReason,
   menuState,
   openTarget,
@@ -17,42 +12,17 @@ import {
   openLabel,
   runLinkLabel,
   storyRefusal,
-  canCommissionDesign,
   splitBranch,
-  prStateWord,
-  noteWithoutPr,
-  readCollapsed,
-  writeCollapsed,
-  COLLAPSED_BY_DEFAULT,
-  CARD_BELOW_PX,
-  GROUPS,
-  CHANGE_MARK_MS,
-  ChangeMarks,
-  changedRows,
-  isActive,
   isUnpushed,
-  waitingTone,
-  activityPace,
-  groupPace,
-  ACTIVITY_MARK_PLACE,
-  ActivityEcho,
-  activeRowKeys,
-  groupByWave,
-  LOCK_ECHO_MS,
-  rowKey,
-  watchedState,
-  isUnreadable,
-  sameWatched,
-  hostCannotReportCi,
-  HOST_CANNOT_REPORT_HINT,
-  hostAnswer,
-  HOST_ANSWER_HINT,
-  hostErrorState,
-  prNote,
-  issueNote,
-  type WatchedState,
-  type PlanGroup,
 } from '../../src/app/components/AgentList.js';
+import { CARD_BELOW_PX, COLLAPSED_BY_DEFAULT, isCollapsible, readCollapsed, writeCollapsed } from '../../src/app/lib/agent-rows/collapse.js';
+import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_MARK_MS, ChangeMarks, LOCK_ECHO_MS, activeRowKeys, activityPace, changedRows, groupPace, isUnreadable, sameWatched, type WatchedState, watchedState } from '../../src/app/lib/agent-rows/activity.js';
+import { isActive, isLive, soleRowStatus } from '../../src/app/lib/agent-rows/stuck.js';
+import { GROUPS, groupByPlan, rowsBySection, showPlanHeading, type PlanGroup, waveKeyOf, waveSection } from '../../src/app/lib/agent-rows/sections.js';
+import { countdown } from '../../src/app/lib/agent-rows/actions.js';
+import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, hostErrorState, issueNote, noteWithoutPr, prNote, prStateWord } from '../../src/app/lib/agent-rows/host-notes.js';
+import { isFinished, isStartable, rowKey, waitingLabel, waitingTone } from '../../src/app/lib/agent-rows/row-identity.js';
+import { groupByWave, groupedNote, waveDissent, waveLabel } from '../../src/app/lib/agent-rows/waves.js';
 // THE ONE GRID, from the component that owns it. It was `ROW_TRACKS` in
 // `AgentList.tsx` beside a second grid; `one-component-renders-every-row`
 // collapsed both into this.
@@ -118,6 +88,153 @@ describe('groupByPlan', () => {
 
   it('returns nothing for no rows', () => {
     expect(groupByPlan([])).toEqual([]);
+  });
+});
+
+describe('waveSection — resolves the Inverted split, gated on the verdict', () => {
+  // A wave's rows: same plan, same wave name, branches described by their state,
+  // per-branch group (what `classify` gave each), and the wave verdict every
+  // branch shares.
+  const waveRows = (
+    branches: { state: AgentRow['state']; group: AgentRow['group'] }[],
+    verdict: AgentRow['verdict'] = 'eligible',
+  ): AgentRow[] => branches.map((b, i) => row({
+    plan: 'p', wave: 'W', branch: `feature/b${i}`, state: b.state, group: b.group, verdict,
+  }));
+
+  it('sends the merged branch to where the unfinished work is — the Inverted split', () => {
+    // Verdict eligible (not finished), one merged (→ done), one open (→
+    // not-started). A wave with unmerged work is where its unfinished work is, so
+    // the merged branch joins NOT STARTED — never the reverse.
+    expect(waveSection(waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'open', group: 'not-started' }],
+    ))).toBe('not-started');
+  });
+
+  it('reads the unfinished branch\'s own section — quiet where that is where it sits', () => {
+    expect(waveSection(waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'wip', group: 'quiet' }],
+      'blocked',
+    ))).toBe('quiet');
+  });
+
+  it('returns null when the wave carries NO verdict — nothing to aggregate on', () => {
+    // A pre-verdict pulse, or a synthetic row: the scan said nothing, so a merged
+    // branch beside an open one is not proof of an Inverted split. Don't guess.
+    expect(waveSection(waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'open', group: 'not-started' }],
+      null,
+    ))).toBeNull();
+  });
+
+  it('returns null for a COMPLETE wave — every branch merged, no split', () => {
+    expect(waveSection(waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'merged', group: 'done' }],
+      'complete',
+    ))).toBeNull();
+  });
+
+  it('returns null for an all-unmerged wave spanning process sections — a build stays put', () => {
+    // The Modelled shape: a PR in review and a build on the machine, both wip, no
+    // merged branch. Not a placement defect; collapsing them would move the build
+    // off WAITING ON A MACHINE, which is where the board means to show it.
+    expect(waveSection(waveRows([
+      { state: 'wip', group: 'waiting-on-you' },
+      { state: 'wip', group: 'waiting-on-machine' },
+    ]))).toBeNull();
+  });
+
+  it('does not treat {merged, deferred} as a split — a deferred branch is exempt', () => {
+    expect(waveSection(waveRows(
+      [{ state: 'merged', group: 'done' }, { state: 'deferred', group: 'not-started' }],
+    ))).toBeNull();
+  });
+});
+
+describe('rowsBySection — Inverted stops splitting across two sections', () => {
+  it('rewrites every branch of a mixed wave to the ONE section the wave belongs in', () => {
+    // The live defect: a merged branch carrying `group: done` and an open branch
+    // carrying `group: not-started`, one eligible wave. Filtering by `r.group`
+    // put them in two sections. After re-sectioning both read `not-started`.
+    const rows = [
+      row({ plan: 'p', wave: 'Inverted', branch: 'feature/a', state: 'merged', group: 'done', verdict: 'eligible' }),
+      row({ plan: 'p', wave: 'Inverted', branch: 'feature/b', state: 'open', group: 'not-started', verdict: 'eligible' }),
+    ];
+    const out = rowsBySection(rows);
+    expect(out.map((r) => r.group)).toEqual(['not-started', 'not-started']);
+    // Every (plan, wave) reaches exactly one section — the invariant.
+    const sections = new Set(out.map((r) => r.group));
+    expect(sections.size).toBe(1);
+  });
+
+  it('leaves a uniform wave untouched — identity preserved, not re-allocated', () => {
+    const rows = [
+      row({ plan: 'p', wave: 'Done', branch: 'feature/a', state: 'merged', group: 'done', verdict: 'complete' }),
+      row({ plan: 'p', wave: 'Done', branch: 'feature/b', state: 'merged', group: 'done', verdict: 'complete' }),
+    ];
+    const out = rowsBySection(rows);
+    // Same objects back where nothing changed — the fleet is shared and cast.
+    expect(out[0]).toBe(rows[0]);
+    expect(out[1]).toBe(rows[1]);
+  });
+
+  it('does not merge two DIFFERENT plans that share a wave name', () => {
+    // p1 is a genuine split (merged + open) → its merged branch joins NOT
+    // STARTED. p2 is all-merged (no split) → untouched. The shared wave name
+    // must not fuse them: keying on (plan, wave) keeps them apart.
+    const rows = [
+      row({ plan: 'p1', wave: 'Shaped', branch: 'feature/a', state: 'merged', group: 'done', verdict: 'eligible' }),
+      row({ plan: 'p1', wave: 'Shaped', branch: 'feature/b', state: 'open', group: 'not-started', verdict: 'eligible' }),
+      row({ plan: 'p2', wave: 'Shaped', branch: 'feature/c', state: 'merged', group: 'done', verdict: 'complete' }),
+    ];
+    const out = rowsBySection(rows);
+    expect(out.filter((r) => r.plan === 'p1').map((r) => r.group))
+      .toEqual(['not-started', 'not-started']);
+    expect(out.find((r) => r.plan === 'p2')?.group).toBe('done');
+  });
+
+  it('leaves a planless / wave-less row alone — it is its own subject', () => {
+    const planless = row({ plan: '', wave: '', branch: 'feature/orphan', group: 'quiet', verdict: null });
+    const out = rowsBySection([planless]);
+    expect(out[0]).toBe(planless);
+  });
+});
+
+describe('waveDissent — the collapsed row does not read `merged` for a half-open wave', () => {
+  it('reports how many merged when branches disagree — the Inverted case', () => {
+    // One merged, one open: the row speaks for both, so it must state that some
+    // landed and some did not, not a plain `merged`.
+    expect(waveDissent([
+      row({ state: 'merged' }), row({ state: 'open' }),
+    ])).toBe(1);
+  });
+
+  it('is null when every branch agrees — the count already tells the story', () => {
+    expect(waveDissent([row({ state: 'merged' }), row({ state: 'merged' })])).toBeNull();
+    expect(waveDissent([row({ state: 'open' }), row({ state: 'wip' })])).toBeNull();
+  });
+
+  it('does not count a DEFERRED branch as disagreement — it is exempt by design', () => {
+    // A wave of {merged, deferred} agrees that everything wanted has landed.
+    expect(waveDissent([row({ state: 'merged' }), row({ state: 'deferred' })])).toBeNull();
+  });
+
+  it('feeds groupedNote, which then says so rather than the section word', () => {
+    // With a dissent the note names the split; without one it keeps the ordinary
+    // sentence for the section word.
+    //
+    // `to review` IS THE POINT OF THE FIRST TWO LINES, and it is deliberately not
+    // the word in the third. It is a word `groupedNote` does not recognise, and
+    // an unrecognised word returns '' so the caller's ternary falls through to
+    // the VERDICT — the default used to assert `work landed — waiting to be
+    // merged` over five live blocked waves whose branches had never been touched.
+    // A dissent still outranks that: a MEASURED disagreement is a fact about
+    // branches that exist, so it speaks even for a word with no sentence.
+    expect(groupedNote('to review', 1)).toMatch(/1 merged/);
+    expect(groupedNote('to review', null)).toBe('');
+    // And a word that DOES have a sentence keeps it when its branches agree.
+    expect(groupedNote('delivered', null)).toBe('landed — nothing left in it');
+    expect(groupedNote('delivered', 2)).toMatch(/2 merged/);
   });
 });
 
@@ -432,6 +549,19 @@ describe('isActive — which rows have a PROCESS running on them', () => {
     expect(isActive(row({ state: 'wip', worker: 'running' }))).toBe(true);
   });
 
+  it('never marks a DEFERRED branch either — deferred is finished work', () => {
+    // Same category as merged: a human decided this branch is not needed, so
+    // there is no writing left to observe on it. Measured on the live board,
+    // one of the seven rows wearing the mark was `state: deferred` with a dirty
+    // worktree (`waiting-on-you-says-what-kind-of-waiting`). A worktree fact on
+    // a finished row is not a pulse; the guard is finishedness, not merged-ness.
+    expect(isActive(row({ state: 'deferred', worker: 'running' }))).toBe(false);
+    expect(isActive(row({ state: 'deferred', worker: 'waiting' }))).toBe(false);
+    expect(isActive(row({
+      state: 'deferred', pr: { number: 1, url: 'u', draft: false, state: 'pending' },
+    }))).toBe(false);
+  });
+
   it('survives a row that predates the fields entirely', () => {
     // The payload an older server sends.
     expect(() => isActive({ worker: undefined, pr: undefined } as never)).not.toThrow();
@@ -449,6 +579,58 @@ describe('isActive — which rows have a PROCESS running on them', () => {
     const agentOutside = row({ group: 'quiet', worker: 'running' });
     expect(isLive(agentOutside)).toBe(false);
     expect(isActive(agentOutside)).toBe(true);
+  });
+});
+
+describe('isFinished — the branch\'s work is over, whatever its worktree holds', () => {
+  it('is true for the two settled states and false for the rest', () => {
+    // `merged` and `deferred` are the two ways a branch's work ends: one landed,
+    // one was called off. Neither has writing left to observe, so a worktree or
+    // worker fact on such a row describes a stale checkout rather than live work.
+    expect(isFinished(row({ state: 'merged' }))).toBe(true);
+    expect(isFinished(row({ state: 'deferred' }))).toBe(true);
+    for (const s of ['open', 'wip', 'claimed'] as const) {
+      expect(isFinished(row({ state: s })), s).toBe(false);
+    }
+  });
+
+  it('survives a row that predates the field', () => {
+    expect(() => isFinished({ state: undefined } as never)).not.toThrow();
+  });
+});
+
+describe('soleRowStatus — a finished wave-of-one never shows a live worker', () => {
+  // The second face of the same defect: a wave of one folds its branch into the
+  // wave row, so that row's status is the branch's. A LIVE worker outranks the
+  // PR there — correct while the branch is in flight, stale once it is finished.
+  // Measured 2026-08-23: three DONE rows carried `worker: waiting`/`failed` on
+  // branches that were `merged` or `deferred`. `waiting` is a LIVE worker, so it
+  // survived onto a merged wave and read as *someone owes this an answer* under
+  // a heading that says done.
+  it('prefers a live worker on an UNFINISHED wave', () => {
+    expect(soleRowStatus(row({ state: 'wip', worker: 'running' }))).toBe('working');
+    expect(soleRowStatus(row({ state: 'open', worker: 'waiting' }))).toBe('waiting on you');
+  });
+
+  it('drops a live worker on a MERGED or DEFERRED wave, showing the state', () => {
+    // The worker outlives the branch; its last recorded state never cleared. On
+    // a finished row the branch state is the current fact, so the row reads
+    // `delivered` / `deferred` rather than a worklog fact about a run nobody is
+    // waiting on.
+    expect(soleRowStatus(row({ state: 'merged', worker: 'waiting' }))).toBe('delivered');
+    expect(soleRowStatus(row({ state: 'merged', worker: 'failed' }))).toBe('delivered');
+    expect(soleRowStatus(row({ state: 'deferred', worker: 'waiting' }))).toBe('deferred');
+    expect(soleRowStatus(row({ state: 'deferred', worker: 'stalled' }))).toBe('deferred');
+  });
+
+  it('prefers a PR condition over the bare state on a finished wave', () => {
+    // With the worker screened out, the row falls back to its PR then its state
+    // — the same order an unfinished wave uses, minus the live worker.
+    const t = soleRowStatus(row({
+      state: 'merged', worker: 'waiting',
+      pr: { number: 7, url: 'u', draft: false, state: 'green' },
+    }));
+    expect(t).toBe('green');
   });
 });
 
@@ -1583,6 +1765,20 @@ describe('noteWithoutPr — the note is relieved of one duty, not replaced', () 
     expect(noteWithoutPr('PR #131, draft, CI running', pr(131))).toBe('');
   });
 
+  it('returns EMPTY for a note that is only its PR — which a caller must not read as "no row"', () => {
+    // The empty string above is correct and it is a trap for whoever consumes
+    // it. `waveNote` guarded on `soleNote` rather than on `soleRow`, so a wave
+    // whose one branch carried `PR #323 green` — nothing left after the strip —
+    // fell through to a verdict sentence about STARTING work that was finished:
+    // measured 2026-08-22, `green` rendered beside `approved — nobody has taken
+    // it`. Every single-branch wave reaching review hit it.
+    //
+    // The fix is at the caller, which now asks `soleRow ? soleNote : …`. This
+    // case is pinned here so the emptiness stays a known answer rather than an
+    // accident someone "fixes" by returning the note unchanged.
+    expect(noteWithoutPr('PR #323 green', pr(323))).toBe('');
+  });
+
   it('is anchored, and matches only the row\'s OWN number', () => {
     // This is deliberately NOT the `indexOf` search it replaces. That one
     // hunted a marker ANYWHERE in a sentence in order to link it, and dropped
@@ -1593,6 +1789,39 @@ describe('noteWithoutPr — the note is relieved of one duty, not replaced', () 
     expect(noteWithoutPr('see PR #130 green', pr(130))).toBe('see PR #130 green');
     expect(noteWithoutPr('PR #999 green', pr(130))).toBe('PR #999 green');
     expect(noteWithoutPr('PR #130 green', null)).toBe('PR #130 green');
+  });
+});
+
+describe('groupedNote — a note is DERIVED, never defaulted into', () => {
+  it('answers only for the two words a count can mean', () => {
+    // These are the two the fold's count actually carries in a section where a
+    // wave row states what it holds: DONE folds delivered branches, QUIET folds
+    // stalled ones. Each says what the wave IS, and neither is *may it start* —
+    // which is the verdict's job, and the reason these two are the whole
+    // vocabulary.
+    expect(groupedNote('delivered')).toBe('landed — nothing left in it');
+    expect(groupedNote('stalled')).toBe('nothing has moved here for a while');
+  });
+
+  it('returns EMPTY for any other word — it does NOT assert work landed', () => {
+    // The defect this branch ends: the fallback returned `work landed — waiting
+    // to be merged` for ANY unrecognised word, and `to approve` — a wave whose
+    // PLAN is still in review, no PR opened, nothing pushed — hit it. Measured
+    // 2026-08-23 on five live blocked waves, every one read that a merge was
+    // pending over branches that had never been touched, two lines above their
+    // own rows saying *plan not approved yet — still in review*.
+    //
+    // Empty is the whole fix: `''` is falsy, so the caller's ternary falls
+    // through to the verdict — the value that actually describes the wave. A
+    // note is DERIVED for words it knows and DECLINED otherwise; it is never
+    // defaulted into a claim.
+    //
+    // `to approve` is the word the live population carried; the unknown case is
+    // asserted beside it so no future word can inherit the old assertion.
+    expect(groupedNote('to approve')).toBe('');
+    expect(groupedNote('to review')).toBe('');
+    expect(groupedNote('anything-unrecognised')).toBe('');
+    expect(groupedNote(undefined)).toBe('');
   });
 });
 
@@ -2316,23 +2545,33 @@ describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
     // 1's icon beside the activity marks; the MENU track is last and holds
     // whatever the kind offers.
     expect(tracks()).toEqual(
-      ['1.5rem', '4.5rem', '12rem', '1fr', '8rem', '4.5rem', '1.25rem']);
+      ['1.5rem', '4.5rem', 'minmax(12rem,auto)', '1fr', '8rem', '4.5rem', '1.25rem']);
   });
 
   it('flexes the LINKS track and no other', () => {
-    // THE ONE TRACK THAT VARIES IS THE ONE THAT MUST ABSORB THE SLACK, and
-    // which track that is moved with the collapse. Under `ROW_TRACKS` it was
-    // the BRANCH — the longest and most variable value on a branch row. Slot 4
-    // is now the zero-or-more slot: a branch carries no artifact link and a PR
-    // carries two, so the variation moved and the `1fr` moved with it.
+    // THE ONE TRACK THAT ABSORBS THE SLACK IS `1fr`, AND THERE IS EXACTLY ONE.
+    // That is the property this asserts, and it survived the 2026-08-23 change
+    // to slot 3 verbatim: slot 4 (the links) is still the zero-or-more slot — a
+    // branch carries no artifact link and a PR carries two — so it takes the
+    // leftover width, and no other track does.
     //
-    // The pairing that matters, and the reason this asserts the shape rather
-    // than only the number: `minmax(9rem, auto)` or `max-content` would both
-    // make a column wider and both let an edge move between rows — passing
-    // "the slot got more space" while undoing what fixed tracks are for.
-    // Exactly one track may be flexible.
-    const flexible = tracks().filter((t) => !/^[\d.]+rem$/.test(t));
-    expect(flexible).toEqual(['1fr']);
+    // The predicate CHANGED because the shape did. It used to read "one track is
+    // not `Nrem`", which was a sound proxy for "one track flexes" while every
+    // other track was a fixed rem. Slot 3 is now `minmax(12rem, auto)`, which is
+    // NOT a fixed rem and is NOT the slack absorber either: an `auto` ceiling
+    // grows a track to its content and then YIELDS the remaining free space to
+    // the `fr` track, so `minmax(12rem, auto)` and `1fr` do different things and
+    // only `1fr` absorbs the slack. Testing "not `Nrem`" would now wrongly count
+    // slot 3 as flexible; testing `=== '1fr'` names the slack absorber directly.
+    //
+    // Why this still forbids what the old predicate forbade: `minmax(9rem, auto)`
+    // as a SECOND grow-track, or a second `1fr`, or `max-content` used to absorb
+    // slack — none of those is `1fr`, so a shape with two slack-takers still
+    // fails "exactly one `1fr`". What the change deliberately ADMITS is the ONE
+    // `minmax` on slot 3, whose misalignment cost the operator accepted on
+    // 2026-08-23 (see `TUPLE_TRACKS`' docstring) so the name renders in full.
+    const slackAbsorbers = tracks().filter((t) => t === '1fr');
+    expect(slackAbsorbers).toEqual(['1fr']);
   });
 
   it('needs less than the card breakpoint before the links track gets a pixel', () => {
@@ -2362,9 +2601,21 @@ describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
     const GAP_PX = 12;
     const PADDING_PX = 24;
     const gapsAndPadding = (tracks().length - 1) * GAP_PX + PADDING_PX;
+    // THE MINIMUM WIDTH A TRACK RESERVES, in px. `1fr` reserves nothing before
+    // the grid reaches its intrinsic width, so it is excluded. A fixed `Nrem`
+    // reserves `N * 16`. Slot 3's `minmax(12rem, auto)` reserves its FLOOR — the
+    // `auto` ceiling only claims more once the grid is already past 604px, which
+    // is exactly the point this arithmetic guards. So the figure below is the
+    // 12rem floor, unchanged from the fixed-12rem grid this replaced: `minmax`
+    // did not move the breakpoint math, which is what let the 508/604/36 numbers
+    // come out identical after the 2026-08-23 change (see `TUPLE_TRACKS`).
+    const floorRem = (t: string) => {
+      const minmax = /^minmax\(([\d.]+)rem,/.exec(t);
+      return minmax ? Number.parseFloat(minmax[1]) : Number.parseFloat(t);
+    };
     const fixedPx = tracks()
       .filter((t) => t !== '1fr')
-      .reduce((sum, t) => sum + Number.parseFloat(t) * 16, 0);
+      .reduce((sum, t) => sum + floorRem(t) * 16, 0);
     expect(fixedPx).toBe(508);
     expect(fixedPx + gapsAndPadding).toBeLessThan(CARD_BELOW_PX);
     // AND THE HEADROOM IS NAMED, so a later widening has to argue with a
@@ -2810,11 +3061,14 @@ describe("a row's actions all live in its menu", () => {
  * and the board asked only the second until 2026-08-18.
  */
 describe('menuState — a refusal is not an absence', () => {
+  // NO `canApprove` / `canCommission` / `approveWillAct` / `commissionWillAct`.
+  // Both plan-level acts left the branch menu for the plan head (`PlanActions`),
+  // so a branch row's menu no longer computes them and this state no longer
+  // carries their flags. What remains is what a branch row can genuinely do.
   const none = {
-    canStart: false, canApprove: false, canResolve: false, hasRun: false,
-    hasLog: false, hasStatus: false, hasOpen: false, canCommission: false,
-    hasChangedFiles: false,
-    serverWillAct: false, approveWillAct: false, commissionWillAct: false,
+    canStart: false, canResolve: false, hasRun: false,
+    hasLog: false, hasStatus: false, hasOpen: false,
+    hasChangedFiles: false, serverWillAct: false,
   };
 
   it('renders no menu at all on a row with nothing to offer', () => {
@@ -2833,9 +3087,6 @@ describe('menuState — a refusal is not an absence', () => {
     expect(menuState({ ...none, canStart: true })).toEqual({
       present: true, enabled: false,
     });
-    expect(menuState({ ...none, canApprove: true })).toEqual({
-      present: true, enabled: false,
-    });
   });
 
   it('enables the run link without asking whether the server will act', () => {
@@ -2850,12 +3101,14 @@ describe('menuState — a refusal is not an absence', () => {
 
   it('asks about ANY item, never one named item', () => {
     // The defect this gate had in its first form: `enabled` was `canStart &&
-    // serverWillAct`, so a Draft plan's row — never startable by construction —
-    // had a dead menu on exactly the rows with something to do.
-    expect(menuState({ ...none, canApprove: true, approveWillAct: true }).enabled).toBe(true);
+    // serverWillAct`, so a menu opened only where Start work was possible. Both
+    // dispatching acts on a branch row (Start work, the conflict dispatch)
+    // answer to the SAME `serverWillAct` binding, so the gate must ask about
+    // whichever one is present rather than a single named item.
+    expect(menuState({ ...none, canStart: true, serverWillAct: true }).enabled).toBe(true);
     expect(menuState({ ...none, canResolve: true, serverWillAct: true }).enabled).toBe(true);
-    // And `Approve` answers to its OWN verdict, not to the dispatch one.
-    expect(menuState({ ...none, canApprove: true, serverWillAct: true }).enabled).toBe(false);
+    // A read item enables on no binding at all — navigation is not an act.
+    expect(menuState({ ...none, hasOpen: true }).enabled).toBe(true);
   });
 
   it('never enables a menu it does not render', () => {
@@ -2870,18 +3123,15 @@ describe('menuState — a refusal is not an absence', () => {
     // it replaced grew a dimension with every new item; the property it proves did
     // not, so it does not need the cartesian product to stay honest.
     const keys = [
-      'canStart', 'canApprove', 'canResolve', 'hasRun', 'hasLog', 'hasStatus',
-      'hasOpen', 'canCommission', 'hasChangedFiles', 'serverWillAct',
-      'approveWillAct', 'commissionWillAct',
+      'canStart', 'canResolve', 'hasRun', 'hasLog', 'hasStatus',
+      'hasOpen', 'hasChangedFiles', 'serverWillAct',
     ] as const;
     const cases: (typeof none)[] = [{ ...none }];
     for (const key of keys)
       for (const v of bools) cases.push({ ...none, [key]: v });
     // A few with an act flag AND its will-act partner, so `enabled` is reached.
     cases.push({ ...none, canStart: true, serverWillAct: true });
-    cases.push({ ...none, canApprove: true, approveWillAct: true });
     cases.push({ ...none, canResolve: true, serverWillAct: true });
-    cases.push({ ...none, canCommission: true, commissionWillAct: true });
     for (const c of cases) {
       const state = menuState(c);
       expect(
@@ -2930,21 +3180,11 @@ describe('menuState — a refusal is not an absence', () => {
     });
   });
 
-  // Commission design writes — so it asks whether the server will act, exactly
-  // as Approve does, and is present-but-refused where the binding declines.
-  it('keeps Commission design present but disabled where the server refuses', () => {
-    expect(menuState({ ...none, canCommission: true })).toEqual({
-      present: true, enabled: false,
-    });
-  });
-
-  it('enables Commission design only on its own verdict', () => {
-    expect(menuState({ ...none, canCommission: true, commissionWillAct: true }).enabled)
-      .toBe(true);
-    // Not on the dispatch verdict — a different binding, a different question.
-    expect(menuState({ ...none, canCommission: true, serverWillAct: true }).enabled)
-      .toBe(false);
-  });
+  // Approve and Commission design are NOT tested here any longer: both are
+  // plan-level acts that left the branch menu for the plan head (`PlanActions`),
+  // so `menuState` — which answers for a BRANCH row's menu — no longer carries
+  // their flags. The plan head's two-answer menu is covered by the browser test
+  // `plan-head-controls.browser.test.ts`, which exercises the real render.
 });
 
 // A branch row names its wave BESIDE ITS BRANCH NAME, and the gate is now a
@@ -3145,31 +3385,12 @@ describe('runLinkLabel — Show failure only where a failure is present', () => 
   });
 });
 
-/**
- * COMMISSION DESIGN is offered on a PLAN kind row — a Draft plan a person must
- * decide about — beside Approve. It is the twin of Approve for the other answer:
- * this plan needs a spec, a spike or a tracer before it can be handed to
- * development.
- */
-describe('canCommissionDesign — offered on a Draft plan row, beside Approve', () => {
-  const draftPlanRow = row({
-    group: 'not-started', state: 'open', phase: 'Discovery', waitingOn: 'you',
-    note: DRAFT_PLAN_NOTE,
-  });
-
-  it('is offered on the same row Approve is — a Draft plan awaiting a decision', () => {
-    expect(canCommissionDesign(draftPlanRow)).toBe(true);
-  });
-
-  it('is NOT offered on a branch waiting its turn', () => {
-    // `waitingOn: 'time'` is a blocked wave, not a plan awaiting a person — the
-    // same exclusion Approve makes, and for the same reason.
-    expect(canCommissionDesign(row({ group: 'not-started', state: 'open', waitingOn: 'time' })))
-      .toBe(false);
-  });
-
-  it('is NOT offered on a started branch', () => {
-    expect(canCommissionDesign(row({ group: 'working', state: 'wip', waitingOn: null })))
-      .toBe(false);
-  });
-});
+// `canCommissionDesign` USED TO BE TESTED HERE, as a branch-row predicate on
+// `waitingOn === 'you'`. It is gone: Commission design is a PLAN-level act and
+// moved to the plan head (`PlanActions`), gated on the card's `isDraft` exactly
+// as Approve is — not on any row field. The old predicate was in fact
+// self-contradictory over board-producible inputs (`'you'` only ever arrives
+// with `state === 'deferred'`, while it required `state === 'open'`), which is
+// why it could never render and why it is deleted rather than repaired. The
+// plan head's Commission design item is covered by
+// `plan-head-controls.browser.test.ts`.

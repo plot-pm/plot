@@ -161,7 +161,7 @@ describe('story overlay: opening a story from the board', () => {
       // plan is. Asserting `Design` here would pin the defect this wave removes.
       await expect.poll(() => section.getByText('Development', { exact: true }).count())
         .toBeGreaterThan(0);
-      await expect.poll(() => section.getByText('Endgame', { exact: true }).count())
+      await expect.poll(() => section.getByText('Testing', { exact: true }).count())
         .toBeGreaterThan(0);
       // …and Design is genuinely absent, which is the half that proves the
       // column stopped being manufactured rather than merely renamed.

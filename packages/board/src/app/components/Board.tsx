@@ -16,9 +16,9 @@ import { PlanCard } from './PlanCard.js';
  * roughly one viewport rather than the 1.8–2.2 it is today.
  *
  * ONE number for every column, with no exception for `Released`. It holds
- * thirteen today and `Endgame` ten, and a rule with a hard-coded exception is a
+ * thirteen today and `Testing` ten, and a rule with a hard-coded exception is a
  * rule someone has to remember — the exception would have to be removed the
- * week `Endgame` overtook it.
+ * week `Testing` overtook it.
  */
 export const COLUMN_LIMIT = 5;
 
@@ -57,7 +57,7 @@ export interface ColumnView {
  * column claiming to show the latest five and showing five arbitrary ones is
  * worse than showing all thirteen, because the reader cannot tell. `phaseDate`
  * is picked per phase on the server, so `Released` sorts by release and
- * `Endgame` by delivery without this function knowing either record exists.
+ * `Testing` by delivery without this function knowing either record exists.
  *
  * **Stable within a day.** Plot records dates, not timestamps, so several cards
  * routinely share one — five plans were delivered on 2026-08-16. A comparator
@@ -195,7 +195,7 @@ export function BoardView({
               </h2>
               <span className="flex shrink-0 items-center gap-1">
                 {/* What is left before signoff — the question the column asks. */}
-                {column.phase === 'Endgame' && board.checklist && (
+                {column.phase === 'Testing' && board.checklist && (
                   <span
                     className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-950/50 dark:text-violet-300"
                     title="Release checklist"

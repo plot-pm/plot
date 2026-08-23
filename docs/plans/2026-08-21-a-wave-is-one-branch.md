@@ -7,12 +7,21 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Delivered
 - **Type:** feature
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-23, Jan Wloka, in-session
 - **Assignee:** jwloka
+- **Started:** 2026-08-23, Jan Wloka, `feature/plot-reslice-proposes-one-wave-per-branch`
+- **Started:** 2026-08-23, Jan Wloka, `feature/reconcile-counts-unsliced-waves`
+- **Started:** 2026-08-23, Jan Wloka, `feature/the-board-offers-a-reslice`
+- **Delivered:** 2026-08-23
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Changelog
 
@@ -101,6 +110,39 @@ agent**. That is what this plan builds.
 
 ## Design
 
+### Scope: slice the wave, never do the work in it
+
+The subject is `opus5-longhorizon-hardening :: Implementation` — five branches
+under one wave, blocked 26 days. **That plan is out of the 2.9.0 sprint**, and
+this one does not pull it in.
+
+The distinction, because it is easy to lose:
+
+| | in scope |
+|---|---|
+| splitting `### Implementation` into five waves in the plan file | **yes** — a plan-file edit |
+| the six branches' actual work | **no** — that is `opus5-longhorizon-hardening`'s |
+
+**Why the slice alone is worth doing:** an unsliced wave has no single verdict —
+five branches in one wave means the wave is neither complete nor clearly startable
+— so *a wave has one section* is **undefined** over it. The sprint's rules cannot
+hold over a wave the model cannot describe. Slicing gives it a well-defined
+verdict; whether anyone builds the branches is a separate question with a separate
+answer.
+
+**Deferring the branches was considered and rejected.** Marking them
+`<!-- deferred: -->` would exempt them from the merge gate — measured, a deferred
+branch is exempt, which is how an Endgame plan can hold 6 merged and 3 deferred —
+and the wave would complete. But that claims work is *done* which is merely
+*unstarted*, and the board would report a finished wave over five unbuilt
+branches. **A verdict earned by annotation rather than by merging is the kind of
+false completion this whole release is about removing.**
+
+Five blocked waves instead of one blocked wave is the honest outcome, and it is
+what the model can describe.
+
+
+
 ### The rule now has a home, and it is the manifesto
 
 Until 2026-08-21 this plan argued a rule that the design authority contradicted.
@@ -163,13 +205,13 @@ same refusal-with-a-reason where the server will not act.
 ## Branches
 
 ### Sliced
-- `feature/plot-reslice-proposes-one-wave-per-branch` — a new spoke command reads a plan with a multi-branch wave, reads those branches' diffs and PRs, and proposes one named wave each in an argued order; it asks before writing and declares `PLOT-UNASKED: <question> — stopped` unattended, because the order is the judgement it cannot make alone. Tests: a plan with a 5-branch wave yields 5 `###` headings and 5 branch lines, one per branch; branch NAMES are unchanged; a `complete` multi-branch wave is left untouched; the rest of the plan file is byte-identical; the skill declares an unattended shape and the all-skills sweep passes; no branch is dispatched and no PR is touched.
+- `feature/plot-reslice-proposes-one-wave-per-branch` — a new spoke command reads a plan with a multi-branch wave, reads those branches' diffs and PRs, and proposes one named wave each in an argued order; it asks before writing and declares `PLOT-UNASKED: <question> — stopped` unattended, because the order is the judgement it cannot make alone. Tests: a plan with a 5-branch wave yields 5 `###` headings and 5 branch lines, one per branch; branch NAMES are unchanged; a `complete` multi-branch wave is left untouched; the rest of the plan file is byte-identical; the skill declares an unattended shape and the all-skills sweep passes; no branch is dispatched and no PR is touched. → #335
 
 ### Counted
-- `feature/reconcile-counts-unsliced-waves` — `plot-reconcile-scan.sh` gains a section reporting every `### ` heading that carries more than one branch line, with a machine-countable footer entry the way its seven existing sections have one. It REPORTS and repairs nothing, which is the split Principle 3 states: this collects, `/plot-reslice` and a person conclude. Tests: a plan with a 5-branch wave is reported once with its plan file, its heading and its count; a plan whose waves each hold one branch is silent; a file with no `Phase:` is skipped, the same rule the scan already applies; the footer count matches the number of findings; the section does NOT gate — `attention=` is unchanged, because an unsliced wave is a shape to fix and not a branch that cannot move.
+- `feature/reconcile-counts-unsliced-waves` — `plot-reconcile-scan.sh` gains a section reporting every `### ` heading that carries more than one branch line, with a machine-countable footer entry the way its seven existing sections have one. It REPORTS and repairs nothing, which is the split Principle 3 states: this collects, `/plot-reslice` and a person conclude. Tests: a plan with a 5-branch wave is reported once with its plan file, its heading and its count; a plan whose waves each hold one branch is silent; a file with no `Phase:` is skipped, the same rule the scan already applies; the footer count matches the number of findings; the section does NOT gate — `attention=` is unchanged, because an unsliced wave is a shape to fix and not a branch that cannot move. → #341
 
 ### Offered
-- `feature/the-board-offers-a-reslice` — the `unsliced-wave` row gains one menu item that spawns `/plot-reslice`, wrapping the agent the way `/api/idea` wraps `/plot-idea`. Tests: the item appears only on an `unsliced-wave` row; it is absent where the server would refuse and NAMES the refusal on the control; the click spawns the command and writes nothing itself; a `complete` wave offers nothing; the route refuses a non-localhost binding, like every other spawn.
+- `feature/the-board-offers-a-reslice` — the `unsliced-wave` row gains one menu item that spawns `/plot-reslice`, wrapping the agent the way `/api/idea` wraps `/plot-idea`. Tests: the item appears only on an `unsliced-wave` row; it is absent where the server would refuse and NAMES the refusal on the control; the click spawns the command and writes nothing itself; a `complete` wave offers nothing; the route refuses a non-localhost binding, like every other spawn. → #348
 
 ## Notes
 
@@ -212,3 +254,19 @@ and it is precisely the defect `waves-name-themselves` argues from — meta and
 content sharing a line — reproduced inside the plan this one is about to slice.
 The line is de-backticked here; the general fix belongs to that plan.
 
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": false, "implementation": false},
+    "domain": {"rules": false, "workflows": false, "data": false},
+    "ux": {"happyPath": false, "edgeCases": false, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": false
+  },
+  "_note": "Back-filled 2026-08-22: this plan was interrogated once on 2026-08-22 (see ## Notes). The round count is recorded, but the questionHistory could not be reconstructed from prose after the fact, so it is left empty rather than invented."
+}
+END-CHALLENGE-THE-PLAN-METADATA -->

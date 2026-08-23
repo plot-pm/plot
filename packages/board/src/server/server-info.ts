@@ -41,6 +41,39 @@ export const BOARD_COMMAND_KEY = 'Board command';
  */
 const NO_COMMAND = '';
 
+/**
+ * The branch this process serves, read ONCE for the life of the server.
+ *
+ * `serverInfo()` runs on every /api/board response, and this repo spent
+ * measured effort taking a per-request `git` fork off that path
+ * (`no-network.test.ts`). A process serves exactly one worktree for its whole
+ * life, so the branch is a startup fact, not a per-request one — memoised here,
+ * behind a null sentinel, so the fork happens on the first call and never
+ * again.
+ *
+ * `git branch --show-current` prints the branch, or NOTHING for a detached
+ * HEAD — several worktrees here are detached. Empty is the honest answer for
+ * *detached or unreadable*: the header renders no element rather than inventing
+ * a short SHA, which would read as a branch name to anyone skimming. Any
+ * failure (not a git repo, git absent) lands on the same empty string, since
+ * the page's response to *cannot say* is identical to its response to
+ * *detached* — show nothing.
+ */
+let cachedBranch: string | null = null;
+function currentBranch(opts: BuildBoardOptions): string {
+  if (cachedBranch === null) {
+    try {
+      cachedBranch = execFileSync('git', ['branch', '--show-current'], {
+        cwd: opts.repoRoot,
+        encoding: 'utf8',
+      }).trim();
+    } catch {
+      cachedBranch = '';
+    }
+  }
+  return cachedBranch;
+}
+
 /** Read one `## Plot Config` key via the shared helper (with a default). */
 function readConfig(opts: BuildBoardOptions, key: string, fallback: string): string {
   try {
@@ -66,5 +99,9 @@ export function serverInfo(opts: BuildBoardOptions, port: number): ServerInfo {
   return {
     restartCommand: readConfig(opts, BOARD_COMMAND_KEY, NO_COMMAND),
     port,
+    // Memoised — this is a startup fact, so the fork stays off the request
+    // path. Empty for a detached HEAD or an unreadable repo, which the header
+    // renders as no element rather than a fabricated name.
+    branch: currentBranch(opts),
   };
 }

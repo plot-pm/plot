@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Active
+- **Phase:** Closed
 - **Start:** 2026-08-18
 - **End:** 2026-08-22
 - **Release:** 2.6.0
@@ -36,13 +36,13 @@ this timebox is measuring.
 - [ ] [the-board-never-shrinks-on-a-success] Deliver — both waves merged (#211, #217)
 - [ ] [the-board-answers-agents] Deliver wave 1 (#212), decide whether wave 2 belongs in this timebox
 - [ ] [plot-board-setup] Deliver — waves merged as #208, #209
-- [ ] Set the 32 delivered-but-unreleased plans to Released — measured by `plot-reconcile-scan.sh`, unreleased_delivered=32
+- [x] Set the 32 delivered-but-unreleased plans to Released — measured by `plot-reconcile-scan.sh`, unreleased_delivered=32 <!-- done: 2026-08-23, the sweep now reports unreleased_delivered=2 -->
 
 ### Could Have
 
 - [ ] [the-repair-exists-but-nothing-calls-it] The pulse repairs an artifact conflict without being asked
 - [ ] [the-pulse-measures-progress-not-elapsed-time] `changed_ago_seconds`, so a long job and a stuck one stop looking the same
-- [ ] Decide PR #57 — conflicts resolved, `test:board` still failing after 23 days open
+- [ ] Decide PR #57 — conflicts resolved, `test:board` still failing after 23 days open <!-- moved: 2026-08-23 to 2026-W35, still undecided at 29 days -->
 
 ### Deferred
 
@@ -67,3 +67,28 @@ taken hold and temporal grouping had not.
 The items are the work that was already in flight, not work invented for the
 sprint. That is deliberate: a first sprint that also changes what gets done
 would confound the two things being tested.
+
+### Scope Changes
+
+- **2026-08-23 — closed, two versions after its release shipped.** The sprint
+  declared `Release: 2.6.0`, which shipped on 2026-08-15, and stayed Active
+  through 2.7.0 and 2.8.0's timebox. It gated nothing in that window — the gate
+  only fires on the release a sprint targets — but a sprint outliving its release
+  is drift, and it hid the fact that one of its items was still genuinely open.
+
+  Its two remaining items were checked rather than assumed:
+
+  - **The 32 delivered-but-unreleased plans:** done. The sweep reports
+    `unreleased_delivered=2` today, so 30 of the 32 were resolved — the item is
+    closed on its own measurement rather than on the calendar.
+  - **PR #57:** **not done, and worse than recorded.** Still open, still
+    `mergeable_state: dirty`, last touched 2026-07-25 — **29 days**, not the 23
+    the item states. It moves to `2026-W35`, because closing a sprint must not
+    quietly absorb a decision nobody has taken.
+
+## Notes (closing)
+
+- 2026-08-23: closed. Every Must Have was delivered and released in 2.6.0; what
+  kept the sprint Active was one Should Have that had since completed and one
+  Could Have that had not. Recorded here rather than silently ticked, since the
+  difference between those two is the whole reason to check before closing.

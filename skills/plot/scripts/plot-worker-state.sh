@@ -52,23 +52,26 @@
 # about the process, and none of them is the `finished`-means-everything blur
 # this refinement exists to split.
 
-# THE BLOCKED MARKER, and why Plot names one rather than only borrowing.
+# THE BLOCKED MARKER IS A FILE, not a string any file may contain.
 #
-# `TODO(you)` is what workers actually wrote this session. It was never
-# documented anywhere, so it is a convention that EMERGED — and an emergent
-# convention drifts: the same session already produced `TODO(human)`, and
-# nothing stops the next one producing `ASK:` or a paragraph of prose. A marker
-# the classifier cannot find is a `waiting` reported as `stalled`, which is the
-# restart-into-the-same-wait this state exists to prevent.
+# Plot instructs a blocked worker to WRITE a file — the `Worker command` in the
+# adopting repo's CLAUDE.md says *"write PLOT-BLOCKED: followed by the question
+# into a file"*. So `plot_worker_blocked` looks for the file, by name.
 #
-# So Plot DEFINES `PLOT-BLOCKED:` — a token no other tool emits, greppable
-# without false positives, and documented in the skills that tell workers to
-# write it. The two observed spellings stay recognised beside it, because they
-# exist in trees right now and dropping them would silently regress every
-# worker already running. Naming one and keeping the others is not indecision:
-# the defined marker is what Plot ASKS for, the emergent ones are what Plot
-# still ACCEPTS, and the set only ever grows by measurement.
-PLOT_BLOCKED_MARKER='PLOT-BLOCKED:|TODO\((you|human)\)'
+# A CONTENTS GREP WAS THE ORIGINAL, and it never worked: it matched the marker
+# token `PLOT-BLOCKED:` (and `TODO(you|human)`) over file CONTENTS, and 28
+# tracked files on `main` contain that token — CLAUDE.md and every brief that
+# documents the feature among them — because a marker that must be documented
+# appears in its own documentation. A token cannot be both the thing you search
+# for and the thing you write about when the search is over everything, so every
+# pristine worktree read `waiting` before any worker ran. A filename cannot be
+# mentioned into existence by prose: a doc may describe the marker file all it
+# likes without becoming one.
+#
+# `TODO(you|human)` IS DROPPED rather than ported. It was kept as an emergent
+# spelling because trees held it, but it is a code-comment convention and
+# matching it over contents is the same defect with a smaller blast radius. A
+# worker signalling from inside a file writes the marker file too.
 
 # Plot's OWN records inside a worktree — `.plot-worker.pid`,
 # `.plot-worker.wrapper.pid`, `.plot-worker.exit`, `.plot-worker.log`, and
@@ -144,53 +147,45 @@ plot_worker_log() { # $1=worktree → path to the worker log, or "" (non-zero)
 
 # Is a person being waited on inside this worktree?
 #
-# READ FROM THE TREE, NOT THE LOG. The log records that a question WAS asked;
+# A MARKER FILE IN THE TREE, NOT A STRING IN A FILE. A blocked worker writes a
+# `PLOT-BLOCKED*` file; a doc that mentions the marker does not become one. This
+# is the whole fix: the contents grep this replaced matched 28 documenting files
+# on `main`, so every pristine worktree read `waiting` before any worker ran.
+#
+# READ FROM THE TREE, NOT THE LOG, and the file is still the right place to look
+# for the same reason the grep was. The log records that a question WAS asked;
 # only the tree records that it is still UNANSWERED, and only the tree clears
-# when someone writes the answer. Measured: a restarted worker found its own
-# question already answered in the commit above it and carried on without
-# asking again — the log still held the question, and always will.
+# when the answering worker deletes the file. Measured: a restarted worker found
+# its own question already answered in the commit above it and carried on
+# without asking again — the log still held the question, and always will. The
+# marker file being its OWN name rather than a line inside `.plot-worker.log`
+# keeps that distinction automatically: the log is never a `PLOT-BLOCKED*` file.
 #
-# `git grep` over the TRACKED TREE PLUS UNTRACKED FILES, never `grep -r` over
-# the directory. A worktree holds `node_modules` and build output, and a
-# recursive grep would search all of it. `--untracked` is included because a
-# marker a worker just wrote and has not committed is the live case;
-# `--exclude-standard` keeps ignored build output out of it.
+# AT THE WORKTREE ROOT, not at any depth. Every observed marker sits at the
+# root, and root is the stricter answer — a worker that means to signal writes
+# where it is told to. The glob is anchored to `"$wt"/` and matches no deeper.
 #
-# PLOT'S OWN RECORDS ARE EXCLUDED BY NAME, not by hoping the repo ignores them.
-# `.plot-worker.log` is the one file GUARANTEED to contain the marker whenever
-# the worker mentioned writing one — its final report says what it left behind —
-# so searching it answers `waiting` from the report of a question that may since
-# have been ANSWERED. That is precisely the log-versus-tree distinction this
-# function exists to draw.
+# A `for`/`-e` LOOP, NOT `ls "$wt"/PLOT-BLOCKED* >/dev/null`. An unmatched glob
+# is shell-dependent, and this file is SOURCED. Under bash — the shell both
+# callers (`plot-dispatch.sh`, `plot-fleet-scan.sh`) declare — an unmatched glob
+# expands to the literal pattern, which the `-e` test then finds absent, so the
+# empty case returns 1 cleanly. That is the case this loop is written for and it
+# is verified on the real call path (a bash script sourcing this file).
 #
-# RELYING ON `--exclude-standard` FOR THAT WAS A BUG, and CI caught it where a
-# local run could not. This repo's `.gitignore` lists the three `.plot-worker.*`
-# files, so the log was skipped here for a reason that belongs to THIS repo
-# rather than to Plot; a fixture repo without those lines searched the log and
-# read `waiting`. An adopting repo that never ignores them would have done the
-# same, silently, forever. The exclusion is Plot's own and must not be delegated
-# to a file Plot does not control.
-#
-# NOT `--no-index`, WHICH IS NOT A SPELLING OF THIS. Measured: `git grep
-# --no-index --untracked` is a fatal error — the two are mutually exclusive —
-# and it exits 128 having matched NOTHING. Silently, in the reassuring
-# direction: every waiting worker would have read `stalled` and been restarted
-# into the wait this state exists to prevent. `--no-index` also means "search
-# the directory, ignore git", which would have re-admitted the log.
-#
-# `-I` skips binary files: a marker-shaped byte sequence inside a `.png` is a
-# coincidence, not a question.
+# UNDER zsh THE ANSWER IS STILL CORRECT BUT REACHED THE UGLY WAY: zsh's default
+# `nomatch` makes an unmatched glob a fatal error, so a zsh user who sources
+# this directly gets the right verdict (non-zero) with a `no matches found` line
+# on stderr, from the error rather than from `return 1`. Neither caller is zsh,
+# so this does not bite in production; it is recorded here rather than papered
+# over, because the honest state is "correct under the callers' shell, noisy
+# under a shell no caller uses" — not "identical under both".
 plot_worker_blocked() { # $1=worktree → 0 when a person owes this branch an answer
-  local wt="$1"
+  local wt="$1" f
   [ -n "$wt" ] && [ -d "$wt" ] || return 1
-  # EVERY OPTION BEFORE THE PATTERN. `git grep -qIE <pat> --untracked` parses
-  # `--untracked` as a REVISION and dies "unable to resolve revision" — exit
-  # 128, no match, and `2>/dev/null` swallows the message. Measured here: the
-  # same silent failure in the same reassuring direction as `--no-index`, from a
-  # different cause. Two ways to write this wrongly is why the test asserts a
-  # marker is FOUND rather than only that a clean tree is not `waiting`.
-  git -C "$wt" grep -qIE --untracked --exclude-standard "$PLOT_BLOCKED_MARKER" \
-    -- . ':(exclude).plot-worker.*' 2>/dev/null
+  for f in "$wt"/PLOT-BLOCKED*; do
+    [ -e "$f" ] && return 0
+  done
+  return 1
 }
 
 # How much uncommitted work is on the floor, and in which files.

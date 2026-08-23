@@ -13,6 +13,9 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-22, Jan Wloka, plan-PR #306 merged
 - **Started:** 2026-08-22, Jan Wloka, `infra/the-parser-reads-a-wave-heading`
+- **Started:** 2026-08-22, Jan Wloka, `infra/the-parser-reads-a-wave-heading`
+- **Started:** 2026-08-22, Jan Wloka, `infra/the-template-writes-waves`
+- **Started:** 2026-08-23, Jan Wloka, `infra/the-parser-reads-a-wave-heading`
 
 ## Changelog
 
@@ -189,7 +192,7 @@ performing.
   still parses, so no existing plan changes meaning; a heading with no `PR:`
   yields no PR rather than an empty string; a backticked branch name in a
   PARAGRAPH is not a branch, which is the defect the old shape invited; the
-  format contract tests cover both shapes.
+  format contract tests cover both shapes. → #367
 
 ### Written
 - `infra/the-template-writes-waves` — the plan template and `/plot-idea` write
@@ -247,3 +250,19 @@ All three Open Questions closed. The naming one closed cheaply once measured:
 all 23 unnamed waves belong to Released or Delivered plans, so the judgement the
 plan feared — inventing a wave name for someone else's live work — does not
 arise.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": false, "implementation": false},
+    "domain": {"rules": false, "workflows": false, "data": false},
+    "ux": {"happyPath": false, "edgeCases": false, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": false
+  },
+  "_note": "Back-filled 2026-08-22: this plan was interrogated once on 2026-08-22 (see ## Notes). The round count is recorded, but the questionHistory could not be reconstructed from prose after the fact, so it is left empty rather than invented."
+}
+END-CHALLENGE-THE-PLAN-METADATA -->

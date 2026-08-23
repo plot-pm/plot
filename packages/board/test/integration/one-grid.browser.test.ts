@@ -156,23 +156,35 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // The resolved pixel string CANNOT be compared across rows any more, and
       // that is a fact about the layout rather than a weakening of the test.
       // Measured on this fixture, column 4 resolves to 842px, 817px or 792px —
-      // 25px apart, which is `ml-6` plus the group's rule. Column 4 is the only
+      // 25px apart, which is `ml-6` plus the group's rule. Column 4 is a
       // FLEXIBLE track, so a row nested one level deeper spends 25px of it on
-      // the indent while the six fixed tracks stay exactly where they are. A row
+      // the indent while the fixed tracks stay exactly where they are. A row
       // inside a wave group therefore reports a different string for the same
       // template, and asserting `toHaveLength(1)` asserted that no row is ever
       // nested — which the wave model makes permanently false.
       //
+      // COLUMN 3 (the NAME) joined column 4 as a per-row track on 2026-08-23:
+      // it became `minmax(12rem, auto)`, so `auto` resolves to that row's own
+      // content and a plan head with a long name reports a wider column 3 than a
+      // branch row beneath it. That is the alignment `agent-rows-line-up`
+      // established, and the operator deliberately gave it up so the name renders
+      // in full (see `TUPLE_TRACKS` in TupleRow.tsx). Columns 3 AND 4 are
+      // therefore both excluded below — the test no longer claims they agree
+      // across rows, because they are no longer meant to.
+      //
       // What a second grid smuggled in under another name would still fail:
-      // the track COUNT, and the six FIXED tracks, both checked below.
+      // the track COUNT, and the FIVE genuinely-fixed tracks, both checked below.
       const tracks = templates.map((t) => ({ kind: t.kind, cols: t.cols.split(' ') }));
       for (const t of tracks) {
         expect(t.cols, `${t.kind} lays out on seven tracks`).toHaveLength(7);
       }
-      // And the fixed tracks agree EXACTLY — every track but the flexible
-      // fourth. This is the pixel-level agreement the assertion above was
-      // reaching for, asked of the columns that carry it.
-      const fixed = new Set(tracks.map((t) => t.cols.filter((_, i) => i !== 3).join(' ')));
+      // And the fixed tracks agree EXACTLY — every track but the two flexible
+      // ones (column 3 the name, column 4 the links). This is the pixel-level
+      // agreement the assertion above was reaching for, asked of the columns
+      // that carry it.
+      const FLEXIBLE_COLS = new Set([2, 3]);
+      const fixed = new Set(
+        tracks.map((t) => t.cols.filter((_, i) => !FLEXIBLE_COLS.has(i)).join(' ')));
       expect([...fixed], `kinds: ${tracks.map((t) => t.kind).join()}`).toHaveLength(1);
     } finally {
       await page.close();
@@ -283,7 +295,7 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
     const page = await open();
     try {
       // 71 branch rows printed their plan's phase — 36 `Development`, 26
-      // `Endgame`, 9 `Design` — a fact about the plan on a row about something
+      // `Testing`, 9 `Design` — a fact about the plan on a row about something
       // else. Slot 5 on the PLAN row is where that fact is true.
       const planRow = page.locator('li[data-tuple-kind="plan"]');
       await planRow.first().waitFor({ timeout: 10_000 });

@@ -10,6 +10,7 @@ import { buildAttention } from './attention.js';
 import { dispatchAvailability, dispatchLog, handleDispatch, SLUG_RE } from './dispatch.js';
 import { continueAvailability, handleContinue } from './continue.js';
 import { handleClaim } from './claim.js';
+import { handleFleetControls } from './fleet-controls.js';
 import { handleTransition } from './transition.js';
 import { refuseIfGated } from './write-gate.js';
 import { agentPanel } from './agent-panel.js';
@@ -23,6 +24,8 @@ import {
 } from './approve.js';
 import { handleIdea, ideaAvailability, ideaStatus } from './idea.js';
 import { commissionAvailability, commissionStatus, handleCommission } from './commission.js';
+import { handleReslice, resliceAvailability, resliceStatus } from './reslice.js';
+import { handleDeliver, deliverAvailability, deliverStatus } from './deliver.js';
 // Inlined at build time by esbuild's text loader — the artifact is a single
 // self-contained file, served from memory (no filesystem static serving, so no
 // path-traversal surface).
@@ -152,6 +155,38 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     // Draft exactly as Approve is. It ships the `Design` phase minimally rather
     // than as a refusal: #259 landed the phase and nothing filled it.
     { path: '/api/commission', verb: 'commissioning design', handle: handleCommission },
+    // POST /api/reslice — a plan's tangled wave is sliced into one wave per branch.
+    //
+    // The same class of route as /api/commission, and the same binding: it
+    // spawns a plot agent that writes to this disk. It is SLUG-scoped — it acts
+    // on the plan the `unsliced-wave` row already names — and it asks the plan's
+    // own waves (through `plot-plan-meta.sh`) whether one holds more than one
+    // live branch before spawning, because reslicing is a repair for exactly the
+    // shape the row reports.
+    //
+    // IT WRITES NONE OF THE SLICE ITSELF. `/plot-reslice` reads the branches,
+    // proposes an order, and ASKS a person before rewriting `## Branches` — the
+    // order is judgement the board cannot make. This is the standing rule for
+    // board writes: reuse the agent-spawn shape for a judgement act rather than
+    // inventing a lifecycle transition.
+    { path: '/api/reslice', verb: 'reslicing a wave', handle: handleReslice },
+    // POST /api/deliver — a fully-merged plan is delivered.
+    //
+    // The same class of route as /api/reslice, and the same binding: it spawns a
+    // plot agent (`/plot-deliver`) that flips a plan's phase on this disk. It is
+    // SLUG-scoped — it acts on the plan the Testing card already names — and it
+    // asks the plan's own waves (through `plot-plan-meta.sh`, against the pulse
+    // the board renders from) whether every non-deferred branch has merged before
+    // spawning, because delivering a plan whose work is not done is the gate #350
+    // kept.
+    //
+    // DELIVERY IS A DECISION, NOT THE MEASUREMENT. The board bumps a fully-merged
+    // plan's card into Testing on its own — that is the measurement — but flips no
+    // phase. This route is where a person makes the decision to deliver, and it
+    // writes none of the transition itself: `/plot-deliver` re-verifies the merges
+    // and moves the plan. This is the standing rule for board writes: reuse the
+    // agent-spawn shape for a lifecycle act rather than inventing the transition.
+    { path: '/api/deliver', verb: 'delivering a plan', handle: handleDeliver },
     // POST /api/claim — reserve one branch of a plan, and return what resulted.
     //
     // Wraps `plot-dispatch.sh --no-start`, which already claims by pushing a ref
@@ -172,6 +207,24 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     // spoke's own reason. An API that could approve an unreviewed draft would be
     // a bypass of the lifecycle rather than an interface to it.
     { path: '/api/transition', verb: 'transitioning', handle: handleTransition },
+    // POST /api/fleet-controls — set the shared switch and cap, return the result.
+    //
+    // The ODD ONE OUT among these routes: it spawns no process and touches no
+    // git. It writes one small JSON file under `.plot/state/`, the shared home
+    // for the two section-header controls (auto-dispatch, parallel-agent cap).
+    // It is allow-listed here anyway, and that is the point of the table rather
+    // than an exception to it: every state-changing route inherits the loopback
+    // gate by construction, so a control that decides whether a fleet runs is
+    // gated exactly as the fleet's dispatch is — the binding is the permission
+    // for both. It reuses /api/dispatch's same-origin guard and bounded body
+    // reader rather than growing its own, the same discipline /api/claim keeps.
+    //
+    // A PARTIAL WRITE, returning STATE. The switch and the stepper post
+    // independently; the body names only the field it changes, and the response
+    // is the resulting controls — never a bare acknowledgement, the /api/claim
+    // contract. This wave dispatches NOTHING: the switch records an intention
+    // wave 3 reads, and turning it on here starts no agent.
+    { path: '/api/fleet-controls', verb: 'setting fleet controls', handle: handleFleetControls },
   ] as const;
 
   const writeRoute = WRITE_ROUTES.find((r) => r.path === url.pathname);
@@ -244,6 +297,21 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         // flag for two capabilities is how they diverge when a later change
         // makes only one of them local.
         commission: commissionAvailability(HOST),
+        // A SIXTH flag, and the SAME binding as `idea` and `commission` today —
+        // reslicing spawns the same plot agent that turns an issue into a plan.
+        // It stays a field of its own for the reason every flag above it does:
+        // one flag for two capabilities is how they diverge when a later change
+        // makes only one of them local. The `unsliced-wave` row reads it to
+        // decide whether *Slice this wave* acts or names its refusal.
+        reslice: resliceAvailability(HOST),
+        // A SEVENTH flag, and the SAME binding as `idea`, `commission` and
+        // `reslice` today — delivering spawns the same plot agent that turns an
+        // issue into a plan. It stays a field of its own for the reason every
+        // flag above it does: one flag for two capabilities is how they diverge
+        // when a later change makes only one of them local. Read together with a
+        // card's `deliverable` bit by the row — the binding says whether this
+        // BOARD can act, the card says whether the PLAN is complete enough to.
+        deliver: deliverAvailability(HOST),
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(board));
@@ -473,6 +541,36 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     res.end(
       SLUG_RE.test(slug)
         ? JSON.stringify(commissionStatus(opts, slug))
+        : JSON.stringify({ error: 'slug must be a plan slug' }),
+    );
+    return;
+  }
+
+  // What happened to a reslice somebody asked for — the same read-it-back shape
+  // `/api/commission/<slug>` has, slug-keyed. Because `/plot-reslice` asks
+  // before it writes, a reslice may move no row at all, so the button watches
+  // this for the command's own words on a refusal.
+  if (url.pathname.startsWith('/api/reslice/')) {
+    const slug = url.pathname.slice('/api/reslice/'.length);
+    res.writeHead(SLUG_RE.test(slug) ? 200 : 400, { 'Content-Type': 'application/json' });
+    res.end(
+      SLUG_RE.test(slug)
+        ? JSON.stringify(resliceStatus(opts, slug))
+        : JSON.stringify({ error: 'slug must be a plan slug' }),
+    );
+    return;
+  }
+
+  // What happened to a delivery somebody asked for — the same read-it-back shape
+  // `/api/reslice/<slug>` has, slug-keyed. A delivery moves the card out of
+  // Testing only once its phase flips, so the button watches this for the
+  // command's own words on a refusal.
+  if (url.pathname.startsWith('/api/deliver/')) {
+    const slug = url.pathname.slice('/api/deliver/'.length);
+    res.writeHead(SLUG_RE.test(slug) ? 200 : 400, { 'Content-Type': 'application/json' });
+    res.end(
+      SLUG_RE.test(slug)
+        ? JSON.stringify(deliverStatus(opts, slug))
         : JSON.stringify({ error: 'slug must be a plan slug' }),
     );
     return;

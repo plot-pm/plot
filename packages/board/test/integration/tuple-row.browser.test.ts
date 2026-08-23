@@ -9,6 +9,7 @@ import {
   tupleFromWave,
 } from '../../src/app/lib/tuple-row.js';
 import { AgentRowSchema, IssueRowSchema, RowKindSchema, type AgentRow } from '../../src/contract/schema.js';
+import { TUPLE_TRACKS } from '../../src/app/components/TupleRow.js';
 
 /**
  * A ROW IS A TUPLE — what only a rendered page can settle.
@@ -372,5 +373,238 @@ describe('a row is a tuple — what a rendered page settles', () => {
 
   it('carries a ticket age, which the section orders by', async () => {
     expect(await rowOf('ticket').locator('[data-tuple-age]').innerText()).toBe('1d');
+  });
+});
+
+/**
+ * AN ELIGIBLE WAVE CARRIES THE TONE — what only a DOM settles.
+ *
+ * `statusTone('eligible')` returning the emerald class is a data fact the unit
+ * suite owns. What this settles is that the class actually reaches the rendered
+ * status cell AND that the WORD is unchanged — colour reinforces `eligible`
+ * rather than replacing it, the rule `statusTone`'s docstring states.
+ *
+ * A second, one-tuple harness rather than an entry in `TUPLES`: that map is
+ * keyed by kind and asserted to hold exactly one row per kind, so a second
+ * `wave` would break the count above. The blocked wave up there is the negative
+ * control — it renders no tone, and this proves the eligible one does.
+ */
+describe('an eligible wave carries the emerald tone', () => {
+  let browser: Browser;
+  let page: Page;
+
+  const ELIGIBLE = tupleFromWave({
+    name: 'Shaped', plan: 'a-startable-wave-says-so', verdict: 'eligible',
+    branches: [
+      { branch: 'bug/an-eligible-wave-takes-the-actionable-tone', branchUrl: 'https://host/tree/bug/x' },
+      { branch: 'bug/the-wave-leaves-the-kind-alone', branchUrl: 'https://host/tree/bug/y' },
+    ],
+    blockedBy: null, outstanding: null, ageMinutes: 30, waitingDays: null,
+  });
+
+  const ONE_HARNESS = `
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { TupleRowView } from ${JSON.stringify(path.resolve(here, '../../src/app/components/TupleRow.tsx'))};
+
+createRoot(document.getElementById('root')).render(
+  React.createElement('ul', { role: 'rowgroup' },
+    React.createElement(TupleRowView, { tuple: window.__WAVE__, menu: null })),
+);
+`;
+
+  beforeAll(async () => {
+    const built = await esbuild.build({
+      stdin: { contents: ONE_HARNESS, resolveDir: path.resolve(here, '../..'), loader: 'tsx' },
+      bundle: true, format: 'esm', write: false, jsx: 'automatic',
+      absWorkingDir: path.resolve(here, '../..'),
+    });
+    browser = await chromium.launch();
+    const context = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
+    page = await context.newPage();
+    await page.setContent('<div id="root"></div>');
+    await page.evaluate((wave) => {
+      (window as never as { __WAVE__: unknown }).__WAVE__ = wave;
+    }, ELIGIBLE);
+    await page.addScriptTag({ content: built.outputFiles[0].text, type: 'module' });
+    await page.locator('li[data-tuple-kind="wave"]').first().waitFor({ timeout: 10_000 });
+  }, 60_000);
+
+  afterAll(async () => {
+    await browser?.close();
+  });
+
+  it('tones the status cell emerald and leaves the word `eligible`', async () => {
+    const status = page.locator('li[data-tuple-kind="wave"] [data-tuple-status]');
+    // THE WORD IS UNCHANGED — colour reinforces it, never replaces it.
+    expect(await status.innerText()).toBe('eligible');
+    // THE TONE IS PRESENT — the emerald class the good-news branch of
+    // `statusTone` returns rides on the status text, the same class `green`
+    // would carry. `innerHTML` because the harness page loads no stylesheet, so
+    // the class is in the markup rather than expressed as a computed colour.
+    expect(await status.innerHTML()).toContain('text-emerald-700');
+    expect(await status.innerHTML()).toContain('dark:text-emerald-500');
+  });
+});
+
+/**
+ * THE NAME TRACK HOLDS THE NAME — the geometry only a laid-out grid can settle.
+ *
+ * Slot 3 was a fixed `12rem` (192px) while slot 4 took `1fr`. On a plan-group
+ * head slot 4 is EMPTY, so the flexible track absorbed width the name needed and
+ * a name past ~20 characters ellipsised while the row sat half empty. Slot 3 is
+ * now `minmax(12rem, auto)`: the floor keeps a narrow viewport unchanged, the
+ * `auto` ceiling lets a long name claim the room slot 4 is not using.
+ *
+ * This is asserted here rather than in the unit guard because it is a claim about
+ * a RENDERED box: `truncate` clips whenever `scrollWidth > clientWidth`, which is
+ * a layout-computed comparison and returns nothing meaningful without a grid
+ * actually sizing the track. So the harness applies the grid CSS `TUPLE_TRACKS`
+ * compiles to — the sibling harness above carries no stylesheet, and the kind
+ * test there records that Tailwind classes are inert on that page.
+ *
+ * The CSS is DERIVED from the constant, not hand-copied: the test reads the
+ * arbitrary-value track list out of `TUPLE_TRACKS` and turns it back into a
+ * `grid-template-columns`, so a change to the constant flows straight through and
+ * a hand-copied grid can never drift from the one the board ships.
+ *
+ * ## Overridden 2026-08-23 — the cost this accepts
+ *
+ * Each row is its own grid, so `auto` sizes to that row's content: a plan head
+ * with a long name grows slot 3 wider than a branch row beneath it, and the
+ * column edges no longer line up between the two. That was the property
+ * `agent-rows-line-up` established, and the operator deliberately gave it up on
+ * 2026-08-23 so the name renders in full (see `TUPLE_TRACKS`' docstring). This
+ * suite therefore does NOT assert cross-row alignment on slots 3+; it asserts the
+ * name is readable, which is what the trade bought.
+ */
+const gridTemplateColumnsFromTracks = (): string => {
+  const inner = /grid-cols-\[(.+)\]/.exec(TUPLE_TRACKS)?.[1];
+  if (!inner) throw new Error(`TUPLE_TRACKS is not a Tailwind track list: ${TUPLE_TRACKS}`);
+  // Tailwind's arbitrary-value syntax joins tracks with `_` (a space becomes an
+  // underscore); CSS wants spaces. `minmax(12rem,auto)` carries no underscore,
+  // so the split is clean.
+  return inner.split('_').join(' ');
+};
+
+// A slug long enough to clip at the OLD 12rem track and short enough to fit the
+// grown one at 1400px — the exact case the plan measured (44 chars renders in
+// full, ~20 clips). This is 44 characters, a real shape from this repo's
+// estate rather than a synthetic string of x's.
+const LONG_PLAN_SLUG = 'the-sections-carry-the-fleet-controls-widely';
+
+const LONG_NAME_HARNESS = `
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { TupleRowView } from ${JSON.stringify(path.resolve(here, '../../src/app/components/TupleRow.tsx'))};
+
+const tuple = window.__TUPLE__;
+createRoot(document.getElementById('root')).render(
+  React.createElement(
+    'ul',
+    { role: 'rowgroup', id: 'grid' },
+    React.createElement(TupleRowView, { tuple, menu: null }),
+  ),
+);
+`;
+
+describe('the name track holds the name (A: a long plan slug renders in full)', () => {
+  let browser: Browser;
+  let page: Page;
+
+  beforeAll(async () => {
+    const planTuple = tupleFromPlan({
+      plan: LONG_PLAN_SLUG,
+      planFile: `2026-08-22-${LONG_PLAN_SLUG}.md`,
+      phase: 'Design', waitingDays: 1,
+    });
+    const built = await esbuild.build({
+      stdin: { contents: LONG_NAME_HARNESS, resolveDir: path.resolve(here, '../..'), loader: 'tsx' },
+      bundle: true, format: 'esm', write: false, jsx: 'automatic',
+      absWorkingDir: path.resolve(here, '../..'),
+    });
+    const bundle = built.outputFiles[0].text;
+    browser = await chromium.launch();
+    // 1400px — the wide viewport the plan states its A assertion at, where the
+    // row has visible free space and a fixed 12rem track would still clip.
+    const context = await browser.newContext({ viewport: { width: 1400, height: 600 } });
+    page = await context.newPage();
+    await page.setContent('<div id="root"></div>');
+    await page.evaluate((t) => {
+      (window as never as { __TUPLE__: unknown }).__TUPLE__ = t;
+    }, planTuple);
+    // SUPPLY THE TAILWIND UTILITIES THIS LAYOUT DEPENDS ON. The harness page
+    // carries no stylesheet, so every `class` on the component is inert — the
+    // grid does not size and, crucially, `truncate` does not clip, which is the
+    // very behaviour under test. These are the exact declarations the named
+    // utilities compile to; only the ones this geometry needs are supplied, so
+    // the test states its dependencies rather than pulling in the whole build.
+    await page.addStyleTag({ content: `
+      .flex { display: flex; }
+      .min-w-0 { min-width: 0; }
+      .items-baseline { align-items: baseline; }
+      .truncate {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      * { font: 14px sans-serif; box-sizing: border-box; }
+    ` });
+    await page.addScriptTag({ content: bundle, type: 'module' });
+    await page.locator('li[data-tuple-kind]').first().waitFor({ timeout: 10_000 });
+    // APPLY THE GRID the constant compiles to. The `grid-cols-[…]` class is
+    // inert here too; without this the row is a flex fallback and the track
+    // never sizes. Derived from `TUPLE_TRACKS`, never hand-copied.
+    await page.evaluate((cols) => {
+      const li = document.querySelector('li[data-tuple-kind]') as HTMLElement;
+      li.style.display = 'grid';
+      li.style.gridTemplateColumns = cols;
+      li.style.columnGap = '0.75rem'; // gap-x-3, matching the row's own class
+    }, gridTemplateColumnsFromTracks());
+  }, 60_000);
+
+  afterAll(async () => {
+    await browser?.close();
+  });
+
+  const nameSpan = () =>
+    page.locator('li[data-tuple-kind="plan"] [data-tuple-link="plan"] .truncate');
+
+  it('renders the full slug — the text is not ellipsised', async () => {
+    // THE ASSERTION THAT SEPARATES A REAL FIX FROM A THRESHOLD SHIFT. `truncate`
+    // ellipsises exactly when the text overflows its box: `scrollWidth` (the full
+    // text width) exceeds `clientWidth` (the visible box). Equal means the whole
+    // name shows. This is string-equality's geometric twin — asserted as "no
+    // overflow", never as "wider than before".
+    const span = nameSpan();
+    await expect.poll(() => span.count(), { timeout: 10_000 }).toBe(1);
+    const clipped = await span.evaluate(
+      (el) => el.scrollWidth > el.clientWidth + 1);
+    expect(clipped, 'the long slug should render in full, not ellipsised').toBe(false);
+    // And the box is genuinely past the old 12rem floor — the `auto` ceiling
+    // grew it. 192px is 12rem; a name this long needs more, and gets it.
+    const boxWidth = await span.evaluate((el) => el.clientWidth);
+    expect(boxWidth).toBeGreaterThan(192);
+  });
+
+  it('still ellipsises a name genuinely wider than the space available', async () => {
+    // THE FIX IS *CLIP WHEN NEEDED*, NOT *NEVER CLIP*. Squeeze the row to a
+    // narrow viewport-equivalent by pinning the grid to its 12rem floor and hand
+    // it a name no track this side of the breakpoint could hold. The ellipsis
+    // must come back — a fix that removed truncation entirely would pass A and
+    // break every narrow viewport.
+    await page.evaluate(() => {
+      const li = document.querySelector('li[data-tuple-kind]') as HTMLElement;
+      // Floor only: 12rem for slot 3, no grow. This is the narrow-viewport shape.
+      li.style.gridTemplateColumns = '1.5rem 4.5rem 12rem 1fr 8rem 4.5rem 1.25rem';
+    });
+    const span = nameSpan();
+    // A name far past 12rem (~20 chars) with the track pinned to its floor.
+    await span.evaluate((el) => {
+      el.textContent = 'a-name-far-longer-than-twelve-rem-could-ever-hold-and-then-some';
+    });
+    const clipped = await span.evaluate(
+      (el) => el.scrollWidth > el.clientWidth + 1);
+    expect(clipped, 'a name wider than the floored track must still clip').toBe(true);
   });
 });

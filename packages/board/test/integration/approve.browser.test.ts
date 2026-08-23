@@ -127,7 +127,7 @@ describe('approve: a Draft card can act, behind one confirmation', () => {
     try {
       // An approved plan has nothing to approve, and offering it would invite a
       // second approval whose one effect is a confusing error. Asserted across
-      // Design/Endgame/Released rather than on one card, so a rule keyed on the
+      // Design/Testing/Released rather than on one card, so a rule keyed on the
       // wrong column would show up.
       for (const title of NOT_DRAFT) {
         const card = cardFor(page, title);

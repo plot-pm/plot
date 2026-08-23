@@ -211,3 +211,19 @@ branch to PR #313. The status question survives and belongs to wave 1.
 Scope narrowed to rendering. Putting Implement and Dispatch on a plan row is
 #313's subject, gated on approved-and-unstarted rather than on wave count; two
 branches changing one row's action set would collide on the same predicate.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": false, "implementation": false},
+    "domain": {"rules": false, "workflows": false, "data": false},
+    "ux": {"happyPath": false, "edgeCases": false, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": false
+  },
+  "_note": "Back-filled 2026-08-22: this plan was interrogated once on 2026-08-22 (see ## Notes). The round count is recorded, but the questionHistory could not be reconstructed from prose after the fact, so it is left empty rather than invented."
+}
+END-CHALLENGE-THE-PLAN-METADATA -->

@@ -762,13 +762,14 @@ json_escape() {
     | awk 'BEGIN{ORS=""} {if (NR>1) print "\\n"; print}'
 }
 
-# Write one agent manifest: launch-time facts only, keyed on the session id.
+# Write one agent manifest: launch-time facts, keyed on the session id.
 #
-# Every field here is something `start_worker` holds at the moment of the call.
-# There is deliberately no model, no context and no pid: the first two belong to
-# the runtime and are read from the transcript, and the pid describes the PROCESS
-# rather than the agent — it is meaningless once that process exits, which is the
-# defect this manifest exists to fix.
+# Model and context are still absent on purpose: they belong to the runtime and
+# are read from the transcript, so a manifest that named them would be a guess.
+# The `pid` starts EMPTY here and is stamped by the wrapper the instant it learns
+# its own child — see `stamp_manifest_pid`. The dispatcher does not know the
+# agent pid at this line (only the wrapper does, from its `$!`), so it writes the
+# field as a placeholder the wrapper fills rather than guessing it now.
 #
 # Written to a temp file and moved into place, so a scan reading the directory
 # never sees a half-written manifest. `mv` within one directory is atomic.
@@ -780,11 +781,19 @@ write_agent_manifest() { # $1=path $2=session $3=branch $4=worktree $5=command
     printf '  "branch": "%s",\n' "$(json_escape "$3")"
     printf '  "worktree": "%s",\n' "$(json_escape "$4")"
     printf '  "command": "%s",\n' "$(json_escape "$5")"
+    printf '  "pid": "",\n'
     printf '  "startedAt": "%s"\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf '}\n'
   } > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
   mv "$tmp" "$out" 2>/dev/null || { rm -f "$tmp"; return 1; }
 }
+
+# THE MANIFEST PID IS STAMPED BY THE WRAPPER, NOT HERE. The agent's pid is
+# knowable only to the wrapper (`$!` of its own backgrounded child), so the stamp
+# is inline in the wrapper's `sh -c` below — a fresh shell that cannot reach a
+# function defined in this bash script, the same isolation that makes the wrapper
+# own `.plot-worker.pid`. The write above leaves `"pid": ""` as a placeholder the
+# wrapper replaces; the mechanics and their safety are documented at that call.
 
 # Start one DETACHED worker per worktree. Detached is the whole point: the
 # fleet must outlive the dispatching session. Logs go beside the worktree so a
@@ -879,10 +888,84 @@ start_worker() {
   # `$!` and `wait` for it. There is a sub-millisecond window after the wrapper
   # starts and before it writes `.plot-worker.pid`; a scan landing in it reads an
   # absent pid file as `none` — honest, never "running" off a stale value.
+  #
+  # THE WRAPPER ALSO STAMPS THE MANIFEST PID, for the same reason it writes the
+  # pid file: it is the one process that knows the agent's own pid. The manifest
+  # path travels as `PLOT_MANIFEST_FILE`, beside the exit/pid paths, so no quoting
+  # level inside the single-quoted `sh -c` mangles a path with spaces. The stamp
+  # is inline `awk` rather than a bash helper, because a helper would live in this
+  # bash script and the detached `sh -c` is a fresh shell with no access to it —
+  # the same isolation that makes the wrapper own the pid.
+  #
+  # ONE CONTRACT, TWO IMPLEMENTATIONS. This inline `awk` is the mechanical twin of
+  # `manifest-stamp.ts`'s `stampManifest`; `/api/continue` calls that helper, and a
+  # parity test (`manifest-stamp-parity.test.ts`) runs THIS awk against the same
+  # inputs and asserts a byte-identical result. The two exist because the callers
+  # cannot share code — a detached `sh -c` reaches no TypeScript, and a bash helper
+  # is out of a fresh shell's reach — but they must not drift, the
+  # `plot-worker-state.sh` lesson after five of six states diverged in duplicate.
+  #
+  # It replaces ANY `pid` line, not only the empty placeholder — a full-line
+  # anchored match on bytes we control, so nothing in the command value (one
+  # escaped JSON string on its own line) can be mistaken for it. On a FIRST
+  # dispatch the placeholder is empty: the pid is filled and nothing else changes,
+  # byte-identical to the manifest before relaunch bookkeeping existed. On a
+  # RELAUNCH the line already holds a pid: it is overwritten, `startedAt` is
+  # rewritten to now, and two lines are inserted after `pid` — `previousPid` (the
+  # corpse displaced) and `relaunches` (the restart count, +1 from any it carried).
+  # The dispatcher mints a fresh session per launch so its own manifest is always a
+  # first stamp; the relaunch arms exist for parity with `/api/continue`, which
+  # reuses a worktree's existing manifest. A pid is digits, so no JSON escaping is
+  # needed. Rewritten through a temp file and `mv`, atomic like the original write.
+  # Any failure leaves the pid untouched — the registry reads an absent one as
+  # `unknown`.
+  #
+  # The awk reads the manifest TWICE — the same file passed as two arguments, so
+  # `FNR==NR` is the pre-scan. Pass one learns whether the pid is already filled
+  # (a relaunch) and the count any prior `relaunches` line held; pass two rewrites.
+  # This mirror of a two-pass read is what lets a SECOND relaunch increment rather
+  # than reset: the old count sits AFTER the pid line, so a single pass could not
+  # know it when it must emit the new `relaunches` immediately after `pid`.
+  #
+  # On the pid line: an empty placeholder is filled and nothing else changes (a
+  # first stamp, byte-identical to before); a filled pid is overwritten and the
+  # two relaunch records — `previousPid` then `relaunches` — are emitted right
+  # after it, then any stale copies of those lines are dropped and `startedAt` is
+  # rewritten to the current run. This is exactly `stampManifest`, line for line,
+  # which the parity test pins byte for byte.
+  local stamp_now
+  stamp_now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   ( cd "$wt" && PLOT_BRANCH="$branch" PLOT_WORKTREE="$wt" \
       PLOT_SESSION_ID="$session" \
+      PLOT_MANIFEST_FILE="$manifest_dir/$session.json" \
+      PLOT_STAMP_STARTED="$stamp_now" \
       PLOT_EXIT_FILE="$wt/.plot-worker.exit" PLOT_PID_FILE="$wt/.plot-worker.pid" \
-      nohup sh -c '( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; wait "$agent"; rc=$?; printf "%s" "$rc" > "$PLOT_EXIT_FILE"' \
+      nohup sh -c '( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" '"'"'
+        BEGIN { relaunch = 0; count = 1; stamped = 0 }
+        FNR == NR {
+          if ($0 ~ /^  "pid": "[^"]*",$/) {
+            p = $0; sub(/^  "pid": "/, "", p); sub(/",$/, "", p)
+            if (p != "") { relaunch = 1; displaced = p }
+          }
+          if ($0 ~ /^  "relaunches": [0-9]+,$/) {
+            n = $0; sub(/^  "relaunches": /, "", n); sub(/,$/, "", n); count = n + 1
+          }
+          next
+        }
+        !stamped && $0 ~ /^  "pid": "[^"]*",$/ {
+          stamped = 1
+          print "  \"pid\": \"" pid "\","
+          if (relaunch) {
+            print "  \"previousPid\": \"" displaced "\","
+            print "  \"relaunches\": " count ","
+          }
+          next
+        }
+        relaunch && $0 ~ /^  "previousPid": "[^"]*",$/ { next }
+        relaunch && $0 ~ /^  "relaunches": [0-9]+,$/ { next }
+        relaunch && $0 ~ /^  "startedAt": "[^"]*"$/ { print "  \"startedAt\": \"" started "\""; next }
+        { print }
+      '"'"' "$PLOT_MANIFEST_FILE" "$PLOT_MANIFEST_FILE" > "$PLOT_MANIFEST_FILE.plot-pid-tmp" 2>/dev/null && mv "$PLOT_MANIFEST_FILE.plot-pid-tmp" "$PLOT_MANIFEST_FILE" 2>/dev/null || rm -f "$PLOT_MANIFEST_FILE.plot-pid-tmp"; fi; wait "$agent"; rc=$?; printf "%s" "$rc" > "$PLOT_EXIT_FILE"' \
       >"$log" 2>&1 </dev/null & echo $! >"$wt/.plot-worker.wrapper.pid" )
   echo "    started worker (log: $log)"
   return 0

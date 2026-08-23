@@ -51,7 +51,9 @@ function worktree(opts: { marker?: boolean; pid?: string } = {}): string {
   git('commit', '-qm', 'trunk: before the branch existed');
   git('checkout', '-qb', BRANCH);
   if (opts.marker !== false) {
-    fs.writeFileSync(path.join(dir, 'QUESTION.md'), 'PLOT-BLOCKED: which adapter should this use?');
+    // The marker is a PLOT-BLOCKED* FILE the worker wrote, not a string inside
+    // some other file — `markerIn` finds it by name, mirroring the classifier.
+    fs.writeFileSync(path.join(dir, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which adapter should this use?');
   }
   fs.writeFileSync(path.join(dir, 'landed.txt'), 'what the previous run wrote');
   git('add', '-A');
@@ -243,6 +245,134 @@ describe('answering starts a NEW run', () => {
     assert.ok(log.includes('the previous run said this'), 'the previous log must survive');
   });
 });
+
+describe('answering UPDATES the manifest — the path that produced the defect', () => {
+  // THE ASSERTION THE PLAN ASKS FOR AGAINST THIS ROUTE, not only the dispatcher.
+  // `/api/continue` spawns directly and never runs `plot-dispatch.sh`, so a fix
+  // to the dispatcher's awk alone would leave this path — the one the reported
+  // bug came from — stamping nothing. The manifest for the branch's worktree must
+  // name the NEW pid, record the displaced one, and count the relaunch.
+
+  /** A repoRoot carrying one manifest whose worktree matches the fixture. */
+  function repoWithManifest(wt: string, pid: string): { root: string; manifest: string } {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-repo-'));
+    const dir = path.join(root, '.plot', 'agents');
+    fs.mkdirSync(dir, { recursive: true });
+    const manifest = path.join(dir, 'sess-1.json');
+    fs.writeFileSync(
+      manifest,
+      [
+        '{',
+        '  "session": "sess-1",',
+        `  "branch": "${BRANCH}",`,
+        `  "worktree": "${wt}",`,
+        '  "command": "claude -p \\"go\\"",',
+        `  "pid": "${pid}",`,
+        '  "startedAt": "2026-08-20T09:00:00Z"',
+        '}',
+        '',
+      ].join('\n'),
+    );
+    return { root, manifest };
+  }
+
+  const roots: string[] = [];
+  afterEach(() => {
+    while (roots.length) fs.rmSync(roots.pop()!, { recursive: true, force: true });
+  });
+
+  async function postTo(root: string, body: unknown, d: ContinueDeps) {
+    const { res, out } = response();
+    await handleContinue(request(body), res, { ...opts, repoRoot: root }, d);
+    if (out.status === 202) {
+      const p = (out.body as { prompt?: string }).prompt;
+      if (p) spawned.add(path.dirname(p));
+    }
+    return out;
+  }
+
+  it('overwrites the pid, records previousPid, and increments relaunches', async () => {
+    const wt = worktree({ pid: '424242' });
+    dirs.push(wt);
+    const { root, manifest } = repoWithManifest(wt, '424242');
+    roots.push(root);
+
+    const out = await postTo(root, { branch: BRANCH, answer: 'go' }, deps(wt));
+    assert.equal(out.status, 202);
+    const body = out.body as { pid: string; previousPid: string };
+
+    const m = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+    assert.equal(m.pid, body.pid, 'the manifest names the new run');
+    assert.notEqual(m.pid, '424242');
+    assert.equal(m.previousPid, '424242', 'and records the pid it displaced');
+    assert.equal(m.relaunches, 1, 'the relaunch is counted');
+  });
+
+  it('increments relaunches across TWO relaunches', async () => {
+    // Catches a stamp that sets previousPid correctly but never counts: relaunch
+    // once, then relaunch the same worktree again.
+    const wt = worktree({ pid: '111' });
+    dirs.push(wt);
+    const { root, manifest } = repoWithManifest(wt, '111');
+    roots.push(root);
+
+    const first = await postTo(root, { branch: BRANCH, answer: 'go' }, deps(wt));
+    // The marker must exist for the second continuation to be accepted. The
+    // `true` worker never cleared the first run's marker, so a PLOT-BLOCKED* FILE
+    // is still in the tree — but write a fresh one by name to be explicit, since
+    // `markerIn` finds the marker by filename, not by content.
+    fs.writeFileSync(path.join(wt, 'PLOT-BLOCKED-again.md'), 'PLOT-BLOCKED: and again?');
+    // The pulse's previousPid comes from `worker_pid`; point it at the pid the
+    // first relaunch wrote, as a fresh pulse would.
+    const firstPid = (first.body as { pid: string }).pid;
+    const second = await postTo(root, { branch: BRANCH, answer: 'go' }, {
+      pulse: () => pulseWith2(wt, firstPid),
+      config: (_o, key, fb) => (key === 'Worker command' ? 'true' : fb),
+    });
+    assert.equal(second.status, 202);
+
+    const m = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+    assert.equal(m.relaunches, 2, 'counted across two relaunches, not just overwritten');
+    assert.equal(m.previousPid, firstPid, 'the second relaunch displaced the first');
+  });
+
+  it('does not fail the continuation when no manifest names the worktree', async () => {
+    // The manifest is a best-effort display fact. A worktree dispatched before
+    // manifests existed has none, and continuing it must still start a worker
+    // rather than 500 on a missing file.
+    const wt = worktree({ pid: '424242' });
+    dirs.push(wt);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-nomani-'));
+    roots.push(root);
+    fs.mkdirSync(path.join(root, '.plot', 'agents'), { recursive: true });
+    const out = await postTo(root, { branch: BRANCH, answer: 'go' }, deps(wt));
+    assert.equal(out.status, 202, 'a missing manifest is not a failure');
+  });
+});
+
+/** A pulse whose worker_pid is the given previous pid — for the second relaunch. */
+function pulseWith2(wt: string, previousPid: string): FleetPulse {
+  return {
+    main: 'main',
+    head: 'abc',
+    fetch_failed: false,
+    plans: [
+      {
+        file: 'docs/plans/p.md',
+        phase: 'Approved',
+        waves: [
+          {
+            name: 'Answer',
+            verdict: 'eligible',
+            branches: [
+              { branch: BRANCH, local_worktree: wt, worker: 'waiting', worker_pid: previousPid },
+            ],
+          },
+        ],
+      },
+    ],
+  } as unknown as FleetPulse;
+}
 
 describe('the prompt that reaches the worker', () => {
   it('is written into the worktree and named in the reply', async () => {

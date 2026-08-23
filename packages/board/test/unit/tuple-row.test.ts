@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import {
   KIND_ICON_PATH,
   prStatus,
+  planPrAggregate,
+  statusTone,
   KIND_LABEL,
   SESSION_ID_CHARS,
   releaseVersion,
@@ -332,6 +334,70 @@ describe('slot 5 says where a PR stands, and draft is not a state', () => {
   });
 });
 
+describe('a folded plan folds its branches PR states into one word', () => {
+  // The DATA half of the fold. Whether the badge stays on both plan-head paths
+  // and stays while expanded is what only a rendered page can settle — see
+  // `test/integration/folded-plan-pr-fold.browser.test.ts`. Everything here is
+  // the precedence and the count, which are pure.
+
+  it('takes the WORST-CASE word, conflicts over failing', () => {
+    // `conflicts` outranks `failing` because no PR resolves a conflict — the
+    // errand is a rebase and it is the reader's — while a failing check is the
+    // machine's report on work already pushed. A plan carrying both sends the
+    // reader to the harder errand.
+    expect(planPrAggregate(['failing', 'conflicts'])?.word).toBe('conflicts');
+    expect(planPrAggregate(['conflicts', 'failing'])?.word).toBe('conflicts');
+    expect(planPrAggregate(['conflicts', 'failing'])?.state).toBe('conflicts');
+  });
+
+  it('orders failing above pending, and pending above the quiet states', () => {
+    expect(planPrAggregate(['pending', 'failing'])?.word).toBe('checks failing');
+    expect(planPrAggregate(['green', 'pending'])?.word).toBe('CI running');
+    expect(planPrAggregate(['pending', 'green', 'none'])?.state).toBe('pending');
+  });
+
+  it('counts only the branches carrying the WINNING state', () => {
+    // The count is how many branches carry exactly the word shown — a plan of
+    // two conflicts and one failing says `conflicts (2)`, not `(3)`: the count
+    // qualifies the errand the badge names, not the size of the fold.
+    const fold = planPrAggregate(['conflicts', 'conflicts', 'failing']);
+    expect(fold?.word).toBe('conflicts');
+    expect(fold?.count).toBe(2);
+  });
+
+  it('reports a count of ONE where a single branch carries the state', () => {
+    // The renderer suppresses `(1)` — a lone branch says its own size by being
+    // one row. The function reports the true count and leaves that to the
+    // consumer, which is the split the brief draws: *a count appears only where
+    // more than one branch is affected*.
+    expect(planPrAggregate(['failing', 'green'])?.count).toBe(1);
+  });
+
+  it('says NOTHING for a plan whose branches are green, quiet, or PR-less', () => {
+    // Green plans get no badge — nothing to act on, and a badge on every row is
+    // a badge nobody reads. `none`/`unknown` are the host declining to answer,
+    // `closed` is abandoned work, and a branch with no PR contributes no state:
+    // a plan of unstarted branches folds to nothing, which is right.
+    expect(planPrAggregate(['green', 'green'])).toBeNull();
+    expect(planPrAggregate(['none', 'unknown', 'closed'])).toBeNull();
+    expect(planPrAggregate([null, undefined])).toBeNull();
+    expect(planPrAggregate([])).toBeNull();
+    // A green plan beside quiet states is still silent — green does not earn a
+    // word even when it is the only thing to say.
+    expect(planPrAggregate(['green', 'none', 'closed'])).toBeNull();
+  });
+
+  it('speaks the SAME word a single-row plan would for that state', () => {
+    // The fold reuses `prStatus`'s vocabulary, so slot 5 reads one language
+    // whether the word came from one branch or five — the carried-over rule
+    // that a state is a WORD, unchanged by aggregation.
+    for (const state of ['conflicts', 'failing', 'pending'] as const) {
+      expect(planPrAggregate([state])?.word)
+        .toBe(prStatus({ number: 0, url: '', draft: false, state }));
+    }
+  });
+});
+
 describe('slot 3 is the item and slot 4 is the vehicle', () => {
   it('gives a PR row separate links to separate destinations', () => {
     // A PR names the PR, its plan and its branch — all already on the row:
@@ -426,17 +492,30 @@ describe('a release is its own kind, and it carries only a mark', () => {
     expect(tupleFromRow(release).kind).toBe('release');
   });
 
-  it('names its PR where no version is known, rather than inventing a tag', () => {
+  it('names its PR where no version is known, AND SAYS SO with a #', () => {
     // Changesets names the branch after the BASE, not the version, so most
     // release rows honestly know no version. Deriving `2.7.0` would mean summing
     // pending bumps — *what would this ship* — the question the plan refuses to
     // answer on a board, because it makes the board where release decisions are
     // prepared.
+    //
+    // THE FALLBACK MUST SAY SO. A bare `300` in the name slot of a release row
+    // reads like a version — `3.0.0` truncated, a major, something a reader
+    // decides about — when it is only the PR the version could not be read from.
+    // The `#` is the universal mark for a PR/issue number, so `#300` can never
+    // be mistaken for the version the slot usually holds. The plan's test list
+    // ends on exactly this case: *falls back to the PR number and says so,
+    // rather than showing a number that reads like a version*.
     expect(releaseVersion(release)).toBe('');
-    expect(tupleFromRow(release).name.label).toBe('300');
-    // And where a version IS on the row, it leads — the version is what a
-    // reader decides about, and the PR is how it gets there.
+    expect(tupleFromRow(release).name.label).toBe('#300');
+    // And where a version IS on the row, it leads UNPREFIXED — the version is
+    // what a reader decides about, and it is a version, not a reference to one.
     expect(tupleFromRow({ ...release, plan: '2.7.0' }).name.label).toBe('2.7.0');
+    // The two are distinguishable at a glance, which is the whole point: a
+    // version never wears the `#`, a stand-in number always does.
+    expect(tupleFromRow(release).name.label.startsWith('#')).toBe(true);
+    expect(tupleFromRow({ ...release, plan: '2.7.0' }).name.label.startsWith('#'))
+      .toBe(false);
   });
 
   it('carries no action of its own — the tuple says what a row IS', () => {
@@ -622,15 +701,15 @@ describe('every kind fills all six slots', () => {
     //
     // The phase is a fact about a PLAN. Slot 5 on a plan row is where it is
     // true, and 71 branch rows printed it anyway (36 `Development`, 26
-    // `Endgame`, 9 `Design`) because slot 2 was a column looking for something
+    // `Testing`, 9 `Design`) because slot 2 was a column looking for something
     // to hold. A PR row and a build row have no phase at all — a CI run is not
-    // in `Endgame` — and a ticket has never entered the lifecycle the word
+    // in `Testing` — and a ticket has never entered the lifecycle the word
     // comes from.
     //
     // Every projection here is handed a row that COULD leak one: `row()` carries
     // `phase` and the plan fixture is in `Design`, so a projection reading
     // `row.phase` into slot 5 would be caught rather than passing on absent data.
-    const PHASES = ['Discovery', 'Design', 'Development', 'Endgame', 'Released'];
+    const PHASES = ['Discovery', 'Design', 'Development', 'Testing', 'Released'];
     for (const kind of RowKindSchema.options) {
       const t = projections[kind]();
       if (kind === 'plan') {
@@ -934,11 +1013,11 @@ describe('slot 5 holds a value, never a sentence', () => {
 
   it('puts the PHASE on the plan row, which is the object it describes', () => {
     // 71 branch rows printed their plan's phase — 36 `Development`, 26
-    // `Endgame`, 9 `Design` — a fact about the plan on a row about something
+    // `Testing`, 9 `Design` — a fact about the plan on a row about something
     // else. Slot 5 on the PLAN row is where that fact is true.
     expect(tupleFromPlan({
-      plan: 'p', planFile: 'f.md', phase: 'Endgame', waitingDays: null,
-    }).status).toBe('Endgame');
+      plan: 'p', planFile: 'f.md', phase: 'Testing', waitingDays: null,
+    }).status).toBe('Testing');
   });
 });
 
@@ -956,5 +1035,53 @@ describe('no host call is added', () => {
     const imports = src.match(/^import .*$/gm) ?? [];
     expect(imports).toHaveLength(1);
     expect(imports[0]).toMatch(/contract\/schema\.js/);
+  });
+});
+
+describe('statusTone colours what a reader acts on', () => {
+  // The rule is *colour what a reader acts on*, not *colour the problem* —
+  // `green` already takes a tone, so a green PR you can merge and an `eligible`
+  // wave you can start are the same prompt in one column. `eligible` joins the
+  // emerald branch for exactly that reason.
+  const EMERALD = 'text-emerald-700 dark:text-emerald-500';
+  const ROSE = 'text-rose-700 dark:text-rose-400';
+
+  it('tones `eligible` the same emerald as `green`', () => {
+    // An eligible wave is the single most actionable state on the board — it
+    // means *this can be started now*. It earns the good-news tone BECAUSE a
+    // person can act on it, and it takes the SAME class `green` returns: still
+    // two colours, not three — a word moves into a group that exists.
+    expect(statusTone('eligible')).toBe(EMERALD);
+    expect(statusTone('eligible')).toBe(statusTone('green'));
+  });
+
+  it('leaves `blocked` untoned — it is the opposite case', () => {
+    // A blocked wave is precisely the one a reader can do nothing about: an
+    // earlier wave holding it back is the system working, not a fault. It keeps
+    // the ordinary grey, and its note already carries the dimmed `time` tone.
+    expect(statusTone('blocked')).toBe('');
+  });
+
+  it('leaves `complete` untoned — a complete wave prompts nothing', () => {
+    // Arguably finished-like, but its branches have landed and its plan moves
+    // on: colouring it would put emerald on rows a reader scrolls past, which
+    // is the dilution the two-value rule guards against.
+    expect(statusTone('complete')).toBe('');
+  });
+
+  it('keeps the emerald group as it was — good news is still good news', () => {
+    // The palette does not grow; adding `eligible` does not disturb the words
+    // already in the branch.
+    expect(statusTone('green')).toBe(EMERALD);
+    expect(statusTone('delivered')).toBe(EMERALD);
+    expect(statusTone('finished')).toBe(EMERALD);
+  });
+
+  it('leaves the rose group unchanged', () => {
+    // The bad-news branch is untouched: this plan tones one word and only one.
+    expect(statusTone('conflicts')).toBe(ROSE);
+    expect(statusTone('checks failing')).toBe(ROSE);
+    expect(statusTone('failed')).toBe(ROSE);
+    expect(statusTone('stalled')).toBe(ROSE);
   });
 });

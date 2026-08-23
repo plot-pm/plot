@@ -24,11 +24,11 @@ describe('toBoardPhase', () => {
     expect(toBoardPhase('approved', true)).toBe('Development');
   });
 
-  it('ends Development at the merge — Delivered is Endgame alone', () => {
+  it('ends Development at the merge — Delivered is Testing alone', () => {
     // A column is a partition. Delivered means the code landed and the agents
     // are done; verification and signoff are human-led.
-    expect(toBoardPhase('delivered')).toBe('Endgame');
-    expect(toBoardPhase('delivered', true)).toBe('Endgame');
+    expect(toBoardPhase('delivered')).toBe('Testing');
+    expect(toBoardPhase('delivered', true)).toBe('Testing');
   });
 
   it('reads Draft as Discovery — the phase where the plan is still being found', () => {

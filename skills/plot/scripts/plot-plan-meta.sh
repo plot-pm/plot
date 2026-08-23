@@ -128,6 +128,18 @@
 #                  is a note to a reviewer rather than a release note. Comment
 #                  interiors stay non-content, as everywhere else in this parser,
 #                  so the template's guidance block contributes nothing.
+#   long_wave_names wave names too long to be labels — a report, not a refusal.
+#                  A wave name is a label (`Shaped`, `Gated`, `Offered first`);
+#                  a sentence-length heading is a plan-authoring mistake the
+#                  board can only render badly. Names past a threshold judgement
+#                  (LONG_WAVE_NAME_MAX, set from the estate's longest legitimate
+#                  name) are listed here in document order, so the reconcile
+#                  sweep can surface them for a fix. Reads the SAME wave names
+#                  waves[] carries — never a second scan of the file — so both
+#                  the ## Branches and ## Waves spellings are covered. [] when
+#                  every wave name is a label; ALWAYS present, so a consumer
+#                  never reads undefined. The plan still parses in full: waves[]
+#                  is unchanged and no name is shortened or dropped.
 #   issues         tracker issue numbers this plan answers, from the `## Status`
 #                  `Issue:` line or front matter `issue:` (sorted, unique).
 #                  A DEDICATED field, never a scan of the body for `#NNN`: a
@@ -204,7 +216,7 @@ if [ ${#files[@]} -eq 0 ] && [ ${#missing[@]} -eq 0 ]; then
 fi
 
 for f in ${missing[@]+"${missing[@]}"}; do
-  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"issues":[],"malformed_prs":[],"changelog":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","started_raw":[]}\n' \
+  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"issues":[],"malformed_prs":[],"changelog":[],"long_wave_names":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","started_raw":[]}\n' \
     "$(printf '%s' "$f" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 done
 
@@ -399,6 +411,27 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
     out = out "]}"
   }
   out = out "]"
+  # long_wave_names[]: wave names past LONG_WAVE_NAME_MAX, in document order. A
+  # wave name is a label (`Shaped`, `Gated`, `Offered first`); a sentence-length
+  # heading is a plan-authoring mistake the board can only render badly. This
+  # REPORTS the offenders — a top-level field, never a change to waves[], so the
+  # plan still parses and every existing consumer of waves[] is untouched. The
+  # threshold is a JUDGEMENT baked into one constant (see LONG_WAVE_NAME_MAX):
+  # the longest legitimate name in the estate is `Offered first` at 13, the
+  # offender that motivated this is 53. Measured over the whole array so BOTH
+  # spellings (## Branches and ## Waves) are covered from one place. length()
+  # here is the awk byte length, which can exceed the character count for a name
+  # with a multi-byte dash — harmless: the threshold clears every real name by
+  # tens of bytes either way, so the verdict never turns on the last byte.
+  out = out ",\"long_wave_names\":["
+  lwn = 0
+  for (w = 1; w <= n_waves; w++) {
+    if (length(wave_names[w]) > LONG_WAVE_NAME_MAX) {
+      out = out (lwn > 0 ? "," : "") "\"" jesc(wave_names[w]) "\""
+      lwn++
+    }
+  }
+  out = out "]"
   out = out ",\"review_raw\":\"" jesc(review) "\",\"review\":\"" norm_review(review) "\""
   out = out ",\"impl_raw\":\"" jesc(impl) "\",\"impl\":\"" norm_impl(impl) "\""
   out = out ",\"design_raw\":\"" jesc(design) "\""
@@ -413,7 +446,12 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   out = out "}"
   print out
 }
-BEGIN { branch_re = "`(" PREFIXES ")/[^`]+`" }
+# The longest wave name that still reads as a label, not prose. A JUDGEMENT, not
+# a measurement: the longest legitimate name in the estate is `Offered first`
+# (13), and the offender this exists to catch is a 53-character sentence, so the
+# line sits well clear of both. Reported, never enforced — a name past it makes
+# `long_wave_names`, and nothing refuses the plan.
+BEGIN { branch_re = "`(" PREFIXES ")/[^`]+`"; LONG_WAVE_NAME_MAX = 40 }
 FNR == 1 {
   if (NR > 1) emit_record()
   reset_state()

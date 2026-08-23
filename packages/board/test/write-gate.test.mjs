@@ -48,8 +48,26 @@ const WRITE_ROUTES = [
   // Commission design spawns a plot agent that writes a plan to this disk — the
   // same class of write as /api/idea, and gated by the same loopback boundary.
   { path: '/api/commission', body: { slug: 'ship-the-widget' } },
+  // Reslice spawns a plot agent that slices a plan's tangled wave into one wave
+  // per branch — the same class of write as /api/commission, and gated by the
+  // same loopback boundary. Added here because the router dispatches from a
+  // TABLE and this test reads that table back out of the artifact: a write route
+  // absent from this list fails the coverage assertion below.
+  { path: '/api/reslice', body: { slug: 'ship-the-widget' } },
+  // Deliver spawns a plot agent that flips a fully-merged plan's phase on this
+  // disk — the same class of write as /api/reslice, and gated by the same
+  // loopback boundary. Added here because the router dispatches from a TABLE and
+  // this test reads that table back out of the artifact: a write route absent
+  // from this list fails the coverage assertion below.
+  { path: '/api/deliver', body: { slug: 'ship-the-widget' } },
   { path: '/api/claim', body: { slug: 'ship-the-widget' } },
   { path: '/api/transition', body: { slug: 'ship-the-widget', transition: 'approve' } },
+  // Sets the two shared fleet controls (auto-dispatch switch, parallel-agent
+  // cap). It spawns nothing and only writes a small JSON file under
+  // `.plot/state/`, but it is a write all the same and gated by the same
+  // loopback boundary: a control that decides whether a fleet runs must not be
+  // reachable by a phone reading the board over Tailscale.
+  { path: '/api/fleet-controls', body: { autoDispatch: true } },
 ];
 
 /** Give a spawn that should NOT have happened time to leave its mark. */

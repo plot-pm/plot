@@ -6,11 +6,20 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** pr
 - **Impl:** own branches
+- **Approved:** 2026-08-23, Jan Wloka, in-session
+- **Started:** 2026-08-23, Jan Wloka, `feature/merged-waves-reach-testing`
+- **Started:** 2026-08-23, Jan Wloka, `feature/deliver-finds-prs-without-annotations`
+- **Started:** 2026-08-23, Jan Wloka, `feature/the-plan-row-offers-deliver`
+- **Started:** 2026-08-23, Jan Wloka, `feature/the-phase-after-development-is-testing`
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Changelog
 
@@ -157,7 +166,7 @@ PR creation is not a change to the delivery path.
 
 ### Reached
 
-- `feature/merged-waves-reach-testing` — a plan whose every wave holds a merged
+- `feature/merged-waves-reach-testing` → #345 — a plan whose every wave holds a merged
   branch reports the phase after Development rather than Development. Tests: all
   waves merged → the later phase; one wave open → Development; a deferred branch
   does not block it, matching the scan's own rule; a plan already `delivered`
@@ -165,7 +174,7 @@ PR creation is not a change to the delivery path.
 
 ### Verified
 
-- `feature/deliver-finds-prs-without-annotations` — `/plot-deliver` matches
+- `feature/deliver-finds-prs-without-annotations` → #350 — `/plot-deliver` matches
   merged PR heads to branch names where a plan carries no `→ #N` annotation,
   which is what `plot-reconcile-scan.sh` already does. Tests: a plan with zero
   annotations and all branches merged verifies; one with an unmerged branch
@@ -174,7 +183,7 @@ PR creation is not a change to the delivery path.
 
 ### Offered
 
-- `feature/the-plan-row-offers-deliver` — the plan row gains a `Deliver` action
+- `feature/the-plan-row-offers-deliver` → #351 — the plan row gains a `Deliver` action
   spawning `/plot-deliver <slug>`, wrapping the skill rather than writing the
   transition. Tests: the item appears only on a plan whose waves are all merged;
   it is absent where the server would refuse and NAMES the refusal on the
@@ -183,7 +192,7 @@ PR creation is not a change to the delivery path.
 
 ### Named
 
-- `feature/the-phase-after-development-is-testing` — `Endgame` becomes `Testing`
+- `feature/the-phase-after-development-is-testing` → #361 — `Endgame` becomes `Testing`
   through `BOARD_PHASES`, its mapping and every reader. Tests: the contract enum
   carries `Testing` and not `Endgame`; `toBoardPhase('delivered')` returns it;
   the board column header reads it; no source file under `packages/board/src`
@@ -221,3 +230,19 @@ sixteen workers ignored the instruction, which makes it a rule without a gate �
 but a gate on PR creation is not a change to the delivery path, and this plan
 should not grow one.
 
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": false, "implementation": false},
+    "domain": {"rules": false, "workflows": false, "data": false},
+    "ux": {"happyPath": false, "edgeCases": false, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": false
+  },
+  "_note": "Back-filled 2026-08-22: this plan was interrogated once on 2026-08-22 (see ## Notes). The round count is recorded, but the questionHistory could not be reconstructed from prose after the fact, so it is left empty rather than invented."
+}
+END-CHALLENGE-THE-PLAN-METADATA -->

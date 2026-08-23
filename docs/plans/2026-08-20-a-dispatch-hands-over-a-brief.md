@@ -186,7 +186,17 @@ Two properties this must keep:
 - `bug/a-dispatch-without-a-brief-refuses` — `plot-dispatch.sh` refuses to launch a worker for a branch with no brief, with `--no-brief` as the named escape. Tests: a branch with no brief is prepared and **not started**, and the message names the file and the two ways forward; a branch **with** a brief starts as before; `--no-brief` starts it and says so in the log; an unreadable brief is treated as missing, not as present; the footer still reports `brief=` and now agrees with what happened; the plan gate and the held-branch refusal are unchanged.
 
 ### Handed over
-- `feature/the-board-asks-for-a-brief` — `/api/dispatch` calls the `/api/implement` route that `an-approved-plan-offers-its-two-starts` (PR #313) builds, and waits for the brief before running the script; with no `Implement command` configured the button refuses and names it. **Depends on #313**: this branch adds the ordering, not the route or the key. Tests: the brief exists before the worker starts; the two spawns are ordered, never concurrent; the slug is passed and the branch is not; a missing `Implement command` refuses with the key named, rather than starting a briefless agent; a failing `/plot-implement` does not start a worker; nothing about `/api/idea` changes.
+- `feature/the-board-asks-for-a-brief` — `/api/dispatch` calls `/api/implement`
+  and waits for the brief before running the script; with no `Implement command`
+  configured the button refuses and names it. **Depends on
+  `an-approved-plan-offers-its-two-starts` WAVE 2**
+  (feature/implement-runs-from-the-board — no backticks: the parser reads a
+  backticked branch name under `## Branches` as a claim, and this CITES a
+  dependency rather than listing a branch this wave owns) — on the wave
+  landing, not on its
+  plan PR merging. #313 merged 2026-08-22 and built nothing: `implement.ts` does
+  not exist and no route is registered. A merged plan PR is a decision, not a
+  route, and this branch adds the ordering rather than either. Tests: the brief exists before the worker starts; the two spawns are ordered, never concurrent; the slug is passed and the branch is not; a missing `Implement command` refuses with the key named, rather than starting a briefless agent; a failing `/plot-implement` does not start a worker; nothing about `/api/idea` changes.
 
 ## Notes
 
@@ -225,3 +235,46 @@ binds the CLI as well as the board — the manual dispatch performed on
 2026-08-22 wrote its brief first, and the gate makes that sequence mandatory
 rather than remembered.
 
+**Interrogated again 2026-08-22**, after the day's dispatching produced evidence
+the first round could not have.
+
+**Four briefs were written by hand in this session** — 98, 102, 110 and 136
+lines — because nothing writes them. Of the four dispatches they fed, **three
+produced PRs and two are merged**; the briefless worktrees on the same estate
+produced three abandoned branches. Small numbers and a correlation, claimed as
+no more than that, but it points the same way as the 2:12 run.
+
+**A brief is necessary and not sufficient.** The fourth dispatch stalled with a
+136-line brief in its worktree: correct work, 513 tests passing, one commit
+short of a PR. The brief closes the *specification* gap; it says nothing about
+the *completion* gap, which is what the registry-liveness wave of
+`approval-hands-the-work-to-agents` is for. This plan should not be read as
+fixing both.
+
+**The size is a design constraint, not an accident.** Each brief carried the
+settled decisions with their measurements, the assertions a naive implementation
+would pass without, and the other branches in flight by name. Whatever
+`/plot-implement` generates has to reach that bar — an automated brief thinner
+than the manual one would satisfy the gate while re-opening the defect the gate
+exists to close.
+
+**And the dependency was overstated.** Round one wrote *"the route that PR #313
+builds"*; #313 merged that morning and built nothing — it carried a plan.
+Corrected to name the wave.
+
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 2,
+  "questionHistory": [],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": false, "implementation": false},
+    "domain": {"rules": false, "workflows": false, "data": false},
+    "ux": {"happyPath": false, "edgeCases": false, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": false
+  },
+  "_note": "Back-filled 2026-08-22: this plan was interrogated twice on 2026-08-22 (see ## Notes: 'Interrogated 2026-08-22' and 'Interrogated again 2026-08-22'). The round count is recorded, but the questionHistory could not be reconstructed from prose after the fact, so it is left empty rather than invented."
+}
+END-CHALLENGE-THE-PLAN-METADATA -->

@@ -117,7 +117,7 @@ export type PlanMeta = z.infer<typeof PlanMetaSchema>;
  *   Discovery    Draft — the plan is still being found          👤 human-led
  *   Design       Design — a question approval cannot answer     👤 human-led
  *   Development  Approved — handed to an agent, or waiting      🤖 agent-led
- *   Endgame      Delivered, not yet Released                    👤 human-led
+ *   Testing      Delivered, not yet Released                    👤 human-led
  *   Released     done
  *
  * Design is a real phase now, not a state the board infers. A plan enters it
@@ -136,10 +136,10 @@ export type PlanMeta = z.infer<typeof PlanMetaSchema>;
  *
  * Development ends at the MERGE, not at the release: Delivered means the code
  * landed and the agents are done, so what remains is verification and signoff.
- * A column is a partition, so Delivered belongs to Endgame alone.
+ * A column is a partition, so Delivered belongs to Testing alone.
  */
 export const BOARD_PHASES = [
-  'Discovery', 'Design', 'Development', 'Endgame', 'Released',
+  'Discovery', 'Design', 'Development', 'Testing', 'Released',
 ] as const;
 export type Phase = (typeof BOARD_PHASES)[number];
 
@@ -152,7 +152,7 @@ export const PHASE_LEADERSHIP: Record<Phase, { icon: string; who: string }> = {
   Discovery: { icon: '👤', who: 'human-led' },
   Design: { icon: '👤', who: 'human-led' },
   Development: { icon: '🤖', who: 'agent-led' },
-  Endgame: { icon: '👤', who: 'human-led' },
+  Testing: { icon: '👤', who: 'human-led' },
   Released: { icon: '✓', who: 'done' },
 };
 
@@ -291,11 +291,33 @@ export const CardSchema = z.object({
    */
   hasDispatchLog: z.boolean().optional(),
   /**
+   * Whether this plan is DELIVERABLE — every non-deferred branch merged, and the
+   * plan not yet delivered. The affordance signal the Deliver control reads.
+   *
+   * **A measurement, not a decision.** *Every wave being complete is a
+   * measurement; delivering is a decision* (`docs/board-domain-model.md`). This
+   * bit says the measurement holds — the code has landed and git can prove it —
+   * and nothing more: reaching it flips no phase and writes no `Delivered:`
+   * record. Delivering stays a person's click on the control this gates.
+   *
+   * Set ONLY on a card the server auto-bumped from Development into Testing
+   * because `allWavesMerged` held (see `buildBoard`). An already-`delivered`
+   * plan also lands in Testing, and it deliberately does NOT carry this — its
+   * decision was already made, so the control it would gate must not appear.
+   * That asymmetry is the whole reason this is its own bit rather than
+   * `phase === 'Testing'`.
+   *
+   * Optional and absent-when-false, the discipline of `worktrees`/`hasDispatchLog`
+   * above: a plan that is not deliverable, and an older server that never looked,
+   * both read as *not deliverable* — which leaves the control off either way.
+   */
+  deliverable: z.boolean().optional(),
+  /**
    * The date belonging to THIS card's phase, as `YYYY-MM-DD` — or "" where the
    * plan records none.
    *
    * One field rather than four, and that is the point: a `Released` card is
-   * recent by its **release** date and an `Endgame` card by its **delivery**
+   * recent by its **release** date and a `Testing` card by its **delivery**
    * date, so "how recent is this card" has a different answer per column. The
    * server picks the right record once (see `phaseDateOf`) and the client sorts
    * on the answer — otherwise every consumer would carry its own copy of the
@@ -403,6 +425,20 @@ export const ServerInfoSchema = z.object({
   restartCommand: z.string().default(''),
   /** The bound port, or 0 where it is not known. */
   port: z.number().default(0),
+  /**
+   * The branch this server is serving the artifact from — the worktree it was
+   * started in. With 22+ worktrees on this repo a reader who sees a layout they
+   * changed and concludes the fix failed may simply be looking at another
+   * branch's artifact; this names which one so the two are told apart.
+   *
+   * Empty means DETACHED HEAD or unreadable — `git branch --show-current`
+   * prints nothing for a detached worktree, several of which exist here. The
+   * header renders NO element for the empty value rather than a chip saying
+   * `unknown` or a fabricated short SHA: a SHA answers a question nobody asked
+   * and reads as a branch name to anyone skimming. Absent (an older server that
+   * never sent the field) collapses to the same empty, and to the same silence.
+   */
+  branch: z.string().default(''),
 });
 export type ServerInfo = z.infer<typeof ServerInfoSchema>;
 
@@ -412,7 +448,7 @@ export const BoardSchema = z.object({
   /** See DispatchInfoSchema — a server capability, not plan data. */
   dispatch: DispatchInfoSchema.default({ available: false, reason: '' }),
   /** See ServerInfoSchema — how to start this server again, and where it is. */
-  server: ServerInfoSchema.default({ restartCommand: '', port: 0 }),
+  server: ServerInfoSchema.default({ restartCommand: '', port: 0, branch: '' }),
   /**
    * Whether the server will act on an Approve click, and why not.
    *
@@ -474,7 +510,36 @@ export const BoardSchema = z.object({
    */
   commission: DispatchInfoSchema.default({ available: false, reason: '' }),
   /**
-   * Newest release checklist, for the Endgame column: what is left before
+   * Whether "Slice this wave" will act — the sixth capability, twin of `idea`
+   * and `commission`: it spawns a plot agent (`/plot-reslice`) that rewrites a
+   * plan's `## Branches` on this disk, so it answers the same localhost binding
+   * they do. It stays its own field for the reason `approve`/`commission`
+   * record — one flag for two capabilities is how they diverge when a later
+   * change makes only one of them local. Same default as the five above: an
+   * older server sends nothing and a newer client hides the control rather than
+   * offering one that 403s.
+   */
+  reslice: DispatchInfoSchema.default({ available: false, reason: '' }),
+  /**
+   * Whether "Deliver" will act — the seventh capability, twin of `idea`,
+   * `commission` and `reslice`: it spawns a plot agent (`/plot-deliver`) that
+   * flips a plan's phase on this disk, so it answers the same localhost binding
+   * they do. It stays its own field for the reason `approve`/`commission`/
+   * `reslice` record — one flag for two capabilities is how they diverge when a
+   * later change makes only one of them local.
+   *
+   * **It answers only half the question the control needs.** This field says
+   * whether THIS BOARD can act; whether a given plan is *deliverable* — every
+   * non-deferred branch merged — is `Card.deliverable`, computed per plan from
+   * the pulse. A control that consulted this flag alone would offer Deliver on a
+   * plan with an open branch, which `/plot-deliver` (and this route) refuses.
+   *
+   * Same default as the six above: an older server sends nothing and a newer
+   * client hides the control rather than offering one that 403s.
+   */
+  deliver: DispatchInfoSchema.default({ available: false, reason: '' }),
+  /**
+   * Newest release checklist, for the Testing column: what is left before
    * signoff. null when no checklist exists or none could be parsed — the board
    * shows no badge rather than a guessed count.
    */
@@ -517,7 +582,7 @@ export function toBoardPhase(helperPhase: string, _started = false): Phase | nul
       // used to manufacture the Design column with; removing it is the change.
       return 'Development';
     case 'delivered':
-      return 'Endgame';
+      return 'Testing';
     case 'released':
       return 'Released';
     default:
@@ -1374,6 +1439,109 @@ export const WaitingGroupSchema = z.enum([
 export type WaitingGroup = z.infer<typeof WaitingGroupSchema>;
 
 /**
+ * A WAVE the contract carries — the entity `plan → wave → branch` names in the
+ * middle, given a place to live for the first time.
+ *
+ * Until now a wave existed only as ROWS THAT SHARE A STRING: every `AgentRow`
+ * carries `wave` (its name) and `verdict`, and anything a wave *has* — its
+ * section, its completeness, the branches under it — was re-derived at every
+ * call site that asked, from a predicate the asker chose. Measured: 33 call
+ * sites reached for `.wave`, and five defects were those derivations
+ * disagreeing (`the-wave-is-a-thing-the-board-can-hold`). This is the same move
+ * the board already made one level down, when `TupleRow` replaced two row
+ * components with one thing that has a `kind`: **the abstraction goes where the
+ * repetition is, not into the renderer.**
+ *
+ * DERIVED ONCE, SERVER-SIDE — `deriveWaves` in `fleet.ts`, where the scan's
+ * verdicts already are. The renderer must not recompute any part of it. The
+ * same rule `kind` settled: *a derivation is a guess with a rule attached, and
+ * the server is the only place that knows why the row exists.*
+ *
+ * A WAVE HAS A `verdict` AND INHERITS A `phase`; IT NEVER HAS A PHASE OF ITS
+ * OWN. Every wave of a plan shares that plan's phase — measured across the
+ * estate, zero plans have waves reporting different phases — so a phase on the
+ * Wave would be a field that only ever repeats the plan's. It is deliberately
+ * absent; read the plan's phase where a wave's phase is wanted.
+ */
+export const WaveSchema = z.object({
+  /**
+   * WHICH PLAN this wave belongs to — the plan's basename, exactly as a row
+   * carries it in `plan`. Half of a wave's identity: names repeat across plans
+   * (`Tracer`, `Implementation`), so `plan` alone does not name a wave and
+   * `name` alone does not either. The pair is the id `openWaves` already keys
+   * on and `waveKeyOf` already spells; this field is its first half.
+   */
+  plan: z.string(),
+  /**
+   * THE WAVE'S NAME — its `### ` heading in the plan file, or `(unnamed)` where
+   * the plan divided its work into no named waves. `UNNAMED_WAVE` is the value
+   * the server already substitutes on a row (`fleet.ts`, `wave.name || …`), and
+   * the same value is carried here so a consumer joining a Wave to its rows
+   * reads one spelling from both. A wave with no name is NOT hidden and does not
+   * fail — six such waves exist, all in plans predating the naming convention.
+   */
+  name: z.string(),
+  /**
+   * THE BRANCHES this wave HOLDS, by name — its contents, whatever each
+   * branch's individual state. The containment link, pointing DOWN: a wave has
+   * branches, a branch does not have a wave. Zero-or-more, and this is the kind
+   * that uses the upper end of that: a five-branch wave lists five.
+   *
+   * Names rather than whole rows, because the rows already travel in `rows` and
+   * a consumer that wants a branch's full state joins on the name. Carrying the
+   * row twice would be two copies of one fact, the drift this entity exists to
+   * end.
+   */
+  branches: z.array(z.string()),
+  /**
+   * THE SCAN'S VERDICT for the wave — `complete | eligible | blocked`,
+   * forwarded UNCHANGED from `plot-fleet-scan.sh`. Never re-derived here: the
+   * scan aggregated every branch and answered, and this is that answer
+   * travelling outward.
+   *
+   * NULL WHERE THE SCAN REPORTED NONE — a pulse from a scan whose verdict this
+   * board does not recognise, the same honest absence `AgentRow.verdict`
+   * keeps. Absent is not a guess; a wave with null here has no verdict a
+   * consumer may assert.
+   */
+  verdict: WaveVerdictSchema.nullable(),
+  /**
+   * THE ONE SECTION this wave belongs in — derived once, here, so no consumer
+   * has to pick a predicate and disagree with the next one.
+   *
+   * A wave whose every non-deferred branch is merged is `done`; otherwise the
+   * wave is where its UNFINISHED work is, which for a wave is `not-started` —
+   * `the-wave-is-a-thing-the-board-can-hold` settles that a wave never reaches
+   * `working` (an agent works, a wave does not) or `waiting-on-machine` (a wave
+   * is not a build). This is the wave-level answer; a branch's own `group` is
+   * finer and stays on the row.
+   *
+   * Derived from `complete` below rather than from `verdict`, and the two agree
+   * on a healthy fleet — but completeness reads the branch states directly, so
+   * a wave with a merged branch and an open one cannot report `done` however
+   * its verdict reads. The mixed `Inverted` wave is the case this closes: one
+   * merged branch, one open, and the scan still calling the wave unfinished.
+   */
+  section: WaitingGroupSchema,
+  /**
+   * WHETHER EVERY NON-DEFERRED BRANCH IS MERGED — the wave's completeness,
+   * asked once and answered the same everywhere it is read.
+   *
+   * A deferred branch is exempt: `plot-deliver` skips deferred branches in its
+   * own completeness gate, so `{merged, deferred}` is a complete wave and
+   * `{merged, open}` is not. A wave with only deferred branches (nothing to
+   * merge) is complete — there is no unfinished work in it.
+   *
+   * SEPARATE FROM `verdict`, deliberately. `verdict` is the scan's aggregate;
+   * this reads the branch states this payload carries. They agree today, and
+   * keeping both lets a consumer that has one check it against the other rather
+   * than choosing which to trust.
+   */
+  complete: z.boolean(),
+});
+export type Wave = z.infer<typeof WaveSchema>;
+
+/**
  * The four ways a branch can be unable to MOVE — as distinct from what it IS.
  *
  * `classify` answers *what is this branch*: claimed, eligible, blocked, working.
@@ -1670,6 +1838,17 @@ export const MachineProcessSchema = z.object({
 });
 export type MachineProcess = z.infer<typeof MachineProcessSchema>;
 
+/**
+ * The branch a `changeset-release` PR rides on — the ONE name this repo matches.
+ *
+ * IN THE CONTRACT because both sides ask the question: the server derives a
+ * row's `kind`, and the client's `isReleaseBranch` asks the same thing of the
+ * same string. `fleet.ts` states the rule this obeys — the name is matched in
+ * exactly one place, and *"a second copy on the client would be the defect"*.
+ * A shared constant is how that holds without the client importing server code.
+ */
+export const RELEASE_BRANCH = /^changeset-release\//;
+
 export const AgentRowSchema = z.object({
   /** Constant today. Present so the second repo is an addition, not a rebuild. */
   repo: z.string(),
@@ -1831,6 +2010,12 @@ export const AgentRowSchema = z.object({
      * withholds the reason — measured on PR #149 and PR #160, both of which read
      * `no checks` while GitHub said *this branch has conflicts*.
      *
+     * **THIS FIELD IS THE WINNER OF `states`, AND STAYS.** It answers the
+     * question most of its consumers actually ask — *the one thing this row
+     * waits for* — and every one of them was audited before `states` was added
+     * beside it rather than in place of it. What changed is that the losing
+     * facts are no longer destroyed to produce it: see `states`.
+     *
      * Defaults to `unknown` so an older pulse still validates, and because
      * unknown is the honest answer for a payload that predates the field —
      * absent is not clean.
@@ -1846,6 +2031,42 @@ export const AgentRowSchema = z.object({
     // was silently deciding the STATUS too.
     state: z.enum(['green', 'pending', 'failing', 'none', 'conflicts', 'unknown', 'closed'])
       .default('unknown'),
+    /**
+     * EVERYTHING the PR is waiting for — a SET, because a PR can be waiting for
+     * two things at once and `state` can only name one.
+     *
+     * The measured loss: a PR that both conflicts and has a failed check reads
+     * `conflicts` and NOTHING SAYS THE BUILD FAILED. `state`'s own comment
+     * documents the precedence as deliberate, and it is — for a single value.
+     * The precedence was never the defect; producing it by *discarding* the
+     * loser was. This field keeps both facts and lets each consumer decide
+     * which it needs, which is the one-observable-two-causes shape this estate
+     * keeps finding and removing.
+     *
+     * ORDERED BY PRECEDENCE, most-blocking first, so `states[0] === state` on
+     * every row. That is asserted by a test rather than left as a convention:
+     * two fields deriving one answer separately is exactly how a row's word and
+     * its sentence come to disagree, and the contract already records that
+     * failure twice (`classify` mirrors `prState`, and both say so).
+     *
+     * A row's SUBJECT is read from this, not from `state` — a conflict is
+     * branch work and a failing check is PR work, so a PR carrying both leads
+     * with the branch and names the build failure separately. That rule needs
+     * both facts present to be expressible at all.
+     *
+     * `unknown` and `green` are ALWAYS ALONE. Neither composes with anything:
+     * `unknown` means the host could not answer, so a second entry beside it
+     * would claim knowledge the row does not have, and `green` means nothing is
+     * outstanding, which is the absence of the other values rather than a peer
+     * of them. Only the errands compose.
+     *
+     * Defaults to `[]` so an older pulse still validates. Empty is NOT a
+     * seventh meaning — it is a payload that predates the field, and a consumer
+     * that finds it empty must fall back to `state`, whose default (`unknown`)
+     * is the honest answer there.
+     */
+    states: z.array(z.enum(['green', 'pending', 'failing', 'none', 'conflicts', 'unknown', 'closed']))
+      .default([]),
   }).nullable().default(null),
   /**
    * Where this branch lives on the git host, or "" — the address the row's own
@@ -2280,35 +2501,118 @@ export const IssueAnswerSchema = z.enum(['answered', 'unsupported', 'failed']);
 export type IssueAnswer = z.infer<typeof IssueAnswerSchema>;
 
 /**
+ * How the registry answers *is this agent still running?* — one fact per pulse.
+ *
+ * The first four are exactly the states `plot-worker-state.sh` distinguishes,
+ * carried onto the entry unchanged: `running` where the pid answers `kill -0`,
+ * `finished` where it is gone and the work reached review or left nothing
+ * behind, `waiting` where a `PLOT-BLOCKED:` marker sits in the tree, `stalled`
+ * where uncommitted or unpushed work is on the floor with no PR.
+ *
+ * `unknown` is the registry's own honest fifth: an older manifest with no pid,
+ * an agent between branches with no worktree to look in, or a check that could
+ * not run. Absent is not a guess — the rule this contract follows everywhere,
+ * and the reason a stale record can never masquerade as a live one.
+ */
+export const AgentStateSchema = z.enum(['running', 'finished', 'waiting', 'stalled', 'unknown']);
+export type AgentState = z.infer<typeof AgentStateSchema>;
+
+/**
  * One agent from the dispatcher's registry — a process with an identity that
  * outlives the branch it was launched on.
  *
  * The first five fields are LAUNCH-TIME facts, written by `plot-dispatch.sh`
- * before the worker starts; they can never be wrong about the past. The last
- * three are read from the session transcript and are **optional on purpose**: a
- * transcript that is missing, still empty, or in a format this board does not
- * recognise costs those fields and never the entry. The transcript format is the
- * runtime's private business.
+ * before the worker starts; they can never be wrong about the past. `model`,
+ * `contextTokens` and `lastActivity` are read from the session transcript and
+ * are **optional on purpose**: a transcript that is missing, still empty, or in
+ * a format this board does not recognise costs those fields and never the entry.
+ * The transcript format is the runtime's private business.
  *
- * There is deliberately no `pid`. A pid describes the PROCESS, is meaningless
- * once it exits, and was measured on 2026-08-20 still being shown for a worker
- * gone for hours — the defect this registry exists to fix. Liveness belongs to
- * whatever is asking `ps` right now, not to a record of a launch.
+ * `pid` and `state` are what let the registry answer liveness. The manifest now
+ * carries the agent's pid — a launch fact, written by the wrapper the instant it
+ * learns its own child — and `state` is refreshed on EVERY pulse from
+ * `plot-worker-state.sh`, so a stale manifest reads `finished` on the next scan
+ * rather than persisting. An earlier design refused a pid outright, having
+ * measured one shown for a worker gone hours; the cure was not to drop the pid
+ * but to stop reading liveness OFF it — `state` is the liveness, decided per
+ * pulse, and `pid` is only the launch fact and the value a reader can go check.
  */
 export const AgentEntrySchema = z.object({
-  /** The session id, minted at launch. The identity, and the transcript's name. */
-  session: z.string(),
+  /**
+   * The session id, minted at launch. The identity, and the transcript's name.
+   *
+   * Defaults to `''` — the same *empty is a real value* rule `branch` follows.
+   * It is the id the runtime writes its transcript under, so a worktree with no
+   * manifest never had one, and the registry SYNTHESIZES an entry for such a
+   * worktree to make the section truthful. That entry must validate, so this is
+   * `''` rather than required: absent is a real state, not a rejection.
+   */
+  session: z.string().default(''),
   /** The branch it holds, or `''` while it holds none — empty is a real value. */
   branch: z.string().default(''),
   worktree: z.string().default(''),
   /** The `Worker command` as launched, quotes and newlines intact. */
   command: z.string().default(''),
   startedAt: z.string().default(''),
+  /**
+   * The AGENT's pid at launch, or `''` where the manifest carried none or one
+   * that cannot be a pid (`0`, junk). A launch fact, never liveness on its own —
+   * see `state`. Defaults to `''` so a pulse from before the field validates.
+   */
+  pid: z.string().default(''),
+  /**
+   * The pid this run DISPLACED when it relaunched in place, or `''` on a first
+   * dispatch that displaced nothing.
+   *
+   * A relaunch in an existing worktree overwrites `pid` with the new process and
+   * records the corpse here — the value the row used to name. `/api/continue`
+   * already computed this to show *replacing pid Y* and then threw it away;
+   * persisting it costs nothing at the write and keeps a fact the board could
+   * not otherwise recover once `pid` is overwritten. `''` (not a synthetic 0) so
+   * a first dispatch is byte-for-byte what it was before this field existed.
+   */
+  previousPid: z.string().default(''),
+  /**
+   * How many times this worktree's worker has been relaunched in place — 0 on a
+   * first dispatch.
+   *
+   * A read-modify-write on each relaunch, deliberately UNLOCKED: a lost
+   * increment costs an inaccurate diagnostic count, while a lock would introduce
+   * a stale-lock failure mode for a counter nothing yet acts on. A branch
+   * restarted three times is struggling, and this is the only place the board
+   * can say so. Defaults to 0 so a first dispatch and an older pulse both read
+   * as *never relaunched*.
+   */
+  relaunches: z.number().default(0),
+  /**
+   * Pulse-refreshed liveness. Defaults to `unknown` so an older pulse — which
+   * never carried a state — validates as *cannot say* rather than blanking a
+   * client's open page.
+   */
+  state: AgentStateSchema.default('unknown'),
   model: z.string().optional(),
   contextTokens: z.number().optional(),
   lastActivity: z.string().optional(),
 });
 export type AgentEntry = z.infer<typeof AgentEntrySchema>;
+
+/**
+ * The fleet controls a payload is READ AS when it carries none.
+ *
+ * Exported, and read by the client rather than only defaulted by Zod. The
+ * schema's `.default()` runs where the payload is PARSED, which is the server;
+ * `packages/board/src/app` casts the fleet it fetches and never parses it, so a
+ * client reading `fleet.fleetControls.autoDispatch` on an older payload throws
+ * and the whole Agents tab renders nothing.
+ *
+ * Measured 2026-08-22: every fixture predating this field — 40 selectors across
+ * five browser suites — took a 10s timeout waiting for a section that a
+ * TypeError had prevented from rendering at all. The suite read as slow (151s
+ * for 15 tests) and CI as a 15-minute timeout; both were this.
+ *
+ * Off and 3: a fleet that dispatches nothing is the safe reading of silence.
+ */
+export const FLEET_CONTROLS_DEFAULT = { autoDispatch: false, parallelAgents: 3 } as const;
 
 export const FleetSchema = z.object({
   generatedAt: z.string(),
@@ -2400,6 +2704,28 @@ export const FleetSchema = z.object({
    */
   shrink: PulseShrinkSchema.nullable().default(null),
   rows: z.array(AgentRowSchema),
+  /**
+   * THE WAVES this fleet holds — one entry per `(plan, wave)`, derived once on
+   * the server beside the rows. See {@link WaveSchema} for what a wave is and
+   * why it is a thing the contract carries rather than a string re-grouped by
+   * every consumer.
+   *
+   * BESIDE `rows`, NOT DERIVED FROM THEM BY THE CLIENT — the `issues`/`agents`
+   * precedent, and the whole point of the entity. A row is a branch that names
+   * its wave; this is the wave that holds branches, and the section/completeness
+   * it carries are the answers a consumer would otherwise re-derive from the
+   * rows and disagree about.
+   *
+   * Defaults to [] so a client talking to an older server still validates. BUT
+   * THE DEFAULT DOES NOT SAVE A CLIENT THAT CASTS: a Zod `.default()` fires only
+   * at parse time, and the board CASTS this payload (`board as Board`) rather
+   * than parsing it, so a renderer reading `fleet.waves` on a pre-wave pulse
+   * gets `undefined`, not `[]`. This repo has shipped that bug before
+   * (`FLEET_CONTROLS_DEFAULT`, 2026-08-22). A consumer must guard for the
+   * absent case, and the server emits this field unconditionally — cold cache
+   * included — so a live server never leaves it off.
+   */
+  waves: z.array(WaveSchema).default([]),
   summary: FleetPulseSchema.shape.summary,
   /**
    * How many branches cannot move, and in which of the four ways.
@@ -2499,6 +2825,30 @@ export const FleetSchema = z.object({
   issueAnswer: IssueAnswerSchema.default('unsupported'),
   /** The failure, when `issueAnswer` is `failed` — shown, never swallowed. */
   issueError: z.string().nullable().default(null),
+  /**
+   * The two fleet controls, SHARED across every board reading this repo.
+   *
+   * The switch belongs to NOT STARTED (*is the queue being served?*) and the
+   * cap to WORKING (*how many agents at once?*), each rendered on the section it
+   * is about. They ride here rather than in `localStorage` on purpose: they
+   * spawn agents that write code, so two people reading one board must not
+   * disagree about whether the fleet is running — the board's one departure from
+   * *view state in the URL, convenience in localStorage*. The server reads them
+   * from `.plot/state/fleet-controls.json` on every render, seeded from
+   * `## Plot Config`; the client renders these values and POSTs a change to
+   * `/api/fleet-controls`, holding no authoritative copy of its own.
+   *
+   * Defaults `{ autoDispatch: false, parallelAgents: 3 }` so a payload from a
+   * server predating this wave still validates and reads as a fleet that is not
+   * serving its queue — the safe direction, since this wave dispatches nothing
+   * and wave 3 acts only while the switch is on.
+   */
+  fleetControls: z
+    .object({
+      autoDispatch: z.boolean(),
+      parallelAgents: z.number().int(),
+    })
+    .default(FLEET_CONTROLS_DEFAULT),
 });
 export type Fleet = z.infer<typeof FleetSchema>;
 

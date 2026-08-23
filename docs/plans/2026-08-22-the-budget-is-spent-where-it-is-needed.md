@@ -1,0 +1,159 @@
+# The budget is spent where it is needed
+
+> GraphQL sits at 0/5000 while REST sits untouched at 4999/5000. The board asks the host the same questions about branches nobody is working on as about the one branch that just moved.
+
+## Status
+
+- **Phase:** Draft
+- **Type:** feature
+- **Sprint:** <!-- optional -->
+- **Issue:** #228
+- **Story:** <!-- optional -->
+- **Review:** in-session
+- **Impl:** own branches
+
+## Changelog
+
+- The board and the fleet scan spend the host budget on the branches a reader is actually watching, and fall back to the untouched REST budget when the GraphQL one is gone — so a spent budget degrades the view instead of emptying it.
+
+<!-- Board impact: touches skills/plot/scripts/plot-host.sh (the one place that
+     talks to the host CLI), plot-fleet-scan.sh's fallback path, and the board's
+     refresh cadence in packages/board/src/server/fleet.ts. Rebuild the artifact. -->
+
+## Motivation
+
+Measured 2026-08-22 on this repo:
+
+```
+core     4999/5000
+graphql     0/5000
+```
+
+**Two separate budgets, one exhausted and one untouched.** `gh pr list` and
+`gh pr view` spend GraphQL; `gh api` spends REST. Every host question Plot asks
+goes through the GraphQL bucket, so the board reports *rate limited* while 4999
+REST requests sit unused. Creating PR #331 by `gh api` succeeded during the
+outage — the budget was there the whole time.
+
+### What is already fixed, and must not be re-done
+
+**The fleet scan already batches.** `plot-fleet-scan.sh:474` calls
+`pr-list --state all --limit` once and joins locally, with its own measurement
+in the comment (*one pr-list (all) → 1107 ms*). Issue #228's shape-fix —
+"one `pr-list` returns every PR; the scan needs a local join, not N lookups" —
+**landed for the scan's main path.** What remains is `host_pr_state --ask`
+(line 567), the per-branch fallback for branches the join could not answer.
+
+**The backoff already exists and works.** `a-rate-limit-is-not-an-outage`
+(Released, #271/#272/#283/#284) routes every host consumer through
+`rateLimitBackoffMs`, fetches the real reset time, and says *rate limit* rather
+than *outage*. That plan's thesis was explicitly that a rate limit is not an
+outage — **it never promised to reduce consumption**, and it does not. This
+plan is the consumption half; do not re-litigate the reporting half.
+
+So the remaining spend is: the scan's per-branch fallback, the board's periodic
+refresh over every branch regardless of interest, and the fact that all of it is
+on one of two budgets.
+
+## Design
+
+### The measurement that shapes this plan
+
+**REST cannot simply replace GraphQL, and the naive migration is worse.**
+Measured against this repo:
+
+| Question | GraphQL | REST |
+|---|---|---|
+| List PRs + `statusCheckRollup` + `mergeable` | **1 call** | not available on the list endpoint |
+| `mergeable_state` on a list | — | **`null`** — GitHub computes it lazily |
+| Full data per PR | — | **2 calls** (`/pulls/{n}` + `/commits/{sha}/check-runs`) |
+
+For 93 branches: **1 GraphQL call vs ~186 REST calls.** A blanket "use REST
+whenever possible" trades one cheap call for a hundred and eighty, and loses the
+check rollup on the way. That is the tempting fix and it is wrong.
+
+**Therefore REST is a FALLBACK, not the default.** It is what answers when the
+GraphQL budget is gone — a degraded, more expensive path that is still far
+better than an empty board, because the REST budget is sitting there unspent.
+
+### Three changes, in order of value
+
+**1. The scan's fallback asks REST when GraphQL is spent.** `host_pr_state --ask`
+is the per-branch path. When the GraphQL budget is exhausted, the same question
+answered through `gh api` costs a REST request Plot is not otherwise using. The
+adapter is the only place that talks to the host, so this lives in
+`plot-host.sh` and every caller inherits it.
+
+**2. The board refreshes what a reader is watching.** Today's refresh treats
+every branch alike. A branch whose PR is **merged** or whose plan is
+**delivered** cannot change in a way anyone is waiting for; a branch in WORKING
+or WAITING ON YOU can. `PLOT_TERMINAL_CACHE` already applies exactly this
+reasoning to terminal states in the scan — this extends the idea to the board's
+own cadence rather than inventing a second mechanism.
+
+**3. The two budgets are visible.** The board reports *rate limited* without
+saying which budget. A reader with 4999 REST requests available and 0 GraphQL is
+told only that the host is unavailable, which is what sent this investigation
+looking for a fix that had already shipped.
+
+### What this plan deliberately does NOT do
+
+**It does not lower the refresh frequency across the board.** That reduces spend
+proportionally and makes the board staler for everyone, and staleness is the
+defect the board exists to remove. Spending less per pass beats passing less
+often — the same argument `plot-fleet-scan.sh` already won when it batched.
+
+**It does not add a second cache.** `PLOT_TERMINAL_CACHE` exists and is a
+derivation that git can invalidate. A second, differently-shaped cache is how
+two sources of truth start.
+
+### Open Questions
+
+- [ ] Does `gh api graphql` report remaining budget cheaply enough to check
+      before spending, or does the check itself cost? (`rate_limit` is free on
+      REST; confirm the GraphQL equivalent before relying on it.)
+- [ ] Bitbucket has no equivalent second budget. Does the fallback degrade to
+      "ask less" there, or is `bb` simply out of scope for change 1? #228 was
+      filed from a Bitbucket repo, so this must be answered rather than assumed.
+
+## Done when
+
+- With the GraphQL budget at zero, the board still renders PR state — proven by
+  a test that stubs an exhausted GraphQL response and asserts the REST path
+  answered, not merely that no error was thrown.
+- The REST fallback is **not** taken while GraphQL has budget. A test asserts the
+  cheap path is still the default; otherwise change 1 silently makes every scan
+  186 calls.
+- A merged PR is not re-asked about on the board's ordinary cadence, asserted by
+  counting host invocations across two passes (the technique #228 used: a
+  PATH-stubbed CLI that counts).
+- The rate-limit notice names **which** budget is spent and what remains on the
+  other.
+- `pnpm test`, `pnpm run test:board`, artifact rebuilt and committed.
+
+## Branches
+
+### Measured
+
+- `feature/the-host-says-which-budget-it-spent` — the adapter reports remaining GraphQL and REST budget, and the rate-limit notice names which one is gone. Tests: a spent GraphQL budget with REST available is reported as such; both spent reads differently; a host that cannot answer says unknown rather than zero
+
+### Spent well
+
+- `feature/the-fallback-asks-the-other-budget` — `plot-host.sh` answers through `gh api` when the GraphQL budget is exhausted. Tests: the REST path is taken only when GraphQL is spent; the cheap path stays the default; the two paths produce the same vocabulary; Bitbucket is unaffected
+- `feature/the-board-refreshes-what-is-watched` — the board's cadence skips branches whose state cannot change for a waiting reader. Tests: a merged PR is not re-asked across two passes, counted with a stubbed CLI; a WORKING branch is asked every pass; the skip is re-derived from git each pass and never persists a verdict
+
+## Notes
+
+Asked as *"how can we prevent the rate limit — only update what we're working
+on, use REST, cache more?"* All three levers were real; the investigation
+changed their ranking.
+
+The REST idea looked like the biggest win and is the most dangerous of the
+three: it is right that the budget is untouched and wrong that REST is a
+substitute, because the list endpoint returns `mergeable_state: null` and no
+check rollup. Measured on PR #331 — full data needs two REST calls per PR, so
+93 branches cost ~186 requests against GraphQL's one. It earns its place as the
+fallback that makes a spent budget survivable, not as the default.
+
+"Cache more" turned out to be partly built (`PLOT_TERMINAL_CACHE`), and
+"only update what we're working on" is the one with the most headroom left.

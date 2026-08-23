@@ -126,11 +126,45 @@ describe('the fleet payload carries the agent registry', () => {
     assert.equal(none.contextTokens, undefined);
   });
 
-  it('carries no pid — the registry describes agents, not processes', async () => {
+  it('carries a pid and a state on every agent, wired through to the payload', async () => {
+    // These two manifests carry no pid and point at worktrees that do not exist,
+    // so liveness cannot be decided: the honest wire value is `pid: ''` and
+    // `state: 'unknown'` — never absent, never a guess. A live agent reaching
+    // `running` is proven in its own block below.
     const f = await fleet(server.port);
     for (const a of f.agents) {
-      assert.equal(a.pid, undefined, `${a.session} must carry no pid`);
+      assert.equal(a.pid, '', `${a.session}: no pid on the manifest reads as ""`);
+      assert.equal(a.state, 'unknown', `${a.session}: undecidable liveness reads as unknown`);
     }
+  });
+});
+
+describe('an agent whose process is genuinely alive reaches the wire as running', () => {
+  // The wave's reason to exist, end to end: a manifest with a pid and a worktree
+  // carrying a live `.plot-worker.pid` must reach the board payload as `running`,
+  // through the real `plot-worker-state.sh` the server reuses.
+  let tmp, server, stub, wt;
+  const SESSION = 'cccccccc-1111-2222-3333-444444444444';
+
+  before(async () => {
+    tmp = makeRepo({ plans: [{ name: '2026-08-20-registry.md', content: PLAN }] });
+    stub = stubScan({ plans: [], generatedAt: '2026-08-20T08:00:00Z' });
+    // A real worktree dir carrying a live pid — the test runner's own, certainly
+    // alive — exactly as the dispatcher leaves `.plot-worker.pid`.
+    wt = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-registry-live-'));
+    fs.writeFileSync(path.join(wt, '.plot-worker.pid'), String(process.pid));
+    writeManifest(tmp, { session: SESSION, branch: 'feature/live', worktree: wt,
+      command: 'claude -p "go"', pid: String(process.pid), startedAt: '2026-08-20T08:00:00Z' });
+    server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir });
+  });
+  after(() => { server?.kill(); for (const d of [tmp, stub?.dir, wt]) if (d) rmTree(d); });
+
+  it('reads `running` for the live agent, carrying its pid', async () => {
+    const f = await fleet(server.port);
+    const a = f.agents.find((x) => x.session === SESSION);
+    assert.ok(a, 'the live agent is listed');
+    assert.equal(a.pid, String(process.pid));
+    assert.equal(a.state, 'running');
   });
 });
 

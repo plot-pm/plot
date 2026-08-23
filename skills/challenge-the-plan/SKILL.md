@@ -6,7 +6,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: "1.1.0"
+  version: "1.2.0"
   source: "Adopted from quatico-solutions/agent-skills"
 compatibility: Designed for Claude Code and Cursor.
 ---
@@ -37,6 +37,9 @@ compatibility: Designed for Claude Code and Cursor.
 2. Read plan content
 3. Parse structure to identify sections, decisions, and assumptions
 4. Check for an existing "Open Points" section (indicates a previous session)
+5. Extract the `CHALLENGE-THE-PLAN-METADATA` block to reconstruct round state
+   (see [Phase 5b](#phase-5b-record-the-round)) — its `round` is where the count
+   resumes, so a second interrogation continues from it rather than restarting
 
 ### Phase 2: Initial Analysis (first run only)
 
@@ -157,6 +160,62 @@ The alternative of session-based auth was rejected due to horizontal scaling req
 ```
 
 Update the original plan file with refined content.
+
+### Phase 5b: Record the round
+
+**This runs at the end of every round, before the completion check — and it runs
+even when the round changed no decision.** The count is the record that the plan
+was interrogated; a round that survives scrutiny unchanged is still a round, and
+must still be counted. A plan that reads as unexamined for having answered every
+question cleanly is the exact failure this step prevents.
+
+State lives in a single HTML comment in the plan file, keyed on the
+`CHALLENGE-THE-PLAN-METADATA` sentinel:
+
+```html
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 2,
+  "questionHistory": [
+    {"q": "Why JWT over sessions?", "a": "Stateless scaling", "category": "technical"}
+  ],
+  "deferredItems": [
+    {"q": "Token refresh race conditions?", "category": "technical", "context": "Auth section"}
+  ],
+  "categoriesCovered": {
+    "technical": {"stack": true, "architecture": true, "implementation": false},
+    "domain": false,
+    "ux": {"happyPath": false, "edgeCases": false, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": false
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
+```
+
+**Read, modify, write — never append a second block:**
+
+1. At the start of the run (Phase 1) read the plan and extract the block by
+   regex: `<!-- CHALLENGE-THE-PLAN-METADATA\n(.*?)\nEND-CHALLENGE-THE-PLAN-METADATA -->`.
+   Parse the JSON to reconstruct state. If there is no block, start fresh at
+   `round: 0`.
+2. At the end of each round, increment `round` by 1, append this round's
+   questions to `questionHistory`, update `deferredItems` and
+   `categoriesCovered`, and write the block **in place** — replace the existing
+   block, do not append a new one. A second block would freeze the count: the
+   parser reads only the first `"round":` line it finds.
+3. The block must stay a multi-line HTML comment with `round` on its own line as
+   `"round": <integer>` — that exact line is the only thing `plot-plan-meta.sh`
+   reads out of the block, and it reports it as the plan's `rounds`. A
+   single-line `<!-- … -->` block is treated as a placeholder and produces no
+   count.
+
+The count is the deliverable: `plot-plan-meta.sh` surfaces it as `rounds` and
+the board renders it as a `1 round` / `N rounds` badge. Absent and zero are
+deliberately different — an absent block means nobody has looked, `0` would mean
+interrogated and found nothing. This step never writes a plan without at least
+one completed round, so it never emits `0`; it starts counting at the first
+round's end.
 
 ### Phase 6: Completion Check
 

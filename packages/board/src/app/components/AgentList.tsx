@@ -7,31 +7,42 @@ import {
   type Fleet,
   type IssueAnswer,
   type IssueRow,
-  type PulseShrink,
-  type Repair,
-  type Stuck,
-  type StuckState,
   type WaitingGroup,
-  type WaveVerdict,
   type AgentEntry,
-  type RowKind,
   UNNAMED_WAVE,
   isSpikeWave,
+  FLEET_CONTROLS_DEFAULT,
+  RELEASE_BRANCH,
 } from '../../contract/schema.js';
+
+/**
+ * A fleet's controls, or the declared default where the payload carries none.
+ *
+ * THE CLIENT CASTS THE FLEET, it does not parse it — so the schema's
+ * `.default()` never runs here and `fleet.fleetControls` is genuinely
+ * `undefined` on any payload written before the field existed (a stubbed
+ * fixture, a board mid-upgrade, a cached response). Reading through it threw
+ * and took the whole Agents tab down with it.
+ *
+ * `absent is not false`: an absent control block is *unknown*, and the safe
+ * reading of unknown here is the same one the schema declares — a fleet that
+ * dispatches nothing.
+ */
+function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents: number } {
+  return fleet.fleetControls ?? FLEET_CONTROLS_DEFAULT;
+}
 import { ApproveButton } from './ApproveButton.js';
+import { AutoDispatchSwitch, ParallelAgentsStepper } from './FleetControls.js';
 import { CommissionDesignButton } from './CommissionDesignButton.js';
 import { CreatePlanButton } from './CreatePlanButton.js';
+import { ResliceButton } from './ResliceButton.js';
+import { DeliverButton } from './DeliverButton.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { isDraft } from './PlanCard.js';
 import { StartWorkButton } from './StartWorkButton.js';
 import { WorkerLogModal } from './WorkerLogModal.js';
 import { DispatchLogModal } from './DispatchLogModal.js';
 import { ChangedFilesModal } from './ChangedFilesModal.js';
-// THE BOARD'S ONE AGE DIALECT, borrowed rather than reimplemented. A second
-// formatter would drift from this one the first time either changed — the same
-// reason `ageLabel` was split out of `age` so an issue row and a branch row
-// cannot render one duration two ways.
-import { agoLabel } from './AgentPanelFacts.js';
 // THE TUPLE — one component and one grid for all seven kinds, and the
 // projection that fills its six slots.
 //
@@ -48,971 +59,21 @@ import { agoLabel } from './AgentPanelFacts.js';
 // slots are answered once, in `tuple-row.ts`, for every kind. So a new kind
 // costs a projection and no rendering at all, which is what the deleted three
 // could never do.
-import { splitBranch, tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave, prStatus, stateStatus, workerStatus, tupleAgeText} from '../lib/tuple-row.js';
+import { splitBranch, tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave, planPrAggregate, statusTone, tupleAgeText} from '../lib/tuple-row.js';
 // RE-EXPORTED, not redefined. `splitBranch` moved to the module that owns the
 // slot rules when the collapse deleted `BranchName`; the unit suite imports it
 // from here, and a second definition is exactly the drift this wave removed.
 export { splitBranch };
-import { MARKS_CELL, TupleLinkView, TupleRowView } from './TupleRow.js';
+import { TupleLinkView, TupleRowView } from './TupleRow.js';
+import { isCollapsible, readCollapsed, writeCollapsed } from '../lib/agent-rows/collapse.js';
+import { ACTIVITY_MARK_PLACE, ActivityEcho, type ActivityPace, ChangeMarks, type WatchedState, activeRowKeys, activityPace, changedRows, groupPace } from '../lib/agent-rows/activity.js';
+import { offersChangedFiles, soleRowStatus, stuckEvidence, stuckWord } from '../lib/agent-rows/stuck.js';
+import { GROUPS, type PlanGroup, groupByPlan, planWaitingDays, rowsBySection, showPlanHeading, showsWaveFold, sortByWaiting, ungroupedRows, waveGroupsFor, waveKeyOf, waveSummaryFor } from '../lib/agent-rows/sections.js';
+import { changedFilesLabel, repairWord, shrinkNote } from '../lib/agent-rows/actions.js';
+import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, inMachineSection, issueNote, machineNote, noteWithoutPr, prNote } from '../lib/agent-rows/host-notes.js';
+import { briefGapNote, isStartable, isUnbegun, needsBrief, rowKey, waitingTone } from '../lib/agent-rows/row-identity.js';
+import { WAVE_LINKING_KINDS, type WaveGroup, groupByWave, groupedNote, isReviewable, waveDissent, waveLabel } from '../lib/agent-rows/waves.js';
 
-/**
- * Groups in fixed order, each labelled by what it asks OF YOU rather than by
- * what the branch is. "wip" is a git fact; "nothing to do but look" is the
- * answer a person came here for.
- *
- * Every group renders even when empty. A group that vanishes is
- * indistinguishable from a group that is empty — and for `waiting-on-machine`,
- * which needs PR data this step does not have, silence would read as "nothing
- * is waiting on CI": a claim this step cannot make.
- *
- * Actionable before diagnostic: `not-started` precedes `quiet`, because work a
- * person can pick up right now outranks work they must go investigate. This
- * order must stay identical to `GROUP_ORDER` in `fleet.ts`, which sorts the
- * rows — a disagreement between the two would sort rows into a sequence the
- * sections then render in a different one.
- */
-export const GROUPS: { key: WaitingGroup; icon: string; label: string; hint: string }[] = [
-  { key: 'waiting-on-you', icon: '⚠', label: 'Waiting on you', hint: 'review, merge, decide' },
-  { key: 'working', icon: '🤖', label: 'Working', hint: 'nothing to do — just look' },
-  // *a machine is working* rather than *CI will finish*. The section lists
-  // PROCESSES and CI is only one kind: a worker running in a local worktree is a
-  // machine working too, and it is observable in this very checkout. The old
-  // hint named the one source the section was filled from and would now be
-  // wrong about an empty section for the other reason — no local run either.
-  //
-  // It also drops a FORECAST. *CI will finish* predicts an outcome nothing here
-  // measures; *a machine is working* is what was observed, and the section's own
-  // rule. `HOST_CANNOT_REPORT_HINT` still withdraws even this where the host
-  // cannot be asked at all.
-  { key: 'waiting-on-machine', icon: '⏳', label: 'Waiting on a machine', hint: 'nothing — a machine is working' },
-  // *approved* rather than only *nobody has taken it*: the section is filtered
-  // on the plan's phase first, so every row in it is one an agent may actually
-  // take. The old hint described the branch and let three unclaimable kinds of
-  // row in behind it.
-  { key: 'not-started', icon: '📋', label: 'Not started', hint: 'approved — nobody has taken it' },
-  { key: 'quiet', icon: '💤', label: 'Quiet', hint: 'still thinking, or dead?' },
-  // `delivered` for the same reason the row's status word changed: it is Plot's
-  // term for the transition (Draft → Approved → **Delivered** → Released) and
-  // `/plot-deliver` performs it. `merged` names what git did to a ref.
-  { key: 'done', icon: '✅', label: 'Done', hint: 'delivered' },
-];
-
-/**
- * The groups that start collapsed.
- *
- * Not a preference — the existing group order made effective. `GROUPS` is
- * already sorted actionable-before-diagnostic, and these two are the diagnostic
- * end: one means *go check whether this died*, the other *this is finished*.
- * Neither needs reading on arrival, and on the live board of 2026-08-16 they
- * cost twenty rows between them and pushed the footer — which reports when the
- * last scan ran — off the screen.
- *
- * Exported for test: a blanket default passes an assertion that checks only one
- * group, so both halves are pinned.
- */
-export const COLLAPSED_BY_DEFAULT: WaitingGroup[] = ['quiet', 'done'];
-
-/**
- * What the empty WAITING ON A MACHINE section says where the host cannot answer.
- *
- * The default hint — *nothing — a machine is working* — is a claim: it says no
- * machine is working on any of this right now. On a host that cannot report
- * checks or mergeability that claim is unfounded for the CI half of the section,
- * and the section is then empty for a completely different reason: nobody
- * looked, because nobody could. A local process would still be listed — that
- * half is observed here rather than asked of the host — which is why the hint
- * only ever replaces the sentence of an EMPTY section.
- *
- * Measured: the Bitbucket adapter emits a literal `checks:"unknown",
- * mergeable:"unknown"` on every row, because `bb` has no run listing. That is
- * not deferred work — it is the CLI's limit — so this section is permanently
- * empty there, and an unexplained empty section reads as *nothing is running*
- * for as long as the board is open.
- *
- * **Absent is not a clearance**, applied to a section instead of a field. The
- * hint names the host's limit so the emptiness reads as *I cannot tell you*
- * rather than as *all quiet*.
- */
-export const HOST_CANNOT_REPORT_HINT = 'this host cannot report CI';
-
-/**
- * Whether every PR on the board came back unreadable.
- *
- * The condition for `HOST_CANNOT_REPORT_HINT`, and it is deliberately ALL and
- * not ANY: one `unknown` row among readable ones is a single PR mid-outage or a
- * single cross-host repo, and the section is then empty for the ordinary reason.
- * Only when no PR anywhere answered is the section's emptiness attributable to
- * the host rather than to the fleet.
- *
- * Rows WITHOUT a PR are not counted either way — they have nothing to report and
- * are not evidence about the host. A board with no PRs at all therefore answers
- * `false`: nothing has been observed, so nothing can be concluded, and claiming
- * a host limit from an absence of evidence would be the very mistake this hint
- * exists to correct.
- *
- * **A MERGED ROW IS NOT EVIDENCE EITHER**, by that same rule and for the same
- * reason. A merged PR reports `mergeable: "unknown"` on GitHub — the question
- * stops being computed once the branch lands — so it reaches this function as
- * `state: 'unknown'` on a host that answers CI perfectly well. It is not an
- * outage and not a host limit; it is a finished PR having no live condition to
- * report, which is the *nothing to report* case one line up.
- *
- * Excluded from 2026-08-20, when the row began carrying its merged PR's link.
- * Before that a merged branch had no `pr` at all and fell out of this tally by
- * accident; keeping it in would have turned a plan of merged branches plus one
- * PR mid-outage into a false claim about the host — with the hint's own words
- * ("nobody could look") printed under a section that was simply quiet.
- *
- * Exported for test.
- */
-/**
- * What a row says WHEN LISTED AS A PROCESS — the machine section's sentence,
- * never the branch's.
- *
- * THE SECTION'S SENTENCE IS ABOUT THE MACHINE, never about who holds the
- * branch. `note` is the row's own sentence and may be about an agent — *worker
- * running (pid 20145)* — which is a true statement in WORKING and no answer at
- * all to *what am I waiting on?*
- *
- * EVIDENCE, NEVER A FORECAST, and this is where that rule is visible to a
- * reader. The sentence names what was OBSERVED — *CI is running for PR #244* —
- * and never a remaining time. GitHub publishes no finish time for a queued
- * check, and a countdown nobody can honour is the shape this repo removes rather
- * than adds. Principle 3: the scan collects, the reader concludes whether to
- * wait.
- *
- * JOINS WHAT IT IS GIVEN, NEVER RANKING IT. Only host entries reach the row
- * since `machineProcesses` stopped writing a local one, so in practice this
- * joins nothing — but a row with two pending checks is a row with two machines
- * on it, and dropping either because the other came first is the displacement
- * this board keeps undoing.
- *
- * FALLS BACK TO `note` for a row that reached the section through `group` with
- * no process listed — a `pending` check from an older pulse that predates
- * `processes`. Its note already reads *PR #244, CI running*, which is exactly
- * this sentence by the other road, so the fallback changes nothing that renders
- * and keeps an older payload from going blank.
- */
-export function machineNote(row: AgentRow): string {
-  const procs = processesOf(row);
-  if (procs.length === 0) return row.note;
-  return procs.map((proc) => proc.evidence).join('; ');
-}
-
-/**
- * This row's processes, tolerating a payload that has none of the field at all.
- *
- * THE CLIENT IS SERVED BY A SERVER IT DOES NOT VERSION WITH. The board's page is
- * a built artifact that a reader may have open across a restart, and
- * `/api/fleet` answers from whichever server is running — so a row can arrive
- * without `processes` even though the schema defaults it to `[]`, because the
- * default applies where the payload is PARSED and the client renders what it was
- * handed. Reading `.length` off an absent array crashes the whole board, and a
- * blank page is a far worse answer to a missing convenience field than an empty
- * list is.
- *
- * ABSENT IS NOT FALSE, applied as the codebase applies it everywhere else: an
- * empty result here means *nothing was reported*, and the section then falls back
- * to `group` — exactly the board's behaviour before this field existed.
- */
-function processesOf(row: AgentRow): AgentRow['processes'] {
-  return row.processes ?? [];
-}
-
-/**
- * Whether this row belongs in WAITING ON A MACHINE — the server's grouping, and
- * nothing added to it.
- *
- * AN AGENT IS THE MACHINE, NEVER THE WAIT. The section answers *what am I
- * waiting on?* and holds a branch, a PR or a plan whose progress depends on
- * something automated. An agent is not an answer to that question — it is the
- * thing doing the work, and WORKING says so while also saying *who*.
- *
- * THIS PREDICATE USED TO ADD A SECOND CLAUSE, `|| processesOf(row).length > 0`,
- * and that clause is what put agents here. It was written for *"an agent
- * watching its own CI"* — listed twice, once as an agent and once as a process —
- * but that case is two subjects, not one subject twice: the agent goes to
- * WORKING and the PR comes here through `group`, each once. What the clause
- * actually keyed on was *a process is running*, and an agent is always a
- * process, so it fired for every live worker. Measured 2026-08-20:
- * `bug/one-component-renders-every-row` rendered in both sections with
- * **`pr: None`** — nothing automated anywhere near it.
- *
- * KEYED ON `group` ALONE, rather than on `processes` filtered to host entries,
- * and the difference is where the guarantee lives. `machineProcesses` no longer
- * writes a local entry, so both spellings render the same rows today — but a
- * predicate that reads `processes` holds *no agent reaches this section* only
- * for as long as that other file keeps its promise, which is a rule in a second
- * place. Reading `group` makes it structural: the client cannot admit a row the
- * server did not group, whatever `processes` later carries. The field stays on
- * the row and `machineNote` still reads it for the section's sentence — this
- * decides MEMBERSHIP, and membership has one source.
- */
-export function inMachineSection(row: AgentRow): boolean {
-  return row.group === 'waiting-on-machine';
-}
-
-export function hostCannotReportCi(rows: readonly AgentRow[]): boolean {
-  const withPr = rows.filter((r) => r.pr && r.state !== 'merged');
-  return withPr.length > 0 && withPr.every((r) => r.pr!.state === 'unknown');
-}
-
-/**
- * Which clock the host-derived sections were read from.
- *
- * Four answers, because the board has four situations and printed one word for
- * two of them. `none` under WAITING ON A MACHINE was shown both when the host
- * had answered and reported nothing pending, and when the host had not been
- * asked at all — opposite situations wanting opposite responses, with the
- * reassuring one as the default.
- *
- * Measured 2026-08-18 from two screenshots of one board 22 seconds apart. At
- * `PR data 22s ago` the section read `none` and no row carried a status; at
- * `PR data 4s ago` the same board reported #57 `conflicts`, #196 `checks
- * failing` since the previous day, and #203 `CI running`. Nothing changed on
- * the host between them. A branch whose CI had been red overnight presented as
- * unremarkable, and the operator read the board as having LOST its state when
- * it had simply not yet fetched it.
- *
- * This is `docs/plans/2026-08-17-an-outage-is-not-an-answer.md`'s rule — a
- * failure to observe must not be reported as an observation — at the one
- * boundary that plan did not cross. An outage at least produces an error to
- * carry; a first fetch that has not happened produces nothing at all, which is
- * how it survived a plan written to catch exactly this shape.
- *
- * FOUR STATES, NOT THREE. `unreachable` is deliberately not folded into
- * `unasked`, and that was the plan's one open question. Both mean *no host
- * fact is on this board*, so one label would be defensible — but they want
- * different responses. `unasked` resolves itself in seconds and asks the reader
- * for nothing; `unreachable` will not resolve until somebody looks at the
- * error, and `an-outage-is-not-an-answer` is the plan that established an
- * outage must be visible AS an outage. Collapsing them would re-file a standing
- * fault as a passing one.
- *
- * The distinction costs nothing to compute, because the server already draws
- * it: `refreshPrs` leaves `prAt` untouched when the call throws (`fleet.ts`),
- * so a null age beside an error is a FIRST fetch that failed, while a null age
- * with no error is a fetch not yet made. The footer has read the pair this way
- * all along — `· no PR data yet` is already gated on both.
- *
- * A FIRST-LOAD STATE, NOT A STALENESS DISPLAY. Once the host has answered,
- * every later answer is `answered` no matter how old, because ordinary ageing
- * is what the footer reports (`PR data 111s ago`) and re-labelling every
- * section every 60 s would trade one misreading for a flicker. `prAgeSeconds`
- * is therefore tested against null and never against a threshold.
- *
- * THE SCAN'S OWN AGE IS NOT CONSULTED. `fleet.ageSeconds` dates the git scan,
- * which is cheap and runs every few seconds; `prAgeSeconds` dates the host,
- * which is metered and runs every 60. Conflating them into one page age is what
- * let a git-fresh board read as host-fresh, so a PR-derived field must never
- * borrow the scan's clock.
- *
- * Exported for test.
- */
-export type HostAnswer = 'answered' | 'unasked' | 'unreachable';
-
-/**
- * Read the host's answer state off a fleet.
- *
- * Reads ONLY the two PR fields. Passing the whole fleet would let a later edit
- * reach for `ageSeconds` and silently reintroduce the conflation this exists to
- * remove, so the parameter names exactly what it is allowed to see.
- */
-export function hostAnswer(
-  fleet: Pick<Fleet, 'prAgeSeconds' | 'prError'>,
-): HostAnswer {
-  if (fleet.prAgeSeconds !== null) return 'answered';
-  return fleet.prError ? 'unreachable' : 'unasked';
-}
-
-/**
- * What an empty host-fed section says when the host has not answered.
- *
- * EVIDENCE, NOT VERDICT. Each says what happened to the call and stops there:
- * no estimate, no retry count, and above all no *probably fine*. The rule the
- * scan's own outputs follow — scripts collect, humans conclude (Manifesto
- * Principle 3).
- *
- * Both must avoid the shape of the default hint (*nothing — a machine is
- * working*), which is a CLAIM about the machines. An empty section that still implies
- * something is running is the failure being corrected, whatever words it uses.
- */
-export const HOST_ANSWER_HINT: Record<Exclude<HostAnswer, 'answered'>, string> = {
-  unasked: 'not checked yet',
-  unreachable: 'could not reach the host',
-};
-
-/**
- * The kind of a host failure — a rate limit is a THIRD state, never an outage.
- *
- * `2026-08-20-a-rate-limit-is-not-an-outage.md`: a spent budget is *partial,
- * temporary, and with a known end*; an unreachable host is none of those. The
- * note that reports the failure must not collapse the two into one word, so it
- * reads the kind here first.
- *
- * The signal is the message string, `/rate limit/i` — the SAME string the
- * backend keys on (`rateLimitBackoffMs` in fleet.ts). A shelled-out `gh` hands
- * back only its stderr, so both ends read the same words; a second, cleverer
- * detector on the client would be the place the two vocabularies drift, and the
- * note would say *outage* while the fetch was already backing off for a rate
- * limit. Anything the backend does NOT recognise as a rate limit is an outage
- * here too — the honest default, since a message that names no reset has no end
- * to promise.
- */
-export type HostErrorState = 'rate-limited' | 'unreachable';
-
-export function hostErrorState(error: string | null): HostErrorState | null {
-  if (!error) return null;
-  return /rate limit/i.test(error) ? 'rate-limited' : 'unreachable';
-}
-
-/**
- * When the spent budget returns, in the reader's words — or null when no reset
- * is known.
- *
- * `prNextInSeconds` is the reset the fetch already waits for: *backoff
- * included*, per the contract, which after the sibling wave is the host's real
- * `rate_limit` reset rather than the nominal cadence. Rounded to the minute
- * above a minute, because the wait is minute-scale and second-precision would
- * flicker every render; kept in seconds below that, where a minute would read
- * as *0 min*. Null (an older server, or a due-now gate at 0) yields no phrase,
- * so the note says the budget is spent without inventing a time it cannot name.
- */
-function resetPhrase(prNextInSeconds: number | null): string | null {
-  if (prNextInSeconds === null || prNextInSeconds <= 0) return null;
-  if (prNextInSeconds < 60) return `${prNextInSeconds}s`;
-  return `${Math.round(prNextInSeconds / 60)} min`;
-}
-
-/**
- * The PR footer note — one sentence, or null when the host answered.
- *
- * TWO shapes for TWO failures, which is the whole branch. An unreachable host
- * keeps the exact wording `an-outage-is-not-an-answer` settled — *PR data
- * unavailable (…) — the two groups above that depend on it may be incomplete.*
- * A rate limit is not unavailable: it says so, and names when service returns.
- *
- * Exported for test — the wording is the contract with the reader.
- */
-export function prNote(fleet: Pick<Fleet, 'prError' | 'prNextInSeconds'>): string | null {
-  const kind = hostErrorState(fleet.prError);
-  if (kind === null) return null;
-  if (kind === 'rate-limited') {
-    const when = resetPhrase(fleet.prNextInSeconds);
-    return (
-      "PR data paused: the host's rate limit is spent" +
-      (when ? `, service returns in ~${when}` : '') +
-      ' — the two groups above that depend on it may be incomplete.'
-    );
-  }
-  return `PR data unavailable (${fleet.prError}) — the two groups above that depend on it may be incomplete.`;
-}
-
-/**
- * The issue footer note — one sentence, or null when the tracker answered.
- *
- * The rate-limit case is the sharpest test the plan names: a spent budget means
- * the tracker was REFUSED, not that reading it failed. *could not be read*
- * claims a check that ran and failed, and a rate limit ran no check — so it
- * must not borrow that wording. The issue poll shares the PR gate (`prNextAt`),
- * so `prNextInSeconds` is its reset too.
- */
-export function issueNote(fleet: Pick<Fleet, 'issueError' | 'prNextInSeconds'>): string | null {
-  const kind = hostErrorState(fleet.issueError);
-  if (kind === null) return null;
-  if (kind === 'rate-limited') {
-    const when = resetPhrase(fleet.prNextInSeconds);
-    return (
-      "Open issues paused: the tracker's rate limit is spent" +
-      (when ? `, service returns in ~${when}` : '') +
-      ' — this list may be incomplete.'
-    );
-  }
-  return `Open issues could not be read, so this list may be incomplete — ${fleet.issueError}`;
-}
-
-/**
- * Where the collapse state lives.
- *
- * `localStorage`, and that is a deliberate departure. The board's convention for
- * view state is the URL — `?tab=agents`, `?lanes=1`, `?plan=…`, written with
- * `history.replaceState` — and there is no other `localStorage` in the app, so
- * this introduces a second mechanism for what looks like the same kind of state.
- *
- * The distinction that justifies it: **a URL is shareable, and collapse state
- * should not be.** Everything in the query string today is worth sending to
- * someone — *look at this plan*, *look at the agents tab*. A link carrying
- * `?collapsed=quiet,done` would hand my personal tidying to whoever opened it,
- * rebuilding their view as a side effect of "have a look at this". Collapse is
- * convenience, not subject matter.
- *
- * Persistence itself is not optional: this board is left running and reloaded
- * several times an hour, and without it the reader re-configures the view every
- * time — which teaches them not to bother.
- */
-const COLLAPSE_KEY = 'plot-board:agents:collapsed';
-
-/**
- * Read the stored collapse set, falling back to the default where nothing is
- * stored.
- *
- * The fallback is the load-bearing half: a first visit has no stored value, and
- * treating that as "nothing collapsed" would ship the crowded view to everyone
- * who has not yet clicked a header. Absent and empty are therefore different —
- * `[]` is a reader who opened everything and meant it.
- *
- * Every failure path yields the default rather than throwing. `localStorage`
- * throws on access in a blocked-cookie context, and a view that renders nothing
- * because it could not remember which sections were folded is a worse answer
- * than one that simply forgets.
- *
- * Exported for test.
- */
-export function readCollapsed(storage?: Pick<Storage, 'getItem'>): Set<WaitingGroup> {
-  const fallback = new Set(COLLAPSED_BY_DEFAULT);
-  let raw: string | null = null;
-  try {
-    raw = (storage ?? globalThis.localStorage)?.getItem(COLLAPSE_KEY) ?? null;
-  } catch {
-    return fallback;
-  }
-  if (raw === null) return fallback;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return fallback;
-    // Filtered against the known groups: a stored key from a renamed group is
-    // stale state, and carrying it forward would collapse nothing while looking
-    // like it had.
-    const known = new Set<string>(GROUPS.map((g) => g.key));
-    return new Set(parsed.filter((k): k is WaitingGroup => typeof k === 'string' && known.has(k)));
-  } catch {
-    return fallback;
-  }
-}
-
-/** Persist the collapse set. Silent on failure — see `readCollapsed`. */
-export function writeCollapsed(
-  collapsed: Set<WaitingGroup>,
-  storage?: Pick<Storage, 'setItem'>,
-): void {
-  try {
-    (storage ?? globalThis.localStorage)?.setItem(COLLAPSE_KEY, JSON.stringify([...collapsed]));
-  } catch {
-    // A reader who cannot persist still gets a working toggle for this session.
-  }
-}
-
-/**
- * Can this group be collapsed at all?
- *
- * An EMPTY group never can. It hides nothing, and its header does not read
- * `(0)` — it reads the group's hint (*still thinking, or dead?*), which is the
- * explanation for the emptiness and exactly what a reader wants when there is
- * nothing to list. A collapse control on a group with nothing to hide is an
- * offer that leads nowhere, the same class of defect as a button that declines
- * its own action — and folding it would hide the hint, which is the only thing
- * in there worth reading.
- *
- * Exported for test: a blanket toggle passes "the control exists" and quietly
- * takes the hint away.
- */
-export function isCollapsible(rowCount: number): boolean {
-  return rowCount > 0;
-}
-
-/**
- * Minutes as the board says them: `45m`, `3h`, `2d`.
- *
- * Split out of `age` so an ISSUE row and a BRANCH row cannot render the same
- * duration two ways. `age` takes an `AgentRow`, which an issue is deliberately
- * not — and the alternative to sharing this was a second copy of four lines
- * that would drift the first time either changed.
- *
- * Exported for test.
- */
-export function ageLabel(minutes: number): string {
-  if (minutes < 60) return `${minutes}m`;
-  const h = Math.floor(minutes / 60);
-  if (h < 24) return `${h}h`;
-  return `${Math.floor(h / 24)}d`;
-}
-
-/**
- * The waiting age in the unit that reads: days for the first weeks, months once
- * days stop being countable.
- *
- * "waiting 180d" is arithmetic the reader has to do — the same defect
- * `humanAge` was written to fix for commit ages, and the reason this scales at
- * all. Today rather than 0d: a plan approved this morning has not been waiting
- * for a measurable stretch, and "0d" reads like a stopped clock.
- *
- * Exported for test — the boundaries are where a unit change reads wrong.
- */
-export function waitingLabel(days: number): string {
-  if (days < 1) return 'today';
-  if (days < 60) return `${days}d`;
-  const months = Math.floor(days / 30);
-  return `${months}mo`;
-}
-
-/**
- * The PR a row carries, derived from the row rather than imported.
- *
- * `AgentRowSchema` names the shape inline, so there is no exported alias to
- * import — and adding one is a change to the contract, which this wave is
- * deliberately not making. Derived, so it cannot drift from the field it
- * describes: a seventh state or a new flag arrives here without an edit.
- */
-type AgentPr = NonNullable<AgentRow['pr']>;
-
-/**
- * Where the row stops being a row.
- *
- * Arithmetic, not taste: the fixed tracks total 540 px and the gaps and padding
- * add 84 px, so **the grid needs 624 px before the branch column gets a single
- * pixel** — and a 375 px phone is 249 px short. Tailwind's `sm` breakpoint is
- * 640 px, the first stop above that number.
- *
- * The PR track's growth from `9rem` to `14rem` moved that number from 544 px to
- * 624 px and left the breakpoint where it is — 640 px is still the first stop
- * above it, with 16 px to spare. A further widening of any fixed track would
- * cross it, and then this constant has to move too.
- *
- * Below it each row becomes a small block: the branch on its own line, with
- * plan, kind, PR and age wrapped beneath it. **Nothing is dropped and nothing
- * is elided** — the same facts stack instead of ranging. Dropping the plan name
- * was the cheaper answer and is wrong: `showPlanHeading` just made naming the
- * plan the row's own responsibility whenever its group has no heading, and
- * removing it on a phone would re-open at one width the defect closed at every
- * width.
- *
- * The phone is a real reader — the server detects a Tailscale address, so the
- * board is reachable over a private network — and it is a READING surface
- * there: `/api/dispatch` is gated to localhost, so the row's action menu is
- * unavailable by construction rather than by layout.
- */
-export const CARD_BELOW_PX = 640;
-
-
-/**
- * The PR's condition as a WORD, for the cell to print beside the number.
- *
- * The repo's rule is *symbol AND word* — colour or shape must never be the sole
- * carrier — so the state is spelled out however the cell decorates it. Six
- * values, six phrasings, and each says what the reader would have to do:
- * `conflicts` wants a rebase, `no checks` wants a click, `failing` wants
- * reading.
- *
- * `unknown` renders NOTHING rather than the word "unknown". A host that cannot
- * report a rollup (Bitbucket) would otherwise stamp every row with a word that
- * says only *this board could not find out* — noise on every line of an
- * entire host's fleet. Absent is the honest rendering of "no answer", the same
- * rule the contract states for the field itself.
- *
- * Exported for test.
- */
-export function prStateWord(state: AgentPr['state']): string {
-  switch (state) {
-    case 'green': return 'green';
-    case 'pending': return 'CI running';
-    case 'failing': return 'checks failing';
-    case 'none': return 'no checks';
-    case 'conflicts': return 'conflicts';
-    default: return '';
-  }
-}
-
-/**
- * The note, with the PR clause the CELL now renders taken off the front.
- *
- * The server still composes `PR #158, draft · awaiting review` — that sentence
- * is `fleet.ts`'s, and this wave does not touch it. But the PR's number, its
- * draft flag and its state now travel as fields and are rendered by their own
- * cell, so printing the whole sentence beside that cell would say the same
- * thing twice on every row that has a PR.
- *
- * **This is deliberately NOT the `indexOf` search it replaces.** That one
- * hunted a marker ANYWHERE in a sentence in order to LINK it — a parser for a
- * format nobody declared, which silently rendered an unlinked note the moment
- * the wording drifted. This one is anchored at position 0, matches only the
- * row's OWN number, and its failure mode is the opposite: a note whose wording
- * drifts is printed in full, which is a duplicated word rather than a lost
- * link. Nothing depends on it — the PR cell renders from the fields either way.
- *
- * **Everything after the separator survives**, because that is what a PR state
- * cannot say: *uncommitted work*, *blocked by an earlier wave*, *claimed
- * elsewhere*, *awaiting review*. The note is not being replaced, only relieved
- * of one duty.
- *
- * Exported for test — an implementation that drops the whole note passes every
- * "the row no longer says PR #130 twice" assertion.
- */
-export function noteWithoutPr(note: string, pr: AgentRow['pr']): string {
-  if (!pr) return note;
-  const marker = `PR #${pr.number}`;
-  if (!note.startsWith(marker)) return note;
-  const rest = note.slice(marker.length);
-  // The separator the server writes between the PR clause and everything else.
-  // Anything before it is the PR's own condition, which the cell now carries.
-  const at = rest.indexOf(' · ');
-  return at === -1 ? '' : rest.slice(at + 3);
-}
-
-/** One plan's rows within a waiting-group, in the order they arrived. */
-export interface PlanGroup {
-  plan: string;
-  planFile: string;
-  rows: AgentRow[];
-}
-
-/**
- * Split one waiting-group's rows by plan.
- *
- * By PLAN, not by story: the waiting-groups answer *what needs me next*, and
- * within that the useful unit is the plan — the thing whose waves are being
- * worked. A story spans weeks and several plans; it is the board's axis, not
- * this view's. (It is also not on a fleet row at all.)
- *
- * Rows arrive age-sorted, so a plan's rows keep that order by construction and
- * the PLANS are ordered by their most urgent row — otherwise a plan holding one
- * stale branch would outrank one whose branch just moved. An unknown age sorts
- * last: "we do not know" is not "ancient". **Plans of EQUAL age order by name**,
- * because age alone leaves most pairs tied and the tie was being settled by an
- * arrival order that changes every pulse — see the comparator.
- *
- * Exported for test, and because the count is what decides whether a
- * sub-heading earns its place — a group with one plan gets none.
- */
-export function groupByPlan(rows: AgentRow[]): PlanGroup[] {
-  const groups = new Map<string, PlanGroup>();
-  for (const row of rows) {
-    const existing = groups.get(row.plan);
-    if (existing) existing.rows.push(row);
-    else groups.set(row.plan, { plan: row.plan, planFile: row.planFile, rows: [row] });
-  }
-  const urgency = (g: PlanGroup) => Math.max(...g.rows.map((r) => r.ageMinutes ?? -1));
-  return [...groups.values()].sort((a, b) => {
-    const byUrgency = urgency(b) - urgency(a);
-    if (byUrgency !== 0) return byUrgency;
-    // TIES ARE BROKEN BY NAME — the tiebreak #267 landed for NOT STARTED,
-    // applied here where the same defect had been sitting unexamined.
-    //
-    // Age is a COARSE key. The rows of one pulse routinely share an age, so
-    // those comparisons return 0 and the surviving order is whatever this Map's
-    // insertion order happened to be. `Array.prototype.sort` is stable in every
-    // engine since ES2019, so it faithfully preserves that arrival order — and
-    // the arrival order is rebuilt from a fresh scan every four seconds.
-    // Stability preserves an input that is not itself stable, which is why this
-    // reads as a sorting bug and is not one.
-    //
-    // The plan NAME is the right tiebreak because it is the only field here
-    // that cannot change between pulses: an age moves by the minute and a row
-    // count moves as branches land, and both are derived. A name is identity.
-    //
-    // NOT the same line as `sortByWaiting`, and deliberately not shared with it.
-    // That comparator keys on `waitingDays` — the plan's approval clock — to
-    // answer *which plan has been ignored longest* for a section whose rows are
-    // not branches. This one keys on the branch tip's clock to answer *which
-    // plan holds the most urgent row*. Two questions, two keys; only the
-    // tiebreak behind them is the same, and it is three lines.
-    //
-    // Found because the flicker was fixed one section over and the identical
-    // line sat four hundred lines away in this file, unexamined — nobody had
-    // watched THIS section reshuffle. A fix is not finished when the reported
-    // instance stops.
-    return a.plan.localeCompare(b.plan);
-  });
-}
-
-/**
- * The sentence a GROUPED wave row carries, by what its count means.
- *
- * Each says what the wave is waiting for, and none of them is *may this be
- * started* — which is the only thing the verdict can say, and the reason these
- * rows do not use it.
- */
-export function groupedNote(word: string | undefined): string {
-  switch (word) {
-    case 'delivered': return 'landed — nothing left in it';
-    case 'stalled': return 'nothing has moved here for a while';
-    default: return 'work landed — waiting to be merged';
-  }
-}
-
-/**
- * Is this row's work FINISHED and waiting on a person to merge it?
- *
- * A branch with a PR open. That is the whole test, and it is the fact the
- * verdict cannot carry: a verdict answers *may this wave be started* — an
- * ORDERING question — and has no value meaning *the work in it is done*.
- *
- * Measured on the estate, that gap has a cost. `opus5-longhorizon-hardening ::
- * Implementation` holds **five `wip` branches** and reads `blocked`, because its
- * predecessor `Tracer` has not completed. All five are landed work; what stands
- * between them and `complete` is somebody merging. A verdict-only mapping files
- * that under *waiting on the machine* and the board says *nothing to do here*,
- * while five reviews sit — PR #57's plan, 25 days old.
- *
- * `merged` is excluded: that work is done AND landed, and belongs to DONE.
- */
-export function isReviewable(row: AgentRow): boolean {
-  return row.pr !== null && row.state !== 'merged';
-}
-
-/**
- * The waves worth grouping in a section — and there are none outside WAITING ON
- * YOU.
- *
- * A wave earns a row here when it holds **more than one reviewable branch**: a
- * lone PR is a PR, because there is no set for a wave row to name and a heading
- * over one row saves nothing. That is `showsWaveFold`'s rule, and the same one
- * that makes a single-branch wave exactly one row in NOT STARTED.
- *
- * SCOPED TO ONE SECTION on purpose. WORKING holds agents, WAITING ON A MACHINE
- * holds builds, and in neither is *a wave* the thing being decided — the grammar
- * `every-section-has-one-subject` settles that. Here the question is *what needs
- * a decision*, and three PRs from one wave are one decision about that wave.
- *
- * Unnamed waves are skipped: a group headed `(unnamed)` over rows that each name
- * their branch is a label that labels nothing, the same reason
- * `showPlanHeading` refuses a nameless plan.
- */
-export function waveGroupsFor(rows: AgentRow[], section: WaitingGroup): WaveGroup[] {
-  // WHICH ROWS a wave may claim, per section — and the predicate differs because
-  // the sections ask different questions.
-  //
-  //   WAITING ON YOU  a branch with an open PR: the work is landed and somebody
-  //                   has to merge it. Three PRs of one wave are ONE decision.
-  //   QUIET           a branch that stopped moving. Two stale branches of one
-  //                   wave are one wave that stalled, which is the readable
-  //                   fact; two unrelated stale rows are not.
-  //   DONE            a branch that landed. The wave is what was delivered.
-  //
-  // WORKING and WAITING ON A MACHINE are absent on purpose: an agent works and a
-  // build runs, and neither is a wave — the grammar
-  // `every-section-has-one-subject` settles it, and a wave row in either would
-  // claim a subject that section does not have.
-  const claims =
-    // WAITING ON YOU HOLDS TWO KINDS OF WAIT, and the predicate was only
-    // recognising one.
-    //
-    // `isReviewable` — a branch with an open PR — is *the work is done, merge
-    // it*. But a branch whose PLAN is still in review is also waiting on a
-    // person: to approve the plan. Measured on the live board, that is **12 of
-    // the 14** wave-bearing rows in this section, all reading `open` with the
-    // note *plan not approved yet — still in review* — and none of them grouped,
-    // so the section showed 12 near-identical branch rows where it should show a
-    // plan and its waves.
-    //
-    // So a wave claims any branch that belongs to it. What differs per section is
-    // what must be EXCLUDED: a merged branch is done, and `done` wants only
-    // those.
-    section === 'waiting-on-you' ? ((r: AgentRow) => r.state !== 'merged')
-      // NOT STARTED, and its absence was an omission rather than a decision.
-      // The paragraph above explains why WORKING and WAITING ON A MACHINE are
-      // excluded — an agent and a build are not waves — and says nothing
-      // whatever about this one, because nothing was meant by it.
-      //
-      // The section renders waves regardless: measured, `activity-shows-itself`
-      // draws a plan head and three wave rows there. What `[]` cost was the
-      // FOLD DEFAULT, which asks this function how many waves a plan has — so
-      // a plan of three waves counted zero, fell to the one-wave branch, and
-      // opened. A plan of four is five lines, and the crowding the fold exists
-      // to answer was answered nowhere in the one section that is nothing but
-      // unstarted plans.
-      : section === 'not-started' ? ((r: AgentRow) => r.state !== 'merged')
-        : section === 'quiet' ? ((r: AgentRow) => r.state !== 'merged')
-          : section === 'done' ? ((r: AgentRow) => r.state === 'merged')
-            : null;
-  if (!claims) return [];
-  // NO `length > 1` THRESHOLD, and its removal is the correction that matters.
-  //
-  // It was there on `showsWaveFold`'s reasoning — *a heading over one row saves
-  // no repetition* — and that argument answers a different question. A fold is
-  // about SAVING REPETITION; a kind is about **what the row is ABOUT**. A branch
-  // cut for the wave `Surfaced` is that wave's work whether the wave holds one
-  // branch or five, and the count is a fact about how the plan was written.
-  //
-  // Measured on the live board, the threshold also never fired: all **12** waves
-  // in WAITING ON YOU hold exactly one branch, so the grouping was reachable
-  // only through the mock's hand-made two-branch wave. A rule that fires only in
-  // a fixture is a rule nothing tests.
-  //
-  // A wave holding several still folds — `expanded` is what the WaveRow does with
-  // a set. What changed is that a wave of one is a wave, not a PR.
-  // AN UNNAMED WAVE IS STILL A WAVE, and it still groups. This filtered
-  // `(unnamed)` out until 2026-08-21, which left its rows ungrouped — so the plan
-  // holding them got no `PlanRow` head and the branch led the row on its own,
-  // beside 51 plan-headed siblings. Reported from a screenshot of DONE.
-  //
-  // Same correction as `carriesWave` on the server: the wave's NAME is not the
-  // test for a wave. `MANIFESTO.md` — *"a plan with no subheadings is one wave"*
-  // — so a plan nobody cut has one wave, unnamed, and its branches are that
-  // wave's work. What it lacks is a label, and `waveLabel` still withholds that:
-  // printing `(unnamed)` beside a branch names nothing.
-  return groupByWave(rows.filter(claims)).filter((wg) => wg.wave);
-}
-
-/**
- * The rows a section renders on their own — everything no wave group claimed.
- *
- * The complement of `waveGroupsFor` over the same input, so every row appears
- * exactly once: a row inside a grouped wave renders in that wave's fold, and
- * everything else renders as itself. Computed as a SET of the claimed rows
- * rather than by re-deriving the predicate, because two spellings of *which rows
- * are grouped* is how a row ends up rendered twice or not at all.
- */
-export function ungroupedRows(rows: AgentRow[], section: WaitingGroup): AgentRow[] {
-  const claimed = new Set(waveGroupsFor(rows, section).flatMap((wg) => wg.rows));
-  return rows.filter((r) => !claimed.has(r));
-}
-
-/** One wave's rows within a plan group, in the order they arrived. */
-export interface WaveGroup {
-  /** The wave's name as the plan file gave it, or "" where it named none. */
-  wave: string;
-  /** The scan's verdict for this wave, or null where no row carried one. */
-  verdict: WaveVerdict | null;
-  /**
-   * The wave holding this one back, by name — from `row.blockedBy`, which the
-   * server has populated all along while the board rendered the same fact as
-   * the sentence `blocked by Relocated — 1 outstanding`.
-   */
-  blockedBy: string | null;
-  rows: AgentRow[];
-}
-
-/**
- * Split one plan group's rows by wave.
- *
- * **A wave has branches, so the branches of one wave are one row's worth of
- * thing.** Measured on `last-pulse.json` 2026-08-20 — 35 plans, 71 waves — the
- * distribution is 57 waves of one branch, 8 of two, 3 of three, 1 of four and 2
- * of five. So the multi-branch wave is real and this cannot assume one-to-one.
- *
- * The sharper number is the intersection with the verdict: of the 14
- * multi-branch waves, **13 are `complete` and 1 is `blocked`**, and all 11
- * `eligible` waves hold exactly one branch. Across the 21 UNFINISHED waves the
- * split is 20 × one branch and 1 × five. That is not luck — a wave becomes
- * eligible when its predecessor completes and dispatch claims its branches at
- * once, so a wave is found with many branches either before anything reached it
- * or after everything finished. **One row is the common case; the fold is the
- * exception.**
- *
- * **INSERTION ORDER IS THE ORDER, and that is load-bearing.** `groupByPlan`
- * spends twenty lines on why it must not leave ties to arrival order: the rows
- * of one pulse share an age, `sort` is stable, and it faithfully preserves an
- * input rebuilt from a fresh scan every four seconds. This function does not
- * sort at all — a `Map` keyed on the wave name yields groups in first-appearance
- * order, which IS the age order the rows arrived in. Sorting here would
- * reintroduce that flicker one level down, and the wave sequence
- * (*Shaped* before *Relocated*) is the plan file's order, not something to
- * recompute.
- *
- * The verdict is taken from the FIRST row that carries one. Every branch of a
- * wave receives the same `wave.verdict` from the server (`fleet.ts`), so any of
- * them answers; taking the first non-null rather than the first row means a
- * five-branch wave still reports its verdict when one row's is absent.
- *
- * Exported for test — the multi-branch wave is the case an implementation
- * assuming one-to-one gets wrong while passing every single-branch assertion.
- */
-export function groupByWave(rows: AgentRow[]): WaveGroup[] {
-  const groups = new Map<string, WaveGroup>();
-  for (const row of rows) {
-    const existing = groups.get(row.wave);
-    if (existing) {
-      existing.rows.push(row);
-      existing.verdict ??= row.verdict;
-      existing.blockedBy ??= row.blockedBy;
-    } else {
-      groups.set(row.wave, {
-        wave: row.wave, verdict: row.verdict, blockedBy: row.blockedBy, rows: [row],
-      });
-    }
-  }
-  return [...groups.values()];
-}
-
-/**
- * The wave name to print BESIDE A BRANCH NAME, or null to print none.
- *
- * ## It reads the branch alone, and that is the whole change
- *
- * This took a plan-wide wave COUNT until the wave moved out of the phase cell,
- * and the count is what the reader could not see. The gate was
- * `waveCount > 1`, justified — correctly, for where the label then sat — as
- * *a caption over a partition of one is noise*: the wave shared a column with
- * the plan phase, so an uninformative wave name displaced a different fact, and
- * the cell's meaning therefore depended on how many waves the plan had.
- *
- * That is the defect `a-row-is-a-tuple` measured as *one column, four
- * meanings*, and it cannot be fixed by choosing which meaning wins. Beside the
- * branch name the label displaces NOTHING, so the count has nothing left to
- * arbitrate — and the plan that relocated it requires the wave be reachable for
- * **every branch that has one**, not only for branches of plans divided more
- * than once.
- *
- * So the question becomes a property of the branch: *does this branch name a
- * wave?* One row, one fact, no plan-wide arithmetic — which is what makes the
- * label honest rather than merely shorter.
- *
- * ## `(unnamed)` is not a name
- *
- * The server writes `(unnamed)` for a branch of a plan with no `### `
- * sub-headings — the absence of a division, spelled. It was a legitimate value
- * while a count did the gating (a divided plan always names its parts, so the
- * string could only arrive by a scan bug), and it is not one now: with the
- * count gone, `(unnamed)` is what a single-wave plan's every branch carries,
- * and printing it beside a branch name would put a parenthesised non-answer on
- * the majority of rows on this board.
- *
- * Null for that, and null for a planless row (`wave: ''`) — a row built from
- * the PR map belongs to no plan and has no wave to name.
- *
- * The `waveCount` parameter is GONE rather than ignored. A parameter no arm
- * reads is a standing invitation to start reading it, which is how this gate
- * came to depend on a fact about the plan in the first place.
- *
- * `waveCountByPlan` went with it. It existed to feed this gate and had no other
- * reader — the plan row's own summary counts the waves in its OWN group
- * (`waveSummaryFor`), which is a statement about a plan and the place a count
- * belongs. An exported pure function with only a test to call it is dead code
- * wearing a contract.
- */
-/**
- * The kinds whose ROW already links its wave in slot 4 — so the badge would
- * repeat it.
- *
- * Stated as a set beside `waveLabel` rather than inline at the call site,
- * because it has to agree with `tupleFromRow`'s arms: an `agent` links wave,
- * branch, worktree and plan; a `pr` and a `build` each link the wave between
- * their other artifacts. If an arm gains or loses the wave link, this is the one
- * place that has to follow — `build` was added one commit after `pr` and
- * `agent`, and the duplicate badge on `CI 283` is what said so.
- *
- * A `branch` row is deliberately NOT here — its artifact slot holds the plan and
- * the PR, so the badge is the only place its wave appears.
- */
-/**
- * The worker states that outrank a PR in a wave row's status slot.
- *
- * Three of the eight, and the split is *is anybody on this now* rather than
- * *did a process run*. `finished`, `failed`, `ended`, `none` and `elsewhere` all
- * describe a run that is over or absent; a reader scanning for what needs them
- * is served by the PR's condition instead. Measured on this repo's board:
- * 4 rows carry `finished` and every one is a merged PR in DONE, where `delivered`
- * is the word that belongs.
- */
-export const LIVE_WORKERS: ReadonlySet<AgentRow['worker']> =
-  new Set(['running', 'waiting', 'stalled']);
-
-export const WAVE_LINKING_KINDS: ReadonlySet<RowKind> = new Set(['agent', 'pr', 'build']);
-
-export function waveLabel(row: AgentRow): string | null {
-  if (row.wave === '' || row.wave === UNNAMED_WAVE) return null;
-  return row.wave;
-}
 
 /**
  * What the server writes where a plan divides its work into no waves at all.
@@ -1026,1387 +87,8 @@ export function waveLabel(row: AgentRow): string | null {
 // modules already import it from here.
 export { UNNAMED_WAVE };
 
-/**
- * Seconds until the next refresh, given how many have passed and how many the
- * interval is — or null when the age is unknown.
- *
- * Clamped at zero: a poll can be late (a hidden tab, a slow response), and
- * "next in -2s" is not something a reader can act on.
- */
-/**
- * What to tell an operator whose board just got smaller on a successful scan.
- *
- * NAMES WHAT VANISHED, and that is the whole reason the server sends identities
- * rather than counts. "3 plans became 2" makes the reader open a terminal to
- * find out which; the name lets them recognise the plan they delivered ninety
- * seconds ago — expected, ignorable — or fail to recognise it, which is the
- * defect and is worth their attention.
- *
- * BRANCHES ARE NAMED BEFORE PLANS when both are lost, because a lost branch is
- * the sharper signal: losing a plan file has an innocent explanation an operator
- * performs by hand, while a WORKING branch that disappears while its agent runs
- * has none.
- *
- * The list is capped and the remainder counted rather than truncated silently —
- * a banner that grows without bound stops being a banner, and "+4 more" is still
- * a number the reader can act on.
- */
-export function shrinkNote(shrink: PulseShrink, ageSeconds: number): string {
-  const parts: string[] = [];
-  if (shrink.branches.length > 0) parts.push(nameList(shrink.branches, 'branch', 'branches'));
-  if (shrink.plans.length > 0) parts.push(nameList(shrink.plans, 'plan', 'plans'));
-  // Both empty cannot happen — the server returns null rather than an empty
-  // shrink — but a banner rendering the word "undefined" over a healthy board
-  // would be worse than the bug, so the honest fallback is spelled out.
-  const lost = parts.length > 0 ? parts.join(' and ') : 'something it had a moment ago';
-  return `This scan succeeded but describes less than the last one: ${lost} `
-    + `disappeared in the last ${ageSeconds}s. The rows below are the NEW answer, `
-    + `not a frozen one — they may be right, or the scan may have read a moving `
-    + `working tree.`;
-}
-
-/** `a, b and 2 more branches` — at most three names, then a count. */
-function nameList(names: string[], one: string, many: string): string {
-  const shown = names.slice(0, 3);
-  const rest = names.length - shown.length;
-  const noun = names.length === 1 ? one : many;
-  const tail = rest > 0 ? ` and ${rest} more` : '';
-  return `${noun} ${shown.join(', ')}${tail}`;
-}
-
-export function countdown(ageSeconds: number | null, intervalSeconds: number): number | null {
-  if (ageSeconds === null) return null;
-  return Math.max(0, intervalSeconds - ageSeconds);
-}
-
-/**
- * Does a plan sub-heading earn its place ON THIS GROUP?
- *
- * A heading pays for itself by SAVING REPETITION: with two or more rows under
- * one plan, the name prints once above them instead of once on each. With a
- * single row it saves nothing — the name appears exactly once either way, and
- * the heading costs an extra line of height to say it. A section of one-row
- * plans became a stack of alternating headings and rows, each heading labelling
- * the single line beneath it.
- *
- * A nameless group can never have one: there is nothing to head it WITH, and
- * rendering the heading anyway printed a bare "(3)".
- *
- * This replaces a section-wide `showPlanHeadings(rowCount, planCount)` that
- * asked *should this section have headings at all* — `planCount > 1 ||
- * rowCount > planCount`. Both of its clauses are subsumed here: the second IS
- * this rule, counted per group instead of summed across the section, and the
- * first (two plans, one row each) turns out to be a case where headings are
- * *not* wanted. What that clause was really protecting is that unlabelled rows
- * must still name their plan — which is now the row's job whenever its group
- * has no heading, rather than something a section-wide flag guarantees.
- *
- * Exported so the mixed section — one plan with several rows beside a plan with
- * one — can be pinned without a browser. That case is what a section-wide
- * answer cannot express, and it is where the row-side half must hold.
- */
-export function showPlanHeading(group: PlanGroup): boolean {
-  return Boolean(group.plan) && group.rows.length > 1;
-}
-
-/**
- * Is this row a branch that never began — a name the plan wrote down, and
- * nothing else?
- *
- * The distinction NOT STARTED is built on, and the only one that decides
- * whether a row keeps its own line there. Measured on the live board: every
- * `state === 'open'` row in that section carried `pr=—` and `age=—`, because the
- * branch name came out of the plan's `## Branches` section and no branch was
- * ever created for it. Three such rows for one waiting plan said the same thing
- * three times.
- *
- * `state === 'deferred'` is the row this must NOT catch, and that exclusion is
- * the load-bearing half. A deferred branch WAS started — it may hold commits and
- * a PR — and it landed here because someone shelved it. `fleet.ts` records what
- * flattening it costs: an earlier version wrote `deferred` as the note, and *"a
- * branch started and then shelved read as never begun, with its age and its PR
- * erased."*
- *
- * Keyed on `state` rather than on `pr === null && ageMinutes === null`. Those
- * are SYMPTOMS of a branch that does not exist, and they are also true of a
- * branch that exists with no commits — a claim pushed as a bare ref. The state
- * is the server's own answer to the question, so this asks it rather than
- * inferring it from two empty cells.
- *
- * Exported for test: the deferred case is what a naive "group by plan" gets
- * wrong while passing every assertion about the unstarted ones.
- */
-export function isUnbegun(row: Pick<AgentRow, 'group' | 'state'>): boolean {
-  return row.group === 'not-started' && row.state === 'open';
-}
-
-/**
- * How long this PLAN has been waiting, in days — the clock that ticks in NOT
- * STARTED, read off the group's own rows.
- *
- * `waitingDays` dates the plan's `Approved:` record, so every row of one plan
- * carries the same number and any of them answers for the group. `Math.max`
- * rather than "the first one" only because a group can hold a deferred branch
- * beside unstarted ones and nothing forces the field onto both — taking the
- * largest keeps a recorded date from being lost behind a null.
- *
- * Null where NO row carries a date. Absent, not zero: `waitingLabel(0)` renders
- * `today`, which would claim a plan was approved this morning on the strength of
- * a field nobody filled in.
- *
- * Exported for test — the null case is the one an implementation reaching for
- * `?? 0` gets wrong while looking right on every dated plan.
- */
-export function planWaitingDays(group: PlanGroup): number | null {
-  const dated = group.rows.map((r) => r.waitingDays).filter((d): d is number => d !== null);
-  return dated.length === 0 ? null : Math.max(...dated);
-}
-
-/**
- * Order NOT STARTED's plan groups: **oldest first, by the plan's own clock.**
- *
- * What it replaces, measured at `groupByPlan`: `Math.max(...rows.map((r) =>
- * r.ageMinutes ?? -1))`. In this section `ageMinutes` is `null` on every row —
- * the branches have no tip to date — so every group scored `-1`, the comparator
- * returned 0 for every pair, and the sort did nothing at all.
- * `plot-sprint-support`, approved 187 days ago, sat wherever the map's insertion
- * order happened to put it, beside a plan from that afternoon.
- *
- * **Oldest first, and the direction is the decision.** Sorting startable-first
- * reads as more actionable and buys less: the startable plans are already marked
- * by their own note, and burying a six-month-old plan under a fresh one hides
- * exactly the drift this section exists to surface.
- *
- * This is the GROUP order, and it is deliberately not the same question as
- * `compareWithinGroup` in `fleet.ts`, which orders the ROWS inside a group
- * newest-first on the reasoning that six months of availability is evidence
- * nobody wants a *branch*. That answers *which branch do I pick up*; this
- * answers *which plan has been ignored longest*, which is the question a reader
- * scanning section headings is asking. Two levels, two questions — and the
- * server's row order survives untouched inside each fold.
- *
- * An undated plan sorts LAST. It has no recorded approval, so it has no claim on
- * a position that means *this has been waiting*; `-1` would put it above a plan
- * approved today and assert a wait nobody measured.
- *
- * Exported for test: the old comparator scores every group here `-1`, so an
- * assertion that merely checks the groups came back in some order passes against
- * a sort that does nothing.
- */
-export function sortByWaiting(groups: PlanGroup[]): PlanGroup[] {
-  return [...groups].sort((a, b) => {
-    const byWaiting = (planWaitingDays(b) ?? -1) - (planWaitingDays(a) ?? -1);
-    if (byWaiting !== 0) return byWaiting;
-    // TIES ARE BROKEN BY NAME, and that is what makes the list readable.
-    //
-    // Waiting days is a COARSE key: most plans in this section were approved on
-    // the same day, so most comparisons return 0 and the surviving order is
-    // whatever `groups` happened to arrive in. `Array.prototype.sort` is stable
-    // in every engine since ES2019, so it faithfully preserves that arrival
-    // order — and the arrival order is rebuilt from a fresh scan every four
-    // seconds, from a Map whose insertion order follows the pulse. Stability
-    // preserves an input that is not itself stable.
-    //
-    // Observed on the live board 2026-08-20: the NOT STARTED section reordered
-    // on almost every pulse, which makes a list of a dozen plans unreadable —
-    // the eye re-finds its place from scratch each time, and a row clicked at
-    // the moment of a pulse can be a different row than the one aimed at.
-    //
-    // The plan NAME is the right tiebreak because it is the only field here
-    // that cannot change between pulses: `planWaitingDays` moves at midnight,
-    // row counts move as branches land, and both are derived. A name is the
-    // plan's identity.
-    return a.plan.localeCompare(b.plan);
-  });
-}
-
-/**
- * What the plan row says about its waves, derived from the group's OWN rows.
- *
- * **No contract field carries this, and that is the point.** `waveSummary` on
- * the schema lives on the CARD; a fleet row knows only its own wave. But
- * `groupByPlan` already holds every row of this plan in this section, so
- * counting them and reading their notes answers *how many, and is the first one
- * startable* without adding a fact to the wire.
- *
- * Counted over the UNBEGUN rows only. A deferred branch keeps a row of its own
- * beneath the plan, with its own PR and age, so counting it into "3 waves" would
- * describe it twice and in the wrong terms — it is not a wave nobody has
- * reached, it is a branch somebody set down.
- *
- * **The limit is recorded rather than hidden: this counts what is in THIS
- * SECTION.** A plan whose first wave already merged has that wave in DONE, so it
- * reports the remainder — two where the plan file lists three. That is the
- * honest number for the question the section asks (*what is not started*), and a
- * reader wanting the full arc has the plan link on the row.
- *
- * `first eligible` comes from `isStartable`, which is the same predicate the row
- * menu uses to decide whether `Start work` is offered — so the summary cannot
- * promise an action the menu then refuses.
- *
- * Empty string where there is nothing to summarise, so the caller renders
- * nothing rather than a bare count of zero.
- *
- * Exported for test — the section-scoped count is the half that reads like a bug
- * until it is stated.
- */
-export function waveSummaryFor(group: PlanGroup): string {
-  const unbegun = group.rows.filter(isUnbegun);
-  if (unbegun.length === 0) return '';
-  // COUNTED IN WAVES, and it used to count ROWS while calling them waves. A
-  // one-wave plan holding five branches reported `5 waves`; the plan file lists
-  // one. The name of the unit was right and the number was of something else —
-  // exactly the confusion this wave exists to end, and it was in the summary
-  // whose job is to state the count.
-  const count = groupByWave(unbegun).length;
-  const waves = `${count} wave${count === 1 ? '' : 's'}`;
-  return unbegun.some(isStartable) ? `${waves}, first eligible` : waves;
-}
-
-/**
- * Does this plan row earn an expander?
- *
- * Only where opening it REVEALS something. A plan with one branch beneath it
- * already shows that branch's name in its own summary line, so a control that
- * unfolds a single row the reader can already read is noise — the same rule
- * `showPlanHeading` applies one level up, where a heading over one row saves no
- * repetition.
- *
- * Counted over ALL the group's rows, not just the unbegun ones: a plan with one
- * unstarted wave and one deferred branch has two rows to show, and the deferred
- * one carries a PR and an age that appear nowhere else.
- *
- * Exported for test: the one-wave case is the one an implementation that always
- * renders the expander gets wrong while passing every assertion about folding.
- */
-export function showsWaveFold(group: PlanGroup): boolean {
-  // COUNTED IN WAVES, not in rows — since NOT STARTED renders one row per WAVE
-  // rather than one per branch. A plan whose single wave holds five branches has
-  // five rows and ONE child row, so the row count promised a fold that revealed
-  // one line; and the wave's own fold is what discloses those five.
-  //
-  // Measured on the estate: `opus5-longhorizon-hardening :: Implementation`
-  // holds five branches, and it is the plan this got wrong.
-  return groupByWave(group.rows).length > 1;
-}
-
-/**
- * Does this row offer work a person can start right now?
- *
- * `not-started` holds two different things and only one of them is startable:
- * a branch nobody has taken, and a branch **blocked by an earlier wave**. A
- * button on the second would offer to skip the ordering waves exist to express
- * — and `plot-dispatch.sh` refuses that branch for exactly that reason, so the
- * board would be inviting an action the tool declines. No greyed-out control
- * either: a button whose usual state is *you cannot* teaches people to ignore
- * buttons, and the note already says *blocked by an earlier wave*, which is the
- * whole explanation.
- *
- * READS THE FIELD, not the sentence. Until `waitingOn` existed this compared
- * `note === ELIGIBLE_NOTE` — the "parser for a format nobody declared" shape
- * #175 removed from the PR cell, and the one that fails SILENTLY: a reworded
- * note does not break the button, it makes it quietly stop appearing. The same
- * change that added the field also sharpened a neighbouring note (*blocked by
- * an earlier wave* gained the wave's name), which is exactly the drift this was
- * always one edit away from.
- *
- * `state === 'open'` is kept beside it: `waitingOn: 'click'` already implies it
- * server-side, and asserting it here costs nothing and documents that a row
- * with a ref is not a row to start.
- *
- * Never on `working` or `quiet` rows, which already have a branch and a claim:
- * offering to start one invites the double-dispatch `fleet-sees-merged-branches`
- * was written to prevent. `waitingOn` is null everywhere outside `not-started`,
- * so those rows are excluded by construction rather than by a group check that
- * could drift from the server's own answer.
- *
- * Exported for test — the negative (a blocked row gets nothing) is the half a
- * naive implementation gets wrong.
- */
-export function isStartable(row: AgentRow): boolean {
-  return row.waitingOn === 'click' && row.state === 'open';
-}
-
-/**
- * Does this row still need its BRIEF written before anyone can start it?
- *
- * `isStartable` above answers whether the wave ordering is satisfied. This
- * answers the other half a dispatch needs, and until the row carried `brief`
- * there was no way to ask it: the `Worker command` opens by telling the agent to
- * read `.plot/briefs/<slug>.md`, and `plot-dispatch.sh` reports `brief=missing`
- * unconditionally because it cannot write one — that is interpretation, and
- * `/plot-implement` owns it.
- *
- * Measured 2026-08-19: nine eligible rows on this board, zero briefs. Every one
- * read *eligible — nobody has taken it*, and every dispatch it invited would
- * have started an agent that reads a file which is not there.
- *
- * SCOPED TO THE STARTABLE ROW, and the scope is the point rather than an
- * economy. The brief is a precondition of STARTING, so the fact is worth a
- * reader's attention exactly where starting is the row's available move. A
- * blocked row has a wave to wait for first and a working row is past the
- * question — saying it there would be true and would spend the reader's
- * attention on something they cannot act on, which is what the tone rules in
- * `waitingTone` are protecting.
- *
- * `missing` ONLY — never `unknown`. A row whose brief could not be checked has
- * nothing to tell the reader, and *the board could not tell whether this has a
- * brief* on every row of a server that never looked would be noise standing in
- * for an answer. See `BriefStateSchema` for why the third value exists at all.
- *
- * READS THE FIELD, not the note — the standing rule this file states at
- * `isStartable` and a file scan enforces (`verdict-not-prose.test.ts`).
- */
-export function needsBrief(row: AgentRow): boolean {
-  return isStartable(row) && row.brief === 'missing';
-}
-
-/**
- * What a row with no brief SAYS — and what it deliberately does not say.
- *
- * *"eligible — nobody has taken it"* was reported by an operator for naming a
- * state and implying an action that does not work. The sharper half of the
- * complaint is the phrasing: *nobody has taken it* supplies the reason nobody
- * has taken it as if it were an accident of attention. It reads as an
- * invitation with a missing actor, when what is missing is a FILE.
- *
- * So this names the file and the thing that writes it. THE MISSING PIECE IS A
- * DOCUMENT, NOT A PERSON — and the distinction is not pedantry, it is the whole
- * difference between two jobs done by two different things: a worker takes a
- * branch, `/plot-implement` writes a brief. An operator told *nobody has taken
- * it* runs `/plot-dispatch`; an operator told this runs the thing that helps.
- *
- * IT NAMES THE COMMAND RATHER THAN OFFERING IT. Whether the board should offer
- * the brief-writing action is an Open Point the plan recorded and declined to
- * settle — running `/plot-implement` is a real write, and the board's line is
- * drawn at the acting endpoints it already has. Naming what to run is read-only
- * and answers the reader's question; a button would be a second decision, and
- * this row is not the place to take it unasked.
- *
- * The PATH is spelled out because it is the thing a reader can check and the
- * place `/plot-implement` will write. It is derived the same way the server
- * derives it — the branch name after its last `/` — and the two agree by
- * construction, both following the convention Plot itself writes.
- */
-export function briefGapNote(branch: string): string {
-  const slug = branch.split('/').pop() ?? branch;
-  return `no brief at .plot/briefs/${slug}.md — /plot-implement writes it`;
-}
-
-/**
- * The note's colour, by what the row is waiting for.
- *
- * ONLY ONE OF THE THREE IS LOUD, and that is the whole design. `needs you` is
- * the state a person can end; the other two are stated, not shouted:
- *
- *   `you`    amber — a person must act, and nothing in git will change it
- *   `click`  the ordinary note colour — available, and taking it is optional
- *   `time`   dimmer still — nothing to do, ever, and the most common state in
- *            a multi-wave plan
- *
- * A section where every row is coloured has coloured nothing. Measured for
- * scale: this session's pulse held 43 rows, with multi-wave plans routinely
- * showing two blocked rows for every eligible one — so `time` is the state the
- * section is mostly made of, and making it quiet is what lets `you` read.
- *
- * COLOUR IS ADDED BESIDE THE WORDS, NEVER INSTEAD OF THEM. The notes already
- * say the right things and are simply invisible until read; this makes them
- * visible at distance. A reader with no colour perception loses nothing — the
- * sentence is the same one that is there today. The contract states the rule
- * for `pr.state` already: *carried as a symbol AND a word, never as colour
- * alone.*
- *
- * NOTHING ANIMATES HERE. `board-watches-for-stuck-branches` established that
- * motion marks an unanswered request — something waiting on you that will keep
- * waiting. A Draft plan minutes old is not that; it is the ordinary state of a
- * plan just written, and animating it would interrupt a reader about their own
- * work in progress. The escalation for a Draft that has sat for DAYS is
- * specified in the plan and deliberately not built: measured before approval,
- * 30 of this repo's 31 approved plans were approved the same day they were
- * drafted and one took a single day, so the state it would mark has never
- * occurred here. Choosing a threshold would mean inventing the first case it is
- * meant to measure, and a wrong one trains the reader to ignore the cue.
- *
- * Exported for test: the pairing that matters is that a `click` row and a row
- * outside the section are NOT distinguishable by colour — only `you` is.
- */
-export function waitingTone(waitingOn: WaitingOn | null): string {
-  switch (waitingOn) {
-    case 'you':
-      return 'text-amber-700 dark:text-amber-400';
-    case 'time':
-      return 'text-slate-400 dark:text-slate-600';
-    default:
-      // `click`, and every row outside NOT STARTED, keep the note's ordinary
-      // colour. Giving `click` one of its own would make the section shout
-      // twice and mean once.
-      return 'text-slate-500 dark:text-slate-400';
-  }
-}
-
-/**
- * Does this row get the live indicator?
- *
- * Group membership and nothing else. `working` has three entrances of differing
- * strength — an uncommitted worktree, a commit inside the quiet window, a bare
- * claim with no commits yet — and it is tempting to grade the animation by which
- * one applied. Rejected: **membership IS the statement**, and it is true for all
- * three. Each is a reason the fleet considers the branch live, the note beside
- * the row already says WHICH reason, and a second vocabulary made of speeds
- * would encode in motion what the text states plainly — while being unreadable
- * in isolation and invisible in a screenshot, which this board takes seriously
- * enough to have written into its rule for colour.
- *
- * The claim is therefore narrow and true by construction: this row is in
- * WORKING, re-derived every scan. Unlike the countdown that kept ticking after
- * its server died, it asserts no future event — it stops the moment the row
- * leaves the group, which is exactly when the work stopped or moved on.
- *
- * Exported for test: a confidence-graded implementation passes a test that
- * checks only one of the three notes, so all three are pinned here.
- */
-export function isLive(row: AgentRow): boolean {
-  return row.group === 'working';
-}
-
-/**
- * Is something actually being WRITTEN on this row, right now?
- *
- * **`local_locked || local_dirty`, and deliberately not `group === 'working'`.**
- * That is what `isLive` above answers, and the two questions are different
- * enough to need two marks: WORKING is an ADDRESS — a row sits there for hours
- * while an agent works, while an agent has crashed, or while it waits on a
- * human, and nothing measures the end. Six rows carried that claim during the
- * session that reported this. This is a PULSE: someone is writing, or has
- * written and not committed.
- *
- * `isLive` is untouched on purpose. The dot keeps meaning *in the WORKING
- * group*, this means *someone is writing here*, and no mark here is implemented
- * by modifying another — the standard `[data-change-mark]` set when it shipped
- * beside the dot rather than over it.
- *
- * **`localAhead` is NOT part of this, and its absence is the load-bearing
- * half.** Unpushed commits are finished work sitting STILL: a real condition
- * with a real remedy (push it) and no motion behind it. An implementation
- * OR-ing all three passes every positive assertion this wave makes and marks a
- * branch nobody has touched for hours as though someone were typing into it.
- * It earns a static mark of its own in a later wave; it does not earn this one.
- * (The field is not even forwarded onto the row, so the mistake cannot be made
- * absent-mindedly here.)
- *
- * **ABSENT IS NOT FALSE.** Both fields are `.default(false)` in the contract,
- * and a scan that could not observe a worktree reports absence rather than
- * cleanliness. So `false` here yields NO MARK — never a mark saying *idle*. The
- * strongest statement this predicate is licensed to make is *unknown, never
- * nobody*, which is why it only ever adds a marker and never renders one for
- * the negative case.
- *
- * Exported for test: the negative — a WORKING row with neither signal — is the
- * half an implementation that kept reading the group gets wrong.
- */
-/**
- * LOCAL WRITE ACTIVITY OUTRANKS THE SECTION — which is why there is no
- * `showsActivity` predicate here any more.
- *
- * This file carried one from 2026-08-21 to 2026-08-22. It began as *WAITING ON
- * YOU never carries an activity mark*, reported from the live board: a plan
- * head and the wave beneath it pulsing while, it seemed, nothing was running.
- * It was then narrowed once, because 28 tests across two suites showed QUIET
- * and DONE need the mark most — *"QUIET's own purpose is 'go check whether this
- * died'"*.
- *
- * The premise was wrong, and measuring it is what showed that. On the pulse
- * that prompted the report, exactly one row in the whole fleet had a local
- * signal: `feature/a-wave-is-a-kind`, `localDirty: true` — the branch being
- * committed to at that moment — and the plan head that pulsed was ITS head. The
- * mark was telling the truth; the reader took a true statement for a false one
- * because the section it appeared in reads as *nothing is happening here*.
- *
- * The rule the operator stated, and the one that holds: *whichever worktree or
- * main dir is being written to, and whatever section the row is in, local write
- * activity always shows*. A signal that something is being WRITTEN is never
- * contradicted by where the row is filed — the section describes what the work
- * is waiting for, and writing is not waiting.
- *
- * So the question is asked of `isActive` alone, which reads the three local
- * fields and nothing else. `useActivity` no longer filters by group.
- */
-export function isActive(
-  row: Pick<AgentRow, 'worker' | 'pr' | 'state'>,
-): boolean {
-  // A MERGED BRANCH IS NOT ACTIVE, whatever is still running against it.
-  //
-  // Measured on screen: a row in DONE carrying the activity mark. Both halves
-  // were individually true — `state: merged` and a local signal — and the row
-  // said two things that cannot both be acted on. The mark says *work is
-  // happening on this branch*, and after the merge there is no work on it left
-  // to happen; `classify` sends merged branches to `done` before it looks at
-  // any signal, and this predicate agrees with that rather than contradicting
-  // it one layer up.
-  if (row.state === 'merged') return false;
-  // A PROCESS, AND ONLY A PROCESS — an agent working or a build running.
-  //
-  // This read `localLocked || localDirty` until 2026-08-22, and those are not
-  // processes: they are a WORKTREE's contents. The distinction is what the
-  // moving dot is for. A pulsing mark says *a machine is on this right now*,
-  // and a person editing files is not a machine — measured on the live board,
-  // the row for the branch being committed to pulsed continuously for hours
-  // while nothing but a person typed in it.
-  //
-  // Two sources, matching the two kinds of machine this board knows:
-  //
-  //   - `worker` for AGENTS, bounded by `LIVE_WORKERS` — `running`, `waiting`,
-  //     `stalled`. The other five (`finished`, `failed`, `ended`, `none`,
-  //     `elsewhere`) describe a run that is over or absent, which is the split
-  //     that set already states: *is anybody on this now*.
-  //   - `pr.state === 'pending'` for BUILDS. That is CI running, the one PR
-  //     state that describes a machine at work rather than a verdict it left
-  //     behind.
-  //
-  // Uncommitted work is still visible and still worth seeing: it reaches the
-  // reader as the row's NOTE and through `isUnpushed`'s own mark. What it no
-  // longer does is claim a process is running.
-  if (LIVE_WORKERS.has(row.worker)) return true;
-  return row.pr?.state === 'pending';
-}
-
-/**
- * The four stuck states as WORDS, one apiece.
- *
- * FOUR LABELS, NOT ONE. *Stuck* as a single word is the one-label-many-states
- * defect the contract names, and here the four differ in the only way that
- * matters — what happens next. `artifact-conflict` and `conflict` in particular
- * are not degrees of one thing: the first has a resolution a rebuild and a CI
- * no-diff gate can prove without anyone reading a diff, and the second does not.
- * A reader who cannot tell them apart cannot tell which of the two errands is
- * theirs.
- *
- * A WORD, never a colour and never a mark. The repo's rule is *symbol AND
- * word*, and this is the word half: it is what a screen reader hears and what
- * survives a screenshot.
- *
- * Exported for test — a single shared label passes any assertion that only
- * checks "the row says something".
- */
-export function stuckWord(state: StuckState): string {
-  switch (state) {
-    case 'artifact-conflict': return 'artifact conflict';
-    case 'conflict': return 'conflict';
-    case 'ci-failing': return 'CI failed';
-    case 'unpushed': return 'unpushed work';
-    // TWO PLANS, not two branches — and the word says which kind of collision it
-    // is, because `conflict` above is already taken by the other one.
-    case 'double-claimed': return 'claimed twice';
-    // NOT "too many branches": the count is the symptom, the missing SLICE is
-    // the defect. A wave is meant to be carried out in one branch and one
-    // worktree, and this plan was never sliced after its spike.
-    case 'unsliced-wave': return 'wave not sliced';
-  }
-}
-
-/**
- * The EVIDENCE that produced the state, as the lines the row prints beside it.
- *
- * The contract states the rule this exists to honour, and it is easy to violate
- * while looking correct: *EVIDENCE TRAVELS WITH THE STATE, always. A row that
- * says* stuck *and makes the reader go find out why has moved the ten minutes of
- * log-reading rather than removed it.* A row that only names its state passes
- * every "is the state visible" assertion and pays off none of the cost this
- * detection exists to remove.
- *
- * **`ci-failing` gets TWO LINES, and it got three until 2026-08-20.** The third
- * was the branch's changed-path list, and it is not deleted — it moved into the
- * menu ({@link offersChangedFiles}). What is left is what the reader ACTS on:
- * which step failed, and how the branch has fared lately. Nothing here compares
- * them and nothing concludes from them — a heuristic mapping failing steps to
- * changed paths was explicitly rejected as a table nobody maintains, which goes
- * silently wrong the first time a workflow is restructured. The reader combines
- * them; this only sets them down.
- *
- * **Why the third line left, when the comment above used to defend it.** It was
- * right that the fact belongs on a failing row and wrong about *how much of the
- * row* it may take. Measured on `#266`: six paths, wrapped, as prose — so every
- * reader scrolled past a paragraph so that the one reader who wanted it did not
- * have to click. The three facts are not equal in cost. A step name is four
- * words and often ends the investigation; a path list is unbounded and is
- * consulted rarely. EVIDENCE TRAVELS WITH THE STATE is honoured by the evidence
- * being *reachable from the row*, not by all of it being *printed in* the row —
- * and the menu is one click, on the same pulse, with no fetch.
- *
- * **The run time is an AGE, never the instant.** The host reports ISO 8601 and
- * the contract keeps it verbatim, which is right for a contract and wrong for a
- * row: `2026-08-20T03:55:23Z` makes a reader do date arithmetic to answer *is
- * this fresh*, which is the only question they asked. `agoLabel` is the board's
- * one age dialect and this uses it rather than growing a second — the same
- * reason `ageLabel` was split out of `age`. `now` is a parameter, not a clock
- * read, so a test can assert the wording without racing it.
- *
- * **An empty evidence field says so rather than vanishing.** `failingChecks: []`
- * means *no names available* — an older adapter, or a host carrying no rollup —
- * never *nothing failed*, and `runHistory: []` means Bitbucket has no run
- * listing, never *this branch has never failed before*. Silence there would be
- * the row asserting a fact it was never given. The changed-path line carries no
- * such placeholder, and that is not an inconsistency: its absence from the row
- * is now the DESIGN rather than a missing fact, so *changed paths unavailable*
- * would be prose of the same width making a weaker — and, where the menu holds
- * them, false — statement.
- *
- * Exported for test: the pairing that matters is a row that names its state
- * WITHOUT its evidence, which every state-only implementation renders correctly.
- */
-export function stuckEvidence(stuck: Stuck, now: number = Date.now()): string[] {
-  switch (stuck.state) {
-    case 'artifact-conflict':
-    case 'conflict':
-      // The set travels with the answer so a reader can COUNT it rather than
-      // trust the classification — *exactly the artifact* is a claim about a
-      // set, and this is the set. An empty one is the host's own verdict with
-      // no set behind it (see `stuckState`), which is a real and different
-      // thing to say.
-      return stuck.conflicts.length > 0
-        ? [`conflicting: ${stuck.conflicts.join(', ')}`]
-        : ['the host reports this branch does not merge — no file list available'];
-    case 'unsliced-wave':
-      // NAMES THE BRANCHES, because repairing this means slicing the wave into
-      // one per branch and the reader has to see which are entangled. The
-      // sentence says what a wave IS rather than merely that the count is wrong,
-      // since the count is the symptom: `plan → * wave → 1 branch`.
-      return stuck.waveSiblings.length > 0
-        ? [`one wave, ${stuck.waveSiblings.length} branches: ${stuck.waveSiblings.join(', ')}`
-           + ' — a wave is carried out in one branch, so this plan needs slicing']
-        : ['this wave holds several branches — a wave is carried out in one'];
-    case 'double-claimed':
-      // NAMES THE PLANS, because resolving this means editing one of them — the
-      // same reason `shrinkNote` names what vanished rather than counting it.
-      // Nothing here is a verdict about which plan is right: that is the
-      // judgement a person makes, and the row's job is to put both names in
-      // front of them.
-      // The NAMES where they are known, and the bare fact otherwise — the same
-      // shape the conflict arm above uses for an empty set: an unnamed collision
-      // is still a collision, and printing `claimed by 0 plans` would be the row
-      // stating a count it does not have.
-      return stuck.claimedBy.length > 0
-        ? [`claimed by ${stuck.claimedBy.length} plans: ${stuck.claimedBy.join(', ')}`]
-        : ['more than one plan claims this branch — the plans do not agree'];
-    case 'ci-failing':
-      return [
-        stuck.failingChecks.length > 0
-          ? `step: ${stuck.failingChecks.join(', ')}`
-          : 'failing step unavailable',
-        // The changed-path line USED TO BE HERE and is now in the menu. See the
-        // doc comment: the fact stayed, its home changed, and no placeholder
-        // took its place in the row.
-        stuck.runHistory.length > 0
-          ? `recent runs: ${stuck.runHistory
-              .map((r) => {
-                // The age, or nothing — never the instant, and never
-                // `Invalid Date`. `agoLabel` returns null on a timestamp it
-                // cannot parse, and an unreadable time omits exactly like every
-                // other unrecognised field while the CONCLUSION, which the host
-                // did give, still reports.
-                const ago = r.startedAt ? agoLabel(r.startedAt, now) : null;
-                return `${r.conclusion || 'unknown'}${ago ? ` ${ago}` : ''}`;
-              })
-              .join(', ')}`
-          : 'run history unavailable',
-      ];
-    case 'unpushed':
-      // The count IS the evidence, and it is the whole of it: `local_ahead` is
-      // true only on the machine doing the looking, so there is nothing else
-      // anyone else could check.
-      return [
-        `${stuck.localAhead} commit${stuck.localAhead === 1 ? '' : 's'} only this machine can see`,
-      ];
-  }
-}
-
-/**
- * Does this row's failure have a changed-file list to SHOW — the third evidence
- * line, in its new home.
- *
- * **The list did not disappear, it stopped being printed.** {@link stuckEvidence}
- * carried it in the row until 2026-08-20, where `#266` measured it as six paths
- * wrapped across the width as prose: a paragraph every reader scrolled past so
- * that the occasional reader who wanted it did not have to click. Behind the
- * menu it costs one click and no column.
- *
- * **`ci-failing` ONLY, and the state test is not redundant.** `changedPaths` is
- * populated on that state alone — the other three get `[]` from `noCiEvidence`
- * by construction — so a predicate reading the array alone is correct today and
- * wrong the first time a conflict row gains one. The list is evidence *about a
- * failing check*; on a conflict row the file set that matters is `conflicts`,
- * which the row already prints.
- *
- * **`[]` yields NO item.** An empty list means *no paths available* — an older
- * adapter, or a host carrying none — never *this branch changes nothing*. An
- * item opening onto an empty list is the empty menu this board keeps removing,
- * and unlike the row's evidence lines a menu item cannot say *unavailable*
- * usefully: a reader would spend the click to learn there was nothing to learn.
- *
- * **No fetch, ever.** The paths are already on the row, on the pulse that drew
- * it. The plan is explicit that a per-click fetch would put a second cost on a
- * data path whose scan went from 279 s to 20 s for one reader's convenience.
- *
- * Exported for test: the negatives — an empty list, and a non-CI state carrying
- * paths — are what a predicate keyed on the array alone gets wrong, and both
- * pass every positive assertion.
- */
-export function offersChangedFiles(stuck: Stuck | null | undefined): boolean {
-  return stuck?.state === 'ci-failing' && stuck.changedPaths.length > 0;
-}
-
-/**
- * What the changed-files menu item SAYS — a count, never the list.
- *
- * The item is one line in a menu, so it says how MANY and the panel it opens
- * says which. A label that listed the paths would put the dump back one click
- * away rather than removing it, which is the whole of what this branch does.
- *
- * The count is also the fact a reader uses to decide whether to click at all:
- * *1 file* and *34 files* are different situations, and the second is worth
- * knowing before opening it.
- *
- * Exported for test — the singular is where a template string goes wrong, and
- * "1 files" is invisible in a screenshot of a row that has six.
- */
-export function changedFilesLabel(count: number): string {
-  return `Changed ${count} file${count === 1 ? '' : 's'}`;
-}
-
-/**
- * Does this stuck state OFFER an action on the row?
- *
- * Two of the four do, and the two that do not are the load-bearing half — a cue
- * on every row makes the stuck ones invisible.
- *
- * **`unpushed` offers nothing, ever.** The fix is a push, and pushing someone
- * else's uncommitted judgement is not a mechanical act. It is reported in words
- * and that is the entire treatment.
- *
- * **`artifact-conflict` offers nothing IN THIS WAVE.** Wave 3 resolves it — the
- * only automatic write this plan ever grants — and until that exists the state
- * is reported like any other, with no action. Offering one here would be this
- * wave building the thing it is fenced away from.
- *
- * Exported for test: the two negatives are what a blanket "stuck rows get a
- * button" implementation gets wrong, and both pass every positive assertion.
- */
-export function offersAction(state: StuckState): boolean {
-  return state === 'conflict' || state === 'ci-failing';
-}
 
 
-
-/**
- * What the row says about the one repair this system performs by itself.
- *
- * **EVERY REPAIR IS REPORTED — running, pushed, or abandoned.** A silent
- * automatic write is indistinguishable from a defect, which is the failure mode
- * the whole stuck-branch plan exists to remove, and it is the one that would
- * arrive here: the branch stays `artifact-conflict` for the entire repair
- * (nothing about the refs changes until the push lands), so a row that only
- * showed `stuck` would sit unchanged for five minutes while a machine wrote to
- * the branch. Indistinguishable, from the outside, from the pulse ignoring it.
- *
- * **The failures are reported as loudly as the success.** `abandoned` is the
- * repair's own gate stopping it — a failed rebuild, a red `test:board`, a
- * rejected push — and it means nothing was pushed and this conflict is now a
- * human's. A word that only appeared on success would be quietest exactly when a
- * reader most needs it.
- *
- * "" for a branch nothing was attempted on, which renders as nothing at all.
- *
- * Exported for test: an implementation that reports only `pushed` passes every
- * assertion that a successful repair is visible.
- */
-export function repairWord(repair: Repair | null | undefined): string {
-  if (!repair) return '';
-  if (repair.state === 'running') return 'repairing — merge, rebuild, test:board';
-  switch (repair.outcome) {
-    case 'pushed':
-      return 'repaired automatically — rebuilt and pushed after test:board passed';
-    case 'abandoned':
-      // The reason is the script's own word, and it is carried rather than
-      // translated: `tests-failed` and `build-failed` end in the same place for
-      // the reader (nothing was pushed) and in different places for whoever
-      // opens the log.
-      return `repair abandoned${repair.reason ? ` — ${repair.reason}` : ''}; nothing was pushed`;
-    case 'refused':
-      return `repair refused${repair.reason ? ` — ${repair.reason}` : ''}`;
-    default:
-      return 'repair finished';
-  }
-}
-
-/**
- * How long a SEEN lock keeps the activity marker after the pulse that reported
- * it.
- *
- * **Six seconds, and the measurement decides it.** `.git/index.lock` exists for
- * a fraction of a second to a few seconds — one commit, one rebase step — while
- * `FLEET_POLL_MS` is 4 s. So most locks are born and die BETWEEN two pulses and
- * are never seen at all: the sharpest signal this board has is the one it most
- * often misses, and rendering it only for the instant it is observed would
- * render it almost never.
- *
- * Longer than one poll interval, so a lock seen in one pulse survives the next
- * one — which is the entire point, and the assertion a 3 s value would fail
- * against a 4 s clock. Short enough that it plainly reads as a marker rather
- * than as a state: two lockless pulses (8 s) always clear it.
- *
- * Not the same constant as `CHANGE_MARK_MS`, and not merged with it. That one
- * is calibrated against the 60 s PR refresh for a rare transition; this one is
- * calibrated against the 4 s fleet pulse for a signal that expires on its own.
- * One number serving two clocks is how a value gets tuned for one and silently
- * wrong for the other.
- */
-export const LOCK_ECHO_MS = 6_000;
-
-/**
- * The rows whose lock was seen recently enough to still be worth showing.
- *
- * **This is the one place this board lets a marker outlive its fact, and it is
- * bounded by three rules the plan settled — none of them optional:**
- *
- * *It never contradicts a later observation.* The echo only ever ADDS a row to
- * the marked set. A pulse reporting `localDirty` marks for its own reason and
- * needs no echo; a pulse reporting neither lets the echo expire on its own
- * clock and does not extend it. The row's NOTE is untouched throughout and goes
- * on reporting whatever the last pulse actually found — the echo makes a real
- * event visible, it never makes a claim the note would contradict.
- *
- * *A lock never resurrects.* The echo starts only where a lock was SEEN
- * (`localLocked` true in some pulse), never where one is inferred from dirt, an
- * age, or a group. Two lockless pulses therefore produce nothing at all: there
- * is no lock to echo, and inventing one would be the board asserting an event
- * it never observed.
- *
- * *It is a marker, not a state.* Each key clears itself on its own timer rather
- * than waiting for a pulse to clear it — the rule `ChangeMarks` already
- * follows, and what keeps a board whose server has died from sitting lit
- * forever. A frozen page shows its echoes expire and then shows nothing, which
- * is the honest end.
- *
- * Split out and driven by an injected clock for the same reason `ChangeMarks`
- * is: at the board's own rates the echo is invisible to a browser test —
- * `FLEET_POLL_MS` is 4 s, so an assertion "the marker survived a lockless
- * pulse" is really watching a timer that has not expired yet and passes just as
- * happily with the echo removed. Driven by hand, the rule is exact.
- */
-export class ActivityEcho {
-  private readonly timers = new Map<string, () => void>();
-  private readonly lit = new Set<string>();
-
-  constructor(
-    private readonly onChange: (lit: ReadonlySet<string>) => void,
-    private readonly schedule: (fn: () => void, ms: number) => () => void =
-      (fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); },
-  ) {}
-
-  /**
-   * Record this pulse: every row seen holding a lock starts (or restarts) its
-   * echo.
-   *
-   * **Restarted, not extended and not ignored** — the same rule `ChangeMarks`
-   * documents. A lock still held on the next pulse is a longer write, not a
-   * finished one, so the echo runs a full span from the latest sighting.
-   *
-   * Rows NOT holding a lock are left entirely alone: their echo, if any, keeps
-   * running down its own clock. That is the "never extends, never contradicts"
-   * half — this method is only ever told what was seen, never what was absent.
-   */
-  seen(locked: Iterable<string>): void {
-    let touched = false;
-    for (const key of locked) {
-      touched = true;
-      // Cancel first: the pending timeout belongs to the PREVIOUS sighting and
-      // would otherwise take this one's echo with it when it fires.
-      this.timers.get(key)?.();
-      this.lit.add(key);
-      this.timers.set(key, this.schedule(() => {
-        this.timers.delete(key);
-        this.lit.delete(key);
-        this.onChange(new Set(this.lit));
-      }, LOCK_ECHO_MS));
-    }
-    if (touched) this.onChange(new Set(this.lit));
-  }
-
-  /** Which rows are currently echoing a lock. */
-  get echoing(): ReadonlySet<string> {
-    return this.lit;
-  }
-
-  /** Drop every pending timer — the component is going away. */
-  dispose(): void {
-    for (const cancel of this.timers.values()) cancel();
-    this.timers.clear();
-    this.lit.clear();
-  }
-}
-
-/**
- * Which rows wear the activity marker: those active in THIS pulse, plus those
- * still echoing a lock seen in a recent one.
- *
- * A union, and the direction matters: the echo only ever adds. A row reporting
- * `localDirty` right now is marked for its own reason whether or not it ever
- * held a lock, and a row reporting nothing at all is marked only for as long as
- * a lock it was actually seen holding is still echoing.
- *
- * Exported for test — it is the whole rendering rule, and vitest runs with
- * `environment: 'node'`.
- */
-export function activeRowKeys(
-  rows: readonly AgentRow[],
-  echoing: ReadonlySet<string>,
-): Set<string> {
-  const active = new Set<string>();
-  for (const row of rows) {
-    const key = rowKey(row);
-    if (isActive(row) || echoing.has(key)) active.add(key);
-  }
-  return active;
-}
-
-/**
- * How long a changed row wears its marker.
- *
- * **Three seconds, and the measurement decides it — not taste.** The value this
- * watches comes from the host's PR refresh (`PR_REFRESH_MS`, 60 s), not from the
- * 4 s fleet pulse, and `PR_BACKOFF_MAX_MS` pushes it to 120 s under a rate
- * limit. So a transition can surface at most once a minute and often less: it is
- * a RARE event, and a 300 ms flash — calibrated for something frequent enough
- * that missing one hardly matters — would be missed nearly every time.
- *
- * Three seconds is long enough to catch a reader glancing back and short enough
- * that it plainly reads as a marker rather than as a state. Deliberately NOT
- * "until the next pulse": that would tie the marker's life to whichever clock
- * cleared it (4 s or 60 s), and would leave it lit forever on a board whose
- * server died — which is exactly when nothing is changing.
- */
-export const CHANGE_MARK_MS = 3_000;
-
-/**
- * The identity a row is remembered by, across pulses AND across sections.
- *
- * `${repo}/${branch}/${plan}`. Keyed on IDENTITY rather than on position on
- * purpose: `pr.state` helps decide the group (`conflicts` sends a row to
- * WAITING ON YOU, CI running to WAITING ON A MACHINE), so the changes worth
- * marking are frequently the ones that MOVE the row — and a position-keyed
- * memory loses the prior value in exactly that case.
- *
- * **THE PLAN IS PART OF THE IDENTITY, and leaving it out made the board
- * flash.** Two plans can name one branch — a real state, which the estate
- * reaches whenever work is handed from one plan to another and the giving plan
- * has not yet dropped the name. The board then renders TWO ROWS for that
- * branch, one under each plan, and on `${repo}/${branch}` they shared a memory:
- * each pulse one row overwrote the other's remembered facts, the detector saw a
- * difference that was never a change, and the mark lit — for hours, on a branch
- * nobody had touched.
- *
- * That failure is written up in `stuck.ts`, where `double-claimed` was added to
- * NAME the collision. Naming it did not stop the flashing, because the shared
- * key is what causes it and the state is only its symptom: reported again on
- * 2026-08-22 with `bug/one-row-one-truncation-rule` flashing under both
- * `a-mock-row-shows-what-the-tuple-still-gets-wrong` and `the-row-is-legible`.
- *
- * Adding the plan is safe for the property the first paragraph protects. A row
- * moving between sections keeps its plan — the group is derived from state, CI
- * and age, none of which touch `plan` — so the memory still survives exactly
- * the moves it was built to survive. What it no longer survives is a branch
- * changing plans, which is not a move: it is a different row.
- *
- * `?? ''` because a row can legitimately have no plan (an unplanned branch, a
- * release branch), and those must keep ONE stable key rather than one per
- * absent value.
- */
-export function rowKey(row: Pick<AgentRow, 'repo' | 'branch' | 'plan'>): string {
-  return `${row.repo}/${row.branch}/${row.plan ?? ''}`;
-}
-
-/** The six PR states plus *no PR*, as one value — the row's PR slot. */
-export type WatchedPrState = NonNullable<AgentRow['pr']>['state'] | null;
-
-/**
- * Every OBSERVED fact on a row, and no DERIVED TIME.
- *
- * **The boundary is the feature, not a caveat.** The request was *highlight the
- * whole line on every written update*, and a literal reading of "everything
- * visible" flashes a completely idle row once a minute: the note on a WORKING
- * row reads *"last commit 1 min ago"* and `ageMinutes` ticks beneath it, so
- * `1 min ago → 2 min ago` would be an "update". After an hour at the board every
- * row would have flashed sixty times and the marker would mean nothing.
- *
- * So the line is drawn where the contract already draws it:
- *
- * | Watched | Not watched | Because |
- * |---|---|---|
- * | `pr` (state, number, draft) | `ageMinutes` | derived from a timestamp and a clock |
- * | `localDirty`, `localLocked` | `waitingDays` | a SECOND clock, per its own doc |
- * | `localAhead` | `note` | it EMBEDS a clock — see below |
- * | `state`, `group`, `wave`, `phase` | | |
- * | `stuck` | | |
- *
- * **A fact changes because the world changed; a clock changes because time
- * passed**, and only the first is news.
- *
- * **`note` is excluded despite being server-observed**, and it is the trap this
- * whole rule exists to avoid. It is a sentence assembled around the ages —
- * *"last commit 18 min ago"* — so an implementation watching the row's rendered
- * note passes every positive assertion (a new commit really does rewrite it) and
- * flashes every row once a minute. Provenance is not sufficient here; what the
- * value is MADE OF decides.
- *
- * A new commit still flashes, which is the reported gap: the tip moving changes
- * `state`/`group`/`localAhead` — facts — even though the sentence beside them
- * changed for a clock's reason.
- */
-export interface WatchedState {
-  /** null where the row carries no PR at all — a value, not a gap. */
-  pr: WatchedPrState;
-  prNumber: number | null;
-  prDraft: boolean | null;
-  state: AgentRow['state'];
-  group: AgentRow['group'];
-  wave: string;
-  phase: AgentRow['phase'];
-  localDirty: boolean;
-  localLocked: boolean;
-  localAhead: number;
-  /** Seconds since the newest write — the field that makes `true → true` a change. */
-  changedAgo: number | null;
-  /** Serialised, because `stuck` is an object and this map is compared by value. */
-  stuck: string | null;
-}
-
-/**
- * The value each row is watched by.
- *
- * `pr` is `.nullable().default(null)` and MOST rows carry none — `not-started`,
- * `quiet`, and every fresh claim — so this reads through an optional chain
- * rather than `row.pr.state`, which crashes on precisely those rows.
- *
- * *No PR* is a value, not a gap: `null → pending` is a PR opening, often the
- * most interesting transition a branch has, and `pending → null` is one merged
- * or closed out from under the row. Both are the watched value changing, which
- * keeps the rule single instead of adding an exception about which changes
- * count.
- *
- * `stuck` is serialised rather than held as an object because the comparison
- * downstream is by value: two structurally equal `stuck` objects arrive as
- * different references on every pulse, and a reference test would flash every
- * stuck row four times a second.
- */
-export function watchedState(row: AgentRow): WatchedState {
-  // EVERY OBSERVED FACT, AND WRITING AMONG THEM.
-  //
-  // The three local fields are what make a WRITE an event here: the master
-  // agent editing in the project directory, or a worker in its own worktree,
-  // moves `localDirty`/`localLocked` and the row flashes. They sit beside the
-  // host's facts rather than replacing them — a PR turning red, a row moving
-  // section and a phase advancing are all changes worth a glance, and the flash
-  // is the one mark that says *this row is not what it was*.
-  //
-  // The moving DOT is the mark that narrowed instead: it answers *is a process
-  // running*, and its pace answers *is that process doing anything*. Two marks,
-  // two questions — the flash reports history, the dot reports machines.
-  return {
-    pr: row.pr?.state ?? null,
-    prNumber: row.pr?.number ?? null,
-    prDraft: row.pr?.draft ?? null,
-    state: row.state,
-    group: row.group,
-    wave: row.wave,
-    phase: row.phase,
-    localDirty: row.localDirty,
-    localLocked: row.localLocked,
-    localAhead: row.localAhead,
-    // TRUE → TRUE IS STILL A CHANGE, and this is the field that can say so.
-    //
-    // `localDirty` is a SWITCH: it flips on the first keystroke of a session
-    // and stays flipped for as long as anything is uncommitted. A detector
-    // watching it therefore fires once and never again — measured on the live
-    // board, three modified files and ZERO flashes across 40 seconds, because
-    // the value had not moved since the morning.
-    //
-    // A timestamp has the shape the reader means. Every save moves it, so a row
-    // that was already dirty and is written to again is a row whose watched
-    // value changed. The scan has computed this per worktree all along
-    // (`changed_ago_of`); nothing new is measured, it is only read.
-    //
-    // It is NOT one of the clocks this map excludes. `ageMinutes` ticks because
-    // time passes and would flash an idle row once a minute; this moves only
-    // when a file is written. *A fact changes because the world changed* — a
-    // save is the world changing.
-    changedAgo: row.changedAgo,
-    stuck: row.stuck === null ? null : JSON.stringify(row.stuck),
-  };
-}
-
-
-/**
- * Which rows changed since the last pulse, and what to remember for the next.
- *
- * Pure, and exported for test, because this is the whole rule: vitest runs with
- * `environment: 'node'`, so the decision lives here as a function over (prior,
- * current) and the browser tests are left to assert only what genuinely needs a
- * page.
- *
- * **`prior` distinguishes a MISSING key from a stored `null`, and the two mean
- * opposite things:**
- *
- * | `prior` holds | Means | This pulse |
- * |---|---|---|
- * | *(no entry)* | never observed this row | record silently |
- * | `null` | observed, and it had no PR | a move away from `null` marks |
- * | a state | observed, with that state | a different state marks |
- *
- * Collapsing the first two is the tempting simplification and it is wrong in a
- * way that hides itself: it passes the first-pulse assertion (nothing marks on
- * a fresh mount) and silences every branch's FIRST PR forever, because *never
- * seen* and *seen with no PR* would be indistinguishable. Hence a `Map` read
- * with `.has()` rather than a truthiness test.
- *
- * The first pulse after a load, a restart or a reconnect therefore marks
- * nothing: *unknown → conflicts* is a first sighting, not a transition, and
- * treating it as one would flash every row on every reload — the loudest
- * possible way to be wrong. A row that vanishes and returns starts silent for
- * the same reason.
- *
- * Every changed row is returned, with no threshold and no suppression: if ten
- * rows really did change, ten marks are the honest report, and a rule that goes
- * quiet exactly when the most changed would make the board least informative at
- * its most eventful moment.
- *
- * Rows ABSENT from this pulse are dropped from the returned memory rather than
- * carried: the map is one value deep per visible row, not a log.
- *
- * **`unknown` is not a transition, in either direction, and it is not
- * remembered.** See `isUnreadable`: it is a fact about the OBSERVATION, and
- * this function reports changes in the WORLD.
- */
-export function changedRows(
-  prior: ReadonlyMap<string, WatchedState>,
-  rows: readonly AgentRow[],
-): { changed: Set<string>; next: Map<string, WatchedState> } {
-  const changed = new Set<string>();
-  const next = new Map<string, WatchedState>();
-  for (const row of rows) {
-    const key = rowKey(row);
-    const was = prior.get(key) ?? null;
-    // An unreadable PR slot carries the LAST KNOWN value forward rather than
-    // storing `unknown`, and that is what makes the suppression symmetric with
-    // a single rule instead of two. Storing `unknown` would silence the
-    // outage's first pulse and then flash on the recovery — or, worse, lose a
-    // real change that happened during the outage: `green → unknown → failing`
-    // must still flash, and it only can if the memory still holds `green` when
-    // `failing` arrives. What is skipped is the moment, never the fact.
-    //
-    // **Per SLOT, not per row**, and that is what widening the watched value
-    // forces: a GitHub 503 makes the PR unreadable and says nothing whatever
-    // about whether a worktree is dirty. Freezing the whole record for the
-    // outage's duration would suppress a real local change for a remote host's
-    // reason — the marker going quiet exactly while an agent writes.
-    const now = carryUnreadable(watchedState(row), was);
-    // `.has()`, never a truthiness test — a stored value with a `null` PR is
-    // KNOWN and an absent key is not, and the two are indistinguishable to one.
-    if (prior.has(key) && !sameWatched(was!, now)) changed.add(key);
-    next.set(key, now);
-  }
-  return { changed, next };
-}
-
-/**
- * The watched value with any UNREADABLE slot replaced by the last known one.
- *
- * Only `pr` can be unreadable: it is the sole watched fact with an `unknown`
- * value, because it is the sole one that comes from a remote host that can fail
- * to answer. Every other watched fact is observed by the local scan, which
- * either ran or did not — there is no third answer to carry across.
- *
- * **With NO prior value there is nothing to carry, and this is the case the
- * widening makes newly interesting.** Under the old scalar rule such a row was
- * not recorded at all: its only watched value was unreadable, so there was
- * nothing to remember. Now it carries nine other facts worth remembering, so it
- * IS recorded — and the question is what its PR slot should hold meanwhile.
- *
- * **DECIDED: it holds `unknown`, and `sameWatched` treats `unknown` as not
- * comparable rather than as a value.**
- *
- * The three answers to *what should the slot hold* are the same three this
- * repo keeps distinguishing, one field along: `null` means OBSERVED AND THERE
- * IS NO PR, a state means observed with that state, and `unknown` means I
- * COULD NOT ASK. Storing anything else here would invent an observation the
- * board never made — and a sentinel chosen to compare as *different* would
- * flash the host's recovery, which is news about GitHub rather than about the
- * branch.
- *
- * So the memory is honest and the COMPARISON carries the rule: an `unknown` on
- * either side answers neither *same* nor *changed*, because it is the absence
- * of an answer. That is exactly what the paragraph above already promises for
- * the carried case — *what is skipped is the moment, never the fact* — applied
- * to the one case that has no fact to carry yet.
- *
- * The stated cost: a row whose PR was never once readable does not flash on the
- * first state it is finally seen in. `prNumber` covers most of it — `null` to a
- * number IS a change and does flash — and the residue (a PR readable only from
- * its second state onward) is a moment lost about a host that was down, which
- * is the cheaper of the two errors.
- */
-function carryUnreadable(now: WatchedState, was: WatchedState | null): WatchedState {
-  if (!isUnreadable(now.pr) || was === null) return now;
-  return { ...now, pr: was.pr, prNumber: was.prNumber, prDraft: was.prDraft };
-}
-
-/**
- * Whether two watched values describe the same world.
- *
- * By VALUE, field by field. The record is rebuilt from the row on every pulse,
- * so a reference test would call every row changed four times a second — and
- * `stuck` arrives as a fresh object each time, which is why `watchedState`
- * serialises it rather than leaving an object to be compared here.
- *
- * Exported for test: it is half the rule, and the half that decides whether a
- * ticking clock is news.
- */
-export function sameWatched(a: WatchedState, b: WatchedState): boolean {
-  // `unknown` on EITHER side is not a value, so it cannot differ from one. It
-  // is the host saying *I could not answer*, and a comparison against silence
-  // has no verdict — the row's other ten facts decide, exactly as they do while
-  // a known value is being carried forward across an outage.
-  //
-  // Written as its own clause rather than folded into the equality so that the
-  // asymmetry is visible: every other field below compares by value because
-  // every other field HAS one.
-  const prComparable = !isUnreadable(a.pr) && !isUnreadable(b.pr);
-  return (!prComparable || a.pr === b.pr)
-    && a.prNumber === b.prNumber
-    && a.prDraft === b.prDraft
-    && a.state === b.state
-    && a.group === b.group
-    && a.wave === b.wave
-    && a.phase === b.phase
-    && a.localDirty === b.localDirty
-    // AND THE WRITE CLOCK, which is what makes `true → true` a change. Every
-    // comparison here is spelled out one field at a time (see the note above),
-    // so a field added to the map and not added HERE travels with the row and
-    // is never compared — which is exactly what happened: `changedAgo` reached
-    // the row, moved on every save, and changed nothing.
-    && a.changedAgo === b.changedAgo
-    && a.localLocked === b.localLocked
-    && a.localAhead === b.localAhead
-    && a.stuck === b.stuck;
-}
-
-/**
- * Whether a watched value describes the OBSERVATION rather than the world.
- *
- * `unknown` is the board saying *I cannot tell you right now*, and the marker
- * reports what CHANGED — so a move into or out of it is not a change and must
- * not flash.
- *
- * The cost of getting this wrong is measured, not hypothetical. GitHub's API
- * returned `503` at least four times in one afternoon on 2026-08-17, and once
- * `prState` reports unreadable mergeability honestly, each outage turns every
- * row `green → unknown` and the next pulse turns it back — **two flashes per
- * row per outage, for nothing that happened.** A marker that treats every
- * visible difference as a change turns each outage into a light show, and a
- * marker that cries wolf is worse than none: it is read once and then ignored,
- * including on the pulse where something real happened.
- *
- * This is the marker's OWN rule applied one level up. It already refuses to
- * flash on a first sighting — *unknown → conflicts* on a fresh mount is the
- * observation starting, not the branch changing — and this is the same
- * distinction arriving mid-session instead of at the beginning.
- *
- * What it costs: a real transition hidden behind an outage is not marked. Small,
- * and bounded — the state is re-read every 60 s, so the next readable pulse
- * shows the new value, and `changedRows` carries the last known value across the
- * gap so the change still flashes when it becomes visible. The marker misses the
- * moment, not the fact.
- *
- * Not folded into `watchedState`: that function answers *what is this row's
- * value*, and mapping `unknown` to `null` there would make it indistinguishable
- * from *no PR* — a row whose PR merged during an outage would then be
- * permanently confused with one whose mergeability could not be read.
- *
- * **It takes the PR SLOT, not the whole watched record**, because `pr.state` is
- * the only watched fact that can be unreadable — the only one whose source is a
- * remote host rather than the local scan. The principle is universal (*I cannot
- * say right now* is never a change in the world) and it happens to bind on
- * exactly one field, which is why the suppression is applied per slot in
- * `carryUnreadable` rather than to the row as a whole.
- *
- * NAMED FOR WHAT IT ANSWERS. It was `isUnreadable`, which reads as its own
- * opposite at every call site: it returns TRUE for `unknown`, the one value
- * that is not an observation. A predicate whose name inverts its answer is a
- * defect waiting for a reader in a hurry.
- *
- * Exported for test.
- */
-export function isUnreadable(state: WatchedPrState): boolean {
-  return state === 'unknown';
-}
-
-/**
- * The bookkeeping behind the markers: which keys are lit, and when each goes out.
- *
- * Split out of the hook and exported for test because the restart rule is not
- * observable through the board's own clocks. `FLEET_POLL_MS` is 4 s and a mark
- * lives 3 s, so two changes arriving on consecutive polls can never overlap —
- * a browser test "asserting" a restart is really watching a second mark replace
- * an expired first, and passes just as happily with the restart removed. (It
- * did: the sabotage was run.) Driven directly with a fake clock, the rule is
- * exact.
- *
- * `schedule` is the injection point for that clock — `setTimeout` in the app,
- * a controllable stub in the test.
- */
-export class ChangeMarks {
-  private readonly timers = new Map<string, () => void>();
-
-  constructor(
-    private readonly onChange: (lit: ReadonlySet<string>) => void,
-    private readonly schedule: (fn: () => void, ms: number) => () => void =
-      (fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); },
-  ) {}
-
-  private readonly lit = new Set<string>();
-
-  /**
-   * Light every key in `changed`, each for a full `CHANGE_MARK_MS` from NOW.
-   *
-   * **A key already lit has its timer RESTARTED, not extended and not ignored.**
-   * The marker claims *something is happening here*, and two changes in quick
-   * succession make that more true, not less: an ignored second change would
-   * let the first timer expire on its own schedule and imply nothing further
-   * happened — the exact false statement the marker exists to prevent.
-   */
-  mark(changed: Iterable<string>): void {
-    let touched = false;
-    for (const key of changed) {
-      touched = true;
-      // Cancel first: the pending timeout belongs to the PREVIOUS change and
-      // would otherwise take this one's marker with it when it fires.
-      this.timers.get(key)?.();
-      this.lit.add(key);
-      this.timers.set(key, this.schedule(() => {
-        this.timers.delete(key);
-        this.lit.delete(key);
-        this.onChange(new Set(this.lit));
-      }, CHANGE_MARK_MS));
-    }
-    if (touched) this.onChange(new Set(this.lit));
-  }
-
-  /** Drop every pending timer — the component is going away. */
-  dispose(): void {
-    for (const cancel of this.timers.values()) cancel();
-    this.timers.clear();
-    this.lit.clear();
-  }
-}
 
 /**
  * Which rows are currently wearing a change marker.
@@ -2504,251 +186,6 @@ function useActivity(rows: readonly AgentRow[]): ReadonlySet<string> {
   }
   return keys;
 }
-
-/**
- * How fast the activity mark's dot travels — and the fact each speed states.
- *
- * TWO, and no third. Both are things the board can defend from what it
- * observed; a gradient keyed to commit freshness would be a scale nobody can
- * read (*was that four minutes or forty?*) changing continuously, which is
- * motion in place of information.
- */
-export type ActivityPace = 'fast' | 'slow';
-
-/**
- * Which pace a row's mark travels at.
- *
- * **The speed is a FACT, not a decoration**, and this is the whole rule:
- *
- * | Row | Pace | Because |
- * |---|---|---|
- * | `local_dirty` or `local_locked` | fast | someone is writing, measured |
- * | in WORKING, neither signal | slow | claimed; nobody knows |
- *
- * `isActive` is the fast half and is UNTOUCHED — it is the same predicate
- * `activity-shows-itself` settled, still meaning *someone is writing here*.
- * What this adds is a second, weaker reading beside it: a row the fleet places
- * in WORKING while observing no local signal at all. That row is claimed and
- * unobserved, and *slow* is the honest rendering of it — moving, because
- * something is supposed to be happening; slowly, because nothing confirms it.
- *
- * **The negative that keeps this honest:** absence is not falsehood. Both local
- * fields are `.default(false)` in the contract, and a scan that could not
- * observe a worktree reports absence rather than cleanliness — so a slow dot
- * says *unknown*, never *nobody*. That is exactly why the slow case is bounded
- * by WORKING membership rather than applied to every row: outside WORKING there
- * is no claim to be unobserved about.
- *
- * Exported for test: an implementation that graded speed by commit age, or that
- * gave every WORKING row the fast pace, passes any assertion that only checks
- * "the dot moves".
- */
-export function activityPace(
-  // `state` travels because `isActive` reads it: a merged branch is not active,
-  // so it has no pace either. The narrow Pick is what surfaced that — a wider
-  // signature would have compiled and quietly graded a finished branch.
-  row: Pick<AgentRow, 'worker' | 'pr' | 'state' | 'localDirty' | 'localLocked'>,
-): ActivityPace {
-  // THE TWO SPEEDS ARE THE TWO QUESTIONS, and this is where they separate.
-  //
-  // `isActive` decides whether a dot appears AT ALL, and it asks about the
-  // PROCESS: an agent in a live state, or CI running. The pace then asks a
-  // second question of the same row — *is that process actually doing
-  // something* — and the worktree is the only evidence of it the board has: a
-  // held lock is a write in progress this instant, uncommitted work is a write
-  // that has happened.
-  //
-  // So a claimed branch whose agent is thinking travels SLOW, and the moment it
-  // writes a file the same dot travels FAST. Two facts, one mark, no second
-  // symbol to learn — which is the shape the operator asked for: *ActivityMark
-  // starts when a process runs and flickers faster when real work happens*.
-  //
-  // A row with no process has no pace, because it has no dot; callers gate on
-  // `isActive` first and this returns `slow` for it either way.
-  return row.localLocked || row.localDirty ? 'fast' : 'slow';
-}
-
-/**
- * The pace a GROUP HEADING travels at, or `null` where it carries no mark.
- *
- * **A group's heading says what its rows say, one level up** — and a collapsed
- * group is the case this exists for. QUIET and DONE are in
- * `COLLAPSED_BY_DEFAULT` and the choice is persisted in `localStorage`, so they
- * stay folded across sessions; a folded heading reports `(4)`, which is a STOCK
- * count. It says *four rows are in here*, never *one of them is moving*. QUIET's
- * own comment names its purpose as *"go check whether this died"* — a group
- * whose whole job is to surface possible deaths, folded shut, showing a number.
- *
- * **Binary, and derived at render.** At least one row is active, or none is. No
- * second figure beside the tally: `(4)` exists to separate ABSENT from EMPTY, a
- * distinction this board paid for, and `(4, 2 active)` dilutes the one job that
- * number has. The reader opening a group does not need to know whether it is one
- * row or three — they need to know whether opening it is worth it.
- *
- * **The strongest pace any row states, and never stronger.** A group holding one
- * written-to row among three merely-claimed ones is a group where something is
- * demonstrably happening, so the heading travels FAST. A group holding only
- * claimed rows travels SLOW — the same *unknown, never nobody* ordering the row
- * marks keep, because a heading that reported the WEAKEST pace would let one
- * measured write hide behind three unobserved claims.
- *
- * The two inputs are the two entry paths a row has, and they are not one claim:
- * `active` is the fleet's answer for the whole list at once (`isActive` in this
- * pulse, or a lock still echoing from a recent one) and travels fast; `isLive`
- * adds the rows the fleet places in WORKING while observing nothing local, and
- * those travel slow. Reading only the first would leave every WORKING group
- * unmarked while its rows carried marks — a heading disagreeing with the rows
- * beneath it, which is the one thing this must not do.
- *
- * **It CANNOT disagree with its rows**, and that is structural rather than
- * tested: it takes the same `active` set and the same `isLive` the rows are
- * rendered from, at the same render. A stored count or a separately-maintained
- * flag is what drifts; this has nothing to drift from.
- *
- * Exported for test: an implementation returning the weakest pace, or reading
- * only `active`, passes every assertion that merely checks *the heading has a
- * mark*.
- */
-export function groupPace(
-  rows: AgentRow[],
-  active: ReadonlySet<string>,
-): ActivityPace | null {
-  let slow = false;
-  for (const row of rows) {
-    if (active.has(rowKey(row))) return 'fast';
-    if (isLive(row)) slow = true;
-  }
-  return slow ? 'slow' : null;
-}
-
-/**
- * The mark a row wears while something is being written to it — a short track
- * with a glowing dot travelling out and back.
- *
- * **The dot must never ARRIVE, and that is the only reason travel is acceptable
- * here.** Rotation and traversal were refused twice in this repo, both times for
- * one reason: they *"imply progress toward completion, which nothing here
- * measures"*. An agent in WORKING may finish in five minutes or five hours. A
- * dot that goes out and comes back promises no destination — it reports a RATE,
- * not a distance. Anything that fills, completes or arrives reintroduces exactly
- * what was refused, so the keyframes end where they began and the track has no
- * far marker to reach.
- *
- * **Two speeds, both earned.** Fast where `local_dirty` or `local_locked` — an
- * agent demonstrably writing. Slow where the row is merely in WORKING — claimed,
- * and the board does not know whether anyone is there. The reader learns one
- * rule and both states are ones the board can defend. See `activityPace`.
- *
- * **This reverses the wave before it, and the reversal is the point.** That wave
- * gave the mark the smallest honest rendering — a static glowing bar — so the
- * marker could be proven to read the right thing before it got loud, and argued
- * that a fifth moving element at a fifth scale would compete with the four
- * already on the row. What changed is not the ordering principle but the mark's
- * SHAPE: the other four move in place (`animate-pulse` twice, `animate-ping`
- * once, plus the change-mark's wash), and travel along a track is a channel none
- * of them uses. Motion is still scarce; this spends it on an axis nothing else
- * holds, rather than adding a fifth thing blinking.
- *
- * **A TRACK, so the travel has somewhere to happen.** The bar became a horizontal
- * rule where the vertical stroke was, and the dot rides it. The track is faint on
- * its own and the dot carries the glow, so what reads from a distance is a bright
- * point moving against a dim line — the distance problem the bar was widened for,
- * answered by movement instead of by mass.
- *
- * **`motion-reduce` keeps the track AND the dot and stops only the travel.** Both
- * halves, and this is the fifth time this repo has written the rule: hiding the
- * element under reduced motion passes a motion-only assertion and takes the
- * MARKER along with the movement. The dot rests at one end, still glowing, still
- * in place. Under reduced motion the two speeds collapse into one appearance and
- * that is correct — *speed* is the thing being removed, so it cannot be the only
- * carrier of the distinction. The row's note already says which state it is in,
- * in words.
- *
- * **`aria-hidden`, like every other mark on this row.** The row's note carries
- * the fact in words, and a screen reader must not hear it twice — and must never
- * hear a speed. The mark is decoration on top of information and never the
- * carrier of it.
- *
- * **The `title` names the marker's own limit, and that is a requirement rather
- * than a nicety.** Every signal behind the fast pace is local: `fleet.ts` is
- * explicit that `local_dirty` is *"true only on the machine doing the looking,
- * and false is what every branch elsewhere reports"*, and `local_locked` reads
- * `.git/index.lock` in a local worktree. An agent on another machine therefore
- * produces no fast mark HERE, ever. A reader who took an unmarked row for an idle
- * one would have been misled by a marker that was technically correct, so each
- * pace says what it actually knows rather than letting the motion speak alone.
- *
- * Deliberately NOT `[data-live-dot]`, NOT `[data-change-mark]` and NOT
- * `[data-stuck-cue]`: four marks, four meanings, and no mark implemented by
- * modifying another. A row can carry several at once, and then it carries
- * several.
- *
- * **`place` is WHERE the mark hangs, and it is a prop because the two callers
- * have genuinely different geometry — not because the mark has two designs.**
- * Everything the mark IS — the track, the dot, the glow, the travel, the two
- * paces, the titles, `aria-hidden` — is identical either way, and that is the
- * point: a group heading says what its rows say, so it must say it in the same
- * marks.
- *
- * | `place` | Where | Why |
- * |---|---|---|
- * | `row` | the first grid track, in the flow | the marks have a column of their own; nothing straddles the border |
- * | `heading` | inline, in the heading's flex | the heading has no `relative` box and no grid to stay out of |
- *
- * The row placement USED to read `sm:absolute sm:left-0 sm:top-2`, hanging in
- * the row's left padding to keep six columns from moving for a mark most rows
- * never carry. That argument was sound while there was one mark and it stayed
- * measurable — 2 of 56 rows carry one. What broke it is the other side of the
- * trade: `left-0` is the row's edge and the section's border sits inside it, so
- * a mark wide enough to be seen was clipped in half, and two marks on one row
- * overlapped because absolute boxes do not make room for each other. A clipped
- * mark is not a cheaper mark.
- *
- * The heading placement is still NOT the row's string, and for its own reason:
- * `sm:absolute` positions against the nearest positioned ancestor, and the
- * `<h2>` has none — so a bolted-on override would not sit the mark slightly
- * wrong, it would escape to whatever ancestor happened to be `relative` and
- * land somewhere else on the page entirely. That is a failure a class-name
- * assertion cannot see and a screenshot finds late.
- */
-export const ACTIVITY_MARK_PLACE = {
-  // IN THE FIRST TRACK, not hanging in the row's padding. `sm:absolute
-  // sm:left-0` put the mark at the row's edge — which is OUTSIDE the section's
-  // border, so every mark straddled the panel edge, and two marks on one row
-  // overlapped because absolute boxes do not make room for each other.
-  //
-  // In the flow they stack: `flex-col` with a small gap, centred in a 1.5rem
-  // column. `h-full` rather than `h-5` so a two-line row (one carrying a stuck
-  // status) centres its marks against the whole cell.
-  // NO padding of its own. The ROW already carries `py-2`, and adding a second
-  // pair here made every row as tall as a two-line one — measured, a plain row
-  // and a row with a status line both came out at 60px, which would have made
-  // every alignment assertion below hold on the defect too.
-  //
-  // `self-stretch` still takes the row's full height so the marks centre
-  // against whatever the row grew to; the height comes from the row's content,
-  // never from this cell.
-  // THE TUPLE'S OWN CELL, borrowed rather than restated — see `MARKS_CELL`.
-  // The row is what renders this track, so the row is what owns the string; a
-  // second copy here is how a heading's marks and a row's marks come to sit
-  // differently, which is the drift this whole wave exists to remove.
-  row: MARKS_CELL,
-  // In a HEADING the mark simply FLOWS. The `<h2>` is a flex row and the mark
-  // takes its place after the tally like any other child — there is no grid
-  // here to stay out of, and no `relative` box to hang in.
-  //
-  // `self-center` because the heading aligns on `items-baseline` and a track
-  // carries no text to align — on the baseline it would sit low against the
-  // words, the same reason `LiveDot` documents for itself. `h-3` rather than
-  // the row's `h-5`: the heading is `text-xs` and a 20px box would stretch it.
-  //
-  // NO `sm:absolute`, and that is the load-bearing difference. The row's
-  // placement positions against the row's own `relative` box; the heading has
-  // no positioned ancestor, so reusing the row's string would not sit the mark
-  // slightly wrong — it would hang it off whatever ancestor happened to be
-  // positioned and land it somewhere else on the page entirely.
-  heading: 'relative flex h-3 w-3 shrink-0 items-center self-center',
-} as const;
 
 function ActivityMark({ pace, place = 'row', inTrack = false }: { pace: ActivityPace; place?: 'row' | 'heading'; inTrack?: boolean }) {
   const fast = pace === 'fast';
@@ -2856,6 +293,91 @@ function ActivityMark({ pace, place = 'row', inTrack = false }: { pace: Activity
  */
 export function isUnpushed(row: AgentRow): boolean {
   return (row.localAhead ?? 0) > 0;
+}
+
+/**
+ * Whether a branch is a RELEASE branch — a PR by mechanism, a release by
+ * meaning.
+ *
+ * The one measured instance is `changeset-release/main`, the branch Changesets
+ * opens and force-pushes as changesets accumulate. Nothing in `## Plot Config`
+ * declares a release-branch shape, and nothing else in the board detects one,
+ * so this is the first place that has to name it.
+ *
+ * THE PATTERN IS THE SERVER'S, imported rather than restated. `RELEASE_BRANCH`
+ * in `fleet.ts` carries the argument for why the name is matched in exactly one
+ * place — *"A second copy on the client would be the defect"* — and a regex
+ * literal here would be that copy. This function is the client-side spelling of
+ * the question, not a second answer to it.
+ *
+ * It landed as `return false` with a TODO, which is worse than absent: every
+ * release row silently took the ordinary PR kind, and the feature read as
+ * unbuilt rather than broken.
+ */
+export function isReleaseBranch(branch: string): boolean {
+  return RELEASE_BRANCH.test(branch);
+}
+
+/**
+ * What the reader is deciding about on this row — the fact that earns the
+ * dominant track.
+ *
+ * `PlanRow` already applies this rule and says so outright: *a plan row is not a
+ * branch row*, because a plan's branches are how it travels and not what is
+ * being judged. This extends the same rule to the rows that share `ROW_TRACKS`,
+ * where the `1fr` track held the BRANCH NAME whether or not the branch was the
+ * point — measured across three WAITING ON YOU rows, all `state=wip` with an
+ * open PR, all leading with the vehicle.
+ *
+ * **THE DISCRIMINATOR IS WHERE THE PROBLEM LIVES, not whether a PR exists.**
+ * That distinction is the whole finding, and the two cases it separates render
+ * identically today — a red badge beside a branch name — while sending the
+ * reader to different places:
+ *
+ * - A FAILING BUILD IS PR WORK. The check ran for the PR, the fix is a commit
+ *   that updates the PR, and the reader acts through it. The PR leads.
+ * - A MERGE CONFLICT IS BRANCH WORK. A conflict is a property of the branch
+ *   against its base; nothing about the PR resolves it. The reader checks out
+ *   the branch, rebases, pushes. The branch leads, EVEN WITH A PR OPEN.
+ *
+ * **Where both are true the conflict wins**, because it blocks the merge
+ * outright: a red build on an unmergeable PR is moot until the rebase happens,
+ * and fixing it first can be wasted work if the rebase changes what fails. The
+ * build failure is not lost — the row names it on a second line — which is the
+ * whole reason `pr.states` had to become a set before this rule could be
+ * written. With a single value the row never learned the build had failed.
+ *
+ * READ FROM `states`, NOT FROM `state`. `state` is the winner and would answer
+ * `conflicts` for the both-true row, which happens to be the right subject by
+ * accident — and would answer it for the plain conflict too, leaving the second
+ * line unwriteable. The set is what distinguishes the two.
+ *
+ * Exported for test: the both-true row is the case every simpler implementation
+ * gets wrong, and it is invisible in a payload that predates the set.
+ */
+export function rowSubject(row: Pick<AgentRow, 'pr' | 'branch'>): 'pr' | 'branch' | 'release' {
+  // A RELEASE IS ITS OWN KIND, and it is asked about FIRST — before the PR/branch
+  // question, because the answer is neither. `changeset-release/main` is a PR by
+  // mechanism and a release by meaning, and it is the one row nobody should merge
+  // by reflex: every changeset merged since it opened changes what it would ship,
+  // so the version in its title stops being the version it cuts. Leading with its
+  // number would make it look MORE like an ordinary PR, which is the direction
+  // that costs a reader something.
+  //
+  // That is a UI restatement of a rule this repo already holds outside the board:
+  // a release is outward-facing and only ever cut on an explicit request.
+  if (isReleaseBranch(row.branch)) return 'release';
+  // NO PR AT ALL: there is nothing else the row could lead with. Stated before
+  // the states are consulted rather than falling out of them, because an empty
+  // set on a row with no PR and an empty set on a payload predating the field
+  // are different situations and only one of them is this one.
+  if (!row.pr) return 'branch';
+  // A CONFLICT ANYWHERE IN THE SET, not `states[0] === 'conflicts'`. The head is
+  // the winner and a conflict always wins, so today those agree — but `includes`
+  // is what the rule actually means, and a future precedence change must not be
+  // able to silently move a conflicting row's subject back to the PR.
+  if (row.pr.states.includes('conflicts')) return 'branch';
+  return 'pr';
 }
 
 /**
@@ -3088,29 +610,6 @@ export function offersOpen(row: Pick<AgentRow, 'pr' | 'branchUrl' | 'group'>): b
 }
 
 /**
- * Does this row offer Commission design — the Approve twin for a Draft plan that
- * needs design work first?
- *
- * **The same row Approve is offered on**, and deliberately the same predicate:
- * `isDraft(card) && waitingOn === 'you'` is the plan-level decision, and this is
- * the OTHER answer to it. Approve says *this is ready to hand to development*;
- * Commission design says *this needs a spec, a spike or a tracer bullet first*,
- * and creates a plan in phase `Design` to hold that work.
- *
- * Reads the ROW, not the card, because the card gate lives in `RowActions`
- * beside Approve's — this answers the row half (a Draft plan's first wave, or a
- * shelved branch, says `waitingOn: 'you'`; a blocked wave says `time` and is
- * excluded here exactly as it is for Approve). The card's `isDraft` is applied
- * at the call site, so the two items agree on which rows are plan decisions.
- *
- * Exported for test: the negative — a blocked or started branch offers nothing —
- * is the half a predicate keyed on the group alone gets wrong.
- */
-export function canCommissionDesign(row: Pick<AgentRow, 'waitingOn' | 'state'>): boolean {
-  return row.waitingOn === 'you' && row.state === 'open';
-}
-
-/**
  * What the Open item says — *Review* for a PR, *Open* for a branch.
  *
  * Opening a PR IS reviewing it: the reader lands on the page where the diff, the
@@ -3213,7 +712,6 @@ export function storyRefusal(): string {
  */
 export function menuState(items: {
   canStart: boolean;
-  canApprove: boolean;
   canResolve: boolean;
   hasRun: boolean;
   /**
@@ -3256,31 +754,29 @@ export function menuState(items: {
    * do: opening a page the row already names is not an act the server refuses.
    */
   hasOpen: boolean;
-  /**
-   * A Draft plan a person must decide about — the Commission design twin of
-   * Approve. It WRITES (spawns a plot agent to create a Design-phase plan), so
-   * it asks whether the server will act, exactly as Approve and the dispatches
-   * do.
-   */
-  canCommission: boolean;
+  // APPROVE AND COMMISSION DESIGN ARE NOT HERE, and their absence is the point.
+  // Both are PLAN-level acts — approving a plan, or sending it to design — and a
+  // branch row is never the honest place for either: a branch BLOCKED by an
+  // earlier wave is in `waiting-on-you` when its plan is Draft, so any gate that
+  // put them on a row would put them on a row whose own available act is not its
+  // own. They live on the plan head (`PlanActions`), gated on the card's
+  // `isDraft` alone. So this menu — the BRANCH row's menu — no longer carries
+  // their flags: a disjunct that can never be true is a second rule asserting
+  // the row offers a plan act, which is exactly the drift this file removes
+  // rather than leaves unreachable.
   serverWillAct: boolean;
-  approveWillAct: boolean;
-  /** Whether the server will act on Commission design — its own binding. */
-  commissionWillAct: boolean;
 }): { present: boolean; enabled: boolean } {
   const {
-    canStart, canApprove, canResolve, hasRun, hasLog, hasStatus, hasOpen, canCommission,
-    hasChangedFiles, serverWillAct, approveWillAct, commissionWillAct,
+    canStart, canResolve, hasRun, hasLog, hasStatus, hasOpen,
+    hasChangedFiles, serverWillAct,
   } = items;
   return {
     present:
-      canStart || canApprove || canResolve || hasRun || hasLog || hasStatus || hasOpen ||
-      canCommission || hasChangedFiles,
+      canStart || canResolve || hasRun || hasLog || hasStatus || hasOpen ||
+      hasChangedFiles,
     enabled:
       (canStart && serverWillAct) ||
-      (canApprove && approveWillAct) ||
       (canResolve && serverWillAct) ||
-      (canCommission && commissionWillAct) ||
       hasRun ||
       hasLog ||
       hasStatus ||
@@ -3510,8 +1006,6 @@ function BranchMenu({
   row,
   card,
   dispatch,
-  approve,
-  commission,
   pulse,
   onStarting,
   onTaken,
@@ -3522,8 +1016,8 @@ function BranchMenu({
   row: AgentRow;
   card: Card | null;
   dispatch?: DispatchInfo;
-  approve?: DispatchInfo;
-  commission?: DispatchInfo;
+  // No `approve`/`commission`: the two plan-level acts left the branch menu for
+  // the plan head (`PlanActions`), so this wrapper no longer forwards them.
   pulse: number;
   onStarting?: (active: boolean) => void;
   /** The row's cue is extinguished by acting, and the flag lives on the ROW —
@@ -3542,8 +1036,6 @@ function BranchMenu({
         row={row}
         card={card}
         dispatch={dispatch}
-        approve={approve}
-        commission={commission}
         pulse={pulse}
         onStarting={onStarting}
         onTaken={onTaken}
@@ -3578,8 +1070,6 @@ function RowActions({
   row,
   card,
   dispatch,
-  approve,
-  commission,
   pulse,
   onStarting,
   onTaken,
@@ -3590,18 +1080,10 @@ function RowActions({
   row: AgentRow;
   card: Card | null;
   dispatch?: DispatchInfo;
-  /** Whether this server will act on Approve, and why not — the plan-PR half. */
-  approve?: DispatchInfo;
-  /**
-   * Whether this server will act on Commission design, and why not.
-   *
-   * The SAME binding as `idea` — spawning a plot agent to write a plan is one
-   * authority, whether the plan comes from an issue (Create plan) or from a
-   * Draft plan that needs design work (Commission design). Passed under its own
-   * name so the item states its own refusal, and so a later split of the two
-   * authorities changes one prop rather than every call site.
-   */
-  commission?: DispatchInfo;
+  // NO `approve` OR `commission` HERE. Both were the branch row's twins of
+  // plan-level acts, and both moved to the plan head (`PlanActions`). A branch
+  // row's menu now carries only branch-level acts, so it neither takes the two
+  // plan bindings nor names their refusals.
   pulse: number;
   onStarting?: (active: boolean) => void;
   /**
@@ -3643,27 +1125,18 @@ function RowActions({
   // THE OTHER ACT A ROW CAN OFFER, and the reason this menu had to stop asking
   // only about starting.
   //
-  // Measured: `enabled` was `canStart && serverWillAct`, so the menu opened
-  // only where `Start work` was possible — and a Draft plan's row is never
-  // startable, by construction. Its one available act is approving, and the
-  // menu was therefore dead on exactly the rows that had something to do. The
-  // same plan's CARD offered the button all along: one board, two answers.
+  // APPROVE IS NOT HERE ANY LONGER — it belongs to the PLAN, and a branch row is
+  // never the honest place for it. Every gate tried on this row failed the same
+  // way: `isDraft(card)` alone put Approve on a branch BLOCKED by an earlier
+  // wave (its plan is genuinely Draft, so the card said yes) and adding
+  // `waitingOn === 'you'` did not fix it — a blocked branch of a Draft plan
+  // reads `waiting-on-you` too, so the button came back on a row whose own
+  // available act is not its own. No narrowing makes a plan-level act correct on
+  // a branch row, so the act moved to the plan head (`PlanActions`, gated on the
+  // card's `isDraft` alone) and the row-level twin is deleted rather than
+  // repaired. The plan's head is *one board, two answers*: the plan row offers
+  // Approve, the branch row beneath it does not.
   //
-  // `isDraft(card)` is the card's own gate, reused rather than re-derived from
-  // the row's phase — `plot-approve.sh` accepts phase `draft` and refuses every
-  // other one, and two spellings of that rule would drift.
-  // THE ROW MUST AGREE WITH THE CARD, and this is where forgetting that shows.
-  //
-  // `isDraft(card)` alone put an Approve button on a branch BLOCKED by an
-  // earlier wave: its plan is genuinely Draft, so the card said yes — while the
-  // row itself is waiting on time and has nothing a person can act on. That is
-  // the plan-level answer applied to a branch-level row, which is the confusion
-  // this section spent the evening separating.
-  //
-  // `waitingOn === 'you'` is the row's own word for *a person must act*: a
-  // Draft plan's FIRST wave, or a shelved branch. A blocked row says `time` and
-  // is excluded by construction rather than by a second rule that could drift.
-  const canApprove = Boolean(card && approve && isDraft(card) && row.waitingOn === 'you');
   // The menu opens only if something inside it could ACT.
   //
   // `canStart` answers "is this row startable"; it does not answer "will the
@@ -3677,7 +1150,6 @@ function RowActions({
   // rather than reading as a bug. Same pattern the row already uses for a row
   // with nothing to do.
   const serverWillAct = dispatch?.available ?? false;
-  const approveWillAct = approve?.available ?? false;
   // THE RUN THIS ROW LAST HAD, and the one condition this move deliberately
   // WIDENED. It used to be reachable only while `stuck.state === 'ci-failing'`,
   // so the route to a run existed exactly as long as the row was red and was
@@ -3730,16 +1202,10 @@ function RowActions({
   // url) there is no item either, and the row falls back to whatever else it
   // offers.
   const openUrl = offersOpen(row) ? openTarget(row) : '';
-  // COMMISSION DESIGN — the Approve twin for a Draft plan that needs design work
-  // first. Same card gate as Approve (`isDraft`), same row gate
-  // (`canCommissionDesign` reads `waitingOn === 'you'`), so the two items appear
-  // together on exactly the plan-decision rows and never on a blocked wave. It
-  // WRITES — it spawns a plot agent to create a Design-phase plan — so it asks
-  // its own binding whether the server will act, exactly as Approve does.
-  const canCommission = Boolean(
-    card && commission && isDraft(card) && canCommissionDesign(row),
-  );
-  const commissionWillAct = commission?.available ?? false;
+  // COMMISSION DESIGN IS NOT HERE EITHER — it is a plan decision, the OTHER
+  // answer to a Draft plan beside Approve, and it left the branch row for the
+  // same reason Approve did. It now lives on the plan head (`PlanActions`), so
+  // the branch row neither computes it nor renders it.
   // ANY item, not one named item. The menu opens if something inside it could
   // act; which something it is, is the menu's own business.
   //
@@ -3773,20 +1239,15 @@ function RowActions({
   // the answer.
   const hasChangedFiles = offersChangedFiles(row.stuck);
   const { present: hasItems, enabled } = menuState({
-    canStart, canApprove, canResolve, hasRun: Boolean(runUrl), hasLog, hasStatus,
-    hasOpen: Boolean(openUrl), canCommission, hasChangedFiles,
-    serverWillAct, approveWillAct, commissionWillAct,
+    canStart, canResolve, hasRun: Boolean(runUrl), hasLog, hasStatus,
+    hasOpen: Boolean(openUrl), hasChangedFiles, serverWillAct,
   });
   const reason =
     canStart && !serverWillAct && dispatch?.reason
       ? dispatch.reason
       : canResolve && !serverWillAct && dispatch?.reason
         ? dispatch.reason
-        : // Commission design carries its own binding's words when it is the row's
-          // one refused act — the same shape Approve's refusal takes on its card.
-          canCommission && !commissionWillAct && commission?.reason
-          ? commission.reason
-          : noActionReason(row);
+        : noActionReason(row);
 
   // Close on Escape and on any click outside. A menu that survives a click
   // elsewhere on a view that repaints every five seconds is a menu that ends up
@@ -3926,34 +1387,15 @@ function RowActions({
               />
             </div>
           )}
-          {/* Approving a plan and starting a branch are MUTUALLY EXCLUSIVE by
-              construction — `isStartable` needs `waitingOn: 'click'`, which a
-              Draft plan's row never has, and `isDraft` needs phase Discovery,
-              which a startable row never has. They are written as two
-              independent items rather than as an if/else so that neither
-              becomes the other's fallback: if that ever changes, the menu shows
-              both instead of silently picking one. */}
-          {canApprove && approve && card && (
-            <div role="menuitem" className="px-2 py-1 text-left">
-              <ApproveButton card={card} approve={approve} onApproving={onStarting} />
-            </div>
-          )}
-          {/* COMMISSION DESIGN — the OTHER answer to a Draft plan, beside
-              Approve. Approve hands the plan to development; this says it needs a
-              spec, a spike or a tracer bullet first, and creates a plan in phase
-              `Design` to hold that work. It ships minimally rather than as a
-              refusal: the `Design` phase landed in #259 and nothing filled it,
-              and a menu entry that only explained why it could not act would
-              leave the phase unreachable for longer.
-
-              Its own binding (`commission`) and its own armed-confirm button, so
-              the click that spawns an agent is as deliberate as Approve's — and
-              where the server refuses, it names the reason on the control. */}
-          {canCommission && commission && card && (
-            <div role="menuitem" className="px-2 py-1 text-left">
-              <CommissionDesignButton card={card} commission={commission} onActing={onStarting} />
-            </div>
-          )}
+          {/* APPROVE AND COMMISSION DESIGN ARE NOT RENDERED HERE — both are
+              PLAN decisions and live on the plan head (`PlanActions`), not on a
+              branch row. A branch BLOCKED by an earlier wave reads
+              `waiting-on-you` when its plan is Draft, so any gate that kept
+              either here would put a plan-level act on a row whose own available
+              act is not its own — the very defect the row-level gates chased and
+              never caught. The plan head is *one board, two answers*: the plan
+              row offers Approve and Commission design; the branch rows beneath
+              keep Start work, Open/Review, the conflict dispatch and the reads. */}
           {/* THE CONFLICT DISPATCH, moved here on 2026-08-18 from the stuck
               cell. Same route, same button, same guard — only its home changed.
 
@@ -4187,6 +1629,24 @@ export interface AgentListProps {
    * flag above it is: one flag for two capabilities is how they diverge.
    */
   commission?: DispatchInfo;
+  /**
+   * Whether this server will act on `Slice this wave`, and why not — the sixth
+   * capability, reaching the `unsliced-wave` wave rows. Same binding as `idea`
+   * and `commission` today (all spawn a plot agent that writes to this disk),
+   * kept its own prop for the reason those are: one flag for two capabilities is
+   * how they diverge.
+   */
+  reslice?: DispatchInfo;
+  /**
+   * Whether this server will act on `Deliver`, and why not — the seventh
+   * capability, reaching the PLAN rows whose card is `deliverable`. Same binding
+   * as `idea`, `commission` and `reslice` today (all spawn a plot agent that
+   * writes to this disk), kept its own prop for the reason those are: one flag
+   * for two capabilities is how they diverge. Read together with the card's
+   * `deliverable` bit — this says the board can act, that says the plan is
+   * complete enough to.
+   */
+  deliver?: DispatchInfo;
   /** Bumps once per BOARD refresh; the Start work button counts these. */
   pulse?: number;
   /** A Start work click became outstanding (true) or settled (false). */
@@ -4347,6 +1807,8 @@ function PlanRow({
   marked = false,
   card = null,
   approve,
+  commission,
+  deliver,
   onApproving,
   ageMinutes,
 }: {
@@ -4385,6 +1847,13 @@ function PlanRow({
   card?: Card | null;
   /** Whether this server will act on Approve, and why not. */
   approve?: DispatchInfo;
+  /** Whether this server will act on Commission design — the plan head's OTHER
+      act, threaded through to `PlanActions` beside Approve. */
+  commission?: DispatchInfo;
+  /** Whether this server will act on Deliver — the plan head's act on the OTHER
+      end of the lifecycle, threaded to `PlanActions`, gated on the card's
+      `deliverable` bit rather than on a Draft phase. */
+  deliver?: DispatchInfo;
   /** A click is outstanding (true) or has settled (false). */
   onApproving?: (active: boolean) => void;
 }) {
@@ -4396,6 +1865,24 @@ function PlanRow({
   // what carries `phase` — and they agree by construction, all being branches
   // of one plan.
   const phase = group.rows[0]?.phase ?? '';
+  // THE FOLD OF ITS BRANCHES' PR STATES — one worst-case word beside the phase.
+  //
+  // DERIVED HERE, from the `group` this component receives, and NOT at either
+  // call site. `PlanRow` has two, and they are asymmetric: the NOT STARTED path
+  // folds `active`/`marked` at the call site, while the `planHeads` path over
+  // WAVE groups passes neither. An aggregate computed the way `marked` is would
+  // land on one kind of plan head and not the other — and a folded wave-grouped
+  // plan is exactly the case this exists for. Both sites already pass `group`;
+  // computing from it here reaches both by construction, which is the property
+  // the split at the call site cannot give. (Adding `marked` to one site and not
+  // the other already cost a fix on 2026-08-22 that rendered nothing.)
+  //
+  // STAYS WHEN EXPANDED, unlike the change mark beside it: a long group scrolls
+  // its head off screen either way, so hiding it removes the fact exactly when
+  // the reader has scrolled past the rows that would restate it. No
+  // `expanded`-dependent behaviour — the rule the change mark's own docstring
+  // calls the shape it should have had.
+  const prFold = planPrAggregate(group.rows.map((r) => r.pr?.state));
   return (
     <TupleRowView
       tuple={(() => {
@@ -4519,6 +2006,33 @@ function PlanRow({
       // phase TRACK; the attribute names the fact, not the cell that happened
       // to print it, so every assertion that reads it keeps an owner.
       statusAttr={phase ? { 'data-phase': phase, title: `Phase: ${phase}` } : undefined}
+      // THE PR FOLD, BESIDE THE PHASE — `statusExtra` adds to slot 5, never
+      // replaces its word. The phase keeps slot 5 by construction: this is a
+      // second element in the same cell, so `tupleFromPlan`'s phase is never at
+      // risk — the defect this must not re-open from the other direction, where
+      // 71 branch rows once printed their plan's phase.
+      //
+      // The WORD carries, colour only reinforces it — the rule `StuckCell`
+      // records failing under colour alone. `conflicts`/`checks failing` take
+      // the actionable rose tone from `statusTone`; `CI running` (pending) takes
+      // an explicit DIMMER slate, marking the difference between *something is
+      // happening* and *do something*. A count rides only where more than one
+      // branch carries the state — a single branch says its own size by being
+      // one row once opened.
+      statusExtra={prFold ? (
+        <span
+          data-plan-pr-fold={prFold.state}
+          data-plan-pr-count={prFold.count > 1 ? prFold.count : undefined}
+          title={`${prFold.count > 1 ? `${prFold.count} branches` : 'A branch'} of this plan: ${prFold.word}`}
+          className={`min-w-0 shrink-0 truncate ${
+            prFold.state === 'pending'
+              ? 'text-slate-400 dark:text-slate-600'
+              : statusTone(prFold.word)
+          }`}
+        >
+          {prFold.word}{prFold.count > 1 ? ` (${prFold.count})` : ''}
+        </span>
+      ) : null}
       aside={
         // THE WAVE SUMMARY — *3 waves, first eligible*. It answers *which slice
         // of this plan* in the plan's own terms, which are the only terms this
@@ -4545,7 +2059,7 @@ function PlanRow({
       // stands: a `plot-dispatch` control would have to guess which of the
       // plan's waves it meant, so the branch rows in the fold keep their own
       // menus, where the row has already decided.
-      menu={<PlanActions plan={group.plan} card={card} approve={approve} onApproving={onApproving} />}
+      menu={<PlanActions plan={group.plan} card={card} approve={approve} commission={commission} deliver={deliver} onApproving={onApproving} />}
     />
   );
 }
@@ -4637,6 +2151,94 @@ function WaveActions({
         >
           <div role="menuitem" className="px-2 py-1 text-left">
             <StartWorkButton card={card} dispatch={dispatch} pulse={pulse} onStarting={onStarting} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The `⋯` menu on a wave the board reports `unsliced-wave` — the ONE act such a
+ * wave offers: *Slice this wave*.
+ *
+ * A `⋯` of its own rather than a slot in `WaveActions`, because the two answer
+ * disjoint waves. `WaveActions` is gated on `verdict === 'eligible'` — a wave
+ * ready to dispatch — and an unsliced wave is precisely the wave that CANNOT be
+ * dispatched (several live branches, no single one to hand a worker). They never
+ * co-occur, so one row never wears both, and folding reslice into the dispatch
+ * menu would put an item on `eligible` waves that can never apply to them.
+ *
+ * The shell is `PlanActions`', with ONE difference that is the whole point: this
+ * menu opens even when `reslice` is refused. `PlanActions` gates its open on
+ * `willAct` because a Draft plan has other reasons to exist and a dead `⋯`
+ * there would be noise. An unsliced wave has exactly one errand — this one — so
+ * a refused binding must still open to NAME the refusal, or the operator meets a
+ * dead control with its explanation one hover away and unreachable by keyboard.
+ * `ResliceButton` states its own refusal inside, the way every `DispatchInfo`
+ * control does: a refusal is not an absence.
+ */
+function ResliceMenu({
+  wave,
+  slug,
+  reslice,
+  onActing,
+}: {
+  wave: string;
+  /** The plan slug the reslice acts on — `ResliceButton`'s POST body. */
+  slug: string;
+  reslice: DispatchInfo;
+  onActing?: (active: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const menu = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: globalThis.KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    // Capture phase, so the menu closes before a click lands anywhere else — the
+    // same hazard `RowActions`/`PlanActions` record. `ResliceButton` manages its
+    // own arm/run state internally, so it survives the unmount on capture.
+    const onDown = (e: globalThis.MouseEvent) => {
+      if (menu.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('click', onDown, true);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('click', onDown, true);
+    };
+  }, [open]);
+
+  return (
+    // NO `role="gridcell"` — `TupleRowView` renders the cell this sits in, and
+    // renders it whether or not a kind offers a menu, so the track holds its
+    // width either way. `relative` is what the popup below floats out of.
+    <div className="relative w-5 shrink-0 text-right" onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        data-reslice-actions={wave}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        // ALWAYS enabled, unlike `WaveActions`: the item inside always applies to
+        // an unsliced wave, and where the server refuses, the item — not this
+        // trigger — carries the reason.
+        aria-label={`Actions for wave ${wave}`}
+        title={`Actions for wave ${wave}`}
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex h-6 w-5 items-center justify-center leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"
+      >
+        <span aria-hidden className="text-xs">⋯</span>
+      </button>
+      {open && (
+        <div
+          role="menu"
+          ref={menu}
+          className="absolute right-0 z-10 mt-1 min-w-max rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+        >
+          <div role="menuitem" className="px-2 py-1 text-left">
+            <ResliceButton slug={slug} reslice={reslice} onActing={onActing} />
           </div>
         </div>
       )}
@@ -4799,16 +2401,12 @@ function WaveRow({
   marked = false,
   card = null,
   dispatch,
+  reslice,
   pulse,
   onStarting,
   groupedCount,
   groupedWord,
   soleRow,
-  // The branch-level bindings a SOLE-BRANCH wave row needs for its menu. Absent
-  // on a wave of several branches, where each branch keeps its own row and its
-  // own menu, and the wave row's only act is dispatch.
-  approve,
-  commission,
   continueWith,
   onOpenPlan,
   onRevealBranch,
@@ -4830,6 +2428,12 @@ function WaveRow({
   card?: Card | null;
   /** Whether this server will dispatch, and why not. */
   dispatch?: DispatchInfo;
+  /**
+   * Whether this server will reslice, and why not — used ONLY on an
+   * `unsliced-wave` row, where it drives the *Slice this wave* menu. Absent
+   * elsewhere: no other wave offers the act.
+   */
+  reslice?: DispatchInfo;
   /** The pulse counter, passed through to `StartWorkButton`. */
   pulse: number;
   onStarting?: (active: boolean) => void;
@@ -4862,8 +2466,6 @@ function WaveRow({
    * YOU hold one branch, so this is the ordinary case rather than an edge.
    */
   soleRow?: AgentRow;
-  approve?: DispatchInfo;
-  commission?: DispatchInfo;
   continueWith?: DispatchInfo;
   onOpenPlan?: (planFile: string) => boolean | void;
   onRevealBranch?: (branch: string) => void;
@@ -4914,11 +2516,38 @@ function WaveRow({
     // A REVIEWABLE WAVE says what it is waiting for, and it is a person. The
     // verdict's sentences are both about starting — and these branches are
     // started, so neither is true here.
-    soleNote ? soleNote
-      : groupedCount !== undefined ? groupedNote(groupedWord)
-      : group.verdict === 'eligible' ? 'approved — nobody has taken it'
-        : group.verdict === 'blocked' ? 'an earlier wave has to land first'
-          : '';
+    //
+    // GUARDED ON `soleRow`, NOT ON `soleNote`, and the difference is a bug this
+    // guard was written to prevent and did not. `soleNote` is the sole row's
+    // note with its PR fact stripped, and where the note is ONLY that fact —
+    // `PR #323 green`, the ordinary shape for a finished branch — stripping it
+    // leaves `''`. Empty is falsy, so the chain fell through to a verdict
+    // sentence about starting work that had already been done: measured
+    // 2026-08-22, PR #323 rendered `green` beside `approved — nobody has taken
+    // it`. Every single-branch wave that reaches review hit this, which is the
+    // common case rather than an edge.
+    //
+    // `soleRow` says *this wave has one branch and the branch speaks for it*.
+    // That is the condition the verdict sentences must yield to, whether or not
+    // anything survives the strip — and it is what the sibling `waveWaitingOn`
+    // ternary above already tests.
+    //
+    // AND THE GROUPED NOTE FALLS THROUGH THE SAME WAY. `groupedNote` now answers
+    // only for the two words a count can mean and returns `''` otherwise — so
+    // `|| verdict` here, not a `groupedCount !== undefined ?` arm that
+    // short-circuited before the verdict could speak. That arm was taken for
+    // EVERY multi-branch wave (`groupedCount` is defined for all of them), which
+    // left the two verdict clauses below dead and let the old default assert
+    // `work landed` over five live `blocked` waves that had never been touched.
+    // A grouped wave with an unrecognised word is exactly the wave the verdict
+    // describes, so it derives the same value a single-branch wave does.
+    soleRow ? soleNote
+      : (groupedCount !== undefined
+        ? groupedNote(groupedWord, waveDissent(group.rows))
+        : '')
+        || (group.verdict === 'eligible' ? 'approved — nobody has taken it'
+          : group.verdict === 'blocked' ? 'an earlier wave has to land first'
+            : '');
   return (
     <TupleRowView
       tuple={tupleFromWave({
@@ -4944,9 +2573,12 @@ function WaveRow({
         // it with a fact about a process nobody is waiting on. `running`,
         // `waiting` and `stalled` are the three that mean *somebody is on this,
         // or should be* — the rest are history, and history loses to the PR.
-        soleStatus: soleRow && LIVE_WORKERS.has(soleRow.worker)
-          ? workerStatus(soleRow.worker)
-          : soleRow?.pr ? prStatus(soleRow.pr) : (soleRow ? stateStatus(soleRow) : ''),
+        //
+        // And a live worker loses to the PR on a FINISHED wave too, because the
+        // worker outlives its branch and its last state can survive the merge —
+        // `soleRowStatus` screens it out on a merged or deferred row, the same
+        // finishedness guard `isActive` applies to the activity mark.
+        soleStatus: soleRow ? soleRowStatus(soleRow) : '',
         // AND ITS PR AND PLAN, for the same reason: a wave of one has no fold, so
         // this row is the ONLY row that branch gets and everything reachable from
         // a branch row has to be reachable from here.
@@ -5204,13 +2836,26 @@ function WaveRow({
               onStarting={onStarting}
             />
           ) : null}
+          {/* THE UNSLICED WAVE'S ONE ACT — the menu this row had none of before.
+              A wave the scan reports `unsliced-wave` is `blocked` (several live
+              branches, no single one to dispatch) and holds more than one branch
+              (so no `soleRow`), which left it with neither of the two menus
+              above. It gets its OWN, because the errand it offers — spawn
+              `/plot-reslice` — belongs to no other wave. The state lives on the
+              wave's rows, read from `rows[0]` where its `StuckCell` reads it. */}
+          {group.rows[0]?.stuck?.state === 'unsliced-wave' && reslice ? (
+            <ResliceMenu
+              wave={group.wave || '(unnamed)'}
+              slug={plan}
+              reslice={reslice}
+              onActing={onStarting}
+            />
+          ) : null}
           {soleRow ? (
             <BranchMenu
               row={soleRow}
               card={card ?? null}
               dispatch={dispatch}
-              approve={approve}
-              commission={commission}
               pulse={pulse}
               onStarting={onStarting}
               continueWith={continueWith}
@@ -5257,14 +2902,22 @@ function WaveRow({
 }
 
 /**
- * The plan row's `⋯` menu — one item, and the reason it is a menu at all.
+ * The plan row's `⋯` menu — the plan's own acts, and the reason it is a menu.
+ *
+ * **Two answers to one question, both plan-level.** A Draft plan awaits a
+ * person's decision, and there are exactly two: Approve hands it to development,
+ * Commission design says it needs a spec, a spike or a tracer bullet first and
+ * creates a Design-phase plan to hold that work. Both belong to the PLAN, and
+ * the plan row — the row that NAMES the plan — is the only honest place for
+ * either. Neither was ever right on a branch row: a branch BLOCKED by an earlier
+ * wave reads `waiting-on-you` when its plan is Draft, so any branch-row gate put
+ * a plan act on a row whose own available act is not its own. That is why the
+ * two row-level twins are deleted, not merely re-gated, and why they live here.
  *
  * `ApproveButton` arms itself on the first click and its armed label names the
  * consequence (`Approve — merges PR #146?`), which is 25 characters in a cell
- * `1.25rem` wide. On a branch row the same button lives inside `RowActions`'s
- * popup for exactly that reason. So the plan row borrows the pattern rather
- * than inventing a second one: same glyph, same `aria-haspopup`, same
- * close-on-outside-click, same fixed-width cell.
+ * `1.25rem` wide, so both acts live in a popup rather than inline: same glyph,
+ * same `aria-haspopup`, same close-on-outside-click, same fixed-width cell.
  *
  * NOT `RowActions` itself. That component is typed on `AgentRow` and asks four
  * questions about a branch (startable? resolvable? a run? a log?), none of
@@ -5272,21 +2925,40 @@ function WaveRow({
  * from. Sharing it would mean making every one of those optional to serve one
  * caller that wants none of them.
  *
- * **The absence states its reason.** Where the server has refused
- * (`approve.available === false`) the button renders dim with the refusal on
- * it, because a refusal is not an absence — the same rule `RowActions` follows.
- * Where the plan is simply not Draft there is nothing to refuse and no button
- * at all.
+ * **Each act states its own refusal, and the button opens if EITHER can act.**
+ * Approve and Commission design carry separate bindings (`approve`,
+ * `commission`), so one may act while the other is refused — the menu shows both
+ * and each names its own reason where declined, because a refusal is not an
+ * absence. Where the plan is simply not Draft there is no button at all.
  */
 function PlanActions({
   plan,
   card,
   approve,
+  commission,
+  deliver,
   onApproving,
 }: {
   plan: string;
   card: Card | null;
   approve?: DispatchInfo;
+  /**
+   * Whether the server will act on Commission design, and why not — the OTHER
+   * answer to a Draft plan, gated here exactly as Approve is. The same binding
+   * as `idea` (spawning a plot agent to write a plan is one authority), passed
+   * under its own name so the item states its own refusal and a later split of
+   * the two authorities changes one prop.
+   */
+  commission?: DispatchInfo;
+  /**
+   * Whether the server will act on Deliver, and why not — a THIRD act, and the
+   * one that answers a plan on the OTHER end of the lifecycle. Approve and
+   * Commission gate on a Draft plan; Deliver gates on a `deliverable` card (every
+   * non-deferred branch merged, not yet delivered). The two gates are disjoint,
+   * so a plan offers at most one class of act — but the menu that carries them is
+   * one, because a plan head has one `⋯`.
+   */
+  deliver?: DispatchInfo;
   onApproving?: (active: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -5295,8 +2967,41 @@ function PlanActions({
   // accepts phase `draft` and refuses every other one, and the card's own gate
   // is the single spelling of that rule. Two spellings drift — which is how the
   // branch menu and the card came to disagree in the first place.
-  const canApprove = Boolean(card && approve && isDraft(card));
-  const willAct = approve?.available ?? false;
+  //
+  // BOTH draft acts share this one gate. A Draft plan is what a person decides
+  // about, and Approve and Commission design are the two answers; each then asks
+  // its OWN binding whether the server will act, below.
+  const isDraftPlan = Boolean(card && isDraft(card));
+  const canApprove = Boolean(isDraftPlan && approve);
+  const canCommission = Boolean(isDraftPlan && commission);
+  // Deliver's OWN gate, disjoint from the draft one: the card's `deliverable`
+  // bit, which the server sets only where it auto-bumped a fully-merged plan
+  // into Testing — never on a plan already delivered. So this is true on exactly
+  // the plans that are complete-but-not-delivered, which is where the decision
+  // to deliver lives.
+  const canDeliver = Boolean(card?.deliverable && deliver);
+  const approveWillAct = approve?.available ?? false;
+  const commissionWillAct = commission?.available ?? false;
+  // The DRAFT acts open the `⋯` only when one WILL act — a Draft plan with both
+  // bindings refused has nothing to show but a tooltip, which is the behaviour
+  // #160 settled and this must not disturb.
+  const draftWillAct =
+    (canApprove && approveWillAct) || (canCommission && commissionWillAct);
+  // DELIVER is `ResliceMenu`'s shape, not the draft one: the menu opens on a
+  // deliverable plan EVEN WHEN the server refuses, because `DeliverButton` states
+  // its own refusal inside — a refusal is not an absence. So the `⋯` opens when a
+  // draft act will act OR the plan is deliverable, and `DeliverButton` below
+  // renders whenever `canDeliver`, showing its disabled+reason state when the
+  // binding declines.
+  const canOpen = draftWillAct || canDeliver;
+  // The dim button's tooltip names a refusal only when there IS one to name —
+  // an act present and declined. The reason of whichever act this plan offers
+  // leads, so the sentence points at a real binding rather than a generic one.
+  const refusalReason =
+    (canApprove ? approve?.reason : undefined) ||
+    (canCommission ? commission?.reason : undefined) ||
+    (canDeliver ? deliver?.reason : undefined) ||
+    `Cannot act on ${plan} from here`;
 
   useEffect(() => {
     if (!open) return;
@@ -5326,7 +3031,7 @@ function PlanActions({
       className="relative w-5 shrink-0 text-right"
       onClick={(e) => e.stopPropagation()}
     >
-      {canApprove && (
+      {(isDraftPlan || canDeliver) && (
         <button
           type="button"
           data-plan-actions={plan}
@@ -5334,12 +3039,12 @@ function PlanActions({
           aria-expanded={open}
           // Never the native attribute — a natively disabled control leaves the
           // tab order and takes the explanation with it.
-          aria-disabled={!willAct || undefined}
-          aria-label={willAct ? `Actions for ${plan}` : (approve?.reason ?? `Cannot approve ${plan} from here`)}
-          title={willAct ? `Actions for ${plan}` : (approve?.reason ?? `Cannot approve ${plan} from here`)}
-          onClick={() => { if (willAct) setOpen((v) => !v); }}
+          aria-disabled={!canOpen || undefined}
+          aria-label={canOpen ? `Actions for ${plan}` : refusalReason}
+          title={canOpen ? `Actions for ${plan}` : refusalReason}
+          onClick={() => { if (canOpen) setOpen((v) => !v); }}
           className={`inline-flex h-6 w-5 items-center justify-center leading-none ${
-            willAct
+            canOpen
               ? 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'
               : 'cursor-default text-slate-300 dark:text-slate-700'
           }`}
@@ -5347,15 +3052,36 @@ function PlanActions({
           <span aria-hidden className="text-xs">⋯</span>
         </button>
       )}
-      {open && willAct && card && approve && (
+      {open && canOpen && card && (
         <div
           role="menu"
           ref={menu}
           className="absolute right-0 z-10 mt-1 min-w-max rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
         >
-          <div role="menuitem" className="px-2 py-1 text-left">
-            <ApproveButton card={card} approve={approve} onApproving={onApproving} />
-          </div>
+          {/* Each act renders only where its OWN binding will act — one refused
+              binding leaves the other's item alone. The menu opens only when at
+              least one can act (`willAct`), so it is never empty. */}
+          {canApprove && approveWillAct && approve && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <ApproveButton card={card} approve={approve} onApproving={onApproving} />
+            </div>
+          )}
+          {canCommission && commissionWillAct && commission && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <CommissionDesignButton card={card} commission={commission} onActing={onApproving} />
+            </div>
+          )}
+          {/* Rendered whenever the plan is deliverable, EVEN WHEN the server
+              refuses — `DeliverButton` states its own refusal inside, the way
+              every `ResliceButton` does. This is the one item that departs from
+              the draft acts above, which render only where their binding will
+              act; the departure is deliberate, so a refused delivery is a named
+              control rather than a vanished one. */}
+          {canDeliver && deliver && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <DeliverButton slug={card.slug} deliver={deliver} onActing={onApproving} />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -5393,8 +3119,6 @@ function Row({
   onOpenPlan,
   card = null,
   dispatch,
-  approve,
-  commission,
   continueWith,
   pulse = 0,
   onStarting,
@@ -5459,10 +3183,9 @@ function Row({
   card?: Card | null;
   /** Whether this server will act on Start work, and why not. */
   dispatch?: DispatchInfo;
-  /** Whether this server will act on Approve, and why not. */
-  approve?: DispatchInfo;
-  /** Whether this server will act on Commission design, and why not. */
-  commission?: DispatchInfo;
+  // No `approve`/`commission`: those are plan-level acts on the plan head
+  // (`PlanActions`), not on a branch/PR/release row. This row's menu carries
+  // only branch-level acts, so it needs neither binding.
   /** Whether this server will act on Continue with an answer. */
   continueWith?: DispatchInfo;
   /** The pulse counter, so a started row can watch for its own change. */
@@ -5899,11 +3622,9 @@ function Row({
           row={row}
           card={card}
           dispatch={dispatch}
-          approve={approve}
-          commission={commission}
           pulse={pulse}
           onStarting={onStarting}
-                    continueWith={continueWith}
+          continueWith={continueWith}
           onOpenPlan={onOpenPlan}
           onRevealBranch={onRevealBranch}
         />
@@ -6310,6 +4031,8 @@ export function AgentList({
   dispatch,
   approve,
   commission,
+  reslice,
+  deliver,
   continueWith,
   idea,
   pulse = 0,
@@ -6402,7 +4125,7 @@ export function AgentList({
   const agentByBranch = new Map((fleet?.agents ?? []).map((a) => [a.branch, a]));
 
   const [openWaves, setOpenWaves] = useState<Set<string>>(() => new Set());
-  const waveKey = (plan: string, wave: string) => `${plan}\0${wave}`;
+  const waveKey = waveKeyOf;
   const toggleWave = (plan: string, wave: string) => {
     setOpenWaves((prev) => {
       const next = new Set(prev);
@@ -6554,7 +4277,15 @@ export function AgentList({
           banners as well; a section break has to read as a bigger break than a
           row break (35–36 px rows, `py-2`), and 16 px was not it. */}
       <div data-sections className="space-y-8">
-      {GROUPS.map(({ key, icon, label, hint }) => {
+      {(() => { const sectionedRows = rowsBySection(fleet.rows);
+        // THE SERVER-DERIVED WAVES, bound once beside the rows so every
+        // `waveGroupsFor`/`ungroupedRows` call below asks the same list rather
+        // than re-reading `fleet.waves` seven times. `undefined` on a cast
+        // payload from a pre-#349 server — the field the client CASTS rather
+        // than parses, so its schema `.default([])` never fired — and
+        // `waveGroupsFor` falls back to the row's own state for exactly that
+        // case. See `the-sections-ask-the-wave`.
+        const waves = fleet.waves; return GROUPS.map(({ key, icon, label, hint }) => {
         // EVERY SECTION IS ITS `group`, WAITING ON A MACHINE INCLUDED. It
         // asked a second question until 2026-08-20 — admitting any row that
         // carried a process — and that is what listed live agents as machines
@@ -6562,9 +4293,16 @@ export function AgentList({
         // alone; it is called by name here because the section's membership is
         // the thing that plan settled, and a reader who follows the rule back
         // should land on the argument rather than on a bare comparison.
+        //
+        // FILTERED OVER `sectionedRows`, NOT `fleet.rows`. A wave whose branches
+        // disagree on `state` carries two `group`s on its rows and would split
+        // across two sections; `rowsBySection` rewrites every row of such a wave
+        // to the ONE section the wave belongs in (a wave is where its unfinished
+        // work is), so `Inverted`'s merged and open branches land together. A
+        // uniform wave is untouched — its rows already share a group.
         const rows = key === 'waiting-on-machine'
-          ? fleet.rows.filter(inMachineSection)
-          : fleet.rows.filter((r) => r.group === key);
+          ? sectionedRows.filter(inMachineSection)
+          : sectionedRows.filter((r) => r.group === key);
         // WAITING ON YOU is the section for what needs a human DECISION, and an
         // unplanned issue is exactly that — the decision being *is this worth a
         // plan?* rather than *fix it*. No other section can hold it: the row has
@@ -6789,6 +4527,23 @@ export function AgentList({
                   {groupMark}
                 </>
               )}
+              {/* THE TWO FLEET CONTROLS, each on the section it is ABOUT and
+                  OUTSIDE the collapse button above — a control nested in the
+                  fold's `<button>` would be a button inside a button, invalid
+                  markup that swallows its own clicks. Placed here they sit in the
+                  same header flex row whether or not the section folds, and the
+                  spinbutton keeps its own keyboard handling clear of the fold's.
+
+                  The switch belongs to NOT STARTED (*is the queue served?*) and
+                  the stepper to WORKING (*how many at once?*). Both read the
+                  SHARED state off `fleet.fleetControls` and write it back through
+                  /api/fleet-controls; neither dispatches anything in this wave. */}
+              {key === 'not-started' && (
+                <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
+              )}
+              {key === 'working' && (
+                <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} />
+              )}
             </h2>
             {/* The body goes, the header stays — including its count. Removed
                 from the tree rather than hidden with CSS: a folded group should
@@ -6874,8 +4629,8 @@ export function AgentList({
                   // and every row renders as itself. Nothing is hidden, and the
                   // plan row appears only where it describes the whole set.
                   const planHeads = !countsPlans && Boolean(group.plan)
-                    && ungroupedRows(group.rows, key).length === 0
-                    && waveGroupsFor(group.rows, key).length > 0;
+                    && ungroupedRows(group.rows, key, waves).length === 0
+                    && waveGroupsFor(group.rows, key, waves).length > 0;
                   if (countsPlans) {
                     const foldable = showsWaveFold(group);
                     const expanded = foldable ? openPlans.has(group.plan) : null;
@@ -6944,6 +4699,8 @@ export function AgentList({
                           // the plan's act and the card is the plan's record.
                           card={cardForPlanFile?.(group.planFile) ?? null}
                           approve={approve}
+                          commission={commission}
+                          deliver={deliver}
                           onApproving={onStarting}
                         />
                         {/* The branches, folded. Removed from the tree rather
@@ -7025,6 +4782,7 @@ export function AgentList({
                                     // it is on the plan row above.
                                     card={cardForPlanFile?.(group.planFile) ?? null}
                                     dispatch={dispatch}
+                                    reslice={reslice}
                                     pulse={pulse}
                                     onStarting={onStarting}
                                   />
@@ -7055,8 +4813,6 @@ export function AgentList({
                                           inWaveGroup
                                           card={cardForPlanFile?.(r.planFile) ?? null}
                                           dispatch={dispatch}
-                                          approve={approve}
-                                          commission={commission}
                                           continueWith={continueWith}
                                           pulse={pulse}
                                           onStarting={onStarting}
@@ -7090,8 +4846,6 @@ export function AgentList({
                                 inPlanGroup
                                 card={cardForPlanFile?.(r.planFile) ?? null}
                                 dispatch={dispatch}
-                                approve={approve}
-                                commission={commission}
                                 continueWith={continueWith}
                                 pulse={pulse}
                                 onStarting={onStarting}
@@ -7219,18 +4973,20 @@ export function AgentList({
                         // holds the reader's overrides rather than the state
                         // itself — one click flips whichever default applies.
                         expanded={
-                          waveGroupsFor(group.rows, key).length > 1
+                          waveGroupsFor(group.rows, key, waves).length > 1
                             ? openPlans.has(`open:${group.plan}`)
                             : !openPlans.has(`shut:${group.plan}`)
                         }
                         onToggle={() => togglePlan(
-                          waveGroupsFor(group.rows, key).length > 1
+                          waveGroupsFor(group.rows, key, waves).length > 1
                             ? `open:${group.plan}` : `shut:${group.plan}`,
                         )}
                         active={group.rows.some((r) => active.has(rowKey(r)))}
                         marked={group.rows.some((r) => marked.has(rowKey(r)))}
                         card={cardForPlanFile?.(group.planFile) ?? null}
                         approve={approve}
+                        commission={commission}
+                        deliver={deliver}
                         onApproving={onStarting}
                       />
                     )}
@@ -7288,7 +5044,7 @@ export function AgentList({
                         every other fold on this board: a collapsed group should
                         cost no vertical space, which is the whole complaint it
                         answers. */}
-                    {(!planHeads || (waveGroupsFor(group.rows, key).length > 1
+                    {(!planHeads || (waveGroupsFor(group.rows, key, waves).length > 1
                       ? openPlans.has(`open:${group.plan}`)
                       : !openPlans.has(`shut:${group.plan}`))) && (
                     <ul
@@ -7320,7 +5076,7 @@ export function AgentList({
                           branches with PRs group here, the ones nobody started
                           group under the plan in NOT STARTED. Each section shows
                           only the branches its own question is about. */}
-                      {waveGroupsFor(group.rows, key).map((wg) => {
+                      {waveGroupsFor(group.rows, key, waves).map((wg) => {
                         // A WAVE OF ONE NEEDS NO FOLD — its single branch is
                         // already named in slot 4, so a control revealing a row
                         // the reader can see is the noise this estate removed
@@ -7343,6 +5099,13 @@ export function AgentList({
                               // started. The card and dispatch binding are what
                               // that control needs, and withholding them is how
                               // this row says the act it wants is a merge.
+                              //
+                              // RESLICE IS STILL PASSED, and it is not `dispatch`
+                              // in disguise: `Slice this wave` takes only the
+                              // plan slug, so it needs no card and no merge —
+                              // it is the act an `unsliced-wave` here (five
+                              // landed branches, `blocked`) actually wants.
+                              reslice={reslice}
                               pulse={pulse}
                               onStarting={onStarting}
                               // WHAT THE COUNT MEANS, per section — the verdict
@@ -7366,12 +5129,6 @@ export function AgentList({
                                   : wg.rows.some(isReviewable) ? 'to review'
                                     : 'to approve'}
                               soleRow={wg.rows.length > 1 ? undefined : wg.rows[0]}
-                              // THE BRANCH BINDINGS, for the menu a sole-branch
-                              // wave row carries. They go unused where the wave
-                              // holds several — `soleRow` is undefined there and
-                              // each branch keeps its own row and its own menu.
-                              approve={approve}
-                              commission={commission}
                               continueWith={continueWith}
                               onOpenPlan={onOpenPlan}
                               onRevealBranch={onRevealBranch}
@@ -7392,8 +5149,6 @@ export function AgentList({
                                     inWaveGroup
                                     card={cardForPlanFile?.(r.planFile) ?? null}
                                     dispatch={dispatch}
-                                    approve={approve}
-                                    commission={commission}
                                     continueWith={continueWith}
                                     pulse={pulse}
                                     onStarting={onStarting}
@@ -7410,7 +5165,7 @@ export function AgentList({
                           </li>
                         );
                       })}
-                      {ungroupedRows(group.rows, key).map((r) => (
+                      {ungroupedRows(group.rows, key, waves).map((r) => (
                         <Row
                           // The same helper the change memory keys by — two
                           // spellings of one identity is how a mark ends up on
@@ -7423,8 +5178,6 @@ export function AgentList({
                           // are startable ever use it.
                           card={cardForPlanFile?.(r.planFile) ?? null}
                           dispatch={dispatch}
-                          approve={approve}
-                          commission={commission}
                           continueWith={continueWith}
                           pulse={pulse}
                           onStarting={onStarting}
@@ -7544,7 +5297,7 @@ export function AgentList({
             )}
           </section>
         );
-      })}
+      }); })()}
       </div>
 
       {/* The ages are the honesty: a stale source says so rather than looking
