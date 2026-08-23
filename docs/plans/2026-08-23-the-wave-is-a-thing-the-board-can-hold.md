@@ -16,6 +16,10 @@
 - **Started:** 2026-08-23, Jan Wloka, `bug/a-wave-is-one-row`
 - **Started:** 2026-08-23, Jan Wloka, `feature/the-contract-carries-a-wave`
 - **Started:** 2026-08-23, Jan Wloka, `feature/the-classifier-is-total`
+- **Started:** 2026-08-23, Jan Wloka, `feature/the-sections-ask-the-wave`
+- **Started:** 2026-08-23, Jan Wloka, `feature/the-head-asks-the-wave`
+- **Started:** 2026-08-23, Jan Wloka, `bug/done-holds-finished-plans-only`
+- **Started:** 2026-08-23, Jan Wloka, `feature/a-split-plan-counts-what-is-elsewhere`
 
 ## Approval
 
@@ -435,8 +439,8 @@ the case.
      on 2026-08-23. Each assumes a wave has ONE section; each would otherwise have
      to add a wave derivation this plan exists to remove. -->
 
-- `feature/the-sections-ask-the-wave` — `waveGroupsFor` becomes a lookup; the per-section predicates that encode real distinctions move onto the wave rather than being repeated
-- `feature/the-head-asks-the-wave` — the plan head's count, tuple and note read the wave instead of re-grouping rows
+- `feature/the-sections-ask-the-wave` — `waveGroupsFor` becomes a lookup; the per-section predicates that encode real distinctions move onto the wave rather than being repeated → #353
+- `feature/the-head-asks-the-wave` — the plan head's count, tuple and note read the wave instead of re-grouping rows → #354
 - `bug/done-holds-finished-plans-only` — DONE holds the release scope: plans whose every wave is complete and whose version has not shipped. Depends on a wave having one section, since its verdict rule is otherwise unsatisfiable for a mixed wave — **and on `done-means-delivered`'s `Reached` wave, because the filter reads a plan's phase and five plans currently carry a stale one**
 - `feature/a-split-plan-counts-what-is-elsewhere` — each head of a plan spread across sections states how many of its waves are not here, and renders none of them. Depends on the same: the tuple's numerator is undefined while a wave can be in two places
 
