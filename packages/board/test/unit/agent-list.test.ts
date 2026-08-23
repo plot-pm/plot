@@ -6,7 +6,6 @@ import { readFileSync } from 'node:fs';
 import {
   groupByPlan,
   UNNAMED_WAVE,
-  countdown,
   showPlanHeading,
   isLive,
   isCollapsible,
@@ -44,6 +43,7 @@ import {
   type WatchedState,
   type PlanGroup,
 } from '../../src/app/components/AgentList.js';
+import { countdown } from '../../src/app/lib/agent-rows/actions.js';
 import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, hostErrorState, issueNote, noteWithoutPr, prNote, prStateWord } from '../../src/app/lib/agent-rows/host-notes.js';
 import { isFinished, isStartable, rowKey, waitingLabel, waitingTone } from '../../src/app/lib/agent-rows/row-identity.js';
 import { groupByWave, groupedNote, waveDissent, waveLabel } from '../../src/app/lib/agent-rows/waves.js';

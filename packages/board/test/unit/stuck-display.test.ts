@@ -1,11 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import {
+  describe,
+  it,
+  expect } from 'vitest';
 import {
   stuckWord,
   stuckEvidence,
-  offersAction,
-  changedFilesLabel,
   offersChangedFiles,
 } from '../../src/app/components/AgentList.js';
+import { changedFilesLabel, offersAction } from '../../src/app/lib/agent-rows/actions.js';
 import {
   StuckStateSchema, BOARD_ARTIFACT_PATH,
   type Card, type DispatchInfo, type Stuck, type StuckState,
