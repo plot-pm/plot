@@ -592,6 +592,60 @@ not constrain its plan's phase in that direction.
 only complete waves (9/9). The plan's phase constrains its waves; the wave's
 verdict does not constrain its plan.
 
+### Release is a PLAN-level act — waves are never released
+
+A wave has no release, no version and no independent lifecycle. **Only a plan is
+released**, and it takes every one of its waves with it.
+
+```
+every wave complete   →   the PLAN may enter endgame testing
+testing completed     →   the PLAN is released, with all its waves
+```
+
+**The gate is the plan's, and it is total:** a plan may only be released once
+**all** its waves are complete. A plan with one eligible wave cannot ship the
+complete ones early — there is no mechanism to, and no meaning for it.
+
+**Measured across the whole estate, 2026-08-23:**
+
+```
+Released plans with a non-complete wave:            0
+plans whose waves report DIFFERENT phases:          0
+```
+
+Zero on both. **`phase` is uniform across every wave of a plan**, by construction
+— it is a fact about the plan that each of its rows carries, not a per-wave
+value. So *"a released wave"* is not merely rare here; it is unrepresentable.
+
+### What that settles
+
+**The denominator question.** The split-plan tuple `(2/3)` counts a plan's waves,
+and every one of them shares the plan's phase — so a released plan's waves are
+all released together and the plan is not on the board at all. There is no
+mixed case to define, and no wave can be "already released" while its siblings
+wait.
+
+**The testing scope.** DONE holds plans whose every wave is complete and whose
+version has not shipped. Since waves cannot be released piecemeal, **the unit
+entering endgame testing is the whole plan** — which is what makes DONE a
+coherent test scope rather than a bag of fragments.
+
+**And it explains why `verdict` and `phase` never collide.** They answer at
+different levels and one is uniform within the other: every wave of a plan shares
+its phase, while verdicts vary between waves of that same plan. A wave has a
+verdict *and inherits* a phase; it never has one of its own.
+
+### The one direction that is NOT symmetric
+
+A plan's phase constrains its waves — Released ⇒ all complete (41/41), Endgame ⇒
+all complete (9/9). **The reverse does not hold**: a plan whose every wave is
+complete is *not* thereby released, or even delivered. Someone must run
+`/plot-deliver`, and later cut a release.
+
+That is the measurement-versus-decision split again, at the release boundary:
+**every wave being complete is a measurement; releasing is a decision**, and
+endgame testing is what happens between them.
+
 ### The invariant the board breaks today
 
 **A wave renders in exactly one section.** It is not a property the payload
@@ -1131,10 +1185,15 @@ function, not as a permission table.
 **A wave's section is a function of its verdict and its plan's phase, and of
 nothing else.**
 
-| wave `verdict` | plan `phase` | section |
+**Note which phase column this is.** It is the **PLAN's** phase, inherited by
+every one of its waves — a wave has no phase of its own and is never released
+independently. So *"complete + Released"* below means *this wave is complete and
+its PLAN has shipped*, which takes every sibling wave with it.
+
+| wave `verdict` | its PLAN's `phase` | section |
 |---|---|---|
 | complete | Development · Endgame | **DONE** |
-| complete | Released | **not shown** — out of scope |
+| complete | Released | **not shown** — the plan shipped, with all its waves |
 | complete | Discovery | **not shown** — nothing is committed to yet |
 | eligible · blocked | Development | **NOT STARTED** *(or WORKING / QUIET / WAITING ON A MACHINE by worker and branch state)* |
 | eligible · blocked | Discovery | **WAITING ON YOU** — the plan needs approving |
