@@ -403,6 +403,51 @@ describe('an eligible wave carries the emerald tone', () => {
   });
 
   const ONE_HARNESS = `
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { TupleRowView } from ${JSON.stringify(path.resolve(here, '../../src/app/components/TupleRow.tsx'))};
+
+createRoot(document.getElementById('root')).render(
+  React.createElement('ul', { role: 'rowgroup' },
+    React.createElement(TupleRowView, { tuple: window.__WAVE__, menu: null })),
+);
+`;
+
+  beforeAll(async () => {
+    const built = await esbuild.build({
+      stdin: { contents: ONE_HARNESS, resolveDir: path.resolve(here, '../..'), loader: 'tsx' },
+      bundle: true, format: 'esm', write: false, jsx: 'automatic',
+      absWorkingDir: path.resolve(here, '../..'),
+    });
+    browser = await chromium.launch();
+    const context = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
+    page = await context.newPage();
+    await page.setContent('<div id="root"></div>');
+    await page.evaluate((wave) => {
+      (window as never as { __WAVE__: unknown }).__WAVE__ = wave;
+    }, ELIGIBLE);
+    await page.addScriptTag({ content: built.outputFiles[0].text, type: 'module' });
+    await page.locator('li[data-tuple-kind="wave"]').first().waitFor({ timeout: 10_000 });
+  }, 60_000);
+
+  afterAll(async () => {
+    await browser?.close();
+  });
+
+  it('tones the status cell emerald and leaves the word `eligible`', async () => {
+    const status = page.locator('li[data-tuple-kind="wave"] [data-tuple-status]');
+    // THE WORD IS UNCHANGED — colour reinforces it, never replaces it.
+    expect(await status.innerText()).toBe('eligible');
+    // THE TONE IS PRESENT — the emerald class the good-news branch of
+    // `statusTone` returns rides on the status text, the same class `green`
+    // would carry. `innerHTML` because the harness page loads no stylesheet, so
+    // the class is in the markup rather than expressed as a computed colour.
+    expect(await status.innerHTML()).toContain('text-emerald-700');
+    expect(await status.innerHTML()).toContain('dark:text-emerald-500');
+  });
+});
+
+/**
  * THE NAME TRACK HOLDS THE NAME — the geometry only a laid-out grid can settle.
  *
  * Slot 3 was a fixed `12rem` (192px) while slot 4 took `1fr`. On a plan-group
@@ -453,27 +498,6 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { TupleRowView } from ${JSON.stringify(path.resolve(here, '../../src/app/components/TupleRow.tsx'))};
 
-createRoot(document.getElementById('root')).render(
-  React.createElement('ul', { role: 'rowgroup' },
-    React.createElement(TupleRowView, { tuple: window.__WAVE__, menu: null })),
-);
-`;
-
-  beforeAll(async () => {
-    const built = await esbuild.build({
-      stdin: { contents: ONE_HARNESS, resolveDir: path.resolve(here, '../..'), loader: 'tsx' },
-      bundle: true, format: 'esm', write: false, jsx: 'automatic',
-      absWorkingDir: path.resolve(here, '../..'),
-    });
-    browser = await chromium.launch();
-    const context = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
-    page = await context.newPage();
-    await page.setContent('<div id="root"></div>');
-    await page.evaluate((wave) => {
-      (window as never as { __WAVE__: unknown }).__WAVE__ = wave;
-    }, ELIGIBLE);
-    await page.addScriptTag({ content: built.outputFiles[0].text, type: 'module' });
-    await page.locator('li[data-tuple-kind="wave"]').first().waitFor({ timeout: 10_000 });
 const tuple = window.__TUPLE__;
 createRoot(document.getElementById('root')).render(
   React.createElement(
@@ -543,16 +567,6 @@ describe('the name track holds the name (A: a long plan slug renders in full)', 
     await browser?.close();
   });
 
-  it('tones the status cell emerald and leaves the word `eligible`', async () => {
-    const status = page.locator('li[data-tuple-kind="wave"] [data-tuple-status]');
-    // THE WORD IS UNCHANGED — colour reinforces it, never replaces it.
-    expect(await status.innerText()).toBe('eligible');
-    // THE TONE IS PRESENT — the emerald class the good-news branch of
-    // `statusTone` returns rides on the status text, the same class `green`
-    // would carry. `innerHTML` because the harness page loads no stylesheet, so
-    // the class is in the markup rather than expressed as a computed colour.
-    expect(await status.innerHTML()).toContain('text-emerald-700');
-    expect(await status.innerHTML()).toContain('dark:text-emerald-500');
   const nameSpan = () =>
     page.locator('li[data-tuple-kind="plan"] [data-tuple-link="plan"] .truncate');
 
