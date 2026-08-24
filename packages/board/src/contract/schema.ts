@@ -2930,6 +2930,13 @@ export const FleetSprintSchema = z.object({
   /** The sprint's `- **Release:** x.y.z`, or "" — see {@link SprintCardSchema}. */
   release: z.string().default(''),
   counts: SprintCountsSchema,
+  /**
+   * The sprint's plan array — the same structure `board.sprints` already carries
+   * and `parseSprintMembers` produces. `AgentList.tsx` reads the fleet payload,
+   * not the board payload, so without this the Agents tab cannot join on sprint
+   * membership (the bug that #386 did not fix).
+   */
+  members: z.array(SprintMemberSchema).default([]),
 });
 export type FleetSprint = z.infer<typeof FleetSprintSchema>;
 

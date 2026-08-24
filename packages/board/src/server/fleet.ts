@@ -5082,7 +5082,7 @@ export function activeSprints(opts: BuildBoardOptions, pulse: FleetPulse | null)
         default: break;
       }
     }
-    return { slug: sprint.slug, title: sprint.title, release: sprint.release, counts };
+    return { slug: sprint.slug, title: sprint.title, release: sprint.release, counts, members: sprint.members };
   });
 }
 
