@@ -1,8 +1,8 @@
 # The working section shows every worker
 
-> WORKING renders 0 rows while the registry holds 23 agents, every one with a
-> worktree. A worker's place in the section is decided by its branch's pull
-> request instead of by the worker.
+> The registry knows 23 agents and WORKING renders none of them. A worker is
+> shown only where its branch happens to own a row in the right section, so the
+> fleet's account of itself is a side effect of branch bookkeeping.
 
 ## Status
 
@@ -16,191 +16,202 @@
 
 ## Changelog
 
-- WORKING lists every worker the registry knows, whatever its branch's pull
-  request says and whatever the worker is doing — running, idle, stalled,
-  finished or unrecognised. A section that answers *who is working* is
-  answering about workers, and a worker that exists is a fact about the fleet
-  even when the answer is *nobody is on this one*.
-- A worker that is busy names the **wave** it is working, not only its branch,
-  so a reader sees what the fleet is spending itself on.
-- The registry drops an entry whose session has ended, so a worktree left
-  behind by a finished agent stops being reported as a worker.
+- WORKING lists every worker the registry knows — running, idle, stalled,
+  finished or unrecognised — instead of only those whose branch happens to hold
+  a row the section already renders.
+- A busy worker names the **wave** it is working, so a reader sees what the
+  fleet is spending itself on rather than only which branch is checked out.
+- A worker is dropped from the registry only when its worktree is clean **and**
+  its agent session has ended. Either one outstanding and the worker stays
+  visible.
 
 ## Motivation
 
 ### The measurement
 
-Taken from the live board on 2026-08-24, against the real estate:
+Taken from `/api/fleet` against the live estate, 2026-08-24:
 
 | what | count |
 |---|---|
-| registry entries, all carrying a worktree | **23** |
-| of those, rows rendered in WORKING | **0** |
-| worktrees holding a `.plot-worker.pid` | 20 |
-| of those pids still alive | **0** |
+| registry entries, every one naming a worktree | **23** |
+| rows rendered in WORKING | **0** |
+| agents whose branch has no row anywhere | **6** |
+| agents whose row is in `done` | **16** |
+| agents whose row is in `waiting-on-you` | 1 |
 
-Earlier the same day the section rendered **2** rows while the control beside
-it read **`3 parallel agents · 5 working`** — three numbers describing one
-fleet, no two agreeing.
+Earlier the same day the section rendered **2** rows beside a control reading
+**`3 parallel agents · 5 working`** — three numbers about one fleet, no two
+agreeing.
 
-### Why the rows disappear
+### The cause: a worker is rendered only as a property of its branch
 
-`classify` in `fleet.ts` reaches the worker question only after the pull-request
-arm has had its say (line 2843). A running worker survives that arm only when
-`prAsksNobody(pr)` — the PR is a draft, green, or pending. Any other PR outranks
-the worker and the row leaves WORKING.
+`AgentList.tsx:344` builds `agentByBranch` and joins the registry onto BRANCH
+rows. A worker therefore appears only where two things are true of its branch:
+the pulse produced a row for it, and `classify` put that row in WORKING.
 
-The consequence is exactly backwards. On 2026-08-24:
+Both fail routinely, and for reasons that have nothing to do with the worker:
 
-- `the-agents-tab-filters-to-the-sprint` — worker running, PR **open and
-  CONFLICTING** → hidden from WORKING
-- `the-estate-speaks-waves` — worker running, PR **closed** → **shown** in
-  WORKING
+- **No row at all (6 of 23).** The branch is absent from the pulse — a scratch
+  branch (`…-recut`), the branch the board itself is served from (`main`), or a
+  branch no plan lists. The pulse derives rows from the plan estate, so a
+  worktree the estate does not mention cannot be represented.
+- **A row in the wrong section (16 of 23).** The branch merged, so `classify`
+  places it in DONE — correctly, as a statement about the BRANCH. The worker
+  attached to it is then rendered in DONE or nowhere.
 
-A closed PR returns `['closed']` from `prState`, which is neither green nor
-pending, so `prAsksNobody` is false and the row passes the guard. The section
-therefore showed the two workers whose PRs were abandoned and hid the four whose
-work was live.
+A worker in a worktree is a fact about the FLEET. Its branch's state is a fact
+about the WORK. Deriving the first from the second is why the section can be
+empty while 23 agents exist.
 
-### Why the count and the rows disagree
+### Two things this is NOT
 
-They are computed from different sources and never reconciled:
+**Not the pull-request ordering.** A first diagnosis held that `classify`'s PR
+arm outranked the worker arm, letting closed-PR workers in and keeping live
+ones out. It is wrong: `fleet.ts:4461` strips a closed PR before `classify` is
+called (#376), so `classify` receives `pr` open-only and the closed-PR path is
+unreachable from there. The two closed-PR rows seen in WORKING that morning
+were CORRECT — a live worker, no open PR, unlanded work is exactly a WORKING
+row.
+
+**Not a missing registry entry.** `the-agents-tab-filters-to-the-sprint` was
+absent from the registry while its worker ran. The registry synthesizes entries
+from WORKTREES, and that worktree had been removed after its PR merged. The
+registry was right; the worker had already finished.
+
+Both are recorded because both were believed, and each cost a wave in an
+earlier draft of this plan.
+
+### Why the count disagrees with the rows
+
+They are computed from different sets and never reconciled:
 
 | number | computed by | over |
 |---|---|---|
 | `working` | `liveAgentCount` (auto-dispatch.ts:129) | registry entries in `running`/`waiting`, minus landed branches |
-| the rows | `classify` (fleet.ts) | branches, filtered by PR state |
-| `parallelAgents` | a stored setting | nothing — it is a cap on auto-dispatch, not a measurement |
+| the rows | the branch join in `AgentList.tsx` | branches, sectioned by `classify` |
+| `parallelAgents` | a stored setting | nothing — a cap on auto-dispatch, not a measurement |
 
-`parallelAgents` is a bound on what auto-dispatch starts. It never bounded
-hand-dispatched workers, and nothing reconciles the two, which is how six
-workers existed under a cap of three.
-
-### Why dead workers persist
-
-Liveness is read from `$wt/.plot-worker.pid` and `kill -0`. Nothing removes the
-file when a session ends, so a finished agent leaves a pid behind and the
-worktree keeps answering. All 20 pid files on this machine named dead
-processes. One of them, `72961`, sat in the worktree the board itself was later
-started from — which is why an entry appeared for branch `main` and read as a
-worker. The board was never counting itself; it inherited a dead worker's
-marker.
+`LIVE_STATES` admits `running` and `waiting` only, so `stalled`, `finished` and
+`unknown` — 21 of the 23 entries here — are counted by neither and rendered by
+neither.
 
 ## Design
 
-### The worker decides its own section
+### A worker is a row in its own right
 
-Move the worker question **above** the pull-request arm for WORKING membership.
-A worker in a worktree is a measurement; a PR's state is a fact about the
-branch, and the branch is not what the section is about.
+WORKING renders from the REGISTRY, not from the branch rows. Every entry
+produces a row whether or not its branch is in the pulse and whatever section
+that branch's row occupies.
 
-This does not silence the PR. A row in WORKING still reports its PR's condition
-— conflicts, failing checks, closure — in its note, exactly as it does today.
-What changes is which section it lands in, not what it says once there.
+Where a branch row exists, the worker row still carries what the row knows —
+plan, wave, PR, git state — by the same join used today. Where it does not, the
+row states what the registry knows: the branch, the worktree, the state. Absent
+is not false: it says nothing about a plan it cannot name.
 
-### Every worker appears, whatever it is doing
+A branch keeps its row in whatever section its own state earns. A merged branch
+belongs in DONE; that is a true statement about the work. The worker row in
+WORKING is a statement about the fleet, and both can be true at once.
 
-Registry states are `running`, `waiting`, `stalled`, `finished`, `unknown`.
-Today only the first two count as live, and only some of those survive to render.
+### Every state appears, and the row says which
 
-All five appear in WORKING. The section's subject is the fleet, and *"this
-worker finished and nobody collected its work"* is precisely the fact a reader
-needs — it is how a stalled worker with an unpushed commit was found on
-2026-08-24, and it was found by reading a process table, not the board.
+All five registry states render: `running`, `waiting`, `stalled`, `finished`,
+`unknown`.
 
-The row states which it is. `someone is on it` is reserved for a worker that is
-actually running; an idle, stalled, or finished worker says so plainly. A row
-whose usual state is a lie teaches its reader to ignore it.
+`someone is on it` narrows to a worker that is genuinely running. An idle,
+stalled, finished or unrecognised worker says so plainly — a row whose usual
+state is a lie teaches its reader to ignore the row.
 
 ### A busy worker names its wave
 
-A registry entry carries `branch`, not `wave`. The pulse already knows which
-wave holds a branch — the fleet payload derives waves per plan — so the wave is
-a join, not a new field on disk.
+A registry entry carries `branch`, never `wave`. The pulse already derives waves
+per plan (`fleet.waves`, 70 of them here), so the wave is a JOIN on the branch,
+not a new field on disk.
 
 A running worker's row names the wave it is working. Where the branch belongs to
-no wave the row says nothing rather than inventing one: absent is not false.
+no wave — a scratch branch, an unlisted branch — the row says nothing rather
+than inventing a name.
 
-### The registry is reconciled against reality
+### A worker is dropped only when both conditions hold
 
-An entry whose worktree is gone, or whose pid names a process that no longer
-exists **and** whose session has ended, is dropped rather than reported as a
-worker. This is the sync between the registry and the agent sessions that
-created it.
+An entry leaves the registry when **its worktree is clean AND its agent session
+has ended**. Either one outstanding and the worker stays visible.
 
-The rule is not *pid is dead → drop*: a worker that exits leaving unpushed
-commits is the discovery a reader most needs, and dropping it would hide the
-failure. What is dropped is an entry that no longer describes anything — no
-live process, no session, no work waiting to be collected.
+- Dirty worktree, session ended → **stays.** This is the shape that lost work
+  on 2026-08-24: a stalled worker exited leaving a complete implementation
+  nobody had collected. A registry that had tidied it away would have hidden
+  the one fact worth having.
+- Clean worktree, session live → **stays.** An agent between edits is working.
+- Clean and ended → dropped. It describes nothing.
+
+"Clean" means the worktree holds no uncommitted changes and no commits absent
+from its remote — unpushed work is uncollected work.
 
 ### The count is the rows
 
-`working` counts what WORKING renders. One derivation, read twice, so the two
-cannot drift. The stepper's `parallel agents` stays a cap and is labelled as
-one, since a cap and a measurement are different claims about different things.
+`working` counts what WORKING renders. One derivation read twice, so the two
+cannot drift. `parallel agents` stays a cap and is labelled as one: a cap and a
+measurement are different claims, and the fleet has exceeded the cap
+deliberately before.
 
 ## Waves
 
-### Shown (Branch: bug/the-working-section-shows-every-worker)
-- the worker question outranks the PR arm for WORKING membership; all five
-  registry states render; the row says which state it is, and `someone is on
-  it` narrows to a genuinely running worker
+### Shown (Branch: bug/the-working-section-renders-the-registry)
+- WORKING renders one row per registry entry, joined to a branch row where one
+  exists and standing alone where none does; all five states appear and the row
+  states which
 
 ### Counted (Branch: bug/the-working-count-is-the-rows)
-- `working` derives from the same set the section renders; the cap is labelled
-  as a cap
+- `working` derives from the set WORKING renders; the cap is labelled as a cap
 
 ### Named (Branch: feature/a-busy-worker-names-its-wave)
-- a running worker's row names the wave it is working, joined from the pulse;
-  silent where the branch belongs to no wave
+- a running worker's row names its wave, joined from `fleet.waves`; silent where
+  the branch belongs to none
 
-### Reconciled (Branch: bug/the-registry-drops-an-ended-session)
-- an entry describing neither a live process, nor a session, nor uncollected
-  work is dropped from the registry
+### Reconciled (Branch: bug/the-registry-drops-a-settled-worker)
+- an entry is dropped only when the worktree is clean and the session has ended;
+  either outstanding and it stays
 
 ## Done when
 
-1. **Every registry entry with a worktree renders a row in WORKING.** Measured
-   against the live estate, not a fixture: 23 entries → 23 rows.
-2. **A worker whose PR is open and conflicting appears in WORKING.** This is the
-   case that was hidden.
-3. **A worker whose PR is closed appears in WORKING** — and its row says the PR
-   is closed. It appears because a worker is there, not because the PR arm let
-   it slip through.
-4. **`N parallel agents · M working` has M equal to the number of rows
-   rendered.** Asserted over a fixture where the two derivations would disagree
-   under the old code.
-5. **Only a running worker's row reads `someone is on it`.** An idle, stalled,
-   finished, or unknown worker states its own condition.
+1. **Every registry entry renders a row in WORKING.** Measured against the live
+   estate, not a fixture: 23 entries → 23 rows.
+2. **A worker whose branch has no row anywhere still renders.** The six here —
+   `…-recut` branches, `main`, an unlisted branch — are the case.
+3. **A worker whose branch merged still renders in WORKING**, while that branch
+   keeps its own row in DONE. Both are true; asserted together.
+4. **`N parallel agents · M working` has M equal to the rows rendered.**
+   Asserted over a fixture where the two derivations would disagree under the
+   old code.
+5. **Only a running worker reads `someone is on it`.** Idle, stalled, finished
+   and unknown each say their own condition.
 6. **A running worker's row names its wave.** Where the branch belongs to no
-   wave, the row says nothing — asserted, so a fallback string cannot creep in.
-7. **A worktree whose pid is dead, whose session has ended, and which holds no
-   uncommitted or unpushed work is absent from the registry.**
-8. **A worktree whose pid is dead but which holds unpushed commits is still
-   reported**, with what it is holding. The 2026-08-24 stall left a complete
-   implementation nobody had collected; that must stay visible.
-9. `pnpm run test:board` green; the artifact rebuilt and committed.
+   wave the row says nothing — asserted, so no fallback string creeps in.
+7. **A worker with a dirty worktree and an ended session is still reported**,
+   with what it is holding.
+8. **A worker with a clean worktree and a live session is still reported.**
+9. **A worker with a clean worktree and an ended session is absent.**
+10. `pnpm run test:board` green; artifact rebuilt and committed.
 
 ## Notes
 
-### Not chosen: teach the PR arm about closed PRs
+### Not chosen: give every worker a synthetic branch row
 
-The narrow fix is to make `prAsksNobody` return true for a closed PR, so a
-closed-PR worker stops passing the guard. That removes the two wrong rows and
-leaves the four missing ones missing — it corrects the symptom that was visible
-and not the rule that produced it.
+WORKING could be filled by fabricating a branch row for each registry entry the
+pulse does not mention. It would render, and every row would then carry plan and
+wave fields that are empty or invented — the failure mode the estate keeps
+re-learning as *absent is not false*. A worker row that states only what the
+registry knows says less and lies never.
 
-### Not chosen: exclude the board's own process
+### Not chosen: count `stalled` and `finished` as live
 
-The first diagnosis on 2026-08-24 held that the board counted itself, because an
-entry appeared for branch `main` in the worktree the board was serving. The pid
-file there named `72961`, a reaped worker, not the board's `8141`. There is no
-self-counting bug and a self-exclusion rule would have been a guard against
-something that never happens, hiding the stale-marker defect that does.
+Widening `LIVE_STATES` would make the count include what the section shows
+without making either correct: the count would still be computed over a
+different set from the rows. The fix is one derivation, not two agreeing
+definitions.
 
-### The cap and the measurement are different claims
+### The cap is not a limit on what is shown
 
-`parallelAgents` bounds auto-dispatch. It has never bounded a hand-dispatched
-worker and this plan does not make it: an operator who dispatches six workers
-under a cap of three has done something deliberate, and a board that refused to
-show the sixth would be lying about the fleet to defend a setting.
+`parallelAgents` bounds auto-dispatch and has never bounded a hand-dispatched
+worker. An operator who starts six workers under a cap of three has done
+something deliberate; a board that hid the sixth would be lying about the fleet
+to defend a setting.
