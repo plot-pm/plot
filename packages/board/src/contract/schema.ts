@@ -1215,6 +1215,14 @@ export const FleetBranchSchema = z.object({
    */
   changed_ago_seconds: z.number().nullable().default(null),
   /**
+   * The epoch second of that same newest evidence — what a CHANGE detector must
+   * watch. `changed_ago_seconds` is recomputed against `now` on every scan, so
+   * it moves once a second whether or not anything happened; watching it fires
+   * on every pulse forever. This moves only when a commit lands, a file is
+   * written, or the worker's log grows. Null wherever the age is null.
+   */
+  changed_at: z.number().nullable().default(null),
+  /**
    * A local worktree for this branch is holding `.git/index.lock` — a write is
    * in progress THIS INSTANT.
    *
@@ -2358,8 +2366,16 @@ export const AgentRowSchema = z.object({
    */
   localDirty: z.boolean().default(false),
   /** Seconds since the newest write in this row's worktree — see
-      `changed_ago_seconds`. Null where no write was observed. */
+      `changed_ago_seconds`. Null where no write was observed.
+      FOR DISPLAY ONLY: it is recomputed against `now` every scan, so it moves
+      once a second whether or not anything happened. A change DETECTOR must
+      watch {@link AgentRow.changedAt} instead. */
   changedAgo: z.number().nullable().default(null),
+  /** The epoch second of that same newest write — stable between pulses, moving
+      only when a commit lands, a file is written, or the worker's log grows.
+      This is the field a change detector watches; see `changedAgo` for why the
+      age cannot be. Null wherever the age is null. */
+  changedAt: z.number().nullable().default(null),
   /**
    * A local worktree for this branch is holding `.git/index.lock` — a write is
    * in progress THIS INSTANT.

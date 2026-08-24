@@ -69,7 +69,9 @@
 #         remote does not have). All four are absent-shaped — false, false, ""
 #         and 0 — wherever this machine holds nothing, so a branch living on
 #         another machine answers exactly as it did before.
-#         --json additionally carries `changed_ago_seconds`: how long since this
+#         --json additionally carries `changed_at` (the epoch second of the
+#         newest evidence of work — what a CHANGE detector must watch, since it
+#         moves only when something happens) and `changed_ago_seconds`: how long since this
 #         branch last CHANGED, from any source — the newest of its last commit,
 #         the newest mtime on the floor (editor leftovers excluded) and the
 #         worker log. The other local signals are STATE and cannot separate a
@@ -1753,7 +1755,19 @@ case "$DELIVERED_WINDOW_HOURS" in (*[!0-9]*|'') DELIVERED_WINDOW_HOURS=24 ;; esa
 # absent value, not a second meaning bolted onto this one.
 #
 
-changed_ago_of() { # $1=branch → seconds since the newest evidence of work, or ""
+changed_ago_of() { # $1=branch → "<seconds since>\t<epoch of>" for the newest evidence of work, or ""
+  # TWO NUMBERS FROM ONE WALK, and the second is the one a change DETECTOR can
+  # use. The age is what a reader wants on a row ("19h"); it is recomputed
+  # against `now` every scan, so it moves once a second whether or not anything
+  # happened. A consumer watching it for CHANGE therefore fires on every pulse
+  # forever — measured on the live board 2026-08-24: 71805 → 71824 across 12
+  # quiet seconds, on 16 rows nobody had touched in 19 hours.
+  #
+  # The INSTANT is stable. It moves only when a commit lands, a file is written
+  # or the worker's log grows, which is exactly what "this row is not what it
+  # was" means. Both are printed because both are wanted and the walk that finds
+  # them is the same walk — asking twice would double the per-worktree cost the
+  # note above exists to defend.
   local br="$1" row wt now newest="" t paths=()
   row=$(printf '%s' "$WORKTREES" | awk -F'\t' -v b="$br" '$1==b {print $2 "\t" $5; exit}')
   # No worktree here: this machine cannot answer, and says so by answering
@@ -1823,7 +1837,7 @@ changed_ago_of() { # $1=branch → seconds since the newest evidence of work, or
   # machine ahead of this one — and a negative age is not a thing a reader can
   # act on. Zero says "changed just now", which is the honest reading of
   # evidence dated later than the question.
-  if [ "$newest" -gt "$now" ]; then printf '0'; else printf '%s' "$((now - newest))"; fi
+  if [ "$newest" -gt "$now" ]; then printf '0\t%s' "$newest"; else printf '%s\t%s' "$((now - newest))" "$newest"; fi
 }
 
 # A plan whose delivered symlink was touched inside the window. `find -newermt`
@@ -2905,8 +2919,13 @@ for i, w in enumerate(d.get("waves", [])):
         # the board, and handing it to every branch on somebody else's machine
         # would be a fabrication pointing the wrong way. `null` is the only
         # shape that cannot be mistaken for a measurement.
-        changed_ago=$(changed_ago_of "$br") || changed_ago=""
+        changed_pair=$(changed_ago_of "$br") || changed_pair=""
+        changed_ago=$(printf '%s' "$changed_pair" | cut -f1)
+        # The INSTANT, beside the age. A detector must watch this one: the age
+        # ticks with the clock and would flash a quiet row on every pulse.
+        changed_at=$(printf '%s' "$changed_pair" | cut -f2)
         json_branches+=",\"changed_ago_seconds\":${changed_ago:-null}"
+        json_branches+=",\"changed_at\":${changed_at:-null}"
         # Whether anything is actually RUNNING on the branch — see `worker_of`.
         # The pid and the exit code travel as values rather than as something to
         # re-derive: a pid of 0 has already been rejected here, and re-deriving

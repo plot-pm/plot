@@ -4639,6 +4639,9 @@ export function rowsFromPulse(
           // HOW LONG SINCE THE LAST WRITE, which is what makes a write an EVENT
           // rather than a standing condition — see `changed_ago_seconds`.
           changedAgo: b.changed_ago_seconds ?? null,
+          // THE INSTANT, which is what the change mark watches. The age above
+          // ticks with the clock; this moves only when something happens.
+          changedAt: b.changed_at ?? null,
           localLocked: b.local_locked,
           localAhead: b.local_ahead,
           // WHAT THIS ROW IS WAITING FOR, as a value — computed from the same
@@ -4911,6 +4914,7 @@ export function rowsFromPulse(
       // host's PR list rather than from a checkout — the same reason
       // `localDirty` is false one line up.
       changedAgo: null,
+      changedAt: null,
       localLocked: false,
       // 0 here means UNOBSERVED, exactly as `false` does above — this row was
       // built from the PR map, so no worktree was ever inspected for it. The
