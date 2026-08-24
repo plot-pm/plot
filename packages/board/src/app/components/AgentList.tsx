@@ -1512,7 +1512,53 @@ export function AgentList({
                         );
                       });
                       })()}
-                      {ungroupedRows(group.rows, key, waves).map((r) => (
+                      {ungroupedRows(group.rows, key, waves).map((r) =>
+                        // THE SECTION DECIDED GROUPING; THE ROW DECIDES ITS KIND.
+                        //
+                        // `waveGroupsFor` returns nothing for WORKING and WAITING
+                        // ON A MACHINE on purpose — those sections order by agent
+                        // and by build, and must not bury unrelated waves under
+                        // plan heads. That grouping decision is right and stays.
+                        //
+                        // But a row whose `kind` is `wave` is a wave WHEREVER it
+                        // renders. Routing every ungrouped row through `<Row>` — a
+                        // BRANCH row — was the defect: in WORKING the branch took
+                        // slot 3 and the wave's name was demoted to a badge, so the
+                        // same wave read as a wave in NOT STARTED and as a branch
+                        // here. `groupByWave([r])` builds the one-row `WaveGroup`
+                        // `WaveRow` already renders in NOT STARTED, and `soleRow`
+                        // is what carries the branch, its PR, and the worker facts
+                        // (`worker running (pid …)`, the live-worker status) onto
+                        // the wave row. `planHeaded={planHeads}` is `false` here,
+                        // so slot 4 keeps the plan link a WORKING wave would lose.
+                        r.kind === 'wave' ? (
+                          <WaveRow
+                            key={rowKey(r)}
+                            group={groupByWave([r])[0]}
+                            plan={r.plan}
+                            waitingDays={r.waitingDays}
+                            // No fold — a wave of one has nothing hidden to reveal.
+                            expanded={null}
+                            active={active.has(rowKey(r))}
+                            marked={marked.has(rowKey(r))}
+                            card={cardForPlanFile?.(r.planFile) ?? null}
+                            dispatch={dispatch}
+                            pulse={pulse}
+                            onStarting={onStarting}
+                            // The one branch this wave holds — its status, age, PR,
+                            // and note (the worker's condition) render on the wave
+                            // row, exactly as a NOT STARTED wave of one does.
+                            soleRow={r}
+                            continueWith={continueWith}
+                            onOpenPlan={onOpenPlan}
+                            onRevealBranch={onRevealBranch}
+                            // WORKING draws no plan head, so the plan link belongs
+                            // on the wave row's slot 4.
+                            planHeaded={planHeads}
+                            waves={waves}
+                            onExpandSection={expandSection}
+                          />
+                        ) : (
                         <Row
                           // The same helper the change memory keys by — two
                           // spellings of one identity is how a mark ends up on
@@ -1573,7 +1619,8 @@ export function AgentList({
                           onRevealBranch={onRevealBranch}
                           highlighted={r.branch === highlightBranch}
                         />
-                      ))}
+                        )
+                      )}
                     </ul>
                     )}
                   </li>

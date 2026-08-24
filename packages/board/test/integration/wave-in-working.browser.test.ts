@@ -69,6 +69,14 @@ function fleet(): Fleet {
       planFile: '2026-08-24-a-wave-is-a-thing-not-a-label.md',
       branch: 'feature/anchor-the-wave',
       branchUrl: 'https://github.com/tiny/garden/tree/feature/anchor-the-wave',
+      // `state: 'open'` is what makes NOT STARTED render this as a wave row: the
+      // section's `countsPlans` arm groups only `isUnbegun` rows
+      // (`group === 'not-started' && state === 'open'`). The rescued fixture left
+      // it at the `row()` default (`wip`), so the BASELINE wave never rendered and
+      // all four tests timed out on `Anchored` — the fixture bug the brief warned
+      // a selector typo would look identical to. An unstarted, eligible wave is
+      // `open` by definition, so this matches the row's own intent.
+      state: 'open',
       wave: NOT_STARTED_WAVE, verdict: 'eligible', waitingDays: 2, ageMinutes: null,
       note: 'approved — nobody has taken it',
     }),
@@ -105,6 +113,13 @@ async function slotsOf(page: Page, wave: string) {
       .map((el) => el.getAttribute('data-tuple-what'));
     const linkLabels = [...(linksCell?.querySelectorAll('[data-tuple-link],[data-tuple-text]') ?? [])]
       .map((el) => (el as HTMLElement).innerText.trim());
+    // A branch link folds its name into two `aria-hidden` spans (`BranchLabel`)
+    // and clips the head with `truncate`, so `.innerText` is neither reliable nor
+    // the full name. The VALUE rides on `data-branch` — the hook a dozen test
+    // files use to find *the row for this branch* — so slot 4's branch names are
+    // read from there, not from the rendered text.
+    const linkBranches = [...(linksCell?.querySelectorAll('[data-branch]') ?? [])]
+      .map((el) => el.getAttribute('data-branch'));
     const status = rowEl.querySelector('[data-tuple-status]') as HTMLElement | null;
     return {
       kind,
@@ -114,6 +129,7 @@ async function slotsOf(page: Page, wave: string) {
       nameAttr: name ? (name.getAttribute('data-tuple-text') ?? name.getAttribute('data-tuple-link')) : null,
       linkWhats,
       linkLabels,
+      linkBranches,
       status: status ? status.innerText.trim() : null,
       rowText: (rowEl as HTMLElement).innerText,
     };
@@ -168,11 +184,16 @@ describe('a wave row is a wave row in every section', () => {
       const working = await slotsOf(page, WORKING_WAVE);
       const notStarted = await slotsOf(page, NOT_STARTED_WAVE);
 
-      // SLOT 2 — the kind, `WAVE`, identical in both sections. The DOM text is
-      // `Wave` (CSS uppercases it), and the hook attribute is the kind itself.
+      // SLOT 2 — the kind, `WAVE`, identical in both sections. The source label
+      // is `Wave` (`KIND_LABEL.wave`), and the cell wears `text-transform:
+      // uppercase`, so `.innerText` — which honours CSS transforms — reads back
+      // `WAVE`. The hook attribute carries the untransformed kind. Asserted in
+      // both sections AND for equality between them, so the kind cannot read one
+      // way in WORKING and another in NOT STARTED.
       expect(working.kindLabel).toBe('wave');
-      expect(working.kindLabelText).toBe('Wave');
+      expect(working.kindLabelText).toBe('WAVE');
       expect(working.kindLabel).toBe(notStarted.kindLabel);
+      expect(working.kindLabelText).toBe(notStarted.kindLabelText);
 
       // SLOT 3 — the wave's OWN NAME leads, asserted BY NAME (items 1, 1b). Not
       // "not the branch name" — that passes on an empty slot; the name itself.
@@ -185,9 +206,11 @@ describe('a wave row is a wave row in every section', () => {
       expect(working.nameAttr).toBe(notStarted.nameAttr);
 
       // SLOT 4 — the branch (and its plan) travel together, beside the name,
-      // exactly as a NOT STARTED wave of one carries them.
+      // exactly as a NOT STARTED wave of one carries them. The branch is asserted
+      // BY VALUE (`data-branch`) rather than by rendered text, since `BranchLabel`
+      // folds the name into aria-hidden, truncated halves.
       expect(working.linkWhats).toContain('branch');
-      expect(working.linkLabels).toContain(WORKING_BRANCH);
+      expect(working.linkBranches).toContain(WORKING_BRANCH);
       expect(notStarted.linkWhats).toContain('branch');
     } finally {
       await page.close();
