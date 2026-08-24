@@ -1,0 +1,1 @@
+../2026-08-24-one-wave-row-two-contents.md
