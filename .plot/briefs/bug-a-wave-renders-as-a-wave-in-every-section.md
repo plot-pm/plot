@@ -7,6 +7,20 @@
 Wave 1 of 2. `Found` (the blocked-ⓘ jump) depends on this and should need almost
 nothing once it lands.
 
+### RESUMING — your failing test already exists
+
+A previous worker wrote `packages/board/test/integration/wave-in-working.browser.test.ts`
+and crashed before committing it (`API Error: Connection closed mid-response`).
+It is rescued and committed on this branch.
+
+**Run it first.** It was never executed, so it is not yet known to fail for the
+right reason — a selector typo fails identically to a real defect. Confirm it
+fails on the RENDERING (the branch leading slot 3 where the wave's name belongs)
+before you change any source. If it is wrong, fix the test and say so.
+
+Writing the proof before the fix was the right order. You are picking up mid-step,
+not starting over.
+
 ### What to build
 
 A row whose `kind` is `wave` renders through the wave row **in every section**.
