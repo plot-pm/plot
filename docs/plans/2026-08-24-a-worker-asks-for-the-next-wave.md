@@ -237,7 +237,7 @@ the workers already running.
   cannot read as `running`. No behaviour changes otherwise — the same states
   from a different anchor, which is what makes it separately verifiable.
 
-### Counted (Branch: feature/the-cap-gates-auto-dispatch)
+### Counted (Branch: feature/the-cap-gates-auto-dispatch, PR: #399)
 - `maybeAutoDispatch` refuses at the cap and names the branches holding the
   slots; `plot-dispatch.sh` warns and proceeds
 
