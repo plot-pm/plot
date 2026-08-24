@@ -48,6 +48,43 @@ unreleased — latest tag `v2.8.0`, `package.json` at `2.8.0`. The arrow is
 correct and was still read as *"2.9.0 is already released, right?"*, which is the
 measurement that it does not communicate.
 
+### The Agents tab does not filter
+
+The control is honest about being ON. What sits behind it is not: with the
+toggle green, the Agents tab renders plans that are not members of the sprint —
+`a-citation-is-not-a-claim`, `one-wave-row-two-contents`,
+`the-sprint-filter-says-what-it-filters`, `a-worker-asks-for-the-next-wave`.
+None appears in the sprint file.
+
+`AgentList.tsx:416` is the whole of the filter:
+
+```ts
+fleet.rows.filter((r) => r.sprint === '' || sprintFilter.has(r.sprint))
+```
+
+**Two faults, and they compound.**
+
+*The empty-sprint escape is far wider than the case it was written for.* Its
+comment defends the release row and unplanned PRs — rows with no plan and so no
+sprint to carry. Measured: **55 of 95 rows have an empty sprint, and 53 of those
+are plan work** (48 waves, 5 branches). Exactly **2** are the release row and the
+PR. The hatch admits every plan that lacks a `Sprint:` back-reference.
+
+*It joins on `r.sprint` — the field `Repointed` (#386) moved away from.* That
+wave added `sprintMembershipLookup`, joining on the sprint file's own plan array
+(`sprint.members`) precisely because the inline back-reference is unreliable: 21
+members, 5 carrying the field.
+
+**And the Agents tab could not have been repointed with the others.** #386
+changed `Board.tsx` and `Swimlanes.tsx`, which read the BOARD payload — and
+`board.sprints` carries `members`. `AgentList.tsx` reads the FLEET payload, and
+`fleet.sprints` carries `{slug, title, release, counts}` and **no members at
+all**. The Agents tab kept the old join because the new one had nothing to join
+against.
+
+That is why one genuine member renders beside four non-members: the member
+passes by membership, the others pass through the hole.
+
 ### Four members are counted by nothing
 
 `counts` is `{delivered: 17, deliverable: 0, inProgress: 0, approved: 0}` over a
@@ -66,6 +103,33 @@ With three zeros beside the 17, the shape also cannot show its own incompletenes
 a reader sees one number and no reason to doubt it.
 
 ## Design
+
+### The fleet payload carries the sprint's plan array
+
+`fleet.sprints` gains `members`, the same array `board.sprints` already carries
+and the same one `parseSprintMembers` produces from the sprint file. It is the
+sprint's own statement of what it contains, and it is the only source this
+filter should consult.
+
+This is the prerequisite, not a detail: without it the Agents tab has nothing to
+join against, which is why #386 left it behind rather than overlooking it.
+
+### The Agents tab joins on membership, like the other two tabs
+
+`AgentList.tsx` then uses `sprintMembershipLookup` and `passesSprintFilter` —
+the functions `Repointed` already wrote and the Board and Swimlane tabs already
+use. One rule and one source for all three tabs, so a plan cannot be in the
+sprint on one tab and out of it on another.
+
+**A row with no plan is exempt; a row with a plan is not.** The release row and
+an unplanned PR are not plans, have no sprint to carry, and hiding them would
+erase them from the tab entirely — that is the case the current comment defends
+and it is right. The test is the row's own kind (`release`, `pr`, `issue`), not
+an empty string, because 53 of the 55 rows the empty string admits today are
+plan work.
+
+A plan row whose plan names no sprint is HIDDEN while the filter is on. That is
+what *Sprint only* says, and it is the whole point of the control.
 
 ### A toggle that names its state
 
@@ -146,6 +210,14 @@ means.
 
 ## Waves
 
+### Carried (Branch: feature/the-fleet-carries-the-sprints-members)
+- `fleet.sprints` gains `members`, the sprint file's own plan array — the same
+  one `board.sprints` already carries
+
+### Joined (Branch: bug/the-agents-tab-filters-on-membership)
+- `AgentList.tsx` filters through `sprintMembershipLookup`/`passesSprintFilter`
+  like the other two tabs; the exemption is by row KIND, not by empty sprint
+
 ### Named (Branch: feature/the-sprint-control-names-its-state)
 - a labelled **Sprint only** toggle; `Sprint:` before the name and `target`
   before the release
@@ -159,7 +231,20 @@ means.
 
 ## Done when
 
-1. **The toggle is labelled `Sprint only`** and its on/off states are
+1. **With the filter ON, the Agents tab shows only sprint members.** The four
+   named above are absent. Asserted on this repo's estate, where the tab
+   currently shows them.
+1b. **A release row and an unplanned PR stay visible with the filter on.** The
+   two rows the exemption exists for — asserted by KIND, so a later change from
+   `r.sprint === ''` to a kind test cannot silently drop them.
+1c. **A plan row whose plan names no sprint is hidden.** The 53 rows the empty
+   string admits today.
+1e. **`fleet.sprints` carries `members`**, equal to `board.sprints`'s array for
+   the same sprint — asserted equal, since two payloads deriving one fact is how
+   they drift.
+1d. **All three tabs agree.** One plan, one membership answer, whether the
+   reader is on Board, Swimlanes or Agents.
+2. **The toggle is labelled `Sprint only`** and its on/off states are
    distinguishable without hovering.
 2. **The line reads `Sprint: <name>` and `target <version>`.**
 3. **The three counts sum to the member total**, asserted over this repo's
