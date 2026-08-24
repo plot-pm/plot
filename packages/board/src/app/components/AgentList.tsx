@@ -1850,14 +1850,12 @@ function PlanRow({
   commission,
   deliver,
   implement,
-  dispatch,
   pulse = 0,
   onApproving,
   ageMinutes,
   elsewhere = 0,
   soleWave,
   dispatch,
-  pulse,
   onStarting,
 }: {
   group: PlanGroup;
@@ -1923,9 +1921,6 @@ function PlanRow({
   implement?: DispatchInfo;
   /** Whether this server will act on Dispatch — same binding as Start work,
       threaded to `PlanActions` for the plan-level "dispatch all" action. */
-  dispatch?: DispatchInfo;
-  /** The pulse counter, passed through to `DispatchAllButton` for confirmation. */
-  pulse?: number;
   /** A click is outstanding (true) or has settled (false). */
   onApproving?: (active: boolean) => void;
   /**
@@ -5213,8 +5208,6 @@ export function AgentList({
                           soleWave={soleWaveFor(group.plan, waves)}
                           // …and the hidden wave row's *Start work* rides here
                           // too, dispatching that one wave.
-                          dispatch={dispatch}
-                          pulse={pulse}
                           onStarting={onStarting}
                         />
                         {/* The branches, folded. Removed from the tree rather
@@ -5556,8 +5549,6 @@ export function AgentList({
                         soleWave={soleWaveFor(group.plan, waves)}
                         // …and the hidden wave row's *Start work* rides here
                         // too, dispatching that one wave.
-                        dispatch={dispatch}
-                        pulse={pulse}
                         onStarting={onStarting}
                       />
                     )}
