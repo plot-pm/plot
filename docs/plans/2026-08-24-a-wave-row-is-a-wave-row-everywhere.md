@@ -144,7 +144,7 @@ fallback, not the design: the wrapper is how every other section already works.
 - a row of `kind: 'wave'` renders through the wave row wherever it appears;
   section grouping is untouched
 
-### Found (Branch: bug/the-blocked-mark-finds-a-worker)
+### Found (Branch: bug/the-blocked-mark-finds-a-worker, PR: #396)
 - the *blocked by* jump reaches a blocker in WORKING
 
 ## Done when
