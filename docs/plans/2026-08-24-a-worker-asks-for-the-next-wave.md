@@ -160,6 +160,43 @@ to a run in a place, and a worker that has moved on leaves a true record of what
 it finished there. It is the pid — the claim about what is alive NOW — that
 belongs to the session.
 
+### What the worktree anchor gave for free, and the registry must earn
+
+Moving the anchor takes on two properties the current design gets from the
+filesystem. Both are already visible in this repo's manifests, so neither is
+hypothetical.
+
+**A manifest outlives its worktree.** Manifests live in
+`$repo_root/.plot/agents` (`plot-dispatch.sh:864`) — the MAIN repo, which is why
+every worktree can reach one directory. But `$wt/.plot-worker.pid` is deleted
+when its worktree is, so today a removed worktree takes its claim with it.
+A manifest does not.
+
+Measured 2026-08-24: **2 of 5 manifests name worktrees that no longer exist**,
+both removed hours earlier when their PRs merged. The registry synthesizes from
+worktrees, so those entries currently vanish from the fleet by luck — the
+worktree is gone, so nothing enumerates them. Once the pid is read from the
+manifest, they must be reaped deliberately.
+
+**The reap rule is the one in the sibling plan.** A manifest whose worktree is
+gone and whose pid is dead describes nothing and is deleted. A manifest whose
+worktree is gone but whose PID IS ALIVE is a worker that moved — that is the
+whole feature, and it must not be mistaken for an orphan. The two are told apart
+by `kill -0`, not by the worktree's existence, which is exactly the inversion
+this re-anchoring makes possible.
+
+**A pid can be reused by the operating system.** `plot-worker-state.sh:329`
+already refuses pid 0 and non-numeric junk, but a recorded pid that a LATER,
+unrelated process now holds reads as `running` forever. In the worktree design
+the window is small: the file dies with the worktree. In the registry design a
+manifest can sit for weeks.
+
+`startedAt` closes it: a pid whose process began before the manifest's
+`startedAt` is not that worker, whatever its number. The manifest already
+carries the field — all five here have one — and the check is one comparison
+against the process's own start time. Without it, all five dead pids in this
+repo today are one `fork()` away from reading `running`.
+
 ### The cap gates auto-dispatch and warns a person
 
 `maybeAutoDispatch` **refuses** at the cap and says what holds the slots — the
@@ -193,8 +230,10 @@ the workers already running.
 ### Anchored (Branch: infra/the-registry-holds-the-worker-pid)
 - the pid moves from `$wt/.plot-worker.pid` to the session's manifest;
   `plot-worker-state.sh` resolves worktree→session and reads it there; dispatch,
-  the scan and the board's continuation follow. No behaviour changes — the same
-  states from a different anchor, which is what makes it separately verifiable.
+  the scan and the board's continuation follow. The pid is trusted only where
+  the process started at or after the manifest's `startedAt`, so a reused pid
+  cannot read as `running`. No behaviour changes otherwise — the same states
+  from a different anchor, which is what makes it separately verifiable.
 
 ### Counted (Branch: feature/the-cap-gates-auto-dispatch)
 - `maybeAutoDispatch` refuses at the cap and names the branches holding the
@@ -220,6 +259,12 @@ the workers already running.
    a fresh spawn.
 2b. **The manifest names the worktree the worker is in NOW**, not the one it
    started in, and `session` and `pid` are unchanged across the hop.
+2c. **A manifest whose pid names a process older than its `startedAt` reads as
+   stopped, not running.** Asserted directly — this is the pid-reuse case the
+   worktree anchor made rare and the registry anchor makes durable.
+2d. **A manifest whose worktree is gone and whose pid is dead is reaped; one
+   whose worktree is gone and whose pid is ALIVE is reported as a worker that
+   moved.** Two of five manifests here are already in the first state.
 2. **A worker exits cleanly when `--next` has nothing.** Exit 1 from `--next` is
    a normal end, not an error in the log.
 3. **Two looping workers racing the same next branch: exactly one wins**, and
