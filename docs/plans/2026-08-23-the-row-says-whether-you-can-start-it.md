@@ -147,6 +147,59 @@ keeping two implementations is how it comes back.
 The server derives once, where the plan phase is in scope; the row renders the
 word and the menu reads the same field.
 
+### An absent verdict renders NOTHING, not a fallback
+
+The verdict is a new contract field, and the board **casts** the payload rather
+than parsing it (`board as Board`), so a Zod `.default` never fires client-side:
+a field an older server omits arrives as `undefined`. Three plans have already
+been caught by exactly this — `FLEET_CONTROLS_DEFAULT`, `fleet.waves`, and
+`working` on the parallel-agents stepper.
+
+**Where the field is absent the row renders no startability word at all.**
+
+The tempting fallback is to render today's `eligible`, and it is rejected
+deliberately: it would keep the word this plan exists to remove alive on exactly
+the servers nobody has upgraded, and the promise *"no row says `eligible`"*
+would quietly mean *"no row on a current server"*. A word that is wrong 21 times
+in 26 is not a safe default just because it is the incumbent.
+
+Nothing is the honest rendering — the server did not say. It reads as an older
+board rather than a wrong one, and **the row keeps every other cell**: kind,
+name, links, age. Only the startability word is missing, which is precisely the
+fact that was not sent.
+
+### The brief is read from the row, not from the filesystem
+
+The verdict needs four facts. Three — plan phase, branch state, claim — are
+already `classify`'s arguments. The fourth, whether a brief exists, is a
+filesystem question, and asking it per branch per pulse would cost 79 `stat`
+calls every 5 seconds on this repo: ~57,000 an hour, against a scan that has
+spent repeated measured effort staying cheap.
+
+**It does not need to be asked.** The row already carries `brief`, and
+`needsBrief(row)` already reads it. The verdict consumes the same field and adds
+no filesystem work. Where the field is absent the verdict degrades to
+`start work` rather than inventing a `stat` — the brief gap is then reported by
+`briefGapNote` exactly as it is today.
+
+### The scan keeps `eligible`, and the two must not disagree
+
+`plot-fleet-scan.sh --next` also answers *what can I start*, and
+`plot-dispatch.sh` refuses branches this plan would call `waiting on approval`
+or `needs a brief`. **Their facts already agree** — the scan's phase gate
+refuses an unapproved plan, and dispatch reports `brief=missing` — so what
+differs is only the word.
+
+Neither is changed here. What is added is an assertion that they stay in step:
+**a branch the row calls `start work` is one `--next` would hand out.** Without
+it the two vocabularies drift, and the failure is the worst kind — a reader
+starts what the fleet then refuses, which is the promise/refusal mismatch this
+plan is already trying to end one level up.
+
+Teaching the scan the same four words would be more coherent and is not done: it
+is consumed by the board, dispatch and the fleet, so it is a far larger change
+than a board wording fix.
+
 ### Not chosen: keep `eligible` and add a note beside it
 
 Considered and rejected 2026-08-23. The note would carry the actionable half
@@ -177,9 +230,22 @@ start this*.
 - **An exhaustiveness test:** every value the verdict can take is produced by
   some fixture. A verdict nothing constructs is one nobody has read, and it is
   how a fifth case gets added without a reader ever seeing it.
-- **No row renders `eligible`.** Asserted as absence across every section — this
-  is the defect, and a fix that adds the new words while leaving the old one
-  somewhere reads as an improvement in every other test.
+- **No row renders `eligible` WHERE THE FIELD IS PRESENT.** Asserted as absence
+  across every section — this is the defect, and a fix that adds the new words
+  while leaving the old one somewhere reads as an improvement in every other
+  test. Qualified deliberately: a pulse that carries no verdict renders no word,
+  which is the next assertion.
+- **An absent verdict renders NO startability word, and the row keeps every
+  other cell.** Asserted with a pulse whose rows omit the field — the
+  cast-not-parsed trap that has caught three plans before this one. Asserted as
+  absence rather than as a fallback string, because rendering today's `eligible`
+  would keep the removed word alive on every un-upgraded server.
+- **The verdict adds no filesystem work.** It reads the row's existing `brief`
+  field; asserted by construction (where the value comes from), since 79
+  branches on a 5 s pulse would be ~57,000 `stat` calls an hour.
+- **A branch the row calls `start work` is one `plot-fleet-scan.sh --next` would
+  hand out.** The two vocabularies must not drift: a reader starting what the
+  fleet then refuses is the promise/refusal mismatch this plan exists to end.
 - **A row with no brief reads `needs a brief`, never `start work`.** This is the
   assertion that keeps the third word honest; without it an implementation that
   ignores `needsBrief` passes everything else.
@@ -215,19 +281,22 @@ slot that reads as a verdict.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 2,
+  "round": 3,
   "questionHistory": [
     {"q": "Round 1 (recorded earlier)", "a": "see plan body", "category": "technical"},
-    {"q": "The plan never mentions the brief, but needsBrief ships and a briefless dispatch starts an agent that reads a missing file", "a": "A fourth verdict `needs a brief` - start work must mean start it; folding it in as a note rebuilds the eligible defect one level down", "category": "domain"},
-    {"q": "isStartable already answers 'can I start this' client-side - two predicates?", "a": "The menu reads the new verdict; derive once in the server where the phase is in scope", "category": "technical"},
-    {"q": "Prove against fixtures or the live estate?", "a": "Fixtures, one per verdict, plus exhaustiveness - the live counts move and belong in Motivation", "category": "nonFunctional"}
+    {"q": "The plan never mentions the brief, but needsBrief ships and a briefless dispatch starts an agent that reads a missing file", "a": "A fourth verdict `needs a brief`", "category": "domain"},
+    {"q": "isStartable already answers 'can I start this' client-side - two predicates?", "a": "The menu reads the new verdict; derive once in the server", "category": "technical"},
+    {"q": "Prove against fixtures or the live estate?", "a": "Fixtures, one per verdict, plus exhaustiveness", "category": "nonFunctional"},
+    {"q": "What renders when the verdict is absent (the board CASTS, so no Zod default fires)?", "a": "Nothing - a fallback to `eligible` would keep the removed word alive on un-upgraded servers", "category": "nonFunctional"},
+    {"q": "Where is the brief checked - 79 stat calls per 5s pulse?", "a": "Read the row's existing `brief` field; no new filesystem work", "category": "nonFunctional"},
+    {"q": "Should the scan and dispatch agree with the row's new words?", "a": "Their facts already agree; assert they stay in step, change neither", "category": "tradeOffs"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
     "technical": {"stack": false, "architecture": true, "implementation": true},
     "domain": true,
     "ux": true,
-    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "nonFunctional": {"security": false, "performance": true, "scalability": true},
     "tradeOffs": true
   }
 }
