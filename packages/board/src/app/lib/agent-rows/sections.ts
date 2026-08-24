@@ -552,10 +552,28 @@ export function waveSummaryFor(group: PlanGroup, waves?: Wave[]): string {
  * `waves.length - here` gets wrong while looking right on a single split plan.
  */
 export function wavesElsewhere(
-  waves: Wave[] | undefined, plan: string, section: WaitingGroup,
+  waves: Wave[] | undefined, plan: string, section: WaitingGroup, here?: Set<string>,
 ): number {
   if (!waves) return 0;
-  return waves.filter((w) => w.plan === plan && w.section !== section).length;
+  const mine = waves.filter((w) => w.plan === plan);
+  // COUNTED AGAINST THE HEAD'S OWN WAVES where the caller can name them, and
+  // against the rendered section only as a fallback.
+  //
+  // The section comparison alone is wrong, and measurably so. `deriveWaves`
+  // gives a wave TWO possible sections — `complete ? 'done' : 'not-started'` —
+  // while `classify` places rows across SIX groups, so a row needing attention
+  // is GUARANTEED to sit in a section no wave can carry. Measured 2026-08-24:
+  // 30 of 80 rows disagreed with their own wave's section (22 of them
+  // `waiting-on-you` over a `not-started` wave), and 16 plan heads therefore
+  // reported EVERY wave as elsewhere — including one-wave plans announcing that
+  // their only wave was somewhere else.
+  //
+  // The head asks *how many of my waves are NOT here*, and "here" is the set of
+  // waves its own rows belong to — a fact the group holds and the rendered key
+  // does not. `here` is that set; a wave outside it is genuinely elsewhere
+  // whatever section word either side happens to use.
+  if (here) return mine.filter((w) => !here.has(w.name)).length;
+  return mine.filter((w) => w.section !== section).length;
 }
 
 /**
