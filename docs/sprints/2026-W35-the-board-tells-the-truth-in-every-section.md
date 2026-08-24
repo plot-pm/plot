@@ -134,7 +134,7 @@ in practice, promote it rather than letting the rules go untested.
 
 ### Should Have
 
-- [ ] [a-mock-row-shows-what-the-tuple-still-gets-wrong] `PLOT_BOARD_MOCK` renders one row per kind — the deterministic fixture the eighteen rules assert against. **Take this first**: without it every rule test hand-builds its own pulse
+- [x] [a-mock-row-shows-what-the-tuple-still-gets-wrong] `PLOT_BOARD_MOCK` renders one row per kind — the deterministic fixture the eighteen rules assert against. **Take this first**: without it every rule test hand-builds its own pulse <!-- status: delivered, pr: #346, branches: 2/2 -->
 - [x] [a-draft-plan-claims-no-approvals] A wave head says what its verdict says — the `default:` that asserts *work landed* about branches that do not exist <!-- status: delivered, branches: 1/1 -->
 - [x] [a-plan-moves-through-the-sections] Approve on the plan row, the plan reaches NOT STARTED, Start work takes it — one lifecycle path walked end to end <!-- status: delivered, branches: 2/2 -->
 - [x] [a-startable-wave-says-so] An eligible wave takes the actionable tone — `statusTone` colours what a reader acts on <!-- status: delivered, branches: 1/1 -->
@@ -142,7 +142,7 @@ in practice, promote it rather than letting the rules go untested.
 - [x] [a-split-plan-says-it-is-split] The wave name stays in its cell, and the sweep names a prose wave — a 53-character name currently paints over its neighbours <!-- status: delivered, pr: #347, branches: 2/2 -->
 - [x] [the-registry-names-a-live-agent] The registry names a live agent — a dead pid displayed beside `running`, nine agents skipped by a gate on a value the classifier never reads, and six worktrees with no entry at all <!-- status: delivered, branches: 1/1 -->
 
-- [ ] [a-plan-has-a-phase-and-a-status] A plan carries a phase AND a status — the board derives seven statuses the plan format cannot state, so `Approved` covers everything from nothing-started to every-wave-merged
+- [x] [a-plan-has-a-phase-and-a-status] A plan carries a phase AND a status — the board derives seven statuses the plan format cannot state, so `Approved` covers everything from nothing-started to every-wave-merged <!-- status: delivered, pr: #374, branches: 1/1 -->
 - [ ] [the-row-says-whether-you-can-start-it] The row says whether you can start it — a reader cannot tell an eligible branch from a blocked one without opening the plan
 
 ### Could Have

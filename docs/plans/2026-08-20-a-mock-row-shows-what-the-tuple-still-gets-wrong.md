@@ -10,7 +10,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
@@ -21,6 +21,7 @@
 - **Started:** 2026-08-23, Jan Wloka, `bug/the-wave-leaves-the-kind-alone`
 - **Started:** 2026-08-23, Jan Wloka, `bug/a-release-is-its-version`
 - **Started:** 2026-08-23, Jan Wloka, `bug/the-wave-leaves-the-kind-alone`
+- **Delivered:** 2026-08-24
 
 ## Approval
 
@@ -259,11 +260,22 @@ permanent is a track that cannot show a moment.
 > `the-row-is-legible` keeps them.
 
 ### Sized
+<!-- deferred: 2026-08-24 — never cut as a branch. Defects 1, 2 and 5 (the row
+     deciding what to drop when a track is too narrow) were addressed by
+     `the-name-track-holds-the-name`, delivered 2026-08-23, which changed slot 3
+     to `minmax(12rem, auto)` and let the name use the room it has. This wave's
+     "one rule, not three" framing did not survive that: the alignment
+     requirement it assumed was explicitly withdrawn by the operator when
+     Chromium showed it self-contradictory. -->
 
 ### Placed
 - `bug/the-wave-leaves-the-kind-alone` → #346 — the wave renders beside the branch name only, and never beside the kind slot. Tests: a branch row's wave is adjacent to its branch name; **no `data-wave` element sits in the kind's track**; a plan row shows no wave; the kind slot's column contains only kind labels, asserted by reading every cell in it.
 
 ### Marked
+<!-- deferred: 2026-08-24 — never cut as a branch. Defect 6 (a STORY artifact
+     link carrying no `PLAN` prefix) is not reproducible on main: the prefix is
+     rendered for every kind that carries an artifact link. Absorbed by the
+     tuple work rather than fixed here. -->
 
 ### Named
 - `bug/a-release-is-its-version` → #352 — a release's name is the version being cut, read from the PR title through a new contract field; its PR and its branch are **artifact links in slot 4**, never in the status column; a ticket's artifact link carries the same prefix every other kind's does. Tests: `PrSchema` carries the PR title and the row passes it through; a release row's name is `2.7.0`, not `240`; **the status column of a release contains no link** — asserted by looking for anchors in that cell, not by matching text; the PR and the branch both appear as labelled artifact links; a release whose PR title names no version falls back to the PR number **and says so**, rather than showing a number that reads like a version; a ticket's artifact link renders a `PLAN` prefix; every kind with an artifact link labels it.

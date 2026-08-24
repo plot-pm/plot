@@ -1,0 +1,1 @@
+../2026-08-20-a-mock-row-shows-what-the-tuple-still-gets-wrong.md
