@@ -1053,41 +1053,14 @@ export function AgentList({
                                 which is exactly the loss `fleet.ts` warns of:
                                 *"a branch started and then shelved read as never
                                 begun, with its age and its PR erased."* */}
-                            {/* ONE-WAVE PLANS render their branches DIRECTLY,
-                                skipping the wave row — the plan row carries the
-                                verdict, and a second row would repeat it. For
-                                multi-wave plans, the wave row groups branches
-                                under their wave name and verdict. */}
+                            {/* WAVE ROWS NAME THEIR WAVES, however many waves
+                                the plan has. A one-wave plan's branches belong to
+                                that wave, and its name is part of their identity —
+                                the verdict migrated to the plan row, the name did
+                                not. */}
                             {(() => {
                               const oneWave = soleWaveFor(group.plan, waves);
                               const waveGroups = groupByWave(group.rows.filter(isUnbegun));
-                              // ONE-WAVE PLAN: render branches directly beneath
-                              // the plan row. No wave row, because the plan row
-                              // already carries the verdict.
-                              if (oneWave) {
-                                return waveGroups.flatMap((wg) =>
-                                  wg.rows.map((r) => (
-                                    <Row
-                                      key={rowKey(r)}
-                                      row={r}
-                                      onOpenPlan={onOpenPlan}
-                                      inPlanGroup
-                                      card={cardForPlanFile?.(r.planFile) ?? null}
-                                      dispatch={dispatch}
-                                      continueWith={continueWith}
-                                      pulse={pulse}
-                                      onStarting={onStarting}
-                                      marked={marked.has(rowKey(r))}
-                                      active={active.has(rowKey(r))}
-                                      section={key}
-                                      agent={agentByBranch.get(r.branch) ?? null}
-                                      onRevealBranch={onRevealBranch}
-                                      highlighted={r.branch === highlightBranch}
-                                    />
-                                  ))
-                                );
-                              }
-                              // MULTI-WAVE PLAN: render wave rows as before.
                               return waveGroups.map((wg) => {
                               const many = wg.rows.length > 1;
                               const waveOpen = many
@@ -1107,8 +1080,14 @@ export function AgentList({
                                     // own plan file — dispatch is a plan-level
                                     // act, so the card is the plan's, exactly as
                                     // it is on the plan row above.
-                                    card={cardForPlanFile?.(group.planFile) ?? null}
-                                    dispatch={dispatch}
+                                    //
+                                    // NO DISPATCH for a one-wave plan: the plan
+                                    // row carries its wave's Start-work, so the
+                                    // wave row withholds it. The wave row exists
+                                    // for its NAME — a branch row cannot carry a
+                                    // wave name — not for its controls.
+                                    card={oneWave ? null : (cardForPlanFile?.(group.planFile) ?? null)}
+                                    dispatch={oneWave ? undefined : dispatch}
                                     reslice={reslice}
                                     pulse={pulse}
                                     onStarting={onStarting}
@@ -1434,37 +1413,13 @@ export function AgentList({
                           branches with PRs group here, the ones nobody started
                           group under the plan in NOT STARTED. Each section shows
                           only the branches its own question is about. */}
-                      {/* ONE-WAVE PLANS render their branches DIRECTLY,
-                          skipping the wave row — the plan row carries the
-                          verdict, and a second row would repeat it. */}
                       {(() => {
-                        const oneWave = soleWaveFor(group.plan, waves);
+                        /* WAVE ROWS NAME THEIR WAVES, however many waves
+                           the plan has. A one-wave plan's branches belong to
+                           that wave, and its name is part of their identity —
+                           the verdict migrated to the plan row, the name did
+                           not. See NOT STARTED for the longer form. */
                         const waveGroups = waveGroupsFor(group.rows, key, waves);
-                        // ONE-WAVE PLAN: render branches directly.
-                        if (oneWave) {
-                          return waveGroups.flatMap((wg) =>
-                            wg.rows.map((r) => (
-                              <Row
-                                key={rowKey(r)}
-                                row={r}
-                                onOpenPlan={onOpenPlan}
-                                inPlanGroup={planHeads}
-                                card={cardForPlanFile?.(r.planFile) ?? null}
-                                dispatch={dispatch}
-                                continueWith={continueWith}
-                                pulse={pulse}
-                                onStarting={onStarting}
-                                marked={marked.has(rowKey(r))}
-                                active={active.has(rowKey(r))}
-                                section={key}
-                                agent={agentByBranch.get(r.branch) ?? null}
-                                onRevealBranch={onRevealBranch}
-                                highlighted={r.branch === highlightBranch}
-                              />
-                            ))
-                          );
-                        }
-                        // MULTI-WAVE PLAN: render wave rows as before.
                         return waveGroups.map((wg) => {
                         // A WAVE OF ONE NEEDS NO FOLD — its single branch is
                         // already named in slot 4, so a control revealing a row

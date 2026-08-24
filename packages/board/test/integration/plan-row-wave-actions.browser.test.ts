@@ -142,16 +142,21 @@ describe('the plan row carries the sole wave’s actions', () => {
   const planRow = (page: Page, slug: string) =>
     page.locator(`li[data-plan-row="${slug}"]`);
 
-  it('offers Start work on a one-wave plan’s row — the hidden wave row’s control', async () => {
-    // `beans` declares one wave, so its wave row is gone and the plan row is the
-    // only place its *Start work* can live. `WaveActions` marks itself with
-    // `data-wave-actions`, so the control's presence ON the plan row is the claim.
+  it("offers Start work on a one-wave plan's row, not on its wave row", async () => {
+    // `beans` declares one wave. Its wave row IS rendered — because the wave's
+    // NAME belongs there and a branch row cannot carry it — but it withholds
+    // *Start work*: the plan row already carries that control, and duplicating
+    // it would put the same act in two places.
     const page = await open();
     try {
       await expect.poll(() => planRow(page, 'beans').count(), { timeout: 10_000 }).toBe(1);
-      // The wave row is hidden…
-      expect(await page.locator('li[data-wave-row="Solo"]').count()).toBe(0);
-      // …and its Start-work control rode onto the plan row.
+      // The wave row IS present — a one-wave plan's wave is still a wave, and
+      // waves have names that branch rows cannot carry.
+      await expect.poll(() => page.locator('li[data-wave-row="Solo"]').count()).toBe(1);
+      // The wave row has NO Start-work control — the plan row carries it.
+      const waveRowControl = page.locator('li[data-wave-row="Solo"] [data-wave-actions]');
+      expect(await waveRowControl.count()).toBe(0);
+      // The plan row DOES have it.
       const control = planRow(page, 'beans').locator('[data-wave-actions]');
       await expect.poll(() => control.count()).toBe(1);
       await control.click();
