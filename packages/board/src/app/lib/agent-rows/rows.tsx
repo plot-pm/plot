@@ -14,7 +14,7 @@ import {
   isSpikeWave,
   RELEASE_BRANCH,
 } from '../../../contract/schema.js';
-import { tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave, planPrAggregate, statusTone, tupleAgeText } from '../tuple-row.js';
+import { tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave, planPrAggregate, statusTone, tupleAgeText, agentStateStatus, shortSessionId, worktreeName, KIND_LABEL } from '../tuple-row.js';
 import { TupleLinkView, TupleRowView } from '../../components/TupleRow.js';
 import { activityPace } from './activity.js';
 import { soleRowStatus } from './stuck.js';
@@ -1978,6 +1978,166 @@ export function Row({
           )}
         </>
       }
+    />
+  );
+}
+
+/**
+ * A registry entry rendered as a row, with optional join to a branch row.
+ *
+ * THE WORKING SECTION RENDERS FROM THE REGISTRY — the plan
+ * `the-working-section-shows-every-worker` settles that every agent in
+ * `fleet.agents` gets a row, whether or not a branch row exists for it.
+ * Where a branch row exists, the worker row still carries what the row
+ * knows — plan, wave, PR, git state — by the same join used elsewhere.
+ *
+ * All five registry states appear with their own labels:
+ * - `running` → "someone is on it"
+ * - `waiting` → "waiting on you"
+ * - `stalled` → "stalled"
+ * - `finished` → "finished"
+ * - `unknown` → "unknown"
+ *
+ * An agent with no branch (empty `agent.branch`) still renders — that is the
+ * whole defect this row closes. A worktree holding a worker but no ref push
+ * is a worker this board could not see, and the state it carries is what
+ * says whether anyone is in there.
+ */
+export function RegistryRow({
+  agent,
+  row = null,
+  wave = null,
+  onOpenPlan,
+  card = null,
+  dispatch,
+  continueWith,
+  pulse = 0,
+  onStarting,
+  marked = false,
+  active = false,
+  onRevealBranch,
+  highlighted = false,
+}: {
+  /** The agent registry entry — the source of truth for WORKING rows. */
+  agent: AgentEntry;
+  /**
+   * The branch row this agent is working on, if one exists in `fleet.rows`.
+   * Joined by the caller on `agent.branch === row.branch`.
+   */
+  row?: AgentRow | null;
+  /**
+   * The wave this agent's branch belongs to, if any.
+   * Found by the caller: `fleet.waves.find(w => w.branches.includes(agent.branch))`.
+   */
+  wave?: Wave | null;
+  onOpenPlan?: AgentListProps['onOpenPlan'];
+  /** This row's plan as a board card, or null where the board has none. */
+  card?: Card | null;
+  /** Whether this server will act on dispatch. */
+  dispatch?: DispatchInfo;
+  /** Whether this server will act on Continue with an answer. */
+  continueWith?: DispatchInfo;
+  /** The pulse counter. */
+  pulse?: number;
+  /** A click is outstanding (true) or has settled (false). */
+  onStarting?: (active: boolean) => void;
+  /** This row's status changed within the last `CHANGE_MARK_MS`. */
+  marked?: boolean;
+  /** Something is being written to this row. */
+  active?: boolean;
+  /** Reveal a branch's row — forwarded to the agent panel. */
+  onRevealBranch?: AgentListProps['onRevealBranch'];
+  /** This row is the branch just revealed from an agent panel. */
+  highlighted?: boolean;
+}) {
+  // The status comes from the REGISTRY, not from the row — that is the whole
+  // point of this component. The registry's five-way state is what matters.
+  const status = agentStateStatus(agent.state);
+
+  // Session age: how long has this run been going?
+  // Computed from `agent.startedAt` if available.
+  const sessionSeconds = agent.startedAt
+    ? Math.floor((Date.now() - new Date(agent.startedAt).getTime()) / 1000)
+    : null;
+  const sessionText = sessionSeconds !== null
+    ? tupleAgeText(Math.floor(sessionSeconds / 60))
+    : '';
+
+  // Idle time would come from `agent.lastActivity`, if present.
+  const idleSeconds = agent.lastActivity
+    ? Math.floor((Date.now() - new Date(agent.lastActivity).getTime()) / 1000)
+    : null;
+  const idleText = idleSeconds !== null
+    ? tupleAgeText(Math.floor(idleSeconds / 60))
+    : '';
+
+  // Build the artifact links: worktree → branch → wave → plan
+  const links: Array<{ what: 'worktree' | 'branch' | 'wave' | 'plan'; label: string; href: string }> = [];
+  if (agent.worktree) {
+    links.push({ what: 'worktree', label: worktreeName(agent.worktree), href: '' });
+  }
+  if (agent.branch) {
+    links.push({ what: 'branch', label: agent.branch, href: row?.branchUrl ?? '' });
+  }
+  if (wave) {
+    links.push({ what: 'wave', label: wave.name || UNNAMED_WAVE, href: '' });
+  }
+  if (row?.plan && row?.planFile) {
+    links.push({ what: 'plan', label: row.plan, href: `/plan/${row.planFile}` });
+  }
+
+  // Build the tuple — the shape TupleRowView expects.
+  const tuple = {
+    kind: 'agent' as const,
+    kindLabel: KIND_LABEL.agent,
+    name: agent.session
+      ? { what: 'ticket' as const, label: shortSessionId(agent.session), href: '' }
+      : agent.branch
+        ? { what: 'branch' as const, label: agent.branch, href: row?.branchUrl ?? '' }
+        : { what: 'ticket' as const, label: '(no session)', href: '' },
+    links,
+    status,
+    age: {
+      text: [sessionText, idleText && `idle ${idleText}`].filter(Boolean).join(' · '),
+      label: sessionText ? 'session' : '',
+    },
+  };
+
+  return (
+    <TupleRowView
+      tuple={tuple}
+      onOpenPlan={onOpenPlan}
+      iconTone={
+        agent.state === 'stalled' ? 'error'
+          : agent.state === 'waiting' ? 'warn'
+          : agent.state === 'finished' ? 'success'
+          : undefined
+      }
+      marks={
+        <>
+          {active && <ActivityMark pace="fast" inTrack />}
+        </>
+      }
+      extra={
+        <>
+          {marked && <ChangeMark />}
+        </>
+      }
+      menu={
+        row ? (
+          <BranchMenu
+            row={row}
+            card={card ?? null}
+            dispatch={dispatch}
+            pulse={pulse}
+            onStarting={onStarting}
+            continueWith={continueWith}
+            onOpenPlan={onOpenPlan}
+            onRevealBranch={onRevealBranch}
+          />
+        ) : null
+      }
+      highlighted={highlighted}
     />
   );
 }

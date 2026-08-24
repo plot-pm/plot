@@ -66,7 +66,7 @@ import { WAVE_LINKING_KINDS, groupByWave, waveLabel } from '../lib/agent-rows/wa
 // it reads the fleet, decides the sections, and mounts the rows — the rows,
 // their marks and their menus are declared next door.
 import { ActivityMark } from '../lib/agent-rows/marks.js';
-import { HeaderRow, IssueRowView, PlanLink, PlanRow, Row, WaveRow, type AgentListProps } from '../lib/agent-rows/rows.js';
+import { HeaderRow, IssueRowView, PlanLink, PlanRow, Row, WaveRow, RegistryRow, type AgentListProps } from '../lib/agent-rows/rows.js';
 // RE-EXPORTED, not redefined — the same allowance `splitBranch` above is given.
 // These moved out of this file when the row estate was split into three
 // modules; the unit suite and `App.tsx` import them from here, and a second
