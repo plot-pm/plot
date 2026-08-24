@@ -554,7 +554,28 @@ plot_worker_state() { # $1=worktree $2=pr-fact → "state\tpid\tcode"
       # pinned `ended`; plot-dispatch's pinned only 0, 3, and an absent file, so
       # nothing that was asserted before is asserted differently now.
       ''|*[!0-9]*) printf 'ended\t%s\t' "$pid"; return ;;
-      *)           printf 'failed\t%s\t%s' "$pid" "$code"; return ;;
+      # A PR OUTRANKS A NON-ZERO EXIT — about the TASK, never about the process.
+      #
+      # The exit code answers "how did the process end?"; the row renders
+      # "someone is on it", which is a claim about the WORK. Those come apart
+      # exactly when a worker is killed AFTER delivering, and then the failure
+      # arm is frozen on a claim that was already false: nothing about the
+      # branch can change a recorded exit code, so the row never recovers.
+      #
+      # Measured 2026-08-24 on `bug/the-agents-tab-filters-on-membership`: a
+      # worker SIGTERMed (143) with its work pushed and PR #393 open rendered
+      # `worker crashed - someone is on it` indefinitely.
+      #
+      # THE CODE IS STILL REPORTED. Only the state word changes; a reader can
+      # still see the worker was killed. And with no PR fact this stays
+      # `failed` — the guess in the other direction, calling a genuine crash
+      # finished, is the one this must never make. A PR is the fact that
+      # licenses it, because a PR means the work reached a reviewer.
+      *)           if [ "$has_pr" = pr ]; then
+                     printf '%s\t%s\t%s' "$(plot_worker_task_state "$wt" "$has_pr")" "$pid" "$code"
+                   else
+                     printf 'failed\t%s\t%s' "$pid" "$code"
+                   fi; return ;;
     esac
   fi
   # No exit file: a worker started before the code was recorded, or one killed

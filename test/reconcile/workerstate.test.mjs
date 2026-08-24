@@ -122,6 +122,25 @@ function fixture(label) {
 // uses the same one for the same reason.
 const DEAD = 2147483646;
 
+// THE FUNCTION ITSELF, sourced rather than driven through a consumer. The
+// table test above goes through `plot-dispatch --status` and the scan, and
+// both hold the PR fact at arm's length — the scan runs `--offline` here by
+// design, so neither can ever pass `pr`. This calls the classifier directly,
+// which is the only way to vary the one input the consumers supply for you.
+const wstate = path.join(scripts, 'plot-worker-state.sh');
+
+/** The raw "state\tpid\tcode" triple for a worktree and a PR fact. */
+function rawTriple(wt, hasPr) {
+  return execFileSync('bash', ['-c',
+    `source ${JSON.stringify(wstate)}; plot_worker_state ${JSON.stringify(wt)} ${JSON.stringify(hasPr)}`,
+  ], { encoding: 'utf8', timeout: 30_000 });
+}
+
+/** Just the state word. */
+function rawState(wt, hasPr) {
+  return rawTriple(wt, hasPr).split('\t')[0].trim();
+}
+
 test('worker-state: both consumers agree across every state, from one fixture', () => {
   // THE POINT OF THIS WAVE. Two readers, one worktree, one verdict each time.
   // `none` and `no worker` are the same state under two spellings — each
@@ -541,4 +560,51 @@ test('worker-state: plot_worker_blocked answers a marker FILE, not a mention', (
   assert.equal(blocked(''), false, 'an empty worktree argument is not blocked');
 
   fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('worker-state: a PR outranks a non-zero exit, but only about the TASK', () => {
+  // THE ROW SAID "someone is on it" OVER A DELIVERED BRANCH. Measured
+  // 2026-08-24 on `bug/the-agents-tab-filters-on-membership`: a worker was
+  // killed (SIGTERM, exit 143) AFTER its work was complete and pushed, and PR
+  // #393 was open. The board rendered `worker crashed · someone is on it` and
+  // could never stop — nothing about that branch would change the exit code,
+  // so the row was frozen on a claim that was false when it was written.
+  //
+  // The cause is structural, not a bad code: `has_pr` was consulted ONLY in
+  // the `0)` arm. Every other exit code returned `failed` without ever asking
+  // whether the branch had shipped. But the exit code answers a question about
+  // the PROCESS, and "someone is on it" is a claim about the TASK — and those
+  // two come apart exactly when a finished worker is killed.
+  //
+  // The fix does NOT hide the failure. `failed` is still the answer when
+  // nobody can say the work landed; the PR is the one fact that outranks it,
+  // and only because a PR means the work reached a reviewer.
+  const f = fixture('pr-outranks');
+
+  // Without the PR fact, a non-zero exit is `failed` — UNCHANGED. This is the
+  // guard: if the fix leaked into the no-PR case it would report `finished`
+  // over a genuine crash, which is the failure in the other direction.
+  f.worker({ pid: DEAD, exit: 143 });
+  assert.equal(rawState(f.wt, ''), 'failed',
+    'with no PR, a killed worker is still a failure');
+  assert.equal(rawState(f.wt, 'no'), 'failed',
+    'an explicit "no PR" is still a failure');
+
+  // With the PR fact, the TASK is finished even though the PROCESS was killed.
+  assert.equal(rawState(f.wt, 'pr'), 'finished',
+    'a killed worker whose branch has a PR has delivered; nobody is on it');
+
+  // A clean exit is unaffected — the arm that already consulted the PR.
+  f.worker({ pid: DEAD, exit: 0 });
+  assert.equal(rawState(f.wt, 'pr'), 'finished', 'exit 0 with a PR is unchanged');
+
+  // AND THE EXIT CODE SURVIVES. The state changes; the record does not. A
+  // reader must still be able to see that this worker was killed — reporting
+  // `finished` while erasing 143 would trade one false row for a silent one.
+  const triple = rawTriple(f.wt, 'pr');
+  f.worker({ pid: DEAD, exit: 143 });
+  assert.match(rawTriple(f.wt, 'pr'), /143/,
+    `the exit code is still reported alongside the state:\n${triple}`);
+
+  f.cleanup();
 });
