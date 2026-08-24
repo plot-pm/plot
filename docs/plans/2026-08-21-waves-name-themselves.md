@@ -203,7 +203,7 @@ performing.
   skill still instructs a writer to put the branch in the list line. → #330
 
 ### Migrated
-- `infra/the-estate-speaks-waves` <!-- deferred: 2026-08-24 — the estate is converted; a re-run of this branch's own script changes zero files. See Notes. --> — all 85 plans convert in one move. 62 have
+- `infra/the-estate-speaks-waves` <!-- deferred: 2026-08-24 — THE GOAL IS MET AND THIS BRANCH IS NOT HOW. The estate speaks waves (94 plans converted); the waves either side of this one took it there. Deferred is not 'unnecessary' — it is the only branch-level marker Plot has, and it means the delivery gate must not wait for a PR that will never come. See Notes. --> — all 85 plans convert in one move. 62 have
   named waves and convert mechanically; the 23 with none take a derived name,
   defensible because all 23 are Released or Delivered, so no live work is given
   an invented name. `## Branches` keeps PARSING and stops being WRITTEN: a repo
@@ -224,6 +224,21 @@ performing.
 ## Notes
 
 ### The `Migrated` wave was satisfied without its branch — 2026-08-24
+
+**What `deferred` means here, since the word carries two senses.** A deferred
+branch is one the delivery gate skips: `/plot-deliver` will not block on it for
+having no merged PR. It says nothing about WHY, and the two whys are opposite:
+
+| sense | the plan's goal |
+|---|---|
+| *dropped* — the branch was cut from scope | achieved without it, or waived |
+| *satisfied elsewhere* — the work happened another way | **achieved, by other branches** |
+
+This is the second. The goal — *the estate speaks waves* — is met. What is
+deferred is the BRANCH, never the goal.
+
+It is not `superseded` either: that is a PLAN phase, terminal, meaning another
+plan replaced this one. This plan was not replaced; it succeeded.
 
 **The estate is converted.** Measured on main: **94 plans carry `## Waves`, 26
 still carry `## Branches`.** Those 26 are not stragglers — the migration script
