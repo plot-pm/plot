@@ -88,6 +88,138 @@
 # within an hour of removing it at large scale.
 PLOT_WORKER_RECORD='\.plot-worker\.'
 
+# ---------------------------------------------------------------------------
+# THE REGISTRY HOLDS THE PID — the anchor moved from worktree to manifest
+# ---------------------------------------------------------------------------
+#
+# As of 2026-08-24, the pid is read from the session's manifest in
+# `.plot/agents/<session>.json` rather than from `$wt/.plot-worker.pid`. The
+# manifest holds the same fact, better: it carries `session`, `branch`,
+# `worktree` and `pid` in ONE record, and it includes `startedAt` — the launch
+# time that lets us tell a reused pid from the real worker.
+#
+# WHY THIS MATTERS. A pid can be reused by the operating system. In the worktree
+# design the window is small: the file dies with the worktree. In the registry
+# design a manifest can sit for weeks. `startedAt` closes it: a pid whose
+# process began before the manifest's `startedAt` is not that worker, whatever
+# its number. Without it, dead pids are one `fork()` away from reading `running`.
+#
+# THE WORKTREE→MANIFEST LOOKUP. The manifest directory lives at
+# `$PLOT_MANIFEST_DIR` when the caller sets it, or it is derived from the
+# worktree's repo root. Each manifest names a `worktree` field; the lookup
+# finds the manifest whose worktree matches.
+
+# The manifest directory, set by callers who know their repo root. When unset,
+# `plot_manifest_for_worktree` derives it from the worktree's own repo.
+: "${PLOT_MANIFEST_DIR:=}"
+
+# Find the manifest for a worktree → the full path, or "" (non-zero).
+#
+# Iterates `.plot/agents/*.json` and matches on the `worktree` field. The
+# dispatcher records the RESOLVED worktree path (`realpath`), so the match is
+# tried against both the path as given and its realpath.
+plot_manifest_for_worktree() { # $1=worktree → manifest path, or "" (non-zero)
+  local wt="$1" dir real f wt_field
+  [ -n "$wt" ] || return 1
+
+  # Determine the manifest directory.
+  if [ -n "$PLOT_MANIFEST_DIR" ]; then
+    dir="$PLOT_MANIFEST_DIR"
+  else
+    # Derive from the worktree's repo. A worktree IS a git working tree, so
+    # `git rev-parse --show-toplevel` from inside it returns the MAIN repo —
+    # which is where `.plot/agents/` lives.
+    dir=$(git -C "$wt" rev-parse --show-toplevel 2>/dev/null)/.plot/agents
+  fi
+  [ -d "$dir" ] || return 1
+
+  # Resolve the worktree's realpath for matching.
+  real=$(cd "$wt" 2>/dev/null && pwd -P) || real=""
+
+  # Iterate manifests and match on the worktree field.
+  for f in "$dir"/*.json; do
+    [ -f "$f" ] || continue
+    # Extract the `worktree` field. The manifest is pretty-printed, one field
+    # per line, so a grep-and-sed approach avoids parsing JSON in bash.
+    wt_field=$(grep -m1 '"worktree":' "$f" 2>/dev/null | sed 's/.*"worktree": *"\([^"]*\)".*/\1/')
+    [ -n "$wt_field" ] || continue
+    if [ "$wt_field" = "$wt" ] || [ "$wt_field" = "$real" ]; then
+      printf '%s' "$f"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Read pid and startedAt from a manifest → "pid\tstartedAt", or "" (non-zero).
+#
+# Both fields are extracted; if either is missing the result is empty. A manifest
+# with no pid (an older format or a placeholder) returns nothing, which falls
+# through to the worktree's `.plot-worker.pid` for backward compatibility.
+plot_read_manifest_pid() { # $1=manifest path → "pid\tstartedAt", or "" (non-zero)
+  local manifest="$1" pid started
+  [ -f "$manifest" ] || return 1
+
+  # Extract fields. The manifest is pretty-printed, one per line.
+  pid=$(grep -m1 '"pid":' "$manifest" 2>/dev/null | sed 's/.*"pid": *"\([^"]*\)".*/\1/')
+  started=$(grep -m1 '"startedAt":' "$manifest" 2>/dev/null | sed 's/.*"startedAt": *"\([^"]*\)".*/\1/')
+
+  [ -n "$pid" ] && [ -n "$started" ] || return 1
+  printf '%s\t%s' "$pid" "$started"
+}
+
+# Validate a pid against the manifest's startedAt → 0 if valid, non-zero if stale.
+#
+# A pid is stale when the process that holds it started BEFORE the manifest's
+# `startedAt`. The operating system reuses pids, so a recorded pid that now
+# belongs to an older, unrelated process must not read as `running`.
+#
+# THE CHECK IS ON PROCESS START TIME, not existence. `kill -0` only says the pid
+# exists; this says whether it is the SAME process the dispatcher started.
+#
+# Returns non-zero (stale) on any failure — an unparseable time, a process that
+# cannot be inspected, or a platform without `ps -o lstart`. The honest answer
+# for an uncheckable pid is "unknown", which the caller turns into `ended`.
+plot_pid_is_current() { # $1=pid $2=startedAt (ISO-8601) → 0 if current, 1 if stale
+  local pid="$1" started="$2" proc_start manifest_epoch proc_epoch
+
+  # Convert the manifest's startedAt (ISO-8601) to epoch seconds.
+  # `date -j -f` is macOS; `date -d` is GNU. Try both.
+  if manifest_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$started" +%s 2>/dev/null); then
+    :
+  elif manifest_epoch=$(date -d "$started" +%s 2>/dev/null); then
+    :
+  else
+    return 1  # Cannot parse; treat as stale to be safe.
+  fi
+
+  # Get the process's start time from `ps -o lstart=`. This is portable across
+  # macOS and Linux, though the format differs.
+  proc_start=$(ps -o lstart= -p "$pid" 2>/dev/null | tr -d '\n')
+  [ -n "$proc_start" ] || return 1  # Process does not exist.
+
+  # Convert the process start time to epoch seconds.
+  # macOS format: "Mon Aug 24 08:31:25 2026"
+  # Linux format: varies; `date -d` handles it.
+  if proc_epoch=$(date -j -f "%a %b %d %H:%M:%S %Y" "$proc_start" +%s 2>/dev/null); then
+    :
+  elif proc_epoch=$(date -j -f "%c" "$proc_start" +%s 2>/dev/null); then
+    :
+  elif proc_epoch=$(date -d "$proc_start" +%s 2>/dev/null); then
+    :
+  else
+    return 1  # Cannot parse; treat as stale.
+  fi
+
+  # A process that started BEFORE the manifest's startedAt is a reused pid.
+  # A process that started AT or AFTER is the real worker. We allow 2 seconds
+  # of slack for clock skew and rounding — the wrapper writes the pid and then
+  # the manifest's awk stamps it; if the second ticks over in between, the
+  # process appears to have started 1 second before the manifest says.
+  local slack=2
+  [ "$proc_epoch" -ge "$((manifest_epoch - slack))" ]
+}
+
 # What an editor drops beside real work — `.tmp1`, `.swp`, `.orig`, `.rej`,
 # `.bak`. Measured 2026-08-18: an orphaned `plot-dispatch.sh.tmp1` belonging to
 # no commit and no task read as uncommitted work and got a healthy branch
@@ -315,20 +447,88 @@ plot_worker_task_state() { # $1=worktree $2=pr-fact → finished|waiting|stalled
 # branch with work on the floor then reads `stalled`, which is the answer for a
 # reader who must go look. It is never upgraded to `finished` by a guess.
 #
+# THE PID IS READ FROM THE MANIFEST, not from `$wt/.plot-worker.pid`. The
+# manifest carries `pid` and `startedAt` together, and `startedAt` is what lets
+# us tell a reused pid from the real worker. A pid whose process started before
+# the manifest's `startedAt` is stale — the operating system has reused it —
+# and is NOT reported as running even if `kill -0` succeeds.
+#
+# The worktree pid file is kept as a FALLBACK for two cases:
+#   1. A hand-started worker with no manifest (the `Worker command` was never
+#      run through dispatch, so no manifest exists).
+#   2. An older manifest with no `startedAt` — before this change, the manifest
+#      carried no launch time. The worktree file is the only record, and the
+#      staleness check cannot run, so the old behaviour applies.
+#
 # Prints "state\tpid\tcode" — pid and code empty where they do not apply.
 # Never fails; an unreadable worktree is `none`, which is the honest answer.
 plot_worker_state() { # $1=worktree $2=pr-fact → "state\tpid\tcode"
-  local wt="$1" has_pr="${2:-}" pid code
-  [ -n "$wt" ] && [ -f "$wt/.plot-worker.pid" ] || { printf 'none\t\t'; return; }
-  pid=$(cat "$wt/.plot-worker.pid" 2>/dev/null | tr -d ' \n')
-  [ -n "$pid" ] || { printf 'none\t\t'; return; }
+  local wt="$1" has_pr="${2:-}" pid="" code="" started_at="" manifest_data="" manifest=""
+
+  # -------------------------------------------------------------------------
+  # Read the pid — first from the manifest, then from the worktree file.
+  # -------------------------------------------------------------------------
+  #
+  # THE MANIFEST IS PRIMARY. It carries both `pid` and `startedAt`, so a pid
+  # read here can be validated against the process's actual start time.
+  if manifest=$(plot_manifest_for_worktree "$wt" 2>/dev/null) && [ -n "$manifest" ]; then
+    if manifest_data=$(plot_read_manifest_pid "$manifest") && [ -n "$manifest_data" ]; then
+      pid=$(printf '%s' "$manifest_data" | cut -f1)
+      started_at=$(printf '%s' "$manifest_data" | cut -f2)
+    fi
+  fi
+
+  # FALLBACK to the worktree pid file when the manifest has no usable pid.
+  # `started_at` stays empty; the staleness check is skipped, and the old
+  # behaviour applies — `kill -0` is trusted.
+  if [ -z "$pid" ]; then
+    [ -n "$wt" ] && [ -f "$wt/.plot-worker.pid" ] || { printf 'none\t\t'; return; }
+    pid=$(cat "$wt/.plot-worker.pid" 2>/dev/null | tr -d ' \n')
+    [ -n "$pid" ] || { printf 'none\t\t'; return; }
+  fi
+
+  # -------------------------------------------------------------------------
+  # Validate the pid.
+  # -------------------------------------------------------------------------
+  #
   # `kill -0 0` signals the whole process GROUP and succeeds, so pid 0 would
   # read as running forever. It is never a real worker pid. Non-numeric junk is
   # rejected with it: `kill -0` would error on it anyway, and "running" is the
   # one reading a garbled pid must never produce.
   case "$pid" in 0|*[!0-9]*) printf 'none\t\t'; return ;; esac
-  if kill -0 "$pid" 2>/dev/null; then printf 'running\t%s\t' "$pid"; return; fi
 
+  # -------------------------------------------------------------------------
+  # Liveness check, WITH STALENESS DETECTION.
+  # -------------------------------------------------------------------------
+  #
+  # `kill -0` says the pid exists. But pids are reused: the kernel assigns them
+  # from a circular pool, and a manifest that sat for days may name a pid now
+  # held by an unrelated process. `startedAt` closes the window: a pid is real
+  # only if the process holding it started at or after the time the manifest
+  # was stamped.
+  #
+  # Without `startedAt`, the old behaviour applies: `kill -0` alone decides.
+  # This keeps the fallback honest — an uncheckable pid is reported as running
+  # when it answers `kill -0`, exactly as before.
+  if kill -0 "$pid" 2>/dev/null; then
+    if [ -n "$started_at" ]; then
+      # STALENESS CHECK: is the process the one we started?
+      if ! plot_pid_is_current "$pid" "$started_at"; then
+        # The pid exists but belongs to an older process — a REUSE. The worker
+        # is dead; treat this as `ended` (no exit file can be trusted either).
+        printf 'ended\t%s\t' "$pid"
+        return
+      fi
+    fi
+    # The process is running AND current (or uncheckable, with no startedAt).
+    printf 'running\t%s\t' "$pid"
+    return
+  fi
+
+  # -------------------------------------------------------------------------
+  # The process is gone. What exit code did it leave?
+  # -------------------------------------------------------------------------
+  #
   # `kill -0` only separates running from not-running. Whether a stopped worker
   # finished its job or crashed is gone unless the exit code was recorded — and
   # reporting a completed worker as "dead" reads as a crash, which is how a
