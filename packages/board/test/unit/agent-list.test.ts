@@ -1956,6 +1956,31 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
     expect(next.size).toBe(3);
   });
 
+  it('marks NOTHING when only the AGE moved — the clock is not a change', () => {
+    // THE DEFECT THIS LOCKS OUT, measured on the live board 2026-08-24.
+    //
+    // `changedAgo` is *seconds since* the newest evidence of work, recomputed
+    // against `now` on every scan: 71805 → 71824 across 12 quiet seconds. It was
+    // a watched field, so all 16 rows that had one flashed on every pulse
+    // forever, while the 74 with a null age (no worktree, nothing to time) never
+    // flashed at all. The mark that means *this row is not what it was* fired
+    // hardest on rows nobody had touched in nineteen hours.
+    //
+    // The instant is what the detector wants; the age is for the reader.
+    const before = row({ branch: 'a', changedAgo: 71_805, changedAt: 1_756_000_000 });
+    const after = row({ branch: 'a', changedAgo: 71_824, changedAt: 1_756_000_000 });
+    expect(changedRows(observed(before), [after]).changed.size).toBe(0);
+  });
+
+  it('marks a row when the write INSTANT moves, even with the age unchanged', () => {
+    // The other half, and why the age cannot simply be dropped from the map: a
+    // save must still flash. Here the age is held fixed to prove the instant is
+    // doing the work rather than riding along on a correlated field.
+    const before = row({ branch: 'a', changedAgo: 30, changedAt: 1_756_000_000 });
+    const after = row({ branch: 'a', changedAgo: 30, changedAt: 1_756_000_400 });
+    expect([...changedRows(observed(before), [after]).changed]).toEqual([rowKey(after)]);
+  });
+
   it('marks a row whose state changed', () => {
     const prior = observed(withState('a', 'pending'));
     expect([...changedRows(prior, [withState('a', 'failing')]).changed])

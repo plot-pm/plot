@@ -204,7 +204,9 @@ export interface WatchedState {
   localLocked: boolean;
   localAhead: number;
   /** Seconds since the newest write — the field that makes `true → true` a change. */
-  changedAgo: number | null;
+  /** The epoch second of the newest write — NOT the age, which ticks with the
+      clock and would flash every row that has one on every pulse. */
+  changedAt: number | null;
   /** Serialised, because `stuck` is an object and this map is compared by value. */
   stuck: string | null;
 }
@@ -261,14 +263,22 @@ export function watchedState(row: AgentRow): WatchedState {
     //
     // A timestamp has the shape the reader means. Every save moves it, so a row
     // that was already dirty and is written to again is a row whose watched
-    // value changed. The scan has computed this per worktree all along
-    // (`changed_ago_of`); nothing new is measured, it is only read.
+    // value changed.
     //
-    // It is NOT one of the clocks this map excludes. `ageMinutes` ticks because
-    // time passes and would flash an idle row once a minute; this moves only
-    // when a file is written. *A fact changes because the world changed* — a
-    // save is the world changing.
-    changedAgo: row.changedAgo,
+    // IT MUST BE THE INSTANT, NOT THE AGE, and this line watched the age until
+    // 2026-08-24. `changed_ago_of` returns *seconds since* the newest evidence,
+    // recomputed against `now` on every scan — so it ticks once a second whether
+    // or not anything happened, which is exactly the property `ageMinutes` is
+    // excluded from this map for having. Measured on the live board:
+    // 71805 → 71824 across 12 quiet seconds, flashing 16 rows nobody had
+    // touched in 19 hours, while the other 74 (no worktree, so a null age) never
+    // flashed at all.
+    //
+    // `changedAt` is the epoch second the scan already had before it subtracted.
+    // It moves only when a commit lands, a file is written, or the worker's log
+    // grows. *A fact changes because the world changed* — a save is the world
+    // changing; the clock ticking is not.
+    changedAt: row.changedAt,
     stuck: row.stuck === null ? null : JSON.stringify(row.stuck),
   };
 }
@@ -416,12 +426,17 @@ export function sameWatched(a: WatchedState, b: WatchedState): boolean {
     && a.wave === b.wave
     && a.phase === b.phase
     && a.localDirty === b.localDirty
-    // AND THE WRITE CLOCK, which is what makes `true → true` a change. Every
+    // AND THE WRITE INSTANT, which is what makes `true → true` a change. Every
     // comparison here is spelled out one field at a time (see the note above),
     // so a field added to the map and not added HERE travels with the row and
-    // is never compared — which is exactly what happened: `changedAgo` reached
-    // the row, moved on every save, and changed nothing.
-    && a.changedAgo === b.changedAgo
+    // is never compared — which is exactly what happened once: `changedAgo`
+    // reached the row, moved on every save, and changed nothing.
+    //
+    // ADDING IT HERE THEN CAUSED THE OPPOSITE DEFECT, because the age ticks with
+    // the clock: a dead field became a per-second ticker and every row with a
+    // worktree flashed forever. The instant is what both fixes were reaching
+    // for — compared here, and watched in the map above.
+    && a.changedAt === b.changedAt
     && a.localLocked === b.localLocked
     && a.localAhead === b.localAhead
     && a.stuck === b.stuck;

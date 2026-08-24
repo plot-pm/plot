@@ -29,6 +29,7 @@ const PULSE: FleetPulse = {
         // The write clock the scan states per worktree — null where none was
         // observed, which is this fixture's case.
         changed_ago_seconds: null,
+        changed_at: null,
         worker: 'elsewhere', worker_pid: '', worker_exit: '',
         // Written out rather than left to the schema's defaults, because this
         // fixture is compared WHOLE: `toEqual` against a parsed pulse fails the
