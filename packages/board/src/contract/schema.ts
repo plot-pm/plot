@@ -449,6 +449,17 @@ export const SprintCardSchema = z.object({
   title: z.string(),
   phase: z.string(),
   /**
+   * The sprint's target release — the `- **Release:** x.y.z` record from its
+   * `## Status` section, or "" where the file names none.
+   *
+   * "" rather than a placeholder, deliberately: the Agents-tab control renders
+   * the release beside the sprint's name and reads NOTHING where it is absent,
+   * because *"→ —"* is noise and *absent is not false*. Defaults to "" so a
+   * sprint file predating a `Release:` line — or a hand-built SprintCard — still
+   * validates.
+   */
+  release: z.string().default(''),
+  /**
    * The plans the sprint names, one per distinct slug. A slug sliced across
    * several waves lists once here (first, highest tier wins). Defaults to `[]`
    * so a sprint file with no member list — or a hand-built SprintCard — is valid.
@@ -2803,6 +2814,50 @@ export type AgentEntry = z.infer<typeof AgentEntrySchema>;
  */
 export const FLEET_CONTROLS_DEFAULT = { autoDispatch: false, parallelAgents: 3 } as const;
 
+/**
+ * The four `status` counts a sprint's plans fall into — the numbers the Agents-
+ * tab control renders beside the sprint's name.
+ *
+ * ONE HEADING PER ACTIONABLE STATUS, not one per plan phase. `deliverable` is
+ * the one that earns the row: plans whose every wave has merged and whose
+ * delivery decision is still outstanding. The four are exactly the post-approval
+ * {@link PlanStatus} values a reader watches move — a `draft` or `open` plan
+ * that a sprint happens to list contributes to none of them, which is correct:
+ * it is committed to but not yet in flight.
+ *
+ * COUNTED FROM `plan.status`, never recomputed. Each plan's status is
+ * {@link PlanStatus} as `planStatus` measures it; this is a tally of that one
+ * answer, keyed by sprint. A second definition of *done* here is the exact
+ * defect `a-plan-has-a-phase-and-a-status` exists to end.
+ */
+export const SprintCountsSchema = z.object({
+  delivered: z.number().int().default(0),
+  deliverable: z.number().int().default(0),
+  inProgress: z.number().int().default(0),
+  approved: z.number().int().default(0),
+});
+export type SprintCounts = z.infer<typeof SprintCountsSchema>;
+
+/**
+ * One Active sprint, as the Agents tab shows it: its name, its target release,
+ * and its four `status` counts. Distinct from {@link SprintCardSchema} — that
+ * carries the MEMBERSHIP the two sprint filters join on; this carries the
+ * PROGRESS the fleet control renders, aggregated server-side so the client casts
+ * it rather than joining plan status itself.
+ *
+ * Emitted once per Active sprint. Two teams may share one train, so the fleet
+ * carries a list and the control renders one row each — picking the newest would
+ * silently hide a commitment.
+ */
+export const FleetSprintSchema = z.object({
+  slug: z.string(),
+  title: z.string(),
+  /** The sprint's `- **Release:** x.y.z`, or "" — see {@link SprintCardSchema}. */
+  release: z.string().default(''),
+  counts: SprintCountsSchema,
+});
+export type FleetSprint = z.infer<typeof FleetSprintSchema>;
+
 export const FleetSchema = z.object({
   generatedAt: z.string(),
   /** Seconds since the cached scan completed — the tab shows this. */
@@ -3053,6 +3108,21 @@ export const FleetSchema = z.object({
       working: z.number().int().optional(),
     })
     .default(FLEET_CONTROLS_DEFAULT),
+  /**
+   * The Active sprints, each with its release and four `status` counts — what
+   * the Agents-tab sprint control renders. One entry per Active sprint (two
+   * teams may share one train); [] where none is Active, which the control shows
+   * as its disabled-but-visible state.
+   *
+   * Aggregated server-side from `plan.status` on the render clock, beside `rows`
+   * and for the same reason: a sprint file edited between two scans, or a plan
+   * whose status just moved, shows on the very next poll. Emitted
+   * UNCONDITIONALLY — [] on a cold cache — because the client CASTS this payload
+   * and a Zod `.default([])` never fires client-side; a field the server left
+   * off would reach the renderer as `undefined`, the `fleetControls` lesson from
+   * 2026-08-22.
+   */
+  sprints: z.array(FleetSprintSchema).default([]),
 });
 export type Fleet = z.infer<typeof FleetSchema>;
 
