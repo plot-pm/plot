@@ -387,7 +387,7 @@ reloads) is a browser-storage concern and explicitly optional.
 - `plot-reconcile-scan.sh` gains a section naming any plan whose `Sprint:` field disagrees with the sprint listing it, or is empty while a sprint lists it; machine-countable footer entry, and `attention=` unchanged
 
 
-### Filtered (Branch: feature/the-agents-tab-filters-to-the-sprint)
+### Filtered (Branch: feature/the-agents-tab-filters-to-the-sprint, PR: #384)
 - the control: toggle, the counts, the disabled-with-totals state, one row per active sprint, and plan-less rows always visible
 
 
