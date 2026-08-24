@@ -10,6 +10,35 @@ This is wave 1 of 4. `Counted`, `Named` and `Reconciled` all build on it — the
 adjust what the rows say and which entries survive, and none of them can be
 started until WORKING renders from the registry at all.
 
+### RESUMING — work already exists on this branch
+
+A previous worker was interrupted mid-edit and its work is committed as
+`d7ad1422` (*"RegistryRow and agentStateStatus — WIP, not yet wired in"*).
+**Read that commit before writing anything.**
+
+It contains:
+
+| file | what |
+|---|---|
+| `tuple-row.ts` | `agentStateStatus()` — all five registry states, `someone is on it` narrowed to `running` |
+| `rows.tsx` | a new `RegistryRow` component |
+| `AgentList.tsx` | the import |
+
+**`pnpm run typecheck` fails with exactly one error**, and it is a map rather
+than damage:
+
+```
+AgentList.tsx(68,68): error TS6133: 'RegistryRow' is declared but its value is
+never read.
+```
+
+The component was built and the render call was never made. That is the seam you
+are resuming at.
+
+**Do not assume it is right.** It was never run and never tested. Judge it
+against the plan and this brief; if it is wrong, replace it and say so in your
+report. What it is NOT is a starting point you have to reconstruct.
+
 ### What to build
 
 WORKING renders **one row per registry entry**, instead of only those entries
