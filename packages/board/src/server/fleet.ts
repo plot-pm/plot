@@ -17,6 +17,7 @@ import {
   type BriefState,
   type Fleet,
   type FleetPulse,
+  type FleetSprint,
   type IssueAnswer,
   type IssueRow,
   type MachineProcess,
@@ -32,7 +33,7 @@ import {
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
 import { repairFor, startRepair } from './resolver.js';
-import { collectSprints, readConfig, type BuildBoardOptions } from './board.js';
+import { collectSprints, planStatusBySlug, readConfig, type BuildBoardOptions } from './board.js';
 import { readBridge, writeBridge } from './pulse-bridge.js';
 import { readFleetControls } from './fleet-controls.js';
 import { maybeAutoDispatch, liveAgentCount } from './auto-dispatch.js';
@@ -4925,6 +4926,52 @@ export function sprintMembership(opts: BuildBoardOptions): Map<string, string> {
 }
 
 /**
+ * Each Active sprint with its target release and its four `status` counts — the
+ * payload the Agents-tab sprint control renders. One entry per Active sprint,
+ * because two teams may share one train and picking the newest would hide a
+ * commitment; [] where none is Active.
+ *
+ * The counts are a TALLY of `plan.status`, never a second computation of it:
+ * {@link planStatusBySlug} returns each plan's status from the ONE `planStatus`
+ * function, and this joins the sprint's member slugs against that map. A member
+ * whose slug names no plan the board found, or whose status is not one of the
+ * four the control shows, adds to nothing — correct on both sides: a renamed
+ * plan is not a commitment the sprint can measure, and a `draft`/`open` member
+ * is committed to but not yet in flight.
+ *
+ * A DEFERRED member is not counted. Its slug sits under `### Deferred` in the
+ * sprint file, which `parseSprintMembers` tags `tier: 'deferred'`; those are not
+ * commitments, so a count that swallowed them would overstate the sprint. This
+ * is the recommendation the plan's open question settled on.
+ *
+ * Same source and clock as {@link sprintMembership} — one `docs/sprints/` read
+ * plus one plan-meta parse per render, no host call — so a sprint file or a plan
+ * edited between two scans shows on the next poll.
+ */
+export function activeSprints(opts: BuildBoardOptions, pulse: FleetPulse | null): FleetSprint[] {
+  const sprintDir = readConfig(opts, 'Sprint directory', 'docs/sprints/');
+  const active = collectSprints(opts.repoRoot, sprintDir).filter((s) => s.phase === 'Active');
+  if (active.length === 0) return [];
+  const statusBySlug = planStatusBySlug(opts, pulse);
+  return active.map((sprint) => {
+    const counts = { delivered: 0, deliverable: 0, inProgress: 0, approved: 0 };
+    for (const member of sprint.members) {
+      if (member.tier === 'deferred') continue;
+      switch (statusBySlug.get(member.slug)) {
+        case 'delivered': counts.delivered += 1; break;
+        case 'deliverable': counts.deliverable += 1; break;
+        case 'in-progress': counts.inProgress += 1; break;
+        case 'approved': counts.approved += 1; break;
+        // draft, open, released, an unknown slug: not one of the four the
+        // control shows, counted nowhere.
+        default: break;
+      }
+    }
+    return { slug: sprint.slug, title: sprint.title, release: sprint.release, counts };
+  });
+}
+
+/**
  * Read the cached pulse. Never runs the scan — that is the whole point.
  * `repoRoot` stays a parameter even while the UI shows one repo, so the second
  * one is an addition rather than a rebuild.
@@ -5036,5 +5083,12 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
     fleetControls: entry.pulse
       ? { ...readFleetControls(opts), working: liveAgentCount(entry.agents, entry.pulse) }
       : readFleetControls(opts),
+    // The Active sprints, each with release and four `status` counts, aggregated
+    // on THIS render clock from the same cached pulse the rows came from — so a
+    // sprint file or a plan status edited between two scans shows on the next
+    // poll. Emitted unconditionally (a cold cache passes `null`, which yields the
+    // plan-only counts) because the client casts this payload and a Zod
+    // `.default([])` never fires client-side.
+    sprints: activeSprints(opts, entry.pulse),
   };
 }

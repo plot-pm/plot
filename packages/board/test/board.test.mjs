@@ -58,6 +58,7 @@ const REJECTED = `# A rejected idea
 const SPRINT = `# Sprint: Alpha week
 ## Status
 - **Phase:** Active
+- **Release:** 4.2.0
 
 ### Must Have
 
@@ -182,6 +183,8 @@ describe('board: contract fields + frontmatter visibility', () => {
       slug: 'alpha-week',
       title: 'Alpha week',
       phase: 'Active',
+      // The target release, read from the sprint file's `- **Release:** x.y.z`.
+      release: '4.2.0',
       members: [
         // `sprint-support` is a plan the board found; `ghost-plan` is not, and is
         // flagged rather than dropped. A `- [x]` item is still a member.

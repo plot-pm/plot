@@ -677,11 +677,18 @@ export function parseSprintFile(absPath: string): SprintCard | null {
   const title = titleMatch ? titleMatch[1].trim() : path.basename(absPath, '.md');
   const slugMatch = path.basename(absPath).match(/^\d{4}-W\d{2}-(.+)\.md$/);
   const slug = slugMatch ? slugMatch[1] : path.basename(absPath, '.md');
-  const statusMatch = content.match(/## Status\s*\n([\s\S]*?)(?=\n## |$)/);
-  const phaseMatch = (statusMatch ? statusMatch[1] : '').match(/^- \*\*Phase:\*\* (.+)$/m);
+  const statusSection = content.match(/## Status\s*\n([\s\S]*?)(?=\n## |$)/);
+  const statusBody = statusSection ? statusSection[1] : '';
+  const phaseMatch = statusBody.match(/^- \*\*Phase:\*\* (.+)$/m);
   const phase = phaseMatch ? phaseMatch[1].trim() : '';
   if (!phase) return null;
-  return { slug, title, phase, members: parseSprintMembers(content) };
+  // The sprint's target release, read from the same `## Status` block as the
+  // phase and the same `- **Field:** value` shape. "" where the file names none:
+  // the control renders nothing rather than a placeholder, so absence must reach
+  // it as an empty string rather than a guess.
+  const releaseMatch = statusBody.match(/^- \*\*Release:\*\* (.+)$/m);
+  const release = releaseMatch ? releaseMatch[1].trim() : '';
+  return { slug, title, phase, release, members: parseSprintMembers(content) };
 }
 
 /**
@@ -1040,6 +1047,41 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     sprints: collectSprints(repoRoot, sprintDir, new Set(cards.map((c) => c.slug))),
     stories: collectStories(repoRoot, storyDir),
   };
+}
+
+/**
+ * Every plan's MEASURED status, keyed by slug — the join the fleet's per-sprint
+ * counts read. It calls {@link planStatus}, the ONE function that answers *is
+ * this plan done?*; it does not re-derive that answer. This plan is the field's
+ * first consumer, and a second computation of the same thing here is precisely
+ * the "fifth definition of done" `a-plan-has-a-phase-and-a-status` exists to
+ * prevent.
+ *
+ * WORKING-TREE PLANS ONLY, and that is exactly right for these counts rather
+ * than a shortcut. The four the fleet tallies — `delivered`, `deliverable`,
+ * `in-progress`, `approved` — are all post-approval statuses, and an approved
+ * plan lives in the working tree (its plan PR merged). A plan that lives only on
+ * a prefixed branch is under review, so its status is `draft` or `open`, which
+ * no count here holds. Reading branch plans would stage git trees on the render
+ * clock to produce statuses no consumer of this map counts.
+ *
+ * The pulse supplies merge and claim state; `planStatus` composes it with each
+ * plan's phase, review channel and `Started:` count. A null pulse yields the
+ * plan-only answer — `deliverable` collapses to `in-progress`/`approved`, since
+ * nothing can say a wave merged — exactly as `planStatus` specifies.
+ */
+export function planStatusBySlug(
+  opts: BuildBoardOptions,
+  pulse: FleetPulse | null,
+): Map<string, PlanStatus> {
+  const planDir = readConfig(opts, 'Plan directory', 'docs/plans/');
+  const repoRoot = resolvedRepoRoot(opts);
+  const files = collectPlanFiles(repoRoot, planDir);
+  const bySlug = new Map<string, PlanStatus>();
+  for (const meta of readPlanMeta(opts.scriptsDir, files)) {
+    bySlug.set(planSlug(path.relative(repoRoot, meta.file)), planStatus(meta, pulse));
+  }
+  return bySlug;
 }
 
 // ─── Plan viewer: render a single plan file to HTML ──────────────────────────
