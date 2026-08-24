@@ -185,13 +185,13 @@ server binds one address family and the client picks the other — recorded in
 in here. This plan covers the server that *goes away*, not the one that was
 never reached.
 
-## Branches
+## Waves
 
-### Posture
 
-- `feature/board-dims-when-lost` — after a sustained silence the app dims and
+### Posture (Branch: feature/board-dims-when-lost, PR: #160)
+- after a sustained silence the app dims and
   blocks interaction, over the existing banner; message names the state, the
-  restart command and the address → #160
+  restart command and the address
 
 One branch: one state, one overlay, one threshold — in `App.tsx`, where both
 tabs can inherit it.

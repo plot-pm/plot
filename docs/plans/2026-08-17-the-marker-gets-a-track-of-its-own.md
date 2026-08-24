@@ -107,11 +107,11 @@ point, and why no group can drift.
 **The mobile card is unaffected.** Below `sm` the row is a stacked card
 and the tracks do not apply; the marker flows inline as it does today.
 
-## Branches
+## Waves
 
-### Track
 
-- `bug/the-marker-gets-a-track-of-its-own` — `ROW_TRACKS` gains a leading
+### Track (Branch: bug/the-marker-gets-a-track-of-its-own)
+- `ROW_TRACKS` gains a leading
   `1.25rem` column; the activity marker and `LiveDot` move into it; an
   empty cell leaves a gap
 

@@ -208,6 +208,58 @@ export const CardPrSchema = z.object({
 });
 export type CardPr = z.infer<typeof CardPrSchema>;
 
+/**
+ * A plan's MEASURED status — the fact its branches make true, beside `phase`,
+ * the DECISION a human writes into the file.
+ *
+ * `phase` and `status` answer two different questions with two different owners,
+ * and conflating them is the defect this field exists to end:
+ *
+ * |            | measurement (`status`) | decision (`phase`)     |
+ * |------------|------------------------|------------------------|
+ * | written by | nobody — derived       | a human, via a command |
+ * | changes    | every scan             | at a lifecycle event   |
+ * | storage    | none; re-derived       | recorded in the plan   |
+ * | wrong by   | a stale scan           | nobody running the cmd |
+ *
+ * `status` is DERIVED EVERY SCAN and STORED NOWHERE, exactly like a wave's
+ * `verdict`. Storing it would create a second source of truth for something git
+ * already answers, and it could go stale — the failure `phase` has and this
+ * field exists to compensate for, not to reproduce. Nothing new is written to
+ * disk: `plot-plan-meta.sh` is untouched and no plan file gains a field.
+ *
+ * The seven, and what each is measured from (`planStatus` in `board.ts`):
+ *
+ * | value         | means                                    | measured from            |
+ * |---------------|------------------------------------------|--------------------------|
+ * | `draft`       | created; discovery is going on           | phase draft, no plan PR  |
+ * | `open`        | discovery done; out for approval         | phase draft, `Review: pr`|
+ * | `approved`    | development possible, not started        | phase approved, no start |
+ * | `in-progress` | implementation under way                 | ≥1 `Started:` or a claim |
+ * | `deliverable` | all waves merged; ready for /plot-deliver| every wave complete, still approved |
+ * | `delivered`   | reviewed and /plot-deliver was called    | phase delivered          |
+ * | `released`    | released — terminal                      | phase released           |
+ *
+ * `deliverable` IS THE VALUE THAT EARNS THE FIELD: the measurement has arrived
+ * and the decision has not. It is a queue of decisions waiting for a person,
+ * and it is what DONE holds and the plan row's `Deliver` action appears on.
+ *
+ * `reviewing` is DELIBERATELY ABSENT — a branch under review is implementation
+ * in flight, and `in-progress` already says so. Naming it would split one answer
+ * into two consumers must both handle, and would need a per-branch host call the
+ * scan avoids.
+ *
+ * **`status: deliverable` MUST NEVER SATISFY A GATE.** The release gate reads
+ * `phase` and must continue to: a release is a decision, and gating it on a
+ * measurement would let work ship that nobody signed off. That `deliverable` and
+ * `phase: approved` are independently observable is what keeps a measurement
+ * from becoming a commitment.
+ */
+export const PlanStatusSchema = z.enum([
+  'draft', 'open', 'approved', 'in-progress', 'deliverable', 'delivered', 'released',
+]);
+export type PlanStatus = z.infer<typeof PlanStatusSchema>;
+
 export const CardSchema = z.object({
   slug: z.string(),
   title: z.string(),
@@ -312,6 +364,28 @@ export const CardSchema = z.object({
    * both read as *not deliverable* — which leaves the control off either way.
    */
   deliverable: z.boolean().optional(),
+  /**
+   * The plan's MEASURED status — one of the seven {@link PlanStatus} values,
+   * derived every scan from this plan's waves and stored nowhere.
+   *
+   * The GENERALISATION of `deliverable` above, not a replacement for it. That
+   * boolean names one of these seven states (`deliverable`); this names which
+   * one the plan is IN, so `deliverable === (status === 'deliverable')` by
+   * construction — the Deliver control can read the one word the button's rule
+   * needs (*offer Deliver where `status === 'deliverable'`*) instead of a fifth
+   * place re-deriving *is this plan done?*.
+   *
+   * A MEASUREMENT beside `phase`, the plan's DECISION. The two are independently
+   * observable on purpose: a `deliverable` plan reports `phase: Testing`-adjacent
+   * nothing — its `phase` is still Approved — which is the gap a person acts
+   * from and the reason `status: deliverable` must never satisfy a gate.
+   *
+   * Optional and defaulted, the discipline every derived card field follows: an
+   * older server that never computed it, and this field's absence, read the same
+   * — `approved` is the honest floor for a card that reached the board at all,
+   * since a plan the mapper drops (rejected/unknown) never becomes a card.
+   */
+  status: PlanStatusSchema.optional(),
   /**
    * The date belonging to THIS card's phase, as `YYYY-MM-DD` — or "" where the
    * plan records none.

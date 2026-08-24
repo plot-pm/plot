@@ -134,11 +134,11 @@ are — including the rule that a one-branch plan gets no expander.
 
 **No other section changes.** Only NOT STARTED renders plan rows.
 
-## Branches
+## Waves
 
-### Layout
 
-- `bug/a-plan-row-is-not-a-branch-row` — the plan row spans the row's
+### Layout (Branch: bug/a-plan-row-is-not-a-branch-row)
+- the plan row spans the row's
   width in its own proportions instead of borrowing the branch tracks;
   plan and branches share one bordered block; branch rows unchanged
 

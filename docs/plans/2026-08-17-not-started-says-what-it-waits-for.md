@@ -221,15 +221,15 @@ The distinction that survives: **colour says what a row is; motion says
 it has been waiting on you too long.** The first is a property, the
 second is an accusation, and only the second earns the scarce channel.
 
-## Branches
+## Waves
 
-### Colour
 
-- `feature/not-started-says-what-it-waits-for` — the server computes the
+### Colour (Branch: feature/not-started-says-what-it-waits-for, PR: #205)
+- the server computes the
   waiting-state and the blocking wave's name onto the row; the board
   renders them as colour beside the words and colours only a Draft plan's
   first wave. No animation: the repo's history shows no long-waiting
-  Draft to calibrate one against → #205
+  Draft to calibrate one against
 
 ## Done when
 

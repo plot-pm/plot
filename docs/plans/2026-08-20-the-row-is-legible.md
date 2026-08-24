@@ -177,19 +177,19 @@ not is the argument for the rule, not an exception to it.
       `thinking` and `session 27m · idle 4m`. Measure whether that is the mock's
       fixture or the renderer before filing it.
 
-## Branches
+## Waves
 
-### Sized
-- `bug/size-states-the-level` — a section heading and its caret stop being row-sized; the click target and row height are untouched. Tests: a section heading's computed font size exceeds a row's; the caret glyph exceeds a row's text; **the fold target is still at least 24px**; row height is unchanged; `space-y-8` is unchanged; a folded section still folds and `aria-expanded` still flips.
+### Sized (Branch: bug/size-states-the-level)
+- a section heading and its caret stop being row-sized; the click target and row height are untouched. Tests: a section heading's computed font size exceeds a row's; the caret glyph exceeds a row's text; **the fold target is still at least 24px**; row height is unchanged; `space-y-8` is unchanged; a folded section still folds and `aria-expanded` still flips.
 
-### Marked
-- `feature/one-icon-set-one-place` — the seven icons become inline SVG at one size in one colour; the kind word moves to the first column; the icon moves next to the item's name; the activity track holds activity alone. Tests: every kind's icon is an `<svg>`, never an emoji or text glyph; all seven render at the same size; all seven take their colour from `currentColor` and follow the theme; the first column holds the kind word for every kind; the icon is adjacent to the name; **the marks track is empty on a row with no activity**; no asset is fetched; Octicon attribution is present.
+### Marked (Branch: feature/one-icon-set-one-place)
+- the seven icons become inline SVG at one size in one colour; the kind word moves to the first column; the icon moves next to the item's name; the activity track holds activity alone. Tests: every kind's icon is an `<svg>`, never an emoji or text glyph; all seven render at the same size; all seven take their colour from `currentColor` and follow the theme; the first column holds the kind word for every kind; the icon is adjacent to the name; **the marks track is empty on a row with no activity**; no asset is fetched; Octicon attribution is present.
 
-### Grouped
-- `bug/grouping-is-indentation` — a group's rows are indented under its heading, and the borders express membership rather than separating everything equally; the arrival ring becomes transient. Tests: rows of one plan share an indent that non-members do not have; a group of five is recognisable as a set without reading its heading; the border between two rows inside a group differs from the border between groups; the arrival ring does not persist across pulses; **no row is rendered twice** — the one-wave duplication measured on the mock is gone.
+### Grouped (Branch: bug/grouping-is-indentation)
+- a group's rows are indented under its heading, and the borders express membership rather than separating everything equally; the arrival ring becomes transient. Tests: rows of one plan share an indent that non-members do not have; a group of five is recognisable as a set without reading its heading; the border between two rows inside a group differs from the border between groups; the arrival ring does not persist across pulses; **no row is rendered twice** — the one-wave duplication measured on the mock is gone.
 
-### Fitted
-- `bug/one-row-one-truncation-rule` — a name truncates at the end, a status never truncates, an artifact link truncates and never wraps. Tests: a long branch name keeps its head; a status renders whole or not at all — **never one character**; a PR's two artifact links stay on one line; row height is identical across all seven kinds; asserted through the mock payload, so reproducible without an estate.
+### Fitted (Branch: bug/one-row-one-truncation-rule)
+- a name truncates at the end, a status never truncates, an artifact link truncates and never wraps. Tests: a long branch name keeps its head; a status renders whole or not at all — **never one character**; a PR's two artifact links stay on one line; row height is identical across all seven kinds; asserted through the mock payload, so reproducible without an estate.
 
 ## Notes
 

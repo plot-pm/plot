@@ -182,11 +182,12 @@ Challenged 2026-07-12 (`/challenge-the-plan`, autonomous pass); the five escalat
 - [x] ~~"Board impact" rule or gate?~~ **Prose** — DoD entry + plan-template prompt; not a CI gate (Q4, 2026-07-12).
 - [x] ~~Plan type?~~ **`feature`** confirmed (Q5, 2026-07-12).
 
-## Branches
+## Waves
 
 **Single-PR mode (explicit deviation):** this plan is implemented on the idea branch itself — one PR carries the plan from Draft through Delivered. No fan-out to separate implementation branches at approval; `/plot-approve` semantics reduce to "Max approves the plan in this PR, implementation commits follow on the same branch."
 
-- `idea/kanban-board-v1` — plan + full implementation (this PR) → #40
+### Implementation (Branch: idea/kanban-board-v1, PR: #40)
+- plan + full implementation (this PR)
 
 ## Notes
 

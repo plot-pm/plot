@@ -150,11 +150,11 @@ to accumulate.
   direction this change could break.
 - `node --test test/reconcile/fleet.test.mjs` green.
 
-## Branches
+## Waves
 
-### Consulted
 
-- `bug/a-resurrected-ref-does-not-hide-a-merge` — consult the cached PR state before the has-ref arm concludes `wip`, overriding only on `MERGED`, at no host cost → #372
+### Consulted (Branch: bug/a-resurrected-ref-does-not-hide-a-merge, PR: #372)
+- consult the cached PR state before the has-ref arm concludes `wip`, overriding only on `MERGED`, at no host cost
 
 ## Notes
 

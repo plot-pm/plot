@@ -40,14 +40,15 @@ Both branches build on `plot-reconcile-scan.sh` and the shared helpers from #34 
 - [x] ~~Should the `/plot` hook be skippable for very large repos?~~ Resolved by measurement (2026-07-08): not config — make the scan cheap (multi-file parser mode, single parse pass) and bound the hook with `timeout 10` + graceful skip line. No config key in v1.
 - [x] ~~Does the gate need `--plan <file>` scoping, or is report-grep sufficient?~~ Resolved: report-grep on the dated basename is precise (basename occurs only in plan-finding lines); section-3 hits for the just-merged branch are expected and reported as optional housekeeping.
 
-## Branches
+## Waves
 
 <!-- Workflow compressed by maintainer decision (Max, 2026-07-08): both
      features are implemented directly on this plan's idea branch and land
      with the plan in one PR (#35), instead of fanning out. No separate
      impl branches exist. -->
 
-- `idea/reconcile-drift-loop` — plan + both features (dispatcher hygiene line; deliver step 7b gate; scan summary footer; multi-file parser) → #35
+### Implementation (Branch: idea/reconcile-drift-loop, PR: #35)
+- plan + both features (dispatcher hygiene line; deliver step 7b gate; scan summary footer; multi-file parser)
 
 ## Notes
 

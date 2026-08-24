@@ -213,23 +213,22 @@ them in step with the skill, and the same rule would live in two places.
 offering it would invite a second approval whose only effect is a confusing
 error.
 
-## Branches
+## Waves
 
-### Navigation
 
-- `feature/board-story-overlay` — `/story/<slug>` route, path on the story card,
-  badge becomes a link, overlay with *Show in board* and *Open in new tab* → #151
+### Navigation (Branch: feature/board-story-overlay, PR: #151)
+- `/story/<slug>` route, path on the story card,
+  badge becomes a link, overlay with *Show in board* and *Open in new tab*
 
-### Density
 
-- `feature/board-column-overflow` — recent-first truncation with a visible count
+### Density (Branch: feature/board-column-overflow, PR: #155)
+- recent-first truncation with a visible count
   and a control for the rest, by phase date, for any column past the threshold
-  → #155
 
-### Action
 
-- `feature/board-approve-affordance` — Approve on Draft cards, acting behind
-  one in-button confirmation → #161
+### Action (Branch: feature/board-approve-affordance, PR: #161)
+- Approve on Draft cards, acting behind
+  one in-button confirmation
 
 Three waves, dispatched **one at a time** rather than fanned out. They are
 independent in purpose but all reach `PlanCard.tsx` or the contract, and this

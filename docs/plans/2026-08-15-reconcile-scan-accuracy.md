@@ -191,19 +191,19 @@ assertion ("the board sync works") into evidence.
       the single-PR check simply not run there? Today `PR_SOURCE=off` already
       marks the degraded case; the question is whether to say so per finding.
 
-## Branches
+## Waves
 
-### Section 2
 
-- `bug/scan-single-pr-plans` — section 2 recognises plan-PR-merged as a second signal → #122
+### Section 2 (Branch: bug/scan-single-pr-plans, PR: #122)
+- section 2 recognises plan-PR-merged as a second signal
 
-### Section 3
 
-- `bug/scan-contained-in-pr` — section 3 separates contained-in-open-PR from orphaned → #125
+### Section 3 (Branch: bug/scan-contained-in-pr, PR: #125)
+- section 3 separates contained-in-open-PR from orphaned
 
-### Coverage
 
-- `feature/update-board-test` — argument handling, graceful degradation, and the caller-set assertion → #128
+### Coverage (Branch: feature/update-board-test, PR: #128)
+- argument handling, graceful degradation, and the caller-set assertion
 
 <!-- Three waves, one branch each. The two scan fixes edit the same file and
      must not run concurrently; the board test is last because it is

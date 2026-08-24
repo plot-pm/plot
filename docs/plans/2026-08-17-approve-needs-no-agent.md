@@ -261,17 +261,17 @@ Two buttons on one surface with opposite patterns, because they were built in
 parallel and the second did not see the first's decision. The fix is one
 attribute and belongs here rather than in a plan of its own.
 
-## Branches
+## Waves
 
-### Script
 
-- `feature/plot-approve-script` → #168 — `plot-approve.sh` performs the
+### Script (Branch: feature/plot-approve-script, PR: #168)
+- → #168 — `plot-approve.sh` performs the
   mechanical approval and refuses what it cannot judge; `plot-approve/SKILL.md`
   calls it instead of describing it
 
-### Board
 
-- `bug/approve-button-needs-no-config` → #169 — `approveAvailability()` drops the
+### Board (Branch: bug/approve-button-needs-no-config, PR: #169)
+- → #169 — `approveAvailability()` drops the
   `Approve command` requirement and matches dispatch; `ApproveButton` moves to
   `aria-disabled`
 

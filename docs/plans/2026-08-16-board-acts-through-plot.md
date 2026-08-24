@@ -320,15 +320,15 @@ button: the phase gate settles it — the condition is `approved`, not a column
 (see Approach). Whether the 202 can carry the script's summary: it cannot, and
 the attempt to have both is what surfaced the log-path design above.
 
-## Branches
+## Waves
 
-### Navigation
 
-- `feature/board-artifact-links` — `url` in `plot-host.sh pr-list --rich` (both backends), PR numbers on cards, links from rows and cards to plan, PR and story → #114
+### Navigation (Branch: feature/board-artifact-links, PR: #114)
+- `url` in `plot-host.sh pr-list --rich` (both backends), PR numbers on cards, links from rows and cards to plan, PR and story
 
-### Dispatch
 
-- `feature/board-start-work` — `POST /api/dispatch` allow-listed ahead of the 405 guard, localhost-bound and same-origin-checked, spawn-and-202 with a slug-keyed log; Start work on cards whose plan phase is `approved` → #119
+### Dispatch (Branch: feature/board-start-work, PR: #119)
+- `POST /api/dispatch` allow-listed ahead of the 405 guard, localhost-bound and same-origin-checked, spawn-and-202 with a slug-keyed log; Start work on cards whose plan phase is `approved`
 
 <!-- Two waves, one branch each. Both touch the board bundle, so they cannot
      run concurrently; navigation goes first because it is the half that is

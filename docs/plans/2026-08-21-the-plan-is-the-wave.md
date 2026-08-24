@@ -158,20 +158,20 @@ to pick one, and picking is what the wave rows are for.
       the command work moved to PR #313, and dispatch keeps claiming the branch
       by ref push. Nothing about claiming changes here.
 
-## Branches
+## Waves
 
-### Shown
 
-- `feature/one-wave-renders-as-its-plan` → #360 — a plan declaring exactly one wave
+### Shown (Branch: feature/one-wave-renders-as-its-plan, PR: #360)
+- → #360 — a plan declaring exactly one wave
   renders no wave row; the plan row carries the wave's status. Tests: a
   one-wave plan yields a plan row and no wave row; a two-wave plan is
   unchanged; a plan whose second wave has merged still renders both, because
   the count is of DECLARED waves; the branch rows beneath are unaffected; the
   derivation is the server's and is not remade in the renderer.
 
-### Offered
 
-- `feature/the-plan-row-carries-wave-actions` → #368 — where wave 1 removes a
+### Offered (Branch: feature/the-plan-row-carries-wave-actions, PR: #368)
+- → #368 — where wave 1 removes a
   wave row, the actions that row carried move onto the plan row with it. Concretely
   that is **Start work**: a wave row's own control, dispatching that wave with
   `--max 1`. It is NOT Approve, Implement or Dispatch — those are plan-level

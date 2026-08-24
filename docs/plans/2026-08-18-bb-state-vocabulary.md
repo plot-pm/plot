@@ -168,9 +168,10 @@ path has, and every future adapter change gets it for free.
       adapter would then say *50 of an unknown total*. Needs a `bb` capability
       this plan does not assume.
 
-## Branches
+## Waves
 
-- `bug/bb-state-vocabulary` — the helper, the three call sites, and the stub-`bb` test. → #210
+### Implementation (Branch: bug/bb-state-vocabulary, PR: #210)
+- the helper, the three call sites, and the stub-`bb` test.
 
 ## Notes
 

@@ -114,10 +114,10 @@ a rule.
       branches carry it"* — and a consumer treating it as *age in days* would be
       wrong the same way. Worth one grep, not a wave.
 
-## Branches
+## Waves
 
-### Gated
-- `bug/the-plan-actions-fire-where-they-apply` — `canApprove` and `canCommissionDesign` stop reading `waitingOn` and read the section's membership instead. Tests: a Draft plan row in WAITING ON YOU offers **Approve** and **Commission design**; the same row with `state` merged offers neither; a NOT STARTED row still gets its `waitingOn === 'click'` treatment unchanged; a row in WORKING offers neither; the actions still refuse with their reason on the control where they cannot act; `waitingOn` has no new writer.
+### Gated (Branch: bug/the-plan-actions-fire-where-they-apply)
+- `canApprove` and `canCommissionDesign` stop reading `waitingOn` and read the section's membership instead. Tests: a Draft plan row in WAITING ON YOU offers **Approve** and **Commission design**; the same row with `state` merged offers neither; a NOT STARTED row still gets its `waitingOn === 'click'` treatment unchanged; a row in WORKING offers neither; the actions still refuse with their reason on the control where they cannot act; `waitingOn` has no new writer.
 
 ## Notes
 

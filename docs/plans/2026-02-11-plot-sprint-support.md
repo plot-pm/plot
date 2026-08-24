@@ -254,9 +254,10 @@ Spoke awareness tests:
 - Verify `/plot-approve` mentions sprint membership
 - Verify `/plot-deliver` shows sprint progress
 
-## Branches
+## Waves
 
-- `feature/plot-sprint-support` <!-- deferred: never created — the work landed directly on main on 2026-02-11, so no ref, no PR and no merge commit exist for the scan to find. Annotated 2026-08-18, when the plan was verified Delivered against the source and the fleet still offered this branch as "eligible — nobody has taken it", six months after the work shipped. --> — Implement sprint support: new skill, manifesto additions, spoke modifications. The plan recorded a PR number here until 2026-08-18; it pointed at an unrelated PR (the AskUserQuestion tool convention, merged 2026-03-15) and is removed rather than corrected, because no PR exists to name.
+### Implementation (Branch: feature/plot-sprint-support) <!-- deferred: never created — the work landed directly on main on 2026-02-11, so no ref, no PR and no merge commit exist for the scan to find. Annotated 2026-08-18, when the plan was verified Delivered against the source and the fleet still offered this branch as "eligible — nobody has taken it", six months after the work shipped. -->
+- Implement sprint support: new skill, manifesto additions, spoke modifications. The plan recorded a PR number here until 2026-08-18; it pointed at an unrelated PR (the AskUserQuestion tool convention, merged 2026-03-15) and is removed rather than corrected, because no PR exists to name.
 
 ## Notes
 

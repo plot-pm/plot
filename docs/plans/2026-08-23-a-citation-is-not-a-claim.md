@@ -182,15 +182,15 @@ queryable.
   fixture that has a double claim.
 - `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:e2e` green.
 
-## Branches
+## Waves
 
-### Anchored
 
-- `bug/a-claim-is-a-list-item` — the branch matcher anchors to the start of a list item, so a citation in a blockquote, a comment or a sentence is no longer a claim; all 248 existing claims still parse
+### Anchored (Branch: bug/a-claim-is-a-list-item)
+- the branch matcher anchors to the start of a list item, so a citation in a blockquote, a comment or a sentence is no longer a claim; all 248 existing claims still parse
 
-### Counted
 
-- `bug/reconcile-reports-a-double-claim` — a new section reporting any branch claimed by more than one plan, with a machine-countable footer entry; it reports and never gates
+### Counted (Branch: bug/reconcile-reports-a-double-claim)
+- a new section reporting any branch claimed by more than one plan, with a machine-countable footer entry; it reports and never gates
 
 ## Notes
 

@@ -120,11 +120,11 @@ Revisit if the *not rendered* case turns out to be common.
   implementation that merely widens the query passes every other test here.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Branches
+## Waves
 
-### Found
 
-- `bug/the-blocking-wave-is-found-wherever-it-is` — widen the query to the document, and say so when the target is not on screen
+### Found (Branch: bug/the-blocking-wave-is-found-wherever-it-is)
+- widen the query to the document, and say so when the target is not on screen
 
 ## Notes
 

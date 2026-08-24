@@ -183,9 +183,8 @@ change is wrong — do not edit the test to fit the change.
 - A narrow viewport is unchanged: the name track is never below 12rem.
 - `pnpm build:board` run and the artifact committed; `pnpm run test:board` green.
 
-## Branches
+## Waves
 
-### Widened
 
 <!-- ONE wave and one branch deliberately, though the plan carries two problems.
      A and B are the same three lines of one component and share one guard test;
@@ -193,7 +192,8 @@ change is wrong — do not edit the test to fit the change.
      the second would rebase onto a moved track. The `Done when` list keeps them
      separately assertable, which is what the split would have bought. -->
 
-- `bug/the-name-track-holds-the-name` — give slot 3 a floor-and-grow track (A) and let the name use the room it has (B); keep exactly one flexible track and leave the breakpoint arithmetic test unmodified → #340
+### Widened (Branch: bug/the-name-track-holds-the-name, PR: #340)
+- give slot 3 a floor-and-grow track (A) and let the name use the room it has (B); keep exactly one flexible track and leave the breakpoint arithmetic test unmodified
 
 ## Notes
 

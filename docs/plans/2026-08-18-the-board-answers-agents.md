@@ -224,19 +224,19 @@ one dataset is how they drift.
       keeps one implementation and inherits their prose; superseding duplicates
       the guardrails in two places, which is how they drift.
 
-## Branches
+## Waves
 
-### Honesty
 
-- `feature/fleet-api-names-its-ref` — `/api/fleet` reports `readRef`, `readRefAge`, `localHead`. Smallest of the three, and the one that would have prevented three misdiagnoses in one session. → #212
+### Honesty (Branch: feature/fleet-api-names-its-ref, PR: #212)
+- `/api/fleet` reports `readRef`, `readRefAge`, `localHead`. Smallest of the three, and the one that would have prevented three misdiagnoses in one session.
 
-### Ask
 
-- `feature/api-attention-says-what-needs-you` — **replaces the narrower `/api/next` by `GET /api/attention`, see the amendment below.** The original scope (name one claimable branch) survives as one of four lists that endpoint returns. → #235
+### Ask (Branch: feature/api-attention-says-what-needs-you, PR: #235)
+- **replaces the narrower `/api/next` by `GET /api/attention`, see the amendment below.** The original scope (name one claimable branch) survives as one of four lists that endpoint returns.
 
-### Act
 
-- `feature/api-claim-and-transition` — `POST /api/claim` and `POST /api/transition`, wrapping the existing ref-push claim and the spokes' phase guardrails, each returning the resulting state. **No longer blocked** — the trust model was answered above: loopback is the boundary and already in force. This branch also carries the gate that makes it real: refuse to serve the write endpoints when `HOST` is not loopback, unless explicitly opted in. → #251
+### Act (Branch: feature/api-claim-and-transition, PR: #251)
+- `POST /api/claim` and `POST /api/transition`, wrapping the existing ref-push claim and the spokes' phase guardrails, each returning the resulting state. **No longer blocked** — the trust model was answered above: loopback is the boundary and already in force. This branch also carries the gate that makes it real: refuse to serve the write endpoints when `HOST` is not loopback, unless explicitly opted in.
 
 ## Notes
 
