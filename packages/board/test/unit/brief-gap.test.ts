@@ -235,24 +235,33 @@ describe('needsBrief reads the field, and only where starting is the move', () =
   });
 
   it('fires on a startable row with no brief', () => {
-    expect(needsBrief(row({ brief: 'missing' }))).toBe(true);
+    // The STARTABILITY field tells the row it needs a brief. `brief: 'missing'`
+    // alone does not trigger the predicate — the server computes and sets
+    // `startability: 'needs-brief'` when the branch is otherwise startable but
+    // lacks its specification.
+    expect(needsBrief(row({ brief: 'missing', startability: 'needs-brief' }))).toBe(true);
   });
 
   it('stays silent on `unknown` — the board has nothing to tell the reader', () => {
-    expect(needsBrief(row({ brief: 'unknown' }))).toBe(false);
+    // `unknown` means nothing looked — not even the server knows — so no
+    // startability verdict can be derived. The row's startability stays null.
+    expect(needsBrief(row({ brief: 'unknown', startability: null }))).toBe(false);
   });
 
   it('stays silent on a blocked row, which has a wave to wait for first', () => {
-    expect(needsBrief(row({ brief: 'missing', waitingOn: 'time' }))).toBe(false);
+    // A blocked row's startability is null: starting is not the move at all.
+    expect(needsBrief(row({ brief: 'missing', waitingOn: 'time', startability: null }))).toBe(false);
   });
 
   it('stays silent on a row a person must act on for another reason', () => {
     // A Draft plan's branch, or a shelved one. The brief is not what is holding
     // it, and saying so would spend the reader's attention on the wrong gap.
-    expect(needsBrief(row({ brief: 'missing', waitingOn: 'you' }))).toBe(false);
+    // The startability is `waiting-on-approval`, not `needs-brief`.
+    expect(needsBrief(row({ brief: 'missing', waitingOn: 'you', startability: 'waiting-on-approval' }))).toBe(false);
   });
 
   it('stays silent once the branch has a ref', () => {
-    expect(needsBrief(row({ brief: 'missing', state: 'claimed' }))).toBe(false);
+    // A claimed branch's startability is `someone-is-on-it`, not `needs-brief`.
+    expect(needsBrief(row({ brief: 'missing', state: 'claimed', startability: 'someone-is-on-it' }))).toBe(false);
   });
 });

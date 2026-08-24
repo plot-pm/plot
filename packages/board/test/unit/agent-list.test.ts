@@ -1601,12 +1601,16 @@ describe('the activity mark is a track with a travelling dot', () => {
 });
 
 describe('isStartable — which NOT STARTED rows offer work', () => {
-  // A startable row: the FIELD says `click`, and the note is kept beside it
-  // because that is what the server sends — but nothing here reads it.
+  // A startable row: the FIELD says `click`, and `startability` was computed by
+  // the server as `start-work`. The note is kept beside it because that is what
+  // the server sends — but nothing here reads it.
   const notStarted = (over: Partial<AgentRow> = {}) =>
     row({
       group: 'not-started', state: 'open', ageMinutes: null,
-      waitingOn: 'click', note: ELIGIBLE_NOTE, ...over,
+      waitingOn: 'click', note: ELIGIBLE_NOTE,
+      // Default: startable. Tests override this for blocked/draft/deferred.
+      startability: 'start-work' as const,
+      ...over,
     });
 
   it('offers a branch no earlier wave blocks', () => {
@@ -1619,7 +1623,9 @@ describe('isStartable — which NOT STARTED rows offer work', () => {
     // would offer to skip the ordering waves exist to express, and
     // plot-dispatch.sh refuses that branch — so the board would be inviting an
     // action the tool declines.
-    expect(isStartable(notStarted({ waitingOn: 'time', note: 'blocked by Truth' }))).toBe(false);
+    //
+    // `startability: null` — blocked branches have no startability verdict.
+    expect(isStartable(notStarted({ waitingOn: 'time', note: 'blocked by Truth', startability: null }))).toBe(false);
   });
 
   it('reads the FIELD, and no wording of the note can change its answer', () => {
@@ -1632,18 +1638,19 @@ describe('isStartable — which NOT STARTED rows offer work', () => {
     // So the reason survives and the mechanism is inverted. The note is now
     // prose for humans and decides nothing: a row with the WRONG note is still
     // startable, and a row with the right note is not startable without the
-    // field. Those two are the assertion — a rule still reading the sentence
-    // passes neither.
-    expect(isStartable(notStarted({ waitingOn: 'click', note: 'anything at all' }))).toBe(true);
-    expect(isStartable(notStarted({ waitingOn: 'time', note: ELIGIBLE_NOTE }))).toBe(false);
-    expect(isStartable(notStarted({ waitingOn: null, note: ELIGIBLE_NOTE }))).toBe(false);
+    // `startability` field. Those two are the assertion — a rule still reading
+    // the sentence passes neither.
+    expect(isStartable(notStarted({ waitingOn: 'click', note: 'anything at all', startability: 'start-work' }))).toBe(true);
+    expect(isStartable(notStarted({ waitingOn: 'time', note: ELIGIBLE_NOTE, startability: null }))).toBe(false);
+    expect(isStartable(notStarted({ waitingOn: null, note: ELIGIBLE_NOTE, startability: null }))).toBe(false);
   });
 
   it('offers nothing on a row that already has a branch and a claim', () => {
     // Working and quiet rows are somebody's already. Offering to start one
     // invites exactly the double-dispatch fleet-sees-merged-branches prevents.
+    // Their `startability` is `someone-is-on-it` or `null`.
     for (const group of ['working', 'quiet', 'waiting-on-you', 'done'] as const) {
-      expect(isStartable(row({ group, state: 'open', note: ELIGIBLE_NOTE }))).toBe(false);
+      expect(isStartable(row({ group, state: 'open', note: ELIGIBLE_NOTE, startability: null }))).toBe(false);
     }
   });
 
@@ -1654,18 +1661,18 @@ describe('isStartable — which NOT STARTED rows offer work', () => {
     // one, so the button must not appear on either.
     //
     // It comes out right by CONSTRUCTION — a Draft plan's first wave is
-    // `waitingOn: 'you'`, and only `click` is startable, so there is no second
-    // rule to keep in step. Pinned anyway: worth failing loudly if someone
-    // later widens the predicate to "anything in not-started".
-    expect(isStartable(notStarted({ waitingOn: 'you', note: DRAFT_PLAN_NOTE }))).toBe(false);
+    // `waitingOn: 'you'`, and `startability: 'waiting-on-approval'`, so the row
+    // is not startable. Pinned anyway: worth failing loudly if someone
+    // later widens the predicate.
+    expect(isStartable(notStarted({ waitingOn: 'you', note: DRAFT_PLAN_NOTE, startability: 'waiting-on-approval' }))).toBe(false);
   });
 
   it('offers nothing on a deferred branch, whatever group it lands in', () => {
     // Deferred rows are `not-started` by group — nobody is working on them —
     // but the work was handed back deliberately, not left untaken. Starting it
     // is a decision about whether the branch is wanted at all, which is not
-    // what this button does.
-    expect(isStartable(row({ group: 'not-started', state: 'deferred', note: ELIGIBLE_NOTE })))
+    // what this button does. Their `startability` is `null`.
+    expect(isStartable(row({ group: 'not-started', state: 'deferred', note: ELIGIBLE_NOTE, startability: null })))
       .toBe(false);
   });
 });

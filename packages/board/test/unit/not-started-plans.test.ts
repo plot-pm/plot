@@ -28,6 +28,8 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   // what the server sends beside it.
   waitingOn: 'click' as const, note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
   localDirty: false, localLocked: false,
+  // Default: eligible, open branch with brief → startable.
+  startability: 'start-work' as const,
   ...over,
 });
 
@@ -158,7 +160,7 @@ describe('sortByWaiting — oldest plan first', () => {
     // exists to surface. The pairing that matters — the fresh plan here is the
     // ELIGIBLE one, so a startable-first sort would invert this.
     const groups = groupByPlan([
-      row({ plan: 'old-and-blocked', branch: 'a', waitingDays: 180, waitingOn: 'time', note: 'blocked by Truth' }),
+      row({ plan: 'old-and-blocked', branch: 'a', waitingDays: 180, waitingOn: 'time', note: 'blocked by Truth', startability: null }),
       row({ plan: 'fresh-and-eligible', branch: 'b', waitingDays: 1, note: ELIGIBLE_NOTE }),
     ]);
     expect(sortByWaiting(groups).map((g) => g.plan)).toEqual(['old-and-blocked', 'fresh-and-eligible']);
@@ -198,8 +200,8 @@ describe('waveSummaryFor — counted from the group\'s own rows', () => {
     // `groupByWave` enforces and the one the estate's five-branch wave needs.
     const group = groupOf(
       row({ plan: 'activity-shows-itself', wave: 'Shaped', branch: 'feature/activity-marker-glows', note: ELIGIBLE_NOTE }),
-      row({ plan: 'activity-shows-itself', wave: 'Marked', branch: 'feature/group-shows-inner-activity', waitingOn: 'time', note: 'blocked by Truth' }),
-      row({ plan: 'activity-shows-itself', wave: 'Moved', branch: 'feature/unpushed-work-shows-still', waitingOn: 'time', note: 'blocked by Truth' }),
+      row({ plan: 'activity-shows-itself', wave: 'Marked', branch: 'feature/group-shows-inner-activity', waitingOn: 'time', note: 'blocked by Truth', startability: null }),
+      row({ plan: 'activity-shows-itself', wave: 'Moved', branch: 'feature/unpushed-work-shows-still', waitingOn: 'time', note: 'blocked by Truth', startability: null }),
     );
     expect(waveSummaryFor(group)).toBe('3 waves, first eligible');
   });
@@ -208,8 +210,8 @@ describe('waveSummaryFor — counted from the group\'s own rows', () => {
     // The summary must not promise an action the row menu then refuses — it
     // reads `isStartable`, the same predicate the menu does.
     const group = groupOf(
-      row({ wave: 'Marked', branch: 'a', waitingOn: 'time', note: 'blocked by Truth' }),
-      row({ wave: 'Moved', branch: 'b', waitingOn: 'time', note: 'blocked by Truth' }),
+      row({ wave: 'Marked', branch: 'a', waitingOn: 'time', note: 'blocked by Truth', startability: null }),
+      row({ wave: 'Moved', branch: 'b', waitingOn: 'time', note: 'blocked by Truth', startability: null }),
     );
     expect(waveSummaryFor(group)).toBe('2 waves');
   });
@@ -301,7 +303,7 @@ describe('waveSummaryFor — reads the server Wave, not a re-grouping of rows', 
     // waiting on an earlier wave — so asking the wave counts one where re-grouping
     // the rows counts none. The two answers differ, and the wave's is right.
     const group = groupOf(
-      row({ plan: 'p', wave: 'Blocked', branch: 'b', state: 'wip', waitingOn: 'time', note: 'blocked by earlier wave' }),
+      row({ plan: 'p', wave: 'Blocked', branch: 'b', state: 'wip', waitingOn: 'time', note: 'blocked by earlier wave', startability: 'someone-is-on-it' }),
     );
     const waves = [wave({ plan: 'p', name: 'Blocked', verdict: 'blocked' })];
     expect(waveSummaryFor(group, waves)).toBe('1 wave');

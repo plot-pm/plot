@@ -1046,11 +1046,26 @@ describe('statusTone colours what a reader acts on', () => {
   const EMERALD = 'text-emerald-700 dark:text-emerald-500';
   const ROSE = 'text-rose-700 dark:text-rose-400';
 
-  it('tones `eligible` the same emerald as `green`', () => {
-    // An eligible wave is the single most actionable state on the board — it
-    // means *this can be started now*. It earns the good-news tone BECAUSE a
-    // person can act on it, and it takes the SAME class `green` returns: still
-    // two colours, not three — a word moves into a group that exists.
+  it('tones `start work` the same emerald as `green`', () => {
+    // A branch that can be started is the single most actionable state on the
+    // board — brief present, plan approved, wave eligible, nobody on it. It
+    // earns the good-news tone BECAUSE a person can act on it, and it takes the
+    // SAME class `green` returns: still two colours, not three — a word moves
+    // into a group that exists.
+    //
+    // `eligible` WAS HERE and is deliberately NOT any more. `eligible` answered
+    // *has every prior wave landed*, which was true on 26 rows and actionable on
+    // 5. `start work` answers *can I start this*, the question a reader asks.
+    expect(statusTone('start work')).toBe(EMERALD);
+    expect(statusTone('start work')).toBe(statusTone('green'));
+  });
+
+  it('tones `eligible` emerald for WAVE rows — the wave verdict is still green news', () => {
+    // `eligible` remains green for wave rows, which still display the wave
+    // verdict. Branch rows no longer display `eligible` — they display `start
+    // work` instead — but wave rows still show the wave-ordering verdict, and an
+    // eligible wave is green news: `an-eligible-wave-takes-the-actionable-tone`
+    // settled that.
     expect(statusTone('eligible')).toBe(EMERALD);
     expect(statusTone('eligible')).toBe(statusTone('green'));
   });

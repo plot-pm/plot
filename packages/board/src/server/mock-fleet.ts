@@ -41,7 +41,7 @@ function row(over: Partial<AgentRow> & Pick<AgentRow, 'kind'>): AgentRow {
     phase: null, group: 'waiting-on-you', ageMinutes: 60, note: '',
     branch: '', branchUrl: '', pr: null, waitingDays: null,
     localDirty: false, localLocked: false, localAhead: 0,
-    waitingOn: null, blockedBy: null, verdict: null, worker: 'none',
+    waitingOn: null, blockedBy: null, verdict: null, startability: null, worker: 'none',
     stuck: null, repair: null, processes: [],
     ...over,
   } as AgentRow;
@@ -62,6 +62,8 @@ export function mockFleet(): Fleet {
     // whole time and nothing could see it: `rowKind` returns only `release`,
     // `branch` or `pr` — never `plan` — so no real pulse has ever carried a
     // `kind: 'plan'` row. A mock is only worth what its fidelity is.
+    // `start-work` — the only row that can be started. Brief present, wave
+    // eligible, plan approved. The green row in NOT STARTED.
     row({
       kind: 'branch', group: 'not-started',
       plan: 'fleet-scan-asks-the-host',
@@ -72,6 +74,8 @@ export function mockFleet(): Fleet {
       branch: 'feature/the-scan-asks-once',
       branchUrl: 'https://example.invalid/tree/feature/the-scan-asks-once',
       verdict: 'eligible',
+      startability: 'start-work',
+      brief: 'present',
       note: 'approved — nobody has taken it',
     }),
     row({

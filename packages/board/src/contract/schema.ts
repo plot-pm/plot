@@ -917,6 +917,36 @@ export const WaveVerdictSchema = z.enum(['complete', 'eligible', 'blocked']);
 export type WaveVerdict = z.infer<typeof WaveVerdictSchema>;
 
 /**
+ * WHAT A ROW SAYS ABOUT WHETHER IT CAN BE STARTED — the four verdicts.
+ *
+ * Introduced by `the-row-says-whether-you-can-start-it`: measured on the live
+ * board, 26 rows said `eligible` and 5 could be started. `eligible` answers
+ * *has every prior wave landed*, a true answer to a question nobody asked. This
+ * answers *can I start this*, with four honest values:
+ *
+ *   `start-work`           the branch can be started now
+ *   `needs-brief`          `/plot-implement` must write a brief first
+ *   `waiting-on-approval`  the plan is Draft; approve it or leave it
+ *   `someone-is-on-it`     `wip` or `claimed` — not yours to start
+ *
+ * A MERGED branch carries no startability verdict — finished work is not
+ * someone working. `null` rather than a fifth value, since the question does
+ * not apply.
+ *
+ * Derived in `classify`, where the plan phase is in scope. `isStartable` reads
+ * the field rather than re-deriving it, so the row and the menu cannot disagree.
+ *
+ * THE SCAN KEEPS `eligible` and keeps meaning *every prior wave landed*: it is
+ * a correct measurement about waves, other components read it, and the fleet's
+ * ordering depends on it. What changes is that the ROW stops rendering a
+ * wave-ordering fact as though it were an instruction.
+ */
+export const StartabilityVerdictSchema = z.enum([
+  'start-work', 'needs-brief', 'waiting-on-approval', 'someone-is-on-it',
+]);
+export type StartabilityVerdict = z.infer<typeof StartabilityVerdictSchema>;
+
+/**
  * What the scan found out about a worker on a branch — `worker_state()`'s five
  * outcomes, plus the case where this machine has nowhere to look.
  *
@@ -2472,6 +2502,35 @@ export const AgentRowSchema = z.object({
    * and null renders as nothing — exactly as the board reads today.
    */
   verdict: WaveVerdictSchema.nullable().default(null),
+  /**
+   * WHETHER THIS ROW CAN BE STARTED — see `StartabilityVerdictSchema`.
+   *
+   * Computed in `classify`, where the plan phase is in scope. Four verdicts:
+   *
+   *   `start-work`           the branch can be started now
+   *   `needs-brief`          `/plot-implement` must write a brief first
+   *   `waiting-on-approval`  the plan is Draft; approve it or leave it
+   *   `someone-is-on-it`     `wip` or `claimed` — not yours to start
+   *
+   * NULL where the question does not apply: a MERGED branch has no startability
+   * verdict — finished work is not someone working — and a row outside
+   * `not-started` is already past the question. Also null where an older server
+   * never computed it, so the client defaults gracefully.
+   *
+   * THE ROW RENDERS THIS, NOT `eligible`. `eligible` answers *has every prior
+   * wave landed*, which is true on 26 rows and actionable on 5. This answers
+   * *can I start this*, and every value is either actionable or explicitly
+   * closes the question.
+   *
+   * `isStartable` READS THIS FIELD rather than re-deriving it, so the row and
+   * the menu cannot disagree — the promise/refusal mismatch this field exists
+   * to end.
+   *
+   * Defaults to null so a client talking to an older server still validates,
+   * and null renders NO startability word at all — not a fallback to `eligible`,
+   * which is the word this plan exists to remove.
+   */
+  startability: StartabilityVerdictSchema.nullable().default(null),
   /**
    * Why this branch cannot move, or null — a fact ADDED to the row, never a
    * replacement for one.

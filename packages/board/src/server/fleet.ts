@@ -24,6 +24,7 @@ import {
   type Phase,
   type PulseShrink,
   type RowKind,
+  type StartabilityVerdict,
   type StuckRun,
   type WaitingGroup,
   type WaitingOn,
@@ -2307,6 +2308,91 @@ export function waitingOnFor(
   // sprung once already.
   void planPhase;
   return 'click';
+}
+
+/**
+ * WHETHER THIS ROW CAN BE STARTED — the four verdicts, computed from the same
+ * facts `waitingOnFor` reads but answering a different question.
+ *
+ * `waitingOnFor` answers *what is this row waiting for* — a colour, visible on
+ * every row in NOT STARTED. This answers *can I start this*, a yes/no that
+ * earns a word only where the question applies: approved plans with eligible
+ * branches, and the three reasons such a branch cannot be taken.
+ *
+ * ## The four verdicts
+ *
+ *   `start-work`           brief present, wave eligible, plan approved
+ *   `needs-brief`          wave eligible, plan approved, no brief
+ *   `waiting-on-approval`  plan is Draft — approve it or leave it
+ *   `someone-is-on-it`     `wip` or `claimed` — not yours to start
+ *
+ * NULL where the question does not apply: a merged branch is finished work, a
+ * deferred branch was deliberately shelved, a blocked branch cannot advance
+ * until an earlier wave lands. The row renders no startability word for any of
+ * them, rather than a word that closes the question.
+ *
+ * ## Why the branch state gates the whole function
+ *
+ * `wip` and `claimed` are evidence SOMEBODY HAS IT. A claim is a pushed ref,
+ * checked atomically by `plot-dispatch.sh`; `wip` is uncommitted work on a
+ * previously-open branch. Both mean the branch is taken, whatever the plan
+ * phase says.
+ *
+ * `merged` is finished work. Finished work is not someone working, and
+ * startability does not apply — there is nothing to start.
+ *
+ * `deferred` was deliberately shelved. A shelved branch waits on a person who
+ * *un-shelves* it, which is a different act from *starts* it; `someone-is-on-it`
+ * would be the wrong answer and `start-work` would be a lie.
+ *
+ * `open` is the one state that can be started, and every guard after it refines
+ * that question.
+ *
+ * ## Why null is not a fifth verdict
+ *
+ * A verdict that says *this question is inapplicable* is indistinguishable from
+ * a value a server predating the field never computed. Both render the same:
+ * silence. But the null is not a DEFAULT — it is the honest answer for every
+ * row outside `not-started`, and for every merged, deferred or blocked branch
+ * inside it.
+ *
+ * @returns One of the four verdicts, or null where none applies.
+ */
+export function startabilityVerdict(
+  state: BranchState,
+  planPhase: string,
+  verdict: string,
+  brief: BriefState,
+): StartabilityVerdict | null {
+  // --- state gates the whole function ---
+  // `wip` and `claimed` mean someone has it. Merged is finished. Deferred was
+  // shelved. Only `open` can be started.
+  if (state === 'wip' || state === 'claimed') return 'someone-is-on-it';
+  if (state === 'merged' || state === 'deferred') return null;
+  // state === 'open' from here on.
+
+  // --- plan phase decides most of the answer ---
+  // A Draft plan is not yours to start — approve it or leave it.
+  if (planPhase === 'draft') return 'waiting-on-approval';
+
+  // --- wave ordering must be satisfied ---
+  // A branch blocked by an earlier wave cannot be started whatever the brief.
+  if (verdict !== 'eligible') return null;
+
+  // --- the brief is the final gate ---
+  // An eligible branch of an approved plan with no brief is not startable.
+  // `/plot-implement` writes the brief; `plot-dispatch.sh` refuses to start
+  // without one; and before this field existed, 9 rows read `eligible` on
+  // 2026-08-19 with zero briefs between them.
+  //
+  // `unknown` is treated as `present` — the board has nothing to tell the
+  // reader when it cannot determine whether the brief exists. A caller passing
+  // no root has not looked, and a pulse from an older server validates to
+  // `unknown` by default. Making that `needs-brief` would claim a gap nobody
+  // measured.
+  if (brief === 'missing') return 'needs-brief';
+
+  return 'start-work';
 }
 
 /**
@@ -4596,6 +4682,26 @@ export function rowsFromPulse(
           // whatever the branch is doing, and a merged branch of a still-open
           // wave is precisely the row that had no way to say so.
           verdict,
+          // WHETHER THIS ROW CAN BE STARTED — from the same facts `waitingOnFor`
+          // reads, and answering the question a reader asks: *can I start this*.
+          //
+          // Four verdicts: `start-work`, `needs-brief`, `waiting-on-approval`,
+          // `someone-is-on-it`. Null where the question does not apply — merged,
+          // deferred, or blocked by an earlier wave.
+          //
+          // THE ROW RENDERS THIS, NOT `eligible`. `eligible` answered a wave-
+          // ordering question; this answers an actionability question. Measured:
+          // 26 rows said `eligible` and 5 could be started. `isStartable` reads
+          // this field rather than re-deriving it, so the row and the menu cannot
+          // disagree.
+          //
+          // `brief` is computed a few lines above — the fact this field completes.
+          startability: startabilityVerdict(
+            b.state,
+            plan.phase,
+            wave.verdict,
+            repoRoot ? briefState(repoRoot, b.branch) : 'unknown',
+          ),
           // WHETHER IT CAN MOVE — a fact ADDED beside the group, never folded
           // into it. `classify` above answered what this branch IS; nothing it
           // can say means *this cannot advance without someone doing
@@ -4839,6 +4945,11 @@ export function rowsFromPulse(
       // about a wave, and putting it on the row would state that the ordering
       // of a plan that does not exist has been satisfied.
       verdict: null,
+      // NO PLAN, so no startability question — null, the same as `verdict`
+      // above and for the same reason. A planless row is a branch no plan
+      // names, so there is no approval to wait on, no brief to require, and no
+      // wave ordering to satisfy.
+      startability: null,
       // `elsewhere` — NOWHERE TO LOOK, which is the exact truth for this row
       // and not a stand-in for one. The worker pid lives in the worktree, and
       // this row was built from the PR map: the worktree scan never visited

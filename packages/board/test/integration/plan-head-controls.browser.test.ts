@@ -42,7 +42,10 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   wave: 'w1', state: 'wip', phase: 'Draft', group: 'waiting-on-you', ageMinutes: 30,
   waitingOn: 'you', note: 'plan not approved yet — still in review', pr: null,
   branchUrl: `${GH}/tree/feature/x`, waitingDays: null, verdict: 'eligible',
-  localDirty: false, localLocked: false, stuck: null, repair: null, ...over,
+  localDirty: false, localLocked: false, stuck: null, repair: null,
+  // Default: wip state under a Draft plan → waiting-on-approval.
+  startability: 'waiting-on-approval' as const,
+  ...over,
 });
 
 /**
@@ -60,7 +63,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     row({ branch: 'feature/beans-w1', wave: 'w1', waitingOn: 'you' }),
     // `beans`, wave 2 — BLOCKED by wave 1. Still WAITING ON YOU because the plan
     // is Draft, which is exactly the row a "re-gate on the section" fix re-arms.
-    row({ branch: 'feature/beans-w2', wave: 'w2', waitingOn: 'time', verdict: 'blocked' }),
+    row({ branch: 'feature/beans-w2', wave: 'w2', waitingOn: 'time', verdict: 'blocked', startability: null }),
     // `peas` — a Draft plan with two startable branches in one wave, so each
     // renders as its own row with its own `⋯` menu (a sole-branch wave folds its
     // menu onto the wave row). Its OWN menu keeps Start work and Open; it must
@@ -70,12 +73,14 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
       wave: 'w1', state: 'open', phase: 'Draft', group: 'not-started',
       waitingOn: 'click', ageMinutes: null, note: 'approved — nobody has taken it',
       branchUrl: `${GH}/tree/feature/peas-a`, verdict: 'eligible',
+      startability: 'start-work' as const,
     }),
     row({
       branch: 'feature/peas-b', plan: 'peas', planFile: 'p-peas.md',
       wave: 'w1', state: 'open', phase: 'Draft', group: 'not-started',
       waitingOn: 'click', ageMinutes: null, note: 'approved — nobody has taken it',
       branchUrl: `${GH}/tree/feature/peas-b`, verdict: 'eligible',
+      startability: 'start-work' as const,
     }),
   ];
   return {
