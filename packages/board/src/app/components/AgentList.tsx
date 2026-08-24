@@ -61,7 +61,7 @@ import { GROUPS, groupByPlan, planWaitingDays, rowsBySection, showPlanHeading, s
 import { shrinkNote } from '../lib/agent-rows/actions.js';
 import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, inMachineSection, issueNote, prNote } from '../lib/agent-rows/host-notes.js';
 import { isUnbegun, rowKey } from '../lib/agent-rows/row-identity.js';
-import { WAVE_LINKING_KINDS, groupByWave, isReviewable, waveLabel } from '../lib/agent-rows/waves.js';
+import { WAVE_LINKING_KINDS, groupByWave, waveLabel } from '../lib/agent-rows/waves.js';
 // THE ROW ESTATE, in three modules beside this one. `AgentList` is the shell:
 // it reads the fleet, decides the sections, and mounts the rows — the rows,
 // their marks and their menus are declared next door.
@@ -1478,10 +1478,6 @@ export function AgentList({
                               reslice={reslice}
                               pulse={pulse}
                               onStarting={onStarting}
-                              // WHAT THE COUNT MEANS, per section — the verdict
-                              // cannot say any of these, because it answers
-                              // *may this be started* and all three describe
-                              // waves that already were.
                               // THE COUNT ONLY WHERE THERE IS MORE THAN ONE.
                               // `1 to review` beside a single branch link states
                               // what that link already shows, and it would hide
@@ -1489,15 +1485,12 @@ export function AgentList({
                               // branch's own condition, which no verdict carries
                               // and no fold exists to reach.
                               groupedCount={wg.rows.length > 1 ? wg.rows.length : undefined}
-                              // THE WORD FOLLOWS THE BRANCHES, not the section:
-                              // WAITING ON YOU now holds waves waiting on a
-                              // MERGE (their branches have PRs) and waves waiting
-                              // on an APPROVAL (their plan is still in review),
-                              // and `to review` is false of the second.
-                              groupedWord={key === 'done' ? 'delivered'
-                                : key === 'quiet' ? 'stalled'
-                                  : wg.rows.some(isReviewable) ? 'to review'
-                                    : 'to approve'}
+                              // THE WORD IS THE WAVE'S VERDICT. A wave row states
+                              // what the scan says about it — `complete`, `eligible`,
+                              // `blocked` — not a section-chosen word that differs
+                              // from its siblings' verdicts. `delivered` stays a
+                              // branch row's word; a wave speaks for itself.
+                              groupedWord={wg.verdict ?? undefined}
                               soleRow={wg.rows.length > 1 ? undefined : wg.rows[0]}
                               continueWith={continueWith}
                               onOpenPlan={onOpenPlan}
