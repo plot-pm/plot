@@ -5041,27 +5041,38 @@ export function sprintMembership(opts: BuildBoardOptions): Map<string, string> {
 }
 
 /**
- * Each Active sprint with its target release and its four `status` counts — the
- * payload the Agents-tab sprint control renders. One entry per Active sprint,
- * because two teams may share one train and picking the newest would hide a
- * commitment; [] where none is Active.
+ * Each Active sprint with its target release and its three exhaustive counts —
+ * the payload the Agents-tab sprint control renders. One entry per Active
+ * sprint, because two teams may share one train and picking the newest would
+ * hide a commitment; [] where none is Active.
  *
  * The counts are a TALLY of `plan.status`, never a second computation of it:
  * {@link planStatusBySlug} returns each plan's status from the ONE `planStatus`
- * function, and this joins the sprint's member slugs against that map. A member
- * whose slug names no plan the board found, or whose status is not one of the
- * four the control shows, adds to nothing — correct on both sides: a renamed
- * plan is not a commitment the sprint can measure, and a `draft`/`open` member
- * is committed to but not yet in flight.
+ * function, and this joins the sprint's member slugs against that map.
+ *
+ * THREE BUCKETS, NOT SEVEN STATUS VALUES:
+ *
+ * | bucket | PlanStatus values |
+ * |---|---|
+ * | open | draft, open, approved |
+ * | wip | in-progress, deliverable |
+ * | done | delivered |
+ *
+ * Every member lands in exactly one bucket, and `total = open + wip + done`.
+ * The old four buckets could silently drop a Draft member (counted nowhere);
+ * these three cannot — the arithmetic fails visibly when a member falls through.
+ *
+ * `released` is counted in `done`: the work IS done, and a released member
+ * under an Active sprint is drift worth seeing in `plot-reconcile-scan.sh`
+ * section 9, not a case to absorb here.
  *
  * A DEFERRED member is not counted. Its slug sits under `### Deferred` in the
- * sprint file, which `parseSprintMembers` tags `tier: 'deferred'`; those are not
- * commitments, so a count that swallowed them would overstate the sprint. This
- * is the recommendation the plan's open question settled on.
+ * sprint file, which `parseSprintMembers` tags `tier: 'deferred'`; those are
+ * not commitments, so a count that swallowed them would overstate the sprint.
  *
  * Same source and clock as {@link sprintMembership} — one `docs/sprints/` read
- * plus one plan-meta parse per render, no host call — so a sprint file or a plan
- * edited between two scans shows on the next poll.
+ * plus one plan-meta parse per render, no host call — so a sprint file or a
+ * plan edited between two scans shows on the next poll.
  */
 export function activeSprints(opts: BuildBoardOptions, pulse: FleetPulse | null): FleetSprint[] {
   const sprintDir = readConfig(opts, 'Sprint directory', 'docs/sprints/');
@@ -5069,19 +5080,37 @@ export function activeSprints(opts: BuildBoardOptions, pulse: FleetPulse | null)
   if (active.length === 0) return [];
   const statusBySlug = planStatusBySlug(opts, pulse);
   return active.map((sprint) => {
-    const counts = { delivered: 0, deliverable: 0, inProgress: 0, approved: 0 };
+    const counts = { total: 0, open: 0, wip: 0, done: 0 };
     for (const member of sprint.members) {
       if (member.tier === 'deferred') continue;
-      switch (statusBySlug.get(member.slug)) {
-        case 'delivered': counts.delivered += 1; break;
-        case 'deliverable': counts.deliverable += 1; break;
-        case 'in-progress': counts.inProgress += 1; break;
-        case 'approved': counts.approved += 1; break;
-        // draft, open, released, an unknown slug: not one of the four the
-        // control shows, counted nowhere.
-        default: break;
+      const status = statusBySlug.get(member.slug);
+      switch (status) {
+        // Open: committed, not started
+        case 'draft':
+        case 'open':
+        case 'approved':
+          counts.open += 1;
+          break;
+        // WIP: started, not delivered
+        case 'in-progress':
+        case 'deliverable':
+          counts.wip += 1;
+          break;
+        // Done: delivered (or released, treated as done)
+        case 'delivered':
+        case 'released':
+          counts.done += 1;
+          break;
+        // Unknown slug (renamed/deleted plan): not counted. The member list
+        // still carries it, so it remains visible; the count does not claim
+        // progress on a plan that cannot be found.
+        default:
+          continue;
       }
+      counts.total += 1;
     }
+    // Invariant: total === open + wip + done. The plan requires this, and
+    // keeping it true by construction is simpler than asserting it.
     return { slug: sprint.slug, title: sprint.title, release: sprint.release, counts, members: sprint.members };
   });
 }

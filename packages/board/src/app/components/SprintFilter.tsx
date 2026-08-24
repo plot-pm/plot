@@ -3,31 +3,27 @@ import type { FleetSprint, SprintCounts } from '../../contract/schema.js';
 /**
  * The sprint filter control for the Agents tab.
  *
- * Shows one toggle per Active sprint, each with its target release and four
- * `status` counts: delivered, deliverable, in progress, approved. When no
- * sprint is Active the control is **disabled but visible**, showing unreleased
- * estate totals — a control that vanishes teaches a reader it does not exist.
+ * Shows one toggle per Active sprint, each with its target release and three
+ * exhaustive counts: open, WIP, done. When no sprint is Active the control is
+ * **disabled but visible**, showing estate totals — a control that vanishes
+ * teaches a reader it does not exist.
  *
  * ## What this wave implements
  *
- * - The control: toggle, the counts, the disabled-with-totals state
+ * - Three exhaustive buckets: open (not started), WIP (in progress), done
+ *   (delivered) — replacing the old four status buckets
+ * - A total that equals `open + wip + done` — the arithmetic that exposes gaps
  * - One row per active sprint, independently toggleable
- * - Plan-less rows always visible under the filter (the predicate is in
- *   AgentList, not here)
  * - The toggle is labelled "Sprint only" so readers know what it does
  * - The line reads "Sprint: <name>" to identify the kind of thing
- * - The release shows "target <version>" to clarify it's where the sprint
- *   is going, not where it has been
+ * - The release shows "target <version>" to clarify where the sprint is going
  *
  * ## Design decisions (from the plan)
  *
- * - The counts are the point, not decoration: `deliverable` is the actionable
- *   one — plans whose every wave has merged and whose delivery decision is
- *   outstanding
- * - It reads `plan.status`, it does not compute it — this plan must not derive
- *   its own counts
- * - Two sprints may be Active (two teams, one train): the control shows one
- *   row per active sprint, each independently toggleable
+ * - THREE BUCKETS answer the question "how much is left": open/WIP/done
+ * - Every member lands in exactly one bucket — the sum is the total
+ * - Draft members are counted (in "open"), unlike the old four buckets
+ * - It reads `plan.status`, it does not compute it — tallied server-side
  */
 
 interface SprintFilterProps {
@@ -38,8 +34,8 @@ interface SprintFilterProps {
   /** Toggle a sprint's filter state. */
   onToggle: (slug: string) => void;
   /**
-   * Estate-wide unreleased totals, for the disabled state when no sprint is
-   * Active. These are the same four counts, aggregated differently.
+   * Estate-wide totals, for the disabled state when no sprint is Active.
+   * These are the same three counts, aggregated over all plans.
    */
   estateTotals?: SprintCounts;
 }
@@ -47,22 +43,17 @@ interface SprintFilterProps {
 /**
  * Format a sprint's counts as a compact string.
  *
- * The counts are the point: `deliverable` is the actionable one — plans whose
- * every wave has merged and whose delivery decision is outstanding.
+ * The format is `<total> members · <open> open · <wip> WIP · <done> done`.
+ * All three bucket counts are shown, even when zero — the shape is the point,
+ * and hiding zeros would make the total harder to verify by eye.
  */
 function formatCounts(counts: SprintCounts): string {
-  const parts: string[] = [];
-  // Only show non-zero counts to keep it compact
-  if (counts.delivered > 0) parts.push(`${counts.delivered} delivered`);
-  if (counts.deliverable > 0) parts.push(`${counts.deliverable} deliverable`);
-  if (counts.inProgress > 0) parts.push(`${counts.inProgress} in progress`);
-  if (counts.approved > 0) parts.push(`${counts.approved} approved`);
-  return parts.join(' · ') || 'empty';
+  return `${counts.total} members · ${counts.open} open · ${counts.wip} WIP · ${counts.done} done`;
 }
 
 /**
  * The sprint filter for the Agents tab. One row per active sprint, each with
- * a toggle, release target, and status counts.
+ * a toggle, release target, and three exhaustive counts.
  */
 export function SprintFilter({ sprints, selected, onToggle, estateTotals }: SprintFilterProps) {
   // No active sprints: show disabled state with estate totals
@@ -84,7 +75,7 @@ export function SprintFilter({ sprints, selected, onToggle, estateTotals }: Spri
         </div>
         {estateTotals && (
           <div className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-            Unreleased: {formatCounts(estateTotals)}
+            Total — {formatCounts(estateTotals)}
           </div>
         )}
       </div>
