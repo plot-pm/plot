@@ -129,7 +129,7 @@ themselves. Nothing else asks about the fold, and nothing else should start.
 - slot 1 holds the wave's name in both renderings; `soleRow` keeps the status
   slot and loses the name
 
-### Spoken (Branch: bug/a-wave-row-speaks-its-own-verdict)
+### Spoken (Branch: bug/a-wave-row-speaks-its-own-verdict, PR: #394)
 - the verdict word comes from the wave, not from the section; `delivered` stays
   a branch row's word
 
