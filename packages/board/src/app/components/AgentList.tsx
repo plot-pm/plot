@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   type AgentRow,
   type Fleet,
@@ -29,6 +29,7 @@ function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents:
 import { AutoDispatchSwitch, ParallelAgentsStepper } from './FleetControls.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { SprintFilter } from './SprintFilter.js';
+import { slugPassesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
 // THE BOARD'S ONE AGE DIALECT, borrowed rather than reimplemented. A second
 // formatter would drift from this one the first time either changed — the same
 // reason `ageLabel` was split out of `age` so an issue row and a branch row
@@ -403,26 +404,51 @@ export function AgentList({
     });
   };
 
-  // THE FILTERED ROWS. A sprint filter hides rows whose plan is not in any
-  // selected sprint, but PLAN-LESS ROWS ALWAYS PASS — they have no sprint to
-  // filter by, and hiding them would erase the release row and any unplanned
-  // PR that happens to be open.
-  //
-  // Applied BEFORE `rowsBySection`: the filter is about WHICH plans a reader
-  // wants to see, and the sections are about WHERE those rows belong. Filtering
-  // after sectioning would have the same effect but re-filter per section.
-  const filteredRows = sprintFilter.size === 0
-    ? fleet.rows
-    : fleet.rows.filter((r) => r.sprint === '' || sprintFilter.has(r.sprint));
-
-  // THE FILTERED ISSUES. Like rows, issues stay visible when no filter applies.
-  // Issue rows have no sprint field, so they always pass.
-  const filteredIssues = fleet.issues;
-
   // The fleet's active sprints, guarded for payloads predating the field.
   // Zod's `.default([])` only fires at PARSE time; the client CASTS, so
   // `fleet.sprints` is `undefined` on an older server's payload.
   const activeSprints: FleetSprint[] = fleet.sprints ?? [];
+
+  // SPRINT MEMBERSHIP — a lookup from sprint slug to its member plan slugs.
+  //
+  // Built from `fleet.sprints`, the same array `board.sprints` carries. The
+  // plan "the-sprint-filter-says-what-it-filters" measured: the old filter on
+  // `r.sprint` admitted 53 plan rows with empty sprint fields beside the 2
+  // genuine plan-less rows (release, unplanned PR). This lookup joins on the
+  // sprint FILE's membership list, matching what Board.tsx and Swimlanes.tsx
+  // already do.
+  const membership = useMemo(
+    () => sprintMembershipLookup(activeSprints),
+    [activeSprints],
+  );
+
+  // THE FILTERED ROWS. A sprint filter hides rows whose plan is not a member
+  // of any selected sprint — joining on the sprint file's `- [ ] [slug]` list,
+  // not on the plan's `Sprint:` back-reference field.
+  //
+  // PLAN-LESS ROWS ALWAYS PASS. The exemption is by KIND, not by empty sprint:
+  //   - `kind: 'release'` — the release row (changeset-release/main)
+  //   - `kind: 'pr'` AND `row.plan === ''` — an unplanned PR
+  // The old filter `r.sprint === ''` admitted 53 plan rows (waves/branches
+  // whose sprint field was empty) alongside the 2 genuine plan-less rows.
+  //
+  // Applied BEFORE `rowsBySection`: the filter is about WHICH plans a reader
+  // wants to see, and the sections are about WHERE those rows belong. Filtering
+  // after sectioning would have the same effect but re-filter per section.
+  const selectedSprints = useMemo(() => [...sprintFilter], [sprintFilter]);
+  const filteredRows = sprintFilter.size === 0
+    ? fleet.rows
+    : fleet.rows.filter((r) => {
+      // EXEMPT: rows with no plan
+      if (r.kind === 'release') return true;
+      if (r.kind === 'pr' && r.plan === '') return true;
+      // FILTER: rows with a plan, by membership
+      return slugPassesSprintFilter(r.plan, selectedSprints, membership);
+    });
+
+  // THE FILTERED ISSUES. Like rows, issues stay visible when no filter applies.
+  // Issue rows have no sprint field, so they always pass.
+  const filteredIssues = fleet.issues;
 
   // Degrade, do not hide: before the first scan lands this says so rather than
   // showing an empty list, which would read as "no agents are working".
