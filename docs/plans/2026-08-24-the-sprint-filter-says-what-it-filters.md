@@ -90,9 +90,16 @@ to inference.
 |---|---|
 | **Open** | committed, not started — `Draft` and `Approved` with no branch in flight |
 | **WIP** | started, not delivered |
-| **Done** | delivered |
+| **Done** | delivered — every plan the board shows in **Testing** |
 
-**`Done` is `Delivered`, not `delivered or released`**, and the distinction is
+**`Done` is the Testing column.** That is the plainest statement of it: the
+board's Testing column is keyed on `delivered_raw` (`phaseDateOf`,
+`board.ts:580`), so *delivered* and *in Testing* are the same population under
+two names — the file format's and the board's. A reader comparing the control
+against the columns should find the same number in both places, and naming the
+column is what makes that checkable rather than coincidental.
+
+**It is not `delivered or released`**, and the distinction is
 the sprint's own lifecycle rather than a simplification. A sprint targets a
 release; while it is Active that release has not been cut, so **no member of an
 Active sprint can be `Released`**. Measured on this repo 2026-08-24: 21 members,
@@ -157,6 +164,10 @@ means.
 2. **The line reads `Sprint: <name>` and `target <version>`.**
 3. **The three counts sum to the member total**, asserted over this repo's
    sprint: `21 = 4 + 0 + 17`. This is the assertion the current shape fails.
+3b. **`Done` equals the sprint's plans in the board's Testing column.** Counted
+   both ways — through the bucket rule and by filtering the Testing column to
+   sprint members — and asserted equal, so the control and the columns cannot
+   drift into disagreeing about one population.
 4. **A Draft member is counted**, in `Open`. The four named above appear.
 4b. **No member of an Active sprint is `Released`** — asserted on this repo's
    sprint, where the phases are exactly `17 delivered, 4 draft`. The assertion
