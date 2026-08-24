@@ -288,10 +288,57 @@ one that will, and it leaves a file that is 8000 lines for no stated reason.
 - move the derivations into eight subject modules under `app/lib/agent-rows/`, docstrings intact, no re-exports, and update the 14 importing files
 
 
-### Rendered (Branch: infra/the-components-leave-the-shell, PR: #369)
-- move the 17 components into `rows.tsx`, `menus.tsx` and `marks.tsx`, whole components only, leaving `AgentList.tsx` as a ~1625-line shell; largest file in the package drops to ~1881
+### Rendered (Branch: infra/the-components-leave-the-shell)
+- move the components into `rows.tsx`, `menus.tsx` and `marks.tsx`, whole components only <!-- deferred: 2026-08-24 — #369 closed unmerged; re-cut deferred until no other PR touches AgentList.tsx. The extraction list is recorded in Notes. -->
 
 ## Notes
+
+### The `Rendered` wave is deferred, and this is its specification
+
+**#369 was closed unmerged on 2026-08-24.** Its conflict with main was a single
+2616-line hunk in which its own side was EMPTY — the code had moved to modules —
+while main's side was 2615 lines that main had since EXTENDED with `#371`
+(Implement/Dispatch on the plan row), `#374` (the derived plan status) and `#375`
+(the working count). Taking either side would have lost the other's work.
+
+The transform is mechanical, so re-cutting from main is the right shape — the
+same call `the-estate-speaks-waves` took. It is deferred rather than done because
+of what the re-cut costs against a moving file:
+
+- `AgentList.tsx` is **5743 lines** on main and grew three times on 2026-08-24
+  alone;
+- the 30 symbols are **interleaved, not contiguous** — `PlanLink` (1719) sits
+  between menu symbols at 1096 and 2186 — so this is 30 separate extractions
+  plus import rewiring, not three block moves;
+- every PR touching the file forces a resync, and each resync is a chance to
+  drop something silently. Two near-misses of exactly that kind happened on
+  2026-08-24: `#355`'s helpers were nearly lost to a `--theirs`, and `#366`'s
+  test came within one commit of shipping conflict markers.
+
+**Do it when nothing else is in flight against `AgentList.tsx`.**
+
+#### The extraction list, verified against main on 2026-08-24
+
+29 of these 30 exist on main today. The exception, `rowSubjectForMenu`, was a
+helper #369 factored out during the split; its logic is inline on main (the
+`states.includes('conflicts')` branch), so the re-cut may extract it or leave it.
+
+```
+marks.tsx   ActivityMark  UnpushedMark  ChangeMark  StuckCell  BlockedByMark
+
+menus.tsx   rowSubjectForMenu  offersOpen  openTarget  openLabel  showsWorkerLog
+            noActionReason  runLinkLabel  storyRefusal  menuState  BranchMenu
+            RowActions  WaveActions  ResliceMenu  PlanActions  IssueRowActions
+
+rows.tsx    isUnpushed  isReleaseBranch  rowSubject  inferredPlanName  PlanLink
+            HeaderRow  PlanRow  WaveRow  Row  IssueRowView
+```
+
+`#357` (the `Moved` wave) already took the file from 8104 to 5351 lines, so the
+bottleneck this plan set out to relieve is substantially relieved. This wave is
+the remainder, not the fix.
+
+### Origin
 
 Asked for 2026-08-23 as *"refactor AgentList.tsx to reduce the bottleneck"*,
 after a session in which the file blocked three dispatches and produced two
