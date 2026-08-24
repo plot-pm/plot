@@ -110,6 +110,16 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     ready: true,
     error: null,
     rows,
+    // WORKING renders from the registry since
+    // `the-working-section-shows-every-worker`, so the healthy WORKING row
+    // appears only where an agent names its branch.
+    agents: rows
+      .filter((r) => r.group === 'working')
+      .map((r) => ({
+        session: `s-${r.branch}`, branch: r.branch, worktree: `/wt/plot-wt-${r.branch}`,
+        command: '', startedAt: '', pid: '', previousPid: '', relaunches: 0,
+        state: 'running' as const,
+      })),
     summary: {
       plans: 1, waves: 1, branches: rows.length,
       claimed: 0, eligible: 0, blocked: 0, deferred: 0,
@@ -374,6 +384,12 @@ describe('a stuck branch says so in its row', () => {
         }),
       }),
     ];
+    // WORKING renders from the registry, so the new working row needs its agent
+    // too — the rows were reassigned after `fleet()` derived the original set.
+    green.agents = [{
+      session: 's-feature/green', branch: 'feature/green', worktree: '/wt/plot-wt-green',
+      command: '', startedAt: '', pid: '', previousPid: '', relaunches: 0, state: 'running',
+    }];
     const page = await open(green);
     try {
       const r = rowFor(page, 'feature/green');

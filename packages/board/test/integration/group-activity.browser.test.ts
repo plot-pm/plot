@@ -46,6 +46,17 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
 const fleet = (rows: AgentRow[]): Fleet => ({
   generatedAt: new Date().toISOString(),
   ageSeconds: 1, ready: true, error: null, rows,
+  // WORKING renders from the registry since
+  // `the-working-section-shows-every-worker`: a WORKING row appears only where
+  // an agent names its branch, so the group's own rows — and the pace mark its
+  // heading carries — come from these entries.
+  agents: rows
+    .filter((r) => r.group === 'working')
+    .map((r) => ({
+      session: `s-${r.branch}`, branch: r.branch, worktree: `/wt/plot-wt-${r.branch}`,
+      command: '', startedAt: '', pid: '', previousPid: '', relaunches: 0,
+      state: 'running' as const,
+    })),
   summary: {
     plans: 1, waves: 1, branches: rows.length,
     claimed: 0, eligible: 0, blocked: 0, deferred: 0,

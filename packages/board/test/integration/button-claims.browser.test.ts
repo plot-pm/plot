@@ -199,10 +199,21 @@ const statusRow = (over: Partial<AgentRow> = {}): AgentRow => ({
 });
 
 function statusFleet(): Fleet {
+  const rows = [statusRow()];
   return {
     repo: 'garden', main: 'main', generatedAt: new Date().toISOString(),
     ageSeconds: 1, ready: true, error: null,
-    rows: [statusRow()],
+    rows,
+    // WORKING renders from the registry since
+    // `the-working-section-shows-every-worker`, so the dispatched WORKING row
+    // appears only where an agent names its branch.
+    agents: rows
+      .filter((r) => r.group === 'working')
+      .map((r) => ({
+        session: `s-${r.branch}`, branch: r.branch, worktree: `/wt/plot-wt-${r.branch}`,
+        command: '', startedAt: '', pid: '', previousPid: '', relaunches: 0,
+        state: 'running' as const,
+      })),
     summary: { plans: 1, waves: 1, branches: 1, claimed: 1, eligible: 0, blocked: 0, deferred: 0 },
     prAgeSeconds: 74, prNextInSeconds: 46, scanNextInSeconds: 3, prError: null,
   } as unknown as Fleet;

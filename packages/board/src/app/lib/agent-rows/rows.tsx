@@ -2079,10 +2079,19 @@ export function RegistryRow({
     ? Math.floor((Date.now() - new Date(agent.lastActivity).getTime()) / 1000)
     : null;
   const idleText = idleSeconds !== null ? tupleAgeText(Math.floor(idleSeconds / 60)) : '';
-  const age = {
-    text: [sessionText, idleText && `idle ${idleText}`].filter(Boolean).join(' · '),
-    label: sessionText ? 'session' : '',
-  };
+  // THE SESSION CLOCKS WHERE THE REGISTRY HAS THEM, else the row's own age. An
+  // agent acts rather than changes, so its clocks are *how long has it run* and
+  // *how long silent* — but both are optional (a manifest with no `startedAt`,
+  // a transcript this board cannot read), and a blank age slot says less than
+  // the branch's commit age a joined row already carries. So the registry
+  // clocks REPLACE the row's age only when there is one to show; absent, the
+  // base tuple's age stands.
+  const sessionAge = sessionText
+    ? {
+        text: [sessionText, idleText && `idle ${idleText}`].filter(Boolean).join(' · '),
+        label: 'session',
+      }
+    : null;
 
   // THE NAME IS THE SESSION ID, shortened, with no href — the transcript is a
   // local file the ROW opens, not an address. Where the entry has no session
@@ -2094,11 +2103,16 @@ export function RegistryRow({
       ? { what: 'branch' as const, label: agent.branch, href: row?.branchUrl ?? '' }
       : { what: 'worktree' as const, label: worktreeName(agent.worktree), href: '' };
 
-  // THE JOINED SHAPE reuses the branch row's own projection, so the worker row
-  // carries its plan, wave and PR exactly as that row does; the UNJOINED shape
-  // states only the registry's facts — worktree then branch, narrowest first.
+  // THE JOINED SHAPE reuses the branch row's own projection, but as an AGENT:
+  // the WORKING row's subject is the worker, not the branch. `tupleFromRow`
+  // routes on `row.kind`, and a worker's branch row is `kind: 'branch'` (the
+  // server tags no row `agent` — this row is the first producer), so forcing
+  // the kind is what selects the agent arm: the session id as the name, and
+  // worktree → branch → wave → plan as the artifact links. Everything the branch
+  // knows still comes through the same projection; only the subject changes. The
+  // UNJOINED shape states only the registry's facts — worktree then branch.
   const base = row
-    ? tupleFromRow(row, agent)
+    ? tupleFromRow({ ...row, kind: 'agent' }, agent)
     : {
         kind: 'agent' as const,
         kindLabel: KIND_LABEL.agent,
@@ -2114,7 +2128,21 @@ export function RegistryRow({
         status: '',
         age: { text: '', label: '' },
       };
-  const tuple = { ...base, status, age };
+  // ABSENT IS NOT FALSE, applied to the wave. `tupleFromRow`'s agent arm carries
+  // `row.wave` straight through, so an UNNAMED wave — the absence of a division,
+  // which the server spells `(unnamed)` for a plan with no `### ` headings —
+  // would render a `(unnamed)` link beside the branch. A parenthesised non-answer
+  // is worse than nothing, the same rule `waveLabel` applies to a branch's wave
+  // badge, so it is dropped here rather than shown.
+  const links = base.links.filter((l) => !(l.what === 'wave' && l.label === UNNAMED_WAVE));
+  const tuple = { ...base, links, status, ...(sessionAge ? { age: sessionAge } : {}) };
+
+  // THE BRANCH'S NOTE, where a branch row carries one — *last commit 3 min ago*,
+  // *claimed, no known worker*. It is a sentence the status word cannot hold, and
+  // it is the channel that survives reduced motion and a screen reader; a worker
+  // with no branch row has none. The PR's own condition is dropped from it, the
+  // same `noteWithoutPr` the branch row applies.
+  const note = row ? noteWithoutPr(row.note, row.pr) : '';
 
   return (
     <>
@@ -2137,8 +2165,35 @@ export function RegistryRow({
               : agent.state === 'finished' ? 'success'
                 : undefined
         }
-        marks={active ? <ActivityMark pace="fast" inTrack /> : null}
+        // THE SAME MARKS THE BRANCH AGENT ROW DRAWS, and by the same rules — a
+        // travelling dot whose PACE reads the worktree (`activityPace`: fast
+        // while a lock is held or files are dirty, slow while a claimed worker
+        // only thinks), and the unpushed mark beside it where the branch holds
+        // commits its remote has not seen. Both read the JOINED row's local
+        // signals, so a worker with no branch row (nothing to observe locally)
+        // shows neither.
+        marks={
+          <>
+            {active && row && <ActivityMark pace={activityPace(row)} inTrack />}
+            {row && isUnpushed(row) && <UnpushedMark ahead={row.localAhead} inTrack />}
+          </>
+        }
         extra={marked ? <ChangeMark /> : null}
+        // THE BRANCH'S NOTE IN SLOT 4, the sentence a status word cannot say —
+        // the same placement and tone the branch row gives it. A worker with no
+        // branch row has no note, and the slot stays empty.
+        aside={
+          note ? (
+            <span
+              data-row-note
+              data-waiting-on={row?.waitingOn ?? undefined}
+              className={`min-w-0 truncate max-sm:whitespace-normal ${waitingTone(row?.waitingOn ?? null)}`}
+              title={note}
+            >
+              {note}
+            </span>
+          ) : null
+        }
         // THE MENU IS THE BRANCH'S, where a branch row exists to carry it: its
         // log, its dispatch, its reveal. A worker with no row has no branch
         // record to act on, so it offers none.

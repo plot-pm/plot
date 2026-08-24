@@ -57,6 +57,18 @@ const row =(over: Partial<AgentRow> = {}): AgentRow => ({
 const fleet = (rows: AgentRow[]): Fleet => ({
   generatedAt: new Date().toISOString(),
   ageSeconds: 1, ready: true, error: null, rows,
+  // WORKING renders from the registry since
+  // `the-working-section-shows-every-worker`, so a WORKING row — the one that
+  // carries the travelling mark — appears only where an agent names its branch.
+  // One entry per `working` branch; the mark's presence and pace still read the
+  // joined row's `worker` and local signals.
+  agents: rows
+    .filter((r) => r.group === 'working')
+    .map((r) => ({
+      session: `s-${r.branch}`, branch: r.branch, worktree: `/wt/plot-wt-${r.branch}`,
+      command: '', startedAt: '', pid: '', previousPid: '', relaunches: 0,
+      state: 'running' as const,
+    })),
   summary: {
     plans: 1, waves: 1, branches: rows.length,
     claimed: 0, eligible: 0, blocked: 0, deferred: 0,
@@ -71,25 +83,26 @@ const fleet = (rows: AgentRow[]): Fleet => ({
  * the columns in would move them on the marked row and not on the other, and a
  * single row cannot state that.
  *
- * `feature/idle` is deliberately OUTSIDE WORKING, and that is not incidental: a
- * WORKING row now carries the mark at the SLOW pace, so a WORKING row would not
- * be the "no mark at all" half this pair needs. Outside WORKING there is no
- * claim to be unobserved about, and no mark.
+ * Both rows sit in WORKING and render from the registry — the pair must be the
+ * SAME KIND for a geometry comparison to mean anything, and a WORKING row is an
+ * agent row now. `feature/writing` carries the mark (a live worker, dirty
+ * worktree → fast); `feature/idle` is the negative case, a worker whose process
+ * is gone (`stalled`, `worker: 'none'`) so `isActive` is false and it draws no
+ * mark. Same structure, one marked and one not, which is exactly what the "the
+ * mark costs the grid nothing" claim needs.
  *
- * `waiting-on-machine` and not `quiet`, which would be the more obvious choice:
- * QUIET and DONE are in `COLLAPSED_BY_DEFAULT`, so a row placed there renders
- * inside a folded section and every geometry assertion below waits forever for
- * a cell that is not on the page. That is not a hypothetical — it is a 30 s
- * timeout rather than a failed claim, which reads like a hang rather than a
- * fixture mistake.
+ * A WORKING row appears only where an agent names its branch; the fixture's
+ * `fleet()` derives one per working row, so both rows render. The MARK is gated
+ * on `row.worker` (a process), not on the agent's state, so `feature/idle` with
+ * `worker: 'none'` draws none while `feature/writing` does.
  */
 const PAIR = [
   row({ branch: 'feature/writing', localDirty: true, branchUrl: `${GH}feature/writing` }),
   // IDLE MEANS NO PROCESS, stated rather than inherited. The factory gives every
   // row a running worker because that is what this suite is about; this one row
-  // says otherwise, which is what makes it the negative case.
-  row({ branch: 'feature/idle', group: 'waiting-on-machine', worker: 'none',
-        branchUrl: `${GH}feature/idle` }),
+  // says otherwise, which is what makes it the negative case — a WORKING row
+  // whose worker is gone draws no travelling mark.
+  row({ branch: 'feature/idle', worker: 'none', branchUrl: `${GH}feature/idle` }),
 ];
 
 describe('the activity mark glows, and travels without arriving', () => {
@@ -392,14 +405,19 @@ describe('the activity mark glows, and travels without arriving', () => {
     const xOf = async (branch: string, selector: string) =>
       (await rectOf(rowFor(page, branch).locator(selector).first())).x;
 
-    // `[data-kind]` is slot 2's hook — it read `[data-phase]` until the plan
-    // phase moved to the plan heading. The CLAIM is unchanged: the column does
-    // not shift when a row wears an activity mark. Only the anchor's name moved,
-    // and it had to, because slot 2 no longer holds a phase to anchor on.
-    for (const selector of ['[data-kind]', '[data-branch]']) {
-      const writing = await xOf('feature/writing', selector);
-      const idle = await xOf('feature/idle', selector);
-      expect(Math.abs(writing - idle), `${selector} moved`).toBeLessThan(1);
+    // THE TRACKS ARE THE GRIDCELLS, and the claim is measured on them. `[data-kind]`
+    // is slot 2's hook and a real track; the branch is measured on its CELL, the
+    // fourth `[role="gridcell"]` (the "Related" track), not on the `[data-branch]`
+    // link inside it — a WORKING row renders from the registry now, so the branch
+    // is an artifact link whose x flexes with the worktree link beside it, while
+    // the track that holds them starts at the same x on every row. What the mark
+    // must not do is move the tracks, and it does not.
+    const cellX = async (branch: string, n: number) =>
+      (await rectOf(rowFor(page, branch).locator('[role="gridcell"]').nth(n))).x;
+    for (const [label, n] of [['kind', 1], ['related', 3]] as const) {
+      const writing = await cellX('feature/writing', n);
+      const idle = await cellX('feature/idle', n);
+      expect(Math.abs(writing - idle), `${label} track moved`).toBeLessThan(1);
     }
     // And the row really is on six tracks — otherwise the equality above could
     // hold for a layout that is not the grid this is about.
