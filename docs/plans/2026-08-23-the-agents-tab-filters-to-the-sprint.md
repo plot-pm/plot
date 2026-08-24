@@ -376,7 +376,7 @@ reloads) is a browser-storage concern and explicitly optional.
 - `AgentRow` gains `sprint`, set in the server where the row is created by joining `planFile` to that member list; rows with no plan, and plans no sprint lists, carry `''`. No client change, no filtering yet
 
 
-### Counted (Branch: feature/the-fleet-knows-its-sprints)
+### Counted (Branch: feature/the-fleet-knows-its-sprints, PR: #379)
 - the fleet payload carries each Active sprint with its target release and its four `status` counts, aggregated server-side from `plan.status`
 
 
