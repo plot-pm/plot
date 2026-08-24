@@ -209,9 +209,16 @@ without making either correct: the count would still be computed over a
 different set from the rows. The fix is one derivation, not two agreeing
 definitions.
 
-### The cap is not a limit on what is shown
+### The cap is not a limit on what is SHOWN
 
 `parallelAgents` bounds auto-dispatch and has never bounded a hand-dispatched
 worker. An operator who starts six workers under a cap of three has done
 something deliberate; a board that hid the sixth would be lying about the fleet
 to defend a setting.
+
+Whether the cap should GATE a start is a separate question, answered by
+[`a-worker-asks-for-the-next-wave`](2026-08-24-a-worker-asks-for-the-next-wave.md):
+auto-dispatch refuses at the cap, a manual dispatch warns, proceeds, and raises
+the cap to the count that resulted. That plan changes what may START; this one
+changes only what is DISPLAYED, and the two do not overlap — a worker that
+started is shown here whatever gate let it through.
