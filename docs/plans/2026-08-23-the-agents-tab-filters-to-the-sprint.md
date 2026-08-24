@@ -16,6 +16,7 @@
 - **Started:** 2026-08-23, Jan Wloka, `feature/the-fleet-row-carries-its-sprint`
 - **Started:** 2026-08-24, Jan Wloka, `feature/the-fleet-knows-its-sprints`
 - **Started:** 2026-08-24, Jan Wloka, `feature/the-sweep-reports-sprint-drift`
+- **Started:** 2026-08-24, Jan Wloka, `feature/the-sprint-file-names-its-members`
 
 ## Approval
 
