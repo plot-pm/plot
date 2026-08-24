@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:** <!-- optional -->
 - **Issue:** <!-- optional -->
@@ -19,6 +19,7 @@
 - **Started:** 2026-08-24, Jan Wloka, `feature/the-sprint-file-names-its-members`
 - **Started:** 2026-08-24, Jan Wloka, `feature/the-agents-tab-filters-to-the-sprint`
 - **Started:** 2026-08-24, Jan Wloka, `feature/the-board-filter-reads-the-sprint-file`
+- **Delivered:** 2026-08-24
 
 ## Approval
 
