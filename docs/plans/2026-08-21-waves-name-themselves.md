@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** infra
 - **Story:** plot-planning-model
 - **Review:** pr
@@ -16,6 +16,7 @@
 - **Started:** 2026-08-22, Jan Wloka, `infra/the-parser-reads-a-wave-heading`
 - **Started:** 2026-08-22, Jan Wloka, `infra/the-template-writes-waves`
 - **Started:** 2026-08-23, Jan Wloka, `infra/the-parser-reads-a-wave-heading`
+- **Delivered:** 2026-08-24
 
 ## Changelog
 
@@ -199,10 +200,10 @@ performing.
   the new shape. Tests: a plan created by `/plot-idea` carries `## Waves`; its
   wave heading names branch and PR; `plot-plan-meta.sh` parses what was just
   written; the template's guidance says a wave heading is required and why; no
-  skill still instructs a writer to put the branch in the list line.
+  skill still instructs a writer to put the branch in the list line. → #330
 
 ### Migrated
-- `infra/the-estate-speaks-waves` — all 85 plans convert in one move. 62 have
+- `infra/the-estate-speaks-waves` <!-- deferred: 2026-08-24 — the estate is converted; a re-run of this branch's own script changes zero files. See Notes. --> — all 85 plans convert in one move. 62 have
   named waves and convert mechanically; the 23 with none take a derived name,
   defensible because all 23 are Released or Delivered, so no live work is given
   an invented name. `## Branches` keeps PARSING and stops being WRITTEN: a repo
@@ -221,6 +222,36 @@ performing.
   > proposing the removal.
 
 ## Notes
+
+### The `Migrated` wave was satisfied without its branch — 2026-08-24
+
+**The estate is converted.** Measured on main: **94 plans carry `## Waves`, 26
+still carry `## Branches`.** Those 26 are not stragglers — the migration script
+refuses every one of them for a stated structural reason, and the reason is the
+format's own rule: a `## Waves` heading holds ONE branch, and each of these has
+a wave holding several. Converting them would change the plan's wave structure,
+which is a different decision from changing its spelling.
+
+**Verified by re-running the branch's own script**, not by inspection. Its
+`scripts/migrate-branches-to-waves.sh` was taken onto current main and run
+across all 117 plans: **zero files changed.** Every plan it could convert was
+already converted, by the waves that landed either side of it.
+
+**So the branch has nothing left to do.** Its PR (#363) is closed and its
+worker crashed on an API error; neither matters, because a re-run produces no
+diff. Re-opening it would rebase 87 stale plan files over plans that have moved
+on since — the shape that reverts sibling work.
+
+The wave is marked `deferred` rather than deleted, and deferred rather than
+complete: the estate reached the state the wave describes, but this branch is
+not what took it there, and a plan that claimed otherwise would be recording a
+merge that never happened.
+
+**What remains, and it is not this wave's:** the 26 multi-branch plans need
+their waves SLICED before they can carry the new spelling — that is
+`/plot-reslice`'s subject, and `plot-reconcile-scan.sh` section 7 already counts
+them (`unsliced_waves=24` at last measurement). A plan for that would be about
+wave structure, not about a format.
 
 Raised while reading `/plan/2026-08-20-every-section-has-one-subject.md` on the
 board, where the three waves appear as the 18th, 19th and 20th headings on the
