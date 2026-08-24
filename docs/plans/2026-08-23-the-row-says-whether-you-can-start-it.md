@@ -354,7 +354,7 @@ One site, one traversal, one answer.
      that survived were the ones whose collisions were known before they
      started, not the ones that discovered them at merge time. -->
 
-### Answered (Branch: bug/the-row-says-whether-you-can-start-it)
+### Answered (Branch: bug/the-row-says-whether-you-can-start-it, PR: #382)
 - slot 5 carries startability derived from phase, state and verdict; `eligible` stays on the payload and stops being what a row displays
 
 ## Notes

@@ -173,7 +173,7 @@ hygiene, so the write buys nothing the fix does not already give.
 ## Waves
 
 
-### Counted (Branch: bug/the-board-says-how-many-workers-are-free)
+### Counted (Branch: bug/the-board-says-how-many-workers-are-free, PR: #375)
 - liveness takes two facts, the server publishes `working`, the stepper renders it, and the registry stops being committed
 
 ## Notes
