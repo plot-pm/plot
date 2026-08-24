@@ -531,6 +531,106 @@ print_summary() { # $1=dispatched $2=reused $3=skipped $4=started
   echo "summary: dispatched=$1 reused=$2 skipped=$3 started=$4 brief=missing worker=$worker"
 }
 
+# ---------------------------------------------------------------------------
+# Parallel-agents cap: warn and raise when exceeded
+# ---------------------------------------------------------------------------
+#
+# THE CAP GATES AUTO-DISPATCH AND WARNS A PERSON (a-worker-asks-for-the-next-wave,
+# "Counted" wave). maybeAutoDispatch REFUSES at the cap; plot-dispatch.sh WARNS
+# and PROCEEDS. An operator running `/plot-dispatch` has asked for something
+# specific; refusing them to defend a setting they can change is the wrong
+# direction. But proceeding past a cap must not leave the cap behind: a stored
+# `3` beside six running workers is a number the board itself knows to be false.
+# So exceeding the cap UPDATES it.
+#
+# LIVE STATES occupy a slot: `running` and `waiting`. This matches LIVE_STATES
+# in auto-dispatch.ts — the two must agree, or the cap means different things
+# to different readers.
+FLEET_CONTROLS_FILE="$repo_root/.plot/state/fleet-controls.json"
+
+# Read the current parallel-agents cap from the fleet controls file.
+# Returns the default (3) if the file does not exist or cannot be parsed.
+read_parallel_agents_cap() {
+  if [ ! -f "$FLEET_CONTROLS_FILE" ]; then
+    echo 3
+    return
+  fi
+  # A simple extraction: the file is {"autoDispatch":..., "parallelAgents": N}
+  local cap
+  cap=$(sed -n 's/.*"parallelAgents"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' "$FLEET_CONTROLS_FILE" | head -1)
+  [ -n "$cap" ] && echo "$cap" || echo 3
+}
+
+# Count workers in live states (running or waiting) across all fleet worktrees.
+# These are the slots that count against the cap.
+count_live_workers() {
+  local n=0 wt br st
+  for wt in "$wt_root"/plot-wt-*; do
+    [ -d "$wt" ] || continue
+    br=$(git -C "$wt" branch --show-current 2>/dev/null || echo "?")
+    st=$(worker_state "$wt" "$br")
+    case "$st" in
+      running*|waiting*) n=$((n + 1)) ;;
+    esac
+  done
+  echo "$n"
+}
+
+# Get the branches currently occupying slots (for the warning message).
+live_worker_branches() {
+  local wt br st
+  for wt in "$wt_root"/plot-wt-*; do
+    [ -d "$wt" ] || continue
+    br=$(git -C "$wt" branch --show-current 2>/dev/null || echo "?")
+    st=$(worker_state "$wt" "$br")
+    case "$st" in
+      running*|waiting*) echo "$br" ;;
+    esac
+  done
+}
+
+# Update the parallel-agents cap in the fleet controls file.
+# Creates the file (and directory) if needed, preserving autoDispatch if present.
+update_parallel_agents_cap() { # $1 = new cap
+  local new_cap="$1"
+  local auto_dispatch="false"
+
+  mkdir -p "$(dirname "$FLEET_CONTROLS_FILE")" 2>/dev/null || true
+
+  if [ -f "$FLEET_CONTROLS_FILE" ]; then
+    # Preserve the existing autoDispatch setting
+    local existing
+    existing=$(sed -n 's/.*"autoDispatch"[[:space:]]*:[[:space:]]*\(true\|false\).*/\1/p' "$FLEET_CONTROLS_FILE" | head -1)
+    [ -n "$existing" ] && auto_dispatch="$existing"
+  fi
+
+  # Write atomically through a temp file, the same discipline as writeFleetControls
+  local tmp="${FLEET_CONTROLS_FILE}.$$-dispatch.tmp"
+  printf '{"autoDispatch":%s,"parallelAgents":%d}' "$auto_dispatch" "$new_cap" > "$tmp"
+  mv "$tmp" "$FLEET_CONTROLS_FILE"
+}
+
+# Check if the dispatch exceeded the cap; if so, warn and raise it.
+# Called AFTER the dispatch, with the count of newly started workers.
+check_and_update_cap() { # $1 = n_started this run
+  local n_started="$1"
+  [ "$n_started" -gt 0 ] || return 0
+
+  local cap live_before live_after
+  cap=$(read_parallel_agents_cap)
+  # Count AFTER starting — the workers we just started are now live
+  live_after=$(count_live_workers)
+
+  if [ "$live_after" -gt "$cap" ]; then
+    local branches
+    branches=$(live_worker_branches | paste -sd', ' -)
+    echo "WARNING: dispatch exceeded parallel-agents cap ($cap → $live_after)"
+    echo "  Slots now held by: $branches"
+    echo "  Raising cap to $live_after so auto-dispatch sees the true count"
+    update_parallel_agents_cap "$live_after"
+  fi
+}
+
 # Branches CLAIMED by this run, for the `Started:` record. Only newly claimed
 # ones: a reused worktree was dispatched by an earlier run, which booked it.
 declare -a claimed_now=()
@@ -1392,5 +1492,11 @@ done
 # the plan claiming starts the run did not achieve. Its failure is reported and
 # then ignored: the summary below reports what was dispatched either way.
 book_started ${claimed_now[@]+"${claimed_now[@]}"} || true
+
+# Check if we exceeded the cap and raise it if so — see "THE CAP GATES
+# AUTO-DISPATCH AND WARNS A PERSON" above. Done AFTER workers are started so
+# the count reflects the true state, and BEFORE the summary so the warning
+# appears before the footer.
+check_and_update_cap "$n_started"
 
 print_summary "$n_dispatched" "$n_reused" "$n_skipped" "$n_started"
