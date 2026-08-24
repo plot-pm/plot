@@ -88,6 +88,33 @@ An ungrouped wave in WORKING is a wave row **without a plan head above it** —
 which is exactly what a wave row already does when its plan head is absent
 (`planHeaded` is a prop, not an assumption).
 
+### The columns a wave row holds, in order
+
+The tuple grid already declares seven tracks
+(`TUPLE_TRACKS`, `TupleRow.tsx:88`), and both renderings share it. What differs
+today is only which facts are put in which slot. A wave row fills them like
+this, in every section:
+
+| slot | holds |
+|---|---|
+| 1 | the activity mark |
+| 2 | the kind — **`WAVE`** |
+| 3 | the wave icon and **the wave's name** |
+| 4 | the branch and plan links, together |
+| 5 | the status |
+| 6 | the age |
+| 7 | the row menu |
+
+Slot 3 is the whole of the defect: in WORKING the branch is there instead, and
+the wave's name is demoted to a badge in slot 4's neighbourhood. Slot 4 already
+holds *"what the wave contains"* (`tuple-row.ts:1151`) — the branch belongs
+there, beside the plan link, not in front of the name.
+
+The order is what makes a row RECOGNISABLE: a reader scanning slot 3 down the
+page reads wave names in NOT STARTED and branch names in WORKING, and has to
+re-orient at every section boundary. One order, and the eye stops re-learning
+the grid.
+
 ### What WORKING keeps
 
 The agent facts that make it WORKING: the worker note (`worker running (pid …)`),
@@ -119,9 +146,14 @@ fallback, not the design: the wrapper is how every other section already works.
 
 ## Done when
 
-1. **A wave in WORKING renders with the wave's name in slot 1.** Asserted by
-   name on this repo's estate — `Named`, `Anchored`, `Carried` — not by absence
-   of the branch name.
+1. **A wave in WORKING fills the slots in the same order as one in NOT
+   STARTED**: `WAVE` in slot 2, the wave icon and the wave's name in slot 3, the
+   branch and plan links together in slot 4, status, age, menu. Asserted
+   slot-by-slot against a NOT STARTED row, not by looking for a string
+   somewhere on the line.
+1b. **The wave's name is asserted BY NAME** on this repo's estate — `Named`,
+   `Anchored`, `Carried` — since a test for *"not the branch name"* passes on an
+   empty slot.
 2. **WORKING still orders by agent and does not group by plan.** No plan heads
    appear in it. This is the property the section scope exists for and the one a
    naive fix breaks.
