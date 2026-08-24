@@ -167,8 +167,14 @@ describe('a group heading carries the activity of the rows behind it', () => {
     // `=== false`, not `!expanded`: the prop is `boolean | null` and null means
     // *this plan has no fold*. A head with nothing to hide hides nothing, so
     // its branch is right there flashing and the head must stay quiet.
+    //
+    // Read from `lib/agent-rows/rows.tsx`, which is where `PlanRow` lives since
+    // `the-components-leave-the-shell` split the row estate out of the shell. A
+    // scan of `AgentList.tsx` would now match nothing and fail loudly, which is
+    // the benign direction — but the fact being asserted is about the plan
+    // HEAD, so it follows the component that renders one.
     const source = readFileSync(
-      new URL('../../src/app/components/AgentList.tsx', import.meta.url), 'utf8');
+      new URL('../../src/app/lib/agent-rows/rows.tsx', import.meta.url), 'utf8');
     expect(source).toContain('marked && expanded === false ? <ChangeMark /> : null');
   });
 

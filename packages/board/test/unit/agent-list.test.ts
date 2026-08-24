@@ -991,8 +991,12 @@ describe('a process is marked in EVERY section, and writing is not a process', (
 });
 
 describe('the activity marker leaves the other marks alone', () => {
+  // THE MARKS' OWN MODULE. All four lived in `AgentList.tsx` until
+  // `the-components-leave-the-shell` moved them out; the scan follows them,
+  // because a path that no longer holds the marks is a scan that matches
+  // nothing and passes forever.
   const source = readFileSync(
-    new URL('../../src/app/components/AgentList.tsx', import.meta.url), 'utf8');
+    new URL('../../src/app/lib/agent-rows/marks.tsx', import.meta.url), 'utf8');
 
   it('keeps isLive reading the GROUP, exactly as before', () => {
     // The dot means *in the WORKING group* and lives for hours; the activity
@@ -1254,8 +1258,11 @@ describe('groupPace — the heading states the strongest pace its rows state', (
  * assert one mark's geometry against another's.
  */
 describe('the activity mark is a track with a travelling dot', () => {
+  // THE MARKS' OWN MODULE — see the note on the describe above. The four marks
+  // the docstring discusses are now `lib/agent-rows/marks.tsx`, and the
+  // confusion this helper guards against is between them, wherever they live.
   const source = readFileSync(
-    new URL('../../src/app/components/AgentList.tsx', import.meta.url), 'utf8');
+    new URL('../../src/app/lib/agent-rows/marks.tsx', import.meta.url), 'utf8');
 
   /**
    * The `className` string of the JSX element carrying `data-<hook>`.
@@ -1270,7 +1277,7 @@ describe('the activity mark is a track with a travelling dot', () => {
    */
   function classesOf(hook: string): string {
     const at = source.search(new RegExp(`^\\s*data-${hook}\\s*$`, 'm'));
-    expect(at, `no data-${hook} JSX attribute in AgentList.tsx`).toBeGreaterThan(-1);
+    expect(at, `no data-${hook} JSX attribute in marks.tsx`).toBeGreaterThan(-1);
     const after = source.slice(at);
     // BOTH forms, and the second is not a nicety. The activity dot picks its
     // travel utility from the pace, so its class list is a TEMPLATE literal —
@@ -1308,7 +1315,7 @@ describe('the activity mark is a track with a travelling dot', () => {
    */
   function placementsOf(name: string): string[] {
     const table = new RegExp(`const ${name} = \\{([\\s\\S]*?)\\n\\} as const;`).exec(source);
-    expect(table, `no ${name} table in AgentList.tsx`).not.toBeNull();
+    expect(table, `no ${name} table in marks.tsx`).not.toBeNull();
     const out = [...table![1].matchAll(/^\s{2}\w+: '([^']*)',$/gm)].map((m) => m[1]);
     expect(out.length, `no placements parsed out of ${name}`).toBeGreaterThan(1);
     return out;
@@ -2737,8 +2744,19 @@ describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
     // exist* and an import of a deleted binding is a compile error rather than
     // a test failure — which reports the right fact in the wrong place, and
     // only for as long as nobody adds it back under another name.
-    const src = readFileSync(
-      new URL('../../src/app/components/AgentList.tsx', import.meta.url), 'utf8');
+    //
+    // THE WHOLE ROW ESTATE, not one file of it. The adapters left
+    // `AgentList.tsx` when `the-components-leave-the-shell` split the estate
+    // into three modules, and a scan of the shell alone would report no second
+    // grid because it can no longer see the components that would carry one.
+    const src = [
+      'components/AgentList.tsx',
+      'lib/agent-rows/rows.tsx',
+      'lib/agent-rows/menus.tsx',
+      'lib/agent-rows/marks.tsx',
+    ]
+      .map((f) => readFileSync(new URL(`../../src/app/${f}`, import.meta.url), 'utf8'))
+      .join('\n');
     // COMMENTS STRIPPED, and the distinction is the whole reason this is worth
     // anything. Both adapters DISCUSS the grids they replaced — `PlanRow`'s
     // docstring records the reversal at length, because *a plan row is not a
@@ -2802,9 +2820,22 @@ describe("a row's actions all live in its menu", () => {
    * nothing at all.* The gate follows the components, not the file they were in
    * when it was written.
    */
-  const FILES = ['AgentList.tsx', 'TupleRow.tsx'] as const;
+  const FILES = [
+    'components/AgentList.tsx',
+    'components/TupleRow.tsx',
+    // THE THREE MODULES THE ROW ESTATE MOVED INTO, and the same lesson a second
+    // time. `the-components-leave-the-shell` took every row, mark and menu out
+    // of `AgentList.tsx` and left the shell behind — so a scan naming only the
+    // two files above would find `Row`, `PlanRow` and `IssueRowView` in
+    // neither, and `declaration` would fail rather than silently pass. Listing
+    // them here is the gate following the components, which is what the note
+    // above says it does.
+    'lib/agent-rows/rows.tsx',
+    'lib/agent-rows/menus.tsx',
+    'lib/agent-rows/marks.tsx',
+  ] as const;
   const sources = FILES.map((f) =>
-    readFileSync(new URL(`../../src/app/components/${f}`, import.meta.url), 'utf8'));
+    readFileSync(new URL(`../../src/app/${f}`, import.meta.url), 'utf8'));
   /** Kept for the assertions that ask about `AgentList.tsx` in particular. */
   const source = sources[0];
 
