@@ -14,6 +14,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-24, Jan Wloka, in-session
 - **Started:** 2026-08-24, Jan Wloka, `feature/the-fleet-carries-the-sprints-members`
+- **Started:** 2026-08-24, Jan Wloka, `bug/the-agents-tab-filters-on-membership`
 
 ## Changelog
 
