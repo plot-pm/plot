@@ -189,7 +189,7 @@ is what stops the worker disappearing when it does.
 
 ## Waves
 
-### Shown (Branch: bug/the-working-section-renders-the-registry)
+### Shown (Branch: bug/the-working-section-renders-the-registry, PR: #398)
 - WORKING renders one row per registry entry, joined to a branch row where one
   exists and standing alone where none does; all five states appear and the row
   states which
