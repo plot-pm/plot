@@ -200,6 +200,18 @@ Teaching the scan the same four words would be more coherent and is not done: it
 is consumed by the board, dispatch and the fleet, so it is a far larger change
 than a board wording fix.
 
+### The way back is a revert, and deliberately not a switch
+
+Unlike the scan's rate-limit fix, this carries no runtime cost and no
+wrong-state risk: the worst outcome is a word a reader dislikes. Nothing
+silently miscounts, no budget drains, no wave fails to complete.
+
+A `PLOT_ROW_VERDICT=0` escape was considered and rejected. It would be a second
+code path to test on every change, and — the deciding reason — it would keep
+`eligible` alive in the tree as a supported rendering. **This plan exists to
+remove that word**; a flag that preserves it concedes the point while appearing
+to hedge.
+
 ### Not chosen: keep `eligible` and add a note beside it
 
 Considered and rejected 2026-08-23. The note would carry the actionable half
@@ -298,6 +310,16 @@ One site, one traversal, one answer.
   that table would get wrong.
 - **`wip` and `claimed` produce the SAME word.** Asserted with both states in one
   test, so a later change that splits them has to say why.
+- **A `start work` row is coloured and the others are not.** Asserted on the
+  rendered class, and paired with an assertion that `waiting on approval`,
+  `needs a brief` and `someone is on it` keep the ordinary colour — a tone
+  applied to all four would mean nothing, which is what `waitingTone`'s rule was
+  protecting against.
+- **`waitingTone`'s docstring no longer claims `click` gets no colour.** Its
+  reasoning is overridden by this plan, and a rule that reads as current after
+  being overridden is how the next reader reverts the change. Asserted by
+  reading the comment, which is the one assertion here a test cannot make — so
+  it belongs in review.
 - **The verdict is computed in `classify` and travels with `group`.** Asserted by
   construction: a row's verdict and its group come from one call, so no fixture
   can produce a row that says `start work` while sitting in `waiting-on-you`.
@@ -316,6 +338,14 @@ One site, one traversal, one answer.
 
 ## Waves
 
+
+<!-- COLLIDES WITH `the-fleet-knows-its-sprints`, in flight 2026-08-24 on
+     `schema.ts` and `fleet.ts` — the two files this branch must also edit
+     (`classify` lives in fleet.ts, the contract field in schema.ts).
+     DISPATCH AFTER that wave merges. Tonight produced four artifact
+     re-conflicts and one 2616-line hunk that ended a refactor; the branches
+     that survived were the ones whose collisions were known before they
+     started, not the ones that discovered them at merge time. -->
 
 ### Answered (Branch: bug/the-row-says-whether-you-can-start-it)
 - slot 5 carries startability derived from phase, state and verdict; `eligible` stays on the payload and stops being what a row displays
@@ -336,18 +366,12 @@ slot that reads as a verdict.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 4,
+  "round": 5,
   "questionHistory": [
-    {"q": "Round 1 (recorded earlier)", "a": "see plan body", "category": "technical"},
-    {"q": "The plan never mentions the brief, but needsBrief ships", "a": "A fourth verdict `needs a brief`", "category": "domain"},
-    {"q": "isStartable already answers 'can I start this' client-side", "a": "The menu reads the new verdict", "category": "technical"},
-    {"q": "Prove against fixtures or the live estate?", "a": "Fixtures, one per verdict, plus exhaustiveness", "category": "nonFunctional"},
-    {"q": "What renders when the verdict is absent?", "a": "Nothing - a fallback to `eligible` keeps the removed word alive", "category": "nonFunctional"},
-    {"q": "Where is the brief checked - 79 stat calls per pulse?", "a": "Read the row's existing `brief` field", "category": "nonFunctional"},
-    {"q": "Should the scan and dispatch agree with the row?", "a": "Assert they stay in step; change neither", "category": "tradeOffs"},
-    {"q": "`someone is on it` covers wip, claimed AND merged - is that right?", "a": "Split merged out (finished work is not someone working); wip and claimed share one word", "category": "domain"},
-    {"q": "Should a Draft plan's row offer Approve?", "a": "The row points, the plan head acts - and it names TWO routes: Create PR (the default, Review: pr) and Approve (the shortcut)", "category": "ux"},
-    {"q": "Where is the verdict computed?", "a": "In classify, joining the triple it already returns - one site, one traversal, consistent with group", "category": "technical"}
+    {"q": "Rounds 1-4 (recorded above)", "a": "see plan body", "category": "technical"},
+    {"q": "waitingTone gives `click` no colour, but the wave rule colours what is actionable - which applies to `start work`?", "a": "OVERRIDE waitingTone: colour it, matching an-eligible-wave-takes-the-actionable-tone. The cost (section and colour agree in NOT STARTED) is stated, and waitingTone's comment must be updated rather than left standing", "category": "ux"},
+    {"q": "A worker is editing schema.ts and fleet.ts right now - the same files this branch needs", "a": "Record the collision as a scope guard on the wave; dispatch after that wave merges", "category": "tradeOffs"},
+    {"q": "How is this rolled back?", "a": "Revert. No switch - a flag would keep `eligible` alive as a supported rendering, which is the word the plan exists to remove", "category": "technical"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
