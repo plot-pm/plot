@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
 import { startServer, expandAgentFolds } from '../helpers.mjs';
-import { ELIGIBLE_NOTE, type AgentRow, type Fleet } from '../../src/contract/schema.js';
+import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type Wave } from '../../src/contract/schema.js';
 
 /**
  * The Agents tab, driven in a REAL browser against the shipped artifact.
@@ -1167,6 +1167,78 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         .toBe('Blocked by wave Truth — show it');
       expect(await menu(page, 'feature/blocked').count()).toBe(0);
       expect(await li.getByRole('button', { name: 'Start work' }).count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('reveals a blocker that has completed into a COLLAPSED section', async () => {
+    // THE BUG THIS FIXES. The blocking wave is usually finished — so it sits in
+    // DONE, which is folded by default for every reader on every load. A folded
+    // section is REMOVED from the tree, so `[data-wave-row="Shaped"]` matched
+    // nothing and `if (!target) return` fired: the ⓘ was a dead control.
+    //
+    // DONE IS LEFT FOLDED HERE ON PURPOSE. A test that opens it first passes
+    // against the broken code and proves nothing — the row is only unreachable
+    // while the section is shut, which is exactly the reader's state on arrival.
+    // The mark must OPEN that one section before it can find its target.
+    //
+    // The payload carries `waves`, and each wave's `section` is what says where
+    // its row will land: `Shaped` is `done` (its branch merged), `Moved` is
+    // `not-started` (still blocked). That is what the mark reads to know which
+    // section to unfold.
+    const blockerPlan = 'cross-section';
+    const crossSection = (): Fleet => {
+      const rows: AgentRow[] = [
+        // The BLOCKER, merged — so its wave completes into DONE, folded away.
+        row({
+          branch: 'feature/cs-shaped', plan: blockerPlan,
+          planFile: '2026-08-23-cross-section.md', wave: 'Shaped',
+          group: 'done', state: 'merged', ageMinutes: 300, note: 'merged',
+          branchUrl: '',
+        }),
+        // The BLOCKED wave, still not started and held back BY the merged one —
+        // a different section entirely, which is the whole point.
+        row({
+          branch: 'feature/cs-moved', plan: blockerPlan,
+          planFile: '2026-08-23-cross-section.md', wave: 'Moved',
+          group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+          waitingOn: 'time' as const, verdict: 'blocked', blockedBy: 'Shaped',
+          branchUrl: `${GH}feature/cs-moved`, waitingDays: 3,
+        }),
+      ];
+      const waves: Wave[] = [
+        {
+          plan: blockerPlan, name: 'Shaped', branches: ['feature/cs-shaped'],
+          verdict: 'complete', section: 'done', complete: true, planWaveCount: 2,
+        },
+        {
+          plan: blockerPlan, name: 'Moved', branches: ['feature/cs-moved'],
+          verdict: 'blocked', section: 'not-started', complete: false, planWaveCount: 2,
+        },
+      ];
+      return { ...fleet({ rows }), waves };
+    };
+
+    const page = await openAgents(crossSection());
+    try {
+      // DONE is folded on arrival, so its rows are NOT in the document — the
+      // exact state that used to silence the mark.
+      await expect.poll(() => groupRows(page, 'Done').count()).toBe(0);
+      expect(await group(page, 'Done').locator('[data-wave-row="Shaped"]').count()).toBe(0);
+
+      // Click the ⓘ on the blocked `Moved` wave, in NOT STARTED.
+      const mark = group(page, 'Not started').locator('[data-wave-blocked-by="Shaped"]');
+      await expect.poll(() => mark.count()).toBeGreaterThan(0);
+      await mark.first().click();
+
+      // The mark opened DONE and the blocker's row is now on the page — the
+      // reveal that was silently impossible before.
+      const target = group(page, 'Done').locator('[data-wave-row="Shaped"]');
+      await expect.poll(() => target.count()).toBeGreaterThan(0);
+      // And it FLASHED, the same amber ring the mark already used for a sibling.
+      await expect.poll(() => target.first().getAttribute('class'))
+        .toContain('ring-amber-400');
     } finally {
       await page.close();
     }
