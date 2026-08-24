@@ -3,16 +3,16 @@
 # Usage: plot-reconcile-scan.sh [--no-fetch] [--no-pr] [--offline]
 #   --no-fetch  skip `git fetch`   --no-pr  skip git-host pr list
 #   --offline   both (no network)  — used by the ambient /plot hygiene line
-# Output: eight-section text report on stdout (each finding carries its exact
+# Output: ten-section text report on stdout (each finding carries its exact
 #         remediating command as copy-paste text — nothing is executed),
 #         terminated by a machine-countable summary line:
-#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 unsliced_waves=0 prose_wave_names=0 index_drift=0 pr_source=gh main=main
+#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 index_drift=0 pr_source=gh main=main
 #         Consumers that only need counts (the /plot dispatcher's hygiene
 #         line, /plot-reconcile's Automation Output) read that one line.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
 #
 # Reads the repo's plan files, symlink indexes, and git/git-host ref state and
-# emits an eight-section report. This is the COMPUTATIONAL half of the
+# emits a ten-section report. This is the COMPUTATIONAL half of the
 # reconciliation loop: mechanical, reproducible enumeration. The INFERENTIAL
 # half — deciding which drift to fix, which branch is truly stale, whether a
 # plan is ready to deliver — is the human's, guided by the /plot-reconcile
@@ -57,7 +57,14 @@
 #                                 the `attention` count for the same reason. The
 #                                 threshold is the parser's (LONG_WAVE_NAME_MAX);
 #                                 this only surfaces the `long_wave_names` field
-#   9. Index drift              — CONVENIENCE level: a plan with no symlink, or
+#   9. Sprint drift             — a plan whose `Sprint:` field disagrees with
+#                                 the sprint file listing it, or is empty while
+#                                 a sprint lists it; also a sprint member whose
+#                                 slug names no plan. ACTIONABLE BUT NON-BLOCKING
+#                                 — someone edits the plan or sprint — so it sits
+#                                 with the unsliced and prose sections and is kept
+#                                 out of the `attention` count for the same reason
+#  10. Index drift              — CONVENIENCE level: a plan with no symlink, or
 #                                 a phase-less file in the plan directory.
 #                                 Since #254 the phase grouping is derived from
 #                                 plan content, so nothing depends on these;
@@ -283,11 +290,11 @@ echo
 # Parse ALL plans once (single parser invocation, single awk pass), then
 # flatten to delimited rows:
 #   file | phase | phase_raw | phase_alt | phase_alt_raw
-#        | branches(space-joined) | prs(comma-joined)
+#        | branches(space-joined) | prs(comma-joined) | type | sprint
 # joined by the ASCII unit separator (0x1f) — NOT tab: tab is IFS whitespace,
 # so bash `read` collapses runs of it and empty fields (phase_alt_raw is
 # usually empty) would shift every later field left. A non-whitespace IFS
-# preserves empty fields. Sections 1, 2, 4, and 5 all read from these rows —
+# preserves empty fields. Sections 1, 2, 4, 5, and 9 all read from these rows —
 # no re-parsing.
 # ---------------------------------------------------------------------------
 
@@ -305,7 +312,7 @@ if [ -f "${1:-}" ]; then
   plan_rows=$(printf '%s\n' "$plan_json" \
     | jq -r '[.file, .phase, .phase_raw, .phase_alt, .phase_alt_raw,
               (.branches | join(" ")), (.prs | map(tostring) | join(",")),
-              (.type // "")] | join("\u001f")')
+              (.type // ""), (.sprint // "")] | join("\u001f")')
 fi
 
 # Branches (space-joined) recorded for a plan file, from the parsed rows.
@@ -423,7 +430,7 @@ symlinked_from() { # $1=index_dir $2=dated_basename
 }
 
 n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0; n_unrel=0
-n_unsliced=0; n_prose=0; n_idx=0
+n_unsliced=0; n_prose=0; n_sprint_drift=0; n_idx=0
 
 # ---------------------------------------------------------------------------
 # 1. Phase <-> symlink drift  (plot-managed plans only)
@@ -948,7 +955,7 @@ if [ -n "$plan_json" ]; then
     prose_out+="  $base — wave name '$wname' reads as prose, not a label (rename it)\n"
     # The repair is a human editing the plan: a wave heading shortened to a label.
     # Not a `fix:` command a shell can run — naming is judgement — so the verb is
-    # `rename:`, exactly as section 7's is `reslice:` and section 9's is `optional:`.
+    # `rename:`, exactly as section 7's is `reslice:` and section 10's is `optional:`.
     prose_out+="    rename: shorten the wave heading in prose ${slug%.md} (full name kept on hover)\n"
     n_prose=$((n_prose + 1))
   done < <(printf '%s\n' "$plan_json" \
@@ -959,7 +966,112 @@ if [ -n "$prose_out" ]; then printf '%b' "$prose_out"; else echo "  (none — ev
 echo
 
 # ---------------------------------------------------------------------------
-# 9. Index drift (convenience level)
+# 9. Sprint drift
+#
+# A plan whose `Sprint:` field disagrees with the sprint file listing it, or is
+# empty while a sprint lists it; also a sprint member whose slug names no plan.
+# ACTIONABLE BUT NON-BLOCKING — someone edits the plan or sprint — so it sits
+# with the unsliced and prose sections and is kept out of the `attention` count.
+#
+# WHY THIS MATTERS: The plan's `Sprint:` field is a back-reference, not the
+# source of truth; membership comes from the sprint file's `- [ ] [slug]` list.
+# A filter joining on `plan.Sprint` would show 5 of 19 plans and silently hide
+# the rest — including the sprint's largest Must Haves. This section reports the
+# disagreement so it can be fixed, while the filter always works correctly.
+#
+# THE SPRINT FILE IS THE TRUTH. When a plan's `Sprint:` disagrees, the plan's
+# field is what needs editing, not the sprint file's membership. The one
+# exception — a sprint member naming no plan — is the sprint file's fault and
+# is reported separately.
+#
+# IT DOES NOT GATE, and that is deliberate: /plot-deliver's delivery-landed gate
+# and the /plot hygiene line both read `attention=` from the footer. A cosmetic
+# finding there would fail every delivery. So it carries its own footer counter
+# (`sprint_drift=`), exactly as unsliced waves and prose names do.
+echo "== 9. Sprint drift (plan Sprint: field disagrees with sprint file) =="
+sprint_drift_out=""
+SPRINT_DIR=$(cfg "Sprint directory" "docs/sprints/"); SPRINT_DIR="${SPRINT_DIR%/}"
+
+# Build a newline-delimited list of "slug<TAB>sprint" from plan_rows.
+# Uses plan_rows which has: file|phase|...|type|sprint (sprint is field 9).
+# The slug is derived from the file basename, same as elsewhere.
+plan_sprint_map=""
+while IFS="$US" read -r f _st _raw _alt _alt_raw _branches _prs _ptype psprint; do
+  [ -n "$f" ] || continue
+  base=$(basename "$f" .md)
+  # `2026-08-23-the-foo` → `the-foo`
+  pslug=$(printf '%s' "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
+  plan_sprint_map="$plan_sprint_map$pslug"$'\t'"$psprint"$'\n'
+done <<< "$plan_rows"
+
+# Lookup a plan's sprint field from the map.
+# $1 = slug; prints the sprint field value (may be empty)
+# Returns 0 if found, 1 if not found.
+lookup_plan_sprint() {
+  local result
+  result=$(printf '%s' "$plan_sprint_map" | awk -F'\t' -v s="$1" '$1 == s { print $2; exit }')
+  if printf '%s' "$plan_sprint_map" | grep -q "^$1"$'\t'; then
+    printf '%s' "$result"
+    return 0
+  fi
+  return 1
+}
+
+# Parse each sprint file and check its members. Walk ALL sprint files (not just
+# active/) because a closed sprint's membership is still subject to drift.
+if [ -d "$SPRINT_DIR" ]; then
+  for sf in "$SPRINT_DIR"/[0-9]*.md; do
+    [ -f "$sf" ] || continue
+    # Extract sprint slug from filename: `2026-W35-the-board-tells-the-truth` → `the-board-tells-the-truth`
+    sf_base=$(basename "$sf" .md)
+    sprint_slug=$(printf '%s' "$sf_base" | sed -E 's/^[0-9]{4}-W?[0-9]{2}(-[0-9]{2})?-//')
+    # Track which slugs we've seen in THIS sprint file — a plan sliced across
+    # waves lists its slug once per wave, but we only report drift once.
+    seen_in_sprint=""
+    # Parse member lines: `- [ ] [slug]` or `- [x] [slug]` — same regex as board.ts
+    while IFS= read -r line; do
+      # Match `- [ ] [slug]` or `- [x] [slug]` lines, extract the slug
+      if [[ "$line" =~ ^-\ \[\ \|x\]\ \[([^\]]+)\] ]]; then
+        member_slug="${BASH_REMATCH[1]}"
+      elif [[ "$line" =~ ^-\ \[(\ |x)\]\ \[([^\]]+)\] ]]; then
+        member_slug="${BASH_REMATCH[2]}"
+      else
+        continue
+      fi
+      # Dedupe: a plan with multiple waves appears multiple times in the file,
+      # but we only report drift once per slug per sprint.
+      case "$seen_in_sprint" in
+        *"$member_slug"*) continue ;;
+      esac
+      seen_in_sprint="$seen_in_sprint$member_slug"$'\n'
+
+      # Does this slug name a plan we know about?
+      if ! plan_field=$(lookup_plan_sprint "$member_slug"); then
+        sprint_drift_out+="  $sf_base → [$member_slug] — sprint member names no plan\n"
+        sprint_drift_out+="    inspect: is the slug a typo, or has the plan been renamed/deleted?\n"
+        n_sprint_drift=$((n_sprint_drift + 1))
+        continue
+      fi
+
+      # Does the plan's Sprint: field match this sprint's slug?
+      if [ -z "$plan_field" ]; then
+        sprint_drift_out+="  $member_slug — listed by sprint '$sprint_slug' but plan has no Sprint: field\n"
+        sprint_drift_out+="    backfill: add \`Sprint: $sprint_slug\` to the plan's ## Status section\n"
+        n_sprint_drift=$((n_sprint_drift + 1))
+      elif [ "$plan_field" != "$sprint_slug" ]; then
+        sprint_drift_out+="  $member_slug — listed by sprint '$sprint_slug' but plan Sprint: says '$plan_field'\n"
+        sprint_drift_out+="    fix: update the plan's Sprint: field to '$sprint_slug', or remove it from the sprint file\n"
+        n_sprint_drift=$((n_sprint_drift + 1))
+      fi
+    done < "$sf"
+  done
+fi
+
+if [ -n "$sprint_drift_out" ]; then printf '%b' "$sprint_drift_out"; else echo "  (none — every sprint member's plan agrees)"; fi
+echo
+
+# ---------------------------------------------------------------------------
+# 10. Index drift (convenience level)
 #
 # A SEPARATE SECTION rather than a softer line inside section 5, because
 # section 5's count is load-bearing: /plot-deliver's delivery-landed gate and
@@ -972,10 +1084,10 @@ echo
 # derived phase grouping (#254) already sees these plans, so the only thing
 # missing is the browsing convenience, and the printed command is `optional:`
 # for that reason — section 1's are `fix:`.
-echo "== 9. Index drift (convenience — nothing depends on these) =="
+echo "== 10. Index drift (convenience — nothing depends on these) =="
 if [ -n "$index_out" ]; then printf '%b' "$index_out"; else echo "  (none — the convenience indexes match the plans)"; fi
 echo
 
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel unsliced_waves=$n_unsliced prose_wave_names=$n_prose index_drift=$n_idx pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel unsliced_waves=$n_unsliced prose_wave_names=$n_prose sprint_drift=$n_sprint_drift index_drift=$n_idx pr_source=$PR_SOURCE main=$MAIN"
 exit 0
