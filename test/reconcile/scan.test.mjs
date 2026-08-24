@@ -184,28 +184,28 @@ test('scan: section 4 shows divergence for the active plan branch', () => {
   assert.match(report, /bug\/gamma — 1 ahead \/ 0 behind origin\/main/);
 });
 
-test('scan: section 9 reports an unlinked plan at convenience level, not as attention', () => {
+test('scan: section 10 reports an unlinked plan at convenience level, not as attention', () => {
   // Since #254 the phase grouping is derived from plan content, so an unlinked
   // plan is fully visible and the old "(orphaned)" verdict expired. It stays
   // listed — the symlink is still a browsing convenience — but as `optional:`
-  // in index drift (section 9 since the unsliced-wave and prose-name sections
-  // took 7 and 8), and it must not appear in section 5.
+  // in index drift (section 10 since the unsliced-wave, prose-name, and sprint-drift
+  // sections took 7, 8 and 9), and it must not appear in section 5.
   const sections = splitSections(report);
-  assert.match(sections['9'], /2026-01-05-omega\.md — phase 'Approved', no symlink in plans\/active\/ or plans\/delivered\/ \(browsing only\)/);
-  assert.match(sections['9'], /optional: ln -s \.\.\/2026-01-05-omega\.md plans\/active\/omega\.md/);
+  assert.match(sections['10'], /2026-01-05-omega\.md — phase 'Approved', no symlink in plans\/active\/ or plans\/delivered\/ \(browsing only\)/);
+  assert.match(sections['10'], /optional: ln -s \.\.\/2026-01-05-omega\.md plans\/active\/omega\.md/);
   assert.doesNotMatch(sections['5'], /2026-01-05-omega\.md/);
   // The word that expired must be gone from the whole report for this plan.
   assert.doesNotMatch(report, /2026-01-05-omega\.md[^\n]*orphaned/);
 });
 
-test('scan: section 9 calls a phase-less file a non-plan, agreeing with plot-fleet-scan.sh', () => {
+test('scan: section 10 calls a phase-less file a non-plan, agreeing with plot-fleet-scan.sh', () => {
   // #254 decided a file whose phase parses as NONE is not a plan. This script
   // used to call the same file a plan needing attention; that split is closed
   // in #254's direction, and the file stays visible at convenience level
-  // (index drift, section 9 since the unsliced-wave and prose-name sections
-  // took 7 and 8).
+  // (index drift, section 10 since the unsliced-wave, prose-name, and sprint-drift
+  // sections took 7, 8 and 9).
   const sections = splitSections(report);
-  assert.match(sections['9'], /2026-01-04-legacy\.md — no phase field → not a plan/);
+  assert.match(sections['10'], /2026-01-04-legacy\.md — no phase field → not a plan/);
   assert.doesNotMatch(sections['5'], /2026-01-04-legacy\.md/);
 });
 
@@ -215,7 +215,7 @@ test('scan: section 5 still flags a DANGLING index symlink as attention', () => 
   // repoint or remove is a judgment the script cannot make.
   const sections = splitSections(report);
   assert.match(sections['5'], /plans\/active\/vanished\.md — symlink target missing: \.\.\/2026-01-99-vanished\.md \(dangling index link\)/);
-  assert.doesNotMatch(sections['9'], /vanished\.md/);
+  assert.doesNotMatch(sections['10'], /vanished\.md/);
 });
 
 test('scan: section 1 flags a Superseded plan still symlinked in active/ (terminal drift)', () => {
@@ -223,10 +223,10 @@ test('scan: section 1 flags a Superseded plan still symlinked in active/ (termin
   assert.match(report, /fix: git rm plans\/active\/sigma\.md && ln -s \.\.\/2026-01-06-sigma\.md plans\/delivered\/sigma\.md && git add -A/);
 });
 
-test('scan: section 9 routes an unlinked Superseded plan to delivered/, not active/', () => {
+test('scan: section 10 routes an unlinked Superseded plan to delivered/, not active/', () => {
   const sections = splitSections(report);
-  assert.match(sections['9'], /2026-01-07-tau\.md — phase 'Superseded', no symlink/);
-  assert.match(sections['9'], /optional: ln -s \.\.\/2026-01-07-tau\.md plans\/delivered\/tau\.md/);
+  assert.match(sections['10'], /2026-01-07-tau\.md — phase 'Superseded', no symlink/);
+  assert.match(sections['10'], /optional: ln -s \.\.\/2026-01-07-tau\.md plans\/delivered\/tau\.md/);
   // Guard against regression to the old wrong default (active/) — issue #33.
   assert.doesNotMatch(report, /ln -s \.\.\/2026-01-07-tau\.md plans\/active\/tau\.md/);
 });
@@ -255,9 +255,10 @@ test('scan: summary footer carries machine-countable finding counts', () => {
   // per wave, so that section is silent and contributes a zero counter.
   // prose_wave_names: 0 — every wave name in this fixture is a label, so the
   // prose-name section is silent too and contributes its own zero counter.
+  // sprint_drift: 0 — the fixture has no sprint files, so the section is silent.
   const last = report.trim().split('\n').at(-1);
   assert.equal(last,
-    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 unsliced_waves=0 prose_wave_names=0 index_drift=3 pr_source=degraded main=main');
+    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 index_drift=3 pr_source=degraded main=main');
 });
 
 test('scan: --offline skips git-host PR enumeration and reports pr_source=off', () => {
