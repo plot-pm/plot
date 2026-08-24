@@ -17,6 +17,7 @@
 - **Started:** 2026-08-24, Jan Wloka, `feature/the-fleet-knows-its-sprints`
 - **Started:** 2026-08-24, Jan Wloka, `feature/the-sweep-reports-sprint-drift`
 - **Started:** 2026-08-24, Jan Wloka, `feature/the-sprint-file-names-its-members`
+- **Started:** 2026-08-24, Jan Wloka, `feature/the-agents-tab-filters-to-the-sprint`
 
 ## Approval
 
