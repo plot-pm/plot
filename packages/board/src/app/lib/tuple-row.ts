@@ -316,12 +316,18 @@ export function statusTone(status: string): string {
     return 'text-rose-700 dark:text-rose-400';
   }
   // The good news, and the only other colour: green checks, finished work, and
-  // an `eligible` wave — the state a reader ACTS on by starting it. `eligible`
-  // joins this branch for the reason `green` is here: the rule is *colour what
-  // a reader acts on*, not *colour the problem*, and a PR you can merge and a
-  // wave you can start are the same prompt in one column. Still two colours,
-  // not three — a word moves into a group that exists.
-  if (/^(green|delivered|finished|eligible)/.test(status)) {
+  // a branch that can be started — the state a reader ACTS on.
+  //
+  // `start work` joins this branch for the reason `green` is here: the rule is
+  // *colour what a reader acts on*, not *colour the problem*, and a PR you can
+  // merge and a branch you can start are the same prompt in one column. Still
+  // two colours, not three — a word moves into a group that exists.
+  //
+  // `eligible` remains here for WAVE rows, which still display the wave verdict.
+  // Branch rows no longer display `eligible` — they display `start work` instead
+  // — but wave rows still show the wave-ordering verdict, and an eligible wave
+  // is green news: `an-eligible-wave-takes-the-actionable-tone` settled that.
+  if (/^(green|delivered|finished|start work|eligible)/.test(status)) {
     return 'text-emerald-700 dark:text-emerald-500';
   }
   return '';
@@ -829,6 +835,36 @@ export function releaseVersion(row: AgentRow): string {
 }
 
 /**
+ * THE STARTABILITY VERDICT AS A DISPLAY WORD — what a row says about whether
+ * it can be started.
+ *
+ * `startability` is computed server-side from four facts (plan phase, branch
+ * state, wave verdict, brief state) and carried on the row. This renders it as
+ * the word a reader sees — readable English rather than a wire value.
+ *
+ * THE ROW RENDERS THIS, NOT `eligible`. `eligible` answered *has every prior
+ * wave landed*, a question about wave ordering that was true on 26 rows and
+ * actionable on 5. This answers *can I start this*, and every value is either
+ * actionable or explicitly closes the question.
+ *
+ * NULL RENDERS NOTHING — not a fallback to `eligible`, which is the word this
+ * plan exists to remove. A merged branch has no startability verdict because
+ * finished work is not someone working; a blocked branch waits on an earlier
+ * wave; and a null from an older server says nothing rather than guessing.
+ *
+ * @returns The display word, or "" where none applies.
+ */
+export function startabilityWord(startability: AgentRow['startability']): string {
+  switch (startability) {
+    case 'start-work': return 'start work';
+    case 'needs-brief': return 'needs a brief';
+    case 'waiting-on-approval': return 'waiting on approval';
+    case 'someone-is-on-it': return 'someone is on it';
+    default: return '';
+  }
+}
+
+/**
  * Slot 5 for a row with no PR — its git state, as a word.
  *
  * The row's `note` is deliberately NOT used. It is a sentence composed by the
@@ -838,6 +874,18 @@ export function releaseVersion(row: AgentRow): string {
  * that. `state` is the field that answers this.
  */
 export function stateStatus(row: AgentRow): string {
+  // STARTABILITY OUTRANKS THE GIT STATE, where the field is present. This is
+  // the shift `the-row-says-whether-you-can-start-it` exists to make: a branch
+  // no longer renders `open` when the plan is Draft, or when the brief is
+  // missing — it renders *waiting on approval* or *needs a brief*, which are
+  // the answers to the question a reader asked.
+  //
+  // The gate is the four actual verdicts, not truthy: a null from an older
+  // server, or a merged branch with no startability question, falls through
+  // and renders its git state as before.
+  if (row.startability) {
+    return startabilityWord(row.startability);
+  }
   switch (row.state) {
     // `delivered`, not `merged` — Plot's own word for the transition, and the
     // one its lifecycle names: a plan goes Draft → Approved → **Delivered** →

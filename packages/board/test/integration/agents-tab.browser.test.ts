@@ -25,7 +25,10 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'plant-tomatoes',
   planFile: '2026-03-01-plant-tomatoes.md', wave: 'w', state: 'wip',
   phase: 'Development', group: 'working', ageMinutes: 3, note: 'last commit 3 min ago',
-  pr: null, branchUrl: `${GH}feature/x`, waitingDays: null, ...over,
+  pr: null, branchUrl: `${GH}feature/x`, waitingDays: null,
+  // Default: wip state → someone-is-on-it. Startable rows override to start-work.
+  startability: 'someone-is-on-it' as const,
+  ...over,
 });
 
 /** A pulse carrying the cases the plan's *Done when* list names. */
@@ -56,6 +59,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
       branch: 'feature/untaken', plan: 'plant-tomatoes', group: 'not-started',
       state: 'open', phase: 'Design', ageMinutes: null, waitingOn: 'click' as const, note: ELIGIBLE_NOTE,
       branchUrl: `${GH}feature/untaken`, waitingDays: 22,
+      startability: 'start-work' as const,
     }),
     // The other half of `not-started`, and the one that must NOT get a button:
     // a branch an earlier wave still blocks. plot-dispatch.sh refuses it, so a
@@ -76,6 +80,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
       waitingOn: 'time' as const, blockedBy: 'Truth',
       branchUrl: `${GH}feature/blocked`,
       waitingDays: 22,
+      startability: null, // blocked, so not startable
     }),
     // A branch handed back: real commits inside the quiet window, under an
     // APPROVED plan. Both halves must show — the phase has fallen back to
@@ -85,6 +90,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
       branch: 'feature/shelved', plan: 'beans', group: 'not-started',
       state: 'deferred', phase: 'Design', ageMinutes: 2,
       note: 'last commit 2 min ago', branchUrl: `${GH}feature/shelved`,
+      startability: null, // deferred, so not startable
     }),
     // A not-started row whose plan records no approval date — every plan
     // predating the `Approved:` field. It must show no waiting age at all.
@@ -92,11 +98,13 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
       branch: 'feature/undated', plan: 'beans', group: 'not-started',
       state: 'open', phase: 'Design', ageMinutes: null, waitingOn: 'click' as const, note: ELIGIBLE_NOTE,
       branchUrl: `${GH}feature/undated`, waitingDays: null,
+      startability: 'start-work' as const,
     }),
     // A merged branch: its remote page is gone, so no branch link.
     row({
       branch: 'feature/landed', plan: 'plant-tomatoes', group: 'done',
       state: 'merged', ageMinutes: 300, note: 'merged', branchUrl: '',
+      startability: null, // merged, so not startable
     }),
     // A plan with no board card — tiny-garden has no such plan file, so the row
     // must keep its plain /plan/ link rather than open an empty modal.
@@ -113,6 +121,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
       planFile: '2099-01-01-ghost-plan.md', group: 'not-started', state: 'open',
       phase: 'Design', ageMinutes: null, waitingOn: 'click' as const, note: ELIGIBLE_NOTE,
       branchUrl: `${GH}feature/ghost-ready`,
+      startability: 'start-work' as const,
     }),
   ];
   return {
@@ -2580,11 +2589,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         row({ branch: 'feature/fold-a', plan: 'layered', wave: 'Fold',
               group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
               waitingOn: 'time' as const, note: 'blocked by Truth',
-              branchUrl: `${GH}feature/fold-a` }),
+              branchUrl: `${GH}feature/fold-a`, startability: null }),
         row({ branch: 'feature/fold-b', plan: 'layered', wave: 'Fold',
               group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
               waitingOn: 'time' as const, note: 'blocked by Truth',
-              branchUrl: `${GH}feature/fold-b` }),
+              branchUrl: `${GH}feature/fold-b`, startability: null }),
         // Single-wave plan `flat`, with a NAMED wave. The trap: it has a name and
         // still must show none, because it is the plan's only wave.
         row({ branch: 'feature/flat-a', plan: 'flat', wave: 'Layout',

@@ -32,6 +32,9 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   wave: 'w', state: 'open', phase: 'Design', group: 'not-started', ageMinutes: null,
   waitingOn: 'click' as const, note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
   localDirty: false, localLocked: false, stuck: null, repair: null,
+  // The default is startable (open + click), so `startability: 'start-work'`. Blocked
+  // rows override to `startability: null`.
+  startability: 'start-work' as const,
   ...over,
 });
 
@@ -47,13 +50,13 @@ function fleet(): Fleet {
       plan: 'activity-shows-itself', planFile: '2026-08-17-activity-shows-itself.md',
       branch: 'feature/group-shows-inner-activity', wave: 'Shown', waitingDays: 1,
       waitingOn: 'time' as const, note: 'blocked by Truth',
-      verdict: 'blocked', blockedBy: 'Truth',
+      verdict: 'blocked', blockedBy: 'Truth', startability: null,
     }),
     row({
       plan: 'activity-shows-itself', planFile: '2026-08-17-activity-shows-itself.md',
       branch: 'feature/unpushed-work-shows-still', wave: 'Still', waitingDays: 1,
       waitingOn: 'time' as const, note: 'blocked by Truth',
-      verdict: 'blocked', blockedBy: 'Truth',
+      verdict: 'blocked', blockedBy: 'Truth', startability: null,
     }),
     // One unstarted wave, waiting since February.
     row({
@@ -68,6 +71,7 @@ function fleet(): Fleet {
       branch: 'feature/set-down', wave: 'Set down', state: 'deferred', ageMinutes: 400, waitingDays: 7,
       note: 'last commit 6h ago', branchUrl: `${GH}feature/set-down`,
       pr: { number: 57, url: 'https://github.com/tiny/garden/pull/57', draft: false, state: 'green' },
+      startability: null,
     }),
     // Untouched neighbours: a real branch holding real work.
     row({
@@ -76,12 +80,14 @@ function fleet(): Fleet {
       phase: 'Development', ageMinutes: 30, waitingDays: null,
       note: 'PR #116 green', branchUrl: `${GH}feature/needs-review`,
       pr: { number: 116, url: 'https://github.com/tiny/garden/pull/116', draft: false, state: 'green' },
+      startability: 'someone-is-on-it' as const,
     }),
     row({
       plan: 'quiet-plan', planFile: '2026-08-01-quiet-plan.md',
       branch: 'feature/gone-still', group: 'quiet', state: 'wip', phase: 'Development',
       ageMinutes: 4000, waitingDays: null, note: 'last commit 2d ago',
       branchUrl: `${GH}feature/gone-still`,
+      startability: 'someone-is-on-it' as const,
     }),
   ];
   return {

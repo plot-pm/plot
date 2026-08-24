@@ -72,72 +72,60 @@ export function isUnbegun(row: Pick<AgentRow, 'group' | 'state'>): boolean {
 /**
  * Does this row offer work a person can start right now?
  *
- * `not-started` holds two different things and only one of them is startable:
- * a branch nobody has taken, and a branch **blocked by an earlier wave**. A
- * button on the second would offer to skip the ordering waves exist to express
- * — and `plot-dispatch.sh` refuses that branch for exactly that reason, so the
- * board would be inviting an action the tool declines. No greyed-out control
- * either: a button whose usual state is *you cannot* teaches people to ignore
- * buttons, and the note already says *blocked by an earlier wave*, which is the
- * whole explanation.
+ * READS THE FIELD, not re-derives. `startability` is computed in `classify`
+ * from plan phase, branch state, wave verdict, and brief state — four facts
+ * that are only all in scope there. Reading the field rather than re-deriving
+ * it is what makes the row and the menu unable to disagree: both ask one value,
+ * computed once, from the same reading of the same pulse.
  *
- * READS THE FIELD, not the sentence. Until `waitingOn` existed this compared
- * `note === ELIGIBLE_NOTE` — the "parser for a format nobody declared" shape
- * #175 removed from the PR cell, and the one that fails SILENTLY: a reworded
- * note does not break the button, it makes it quietly stop appearing. The same
- * change that added the field also sharpened a neighbouring note (*blocked by
- * an earlier wave* gained the wave's name), which is exactly the drift this was
- * always one edit away from.
+ * Before this field existed, the board read `waitingOn === 'click'`, which
+ * answered *wave ordering satisfied* — one of the four facts, and the one that
+ * was measured: 26 rows said `eligible` and 5 could be started. The operator
+ * report named the gap: *"I see this row says 'eligible' — why won't dispatch
+ * start it?"* Because `eligible` means something, and that something is not
+ * *startable*.
  *
- * `state === 'open'` is kept beside it: `waitingOn: 'click'` already implies it
- * server-side, and asserting it here costs nothing and documents that a row
- * with a ref is not a row to start.
+ * THE ONE VALUE THAT MEANS STARTABLE. The other three say why not:
  *
- * Never on `working` or `quiet` rows, which already have a branch and a claim:
- * offering to start one invites the double-dispatch `fleet-sees-merged-branches`
- * was written to prevent. `waitingOn` is null everywhere outside `not-started`,
- * so those rows are excluded by construction rather than by a group check that
- * could drift from the server's own answer.
+ *   `needs-brief`          run `/plot-implement` first
+ *   `waiting-on-approval`  the plan is Draft; approve it or leave it
+ *   `someone-is-on-it`     `wip` or `claimed` — not yours to start
  *
- * Exported for test — the negative (a blocked row gets nothing) is the half a
- * naive implementation gets wrong.
+ * Null where the question does not apply: merged, deferred, blocked, or any row
+ * outside `not-started`. No button, no grey, no explanation — the row's own
+ * state is its explanation, and a predicate that returned true for them would
+ * offer an action the tool declines.
+ *
+ * `state === 'open'` is redundant — `startability: 'start-work'` is only
+ * returned for `open` branches — but kept as documentation and as a structural
+ * test: if the server ever returns `start-work` for a non-open branch, the
+ * button would not appear, and the mismatch would surface in test rather than
+ * in production.
+ *
+ * Exported for test — the negative cases (blocked, missing brief, wip) are the
+ * half a naive implementation gets wrong.
  */
 export function isStartable(row: AgentRow): boolean {
-  return row.waitingOn === 'click' && row.state === 'open';
+  return row.startability === 'start-work' && row.state === 'open';
 }
 
 /**
  * Does this row still need its BRIEF written before anyone can start it?
  *
- * `isStartable` above answers whether the wave ordering is satisfied. This
- * answers the other half a dispatch needs, and until the row carried `brief`
- * there was no way to ask it: the `Worker command` opens by telling the agent to
- * read `.plot/briefs/<slug>.md`, and `plot-dispatch.sh` reports `brief=missing`
- * unconditionally because it cannot write one — that is interpretation, and
- * `/plot-implement` owns it.
+ * READS `startability`, which carries this answer. A row with `needs-brief` is
+ * an otherwise-startable branch missing the specification a worker reads first.
+ * The question was decided server-side in `startabilityVerdict`, so this reads
+ * the decision rather than re-deriving it — the same rule `isStartable` follows
+ * and for the same reason.
  *
  * Measured 2026-08-19: nine eligible rows on this board, zero briefs. Every one
  * read *eligible — nobody has taken it*, and every dispatch it invited would
  * have started an agent that reads a file which is not there.
  *
- * SCOPED TO THE STARTABLE ROW, and the scope is the point rather than an
- * economy. The brief is a precondition of STARTING, so the fact is worth a
- * reader's attention exactly where starting is the row's available move. A
- * blocked row has a wave to wait for first and a working row is past the
- * question — saying it there would be true and would spend the reader's
- * attention on something they cannot act on, which is what the tone rules in
- * `waitingTone` are protecting.
- *
- * `missing` ONLY — never `unknown`. A row whose brief could not be checked has
- * nothing to tell the reader, and *the board could not tell whether this has a
- * brief* on every row of a server that never looked would be noise standing in
- * for an answer. See `BriefStateSchema` for why the third value exists at all.
- *
- * READS THE FIELD, not the note — the standing rule this file states at
- * `isStartable` and a file scan enforces (`verdict-not-prose.test.ts`).
+ * Exported for test.
  */
 export function needsBrief(row: AgentRow): boolean {
-  return isStartable(row) && row.brief === 'missing';
+  return row.startability === 'needs-brief';
 }
 
 /**
@@ -194,6 +182,13 @@ export function briefGapNote(branch: string): string {
  * sentence is the same one that is there today. The contract states the rule
  * for `pr.state` already: *carried as a symbol AND a word, never as colour
  * alone.*
+ *
+ * `START WORK` GETS ITS COLOUR FROM `statusTone`, NOT FROM HERE. That is the
+ * one startability verdict that signals *you may act*, and `statusTone` is
+ * where actionable words get green: `green`, `delivered`, `start work`. The
+ * other three startability verdicts (`needs a brief`, `waiting on approval`,
+ * `someone is on it`) keep the ordinary colour because they close the question
+ * rather than inviting a click.
  *
  * NOTHING ANIMATES HERE. `board-watches-for-stuck-branches` established that
  * motion marks an unanswered request — something waiting on you that will keep

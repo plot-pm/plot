@@ -44,6 +44,8 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   wave: 'w', state: 'open', phase: 'Development', group: 'not-started', ageMinutes: null,
   waitingOn: 'click', note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
   localDirty: false, localLocked: false, stuck: null, repair: null, verdict: 'eligible',
+  // The default is startable (open + click + eligible), so `startability: 'start-work'`.
+  startability: 'start-work' as const,
   ...over,
 });
 
@@ -72,6 +74,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
       verdict: 'complete', waitingOn: 'time', note: 'delivered',
       ageMinutes: 200, waitingDays: null, branchUrl: `${GH}feature/sown`,
       pr: { number: 40, url: 'https://github.com/tiny/garden/pull/40', draft: false, state: 'merged' },
+      startability: null, // merged branches have no startability
     }),
     // The unstarted wave — in NOT STARTED.
     row({
