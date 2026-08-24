@@ -381,7 +381,7 @@ reloads) is a browser-storage concern and explicitly optional.
 - the fleet payload carries each Active sprint with its target release and its four `status` counts, aggregated server-side from `plan.status`
 
 
-### Reported (Branch: feature/the-sweep-reports-sprint-drift)
+### Reported (Branch: feature/the-sweep-reports-sprint-drift, PR: #380)
 - `plot-reconcile-scan.sh` gains a section naming any plan whose `Sprint:` field disagrees with the sprint listing it, or is empty while a sprint lists it; machine-countable footer entry, and `attention=` unchanged
 
 
