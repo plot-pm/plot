@@ -3521,8 +3521,18 @@ test('changed_ago: the answer is a MEASUREMENT, never a verdict', () => {
   addWorktree(f, 'feature/measured', 'measured');
 
   const b = branchRow(f, 'feature/measured');
+  // `changed_at` joins the allowlist because it is the SAME KIND of thing the
+  // rule protects: an epoch second, with no opinion in it. It exists because the
+  // AGE cannot be watched for change — it is recomputed against `now` every
+  // scan, so a detector watching it fires on every pulse forever (measured
+  // 2026-08-24: 71805 → 71824 across 12 quiet seconds). Two measurements, one
+  // walk; still no verdict.
+  //
+  // The rule itself is unchanged and still fails on `changed_stale: true` or any
+  // other threshold-shaped sibling — which is the thing this guard is for.
   const verdictish = Object.keys(b).filter((k) =>
-    /^changed_/.test(k) && k !== 'changed_ago_seconds' && k !== 'changed_paths');
+    /^changed_/.test(k) && k !== 'changed_ago_seconds' && k !== 'changed_at'
+    && k !== 'changed_paths');
   assert.deepEqual(verdictish, [],
     `the scan reports the number and draws no conclusion, found: ${verdictish.join(', ')}`);
   f.cleanup();
