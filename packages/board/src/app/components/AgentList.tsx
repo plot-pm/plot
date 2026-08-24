@@ -2377,7 +2377,25 @@ function ResliceMenu({
  * `mouseenter` and on `focus` within, and closes on `mouseleave`, on blur out,
  * and on Escape.
  */
-function BlockedByMark({ plan, wave }: { plan: string; wave: string }) {
+function BlockedByMark({
+  plan,
+  wave,
+  section,
+  onExpandSection,
+}: {
+  plan: string;
+  wave: string;
+  /**
+   * The SECTION the blocking wave sits in — the payload's own `Wave.section`,
+   * resolved by the wave row before it renders this. Null where the payload
+   * carries no wave to answer (a pre-#349 server casts `waves` and never fills
+   * it), in which case the blocker is assumed to be in an open section and the
+   * query below finds it as it always did.
+   */
+  section?: WaitingGroup | null;
+  /** Unfold `section` before scrolling — see `expandSection` in `AgentList`. */
+  onExpandSection?: (section: WaitingGroup) => void;
+}) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLSpanElement>(null);
 
@@ -2391,17 +2409,49 @@ function BlockedByMark({ plan, wave }: { plan: string; wave: string }) {
   // The sibling row, found by the two attributes that identify it. `scrollIntoView`
   // with a flash rather than a persistent highlight: the reader asked *which
   // wave*, and the answer is a glance, not a new state to dismiss.
-  const goToWave = () => {
-    const target = document.querySelector<HTMLElement>(
-      `[data-wave-list="${CSS.escape(plan)}"] [data-wave-row="${CSS.escape(wave)}"]`,
-    );
-    if (!target) return;
+  //
+  // THE SELECTOR IS UNCHANGED — it already searches the whole document with both
+  // attributes in one query, so it crosses sections already. What silenced it was
+  // a FOLDED section: its rows are removed from the tree, not hidden, so there is
+  // nothing to find. So the mark opens the blocker's section first, then defers a
+  // frame — expanding is a `setState`, and the row does not mount until React
+  // commits, the same reason `App.scrollToStoryLane` waits a frame after
+  // switching to lanes.
+  const scrollToTarget = (target: HTMLElement) => {
     const smooth = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     target.scrollIntoView({ block: 'center', behavior: smooth ? 'smooth' : 'auto' });
     // A brief ring, removed on its own. Not a class toggle held in state: the
     // flash belongs to the TARGET row, which this component does not own.
     target.classList.add('ring-2', 'ring-amber-400');
     window.setTimeout(() => target.classList.remove('ring-2', 'ring-amber-400'), 1200);
+  };
+
+  const goToWave = () => {
+    if (section && onExpandSection) onExpandSection(section);
+    // Find the row, then scroll and flash. The selector is unchanged — one
+    // query, both attributes, document-wide, so it crosses sections already.
+    // What blocked it was a FOLDED section, whose rows are removed from the tree
+    // rather than hidden: after `onExpandSection` there is a row to find, but not
+    // synchronously. Expanding is a `setState`, and React does not always commit
+    // the (large) re-render by the very next frame, so a single `rAF` can still
+    // run before the row mounts. So this retries across a few frames until the
+    // row exists, then acts — the same *wait for the row to be in the document*
+    // that `App`'s effect-based `revealBranch` does, kept local here.
+    let framesLeft = 10;
+    const find = () => {
+      const target = document.querySelector<HTMLElement>(
+        `[data-wave-list="${CSS.escape(plan)}"] [data-wave-row="${CSS.escape(wave)}"]`,
+      );
+      if (target) {
+        scrollToTarget(target);
+        return;
+      }
+      // Still unreachable after the frames run out — filtered out, or on another
+      // tab. Never silent: the mark already NAMES the wave in its label and
+      // panel, so the reader keeps that answer; only the jump could not be made.
+      if (framesLeft-- > 0) window.requestAnimationFrame(find);
+    };
+    window.requestAnimationFrame(find);
     setOpen(false);
   };
 
@@ -2512,10 +2562,21 @@ function WaveRow({
   onOpenPlan,
   onRevealBranch,
   planHeaded = false,
+  waves,
+  onExpandSection,
 }: {
   group: WaveGroup;
   /** The plan this wave slices — for the row's test hook, not for a link. */
   plan: string;
+  /**
+   * The payload's waves, carried through so a BLOCKED wave row can resolve which
+   * SECTION its blocker sits in — `BlockedByMark` unfolds that section before it
+   * scrolls. Undefined on a cast payload from a pre-#349 server; the mark then
+   * assumes an open section and queries as it always did.
+   */
+  waves?: Wave[];
+  /** Unfold one collapsed section — passed to `BlockedByMark`. */
+  onExpandSection?: (section: WaitingGroup) => void;
   /** The plan's approval clock, inherited where the wave has no tip of its own. */
   waitingDays: number | null;
   /** Whether the branches beneath are showing — null where there is no fold. */
@@ -2840,7 +2901,19 @@ function WaveRow({
             </span>
           )}
           {group.blockedBy ? (
-            <BlockedByMark plan={plan} wave={group.blockedBy} />
+            <BlockedByMark
+              plan={plan}
+              wave={group.blockedBy}
+              // WHICH SECTION the blocker sits in — read from the payload's own
+              // wave, keyed by plan+name the same way `openWaves` keys. Null
+              // where the payload named no such wave (a cast pre-#349 pulse),
+              // and the mark then queries an assumed-open section as before.
+              section={
+                waves?.find((w) => waveKeyOf(w.plan, w.name) === waveKeyOf(plan, group.blockedBy!))
+                  ?.section ?? null
+              }
+              onExpandSection={onExpandSection}
+            />
           ) : null}
         </>
       }
@@ -4377,6 +4450,25 @@ export function AgentList({
     });
   };
 
+  // UNFOLD ONE SECTION — never fold. `BlockedByMark` reveals a blocker that has
+  // completed into a section a reader keeps closed (DONE, folded by default),
+  // and a folded section is REMOVED from the tree, so its row is unreachable by
+  // any selector until this runs. One direction only: the reader asked which
+  // wave, and the mark may open a section to answer, never close one out from
+  // under them. Persisted through `writeCollapsed`, the same as `toggle` — the
+  // reveal changes the reader's layout because silence was the defect being
+  // removed, not a cost to design away. A no-op where the section is already
+  // open, so a reader who has DONE unfolded pays nothing.
+  const expandSection = (key: WaitingGroup) => {
+    setCollapsed((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      writeCollapsed(next);
+      return next;
+    });
+  };
+
   // Which plans in NOT STARTED have their branches showing. Keyed by plan name,
   // which is what the group is keyed by.
   //
@@ -5133,6 +5225,8 @@ export function AgentList({
                                     reslice={reslice}
                                     pulse={pulse}
                                     onStarting={onStarting}
+                                    waves={waves}
+                                    onExpandSection={expandSection}
                                   />
                                   {/* The branches of a MULTI-branch wave, folded
                                       and indented again — the same `ml-6` and the
@@ -5412,6 +5506,17 @@ export function AgentList({
                       : !openPlans.has(`shut:${group.plan}`))) && (
                     <ul
                       role="presentation"
+                      // THE SAME WAVE-LIST WRAPPER NOT STARTED ALREADY CARRIES.
+                      // `BlockedByMark`'s jump is `[data-wave-list="…"]
+                      // [data-wave-row="…"]` — a wave row is only reachable when
+                      // it sits UNDER its plan's wave-list. NOT STARTED tagged
+                      // its `<ul>` with this; the other sections did not, so a
+                      // blocker completing into DONE rendered a `data-wave-row`
+                      // with no `data-wave-list` above it and the query — correct,
+                      // document-wide, unchanged — found nothing to scroll to.
+                      // Tagging every section's wrapper is the DOM half of the
+                      // fix the folded-section unfold is the other half of.
+                      data-wave-list={group.plan}
                       className={headed || planHeads
                         ? 'ml-6 border-l border-slate-200 dark:border-slate-800'
                         : undefined}
@@ -5527,6 +5632,8 @@ export function AgentList({
                               onOpenPlan={onOpenPlan}
                               onRevealBranch={onRevealBranch}
                               planHeaded={planHeads}
+                              waves={waves}
+                              onExpandSection={expandSection}
                             />
                             {many && waveOpen && (
                               <ul
