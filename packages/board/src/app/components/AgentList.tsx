@@ -67,6 +67,7 @@ import { WAVE_LINKING_KINDS, groupByWave, waveLabel } from '../lib/agent-rows/wa
 // their marks and their menus are declared next door.
 import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { HeaderRow, IssueRowView, PlanLink, PlanRow, Row, WaveRow, RegistryRow, type AgentListProps } from '../lib/agent-rows/rows.js';
+import { workingAgentRows } from '../lib/agent-rows/working-agents.js';
 // RE-EXPORTED, not redefined — the same allowance `splitBranch` above is given.
 // These moved out of this file when the row estate was split into three
 // modules; the unit suite and `App.tsx` import them from here, and a second
@@ -344,6 +345,21 @@ export function AgentList({
    */
   const agentByBranch = new Map((fleet?.agents ?? []).map((a) => [a.branch, a]));
 
+  // THE WORKING SECTION IS THE REGISTRY, joined BACK to branch rows —
+  // `the-working-section-shows-every-worker`, wave 1. `agentByBranch` above maps
+  // the registry onto branch rows and is read by every OTHER section to name the
+  // agent that holds a branch; this is the inverse the WORKING section needs — a
+  // branch→row map, so an entry can find the row it joins to. A worker renders
+  // whether or not that lookup answers: `main`, a `…-recut` scratch branch and a
+  // merged branch in DONE are exactly the entries the old branch-join missed.
+  //
+  // `fleet.rows` unfiltered, not `filteredRows`: the sprint filter hides branch
+  // ROWS a reader is not focused on, but a WORKER is a fact about the fleet, and
+  // hiding it because its plan is off-focus is the empty-section defect wearing a
+  // filter. The join to a hidden row still carries that row's facts.
+  const rowByBranch = new Map((fleet?.rows ?? []).map((r) => [r.branch, r]));
+  const workingRows = workingAgentRows(fleet?.agents ?? [], rowByBranch);
+
   const [openWaves, setOpenWaves] = useState<Set<string>>(() => new Set());
   const waveKey = waveKeyOf;
   const toggleWave = (plan: string, wave: string) => {
@@ -603,6 +619,15 @@ export function AgentList({
         const rows = key === 'waiting-on-machine'
           ? sectionedRows.filter(inMachineSection)
           : sectionedRows.filter((r) => r.group === key);
+        // WORKING RENDERS FROM THE REGISTRY, so its body, its count and its fold
+        // are the AGENTS, not the branch rows `rows` holds for it. Every other
+        // section is untouched: `workingSection` gates only WORKING, and the
+        // branch `rows` above still flows to the shared header machinery for the
+        // five sections that render branches. The one number that must be the
+        // agents is the tally — Done when #1, N entries → N rows — so `countOf`
+        // answers the agents here and the rows everywhere else.
+        const workingSection = key === 'working';
+        const countOf = workingSection ? workingRows.length : rows.length;
         // WAITING ON YOU is the section for what needs a human DECISION, and an
         // unplanned issue is exactly that — the decision being *is this worth a
         // plan?* rather than *fix it*. No other section can hold it: the row has
@@ -653,7 +678,7 @@ export function AgentList({
         // Issue rows count toward the fold and the tally: they are rows a
         // reader sees, and a section reading `(2)` above four lines is the
         // mismatch NOT STARTED already had to fix once.
-        const collapsible = isCollapsible(rows.length + issues.length);
+        const collapsible = isCollapsible(countOf + issues.length);
         const isFolded = collapsible && collapsed.has(key);
         // The count and the hint occupy the same slot, and the count SURVIVES
         // folding: `QUIET (7)` states plainly that seven rows are hidden, while
@@ -696,10 +721,10 @@ export function AgentList({
         // number safe to fold: the branches behind an expander are described by
         // their plan's own summary (`3 waves, first eligible`), so nothing is
         // hidden by the smaller figure — it moves up a level with the rows.
-        const shown = (countsPlans ? grouped.length : rows.length) + issues.length;
+        const shown = (countsPlans ? grouped.length : countOf) + issues.length;
         const tally = (
           <span className="font-normal normal-case tracking-normal text-slate-400 dark:text-slate-600">
-            {rows.length + issues.length > 0 ? `(${shown})` : emptyHint}
+            {countOf + issues.length > 0 ? `(${shown})` : emptyHint}
           </span>
         );
         // Whether anything in this section is moving — and at which pace. The
@@ -864,7 +889,43 @@ export function AgentList({
               className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40"
             >
               <HeaderRow />
-              {rows.length > 0 ? (
+              {workingSection ? (
+                // WORKING IS THE REGISTRY. One row per entry, joined to a branch
+                // row where one exists and standing alone where none does —
+                // `the-working-section-shows-every-worker`, wave 1. This section
+                // does NOT group by plan or fold into waves the way the branch
+                // sections do: an agent is a WHO, not a slice of a plan, and its
+                // row names what it is working on rather than being nested under
+                // it. The five registry states each render their own word, and a
+                // merged branch's worker sits here while that branch keeps its
+                // DONE row — both true, neither moved.
+                workingRows.length > 0 ? (
+                  workingRows.map(({ agent, row }) => (
+                    <RegistryRow
+                      // Keyed by the SESSION where there is one — the identity
+                      // that outlives the branch — and by the branch otherwise,
+                      // so two entries on the same (empty) branch do not collide.
+                      key={agent.session || `branch:${agent.branch}` || `wt:${agent.worktree}`}
+                      agent={agent}
+                      row={row}
+                      onOpenPlan={onOpenPlan}
+                      card={row ? cardForPlanFile?.(row.planFile) ?? null : null}
+                      dispatch={dispatch}
+                      continueWith={continueWith}
+                      pulse={pulse}
+                      onStarting={onStarting}
+                      marked={row ? marked.has(rowKey(row)) : false}
+                      active={row ? active.has(rowKey(row)) : false}
+                      onRevealBranch={onRevealBranch}
+                      highlighted={agent.branch !== '' && agent.branch === highlightBranch}
+                    />
+                  ))
+                ) : (
+                  <li role="row" className="px-3 py-2 text-sm text-slate-400 dark:text-slate-600">
+                    <span role="gridcell">none</span>
+                  </li>
+                )
+              ) : rows.length > 0 ? (
                 plans.map((group) => {
                   // ONE answer per group, read by both the heading and its
                   // rows. Computing it twice is how they drift: a heading that

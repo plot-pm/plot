@@ -1983,30 +1983,41 @@ export function Row({
 }
 
 /**
- * A registry entry rendered as a row, with optional join to a branch row.
+ * A registry entry rendered as a WORKING row, joined to a branch row where one
+ * exists.
  *
- * THE WORKING SECTION RENDERS FROM THE REGISTRY — the plan
- * `the-working-section-shows-every-worker` settles that every agent in
- * `fleet.agents` gets a row, whether or not a branch row exists for it.
- * Where a branch row exists, the worker row still carries what the row
- * knows — plan, wave, PR, git state — by the same join used elsewhere.
+ * THE WORKING SECTION RENDERS FROM THE REGISTRY —
+ * `the-working-section-shows-every-worker`, wave 1 (Shown). Every agent in
+ * `fleet.agents` gets a row whether or not a branch row exists for it, because a
+ * worker in a worktree is a fact about the FLEET while its branch's state is a
+ * fact about the WORK, and the section used to derive the first from the second.
  *
- * All five registry states appear with their own labels:
- * - `running` → "someone is on it"
- * - `waiting` → "waiting on you"
- * - `stalled` → "stalled"
- * - `finished` → "finished"
- * - `unknown` → "unknown"
+ * ## Two shapes, one status word
  *
- * An agent with no branch (empty `agent.branch`) still renders — that is the
- * whole defect this row closes. A worktree holding a worker but no ref push
- * is a worker this board could not see, and the state it carries is what
- * says whether anyone is in there.
+ * **Where a branch row exists** the tuple is `tupleFromRow(row, agent)` — the
+ * SAME projection the branch's own row uses, so the worker row carries what that
+ * row knows (plan, wave, PR) by the join used everywhere else. A merged branch's
+ * row still sits in DONE; this one joins to it and renders in WORKING, and both
+ * are true at once.
+ *
+ * **Where none exists** — `main`, a `…-recut` scratch branch, a branch no plan
+ * lists — the tuple states only what the REGISTRY knows: the worktree and the
+ * branch. *Absent is not false*: it says nothing about a plan it cannot name
+ * rather than inventing an empty field.
+ *
+ * In BOTH shapes the status comes from `agent.state`, not from the row's
+ * `worker` field. `tupleFromRow` reads `worker` (the scan's view of the BRANCH);
+ * the registry's five-way state is the view of the WORKTREE, and it is the one
+ * that narrows `someone is on it` to a genuinely running worker. A row whose
+ * usual state is a lie teaches its reader to ignore it, so an idle, stalled,
+ * finished or unknown worker each says its own condition — Done when #5.
+ *
+ * The wave name a running worker's row will carry is a SEPARATE wave (`Named`);
+ * here the wave arrives only as whatever a joined branch row already carries.
  */
 export function RegistryRow({
   agent,
   row = null,
-  wave = null,
   onOpenPlan,
   card = null,
   dispatch,
@@ -2018,18 +2029,14 @@ export function RegistryRow({
   onRevealBranch,
   highlighted = false,
 }: {
-  /** The agent registry entry — the source of truth for WORKING rows. */
+  /** The agent registry entry — the source of truth for a WORKING row. */
   agent: AgentEntry;
   /**
-   * The branch row this agent is working on, if one exists in `fleet.rows`.
-   * Joined by the caller on `agent.branch === row.branch`.
+   * The branch row this agent holds, if one exists in `fleet.rows`. Joined by
+   * the caller on `agent.branch === row.branch`; null where the pulse names no
+   * row for the branch — the case a branch-join fix silently misses.
    */
   row?: AgentRow | null;
-  /**
-   * The wave this agent's branch belongs to, if any.
-   * Found by the caller: `fleet.waves.find(w => w.branches.includes(agent.branch))`.
-   */
-  wave?: Wave | null;
   onOpenPlan?: AgentListProps['onOpenPlan'];
   /** This row's plan as a board card, or null where the board has none. */
   card?: Card | null;
@@ -2050,95 +2057,117 @@ export function RegistryRow({
   /** This row is the branch just revealed from an agent panel. */
   highlighted?: boolean;
 }) {
-  // The status comes from the REGISTRY, not from the row — that is the whole
-  // point of this component. The registry's five-way state is what matters.
+  const [logOpen, setLogOpen] = useState(false);
+
+  // THE STATUS IS THE REGISTRY'S, always. `agent.state` is the worktree's
+  // liveness — the fact that narrows `someone is on it` to a running worker —
+  // where the row's `worker` field is the scan's view of the branch. This is
+  // the whole point of rendering from the registry, so it overrides whatever a
+  // joined row's projection would otherwise say.
   const status = agentStateStatus(agent.state);
 
-  // Session age: how long has this run been going?
-  // Computed from `agent.startedAt` if available.
+  // AN AGENT ACTS, IT DOES NOT CHANGE — so the age is not *since last change*
+  // but two labelled clocks: how long this run has been going, and how long it
+  // has been silent. `startedAt` is a launch fact; `lastActivity` is read from
+  // the transcript and optional. Both measured against now, the same clock the
+  // agent panel's `agoLabel` uses.
   const sessionSeconds = agent.startedAt
     ? Math.floor((Date.now() - new Date(agent.startedAt).getTime()) / 1000)
     : null;
-  const sessionText = sessionSeconds !== null
-    ? tupleAgeText(Math.floor(sessionSeconds / 60))
-    : '';
-
-  // Idle time would come from `agent.lastActivity`, if present.
+  const sessionText = sessionSeconds !== null ? tupleAgeText(Math.floor(sessionSeconds / 60)) : '';
   const idleSeconds = agent.lastActivity
     ? Math.floor((Date.now() - new Date(agent.lastActivity).getTime()) / 1000)
     : null;
-  const idleText = idleSeconds !== null
-    ? tupleAgeText(Math.floor(idleSeconds / 60))
-    : '';
-
-  // Build the artifact links: worktree → branch → wave → plan
-  const links: Array<{ what: 'worktree' | 'branch' | 'wave' | 'plan'; label: string; href: string }> = [];
-  if (agent.worktree) {
-    links.push({ what: 'worktree', label: worktreeName(agent.worktree), href: '' });
-  }
-  if (agent.branch) {
-    links.push({ what: 'branch', label: agent.branch, href: row?.branchUrl ?? '' });
-  }
-  if (wave) {
-    links.push({ what: 'wave', label: wave.name || UNNAMED_WAVE, href: '' });
-  }
-  if (row?.plan && row?.planFile) {
-    links.push({ what: 'plan', label: row.plan, href: `/plan/${row.planFile}` });
-  }
-
-  // Build the tuple — the shape TupleRowView expects.
-  const tuple = {
-    kind: 'agent' as const,
-    kindLabel: KIND_LABEL.agent,
-    name: agent.session
-      ? { what: 'ticket' as const, label: shortSessionId(agent.session), href: '' }
-      : agent.branch
-        ? { what: 'branch' as const, label: agent.branch, href: row?.branchUrl ?? '' }
-        : { what: 'ticket' as const, label: '(no session)', href: '' },
-    links,
-    status,
-    age: {
-      text: [sessionText, idleText && `idle ${idleText}`].filter(Boolean).join(' · '),
-      label: sessionText ? 'session' : '',
-    },
+  const idleText = idleSeconds !== null ? tupleAgeText(Math.floor(idleSeconds / 60)) : '';
+  const age = {
+    text: [sessionText, idleText && `idle ${idleText}`].filter(Boolean).join(' · '),
+    label: sessionText ? 'session' : '',
   };
 
+  // THE NAME IS THE SESSION ID, shortened, with no href — the transcript is a
+  // local file the ROW opens, not an address. Where the entry has no session
+  // (a synthesized worktree with no manifest) the branch names the row instead,
+  // and where it has neither the worktree does.
+  const name = agent.session
+    ? { what: 'ticket' as const, label: shortSessionId(agent.session), href: '' }
+    : agent.branch
+      ? { what: 'branch' as const, label: agent.branch, href: row?.branchUrl ?? '' }
+      : { what: 'worktree' as const, label: worktreeName(agent.worktree), href: '' };
+
+  // THE JOINED SHAPE reuses the branch row's own projection, so the worker row
+  // carries its plan, wave and PR exactly as that row does; the UNJOINED shape
+  // states only the registry's facts — worktree then branch, narrowest first.
+  const base = row
+    ? tupleFromRow(row, agent)
+    : {
+        kind: 'agent' as const,
+        kindLabel: KIND_LABEL.agent,
+        name,
+        links: [
+          ...(agent.worktree
+            ? [{ what: 'worktree' as const, label: worktreeName(agent.worktree), href: '' }]
+            : []),
+          ...(agent.branch
+            ? [{ what: 'branch' as const, label: agent.branch, href: '' }]
+            : []),
+        ],
+        status: '',
+        age: { text: '', label: '' },
+      };
+  const tuple = { ...base, status, age };
+
   return (
-    <TupleRowView
-      tuple={tuple}
-      onOpenPlan={onOpenPlan}
-      iconTone={
-        agent.state === 'stalled' ? 'error'
-          : agent.state === 'waiting' ? 'warn'
-          : agent.state === 'finished' ? 'success'
-          : undefined
-      }
-      marks={
-        <>
-          {active && <ActivityMark pace="fast" inTrack />}
-        </>
-      }
-      extra={
-        <>
-          {marked && <ChangeMark />}
-        </>
-      }
-      menu={
-        row ? (
-          <BranchMenu
-            row={row}
-            card={card ?? null}
-            dispatch={dispatch}
-            pulse={pulse}
-            onStarting={onStarting}
-            continueWith={continueWith}
-            onOpenPlan={onOpenPlan}
-            onRevealBranch={onRevealBranch}
-          />
-        ) : null
-      }
-      highlighted={highlighted}
-    />
+    <>
+      <TupleRowView
+        tuple={tuple}
+        onOpenPlan={onOpenPlan}
+        // THE NAME OPENS THE PANEL — the session has no address, so the name is
+        // text and this makes it the control, the same as a branch agent row.
+        // Only where there is a branch to look a worktree up by: the panel keys
+        // its log on the branch, and a between-branches agent has none.
+        onNameClick={agent.session && agent.branch ? () => setLogOpen(true) : undefined}
+        // The scroll target the agent panel's BRANCH fact aims at, keyed on the
+        // branch like the branch agent row's — so a reveal lands on whichever of
+        // the two rows the branch has.
+        id={agent.branch ? `agent-row-${agent.branch}` : undefined}
+        rowAttr={{ 'data-agent-row': '' }}
+        iconTone={
+          agent.state === 'stalled' ? 'error'
+            : agent.state === 'waiting' ? 'warn'
+              : agent.state === 'finished' ? 'success'
+                : undefined
+        }
+        marks={active ? <ActivityMark pace="fast" inTrack /> : null}
+        extra={marked ? <ChangeMark /> : null}
+        // THE MENU IS THE BRANCH'S, where a branch row exists to carry it: its
+        // log, its dispatch, its reveal. A worker with no row has no branch
+        // record to act on, so it offers none.
+        menu={
+          row ? (
+            <BranchMenu
+              row={row}
+              card={card ?? null}
+              dispatch={dispatch}
+              pulse={pulse}
+              onStarting={onStarting}
+              continueWith={continueWith}
+              onOpenPlan={onOpenPlan}
+              onRevealBranch={onRevealBranch}
+            />
+          ) : null
+        }
+        highlighted={highlighted}
+      />
+      {logOpen && (
+        <WorkerLogModal
+          branch={agent.branch}
+          onClose={() => setLogOpen(false)}
+          canContinue={continueWith}
+          onOpenPlan={onOpenPlan ? (planFile) => void onOpenPlan(planFile) : undefined}
+          onRevealBranch={onRevealBranch}
+        />
+      )}
+    </>
   );
 }
 

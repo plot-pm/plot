@@ -7,6 +7,7 @@ import {
   statusTone,
   KIND_LABEL,
   SESSION_ID_CHARS,
+  agentStateStatus,
   releaseVersion,
   shortSessionId,
   tupleFromAgent,
@@ -1098,5 +1099,35 @@ describe('statusTone colours what a reader acts on', () => {
     expect(statusTone('checks failing')).toBe(ROSE);
     expect(statusTone('failed')).toBe(ROSE);
     expect(statusTone('stalled')).toBe(ROSE);
+  });
+});
+
+describe('agentStateStatus — the registry state as a WORKING word', () => {
+  // `the-working-section-shows-every-worker`, Done when #5: only a genuinely
+  // running worker reads `someone is on it`. A row whose usual state is a lie
+  // teaches its reader to ignore the row, so an idle, stalled, finished or
+  // unrecognised worker each says its own condition instead.
+
+  it('narrows *someone is on it* to a running worker', () => {
+    // The one state that claims a person is at work. It is asserted alone
+    // because the whole defect is a status word that stays put while the worker
+    // has stopped.
+    expect(agentStateStatus('running')).toBe('someone is on it');
+  });
+
+  it('says every non-running state plainly, never *someone is on it*', () => {
+    // Each of the other four registry states carries its own word. The negative
+    // half is the point: none of them may borrow the running word.
+    const words: Record<Exclude<Parameters<typeof agentStateStatus>[0], 'running'>, string> = {
+      waiting: 'waiting on you',
+      stalled: 'stalled',
+      finished: 'finished',
+      unknown: 'unknown',
+    };
+    for (const [state, word] of Object.entries(words)) {
+      const actual = agentStateStatus(state as Parameters<typeof agentStateStatus>[0]);
+      expect(actual, state).toBe(word);
+      expect(actual, state).not.toBe('someone is on it');
+    }
   });
 });
