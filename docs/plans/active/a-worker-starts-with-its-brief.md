@@ -1,0 +1,1 @@
+../2026-08-24-a-worker-starts-with-its-brief.md
