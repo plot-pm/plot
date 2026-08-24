@@ -66,14 +66,28 @@ number.
 The `Worker command` becomes a loop rather than a single prompt:
 
 1. Implement the branch named by `PLOT_BRANCH`, exactly as today.
-2. When it lands, ask `plot-fleet-scan.sh --next` for another claimable branch.
-3. If one comes back, claim it, move to its worktree, and implement it.
+2. When it lands, ask `plot-fleet-scan.sh --next "$PLOT_SLUG"` for another
+   claimable branch **of the same plan**.
+3. If one comes back, claim it and implement it **in a worktree the dispatcher
+   provides** (see *The worker does not move* below).
 4. If nothing comes back — exit 1 from `--next` — exit cleanly.
 
 `--next` already exists and already answers exactly this question: it prints one
 claimable branch and exits 1 when there is nothing to start. The claim stays the
 ref push, unchanged; two workers racing the same branch resolve as they do now,
 one push winning.
+
+**Scoped to the plan, deliberately.** `--next` with no slug returns the first
+claimable branch across the WHOLE estate (`plot-fleet-scan.sh:2328`), and a
+worker that hops to an unrelated plan reuses the session while discarding the
+context that justified reusing it. The whole argument for the loop is that a
+worker who has just built wave five is the cheapest builder of wave six — which
+is true only within one plan. `--next` already accepts a slug, so the scope
+costs nothing.
+
+Where the plan has no further wave, the worker exits and the freed slot is what
+lets auto-dispatch start a session on a different plan — under the cap, which is
+where cross-plan work belongs.
 
 **This is a change to configuration, not to Plot.** The loop lives in the
 adopting project's `Worker command`, which is where the worker contract has
@@ -94,21 +108,57 @@ The worker row then names the wave it is CURRENTLY working — which is what
 `a-busy-worker-names-its-wave` renders, and why that wave is a dependency of
 this one rather than a duplicate of it.
 
-### The worktree question
+### The registry holds the worker, so the worker can move
 
-A worker that hops branches needs a worktree per branch: a worktree holds one
-branch, and Plot's whole isolation model depends on that.
+A worktree holds one branch, so a worker taking a second branch needs a second
+worktree. The obstacle is not the process — it is where Plot records the process.
 
-The worker asks `plot-dispatch.sh` for the next branch's worktree rather than
-creating one itself — the dispatcher already knows how to adopt an existing
-worktree or cut a new one, and duplicating that logic in a prompt would be a
-second implementation of the trickiest part of dispatch.
+**Today the anchor is the worktree.** `plot-dispatch.sh:942` writes
+`$wt/.plot-worker.pid`; `plot-worker-state.sh:322` reads
+`$wt/.plot-worker.pid` for whatever worktree it is handed, and everything
+upstream asks per worktree. A worker that walked into a second worktree would
+still be recorded in the first.
 
-The worker's OWN worktree is left behind, holding its finished branch. That is
-correct: the branch may still need a rebase, and the registry now reports a
-worktree whose session has moved on — which the reconcile rule in
-`the-working-section-shows-every-worker` already covers, since a clean worktree
-with an ended session is exactly what may be dropped.
+**The registry already holds the same fact, better.** A manifest carries
+`session`, `branch`, `worktree` and `pid` in ONE record — read from a live
+manifest, 2026-08-24:
+
+```json
+{ "session": "090c9eb1-…", "branch": "feature/the-sprint-file-names-its-members",
+  "worktree": "/…/plot-wt-feature-the-sprint-file-names-its-members",
+  "pid": "63817", "startedAt": "2026-08-24T08:31:25Z" }
+```
+
+The worktree pid file duplicates a fact the manifest already keeps. Move the
+anchor there and the worker is free to move: an agent session becomes a thing
+that HAS a worktree rather than a thing that lives in one, and transferring it is
+one field update — `worktree` and `branch` change, `session` and `pid` do not.
+
+`plot-worker-state.sh` gains the worktree→session lookup and reads the pid from
+the manifest. It is a single function with a single file read
+(`plot-worker-state.sh:322`), sourced by both `plot-dispatch.sh` and
+`plot-fleet-scan.sh`, so the anchor moves in one place for every caller — the
+reason that duplication was collapsed into one function in the first place.
+
+**This is the change that makes the loop real.** With the anchor in the registry,
+the worker is genuinely one long-lived session moving between worktrees: the
+process persists, its context persists, and the fleet can say which worktree it
+is in right now. Without it the loop degrades to a hand-off that reuses nothing.
+
+**Three readers must move together**, and the artifact rebuild carries the
+fourth:
+
+| reader | what changes |
+|---|---|
+| `plot-worker-state.sh` | reads the pid from the manifest, not `$wt/.plot-worker.pid` |
+| `plot-dispatch.sh` | writes the pid to the manifest; the wrapper's `wait` still records an exit, keyed by session |
+| `plot-fleet-scan.sh` | asks by session; it already sources the state function |
+| board `/api/continue` | starts a continuation against a session rather than a worktree path |
+
+**The exit marker stays per worktree.** `.plot-worker.exit` records what happened
+to a run in a place, and a worker that has moved on leaves a true record of what
+it finished there. It is the pid — the claim about what is alive NOW — that
+belongs to the session.
 
 ### The cap gates auto-dispatch and warns a person
 
@@ -140,6 +190,12 @@ the workers already running.
 
 ## Waves
 
+### Anchored (Branch: infra/the-registry-holds-the-worker-pid)
+- the pid moves from `$wt/.plot-worker.pid` to the session's manifest;
+  `plot-worker-state.sh` resolves worktree→session and reads it there; dispatch,
+  the scan and the board's continuation follow. No behaviour changes — the same
+  states from a different anchor, which is what makes it separately verifiable.
+
 ### Counted (Branch: feature/the-cap-gates-auto-dispatch)
 - `maybeAutoDispatch` refuses at the cap and names the branches holding the
   slots; `plot-dispatch.sh` warns and proceeds
@@ -154,9 +210,16 @@ the workers already running.
 
 ## Done when
 
-1. **A worker whose wave lands takes the next eligible wave of the same plan
+1. **The pid is read from the manifest and no longer from the worktree.**
+   `plot-worker-state.sh` returns the same six process states it does today,
+   asserted against the existing tests — the anchor moves, the answers do not.
+2. **A worker whose wave lands takes the next eligible wave of the same plan
    without a new session being started.** Demonstrated end to end in a sandbox
-   repo with a two-wave plan: one dispatch, two waves implemented, one session.
+   repo with a two-wave plan: one dispatch, two waves implemented, **one pid**
+   — asserted on the pid, since that is what distinguishes a moved session from
+   a fresh spawn.
+2b. **The manifest names the worktree the worker is in NOW**, not the one it
+   started in, and `session` and `pid` are unchanged across the hop.
 2. **A worker exits cleanly when `--next` has nothing.** Exit 1 from `--next` is
    a normal end, not an error in the log.
 3. **Two looping workers racing the same next branch: exactly one wins**, and
