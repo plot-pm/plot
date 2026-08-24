@@ -1,0 +1,1 @@
+../2026-08-24-a-wave-row-is-a-wave-row-everywhere.md
