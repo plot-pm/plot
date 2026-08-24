@@ -139,7 +139,7 @@ fallback, not the design: the wrapper is how every other section already works.
 
 ## Waves
 
-### Rendered (Branch: bug/a-wave-renders-as-a-wave-in-every-section)
+### Rendered (Branch: bug/a-wave-renders-as-a-wave-in-every-section, PR: #392)
 - a row of `kind: 'wave'` renders through the wave row wherever it appears;
   section grouping is untouched
 
