@@ -124,7 +124,7 @@ themselves. Nothing else asks about the fold, and nothing else should start.
 
 ## Waves
 
-### Named (Branch: bug/a-wave-row-names-its-wave)
+### Named (Branch: bug/a-wave-row-names-its-wave, PR: #391)
 - slot 1 holds the wave's name in both renderings; `soleRow` keeps the status
   slot and loses the name
 
