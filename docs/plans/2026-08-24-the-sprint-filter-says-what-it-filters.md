@@ -227,7 +227,7 @@ means.
 - `fleet.sprints` gains `members`, the sprint file's own plan array — the same
   one `board.sprints` already carries
 
-### Joined (Branch: bug/the-agents-tab-filters-on-membership)
+### Joined (Branch: bug/the-agents-tab-filters-on-membership, PR: #393)
 - `AgentList.tsx` filters through `sprintMembershipLookup`/`passesSprintFilter`
   like the other two tabs; the exemption is by row KIND, not by empty sprint
 
