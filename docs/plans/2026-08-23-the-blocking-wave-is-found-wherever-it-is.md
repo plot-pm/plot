@@ -200,7 +200,7 @@ and picking one would be inventing an answer.
      both land in `packages/board/src`, so merge `origin/main` before opening
      the PR rather than at merge time. -->
 
-### Found (Branch: bug/the-blocking-wave-is-found-wherever-it-is)
+### Found (Branch: bug/the-blocking-wave-is-found-wherever-it-is) → #383
 - widen the query to the document, and say so when the target is not on screen
 
 ## Notes
