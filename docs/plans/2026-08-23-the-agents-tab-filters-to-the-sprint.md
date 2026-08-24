@@ -392,7 +392,7 @@ reloads) is a browser-storage concern and explicitly optional.
 - the control: toggle, the counts, the disabled-with-totals state, one row per active sprint, and plan-less rows always visible
 
 
-### Repointed (Branch: feature/the-board-filter-reads-the-sprint-file)
+### Repointed (Branch: feature/the-board-filter-reads-the-sprint-file, PR: #386)
 - the EXISTING Board-tab sprint filter (`App.tsx`, `sprintFilterOptions`) joins on the sprint file's member list rather than `card.sprint`, so one rule serves both tabs and the live two-slug split stops halving the sprint
 
 ## Notes
