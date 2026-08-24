@@ -1253,6 +1253,74 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
+  it('reveals a blocker that is being WORKED on right now', async () => {
+    // The WORKING case. A blocker that has not completed sits in WORKING with a
+    // live worker, not in DONE. The jump must find it there, which requires
+    // WORKING to carry the same `data-wave-list` wrapper the other sections do.
+    //
+    // This is the case `the-blocking-wave-is-found-wherever-it-is` (#383) could
+    // not catch: its fix was "tag every section's wrapper", and WORKING had no
+    // wrapper to tag because it does not group by plan. Once waves in WORKING
+    // render as wave rows (wave #392), the section carries the wrapper and the
+    // query finds its target.
+    const blockerPlan = 'live-worker';
+    const workingBlocker = (): Fleet => {
+      const rows: AgentRow[] = [
+        // The BLOCKER, in WORKING with a live worker — the row a reader needs
+        // to find because it is where attention must go.
+        row({
+          branch: 'feature/named', plan: blockerPlan,
+          planFile: '2026-08-24-live-worker.md', wave: 'Named',
+          group: 'working', state: 'wip', ageMinutes: 5,
+          note: 'worker running (pid 12345)',
+          branchUrl: `${GH}feature/named`,
+          kind: 'wave' as const,
+        }),
+        // The BLOCKED wave, in NOT STARTED, waiting for Named to complete.
+        row({
+          branch: 'feature/spoken', plan: blockerPlan,
+          planFile: '2026-08-24-live-worker.md', wave: 'Spoken',
+          group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+          waitingOn: 'time' as const, verdict: 'blocked', blockedBy: 'Named',
+          branchUrl: `${GH}feature/spoken`, waitingDays: 1,
+          kind: 'wave' as const,
+        }),
+      ];
+      const waves: Wave[] = [
+        {
+          plan: blockerPlan, name: 'Named', branches: ['feature/named'],
+          verdict: 'wip', section: 'working', complete: false, planWaveCount: 2,
+        },
+        {
+          plan: blockerPlan, name: 'Spoken', branches: ['feature/spoken'],
+          verdict: 'blocked', section: 'not-started', complete: false, planWaveCount: 2,
+        },
+      ];
+      return { ...fleet({ rows }), waves };
+    };
+
+    const page = await openAgents(workingBlocker());
+    try {
+      // WORKING is open on arrival, and the blocker's wave row is already in
+      // the document — this is NOT about unfolding, it is about finding a row
+      // in a section that does not group by plan.
+      await expect.poll(() => group(page, 'Working').locator('[data-wave-row="Named"]').count())
+        .toBeGreaterThan(0);
+
+      // Click the ⓘ on the blocked `Spoken` wave, in NOT STARTED.
+      const mark = group(page, 'Not started').locator('[data-wave-blocked-by="Named"]');
+      await expect.poll(() => mark.count()).toBeGreaterThan(0);
+      await mark.first().click();
+
+      // The blocker's row flashes — the jump found its target in WORKING.
+      const target = group(page, 'Working').locator('[data-wave-row="Named"]');
+      await expect.poll(() => target.first().getAttribute('class'))
+        .toContain('ring-amber-400');
+    } finally {
+      await page.close();
+    }
+  });
+
   it('keeps a REFUSED menu focusable, so its explanation stays reachable', async () => {
     // A REFUSAL IS NOT AN ABSENCE, and this is the case that survived the
     // withdrawal above. A row whose act the server declines still HAS something
