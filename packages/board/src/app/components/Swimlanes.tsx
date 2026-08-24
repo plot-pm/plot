@@ -1,6 +1,7 @@
+import { useMemo } from 'react';
 import type { Board, Card, StoryCard } from '../../contract/schema.js';
 import { BOARD_PHASES, PHASE_LEADERSHIP } from '../../contract/schema.js';
-import { NO_SPRINT, NO_STORY, passesFilter } from '../lib/filters.js';
+import { NO_STORY, passesFilter, passesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
 import { storyHref } from '../lib/plan.js';
 import { PlanCard } from './PlanCard.js';
 
@@ -108,9 +109,21 @@ export function Swimlanes({
   highlight = '',
 }: SwimlanesProps) {
   const showSprint = sprintSel.length === 0;
+
+  // Sprint membership: which plans each sprint contains, by slug.
+  //
+  // Membership comes from the SPRINT FILE's `- [ ] [slug]` lines, not from
+  // the plan's `Sprint:` back-reference field. The plan measured: 19 plans
+  // in the sprint, only 5 carry the back-reference, 14 empty/placeholder.
+  // Joining on card.sprint would show 5 of 19.
+  const membership = useMemo(
+    () => sprintMembershipLookup(board.sprints),
+    [board.sprints],
+  );
+
   const visible = board.columns.flatMap((c) => c.cards).filter(
     (c) =>
-      passesFilter(c, sprintSel, 'sprint', NO_SPRINT) &&
+      passesSprintFilter(c, sprintSel, membership) &&
       passesFilter(c, storySel, 'story', NO_STORY),
   );
   const lanes = buildLanes(visible, board.stories);

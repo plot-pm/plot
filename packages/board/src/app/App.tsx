@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Board, Card, Fleet, StoryCard } from '../contract/schema.js';
 import { AgentList } from './components/AgentList.js';
 import { BoardView } from './components/Board.js';
@@ -13,7 +13,9 @@ import {
   readList,
   sanitizeSelection,
   sprintFilterOptions,
+  sprintMembershipLookup,
   withCounts,
+  withSprintCounts,
   writeList,
 } from './lib/filters.js';
 
@@ -738,13 +740,21 @@ export function App() {
   // filter appears whenever any plan carries a sprint — even with no sprint
   // directory. Stories still derive from the directory only. Each option is
   // annotated with its plan count (over the whole board).
+  //
+  // Counts join on sprint FILE MEMBERSHIP, not card.sprint — see the plan
+  // "the-agents-tab-filters-to-the-sprint", which measured: 19 plans in the
+  // sprint, only 5 carry the back-reference, 14 empty/placeholder. Joining on
+  // card.sprint showed 5 of 19.
   const allCards = board ? board.columns.flatMap((c) => c.cards) : [];
   const sprintChoices = sprintFilterOptions(board);
-  const sprintOptions = withCounts(
+  const membership = useMemo(
+    () => sprintMembershipLookup(board?.sprints ?? []),
+    [board?.sprints],
+  );
+  const sprintOptions = withSprintCounts(
     [{ value: NO_SPRINT, label: 'No sprint' }, ...sprintChoices],
     allCards,
-    'sprint',
-    NO_SPRINT,
+    membership,
   );
   const storyOptions = withCounts(
     [

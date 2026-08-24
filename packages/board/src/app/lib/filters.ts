@@ -1,8 +1,36 @@
-import type { Board, Card } from '../../contract/schema.js';
+import type { Board, Card, SprintCard } from '../../contract/schema.js';
 
 /** Sentinels for "plans with no sprint / no story assigned". */
 export const NO_SPRINT = '__no_sprint__';
 export const NO_STORY = '__no_story__';
+
+/**
+ * Build a lookup from sprint slug to the set of plan slugs it contains.
+ *
+ * Membership comes from the SPRINT FILE's `- [ ] [slug]` lines, parsed into
+ * `sprint.members`, not from the plan's `Sprint:` back-reference field. The
+ * plan "the-agents-tab-filters-to-the-sprint" measured: 19 plans in the
+ * sprint file, only 5 carry the back-reference, 14 empty/placeholder/absent.
+ * Joining on the field would show 5 of 19.
+ *
+ * Deferred plans are EXCLUDED: they are in the file under `### Deferred` and
+ * are not commitments. The plan's Done-when says "does not include plans a
+ * sprint deferred".
+ */
+export function sprintMembershipLookup(
+  sprints: SprintCard[],
+): Map<string, Set<string>> {
+  const lookup = new Map<string, Set<string>>();
+  for (const sprint of sprints) {
+    const memberSlugs = new Set(
+      sprint.members
+        .filter((m) => m.tier !== 'deferred')
+        .map((m) => m.slug),
+    );
+    lookup.set(sprint.slug, memberSlugs);
+  }
+  return lookup;
+}
 
 /** A single option in a multi-select filter. */
 export interface FilterOption {
@@ -21,17 +49,67 @@ export interface CountedFilterOption extends FilterOption {
  * whose field equals its value. Counts are over the whole board (all columns),
  * independent of the current selection — a stable "how many plans carry this?"
  * facet, not a live cross-filter.
+ *
+ * Used for STORY filtering. Sprint filtering uses {@link withSprintCounts}
+ * which joins on sprint membership rather than card.sprint.
  */
 export function withCounts(
   options: FilterOption[],
   cards: Card[],
-  key: 'sprint' | 'story',
+  key: 'story',
   noneSentinel: string,
 ): CountedFilterOption[] {
   return options.map((o) => ({
     ...o,
     count: cards.filter((c) => (o.value === noneSentinel ? !c[key] : c[key] === o.value)).length,
   }));
+}
+
+/**
+ * Annotate sprint options with the number of cards in each sprint's membership.
+ *
+ * For sprints WITH a file in `board.sprints`, membership comes from the
+ * sprint file's `- [ ] [slug]` lines — see {@link sprintMembershipLookup}.
+ * For sprints WITHOUT a file (inline-only, where a plan's `Sprint:` names a
+ * sprint that has no directory entry), we fall back to `card.sprint` matching.
+ *
+ * The "none" sentinel counts cards that are NOT a member of ANY sprint by
+ * either method: neither named in a sprint file's members, nor carrying an
+ * inline sprint reference.
+ */
+export function withSprintCounts(
+  options: FilterOption[],
+  cards: Card[],
+  membership: Map<string, Set<string>>,
+): CountedFilterOption[] {
+  // A card belongs to a sprint if:
+  // - its slug is in that sprint's members list (file-based), OR
+  // - the sprint has no file and card.sprint matches (inline-only)
+  const cardInSomeSprint = new Set<string>();
+  for (const members of membership.values()) {
+    for (const slug of members) cardInSomeSprint.add(slug);
+  }
+  // Also count cards with inline sprints (card.sprint set)
+  for (const c of cards) {
+    if (c.sprint) cardInSomeSprint.add(c.slug);
+  }
+
+  return options.map((o) => {
+    if (o.value === NO_SPRINT) {
+      // Cards not in any sprint (neither file nor inline)
+      return {
+        ...o,
+        count: cards.filter((c) => !cardInSomeSprint.has(c.slug)).length,
+      };
+    }
+    const members = membership.get(o.value);
+    if (members) {
+      // Sprint has a file: count cards whose slug is in its members
+      return { ...o, count: cards.filter((c) => members.has(c.slug)).length };
+    }
+    // Sprint has no file (inline-only): count cards whose card.sprint matches
+    return { ...o, count: cards.filter((c) => c.sprint === o.value).length };
+  });
 }
 
 /**
@@ -94,14 +172,72 @@ export function writeList(param: string, values: string[]): void {
  * Does a card pass one multi-select filter? Empty selection = no filter. A
  * card with the field set matches when its value is selected; a card without
  * the field matches only when the "none" sentinel is selected.
+ *
+ * Used for STORY filtering. Sprint filtering uses {@link passesSprintFilter}
+ * which joins on sprint membership rather than card.sprint.
  */
 export function passesFilter(
   card: Card,
   selected: string[],
-  key: 'sprint' | 'story',
+  key: 'story',
   noneSentinel: string,
 ): boolean {
   if (selected.length === 0) return true;
   const value = card[key];
   return value ? selected.includes(value) : selected.includes(noneSentinel);
+}
+
+/**
+ * Does a card pass the sprint filter?
+ *
+ * Empty selection = no filter (show all). A card passes if it belongs to ANY
+ * selected sprint. The NO_SPRINT sentinel matches cards that belong to NO
+ * sprint by either method.
+ *
+ * For sprints WITH a file in `board.sprints`, membership comes from the
+ * sprint file's `- [ ] [slug]` lines — see {@link sprintMembershipLookup}.
+ * For sprints WITHOUT a file (inline-only), we fall back to `card.sprint`.
+ *
+ * The plan "the-agents-tab-filters-to-the-sprint" measured: a join on
+ * card.sprint alone showed 5 of 19 plans in the active sprint because 14
+ * lacked the back-ref. This fixes that for sprints WITH files, while
+ * preserving inline-only sprint filtering for repos without sprint files.
+ */
+export function passesSprintFilter(
+  card: Card,
+  selected: string[],
+  membership: Map<string, Set<string>>,
+): boolean {
+  if (selected.length === 0) return true;
+
+  // Is this card a member of any sprint at all?
+  // Either via file membership OR via an inline sprint reference
+  let inAnySprint = false;
+  for (const members of membership.values()) {
+    if (members.has(card.slug)) {
+      inAnySprint = true;
+      break;
+    }
+  }
+  // Also counts if the card has an inline sprint
+  if (card.sprint) inAnySprint = true;
+
+  // Check each selected sprint
+  for (const sprintSlug of selected) {
+    if (sprintSlug === NO_SPRINT) {
+      // The "No sprint" selection matches cards NOT in any sprint
+      if (!inAnySprint) return true;
+    } else {
+      // Check if the sprint has a file
+      const members = membership.get(sprintSlug);
+      if (members) {
+        // Sprint has a file: match by file membership
+        if (members.has(card.slug)) return true;
+      } else {
+        // Sprint has no file (inline-only): match by card.sprint
+        if (card.sprint === sprintSlug) return true;
+      }
+    }
+  }
+  return false;
 }
