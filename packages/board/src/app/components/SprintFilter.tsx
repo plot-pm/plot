@@ -14,6 +14,10 @@ import type { FleetSprint, SprintCounts } from '../../contract/schema.js';
  * - One row per active sprint, independently toggleable
  * - Plan-less rows always visible under the filter (the predicate is in
  *   AgentList, not here)
+ * - The toggle is labelled "Sprint only" so readers know what it does
+ * - The line reads "Sprint: <name>" to identify the kind of thing
+ * - The release shows "target <version>" to clarify it's where the sprint
+ *   is going, not where it has been
  *
  * ## Design decisions (from the plan)
  *
@@ -101,22 +105,28 @@ export function SprintFilter({ sprints, selected, onToggle, estateTotals }: Spri
                 : 'border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800'
             }`}
           >
-            <input
-              type="checkbox"
-              data-sprint-toggle={sprint.slug}
-              checked={isSelected}
-              onChange={() => onToggle(sprint.slug)}
-              className="mt-0.5 h-3.5 w-3.5 accent-green-600"
-            />
+            <div className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                data-sprint-toggle={sprint.slug}
+                checked={isSelected}
+                onChange={() => onToggle(sprint.slug)}
+                className="h-3.5 w-3.5 accent-green-600"
+              />
+              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                Sprint only
+              </span>
+            </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="font-medium text-slate-700 dark:text-slate-200">
+                  <span className="font-normal text-slate-500 dark:text-slate-400">Sprint:</span>{' '}
                   {sprint.title}
                 </span>
                 {/* Release target — only show if set */}
                 {sprint.release && (
                   <span className="text-slate-500 dark:text-slate-400">
-                    → {sprint.release}
+                    target {sprint.release}
                   </span>
                 )}
               </div>
