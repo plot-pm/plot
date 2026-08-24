@@ -1,4 +1,4 @@
-import type { Board, Card, SprintCard } from '../../contract/schema.js';
+import type { Board, Card, FleetSprint, SprintCard } from '../../contract/schema.js';
 
 /** Sentinels for "plans with no sprint / no story assigned". */
 export const NO_SPRINT = '__no_sprint__';
@@ -16,9 +16,13 @@ export const NO_STORY = '__no_story__';
  * Deferred plans are EXCLUDED: they are in the file under `### Deferred` and
  * are not commitments. The plan's Done-when says "does not include plans a
  * sprint deferred".
+ *
+ * Accepts both `SprintCard[]` (from board.sprints) and `FleetSprint[]` (from
+ * fleet.sprints) — both carry the same `members` structure and the function
+ * reads only `slug` and `members.slug` / `members.tier`.
  */
 export function sprintMembershipLookup(
-  sprints: SprintCard[],
+  sprints: SprintCard[] | FleetSprint[],
 ): Map<string, Set<string>> {
   const lookup = new Map<string, Set<string>>();
   for (const sprint of sprints) {
@@ -237,6 +241,59 @@ export function passesSprintFilter(
         // Sprint has no file (inline-only): match by card.sprint
         if (card.sprint === sprintSlug) return true;
       }
+    }
+  }
+  return false;
+}
+
+/**
+ * Does a plan slug pass the sprint filter? The GENERALIZED predicate.
+ *
+ * Empty selection = no filter (show all). A slug passes if it belongs to ANY
+ * selected sprint. The NO_SPRINT sentinel matches slugs that belong to NO
+ * sprint.
+ *
+ * This is the core logic shared by the Board tab's `passesSprintFilter` and
+ * the Agents tab's sprint filter. A `Card` joins on `card.slug`; an `AgentRow`
+ * joins on `row.plan`. One predicate, one answer — so the three tabs cannot
+ * drift into disagreeing about membership.
+ *
+ * The plan "the-sprint-filter-says-what-it-filters" measured: the Agents tab
+ * filtered on `r.sprint === '' || sprintFilter.has(r.sprint)`, which admitted
+ * 53 plan rows (waves/branches with empty sprint fields) alongside the 2
+ * genuine plan-less rows. This function joins on the sprint file's membership
+ * list instead.
+ *
+ * @param planSlug - the plan's slug (e.g. "done-means-delivered"); "" for
+ *   plan-less rows
+ * @param selected - the sprint slugs selected by the user; empty = no filter
+ * @param membership - the lookup built by {@link sprintMembershipLookup}
+ */
+export function slugPassesSprintFilter(
+  planSlug: string,
+  selected: string[],
+  membership: Map<string, Set<string>>,
+): boolean {
+  if (selected.length === 0) return true;
+
+  // Is this slug a member of any sprint at all?
+  let inAnySprint = false;
+  for (const members of membership.values()) {
+    if (members.has(planSlug)) {
+      inAnySprint = true;
+      break;
+    }
+  }
+
+  // Check each selected sprint
+  for (const sprintSlug of selected) {
+    if (sprintSlug === NO_SPRINT) {
+      // The "No sprint" selection matches slugs NOT in any sprint
+      if (!inAnySprint) return true;
+    } else {
+      // Check if the sprint has this plan in its membership
+      const members = membership.get(sprintSlug);
+      if (members?.has(planSlug)) return true;
     }
   }
   return false;
