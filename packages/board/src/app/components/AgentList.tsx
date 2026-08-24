@@ -5004,12 +5004,14 @@ export function AgentList({
                           dispatch={dispatch}
                           pulse={pulse}
                           onApproving={onStarting}
-                          // HOW MANY OF THIS PLAN'S WAVES ARE IN ANOTHER SECTION.
-                          // Read from the server's `fleet.waves`, keyed on the
-                          // section this head renders in (`key`), so a plan whose
-                          // first wave already merged into DONE says as much here
-                          // rather than reading two-wave when it is three.
-                          elsewhere={wavesElsewhere(fleet.waves, group.plan, key)}
+                          // HOW MANY OF THIS PLAN'S WAVES ARE NOT UNDER THIS HEAD.
+                          // Counted against the waves this head's own ROWS belong
+                          // to, not against the section it renders in: a wave
+                          // carries one of two sections while a row carries one of
+                          // six, so the section comparison called a head's own
+                          // wave elsewhere whenever the row needed attention.
+                          elsewhere={wavesElsewhere(fleet.waves, group.plan, key,
+                            new Set(group.rows.map((r) => r.wave).filter(Boolean)))}
                           // A ONE-WAVE plan shows its wave's verdict on this row
                           // instead of nesting a wave row beneath it.
                           soleWave={soleWaveFor(group.plan, waves)}
@@ -5344,7 +5346,8 @@ export function AgentList({
                         // section (`key`). A DONE head whose plan also has an
                         // unstarted wave says so here rather than reading as a
                         // plan wholly done.
-                        elsewhere={wavesElsewhere(fleet.waves, group.plan, key)}
+                        elsewhere={wavesElsewhere(fleet.waves, group.plan, key,
+                          new Set(group.rows.map((r) => r.wave).filter(Boolean)))}
                         // A ONE-WAVE plan shows its wave's verdict on this row
                         // instead of nesting a wave row beneath it.
                         soleWave={soleWaveFor(group.plan, waves)}

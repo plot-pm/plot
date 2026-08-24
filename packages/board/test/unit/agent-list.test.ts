@@ -290,6 +290,37 @@ describe('wavesElsewhere — a split plan says how many of its waves are NOT her
     expect(wavesElsewhere(undefined, 'split-plan', 'not-started')).toBe(0);
     expect(wavesElsewhere([], 'split-plan', 'not-started')).toBe(0);
   });
+
+  it('counts against the head\'s OWN waves, not the section it renders in', () => {
+    // THE MEASURED DEFECT. `deriveWaves` gives a wave two possible sections
+    // (`complete ? 'done' : 'not-started'`) while `classify` places rows across
+    // six groups, so a row needing attention sits in a section NO wave can
+    // carry. Passing the rendered key then matches nothing and every wave counts
+    // as elsewhere.
+    //
+    // Measured 2026-08-24: 30 of 80 rows disagreed with their own wave's
+    // section, and 16 plan heads reported EVERY wave elsewhere — including
+    // one-wave plans announcing their only wave was somewhere else.
+    const waves = [
+      { plan: 'p', name: 'Shown', section: 'done' },
+      { plan: 'p', name: 'Offered', section: 'not-started' },
+    ] as never;
+    // The head renders in `waiting-on-you` — a section no wave carries — and
+    // holds the `Offered` wave's row. One of its two waves is elsewhere.
+    expect(wavesElsewhere(waves, 'p', 'waiting-on-you', new Set(['Offered']))).toBe(1);
+    // Without the set, the old comparison calls BOTH elsewhere. Asserted so the
+    // fallback's limit is recorded rather than mistaken for correct.
+    expect(wavesElsewhere(waves, 'p', 'waiting-on-you')).toBe(2);
+  });
+
+  it('says nothing is elsewhere when the head holds every wave', () => {
+    // The guard against over-reporting: a plan wholly under one head must not
+    // claim a split. This is the case a naive `waves.length - 1` gets wrong.
+    const waves = [
+      { plan: 'p', name: 'Only', section: 'not-started' },
+    ] as never;
+    expect(wavesElsewhere(waves, 'p', 'waiting-on-you', new Set(['Only']))).toBe(0);
+  });
 });
 
 describe('elsewhereNote — the fragment the head appends, or nothing', () => {
