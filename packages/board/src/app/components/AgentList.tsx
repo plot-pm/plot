@@ -5,6 +5,7 @@ import {
   type Card,
   type DispatchInfo,
   type Fleet,
+  type FleetSprint,
   type IssueAnswer,
   type IssueRow,
   type WaitingGroup,
@@ -41,6 +42,7 @@ import { ResliceButton } from './ResliceButton.js';
 import { DeliverButton } from './DeliverButton.js';
 import { ImplementButton } from './ImplementButton.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
+import { SprintFilter } from './SprintFilter.js';
 import { isDraft, isApproved } from './PlanCard.js';
 import { StartWorkButton } from './StartWorkButton.js';
 import { WorkerLogModal } from './WorkerLogModal.js';
@@ -4551,6 +4553,50 @@ export function AgentList({
     return () => clearInterval(id);
   }, [pollSeconds, stale, fleet.generatedAt]);
 
+  // SPRINT FILTER — which active sprints to show. A set of slugs; empty means
+  // no filter (show all). Plan-less rows (`row.sprint === ''`) always pass.
+  //
+  // NOT PERSISTED: this is a momentary focus (what am I working on right now)
+  // rather than a standing preference. Persisting it would restore a filter
+  // that no longer matched the reader's task, which is worse than the work of
+  // clicking it again.
+  //
+  // NOT SYNCED TO URL: sprint filters are typically a quick toggle for the
+  // current session, and URL state would require sanitization against stale
+  // slugs. The Board tab's sprint filter is URL-synced because multiple sprints
+  // can appear in the dropdown; this tab typically has one or two Active sprints
+  // and the toggle is immediate.
+  const [sprintFilter, setSprintFilter] = useState<Set<string>>(() => new Set());
+  const toggleSprintFilter = (slug: string) => {
+    setSprintFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(slug)) next.delete(slug);
+      else next.add(slug);
+      return next;
+    });
+  };
+
+  // THE FILTERED ROWS. A sprint filter hides rows whose plan is not in any
+  // selected sprint, but PLAN-LESS ROWS ALWAYS PASS — they have no sprint to
+  // filter by, and hiding them would erase the release row and any unplanned
+  // PR that happens to be open.
+  //
+  // Applied BEFORE `rowsBySection`: the filter is about WHICH plans a reader
+  // wants to see, and the sections are about WHERE those rows belong. Filtering
+  // after sectioning would have the same effect but re-filter per section.
+  const filteredRows = sprintFilter.size === 0
+    ? fleet.rows
+    : fleet.rows.filter((r) => r.sprint === '' || sprintFilter.has(r.sprint));
+
+  // THE FILTERED ISSUES. Like rows, issues stay visible when no filter applies.
+  // Issue rows have no sprint field, so they always pass.
+  const filteredIssues = fleet.issues;
+
+  // The fleet's active sprints, guarded for payloads predating the field.
+  // Zod's `.default([])` only fires at PARSE time; the client CASTS, so
+  // `fleet.sprints` is `undefined` on an older server's payload.
+  const activeSprints: FleetSprint[] = fleet.sprints ?? [];
+
   // Degrade, do not hide: before the first scan lands this says so rather than
   // showing an empty list, which would read as "no agents are working".
   //
@@ -4660,6 +4706,17 @@ export function AgentList({
           view-status line stays at the foot. See `StatusPanel`. */}
       <StatusPanel statuses={statuses} />
 
+      {/* THE SPRINT FILTER — one row per active sprint, each with a toggle,
+          release target, and status counts. Disabled but visible when no
+          sprint is Active, showing estate totals so the control teaches
+          readers it exists. Placed before the sections so it is above the
+          list. */}
+      <SprintFilter
+        sprints={activeSprints}
+        selected={sprintFilter}
+        onToggle={toggleSprintFilter}
+      />
+
       {/* THE SECTIONS, spaced apart from each other and from nothing else.
 
           Their own container so the gap between two sections is a number this
@@ -4667,7 +4724,7 @@ export function AgentList({
           banners as well; a section break has to read as a bigger break than a
           row break (35–36 px rows, `py-2`), and 16 px was not it. */}
       <div data-sections className="space-y-8">
-      {(() => { const sectionedRows = rowsBySection(fleet.rows);
+      {(() => { const sectionedRows = rowsBySection(filteredRows);
         // THE SERVER-DERIVED WAVES, bound once beside the rows so every
         // `waveGroupsFor`/`ungroupedRows` call below asks the same list rather
         // than re-reading `fleet.waves` seven times. `undefined` on a cast
@@ -4704,7 +4761,7 @@ export function AgentList({
         // back) both yield no rows here, and the second says so below rather
         // than passing for an empty inbox.
         const issues = key === 'waiting-on-you' && fleet.issueAnswer === 'answered'
-          ? fleet.issues
+          ? filteredIssues
           : [];
         // Every waiting-group is grouped the same way, `done` included: it is
         // the group that grows fastest over a working day, so it is the first to
