@@ -116,10 +116,20 @@ join against, which is why #386 left it behind rather than overlooking it.
 
 ### The Agents tab joins on membership, like the other two tabs
 
-`AgentList.tsx` then uses `sprintMembershipLookup` and `passesSprintFilter` —
-the functions `Repointed` already wrote and the Board and Swimlane tabs already
-use. One rule and one source for all three tabs, so a plan cannot be in the
-sprint on one tab and out of it on another.
+`AgentList.tsx` then joins through `sprintMembershipLookup` — the function
+`Repointed` already wrote, reading `sprint.members`.
+
+**`passesSprintFilter` itself cannot be reused as it stands.** It takes a `Card`
+and keys on `card.slug` (`filters.ts:206`); an `AgentRow` has no `slug`. The join
+key is `row.plan`, which carries the same value in the same shape —
+`'waves-name-themselves'` against a member's `slug: 'done-means-delivered'`. So
+either the predicate is generalised over *(slug, membership)* rather than over a
+`Card`, or the tab gets a sibling that takes a row. Generalising is preferable:
+one predicate means the three tabs cannot answer differently, which is the point
+of the wave.
+
+One rule and one source for all three tabs, so a plan cannot be in the sprint on
+one tab and out of it on another.
 
 **A row with no plan is exempt; a row with a plan is not.** The release row and
 an unplanned PR are not plans, have no sprint to carry, and hiding them would

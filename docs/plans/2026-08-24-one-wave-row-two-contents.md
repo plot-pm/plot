@@ -154,7 +154,28 @@ themselves. Nothing else asks about the fold, and nothing else should start.
 
 ## Notes
 
-### Two earlier readings, both wrong
+### Round three: `soleRow` does not touch the name either
+
+The Design above says `soleRow` should keep the status slot and lose the name.
+Traced at `rows.tsx:965`, it never had the name: `tupleFromWave` is called with
+`name: group.wave` **unconditionally**, and `soleRow` feeds only `soleStatus`,
+`solePr` and `solePlan`. `tupleFromWave` then renders
+`facts.name || UNNAMED_WAVE_LABEL` (`tuple-row.ts:1150`).
+
+The payload agrees: both rows arrive as `kind: 'wave'` carrying `wave: "Derived"`
+and `wave: "Named"`. The server is right, the tuple is right, and the rows ARE
+waves.
+
+**So the name is dropped somewhere after `tupleFromWave` and before the screen**
+— in how the wave tuple's name slot is rendered, not in whether it is populated.
+The implementing session should start from `TupleRowView`'s handling of
+`name.what === 'plan'` with an empty `href`, which is the one thing that
+distinguishes this slot from a branch row's.
+
+The `Spoken` wave is unaffected: `groupedWord` is chosen by section at
+`AgentList.tsx:1516` and that is measured, not inferred.
+
+### Three earlier readings, all wrong
 
 **"The wave never grouped."** Refuted by `planHeads` (`AgentList.tsx:905`),
 which requires `waveGroupsFor(...).length > 0` — the plan head only renders if
@@ -163,6 +184,11 @@ the wave grouped, and both plans have heads.
 **"`isOneWavePlan` at the render site is the fix."** Refuted with it: the
 trigger is BRANCHES PER WAVE (`soleRow`), not waves per plan. The two coincided
 in the reported screenshot, which is why the wrong reading looked right.
+
+**"`soleRow` replaces the wave's name."** Refuted above. Each round moved the
+suspected site one layer down and each was wrong in the same direction —
+inferring a mechanism from a symptom rather than reading the call. The fourth
+attempt should READ THE RENDER, not reason about it.
 
 Recorded because each cost a round, and the visible symptom points at the wrong
 layer in both.
