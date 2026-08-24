@@ -4,13 +4,18 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** <!-- optional -->
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-24, Jan Wloka, in-session
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Changelog
 
@@ -186,6 +191,13 @@ and picking one would be inventing an answer.
 
 ## Waves
 
+
+<!-- IN FLIGHT ALONGSIDE `the-row-says-whether-you-can-start-it` (2026-08-24),
+     which is editing `row-identity.ts`, `schema.ts`, `fleet.ts` and
+     `mock-fleet.ts`. This branch's work is `BlockedByMark` in `AgentList.tsx`
+     and the collapse state in `collapse.ts`, so the overlap is small — but
+     both land in `packages/board/src`, so merge `origin/main` before opening
+     the PR rather than at merge time. -->
 
 ### Found (Branch: bug/the-blocking-wave-is-found-wherever-it-is)
 - widen the query to the document, and say so when the target is not on screen
