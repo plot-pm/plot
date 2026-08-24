@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** infra
 - **Sprint:** <!-- optional -->
 - **Issue:** <!-- optional -->
@@ -15,6 +15,7 @@
 - **Started:** 2026-08-23, Jan Wloka, `infra/the-derivations-leave-the-component`
 - **Started:** 2026-08-23, Jan Wloka, `infra/the-components-leave-the-shell`
 - **Started:** 2026-08-23, Jan Wloka, `infra/the-derivations-leave-the-component`
+- **Delivered:** 2026-08-24
 
 ## Approval
 
@@ -288,8 +289,18 @@ one that will, and it leaves a file that is 8000 lines for no stated reason.
 - move the derivations into eight subject modules under `app/lib/agent-rows/`, docstrings intact, no re-exports, and update the 14 importing files
 
 
-### Rendered (Branch: infra/the-components-leave-the-shell)
-- move the components into `rows.tsx`, `menus.tsx` and `marks.tsx`, whole components only <!-- deferred: 2026-08-24 — #369 closed unmerged; re-cut deferred until no other PR touches AgentList.tsx. The extraction list is recorded in Notes. -->
+### Rendered (Branch: infra/the-components-leave-the-shell-v2, PR: #387)
+- move the components into `rows.tsx`, `menus.tsx` and `marks.tsx`, whole components only
+
+> **Deferred 2026-08-24, then discharged the same day.** The deferral read
+> *"until no other PR touches AgentList.tsx"* — that condition was met once
+> #382, #384 and #385 had landed, and the wave was re-cut from main as
+> `infra/the-components-leave-the-shell-v2` and merged as **#387**. The branch
+> name differs from the one this heading originally carried: `#369`'s branch
+> was cut when the file was 3750 lines shorter, and rebasing it produced 4
+> conflict hunks totalling 2745 lines. The re-cut takes current content by
+> construction. Every component moved byte-identically apart from the `export`
+> keyword the split requires.
 
 ## Notes
 

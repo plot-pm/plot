@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Story:** plot-planning-model
 - **Review:** pr
@@ -14,6 +14,7 @@
 - **Approved:** 2026-08-22, Jan Wloka, plan-PR #305 merged
 - **Started:** 2026-08-23, Jan Wloka, `feature/the-plan-row-carries-wave-actions`
 - **Started:** 2026-08-23, Jan Wloka, `feature/one-wave-renders-as-its-plan`
+- **Delivered:** 2026-08-24
 
 ## Changelog
 
@@ -170,7 +171,7 @@ to pick one, and picking is what the wave rows are for.
   derivation is the server's and is not remade in the renderer.
 
 
-### Offered (Branch: feature/the-plan-row-carries-wave-actions, PR: #368)
+### Offered (Branch: feature/the-plan-row-carries-wave-actions, PR: #385)
 - → #368 — where wave 1 removes a
   wave row, the actions that row carried move onto the plan row with it. Concretely
   that is **Start work**: a wave row's own control, dispatching that wave with
