@@ -237,7 +237,7 @@ means.
 - a labelled **Sprint only** toggle; `Sprint:` before the name and `target`
   before the release
 
-### Counted (Branch: feature/a-sprint-counts-every-member)
+### Counted (Branch: feature/a-sprint-counts-every-member, PR: #400)
 - `Open / WIP / Done` over exactly the members, summing to a printed total; the
   four `status` buckets give way to three exhaustive ones
 
