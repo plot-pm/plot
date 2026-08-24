@@ -1844,6 +1844,28 @@ describe('rowsFromPulse', () => {
       expect(prOutranks(closed, open)).toBe(false);
     });
 
+    it('ranks a lone closed PR the winner — which is why the row must not link it', () => {
+      // THE GAP THE RANK CANNOT CLOSE. `prOutranks` decides which of the PRs a
+      // head carries is best; it never asks whether the best is worth showing.
+      // Where the only PR is closed, the winner is a withdrawn attempt.
+      //
+      // Measured 2026-08-24: ten branches were in exactly that state. One
+      // rendered `worker finished — review it` over a PR closed as superseded an
+      // hour earlier, so the board asked a reader to review something withdrawn.
+      //
+      // The rank is RIGHT and unchanged — this asserts it, so the fix is not
+      // mistaken for a ranking bug. Hiding the artifact is `rowsFromPulse`'s
+      // decision, because it is about what a row DISPLAYS, not about which
+      // record is best.
+      const lone = pr({ number: 12, head: 'feature/b', state: 'CLOSED' });
+      expect(prOutranks(lone, lone)).toBe(false);
+      // A closed PR still outranks nothing at all — there is no rule that drops
+      // it here, and adding one would lose the link on a branch whose successor
+      // has not been opened yet.
+      const older = pr({ number: 11, head: 'feature/b', state: 'CLOSED' });
+      expect(prOutranks(lone, older)).toBe(true);
+    });
+
     it('costs no host call — the link comes off the fetch that already ran', () => {
       // THE CONSTRAINT THE BRIEF NAMES, and the reason this feature is cheap:
       // the number already exists server-side. `refreshPrs` asks `pr-list
