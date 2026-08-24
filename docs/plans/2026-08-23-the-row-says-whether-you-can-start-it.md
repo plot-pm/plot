@@ -207,17 +207,62 @@ while the reader still reads an unactionable word first, and the board would
 show two facts where one answer was wanted. The row's job is to answer *can I
 start this*.
 
+### `someone is on it` covers wip and claimed — and NOT merged
+
+The measurement bucketed three states under that word, and one of them does not
+belong:
+
+| state | count | verdict |
+|---|---|---|
+| `wip` — commits pushed | 6 | `someone is on it` |
+| `claimed` — a session took the ref | 1 | `someone is on it` |
+| `merged` | 1 | **not a startability verdict at all** |
+
+**`wip` and `claimed` share one word** because both mean *not yours*, which is
+the entire actionable content; a reader who needs to chase the claimant has the
+row's own worker note. Distinguishing them would buy a distinction nobody acts
+on differently.
+
+**`merged` is split out, because finished work is not someone working.** A row
+saying otherwise is the defect fixed tonight in
+`a-closed-pr-is-an-ended-artifact` wearing different clothes — an artifact that
+ended, described as activity. A merged branch already reads `merged`, and
+startability does not apply to it: there is nothing to start.
+
+### A Draft plan's row points at TWO routes, not one
+
+`waiting on approval` names what is missing; the acts belong to the plan head,
+which already carries them. There are two, and the row must not imply only the
+second exists:
+
+- **Create PR** — the default route. `Review: pr` is what every plan in this
+  repo declares, and the approval IS the plan PR being reviewed and merged.
+- **Approve** — the shortcut. `/api/approve` performs the mechanical half
+  directly, for a plan whose review has happened elsewhere.
+
+Naming only *Approve* would teach readers that the shortcut is the path, and the
+reviewed-PR route would quietly become the exception. **The default must be the
+one that looks default.**
+
+Neither act moves onto the branch row. `a-plan-moves-through-the-sections`
+settled that lifecycle acts live on the plan head, and this plan is about what a
+row SAYS, not what it can do — the word points, the head acts.
+
+### Computed in `classify`, beside the group it must agree with
+
+`classify` already receives every fact the verdict needs — plan phase, branch
+state, worker, claim — and already returns a derived triple
+(`{ group, note, verdict }`). The startability verdict joins it.
+
+Deriving it anywhere else would traverse the same inputs a second time and put
+the verdict out of reach of the group and note it must stay consistent with: a
+row cannot say `start work` in one field and sit in `waiting-on-you` in another.
+One site, one traversal, one answer.
+
 ### Open Questions
 
-- [ ] Does `someone is on it` need to distinguish **claimed** (a session took
-      the ref) from **wip** (commits pushed)? Both mean *not yours*, which is
-      the actionable content. Prefer one word unless a reader needs to chase the
-      claimant.
-- [ ] Should a row whose plan is Draft offer **Approve** directly, now that the
-      plan row carries plan-level actions? It would close the loop the count
-      exposes — 13 rows one click from startable — but it puts a lifecycle
-      decision on a branch row, which `a-plan-moves-through-the-sections`
-      deliberately moved to the plan head.
+<!-- Both of this plan's open questions were resolved in interrogation round 4;
+     their answers are the three sections above. -->
 
 ## Done when
 
@@ -246,6 +291,16 @@ start this*.
 - **A branch the row calls `start work` is one `plot-fleet-scan.sh --next` would
   hand out.** The two vocabularies must not drift: a reader starting what the
   fleet then refuses is the promise/refusal mismatch this plan exists to end.
+- **A MERGED branch carries no startability verdict.** Asserted as absence:
+  finished work is not someone working, and a row claiming otherwise is
+  `a-closed-pr-is-an-ended-artifact`'s defect in another form. This is the case
+  the measurement bucketed wrongly, so it is the one an implementation reading
+  that table would get wrong.
+- **`wip` and `claimed` produce the SAME word.** Asserted with both states in one
+  test, so a later change that splits them has to say why.
+- **The verdict is computed in `classify` and travels with `group`.** Asserted by
+  construction: a row's verdict and its group come from one call, so no fixture
+  can produce a row that says `start work` while sitting in `waiting-on-you`.
 - **A row with no brief reads `needs a brief`, never `start work`.** This is the
   assertion that keeps the third word honest; without it an implementation that
   ignores `needsBrief` passes everything else.
@@ -281,19 +336,22 @@ slot that reads as a verdict.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 3,
+  "round": 4,
   "questionHistory": [
     {"q": "Round 1 (recorded earlier)", "a": "see plan body", "category": "technical"},
-    {"q": "The plan never mentions the brief, but needsBrief ships and a briefless dispatch starts an agent that reads a missing file", "a": "A fourth verdict `needs a brief`", "category": "domain"},
-    {"q": "isStartable already answers 'can I start this' client-side - two predicates?", "a": "The menu reads the new verdict; derive once in the server", "category": "technical"},
+    {"q": "The plan never mentions the brief, but needsBrief ships", "a": "A fourth verdict `needs a brief`", "category": "domain"},
+    {"q": "isStartable already answers 'can I start this' client-side", "a": "The menu reads the new verdict", "category": "technical"},
     {"q": "Prove against fixtures or the live estate?", "a": "Fixtures, one per verdict, plus exhaustiveness", "category": "nonFunctional"},
-    {"q": "What renders when the verdict is absent (the board CASTS, so no Zod default fires)?", "a": "Nothing - a fallback to `eligible` would keep the removed word alive on un-upgraded servers", "category": "nonFunctional"},
-    {"q": "Where is the brief checked - 79 stat calls per 5s pulse?", "a": "Read the row's existing `brief` field; no new filesystem work", "category": "nonFunctional"},
-    {"q": "Should the scan and dispatch agree with the row's new words?", "a": "Their facts already agree; assert they stay in step, change neither", "category": "tradeOffs"}
+    {"q": "What renders when the verdict is absent?", "a": "Nothing - a fallback to `eligible` keeps the removed word alive", "category": "nonFunctional"},
+    {"q": "Where is the brief checked - 79 stat calls per pulse?", "a": "Read the row's existing `brief` field", "category": "nonFunctional"},
+    {"q": "Should the scan and dispatch agree with the row?", "a": "Assert they stay in step; change neither", "category": "tradeOffs"},
+    {"q": "`someone is on it` covers wip, claimed AND merged - is that right?", "a": "Split merged out (finished work is not someone working); wip and claimed share one word", "category": "domain"},
+    {"q": "Should a Draft plan's row offer Approve?", "a": "The row points, the plan head acts - and it names TWO routes: Create PR (the default, Review: pr) and Approve (the shortcut)", "category": "ux"},
+    {"q": "Where is the verdict computed?", "a": "In classify, joining the triple it already returns - one site, one traversal, consistent with group", "category": "technical"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
-    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "technical": {"stack": true, "architecture": true, "implementation": true},
     "domain": true,
     "ux": true,
     "nonFunctional": {"security": false, "performance": true, "scalability": true},
