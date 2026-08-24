@@ -21,7 +21,17 @@
 
 ## Motivation
 
-`BlockedByMark` resolves its target with one query:
+Reported from the running board, 2026-08-23: *"The blocked (i) only works if the
+wave is in the same group. Waves in other sections e.g., WORKING aren't
+highlighted."*
+
+The report is right — the mark silently does nothing across sections. What this
+plan first recorded as the cause was wrong, and the correction is the reason it
+is worth reading.
+
+### The cause is a COLLAPSED SECTION, not a scoped query
+
+`BlockedByMark` resolves its target with:
 
 ```js
 document.querySelector(
@@ -30,94 +40,148 @@ document.querySelector(
 if (!target) return;
 ```
 
-`data-wave-list` is rendered per **group**, and groups are nested inside the
-attention **section** they belong to. A plan whose waves are spread across
-sections therefore renders *several* `data-wave-list` elements with the same
-plan name, each holding only that section's waves.
+An earlier draft of this plan argued that `data-wave-list` is rendered per group,
+so the query "finds the blocking wave only when blocker and blocked happen to
+share a section". **That is not what the code does.** It is
+`document.querySelector` with both attributes in ONE selector: it already
+searches the whole document and already crosses sections. Widening it would
+change nothing at all, and a worker implementing that fix would make a no-op,
+run green tests, and report success.
 
-So the query finds the blocking wave only when blocker and blocked happen to
-share a section. **The common case is that they do not**: a wave is blocked
-precisely because an earlier wave is still being worked, and a wave being worked
-is in WORKING while the blocked one is in NOT STARTED.
+The real cause is one line away, in `collapse.ts`:
 
-### The premise this contradicts, stated in the code
+```ts
+export const COLLAPSED_BY_DEFAULT: WaitingGroup[] = ['quiet', 'done'];
+```
 
-`BlockedByMark`'s own docstring argues the target is always reachable:
+and one comment away, in the renderer:
 
-> **Why the target is always reachable** — The blocking wave is a SIBLING in the
-> same list — a plan's waves all render together, so `Shaped` is one or two rows
-> above `Moved` whenever `Moved` says it is blocked. That is why this needs none
-> of App's reveal machinery (`revealBranch`, `highlightBranch`, the nonce): those
-> exist to cross tabs and sections to find a row that may not be rendered.
+> The branches, folded. **Removed from the tree rather than hidden with CSS**,
+> the same as the section fold: a folded group should cost no vertical space.
 
-Every clause of that is a reasonable belief about a board that groups by plan.
-This board groups by **attention**, so the premise is false and the machinery it
-declines is exactly the machinery it needs.
+**A collapsed section has no rows in the DOM.** So when the blocker sits in DONE
+— collapsed by default for every reader on every load — there is nothing for any
+selector to find, and `if (!target) return` fires.
 
-### Why it was not noticed
+### The plan named the answer and filed it as an aside
 
-**`if (!target) return;`** — the failure is silent. No scroll, no message, no
-console error. A reader clicks and the interface ignores them, which reads as a
-dead control rather than as a row that could not be found. There is no signal to
-notice, which is why this survived until an operator reported it from the board
-rather than from a test.
+This is not a new discovery so much as a correction of emphasis. The earlier
+draft already said:
+
+> A wave that is **not rendered at all** — filtered out, inside a folded section,
+> or on the other tab — is not reachable by any selector.
+
+and treated it as the rare secondary case behind the query fix. **It is the
+primary case, and the query fix is the empty one.**
+
+### What the estate actually shows
+
+Measured 2026-08-24:
+
+```
+4 plans render waves in TWO sections (done + not-started)
+9 blocked waves; every one sits in `not-started`
+2 rows carry `blockedBy`; both blockers are in `not-started` too
+```
+
+So the *cross-section* case the report describes is real but narrower than the
+first draft claimed: it needs a plan whose blocker has completed into DONE while
+a later wave is still blocked. `the-agents-tab-filters-to-the-sprint` is exactly
+that shape today — three complete waves in DONE, two blocked in NOT STARTED.
+
+**`deriveWaves` gives a wave only `done` or `not-started`.** There is no
+`working` section for a wave to be in, so the first draft's *"the blocker is
+usually in WORKING"* described a state the model cannot produce. That sentence
+predates `a-wave-is-one-row`, which made a wave's section unique.
+
+### Why it survived
+
+**`if (!target) return;`** — no scroll, no message, no console error. A reader
+clicks and the interface ignores them, which reads as a dead control rather than
+a row that could not be found. There is no signal to notice, which is why this
+was reported from the board rather than caught by a test.
 
 ## Design
 
-### The fix
+### Expand the section, then scroll
 
-Search the **document**, not one list. The two attributes
-(`data-wave-list` for the plan, `data-wave-row` for the wave) already identify
-the row uniquely across the page — wave names repeat across plans, which is why
-the pair is scoped by plan, and that reasoning is unaffected by which section
-the row sits in. Only the *root* of the query is wrong.
+The target is absent because its section is folded, so the mark must unfold it
+before it can find anything. The order matters and is the whole mechanism:
 
-Where several sections render the same plan, the pair still matches at most one
-row: a wave belongs to exactly one group, and a group to exactly one section.
+1. Resolve which section holds the blocking wave — the payload says, in the
+   wave's own `section`.
+2. If that section is collapsed, expand it.
+3. Then query, scroll and flash, exactly as today.
 
-### The case the query cannot fix
+The existing query is kept unchanged. It is already document-wide and already
+correct; it was only ever looking for a row that was not there.
 
-A wave that is **not rendered at all** — filtered out, inside a folded section,
-or on the other tab — is not reachable by any selector. That is what
-`revealBranch` / `highlightBranch` exist for, and the docstring is right that
-they are heavier. The honest split:
+### Expanding on the reader's behalf is a real cost, and it is accepted
 
-- **rendered, another section** → the widened query finds it. The common case.
-- **not rendered** → the mark must SAY so rather than doing nothing.
+`readCollapsed` / `writeCollapsed` persist to `localStorage`, so unfolding DONE
+does not just reveal a row — **it changes the reader's layout until they fold it
+back.** The board is otherwise careful about acting on a reader's behalf, and
+this is a deliberate exception rather than an oversight.
 
-**A silent no-op is not acceptable in either branch.** If the row cannot be
-reached, the overlay says the wave's name and that it is not on screen — the
-reader then knows the answer to *which wave*, which was the question, even when
-the board cannot take them there.
+It is accepted because the alternative is worse: the reader ASKED *which wave*,
+and answering with silence is what this plan exists to remove. A section that
+opens in response to a click the reader made is a consequence they can see and
+undo; a control that does nothing is one they cannot.
+
+**Expand only the ONE section holding the target**, never a general unfold, and
+never a fold — the mark may open a section and must never close one.
+
+### Say so when it still cannot be reached
+
+Unfolding does not cover every case. A wave filtered out of view, or on the other
+tab, is still unreachable — and after this change those are the only remaining
+ones.
+
+**A silent no-op is not acceptable in either branch.** Where the row cannot be
+reached, the mark states the wave's name and that it is not on screen. The reader
+then has the answer to *which wave* — which was the question — even when the
+board cannot take them to it.
+
+### Not chosen: widen the query
+
+The first draft's fix. Rejected because the query is already
+`document.querySelector` and already crosses sections: the change would be a
+no-op that passes every test written for it. Recorded so the next reader does not
+re-derive it from the same misreading.
+
+### Not chosen: render collapsed sections hidden rather than removed
+
+Keeping folded rows in the DOM with `display: none` would make the query work
+untouched. Rejected: the renderer removes them deliberately — *"a folded group
+should cost no vertical space, which is the whole complaint this answers"* — and
+this repo has already paid for that decision once.
 
 ### Not chosen: reuse `revealBranch` wholesale
 
-Tempting, since it already crosses sections and tabs. Rejected for now because
-it keys on a **branch**, and this mark points at a **wave** — a wave has no
-single branch, and picking one would be inventing an answer. Wiring a
-wave-shaped reveal is a larger change than the defect warrants; the widened
-query plus an honest fallback fixes the reported case without it.
-
-Revisit if the *not rendered* case turns out to be common.
-
-### Open Questions
-
-- [ ] Should the mark also expand a **folded** section to reach its target? That
-      is a state change on the reader's behalf, which the board is otherwise
-      careful about. Probably yes for a fold the reader can see, but decide it
-      deliberately rather than as a side effect of scrolling.
+Tempting, since it crosses tabs and sections. Rejected for now because it keys on
+a **branch**, and this mark points at a **wave** — a wave has no single branch,
+and picking one would be inventing an answer.
 
 ## Done when
 
-- A blocked wave in NOT STARTED whose blocker is in WORKING scrolls to and
-  flashes that blocker. Asserted in a browser test with a pulse that puts the
-  two waves in **different sections** — the current test, if any, cannot fail
-  this way because it builds both in one.
-- A blocker in the same section still works — the widened query must not regress
-  the case that worked.
-- A blocker that is **not rendered** produces a visible statement, not a no-op.
-  Asserted directly: this is the property that made the bug invisible, and an
-  implementation that merely widens the query passes every other test here.
+- **A blocked wave whose blocker is in a COLLAPSED section scrolls to and
+  flashes it.** This is the defect. Asserted in a browser test that leaves DONE
+  folded — its default state — because a test that expands it first passes
+  against today's broken code.
+- **The section is expanded, and only that one.** Asserted on the other
+  sections' state: a mark that unfolds everything would pass a
+  "did it scroll" test while rearranging the reader's board.
+- **The mark never FOLDS a section.** It may open; it may not close.
+- **A blocker in the same, already-open section still works** — the case that
+  works today must not regress, and it is the one a fix aimed at collapse could
+  break.
+- **A blocker that cannot be reached at all produces a visible statement, not a
+  no-op.** Asserted directly: this is the property that made the bug invisible,
+  and an implementation that only handles the collapse case passes every other
+  assertion here.
+- **The query is unchanged.** Asserted by reading the diff — if the selector
+  moved, the change was aimed at the first draft's cause rather than the measured
+  one.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
 ## Waves
@@ -128,12 +192,66 @@ Revisit if the *not rendered* case turns out to be common.
 
 ## Notes
 
-Reported from the running board, 2026-08-23: *"The blocked (i) only works if the
-wave is in the same group. Waves in other sections e.g., WORKING aren't
-highlighted."*
+Reported from the running board, 2026-08-23, and the report was right about the
+symptom in every detail.
 
-The defect is one selector root, but the reason it shipped is worth keeping: the
-docstring reasoned carefully from a premise about layout that the layout does not
-hold. The comment is not wrong about what it argues — it is wrong about the
-board it argues over — which is the failure mode a confident comment produces and
-a test would have caught.
+### The first draft named the wrong cause, and that is the lesson
+
+It argued the query was scoped to one section's list. The code disagrees: it is
+`document.querySelector` with both attributes in one selector, already
+document-wide. **The proposed fix would have been a no-op that passed its own
+tests** — a worker would have widened an already-wide query, seen green, and
+reported success while the mark went on doing nothing.
+
+The real cause is that DONE is `COLLAPSED_BY_DEFAULT` and a folded section's rows
+are removed from the DOM rather than hidden. The draft knew this — it wrote *"a
+wave that is not rendered at all — filtered out, inside a folded section, or on
+the other tab — is not reachable by any selector"* — and filed it as the rare
+secondary case behind the query fix. It is the primary case.
+
+Two mistakes compounded, and both are worth naming because both recur:
+
+1. **Reasoning about the code from its docstring rather than from the code.**
+   `BlockedByMark`'s own comment claims the target is "always reachable" as a
+   sibling in the same list. That comment is what the draft read, and it is wrong
+   about a board that groups by attention.
+2. **Reasoning about waves in the vocabulary of rows.** *"The blocker is usually
+   in WORKING"* describes a section a WAVE cannot occupy: `deriveWaves` gives a
+   wave only `done` or `not-started`. The same two-vocabularies confusion caused
+   the miscount fixed in #378 the same night.
+
+### The estate, measured 2026-08-24
+
+```
+4 plans render waves in two sections (done + not-started)
+9 blocked waves, every one in `not-started`
+2 rows carry `blockedBy`, both blockers in `not-started`
+```
+
+`the-agents-tab-filters-to-the-sprint` is the live example of the failing shape:
+three complete waves folded into DONE, two blocked waves in NOT STARTED pointing
+at them.
+
+Precedent: `the-name-track-holds-the-name` (Delivered) had its settled mechanism
+overridden after a worker measured it in Chromium and found it
+self-contradictory. This plan is corrected one step earlier — before dispatch
+rather than after — which is what the interrogation is for.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "The plan says the blocker is usually in WORKING, but deriveWaves gives a wave only done|not-started - is the premise true?", "a": "It is not. Measured: 9 blocked waves all in not-started, 2 blockedBy rows with same-section blockers. The operator confirmed from use that the mark still fails across sections, which sent the investigation to the real cause.", "category": "technical"},
+    {"q": "If the query is already document-wide, why does it fail?", "a": "DONE is COLLAPSED_BY_DEFAULT and a folded section's rows are REMOVED from the DOM, not hidden. There is nothing to find. The draft's fix - widening the query - would have been a no-op passing its own tests.", "category": "technical"},
+    {"q": "Is expanding a collapsed section on the reader's behalf acceptable?", "a": "Yes, and the cost is stated: writeCollapsed persists to localStorage, so it changes the reader's layout until they fold it back. Accepted because the reader ASKED, and silence is the defect. Only the one section holding the target; never a fold.", "category": "ux"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "domain": false,
+    "ux": true,
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
