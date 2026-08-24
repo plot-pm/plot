@@ -143,13 +143,13 @@ in practice, promote it rather than letting the rules go untested.
 - [x] [the-registry-names-a-live-agent] The registry names a live agent — a dead pid displayed beside `running`, nine agents skipped by a gate on a value the classifier never reads, and six worktrees with no entry at all <!-- status: delivered, branches: 1/1 -->
 
 - [x] [a-plan-has-a-phase-and-a-status] A plan carries a phase AND a status — the board derives seven statuses the plan format cannot state, so `Approved` covers everything from nothing-started to every-wave-merged <!-- status: delivered, pr: #374, branches: 1/1 -->
-- [ ] [the-row-says-whether-you-can-start-it] The row says whether you can start it — a reader cannot tell an eligible branch from a blocked one without opening the plan
+- [x] [the-row-says-whether-you-can-start-it] The row says whether you can start it — a reader cannot tell an eligible branch from a blocked one without opening the plan
 
 ### Could Have
 
 - [x] [the-name-track-holds-the-name] The name track holds the name — 80% of plan slugs exceed the visible width while the branch beside them renders in full <!-- status: delivered, branches: 1/1 -->
 - [ ] [a-folded-row-still-says-what-matters] A folded head carries its tally and says what is live
-- [ ] [the-blocking-wave-is-found-wherever-it-is] The blocked mark finds its target across sections — and says so when it cannot
+- [x] [the-blocking-wave-is-found-wherever-it-is] The blocked mark finds its target across sections — and says so when it cannot
 - [x] [the-board-says-which-branch-it-serves] The header names the branch the board is serving from <!-- status: delivered, branches: 1/1 -->
 - [ ] [the-plan-the-board-holds] The row carries the plan's own records rather than re-deriving them
 - [ ] [the-page-is-as-tall-as-the-screen] Every board scrolls by 13px whatever it contains

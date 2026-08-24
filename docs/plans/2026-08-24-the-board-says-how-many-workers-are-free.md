@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-24, Jan Wloka, in-session
 - **Started:** 2026-08-24, Jan Wloka, `bug/the-board-says-how-many-workers-are-free`
+- **Delivered:** 2026-08-24
 
 ## Approval
 

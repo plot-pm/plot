@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** <!-- optional -->
 - **Issue:** #228
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-23, Jan Wloka, in-session
 - **Started:** 2026-08-23, Jan Wloka, `bug/an-arrived-list-answers-for-the-branches-it-omits`
+- **Delivered:** 2026-08-24
 
 ## Approval
 

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** <!-- optional -->
 - **Issue:** <!-- optional -->
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-24, Jan Wloka, in-session
 - **Started:** 2026-08-24, Jan Wloka, `bug/the-blocking-wave-is-found-wherever-it-is`
+- **Delivered:** 2026-08-24
 
 ## Approval
 

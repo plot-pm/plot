@@ -1,0 +1,1 @@
+../2026-08-23-the-scan-asks-once-per-pulse-not-once-per-branch.md

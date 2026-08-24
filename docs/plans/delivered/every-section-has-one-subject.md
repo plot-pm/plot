@@ -1,0 +1,1 @@
+../2026-08-20-every-section-has-one-subject.md

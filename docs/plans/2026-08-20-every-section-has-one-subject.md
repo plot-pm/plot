@@ -14,7 +14,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
@@ -23,6 +23,7 @@
 - **Approved:** 2026-08-20 by jwloka (in-session) — the doubling was measured with `pr: None`, so it cannot be the two-waits case the rule was written for
 - **Started:** 2026-08-20, Jan Wloka, `bug/an-agent-is-not-a-machine-you-wait-on`
 - **Started:** 2026-08-20, Jan Wloka, `feature/a-broken-agent-needs-you`
+- **Delivered:** 2026-08-24
 
 ## Changelog
 

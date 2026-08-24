@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:** working-shows-the-agent
 - **Story:** plot-planning-model
@@ -14,6 +14,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-22, Jan Wloka, in-session
 - **Started:** 2026-08-23, Jan Wloka, `feature/implement-runs-from-the-board`
+- **Delivered:** 2026-08-24
 
 ## Approval
 

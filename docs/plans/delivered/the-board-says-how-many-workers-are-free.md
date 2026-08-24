@@ -1,0 +1,1 @@
+../2026-08-24-the-board-says-how-many-workers-are-free.md
