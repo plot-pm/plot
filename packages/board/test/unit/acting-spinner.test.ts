@@ -41,15 +41,19 @@ const here = path.dirname(fileURLToPath(import.meta.url));
  * break the build, and worse, able to satisfy it.
  */
 const src = (rel: string) =>
-  fs.readFileSync(path.resolve(here, '../../src/app/components', rel), 'utf8')
+  fs.readFileSync(path.resolve(here, '../../src/app', rel), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '')
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
 
-const SPINNER = src('ui/ActingSpinner.tsx');
-const AGENT_LIST = src('AgentList.tsx');
-const START_WORK = src('StartWorkButton.tsx');
-const APPROVE = src('ApproveButton.tsx');
+const SPINNER = src('components/ui/ActingSpinner.tsx');
+// THE MARKS' OWN MODULE. `ActivityMark` was declared in `AgentList.tsx` until
+// `the-components-leave-the-shell` moved every mark into
+// `lib/agent-rows/marks.tsx`; the scan follows the component, since a path that
+// no longer holds it yields an empty slice that satisfies every assertion below.
+const AGENT_LIST = src('lib/agent-rows/marks.tsx');
+const START_WORK = src('components/StartWorkButton.tsx');
+const APPROVE = src('components/ApproveButton.tsx');
 
 /**
  * The ROW's marker body — and nothing around it.
