@@ -228,7 +228,7 @@ the workers already running.
 
 ## Waves
 
-### Anchored (Branch: infra/the-registry-holds-the-worker-pid)
+### Anchored (Branch: infra/the-registry-holds-the-worker-pid, PR: #390)
 - the pid moves from `$wt/.plot-worker.pid` to the session's manifest;
   `plot-worker-state.sh` resolves worktree→session and reads it there; dispatch,
   the scan and the board's continuation follow. The pid is trusted only where
