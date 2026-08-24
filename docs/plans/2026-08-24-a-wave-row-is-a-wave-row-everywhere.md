@@ -15,6 +15,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-24, Jan Wloka, in-session
 - **Started:** 2026-08-24, Jan Wloka, `bug/a-wave-renders-as-a-wave-in-every-section`
+- **Started:** 2026-08-24, Jan Wloka, `bug/the-blocked-mark-finds-a-worker`
 
 ## Changelog
 
