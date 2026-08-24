@@ -155,6 +155,38 @@ cannot drift. `parallel agents` stays a cap and is labelled as one: a cap and a
 measurement are different claims, and the fleet has exceeded the cap
 deliberately before.
 
+### A ready PR asks for you, whatever the worker is doing
+
+`classify` lets a running worker skip the PR arm where `prAsksNobody(pr)` —
+draft, green, or pending (`fleet.ts:2843`). The reasoning is recorded as *"a
+green or pending PR that asks nothing of anybody"*, and it fixed a measured
+defect: WORKING went empty on 2026-08-17 while two agents ran.
+
+**A green, non-draft PR is not nothing.** It is the state where a person is the
+only remaining blocker — opening one is the request. Measured 2026-08-24: three
+PRs (#389, #390, #391) sat green and reviewable while their rows stayed in
+WORKING, invisible to the reader who had to approve them. They were found by
+querying the host directly, not by reading the board.
+
+The distinction the arm needs is the one the very next clause already draws:
+
+> *"a draft is still the author's and the author here is the agent, so a green
+> draft with a live worker is the clearest possible WORKING row."*
+
+**Draft versus ready**, not green versus failing. A draft says *I am not
+finished*; a ready PR says *I am*. So a running worker keeps its branch row
+while the PR is a draft, and loses it the moment the PR is marked ready.
+
+This does not undo the 2026-08-17 fix. That defect was an agent whose DRAFT PR
+went green — still the author's, still WORKING. The cure was scoped one notch
+too wide.
+
+**And the row is not the whole answer.** With WORKING rendering from the
+registry (wave `Shown`), the worker keeps its own row there while the BRANCH row
+goes to WAITING ON YOU — the agent is still running and the PR still needs
+review, and both are true. This wave is what makes the branch row move; `Shown`
+is what stops the worker disappearing when it does.
+
 ## Waves
 
 ### Shown (Branch: bug/the-working-section-renders-the-registry)
@@ -168,6 +200,10 @@ deliberately before.
 ### Named (Branch: feature/a-busy-worker-names-its-wave)
 - a running worker's row names its wave, joined from `fleet.waves`; silent where
   the branch belongs to none
+
+### Ready (Branch: bug/a-ready-pr-asks-for-you)
+- a running worker keeps its branch row only while the PR is a DRAFT; a PR
+  marked ready reaches WAITING ON YOU whatever the worker is doing
 
 ### Reconciled (Branch: bug/the-registry-drops-a-settled-worker)
 - an entry is dropped only when the worktree is clean and the session has ended;
@@ -192,6 +228,12 @@ deliberately before.
    with what it is holding.
 8. **A worker with a clean worktree and a live session is still reported.**
 9. **A worker with a clean worktree and an ended session is absent.**
+10. **A branch whose PR is READY reaches WAITING ON YOU while its worker runs.**
+    The #389/#390/#391 case — asserted on the PR's draft flag, not on its checks.
+11. **A branch whose PR is a DRAFT keeps its WORKING row while its worker runs**,
+    green checks included. This is the 2026-08-17 defect and it must not return.
+12. **The worker's own row stays in WORKING through both**, so moving the branch
+    row never empties the section.
 10. `pnpm run test:board` green; artifact rebuilt and committed.
 
 ## Notes
