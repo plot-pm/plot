@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Fleet } from '../../contract/schema.js';
+import type { Fleet, RegistryInfo } from '../../contract/schema.js';
 
 /**
  * THE TWO SECTION-HEADER CONTROLS: a switch on NOT STARTED, a stepper on
@@ -130,7 +130,7 @@ export function AutoDispatchSwitch({ value }: { value: boolean }) {
  * expected interaction — a reader who lands on it with Tab can change it without
  * reaching for the two buttons.
  */
-export function ParallelAgentsStepper({ value, working, hiddenByFilter }: { value: number; working?: number; hiddenByFilter?: number }) {
+export function ParallelAgentsStepper({ value, working, hiddenByFilter, registry }: { value: number; working?: number; hiddenByFilter?: number; registry?: RegistryInfo }) {
   const [count, setCount] = useState(value);
   const [busy, setBusy] = useState(false);
   const writing = useRef(false);
@@ -246,6 +246,31 @@ export function ParallelAgentsStepper({ value, working, hiddenByFilter }: { valu
           title={`${hiddenByFilter} live workers on plans outside the selected sprint filter`}
         >
           ({hiddenByFilter} hidden by filter)
+        </span>
+      )}
+      {/*
+        THE REGISTRY METADATA — makes a synthesized fleet legible. A board started
+        in a worktree with no `.plot/agents/` of its own synthesizes the entire
+        fleet from `git worktree list`, and nothing else on screen says so. The
+        rows render, the agents carry no sessions, the drop menu vanishes, and
+        the operator has no way to tell a synthesized fleet from one that happens
+        to have nothing to offer.
+
+        `0 manifests, 12 synthesized` says immediately what took ten minutes to
+        diagnose: the board is reading an empty directory, not a broken one.
+
+        Shown ONLY when interesting — either no manifests found (the error case
+        this exists for) or any synthesized entries. A healthy fleet with 7
+        manifests and 0 synthesized needs no annotation; a fleet with 0 manifests
+        is the exact case where silence was harmful.
+      */}
+      {registry && (registry.manifestCount === 0 || registry.synthesizedCount > 0) && (
+        <span
+          data-fleet-registry
+          className={`ml-1.5 tabular-nums ${registry.manifestCount === 0 ? 'text-amber-600 dark:text-amber-500' : 'text-slate-400 dark:text-slate-500'}`}
+          title={`Registry: ${registry.directory}\n${registry.manifestCount} manifest(s) read, ${registry.synthesizedCount} synthesized from worktrees`}
+        >
+          · {registry.manifestCount} manifest{registry.manifestCount !== 1 ? 's' : ''}{registry.synthesizedCount > 0 && `, ${registry.synthesizedCount} synthesized`}
         </span>
       )}
     </span>
