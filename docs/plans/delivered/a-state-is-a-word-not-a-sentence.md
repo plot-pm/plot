@@ -1,0 +1,1 @@
+../2026-08-25-a-state-is-a-word-not-a-sentence.md

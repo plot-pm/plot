@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
@@ -11,7 +11,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-25, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
-- **Delivered:** <!-- YYYY-MM-DD -->
+- **Delivered:** 2026-08-25
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-25, Jan Wloka, `bug/a-running-agent-reads-running`
 - **Started:** 2026-08-25, Jan Wloka, `feature/a-running-worker-says-if-it-is-idle`

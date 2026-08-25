@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
@@ -11,7 +11,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-25, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
-- **Delivered:** <!-- YYYY-MM-DD -->
+- **Delivered:** 2026-08-25
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-25, Jan Wloka, `feature/the-registry-directory-is-configured`
 - **Started:** 2026-08-25, Jan Wloka, `bug/the-drop-writes-where-the-registry-reads`

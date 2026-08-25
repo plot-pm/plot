@@ -1,0 +1,1 @@
+../2026-08-25-the-registry-lives-where-the-dispatcher-writes-it.md

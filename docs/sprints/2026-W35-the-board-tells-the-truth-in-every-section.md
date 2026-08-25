@@ -179,10 +179,10 @@ in practice, promote it rather than letting the rules go untested.
 - [x] [the-scan-asks-once-per-pulse-not-once-per-branch] An idle board stops exhausting the host's hourly budget — branch PR state resolves from the one repo-wide list the scan already fetches <!-- status: delivered, branches: 1/1 -->
 - [x] [a-count-answers-to-its-section] A count answers to the section beneath it — DONE reads `33` in its header over 13 visible rows; the two count different units. Found walking the v2.9.0 endgame
 - [x] [the-board-shows-where-the-thinking-happens] The Agents tab names the branch the master agent works on, and the header's unlabelled branch chip — which named the SERVER's checkout and was twice read as the operator's — is removed
-- [ ] [the-registry-lives-where-the-dispatcher-writes-it] A board served from a worktree with no `.plot/agents/` reads the dispatcher’s manifests — all 12 agents were synthesized with no session, so no row could offer Drop
-- [ ] [a-state-is-a-word-not-a-sentence] The agent state column reads a state — four states render their own name, `running` rendered `someone is on it` on all 11 WORKING rows
-- [ ] [a-hung-child-does-not-hold-the-loop] A worker whose agent process hangs is ended rather than waited on forever — 11 of 13 workers sat at zero CPU for up to 10 hours after `No messages returned`, and auto-dispatch started 2 more against a cap of 3
-- [ ] [a-wip-branch-nobody-is-on-is-not-startable] Auto-dispatch spends its budget on branches a dispatch would refuse — 3 of 4 branches it counted as startable were already claimed, and the July plan holding one starved every newer plan behind it
+- [x] [the-registry-lives-where-the-dispatcher-writes-it] A board served from a worktree with no `.plot/agents/` reads the dispatcher’s manifests — all 12 agents were synthesized with no session, so no row could offer Drop
+- [x] [a-state-is-a-word-not-a-sentence] The agent state column reads a state — four states render their own name, `running` rendered `someone is on it` on all 11 WORKING rows
+- [x] [a-hung-child-does-not-hold-the-loop] A worker whose agent process hangs is ended rather than waited on forever — 11 of 13 workers sat at zero CPU for up to 10 hours after `No messages returned`, and auto-dispatch started 2 more against a cap of 3
+- [x] [a-wip-branch-nobody-is-on-is-not-startable] Auto-dispatch spends its budget on branches a dispatch would refuse — 3 of 4 branches it counted as startable were already claimed, and the July plan holding one starved every newer plan behind it
 
 ### Out of scope, and why — 27 open plans, 20 not in this sprint
 
