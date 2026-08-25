@@ -90,10 +90,21 @@ describe('a live worker keeps its row in WORKING', () => {
     expect(r.group).not.toBe('working');
   });
 
-  it('lets a green PR pass to working while a worker runs', () => {
-    // The agent opened its PR and kept working. A green PR asks nothing of
-    // anybody, so the row belongs where the work is.
+  it('sends a ready green PR to waiting-on-you while its worker runs', () => {
+    // THE #389/#390/#391 FIX. A ready (non-draft) green PR says "I am finished
+    // and need review" — it IS somebody's errand, whatever the worker is doing.
+    // The row goes to waiting-on-you so a reviewer can see it.
     const r = classify('wip', 'eligible', 5, 60, greenPr, false, 0, 'approved', 'running', null, 7);
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toContain('green');
+  });
+
+  it('keeps a green DRAFT PR in working while its worker runs', () => {
+    // THE 2026-08-17 FIX, still correct. A draft says "I am not finished" — it
+    // is the author's, and here the author is the agent. A green draft with a
+    // live worker is the clearest possible WORKING row.
+    const draftGreenPr = { ...greenPr, draft: true };
+    const r = classify('wip', 'eligible', 5, 60, draftGreenPr, false, 0, 'approved', 'running', null, 7);
     expect(r.group).toBe('working');
   });
 
@@ -114,29 +125,38 @@ describe('a live worker keeps its row in WORKING', () => {
   });
 });
 
-describe('prAsksNobody — an allowlist, never a blocklist', () => {
+describe('prAsksNobody — drafts and pending ask nobody, green asks for review', () => {
   const mk = (over: Record<string, unknown>) => ({
     number: 1, url: '', draft: false, state: 'OPEN', checks: 'green',
     mergeable: 'mergeable', failing_checks: [], ...over,
   } as never);
 
-  it('says yes only for green and pending', () => {
-    expect(prAsksNobody(mk({}))).toBe(true);
+  it('says yes for drafts — a draft is still the author\'s', () => {
+    expect(prAsksNobody(mk({ draft: true }))).toBe(true);
+    expect(prAsksNobody(mk({ draft: true, checks: 'pending' }))).toBe(true);
+    expect(prAsksNobody(mk({ draft: true, checks: 'failing' }))).toBe(true);
+    expect(prAsksNobody(mk({ draft: true, checks: 'none' }))).toBe(true);
+    expect(prAsksNobody(mk({ draft: true, mergeable: 'conflicting' }))).toBe(true);
+  });
+
+  it('says yes for pending — CI is running, no person can review yet', () => {
     expect(prAsksNobody(mk({ checks: 'pending' }))).toBe(true);
   });
 
-  it('says no for every state that is somebody errand', () => {
+  it('says NO for a green non-draft — it needs review', () => {
+    // The #389/#390/#391 fix: three ready green PRs sat reviewable and
+    // invisible because they were treated as "asking nobody".
+    expect(prAsksNobody(mk({}))).toBe(false);
+  });
+
+  it('says no for every errand-state — a blocklist would fail silently', () => {
     // `conflicts` wants a rebase, `failing` a look, `none` a click, `unknown`
-    // asking again. A blocklist would silently start claiming "nobody is
-    // blocked" the first time a state is added — quiet, not loud.
+    // asking again. These reach the PR arm regardless of prAsksNobody, but
+    // the predicate should be explicit about them.
     expect(prAsksNobody(mk({ mergeable: 'conflicting' }))).toBe(false);
     expect(prAsksNobody(mk({ checks: 'failing' }))).toBe(false);
     expect(prAsksNobody(mk({ checks: 'none' }))).toBe(false);
     expect(prAsksNobody(mk({ mergeable: 'unknown' }))).toBe(false);
-  });
-
-  it('treats a draft as asking nobody — it is still the agent own', () => {
-    expect(prAsksNobody(mk({ draft: true, checks: 'none' }))).toBe(true);
   });
 });
 
