@@ -132,6 +132,22 @@ export function liveAgentCount(agents: AgentEntry[], pulse?: FleetPulse): number
 }
 
 /**
+ * The branches that occupy concurrency slots right now — the names behind
+ * {@link liveAgentCount}'s number.
+ *
+ * Returned when auto-dispatch refuses at the cap so the refusal names what
+ * holds the slots, not just how many are held. A count says "you're at the
+ * cap"; the branches say "these agents are the cap".
+ */
+export function liveAgentBranches(agents: AgentEntry[], pulse?: FleetPulse): string[] {
+  const landed = pulse ? landedBranches(pulse) : new Set<string>();
+  return agents
+    .filter((a) => LIVE_STATES.has(a.state) && !(a.branch && landed.has(a.branch)))
+    .map((a) => a.branch)
+    .filter((b): b is string => Boolean(b));
+}
+
+/**
  * A branch the pulse shows as still startable — open or wip, not yet claimed,
  * merged or deferred. The claim ref is the one mechanism that makes a taken
  * branch safe, and the pulse reflects it as `state: 'claimed'`; a startable
@@ -336,6 +352,10 @@ export function runAutoDispatch(
  * The returned set is the pruned old set plus the newly dispatched branches, so
  * the caller assigns it whole rather than mutating — the cache's one-directional
  * rule.
+ *
+ * AT THE CAP, REFUSES AND NAMES THE BRANCHES. Refusing silently is what made
+ * the cap invisible — see `a-worker-asks-for-the-next-wave.md`, "Counted" wave.
+ * The log line names the branches occupying the slots, not just the count.
  */
 export function maybeAutoDispatch(
   opts: BuildBoardOptions,
@@ -345,10 +365,35 @@ export function maybeAutoDispatch(
   inFlight: Set<string>,
 ): Set<string> {
   const pruned = pruneInFlight(inFlight, pulse, agents);
+  const liveCount = liveAgentCount(agents, pulse);
+
+  // Check if we're at the cap BEFORE calling planAutoDispatch, so we can log
+  // meaningfully. The switch being off is a deliberate absence, not a refusal;
+  // the cap being reached is what needed visibility.
+  if (controls.autoDispatch) {
+    const budget = controls.parallelAgents - (liveCount + pruned.size);
+    if (budget <= 0) {
+      const liveBranches = liveAgentBranches(agents, pulse);
+      const inFlightList = [...pruned];
+      // Only log when there IS something to dispatch — a cap hit with no
+      // eligible work is routine, not a refusal.
+      const hasEligible = pulse.plans.some(
+        (p) => p.phase === 'approved' && p.waves.some((w) => w.verdict === 'eligible'),
+      );
+      if (hasEligible) {
+        console.log(
+          `auto-dispatch: at cap (${controls.parallelAgents}), refusing new dispatch. ` +
+          `Slots held by: ${[...liveBranches, ...inFlightList].join(', ') || '(in-flight only)'}`,
+        );
+      }
+      return pruned;
+    }
+  }
+
   const plans = planAutoDispatch({
     controls,
     pulse,
-    liveCount: liveAgentCount(agents, pulse),
+    liveCount,
     inFlight: pruned,
   });
   if (plans.length === 0) return pruned;
