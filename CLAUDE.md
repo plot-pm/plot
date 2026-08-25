@@ -15,6 +15,7 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
 - **Sprint directory:** docs/sprints/
 - **Plan template:** .plot/templates/plan.md
 - **Claim stale after:** 24
+- **Agent registry:** /Users/jwloka/Quatico/Agentic-Tools/plot/.plot/agents
 - **Board command:** pnpm board
 - **Worker command:** PLOT_UNATTENDED=1 skills/plot/scripts/plot-worker-loop.sh
 <!-- The loop script implements, then asks `--next` for the next wave, claims
