@@ -2793,6 +2793,40 @@ export const AgentStateSchema = z.enum(['running', 'finished', 'waiting', 'stall
 export type AgentState = z.infer<typeof AgentStateSchema>;
 
 /**
+ * The registry states that mean a LIVE WORKER — the one deciding whether an
+ * agent is working RIGHT NOW.
+ *
+ * `running` is a live process. `waiting` is a worker that stopped to ask a
+ * person and whose worktree still holds its half-done branch: it is mid-task,
+ * not finished. `finished`, `stalled` and `unknown` are NOT live — a finished
+ * worker handed its branch back, a stalled one left the desk with work on the
+ * floor, and `unknown` is the board unable to say either way.
+ *
+ * IT LIVES IN THE CONTRACT so the dispatcher and the board share ONE definition
+ * of a worker. `auto-dispatch.ts` measures the concurrency cap against it, and
+ * WORKING renders exactly its members; a second copy is how the two would drift
+ * on the one word — `working` — they both depend on. It sits here rather than in
+ * `auto-dispatch.ts` because that module reaches for `node:child_process`, and
+ * the board's client bundle must import this set without dragging Node in.
+ */
+export const LIVE_STATES: ReadonlySet<AgentState> = new Set<AgentState>(['running', 'waiting']);
+
+/**
+ * Whether a registry state means a live worker — the DENYLIST reading of
+ * {@link LIVE_STATES}, not the allowlist.
+ *
+ * A known-non-live state (`finished`, `stalled`, `unknown`) is not live; ANY
+ * OTHER state — including a sixth an older board does not recognise from a newer
+ * registry — reads as live and is shown. A worker nobody can see is the worse
+ * failure, so the filter fails toward visibility rather than hiding a state it
+ * was not taught. The cost, taken deliberately: `LIVE_STATES` is the complement
+ * this is derived from, a weaker guarantee than a bare set-membership test.
+ */
+export function isLiveState(state: string): boolean {
+  return state !== 'finished' && state !== 'stalled' && state !== 'unknown';
+}
+
+/**
  * One agent from the dispatcher's registry — a process with an identity that
  * outlives the branch it was launched on.
  *

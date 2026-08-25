@@ -9,6 +9,7 @@ import {
   ELIGIBLE_NOTE,
   FINISHED_PLAN_NOTE,
   FleetScanLineSchema,
+  isLiveState,
   toBoardPhase,
   unknownPhaseNote,
   WaveVerdictSchema,
@@ -5271,12 +5272,20 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
     // fires client-side, so a field the server left off would reach the renderer
     // as `undefined`. It is emitted every time, cold cache included.
     //
-    // `working` IS THE REGISTRY SIZE — exactly what WORKING renders. The client
-    // produces one row per `agents` entry, so the count is `agents.length`, one
-    // derivation read twice. It no longer depends on the pulse: the registry is
-    // read from disk on every refresh, and absence means no dispatch has run —
-    // a fact, not an unreachable host.
-    fleetControls: { ...readFleetControls(opts), working: entry.agents.length },
+    // `working` IS THE COUNT OF LIVE ENTRIES — exactly what WORKING renders.
+    // The client produces one row per LIVE `agents` entry (`workingAgentRows`
+    // filters on `isLiveState`), so the count applies the SAME predicate here:
+    // one rule read twice, never two derivations that can disagree — the
+    // property #403 established, preserved through the `working-lists-the-live-
+    // agents` filter rather than undone by it. A registry entry for a session
+    // that has ended (`stalled`, `finished`, `unknown`) is not a worker and is
+    // not counted. It still does not depend on the pulse: the registry is read
+    // from disk on every refresh, and absence means no dispatch has run — a
+    // fact, not an unreachable host.
+    fleetControls: {
+      ...readFleetControls(opts),
+      working: entry.agents.filter((a) => isLiveState(a.state)).length,
+    },
     // The Active sprints, each with release and four `status` counts, aggregated
     // on THIS render clock from the same cached pulse the rows came from — so a
     // sprint file or a plan status edited between two scans shows on the next

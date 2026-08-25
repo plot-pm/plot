@@ -6,15 +6,23 @@ import { startServer } from '../helpers.mjs';
 import { type AgentEntry, type AgentRow, type Fleet } from '../../src/contract/schema.js';
 
 /**
- * WORKING RENDERS FROM THE REGISTRY — `the-working-section-shows-every-worker`,
- * wave 1 (Shown), driven in a REAL browser against the shipped artifact.
+ * WORKING RENDERS THE WORKERS THAT ARE WORKING —
+ * `working-lists-the-live-agents`, driven in a REAL browser against the shipped
+ * artifact.
  *
- * The section used to render one row per BRANCH row `classify` put in WORKING,
- * joined to a registry entry. This inverts it: one row per REGISTRY entry,
- * joined BACK to a branch row where one exists. The measured defect was 23
- * registry entries and 0 rows; these fixtures are the awkward shapes behind
- * that — a worker whose branch has no row at all, a worker whose branch merged
- * into DONE, and workers in every one of the five registry states.
+ * `the-working-section-shows-every-worker` inverted a branch-derived section so
+ * a live worker was never hidden by its branch's row being absent, scratch or
+ * merged. It kept EVERY registry entry — and a registry entry for a session
+ * that has ENDED is not a worker. WORKING now filters to the LIVE states
+ * (`running`, `waiting`) so its subject (who is working) matches its contents:
+ * the measured defect was `WORKING (16)` over four live workers and twelve
+ * ended sessions. The `stalled`/`unknown` entries reach WAITING ON YOU as a
+ * problem report (a separate wave); `finished` drains through reconciliation.
+ *
+ * These fixtures keep every awkward shape the inversion was for — a live worker
+ * whose branch has no row, one whose branch merged into DONE — plus a worker in
+ * every one of the five registry states, so the filter is proven against the
+ * whole enum and not just the happy two.
  *
  * `/api/fleet` is stubbed at the network boundary: every claim here is about
  * what the tab RENDERS from a pulse.
@@ -39,14 +47,21 @@ const agent = (over: Partial<AgentEntry> = {}): AgentEntry => ({
 });
 
 /**
- * A pulse whose REGISTRY names more workers than the branch rows in WORKING.
+ * A pulse whose REGISTRY names workers in every state — the branch rows in
+ * WORKING are fewer, and three of the seven entries have ended.
  *
+ * LIVE — must render in WORKING:
  * - `feature/running` — a plain WORKING branch, a worker on it.
- * - `feature/landed` — MERGED: its branch row sits in DONE, and its worker must
- *   still show in WORKING. Done when #3.
- * - `main` — no branch row anywhere; the board is served from it. Done when #2.
- * - `feature/idle` — a scratch branch no plan lists, no row; state `waiting`.
- * - one worker in each remaining registry state, so all five render. #5.
+ * - `feature/landed` — MERGED: its branch row sits in DONE, and its live worker
+ *   must still show in WORKING. The join survives the filter.
+ * - `main` — no branch row anywhere; the board is served from it.
+ * - `idea/recut-a` — a scratch branch no plan lists, no row; state `waiting`,
+ *   which is live: a worker mid-task that stopped to ask.
+ *
+ * ENDED — must NOT render in WORKING:
+ * - `idea/recut-b` — `stalled`, work on the floor: belongs in WAITING ON YOU.
+ * - `idea/recut-c` — `finished`: the PR carries it, no row of its own.
+ * - `idea/recut-d` — `unknown`: the board cannot say; belongs in WAITING ON YOU.
  */
 function fleet(over: Partial<Fleet> = {}): Fleet {
   const rows: AgentRow[] = [
@@ -61,8 +76,9 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     agent({ session: 'lan00002', branch: 'feature/landed', state: 'running' }),
     // A worker the board is served from — `main` is in no pulse row.
     agent({ session: 'main0003', branch: 'main', worktree: '/wt/plot', state: 'running' }),
-    // The four non-running states, each on a branch with no row.
+    // Live: a worker that stopped to ask a person, still mid-task.
     agent({ session: 'wait0004', branch: 'idea/recut-a', state: 'waiting' }),
+    // Ended: the three non-live states, each on a branch with no row.
     agent({ session: 'stal0005', branch: 'idea/recut-b', state: 'stalled' }),
     agent({ session: 'fini0006', branch: 'idea/recut-c', state: 'finished' }),
     agent({ session: 'unkn0007', branch: 'idea/recut-d', state: 'unknown' }),
@@ -78,7 +94,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
   };
 }
 
-describe('WORKING renders one row per registry entry', () => {
+describe('WORKING renders one row per LIVE registry entry', () => {
   let server: { port: number; kill: () => void };
   let browser: Browser;
   let baseURL: string;
@@ -108,22 +124,23 @@ describe('WORKING renders one row per registry entry', () => {
       has: page.getByRole('heading', { level: 2, name: new RegExp(label) }),
     });
 
-  it('renders a row for every registry entry, not just the branch rows in WORKING', async () => {
-    // Done when #1: N entries → N rows. Seven agents here; only ONE of their
-    // branches (`feature/running`) is a WORKING branch row, so the old code
-    // rendered one. Every agent row carries `data-agent-row`.
+  it('renders a row for every LIVE registry entry and none of the ended ones', async () => {
+    // Done when #1: seven entries, four live (`running`×3 + `waiting`), three
+    // ended (`stalled`, `finished`, `unknown`). WORKING renders the four and no
+    // more. Every agent row carries `data-agent-row`.
     const page = await openAgents();
     try {
       await expect.poll(() => group(page, 'Working').locator('[data-agent-row]').count())
-        .toBe(7);
+        .toBe(4);
     } finally {
       await page.close();
     }
   });
 
-  it('renders a worker whose branch has no row anywhere', async () => {
-    // Done when #2: the `main` worker and the `idea/recut-*` scratch branches
-    // have no pulse row at all. A branch-join fix silently misses exactly these.
+  it('renders a live worker whose branch has no row anywhere', async () => {
+    // The `main` worker and the `idea/recut-a` scratch branch (state `waiting`,
+    // live) have no pulse row at all. A branch-join fix silently misses exactly
+    // these.
     const page = await openAgents();
     try {
       const working = group(page, 'Working');
@@ -134,10 +151,11 @@ describe('WORKING renders one row per registry entry', () => {
     }
   });
 
-  it('renders a merged worker in WORKING while its branch keeps its DONE row', async () => {
-    // Done when #3: both are true and asserted together. `feature/landed`
-    // merged, so its branch row is in DONE — a fact about the work — and its
-    // worker is in WORKING — a fact about the fleet.
+  it('renders a merged live worker in WORKING while its branch keeps its DONE row', async () => {
+    // Both are true and asserted together. `feature/landed` merged, so its
+    // branch row is in DONE — a fact about the work — and its running worker is
+    // in WORKING — a fact about the fleet. The filter passes it because the
+    // worker is `running`, and the join is not rewritten.
     const page = await openAgents();
     try {
       const working = group(page, 'Working');
@@ -153,10 +171,24 @@ describe('WORKING renders one row per registry entry', () => {
     }
   });
 
-  it('reads *someone is on it* only for a running worker', async () => {
-    // Done when #5: the running workers say it, the four other states each say
-    // their own condition instead. A row whose usual state is a lie teaches its
-    // reader to ignore the row.
+  it('does NOT render an ended session — stalled, finished or unknown — in WORKING', async () => {
+    // Done when #1: the three ended entries are absent from WORKING. This is the
+    // measured defect the plan exists to fix — a section whose subject is *who
+    // is working* listing sessions that have ended. Their destinations belong to
+    // other waves; here we only assert they have left WORKING.
+    const page = await openAgents();
+    try {
+      const working = group(page, 'Working');
+      await expect.poll(() => working.locator('[data-branch="idea/recut-b"]').count()).toBe(0);
+      await expect.poll(() => working.locator('[data-branch="idea/recut-c"]').count()).toBe(0);
+      await expect.poll(() => working.locator('[data-branch="idea/recut-d"]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('reads *someone is on it* for a running worker', async () => {
+    // A running worker names its own condition; the label is the live one.
     const page = await openAgents();
     try {
       const working = group(page, 'Working');
@@ -165,14 +197,6 @@ describe('WORKING renders one row per registry entry', () => {
           .last().textContent();
 
       await expect.poll(() => rowText('feature/running')).toContain('someone is on it');
-
-      const waiting = await rowText('idea/recut-a');
-      expect(waiting).toContain('waiting on you');
-      expect(waiting).not.toContain('someone is on it');
-
-      const stalled = await rowText('idea/recut-b');
-      expect(stalled).toContain('stalled');
-      expect(stalled).not.toContain('someone is on it');
     } finally {
       await page.close();
     }
