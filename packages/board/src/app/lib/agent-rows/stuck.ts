@@ -102,9 +102,13 @@ export function isActive(
  * half a `LIVE_WORKERS`-only gate gets wrong, since `waiting` is in that set.
  */
 export function soleRowStatus(
-  row: Pick<AgentRow, 'worker' | 'pr' | 'state'>,
+  row: Pick<AgentRow, 'worker' | 'worker_activity' | 'pr' | 'state'>,
 ): string {
-  if (!isFinished(row) && LIVE_WORKERS.has(row.worker)) return workerStatus(row.worker);
+  if (!isFinished(row) && LIVE_WORKERS.has(row.worker)) {
+    // The activity cue rides through here too: a wave-of-one whose worker is
+    // running still says which kind of running, exactly as the branch row does.
+    return workerStatus(row.worker, row.worker_activity);
+  }
   return row.pr ? prStatus(row.pr) : stateStatus(row as AgentRow);
 }
 
