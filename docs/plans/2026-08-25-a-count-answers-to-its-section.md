@@ -22,6 +22,22 @@ section under it cannot disagree about the same fleet.
 
 ## Motivation
 
+> **Likely superseded — do not start.** `the-working-section-shows-every-worker`
+> wave *Counted* (`bug/the-working-count-is-the-rows`) was claimed 2026-08-25 and
+> is being implemented now. Its one-line design — *"`working` derives from the
+> set WORKING renders; the cap is labelled as a cap"* — answers the same defect
+> this plan describes, and answers it a third way neither draft of this plan
+> considered: rather than deciding whether the NUMBER should be filtered, it
+> relabels the stepper as the cap and lets the adjacent number be the rendered
+> set. That keeps `liveAgentCount` untouched — the objection this plan raises —
+> while making the two agree.
+>
+> This plan stays Draft and unclaimed until that PR lands, then is read against
+> it and marked `Phase: Superseded` if it is covered. Recorded here rather than
+> deleted, because the measurement and the `liveAgentCount` reasoning are worth
+> keeping whichever design wins.
+
+
 ### The measurement
 
 Taken from `/api/fleet` with `Sprint only` ON, 2026-08-25:
