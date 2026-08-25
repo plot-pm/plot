@@ -156,7 +156,7 @@ A drop that reports success while removing nothing is worse than one that
 refuses: the row returns on the next pulse and the operator has no way to tell
 the action from a no-op.
 
-### Counted (Branch: feature/the-board-says-which-registry-it-read)
+### Counted (Branch: feature/the-board-says-which-registry-it-read, PR: #428)
 
 The board reports the directory it read and how many manifests it found, so a
 synthesized fleet is legible instead of silent.
