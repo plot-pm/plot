@@ -247,7 +247,7 @@ the workers already running.
 - the `Worker command` loops: implement, ask `--next`, claim, move, implement;
   exit cleanly when `--next` has nothing
 
-### Followed (Branch: feature/the-registry-follows-a-hopping-worker)
+### Followed (Branch: feature/the-registry-follows-a-hopping-worker) → #404
 - the manifest records the branch a worker moved to and how many waves it has
   taken, so the registry names where a worker IS
 
