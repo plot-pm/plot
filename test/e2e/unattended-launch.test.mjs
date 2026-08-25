@@ -135,11 +135,13 @@ test('this repo\'s own Worker command carries the variable through the parser', 
   assert.match(parsed, /^PLOT_UNATTENDED=1\s+\S/,
     'PLOT_UNATTENDED must prefix the command so the shell treats it as an assignment');
 
-  // The marker instruction answers a different question and must survive: the
-  // variable says "nobody can answer, take your documented path", the marker
-  // says "I stopped anyway, and here is why". plot-worker-state.sh reads it to
-  // report `waiting`.
-  assert.match(parsed, /PLOT-BLOCKED/,
+  // The marker instruction lives in the prompt file, not the Worker command.
+  // The Worker command calls the loop script, which sources the prompt file.
+  const promptFile = path.join(REPO_ROOT, '.plot', 'worker-prompt.sh');
+  assert.ok(fs.existsSync(promptFile),
+    'the Worker command calls plot-worker-loop.sh, which needs .plot/worker-prompt.sh');
+  const prompt = fs.readFileSync(promptFile, 'utf8');
+  assert.match(prompt, /PLOT-BLOCKED/,
     'the PLOT-BLOCKED marker instruction was dropped; a stopped worker becomes indistinguishable from a finished one');
 });
 
