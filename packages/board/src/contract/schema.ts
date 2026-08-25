@@ -2890,39 +2890,53 @@ export type AgentEntry = z.infer<typeof AgentEntrySchema>;
 export const FLEET_CONTROLS_DEFAULT = { autoDispatch: false, parallelAgents: 3 } as const;
 
 /**
- * The four `status` counts a sprint's plans fall into — the numbers the Agents-
- * tab control renders beside the sprint's name.
+ * The three exhaustive counts a sprint's plans fall into — the numbers the
+ * Agents-tab control renders beside the sprint's name, plus the total.
  *
- * ONE HEADING PER ACTIONABLE STATUS, not one per plan phase. `deliverable` is
- * the one that earns the row: plans whose every wave has merged and whose
- * delivery decision is still outstanding. The four are exactly the post-approval
- * {@link PlanStatus} values a reader watches move — a `draft` or `open` plan
- * that a sprint happens to list contributes to none of them, which is correct:
- * it is committed to but not yet in flight.
+ * THREE BUCKETS, NOT SEVEN STATUS VALUES. The question the control answers is
+ * *how much of this sprint is left*, and that has three answers:
  *
- * COUNTED FROM `plan.status`, never recomputed. Each plan's status is
- * {@link PlanStatus} as `planStatus` measures it; this is a tally of that one
- * answer, keyed by sprint. A second definition of *done* here is the exact
- * defect `a-plan-has-a-phase-and-a-status` exists to end.
+ * | bucket | holds |
+ * |---|---|
+ * | **open** | committed, not started — Draft/Approved with no branch in flight |
+ * | **wip** | started, not delivered — in-progress or deliverable |
+ * | **done** | delivered — Phase: Delivered (the Testing column) |
+ *
+ * Every member lands in exactly one bucket, so `total = open + wip + done`.
+ * The old four buckets (`delivered`, `deliverable`, `inProgress`, `approved`)
+ * could silently drop a Draft member; these three cannot — the arithmetic
+ * fails visibly when a member falls through.
+ *
+ * `released` is NOT counted. While a sprint is Active its target release has
+ * not been cut, so no member can be Released — measured on this repo 2026-08-24:
+ * 21 members, 17 delivered, 4 draft, zero released. Where a released member
+ * DOES appear under an Active sprint, that is drift worth seeing rather than
+ * a case to absorb.
+ *
+ * COUNTED FROM `plan.status` via {@link PlanStatus}, never recomputed.
  */
 export const SprintCountsSchema = z.object({
-  delivered: z.number().int().default(0),
-  deliverable: z.number().int().default(0),
-  inProgress: z.number().int().default(0),
-  approved: z.number().int().default(0),
+  /** Total non-deferred members. Always equals `open + wip + done`. */
+  total: z.number().int().default(0),
+  /** Committed, not started: Draft, open, or Approved with no branch in flight. */
+  open: z.number().int().default(0),
+  /** Started, not delivered: in-progress or deliverable. */
+  wip: z.number().int().default(0),
+  /** Delivered: Phase: Delivered (the Testing column). */
+  done: z.number().int().default(0),
 });
 export type SprintCounts = z.infer<typeof SprintCountsSchema>;
 
 /**
  * One Active sprint, as the Agents tab shows it: its name, its target release,
- * and its four `status` counts. Distinct from {@link SprintCardSchema} — that
- * carries the MEMBERSHIP the two sprint filters join on; this carries the
- * PROGRESS the fleet control renders, aggregated server-side so the client casts
- * it rather than joining plan status itself.
+ * and its three exhaustive counts. Distinct from {@link SprintCardSchema} —
+ * that carries the MEMBERSHIP the two sprint filters join on; this carries the
+ * PROGRESS the fleet control renders, aggregated server-side so the client
+ * casts it rather than joining plan status itself.
  *
  * Emitted once per Active sprint. Two teams may share one train, so the fleet
- * carries a list and the control renders one row each — picking the newest would
- * silently hide a commitment.
+ * carries a list and the control renders one row each — picking the newest
+ * would silently hide a commitment.
  */
 export const FleetSprintSchema = z.object({
   slug: z.string(),
