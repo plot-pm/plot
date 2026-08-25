@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
@@ -19,6 +19,7 @@
 - **Started:** 2026-08-25, Jan Wloka, `feature/a-busy-worker-names-its-wave`
 - **Started:** 2026-08-25, Jan Wloka, `bug/a-ready-pr-asks-for-you`
 - **Started:** 2026-08-25, Jan Wloka, `bug/the-registry-drops-a-settled-worker`
+- **Delivered:** 2026-08-25
 
 ## Changelog
 
