@@ -135,8 +135,17 @@ export const AGENT_MANIFEST_DIR_KEY = 'Agent registry';
  * project may name a registry outside its own tree. The shell-out is wrapped so a
  * missing or unreadable `plot-config.sh` falls back to the default rather than
  * failing the read — the registry must never crash a listing for want of config.
+ *
+ * **Exported** so the Drop endpoint resolves the directory the SAME way the
+ * reader does. Two implementations of *where is the registry* is how they drift;
+ * `drop.ts` imports this rather than re-joining {@link AGENT_MANIFEST_DIR}. The
+ * parameter is narrowed to the two fields resolution actually reads, so a caller
+ * that is not the reader need not carry the reader's whole options shape.
  */
-function resolveManifestDir(repoRoot: string, opts: ReadRegistryOptions): string {
+export function resolveManifestDir(
+  repoRoot: string,
+  opts: { manifestDir?: string; scriptsDir?: string },
+): string {
   const configured = opts.manifestDir ?? readManifestDirConfig(repoRoot, opts.scriptsDir);
   return path.isAbsolute(configured) ? configured : path.join(repoRoot, configured);
 }

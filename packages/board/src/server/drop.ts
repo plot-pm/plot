@@ -3,7 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import type { BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
-import { AGENT_MANIFEST_DIR, parseManifest, type AgentEntry, type LivenessResolver } from './registry.js';
+import { parseManifest, resolveManifestDir, type AgentEntry, type LivenessResolver } from './registry.js';
 import { LIVE_STATES } from '../contract/schema.js';
 
 /**
@@ -43,6 +43,13 @@ export interface DropOptions extends BuildBoardOptions {
    * whose state cannot be verified is an entry that might be running.
    */
   liveness?: LivenessResolver;
+  /**
+   * The manifest directory, already resolved — the test seam. When absent, the
+   * directory is resolved through {@link resolveManifestDir} from `repoRoot` and
+   * `scriptsDir`, EXACTLY as the reader does, so the Drop removes the file the
+   * board is showing rather than a file in the board's own worktree.
+   */
+  manifestDir?: string;
 }
 
 /** What the drop can say, on both success and refusal. */
@@ -81,8 +88,8 @@ export function dropAvailability(host: string): { available: boolean; reason: st
  * rather than throwing: a malformed manifest is a manifest that does not name
  * an agent, so there is nothing to drop.
  */
-function readManifest(repoRoot: string, session: string): AgentEntry | null {
-  const file = path.join(repoRoot, AGENT_MANIFEST_DIR, `${session}.json`);
+function readManifest(manifestDir: string, session: string): AgentEntry | null {
+  const file = path.join(manifestDir, `${session}.json`);
   let content: string;
   try {
     content = fs.readFileSync(file, 'utf8');
@@ -153,11 +160,23 @@ export async function handleDrop(
     return;
   }
 
+  // Resolve the manifest directory the SAME way the reader does — through
+  // `plot-config.sh` with `.plot/agents` as the default — so the file this
+  // endpoint reads and unlinks is the file the board is showing. Resolved once
+  // and used for both the read and the unlink, so the two can never disagree.
+  // #420 fixed the read path in `registry.ts`; joining the raw constant here left
+  // the write path looking in the board's own worktree, which is how a drop
+  // reported success over a manifest that still sat in the dispatcher's checkout.
+  const manifestDir = resolveManifestDir(opts.repoRoot, opts);
+
   // 1. Read the manifest.
-  const entry = readManifest(opts.repoRoot, session);
+  const entry = readManifest(manifestDir, session);
   if (!entry) {
-    // No manifest — either already dropped or never existed. Report success
-    // idempotently: the caller wanted it gone and it is gone.
+    // No manifest IN THE DIRECTORY THE READER READS — either already dropped or
+    // never existed (a synthesized entry, or reconciliation got there first).
+    // Report success idempotently: the caller wanted it gone and it is gone.
+    // This is now an honest `dropped: true`, not the "I looked where the reader
+    // does not look" that the old raw-constant join could return.
     json(200, { session, dropped: true, reason: 'no manifest found — already removed or never existed' } satisfies DropResult);
     return;
   }
@@ -183,8 +202,10 @@ export async function handleDrop(
     return;
   }
 
-  // 4. State is `finished` or `stalled` — safe to drop.
-  const file = path.join(opts.repoRoot, AGENT_MANIFEST_DIR, `${session}.json`);
+  // 4. State is `finished` or `stalled` — safe to drop. The file is under the
+  // SAME resolved directory the manifest was read from, never a re-join of the
+  // raw constant.
+  const file = path.join(manifestDir, `${session}.json`);
   try {
     fs.unlinkSync(file);
   } catch (err) {
