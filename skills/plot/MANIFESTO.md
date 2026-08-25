@@ -123,6 +123,26 @@ starts, it belongs in the plan; if it answers "why not the other way?", it
 belongs in a log. Plot does not write session logs — session-scoped tools do
 that better — but it supplies the plot-shaped facts they need.
 
+### 13. An agent that has gone quiet has failed, not finished
+
+Unattended agent work must produce an observable trace — a commit, a pushed
+branch, a PR state change, a posted comment. Silence is a failure signal, never
+a completion signal. Any Plot command that runs unattended must bound how long
+it may run, and must ship partial work with a handover before that bound is
+reached rather than after.
+
+This is the agentic case of Principle 1: work that never reached git did not
+happen, no matter how the agent narrates it. A run ending with nothing committed
+and no explanation is indistinguishable from one that never started.
+
+Written 2026-07-25 from the documented Opus 5 long-horizon failure modes, and
+measured on this estate 2026-08-25: **eleven of thirteen live workers** sat at
+zero CPU growth for up to ten hours after their agent process crashed with an
+unhandled rejection. Every one still reported `running`, and auto-dispatch
+started two more beside them. The principle predicted the shape before the
+estate produced it.
+
+
 ## Lifecycle
 
 Plot has four plan-level phases: **Draft**, **Approved**, **Delivered**, and **Released** — universal across every ceremony choice. What varies with the recorded `Review:`/`Impl:` answers is how a transition is *effected*; what never varies is that it is *recorded* in the plan (who, when, through which channel — e.g. `Approved: 2026-07-30, alice, in-session`).
