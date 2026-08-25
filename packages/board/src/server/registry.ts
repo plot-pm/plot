@@ -224,6 +224,20 @@ export interface ReadRegistryOptions {
    * registry never fails a read for want of the worktree list.
    */
   worktrees?: WorktreeLister;
+  /**
+   * Resolve whether worktrees are "clean" — no uncommitted changes AND no
+   * unpushed commits. Injected in tests; in production the default is a no-op
+   * (no entries dropped).
+   *
+   * An entry whose session has ended AND whose worktree is clean is DROPPED
+   * from the listing — a settled worker with nothing outstanding to collect.
+   * Either condition outstanding (live session OR dirty/unpushed) and the
+   * entry stays visible.
+   *
+   * This is OPT-IN: the board passes {@link bashCleanliness} to enable it;
+   * callers that want all entries simply omit this option.
+   */
+  cleanliness?: CleanlinessResolver;
 }
 
 /**
@@ -242,6 +256,22 @@ export interface WorktreeInfo {
 
 /** Enumerate the repo's worktrees. Injected in tests; default {@link gitWorktrees}. */
 export type WorktreeLister = () => WorktreeInfo[];
+
+/**
+ * Resolve whether each worktree in a batch is "clean", in the same order.
+ *
+ * **Clean** means two things are BOTH true:
+ * 1. No uncommitted changes (`git status --porcelain` is empty)
+ * 2. No unpushed commits (`git rev-list --count @{upstream}..HEAD` is 0 or no upstream)
+ *
+ * Injected in tests; in production {@link bashCleanliness} does the work in
+ * ONE bash process, like {@link bashLiveness}.
+ *
+ * Returns `true` for clean, `false` for dirty/unpushed. A worktree that cannot
+ * be checked (no git, no upstream) returns `false` — the entry stays visible
+ * rather than being silently dropped.
+ */
+export type CleanlinessResolver = (worktrees: string[]) => boolean[];
 
 export function readAgentRegistry(
   repoRoot: string,
@@ -313,11 +343,17 @@ export function readAgentRegistry(
     }
   }
   refreshStates(out, opts.liveness ?? defaultLiveness(opts.scriptsDir));
+  // Drop settled workers: session ended AND worktree clean. A worker with either
+  // condition outstanding — live session OR dirty/unpushed — stays visible.
+  const filtered = dropSettledWorkers(
+    out,
+    opts.cleanliness ?? defaultCleanliness(),
+  );
   // Newest first, by launch time. A manifest with no `startedAt` sorts last
   // rather than first: an unknown time must not claim to be the most recent. A
   // synthesized entry has no `startedAt` and so sorts among those last, which is
   // right — the registry knows least about it.
-  return out.sort((a, b) => (b.startedAt || '').localeCompare(a.startedAt || ''));
+  return filtered.sort((a, b) => (b.startedAt || '').localeCompare(a.startedAt || ''));
 }
 
 /**
@@ -473,4 +509,132 @@ export function gitWorktrees(repoRoot: string): WorktreeInfo[] {
   }
   flush();
   return infos;
+}
+
+/**
+ * Drop entries whose session has ended AND whose worktree is clean.
+ *
+ * An entry is dropped only when BOTH conditions hold:
+ * 1. The session has ended — the state is anything except `running`.
+ * 2. The worktree is clean — no uncommitted changes AND no unpushed commits.
+ *
+ * Either condition outstanding (live session OR dirty/unpushed) and the entry
+ * stays visible. A worker with a dirty worktree and an ended session is still
+ * reported with what it is holding; a worker with a clean worktree and a live
+ * session is still working. Only a worker with nothing outstanding disappears.
+ *
+ * **An entry with no worktree is NEVER dropped.** There is nothing to check,
+ * and "clean" requires evidence of cleanliness — which an absent worktree
+ * cannot provide. The same "absent is not false" rule as everywhere else.
+ */
+function dropSettledWorkers(
+  entries: AgentEntry[],
+  cleanliness: CleanlinessResolver,
+): AgentEntry[] {
+  // First pass: find entries that MIGHT be dropped — session ended AND has a
+  // worktree to check. Running entries stay; entries with no worktree stay.
+  const candidates: AgentEntry[] = [];
+  const candidateIndices: number[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    if (e.state === 'running') continue; // Live session — keep.
+    if (e.worktree === '') continue; // No worktree to check — keep.
+    candidates.push(e);
+    candidateIndices.push(i);
+  }
+  if (candidates.length === 0) return entries;
+
+  // Second pass: check cleanliness of the candidates in one batch call.
+  let isClean: boolean[];
+  try {
+    isClean = cleanliness(candidates.map((e) => e.worktree));
+  } catch {
+    // If cleanliness check fails, keep all entries — fail open rather than
+    // dropping entries we cannot verify.
+    return entries;
+  }
+  if (isClean.length !== candidates.length) return entries;
+
+  // Third pass: drop entries that are both ended AND clean.
+  const dropped = new Set<number>();
+  for (let i = 0; i < candidates.length; i++) {
+    if (isClean[i]) dropped.add(candidateIndices[i]);
+  }
+  return entries.filter((_, i) => !dropped.has(i));
+}
+
+/**
+ * The default cleanliness resolver — a no-op that drops nobody.
+ *
+ * Cleanliness checking is OPT-IN, not automatic. The registry lists agents even
+ * where it cannot verify their worktrees, and dropping settled workers is an
+ * optimization for the board's display, not a core listing requirement.
+ *
+ * To enable dropping, pass an explicit `cleanliness` resolver in the options.
+ * The board does this in fleet.ts with {@link bashCleanliness}.
+ */
+function defaultCleanliness(): CleanlinessResolver {
+  return () => [];
+}
+
+/**
+ * Check whether each worktree is "clean" — no uncommitted AND no unpushed.
+ *
+ * ONE bash process for the whole batch. Each worktree is checked for:
+ * 1. Uncommitted changes: `git -C <wt> status --porcelain` is empty
+ * 2. Unpushed commits: `git -C <wt> rev-list --count @{upstream}..HEAD` is 0
+ *    OR no upstream exists (which means no commits to push).
+ *
+ * Returns `true` for clean, `false` for dirty/unpushed. A worktree that cannot
+ * be checked (not a git repo, permission denied) returns `false` — the entry
+ * stays visible rather than being silently dropped.
+ *
+ * The exclusions from `plot-worker-state.sh` are applied here:
+ * - Editor leftovers (`.tmp1`, `.swp`, etc.) are ignored.
+ * - Plot's own records (`.plot-worker.*`) are ignored.
+ * - Tool scratch directories (`.playwright-mcp/`, `.plot/agents/`, `.omc/state/`) are ignored.
+ *
+ * **Exported for use by fleet.ts**, where the board enables dropping of settled
+ * workers. The registry itself defaults to keeping all entries.
+ */
+export function bashCleanliness(worktrees: string[]): boolean[] {
+  if (worktrees.length === 0) return [];
+  // The script checks each worktree and prints "clean" or "dirty" NUL-separated.
+  // It applies the same exclusion patterns as plot-worker-state.sh to be consistent.
+  const program = `
+    PLOT_WORKER_RECORD='\\.plot-worker\\.'
+    PLOT_EDITOR_LEFTOVER='\\.(tmp[0-9]*|swp|orig|rej|bak)$'
+    PLOT_TOOL_SCRATCH='(^|/)\\.(playwright-mcp|plot/agents|omc/state)(/|$)'
+    for wt in "$@"; do
+      if [ ! -d "$wt" ]; then
+        printf 'dirty\\0'
+        continue
+      fi
+      # Check uncommitted changes (with exclusions)
+      status=$(git -C "$wt" status --porcelain 2>/dev/null || echo "")
+      filtered=$(printf '%s' "$status" \\
+        | cut -c4- \\
+        | grep -vE "(^|/)$PLOT_WORKER_RECORD" \\
+        | grep -vE "$PLOT_EDITOR_LEFTOVER" \\
+        | grep -vE "$PLOT_TOOL_SCRATCH" || true)
+      if [ -n "$filtered" ]; then
+        printf 'dirty\\0'
+        continue
+      fi
+      # Check unpushed commits
+      ahead=$(git -C "$wt" rev-list --count '@{upstream}..HEAD' 2>/dev/null || echo "0")
+      case "$ahead" in
+        ''|0|*[!0-9]*) printf 'clean\\0' ;;
+        *) printf 'dirty\\0' ;;
+      esac
+    done
+  `;
+  const out = execFileSync('bash', ['-c', program, 'bash', ...worktrees], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  // Trailing NUL leaves an empty final element; drop it.
+  const parts = out.split('\0');
+  if (parts.length > 0 && parts[parts.length - 1] === '') parts.pop();
+  return parts.map((p) => p === 'clean');
 }

@@ -519,3 +519,146 @@ describe('liveness through the REAL plot-worker-state.sh — the reuse, proven',
     assert.equal(e.session, 'x', 'still listed');
   });
 });
+
+describe('dropping settled workers — only when BOTH conditions hold', () => {
+  // An entry is dropped only when:
+  // 1. The session has ended (state is NOT `running`)
+  // 2. The worktree is clean (no uncommitted AND no unpushed)
+  //
+  // Either condition outstanding and the entry stays visible. A worker with a
+  // dirty worktree and an ended session is still reported with what it is
+  // holding; a worker with a clean worktree and a live session is still working.
+  // Only a worker with nothing outstanding disappears.
+
+  /** A liveness resolver keyed on worktree. */
+  const fakeLiveness = (byWorktree: Record<string, string>) =>
+    (worktrees: string[]): string[] => worktrees.map((wt) => byWorktree[wt] ?? 'unknown');
+
+  /** A cleanliness resolver keyed on worktree. */
+  const fakeCleanliness = (byWorktree: Record<string, boolean>) =>
+    (worktrees: string[]): boolean[] => worktrees.map((wt) => byWorktree[wt] ?? false);
+
+  it('KEEPS a worker with a dirty worktree and an ended session — uncommitted work outstanding', () => {
+    // Done when #7: A worker with a dirty worktree and an ended session is still
+    // reported, with what it is holding.
+    manifest('a.json', { session: 'dirty-ended', pid: '4242', worktree: '/wt/dirty',
+      startedAt: '2026-08-20T10:00:00Z' });
+    const got = readAgentRegistry(root, home, {
+      liveness: fakeLiveness({ '/wt/dirty': 'finished' }),
+      cleanliness: fakeCleanliness({ '/wt/dirty': false }), // dirty
+    });
+    assert.equal(got.length, 1, 'the entry is kept');
+    assert.equal(got[0].session, 'dirty-ended');
+    assert.equal(got[0].state, 'finished');
+  });
+
+  it('KEEPS a worker with a clean worktree and a live session — still running', () => {
+    // Done when #8: A worker with a clean worktree and a live session is still
+    // reported.
+    manifest('a.json', { session: 'clean-running', pid: '4242', worktree: '/wt/clean',
+      startedAt: '2026-08-20T10:00:00Z' });
+    const got = readAgentRegistry(root, home, {
+      liveness: fakeLiveness({ '/wt/clean': 'running' }),
+      cleanliness: fakeCleanliness({ '/wt/clean': true }), // clean — but running
+    });
+    assert.equal(got.length, 1, 'the entry is kept');
+    assert.equal(got[0].session, 'clean-running');
+    assert.equal(got[0].state, 'running');
+  });
+
+  it('DROPS a worker with a clean worktree and an ended session — nothing outstanding', () => {
+    // Done when #9: A worker with a clean worktree and an ended session is absent.
+    manifest('a.json', { session: 'clean-ended', pid: '4242', worktree: '/wt/clean',
+      startedAt: '2026-08-20T10:00:00Z' });
+    const got = readAgentRegistry(root, home, {
+      liveness: fakeLiveness({ '/wt/clean': 'finished' }),
+      cleanliness: fakeCleanliness({ '/wt/clean': true }), // clean AND ended
+    });
+    assert.equal(got.length, 0, 'the entry is dropped');
+  });
+
+  it('KEEPS an entry with no worktree — nothing to check', () => {
+    // "Absent is not false": an entry with no worktree cannot be checked for
+    // cleanliness, so it stays visible regardless of state.
+    manifest('a.json', { session: 'no-wt', startedAt: '2026-08-20T10:00:00Z' });
+    const got = readAgentRegistry(root, home, {
+      liveness: fakeLiveness({}), // unknown state
+      cleanliness: fakeCleanliness({}),
+    });
+    assert.equal(got.length, 1, 'the entry is kept');
+    assert.equal(got[0].session, 'no-wt');
+  });
+
+  it('distinguishes ended states — only `running` is a live session', () => {
+    // All non-running states represent an ended session: finished, waiting,
+    // stalled, unknown. Each should be dropped when clean.
+    for (const state of ['finished', 'waiting', 'stalled', 'unknown'] as const) {
+      const wt = `/wt/${state}`;
+      manifest(`${state}.json`, { session: state, pid: '4242', worktree: wt,
+        startedAt: '2026-08-20T10:00:00Z' });
+    }
+    const got = readAgentRegistry(root, home, {
+      liveness: fakeLiveness({
+        '/wt/finished': 'finished',
+        '/wt/waiting': 'waiting',
+        '/wt/stalled': 'stalled',
+        '/wt/unknown': 'unknown',
+      }),
+      cleanliness: fakeCleanliness({
+        '/wt/finished': true,
+        '/wt/waiting': true,
+        '/wt/stalled': true,
+        '/wt/unknown': true,
+      }),
+    });
+    assert.equal(got.length, 0, 'all ended+clean entries are dropped');
+  });
+
+  it('keeps entries when cleanliness resolver throws — fail open', () => {
+    // If the cleanliness check fails, we keep all entries rather than dropping
+    // any. An entry invisible during an outage is one that gets overlooked.
+    manifest('a.json', { session: 'x', pid: '4242', worktree: '/wt/x',
+      startedAt: '2026-08-20T10:00:00Z' });
+    const got = readAgentRegistry(root, home, {
+      liveness: fakeLiveness({ '/wt/x': 'finished' }),
+      cleanliness: () => { throw new Error('boom'); },
+    });
+    assert.equal(got.length, 1, 'the entry is kept when check fails');
+  });
+
+  it('keeps entries when cleanliness returns wrong count — fail open', () => {
+    // A resolver that returns the wrong number of answers cannot be trusted.
+    manifest('a.json', { session: 'x', pid: '4242', worktree: '/wt/x',
+      startedAt: '2026-08-20T10:00:00Z' });
+    const got = readAgentRegistry(root, home, {
+      liveness: fakeLiveness({ '/wt/x': 'finished' }),
+      cleanliness: () => [], // wrong count
+    });
+    assert.equal(got.length, 1, 'the entry is kept when resolver misbehaves');
+  });
+
+  it('mixes kept and dropped in the same pass', () => {
+    // A realistic scenario: some workers still running, some ended but dirty,
+    // some ended and clean (to be dropped).
+    manifest('running.json', { session: 'running', pid: '1', worktree: '/wt/running',
+      startedAt: '2026-08-20T12:00:00Z' });
+    manifest('dirty.json', { session: 'dirty', pid: '2', worktree: '/wt/dirty',
+      startedAt: '2026-08-20T11:00:00Z' });
+    manifest('clean.json', { session: 'clean', pid: '3', worktree: '/wt/clean',
+      startedAt: '2026-08-20T10:00:00Z' });
+    const got = readAgentRegistry(root, home, {
+      liveness: fakeLiveness({
+        '/wt/running': 'running',
+        '/wt/dirty': 'finished',
+        '/wt/clean': 'finished',
+      }),
+      cleanliness: fakeCleanliness({
+        '/wt/running': true, // clean but running — kept
+        '/wt/dirty': false, // dirty and ended — kept
+        '/wt/clean': true, // clean and ended — dropped
+      }),
+    });
+    assert.equal(got.length, 2);
+    assert.deepEqual(got.map((e) => e.session), ['running', 'dirty']);
+  });
+});

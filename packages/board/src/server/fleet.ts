@@ -39,7 +39,7 @@ import { collectSprints, planStatusBySlug, readConfig, type BuildBoardOptions } 
 import { readBridge, writeBridge } from './pulse-bridge.js';
 import { readFleetControls } from './fleet-controls.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
-import { readAgentRegistry } from './registry.js';
+import { readAgentRegistry, bashCleanliness } from './registry.js';
 import type { AgentEntry } from './registry.js';
 import { workerQuestions } from './worker-question.js';
 
@@ -1735,7 +1735,14 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // each entry's liveness on this pulse — the same helper the fleet scan and
     // the dispatcher source. Without it every entry would read `unknown`, which
     // is honest but useless to the cap that will ask this count every pulse.
-    entry.agents = readAgentRegistry(opts.repoRoot, undefined, { scriptsDir: opts.scriptsDir });
+    // Drop settled workers from the listing: agents whose session has ended AND
+    // whose worktree is clean (no uncommitted changes, no unpushed commits). Such
+    // workers have nothing outstanding and clutter the panel — especially after a
+    // fleet run where all workers finished successfully.
+    entry.agents = readAgentRegistry(opts.repoRoot, undefined, {
+      scriptsDir: opts.scriptsDir,
+      cleanliness: bashCleanliness,
+    });
     // Default mode, WITH the fetch: the refresh is off the request path, so a
     // second of work is free — and the fetch is what lets the board see
     // branches a remote worker pushed. `--stream` is the only flag added.
