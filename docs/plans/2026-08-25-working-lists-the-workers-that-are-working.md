@@ -14,6 +14,7 @@
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-25, Jan Wloka, `bug/working-lists-the-live-agents`
+- **Started:** 2026-08-25, Jan Wloka, `bug/a-stalled-worker-needs-a-person`
 
 ## Changelog
 
