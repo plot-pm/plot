@@ -110,6 +110,58 @@ export interface AgentEntry {
 export const AGENT_MANIFEST_DIR = '.plot/agents';
 
 /**
+ * The `## Plot Config` key that names the manifest directory.
+ *
+ * Its default is {@link AGENT_MANIFEST_DIR} — today's path — so a single-checkout
+ * project that never sets it sees no change. A project whose board is served from
+ * a different worktree than the dispatcher writes to points this at a shared
+ * location, and the board finds the registry wherever it was started from.
+ */
+export const AGENT_MANIFEST_DIR_KEY = 'Agent registry';
+
+/**
+ * Resolve the manifest directory to an absolute path.
+ *
+ * Precedence, each an escape the layer above can take without the one below:
+ * 1. An explicit `manifestDir` option — the test seam, and a caller that has
+ *    already resolved the directory itself.
+ * 2. `plot-config.sh get "{@link AGENT_MANIFEST_DIR_KEY}" "{@link AGENT_MANIFEST_DIR}"`,
+ *    but ONLY when `scriptsDir` is known — the same graceful degradation every
+ *    other injected resolver follows: no scripts, no shell-out.
+ * 3. The default {@link AGENT_MANIFEST_DIR}.
+ *
+ * A relative result (the common case — `.plot/agents`, or a repo-relative
+ * override) is joined against `repoRoot`; an absolute result is taken as-is, so a
+ * project may name a registry outside its own tree. The shell-out is wrapped so a
+ * missing or unreadable `plot-config.sh` falls back to the default rather than
+ * failing the read — the registry must never crash a listing for want of config.
+ */
+function resolveManifestDir(repoRoot: string, opts: ReadRegistryOptions): string {
+  const configured = opts.manifestDir ?? readManifestDirConfig(repoRoot, opts.scriptsDir);
+  return path.isAbsolute(configured) ? configured : path.join(repoRoot, configured);
+}
+
+/**
+ * Read the manifest-directory config value via `plot-config.sh`, or the default.
+ *
+ * Returns {@link AGENT_MANIFEST_DIR} when no `scriptsDir` is known (a bare call
+ * never shells out) or when the shell-out fails for any reason.
+ */
+function readManifestDirConfig(repoRoot: string, scriptsDir?: string): string {
+  if (!scriptsDir) return AGENT_MANIFEST_DIR;
+  try {
+    const out = execFileSync(
+      'bash',
+      [path.join(scriptsDir, 'plot-config.sh'), 'get', AGENT_MANIFEST_DIR_KEY, AGENT_MANIFEST_DIR],
+      { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    return out.trim() || AGENT_MANIFEST_DIR;
+  } catch {
+    return AGENT_MANIFEST_DIR;
+  }
+}
+
+/**
  * One manifest → one entry, or null.
  *
  * Returns null for anything that is not a manifest this reader recognises, and
@@ -238,6 +290,15 @@ export interface ReadRegistryOptions {
    * callers that want all entries simply omit this option.
    */
   cleanliness?: CleanlinessResolver;
+  /**
+   * The manifest directory, already resolved. Injected in tests, and usable by a
+   * caller that has resolved the directory itself. When absent, the directory is
+   * read from `## Plot Config` via `plot-config.sh` (see {@link resolveManifestDir}),
+   * defaulting to {@link AGENT_MANIFEST_DIR}.
+   *
+   * A relative path is joined against `repoRoot`; an absolute path is taken as-is.
+   */
+  manifestDir?: string;
 }
 
 /**
@@ -278,7 +339,7 @@ export function readAgentRegistry(
   home?: string,
   opts: ReadRegistryOptions = {},
 ): AgentEntry[] {
-  const dir = path.join(repoRoot, AGENT_MANIFEST_DIR);
+  const dir = resolveManifestDir(repoRoot, opts);
   let names: string[];
   try {
     names = fs.readdirSync(dir);

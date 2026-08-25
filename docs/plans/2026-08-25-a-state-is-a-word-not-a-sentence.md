@@ -13,6 +13,7 @@
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
+- **Started:** 2026-08-25, Jan Wloka, `bug/a-running-agent-reads-running`
 
 ## Changelog
 
@@ -157,7 +158,7 @@ state; the reassurance was never a state.
 
 ## Waves
 
-### Worded (Branch: bug/a-running-agent-reads-running)
+### Worded (Branch: bug/a-running-agent-reads-running, PR: #421)
 
 `agentStateStatus` returns `running` for a running agent, and the 18 assertions
 of `someone is on it` are rewritten to the new contract.

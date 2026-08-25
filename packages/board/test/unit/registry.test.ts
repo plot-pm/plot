@@ -414,6 +414,113 @@ describe('a worktree with no manifest is listed — absence of a record is not a
   });
 });
 
+describe('the manifest directory is configured — the registry lives where the dispatcher writes it', () => {
+  // The wave's reason for being. `.plot/agents/` is gitignored, so it is
+  // per-worktree; a board served from a worktree the dispatcher never wrote to
+  // reads an empty directory and synthesizes the whole fleet with `session: ''`.
+  // Resolving the directory through `plot-config.sh` — with today's path as the
+  // default — lets a board find the dispatcher's registry wherever it was
+  // started from, while a single-checkout project sees no change at all.
+
+  /** A worktree enumerator standing in for `git worktree list --porcelain`. */
+  const worktrees = (list: { path: string; branch: string; isMain?: boolean }[]) =>
+    () => list.map((w) => ({ ...w, isMain: w.isMain ?? false }));
+
+  /** Write a `CLAUDE.md` at `root` declaring one Plot Config key. */
+  function configFile(key: string, value: string): void {
+    fs.writeFileSync(
+      path.join(root, 'CLAUDE.md'),
+      `# Repo\n\n## Plot Config\n\n- **${key}:** \`${value}\`\n`,
+    );
+  }
+
+  it('reads manifests from an explicit manifestDir, and the session id survives', () => {
+    // Item 1. The test seam: an already-resolved directory bypasses the shell.
+    // A manifest-backed entry carries its session — the identity a synthesized
+    // row cannot — so `BrokenAgentMenu` can offer *Drop this agent*.
+    const elsewhere = path.join(root, 'dispatched');
+    fs.mkdirSync(elsewhere, { recursive: true });
+    fs.writeFileSync(
+      path.join(elsewhere, 'a.json'),
+      JSON.stringify({ session: 'sess-a', branch: 'feature/x', worktree: '/wt/a',
+        command: 'claude', startedAt: '2026-08-20T10:00:00Z' }),
+    );
+    const got = readAgentRegistry(root, home, { manifestDir: elsewhere });
+    assert.equal(got.length, 1);
+    assert.equal(got[0].session, 'sess-a', 'the session id is not lost');
+  });
+
+  it('resolves the directory through plot-config.sh when a key is set', () => {
+    // Item 1, end to end through the real shell: the board reads the key the
+    // adopting project declares, and finds the dispatcher's manifests there.
+    const elsewhere = path.join(root, 'shared-registry');
+    fs.mkdirSync(elsewhere, { recursive: true });
+    fs.writeFileSync(
+      path.join(elsewhere, 'a.json'),
+      JSON.stringify({ session: 'sess-cfg', worktree: '/wt/cfg',
+        startedAt: '2026-08-20T10:00:00Z' }),
+    );
+    configFile('Agent registry', 'shared-registry');
+    const got = readAgentRegistry(root, home, { scriptsDir: SCRIPTS_DIR });
+    assert.deepEqual(got.map((e) => e.session), ['sess-cfg']);
+  });
+
+  it('a project with no config key set behaves exactly as today', () => {
+    // Item 6. This is the assertion a fix-this-estate-break-every-other-adopter
+    // change fails: with no key, the default `.plot/agents` is read, and the
+    // manifest written there in `beforeEach`'s directory is found.
+    fs.writeFileSync(
+      path.join(root, AGENT_MANIFEST_DIR, 'a.json'),
+      JSON.stringify({ session: 'default-path', startedAt: '2026-08-20T10:00:00Z' }),
+    );
+    // No CLAUDE.md, but scriptsDir IS present — proving the shell resolves to the
+    // default rather than the change only working when the shell is absent.
+    const got = readAgentRegistry(root, home, { scriptsDir: SCRIPTS_DIR });
+    assert.deepEqual(got.map((e) => e.session), ['default-path']);
+  });
+
+  it('falls back to the default path with no scriptsDir and no override — no shell-out', () => {
+    // A bare call resolves to `.plot/agents` without shelling out at all, the
+    // same graceful degradation every other injected resolver follows.
+    fs.writeFileSync(
+      path.join(root, AGENT_MANIFEST_DIR, 'a.json'),
+      JSON.stringify({ session: 'bare', startedAt: '2026-08-20T10:00:00Z' }),
+    );
+    const got = readAgentRegistry(root, home);
+    assert.deepEqual(got.map((e) => e.session), ['bare']);
+  });
+
+  it('a worktree that genuinely has no manifest still synthesizes an entry with session=""', () => {
+    // Item 2. The synthesis path is NOT removed by pointing the reader elsewhere.
+    // The resolved directory is empty, so a hand-made worktree is still visible —
+    // with `session: ''`, which is what a naive implementation that deleted the
+    // fallback would make vanish.
+    const empty = path.join(root, 'empty-registry');
+    fs.mkdirSync(empty, { recursive: true });
+    const got = readAgentRegistry(root, home, {
+      manifestDir: empty,
+      worktrees: worktrees([{ path: '/wt/orphan', branch: 'feature/orphan' }]),
+      liveness: (wts) => wts.map(() => 'running'),
+    });
+    assert.equal(got.length, 1);
+    assert.equal(got[0].worktree, '/wt/orphan');
+    assert.equal(got[0].session, '', 'synthesized, session empty by design');
+  });
+
+  it('an absent configured directory reads as no dispatch, and synthesis still runs', () => {
+    // The configured directory does not exist yet (no dispatch has written to it).
+    // That is the empty-directory case, not a throw: synthesis proceeds.
+    const got = readAgentRegistry(root, home, {
+      manifestDir: path.join(root, 'never-created'),
+      worktrees: worktrees([{ path: '/wt/orphan', branch: 'feature/orphan' }]),
+      liveness: (wts) => wts.map(() => 'waiting'),
+    });
+    assert.equal(got.length, 1);
+    assert.equal(got[0].session, '');
+    assert.equal(got[0].state, 'waiting');
+  });
+});
+
 describe('gitWorktrees — the real porcelain, parsed', () => {
   // The default lister runs `git worktree list --porcelain`; this proves it
   // against real git output rather than a hand-written fixture, so a change to
