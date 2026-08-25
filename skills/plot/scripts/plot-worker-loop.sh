@@ -184,13 +184,28 @@ _on_alarm() {
 }
 trap _on_alarm ALRM
 
-_cleanup_bound() {
+# THE MANIFEST IS REMOVED ON EVERY EXIT PATH. A worker that ends stops
+# appearing in the registry the moment it exits — the board's next pulse
+# will no longer see its row. The trap fires whether the loop ended normally
+# (--next returned no more work), broke on a failed cd or lost claim race,
+# or timed out via SIGALRM.
+#
+# THE SWEEP STAYS. A trap cannot run on SIGKILL, so the reconciliation sweep
+# is still the thing that catches a worker killed outright (kill -9). This
+# trap answers "I am leaving" — a cheaper, immediate cleanup. Reconciliation
+# answers "which entries no longer correspond to anything?" — a periodic
+# sweep that handles SIGKILL and orphaned manifests from crashes.
+_cleanup_on_exit() {
+  # Remove the manifest first — it is the externally visible registration.
+  [ -n "${PLOT_MANIFEST_FILE:-}" ] && [ -f "$PLOT_MANIFEST_FILE" ] && rm -f "$PLOT_MANIFEST_FILE"
+
+  # Then clean up the watchdog and prompt child (if any are still running).
   [ -n "$_watchdog_pid" ] && _kill_tree "$_watchdog_pid"
   [ -n "$_prompt_child" ] && _kill_tree "$_prompt_child"
   _watchdog_pid=""
   _prompt_child=""
 }
-trap _cleanup_bound EXIT
+trap _cleanup_on_exit EXIT
 
 # Run the prompt under the bound. Returns 0 if it finished on its own (whatever
 # its own exit status), or 124 — timeout(1)'s convention — if the bound fired.
