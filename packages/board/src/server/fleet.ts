@@ -40,7 +40,8 @@ import { collectSprints, planStatusBySlug, readConfig, type BuildBoardOptions } 
 import { readBridge, writeBridge } from './pulse-bridge.js';
 import { readFleetControls } from './fleet-controls.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
-import { readAgentRegistry, bashCleanliness } from './registry.js';
+import { readAgentRegistryWithInfo, bashCleanliness } from './registry.js';
+import type { RegistryInfo } from './registry.js';
 import type { AgentEntry } from './registry.js';
 import { workerQuestions } from './worker-question.js';
 
@@ -459,6 +460,12 @@ interface CacheEntry {
    * dispatch has run — a fact, not a failure.
    */
   agents: AgentEntry[];
+  /**
+   * Metadata about the registry read — directory, manifest count, synthesized
+   * count. Makes a synthesized fleet legible: `0 manifests, 12 synthesized`
+   * says the fleet is not empty, just identity-less.
+   */
+  registry: RegistryInfo | undefined;
   /**
    * Branches AUTO-DISPATCH has started this session whose claim/manifest the
    * next pulse cannot yet see.
@@ -1839,10 +1846,17 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // whose worktree is clean (no uncommitted changes, no unpushed commits). Such
     // workers have nothing outstanding and clutter the panel — especially after a
     // fleet run where all workers finished successfully.
-    entry.agents = readAgentRegistry(opts.repoRoot, undefined, {
+    //
+    // The registry read now returns METADATA alongside entries — directory, manifest
+    // count, synthesized count — so a synthesized fleet is legible. A reader seeing
+    // `0 manifests, 12 synthesized` knows immediately that the drop menu is absent
+    // because the board is reading an empty directory, not because nothing is broken.
+    const registryResult = readAgentRegistryWithInfo(opts.repoRoot, undefined, {
       scriptsDir: opts.scriptsDir,
       cleanliness: bashCleanliness,
     });
+    entry.agents = registryResult.entries;
+    entry.registry = registryResult.info;
     // Default mode, WITH the fetch: the refresh is off the request path, so a
     // second of work is free — and the fetch is what lets the board see
     // branches a remote worker pushed. `--stream` is the only flag added.
@@ -2122,7 +2136,7 @@ export function freshCacheEntry(): CacheEntry {
     questions: new Map(),
     // `unsupported` before the first lookup, never `answered`: a board that
     // has not asked must not render an empty inbox as a clear one.
-    issues: [], issueAnswer: 'unsupported', issueError: null, agents: [],
+    issues: [], issueAnswer: 'unsupported', issueError: null, agents: [], registry: undefined,
     // Empty at construction — nothing was dispatched before this process began,
     // and a restart re-derives liveness from git rather than trusting a set.
     autoInFlight: new Set(),
@@ -5363,6 +5377,11 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
     // agent, this is an agent that mentions a branch. A running worker appears
     // in both and is not duplicated — the entities differ.
     agents: entry.agents,
+    // Metadata about the registry read — directory, manifest count, synthesized
+    // count. Makes a synthesized fleet legible: a reader seeing `0 manifests,
+    // 12 synthesized` knows the drop menu is absent because the board is reading
+    // an empty directory, not because nothing is broken.
+    registry: entry.registry,
     issueError: entry.issueError,
     // The two fleet controls, read fresh from `.plot/state/` on this render
     // clock — NOT off the cached pulse — so a write through /api/fleet-controls

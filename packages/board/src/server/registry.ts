@@ -343,11 +343,50 @@ export type WorktreeLister = () => WorktreeInfo[];
  */
 export type CleanlinessResolver = (worktrees: string[]) => boolean[];
 
+/**
+ * Metadata about the registry read — the facts that make a synthesized fleet
+ * legible rather than silent.
+ */
+export interface RegistryInfo {
+  /** The resolved absolute path where manifests were read. */
+  directory: string;
+  /** How many manifests were successfully parsed. */
+  manifestCount: number;
+  /** How many entries were synthesized from worktrees with no manifest. */
+  synthesizedCount: number;
+}
+
+/**
+ * The registry's full answer: entries AND metadata. See
+ * {@link readAgentRegistryWithInfo} for the caller that needs both.
+ */
+export interface RegistryResult {
+  entries: AgentEntry[];
+  info: RegistryInfo;
+}
+
 export function readAgentRegistry(
   repoRoot: string,
   home?: string,
   opts: ReadRegistryOptions = {},
 ): AgentEntry[] {
+  return readAgentRegistryWithInfo(repoRoot, home, opts).entries;
+}
+
+/**
+ * Read the registry and return both entries AND metadata.
+ *
+ * The metadata makes a synthesized fleet legible: `0 manifests, 12 synthesized`
+ * says the fleet is not empty, just identity-less. The board renders this in
+ * the WORKING section so an operator knows immediately whether the drop menu
+ * is missing because nothing is broken or because the board is reading an
+ * empty directory.
+ */
+export function readAgentRegistryWithInfo(
+  repoRoot: string,
+  home?: string,
+  opts: ReadRegistryOptions = {},
+): RegistryResult {
   const dir = resolveManifestDir(repoRoot, opts);
   let names: string[];
   try {
@@ -359,6 +398,7 @@ export function readAgentRegistry(
     names = [];
   }
   const out: AgentEntry[] = [];
+  let manifestCount = 0;
   for (const name of names) {
     if (!name.endsWith('.json')) continue;
     let entry: AgentEntry | null;
@@ -368,6 +408,7 @@ export function readAgentRegistry(
       continue;
     }
     if (!entry) continue;
+    manifestCount++;
     // The transcript lives beside the WORKTREE, not beside the manifest: the
     // runtime keys its project directory on the cwd it ran in. An entry whose
     // worktree is unknown simply has no transcript to join.
@@ -397,6 +438,7 @@ export function readAgentRegistry(
       /* the worktree may be gone; the raw path is enough to dedupe */
     }
   }
+  let synthesizedCount = 0;
   {
     const lister = opts.worktrees ?? (() => gitWorktrees(repoRoot));
     let worktrees: WorktreeInfo[] = [];
@@ -410,6 +452,7 @@ export function readAgentRegistry(
       if (wt.branch === '') continue; // A branchless worktree is not an agent row.
       if (claimed.has(wt.path)) continue; // A manifest already names this path.
       out.push(synthesizeEntry(wt));
+      synthesizedCount++;
     }
   }
   refreshStates(out, opts.liveness ?? defaultLiveness(opts.scriptsDir));
@@ -423,7 +466,11 @@ export function readAgentRegistry(
   // rather than first: an unknown time must not claim to be the most recent. A
   // synthesized entry has no `startedAt` and so sorts among those last, which is
   // right — the registry knows least about it.
-  return filtered.sort((a, b) => (b.startedAt || '').localeCompare(a.startedAt || ''));
+  const entries = filtered.sort((a, b) => (b.startedAt || '').localeCompare(a.startedAt || ''));
+  return {
+    entries,
+    info: { directory: dir, manifestCount, synthesizedCount },
+  };
 }
 
 /**
