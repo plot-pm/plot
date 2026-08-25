@@ -3,6 +3,7 @@ import {
   planAutoDispatch,
   startableBranches,
   liveAgentCount,
+  liveAgentBranches,
   planSlug,
   type AutoDispatchPlan,
 } from '../../src/server/auto-dispatch.js';
@@ -92,26 +93,28 @@ describe('liveAgentCount — a slot is occupied by running OR waiting', () => {
     expect(liveAgentCount(agents)).toBe(2);
   });
 
-  it('does not count a live agent whose branch has already merged', () => {
-    // THE MEASURED DEFECT. On 2026-08-24 seven registry entries reported a live
-    // pid and FIVE sat on branches whose PRs had merged hours earlier — `claude`
-    // processes that outlived their work. They consumed five of twelve slots
-    // that nothing was using, and the fleet declined to dispatch work it had
-    // room for.
+  it('counts a live agent even when its branch has already merged', () => {
+    // THE FIX. On 2026-08-25 eleven workers whose branches had merged sat at
+    // zero CPU for up to ten hours (bug/a-landed-branch-still-holds-a-slot).
+    // None counted against the cap, letting the fleet grow to 13 against a cap
+    // of 3. A live agent holds a machine (CPU, memory, worktree) regardless of
+    // whether its branch has merged — the slot is occupied until the agent
+    // exits, not until its work lands.
     //
-    // A live process is necessary and not sufficient: liveness takes two facts.
+    // The earlier "liveness takes two facts" rule got it backwards: it hid
+    // landed agents from the cap while they held their machines.
     const agents = [agent('feature/a', 'running'), agent('feature/done', 'running')];
     const p = pulse([['2026-08-22-p.md', 'approved', [
       wave('W', 'eligible', [['feature/a', 'open'], ['feature/done', 'merged']]),
     ]]]);
-    expect(liveAgentCount(agents, p)).toBe(1);
+    // Both count, even though feature/done has merged — it still holds a slot.
+    expect(liveAgentCount(agents, p)).toBe(2);
   });
 
   it('counts a live agent the pulse does not mention', () => {
-    // THE DIRECTION, and it is deliberate: this may only ever REMOVE an entry
-    // from the count. A branch the pulse says nothing about is not evidence of
-    // anything, so it stays counted — a scan that could not see a plan errs
-    // toward the cap rather than through it.
+    // The pulse no longer affects the count at all — every live agent counts,
+    // regardless of what the pulse says about its branch (or says nothing).
+    // This test remains to verify the pulse argument is harmless.
     const agents = [agent('feature/unseen', 'running')];
     const p = pulse([['2026-08-22-p.md', 'approved', [wave('W', 'eligible', [['feature/other', 'open']])]]]);
     expect(liveAgentCount(agents, p)).toBe(1);
@@ -121,6 +124,48 @@ describe('liveAgentCount — a slot is occupied by running OR waiting', () => {
     // The pulse is optional, so every existing caller keeps its answer.
     const agents = [agent('feature/a', 'running'), agent('feature/b', 'waiting')];
     expect(liveAgentCount(agents)).toBe(2);
+  });
+});
+
+describe('liveAgentBranches — names exactly what liveAgentCount counted', () => {
+  it('lists branches for all live agents including those with merged branches', () => {
+    // Plan requirement #10: liveAgentBranches names exactly the agents
+    // liveAgentCount counted. The two must not diverge — the refusal message
+    // explains the number.
+    const agents = [
+      agent('feature/a', 'running'),
+      agent('feature/done', 'running'),  // branch merged but still live
+      agent('feature/c', 'waiting'),
+      agent('feature/d', 'finished'),    // not live — not counted
+    ];
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [['feature/a', 'open'], ['feature/done', 'merged']]),
+    ]]]);
+    // Count should be 3 (running + running + waiting)
+    expect(liveAgentCount(agents, p)).toBe(3);
+    // Branches should list all three, including the merged one
+    const branches = liveAgentBranches(agents, p);
+    expect(branches).toHaveLength(3);
+    expect(branches).toContain('feature/a');
+    expect(branches).toContain('feature/done');
+    expect(branches).toContain('feature/c');
+    expect(branches).not.toContain('feature/d');
+  });
+
+  it('stays consistent with liveAgentCount regardless of pulse content', () => {
+    // The consistency requirement is load-bearing: a refusal that says
+    // "3 slots held by [feature/a]" is the bug a-count-answers-to-its-section
+    // already fixed elsewhere.
+    const agents = [
+      agent('feature/a', 'running'),
+      agent('feature/b', 'running'),
+    ];
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'complete', [['feature/a', 'merged'], ['feature/b', 'merged']]),
+    ]]]);
+    // Both merged, but both live — both count
+    expect(liveAgentCount(agents, p)).toBe(2);
+    expect(liveAgentBranches(agents, p)).toEqual(['feature/a', 'feature/b']);
   });
 });
 

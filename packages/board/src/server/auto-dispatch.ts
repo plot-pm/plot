@@ -82,25 +82,6 @@ export function planSlug(file: string): string {
  */
 
 /**
- * Every branch this pulse reports as landed — merged, or deferred by the plan.
- *
- * Built once per call rather than per agent: the pulse is walked in full for a
- * membership test that every entry then asks, and the walk is over waves the
- * scan has already derived.
- */
-function landedBranches(pulse: FleetPulse): Set<string> {
-  const landed = new Set<string>();
-  for (const plan of pulse.plans ?? []) {
-    for (const wave of plan.waves ?? []) {
-      for (const b of wave.branches ?? []) {
-        if (b.state === 'merged' || b.deferred) landed.add(b.branch);
-      }
-    }
-  }
-  return landed;
-}
-
-/**
  * How many registry entries occupy a concurrency slot right now.
  *
  * Read from the registry the scan just refreshed, so it is this pulse's liveness
@@ -108,27 +89,22 @@ function landedBranches(pulse: FleetPulse): Set<string> {
  * the in-flight set of branches dispatched but not yet visible here — see
  * {@link planAutoDispatch}.
  *
- * LIVENESS TAKES TWO FACTS, NOT ONE. A live process is necessary and is not
- * sufficient: an agent whose branch has already MERGED is finished work holding
- * a handle, not capacity in use. `plot-worker-state.sh` cannot make this call —
- * it answers about the PROCESS, in its own words "six PROCESS states", and has
- * no view of whether the branch landed. The board holds both facts, so the join
- * belongs here.
+ * A live agent ALWAYS occupies a slot, even if its branch has already merged.
+ * The pulse argument is kept for API compatibility but no longer affects the
+ * count — every live agent consumes a machine (CPU, memory, worktree) regardless
+ * of what its branch did.
  *
- * Measured 2026-08-24: seven registry entries reported a live pid, and FIVE of
- * them sat on branches whose PRs had merged hours earlier (#360, #361, #362,
- * #364, #367) — `claude` processes that outlived their work. Counting them
- * consumed five of twelve slots that nothing was using, and the fleet declined
- * to dispatch work it had room for.
+ * Measured 2026-08-25: eleven workers whose branches had merged sat at zero CPU
+ * for up to ten hours, none counted against the cap (bug/a-landed-branch-still-
+ * holds-a-slot). The "liveness takes two facts" rule inverted the defect: it
+ * excluded landed agents and let the fleet grow unbounded.
  *
- * The direction is deliberate: this may only ever REMOVE an entry from the
- * count. A branch the pulse does not mention is not evidence of anything and
- * stays counted, so a scan that could not see a plan errs toward the cap rather
- * than through it.
+ * This is the simpler rule: a live agent counts. The loop's timeout
+ * (bug/the-loop-bounds-its-child) is what makes hung agents exit; excluding them
+ * from the count only hid them from the cap while they held their machines.
  */
-export function liveAgentCount(agents: AgentEntry[], pulse?: FleetPulse): number {
-  const landed = pulse ? landedBranches(pulse) : new Set<string>();
-  return agents.filter((a) => LIVE_STATES.has(a.state) && !(a.branch && landed.has(a.branch))).length;
+export function liveAgentCount(agents: AgentEntry[], _pulse?: FleetPulse): number {
+  return agents.filter((a) => LIVE_STATES.has(a.state)).length;
 }
 
 /**
@@ -138,11 +114,14 @@ export function liveAgentCount(agents: AgentEntry[], pulse?: FleetPulse): number
  * Returned when auto-dispatch refuses at the cap so the refusal names what
  * holds the slots, not just how many are held. A count says "you're at the
  * cap"; the branches say "these agents are the cap".
+ *
+ * MUST stay consistent with {@link liveAgentCount} — the two must not diverge.
+ * The refusal message explains the number. See bug/a-landed-branch-still-holds-
+ * a-slot plan requirement #10.
  */
-export function liveAgentBranches(agents: AgentEntry[], pulse?: FleetPulse): string[] {
-  const landed = pulse ? landedBranches(pulse) : new Set<string>();
+export function liveAgentBranches(agents: AgentEntry[], _pulse?: FleetPulse): string[] {
   return agents
-    .filter((a) => LIVE_STATES.has(a.state) && !(a.branch && landed.has(a.branch)))
+    .filter((a) => LIVE_STATES.has(a.state))
     .map((a) => a.branch)
     .filter((b): b is string => Boolean(b));
 }
