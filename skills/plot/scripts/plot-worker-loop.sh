@@ -125,27 +125,67 @@ main_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | se
 # unseen hang too; matching the log for that one string would recognise only the
 # hang already measured.
 #
+# THE WATCHDOG SIGNALS, IT DOES NOT RACE ON `wait -n`. An earlier version raced
+# the prompt against a watchdog `sleep` with `wait -n` and read the loser from
+# the survivor's liveness. Measured: on macOS's stock `/bin/bash` (3.2), which
+# has no `wait -n`, that builtin errors and returns instantly — the bound read
+# every prompt as an honest finish and never fired. The exact system this gate
+# is FOR — a mac with no Homebrew, hence no `timeout(1)` — is also the one with
+# only bash 3.2, so a bash-4.3 dependency would disable the bound precisely
+# where it is needed. So instead: a background watchdog sends SIGALRM to the
+# loop after the bound, a trap sets a flag and kills the prompt, and the loop
+# merely `wait`s on the prompt (a builtin every bash has). Works on 3.2 and 5.x.
+#
 # CLEANUP IS ON EVERY EXIT PATH. `run_bounded` tracks the prompt child and its
-# watchdog sleep in file-scope variables, and a single EXIT trap reaps BOTH — so
-# a normal finish, a timeout, a Ctrl-C, and an outright kill of the loop all
-# leave no orphaned sleep and no stray child. A bound that outlived its worker
-# would be a new leak inside the fix for a leak.
+# watchdog in file-scope variables, and a single EXIT trap reaps BOTH — so a
+# normal finish, a timeout, a Ctrl-C, and an outright kill of the loop all leave
+# no orphaned sleep and no stray child. A bound that outlived its worker would
+# be a new leak inside the fix for a leak.
 _prompt_child=""
 _watchdog_pid=""
+_timed_out=0
 
 # Kill a process and any descendants it spawned. The prompt child is
 # `bash -c '. "$f"'`, which itself launches the agent CLI as a grandchild;
 # killing only the immediate child would orphan that CLI, which is the very
-# thing being bounded. `pkill -P` reaps the children first, then the root.
+# thing being bounded.
+#
+# THE ROOT DIES FIRST, then its descendants — but the descendants are SNAPSHOT
+# before the root is killed. Two failures were measured and both are avoided:
+#
+#   * Reaping children BEFORE the root leaves a window in which the root shell —
+#     the sourced prompt — sees `sleep` die and runs its NEXT line before the
+#     kill reaches it (a `git push`, say, on a worktree the bound just declared
+#     unmeasured). Measured: "SHOULD NOT PRINT" printed.
+#   * Killing the root and THEN asking `pkill -P $root` finds nothing: SIGKILL
+#     reparents the orphaned grandchild to init, so it no longer matches the
+#     dead root's PID. Measured: the `sleep` leaked.
+#
+# So the child PIDs are collected first (`pgrep -P`), the root is killed to stop
+# it spawning or advancing, then the snapshot is killed. The agent CLI the
+# prompt had already launched is in that snapshot.
 _kill_tree() { # $1 = root pid
-  local root="$1"
+  local root="$1" kid
   [ -n "$root" ] || return 0
-  pkill -KILL -P "$root" 2>/dev/null || true
+  local kids
+  kids=$(pgrep -P "$root" 2>/dev/null || true)
   kill -KILL "$root" 2>/dev/null || true
+  for kid in $kids; do
+    _kill_tree "$kid"
+  done
 }
 
+# The bound fired: a background watchdog sent SIGALRM. Record it and end the
+# prompt (and the agent CLI it spawned). The flag is what `run_bounded` reads
+# after `wait` returns to tell a fired bound from an honest finish.
+_on_alarm() {
+  _timed_out=1
+  [ -n "$_prompt_child" ] && _kill_tree "$_prompt_child"
+}
+trap _on_alarm ALRM
+
 _cleanup_bound() {
-  [ -n "$_watchdog_pid" ] && kill "$_watchdog_pid" 2>/dev/null
+  [ -n "$_watchdog_pid" ] && _kill_tree "$_watchdog_pid"
   [ -n "$_prompt_child" ] && _kill_tree "$_prompt_child"
   _watchdog_pid=""
   _prompt_child=""
@@ -156,6 +196,8 @@ trap _cleanup_bound EXIT
 # its own exit status), or 124 — timeout(1)'s convention — if the bound fired.
 # A bound of 0 (explicitly disabled) runs the prompt with no watchdog at all.
 run_bounded() {
+  _timed_out=0
+
   if [ "$WORKER_BOUND_SECONDS" -le 0 ]; then
     # shellcheck source=/dev/null
     bash -c '. "$1"' _ "$prompt_file"
@@ -166,30 +208,26 @@ run_bounded() {
   bash -c '. "$1"' _ "$prompt_file" &
   _prompt_child=$!
 
-  sleep "$WORKER_BOUND_SECONDS" &
+  # The watchdog: after the bound, signal the loop's own PID. A compound
+  # subshell (`sleep; kill`) rather than `sleep && kill` so a killed sleep still
+  # cannot fire, and so `$$` inside it is the loop, not the subshell.
+  ( sleep "$WORKER_BOUND_SECONDS"; kill -ALRM "$$" 2>/dev/null ) &
   _watchdog_pid=$!
 
-  # Race the prompt against the watchdog. `wait -n` returns when EITHER exits;
-  # then the watchdog's liveness says which. (The bash-4+ floor `wait -n` needs
-  # is already set by plot-dispatch.sh, which launches this loop and uses
-  # `declare -A`.)
-  wait -n "$_prompt_child" "$_watchdog_pid" 2>/dev/null
+  # Block on the prompt. If the bound fires first, _on_alarm kills the prompt
+  # and this `wait` returns (interrupted); if the prompt finishes first, `wait`
+  # returns normally and the watchdog is still counting down. Either way, read
+  # the flag — set only by the alarm trap — to tell which happened.
+  wait "$_prompt_child" 2>/dev/null
 
-  if kill -0 "$_watchdog_pid" 2>/dev/null; then
-    # Watchdog still alive => the prompt returned first: an honest finish.
-    kill "$_watchdog_pid" 2>/dev/null
-    _watchdog_pid=""
-    wait "$_prompt_child" 2>/dev/null
-    _prompt_child=""
-    return 0
-  fi
-
-  # Watchdog exited => the bound fired: end the prompt (and its CLI grandchild).
+  # Stop the watchdog (a no-op if it already fired) and reap its sleep.
+  _kill_tree "$_watchdog_pid"
+  wait "$_watchdog_pid" 2>/dev/null || true
   _watchdog_pid=""
-  _kill_tree "$_prompt_child"
-  wait "$_prompt_child" 2>/dev/null || true
   _prompt_child=""
-  return 124
+
+  [ "$_timed_out" = 1 ] && return 124
+  return 0
 }
 
 while true; do
