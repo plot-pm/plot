@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
@@ -18,6 +18,7 @@
 - **Started:** 2026-08-24, Jan Wloka, `feature/the-sprint-control-names-its-state`
 - **Started:** 2026-08-24, Jan Wloka, `feature/a-sprint-counts-every-member`
 - **Started:** 2026-08-25, Jan Wloka, `feature/the-filter-shows-what-it-excludes`
+- **Delivered:** 2026-08-25
 
 ## Changelog
 
@@ -226,7 +227,7 @@ means.
 
 ## Waves
 
-### Carried (Branch: feature/the-fleet-carries-the-sprints-members)
+### Carried (Branch: feature/the-fleet-carries-the-sprints-members, PR: #389)
 - `fleet.sprints` gains `members`, the sprint file's own plan array — the same
   one `board.sprints` already carries
 
@@ -234,7 +235,7 @@ means.
 - `AgentList.tsx` filters through `sprintMembershipLookup`/`passesSprintFilter`
   like the other two tabs; the exemption is by row KIND, not by empty sprint
 
-### Named (Branch: feature/the-sprint-control-names-its-state)
+### Named (Branch: feature/the-sprint-control-names-its-state, PR: #397)
 - a labelled **Sprint only** toggle; `Sprint:` before the name and `target`
   before the release
 
