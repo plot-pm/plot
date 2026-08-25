@@ -165,22 +165,37 @@ test('worker-loop: a timed-out worker exits without hopping', async () => {
 });
 
 // Item 5 — the bound needs no timeout(1). Run the loop with `timeout` and
-// `gtimeout` absent from PATH (they live in /opt/homebrew here, coreutils, so a
-// mac without Homebrew has neither) and assert the bound STILL fires. The loop
-// itself resolves `git`, `sleep`, `pgrep` via /usr/bin and /bin, which the
-// sanitized PATH keeps.
+// `gtimeout` unreachable and assert the bound STILL fires. The loop itself
+// resolves `git`, `sleep`, `pgrep` normally, so the rest of PATH is kept.
+//
+// MASKED, NOT REMOVED — and the first version got this wrong. It set PATH to
+// `/usr/bin:/bin`, which hides Homebrew's coreutils on a mac and hides NOTHING
+// on Linux, where `timeout` ships in /usr/bin. The sanity assertion then failed
+// in CI (`actual: true`) while passing locally: the test encoded one platform's
+// layout as if it were the rule.
+//
+// A shim directory prepended to the real PATH is platform-independent: the two
+// names resolve to a script that exits 127, which is what a shell reports for a
+// command it cannot find.
 test('worker-loop: the bound fires with timeout(1)/gtimeout absent from PATH', async () => {
   const secs = 49;
   reap(secs);
   const dir = fixture('nocoreutils', 1, `sleep ${secs}\n`);
-  const sanitized = '/usr/bin:/bin';
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-notimeout-'));
+  for (const bin of ['timeout', 'gtimeout']) {
+    fs.writeFileSync(path.join(shim, bin), '#!/bin/sh\nexit 127\n', { mode: 0o755 });
+  }
+  const sanitized = `${shim}:${process.env.PATH ?? '/usr/bin:/bin'}`;
   // Sanity: the sanitized PATH really lacks the coreutils timeouts.
-  const has = (bin) => {
-    try { execFileSync('bash', ['-c', `command -v ${bin}`], { env: { PATH: sanitized } }); return true; }
+  // USABLE, not merely findable. The shim IS on PATH — `command -v` finds it —
+  // so the sanity check must ask whether it WORKS, which is what the loop's own
+  // capability probe asks. Running it exits 127, the shell's own "cannot run".
+  const usable = (bin) => {
+    try { execFileSync('bash', ['-c', `${bin} 1 true`], { env: { PATH: sanitized } }); return true; }
     catch { return false; }
   };
-  assert.equal(has('timeout'), false, 'timeout absent from the sanitized PATH');
-  assert.equal(has('gtimeout'), false, 'gtimeout absent from the sanitized PATH');
+  assert.equal(usable('timeout'), false, 'timeout unusable on the sanitized PATH');
+  assert.equal(usable('gtimeout'), false, 'gtimeout unusable on the sanitized PATH');
   try {
     const r = await runLoop(dir, { env: { PATH: sanitized } });
     assert.equal(r.code, 124, 'the bound fired without coreutils timeout(1)');
@@ -188,6 +203,7 @@ test('worker-loop: the bound fires with timeout(1)/gtimeout absent from PATH', a
   } finally {
     reap(secs);
     fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(shim, { recursive: true, force: true });
   }
 });
 
