@@ -534,23 +534,27 @@ describe('NOT STARTED renders one row per plan', () => {
       await page.close();
     }
   });
-  it('counts PLANS in its heading, not the rows folded behind them', async () => {
+  it('counts PLANS in its heading, and names the wave scope beside it', async () => {
     // Measured on screen: `NOT STARTED (6)` above three visible lines, because
-    // one plan with five unstarted waves is one row and five records. The
-    // heading counts what the section SHOWS — everywhere else that is rows,
-    // and here it is plans.
+    // one plan with several unstarted waves is one row and several records. The
+    // heading counts what the section SHOWS — the plan heads — and where the
+    // wave scope behind them differs it names both units and says which is which
+    // (`a-section-counts-what-it-shows`, Done when #2). This fixture: three plan
+    // heads over five waves — `activity-shows-itself` (Truth, Shown, Still),
+    // `plot-sprint-support` (Supported), `shelved-work` (Set down) — so the
+    // header reads `(3 plans · 5 waves)`.
     //
-    // Nothing is hidden by the smaller figure: each plan row carries its own
-    // `N waves` summary, so the branches behind the expander are described
-    // where they live rather than added into a number one level up.
+    // The head number equals the plan rows the reader sees; nothing is hidden
+    // by it — each plan row carries its own `N waves` summary, and the wave
+    // count states the scope the reader reaches by expanding every head.
     const page = await open();
     try {
       const heading = page.getByRole('heading', { name: /Not started/i }).first();
       await heading.waitFor({ timeout: 5_000 });
       const planRows = section(page).locator('li[data-plan-row]');
-      await expect.poll(() => planRows.count()).toBeGreaterThan(0);
+      await expect.poll(() => planRows.count()).toBe(3);
       const plans = await planRows.count();
-      expect(await heading.textContent()).toContain(`(${plans})`);
+      expect(await heading.textContent()).toContain(`(${plans} plans · 5 waves)`);
     } finally {
       await page.close();
     }

@@ -14,6 +14,7 @@
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-25, Jan Wloka, `bug/a-section-counts-what-it-shows`
+- **Started:** 2026-08-25, Jan Wloka, `bug/a-filtered-section-says-what-it-hid`
 
 ## Changelog
 
@@ -105,7 +106,7 @@ a workaround for a number that is simply reporting the wrong unit.
 
 ## Waves
 
-### Counted (Branch: bug/a-section-counts-what-it-shows)
+### Counted (Branch: bug/a-section-counts-what-it-shows, PR: #414)
 
 A section's header counts the unit the section renders — plan heads where it
 groups, rows where it does not — and names both where they differ.

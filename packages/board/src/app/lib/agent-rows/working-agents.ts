@@ -1,4 +1,4 @@
-import { isLiveState, type AgentEntry, type AgentRow } from '../../../contract/schema.js';
+import { isLiveState, isBrokenState, type AgentEntry, type AgentRow } from '../../../contract/schema.js';
 
 /**
  * One WORKING row per LIVE registry entry, joined to a branch row where one
@@ -50,6 +50,39 @@ export function workingAgentRows(
       // join on the empty string would attach an unrelated row's plan and PR to
       // a worker that holds neither. Empty is a real value the map must not
       // resolve.
+      row: agent.branch ? rowByBranch.get(agent.branch) ?? null : null,
+    }));
+}
+
+/**
+ * One WAITING ON YOU row per BROKEN registry entry — a problem report for an
+ * agent that stopped and needs a person.
+ *
+ * A PROBLEM REPORT, NOT A WORKER. `stalled` is work on the floor with no PR,
+ * `unknown` is a question the board cannot answer. Both say *go look at this* —
+ * exactly what WAITING ON YOU exists to say. `finished` is not included: the work
+ * reached review, and the PR carries it.
+ *
+ * THE COMPANION TO {@link workingAgentRows}, and the split is `isBrokenState`.
+ * An entry reaches WORKING iff `isLiveState` is true, and WAITING ON YOU iff
+ * `isBrokenState` is true. `finished` is neither — it is not live, and it is not
+ * broken, so it appears in neither section. That is correct: a finished entry
+ * drains through reconciliation and needs no row of its own while its PR still
+ * does.
+ *
+ * Joined to a branch row by the same rule as `workingAgentRows`: where a branch
+ * row carries the same branch the entry holds, the row's facts (plan, wave, PR,
+ * git state) travel with it. Where none does, the row is null and the caller
+ * states only what the registry knows. The empty branch joins to nothing.
+ */
+export function brokenAgentRows(
+  agents: AgentEntry[],
+  rowByBranch: Map<string, AgentRow>,
+): { agent: AgentEntry; row: AgentRow | null }[] {
+  return agents
+    .filter((agent) => isBrokenState(agent.state))
+    .map((agent) => ({
+      agent,
       row: agent.branch ? rowByBranch.get(agent.branch) ?? null : null,
     }));
 }
