@@ -15,6 +15,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-24, Jan Wloka, in-session
 - **Started:** 2026-08-24, Jan Wloka, `feature/the-cap-gates-auto-dispatch`
+- **Started:** 2026-08-25, Jan Wloka, `feature/a-worker-asks-for-the-next-wave`
 
 ## Changelog
 
