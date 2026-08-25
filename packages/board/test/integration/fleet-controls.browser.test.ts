@@ -132,12 +132,12 @@ describe('the two fleet controls (real browser renders the shipped artifact)', (
   it('the stepper is a real spinbutton that announces its value', async () => {
     const { page } = await open(fleet({ autoDispatch: false, parallelAgents: 3 }));
     try {
-      const spin = page.getByRole('spinbutton', { name: 'parallel agents' });
+      const spin = page.getByRole('spinbutton', { name: 'parallel agents cap' });
       expect(await spin.count()).toBe(1);
       // The role and its value/bounds are what a screen reader reads.
       expect(await spin.getAttribute('aria-valuenow')).toBe('3');
       expect(await spin.getAttribute('aria-valuemin')).toBe('1');
-      expect(await spin.getAttribute('aria-valuetext')).toBe('3 agents');
+      expect(await spin.getAttribute('aria-valuetext')).toBe('3 agents cap');
     } finally {
       await page.close();
     }
@@ -146,7 +146,7 @@ describe('the two fleet controls (real browser renders the shipped artifact)', (
   it('the stepper increments and decrements, and POSTs each new value', async () => {
     const { page, posts } = await open(fleet({ autoDispatch: false, parallelAgents: 3 }));
     try {
-      const spin = page.getByRole('spinbutton', { name: 'parallel agents' });
+      const spin = page.getByRole('spinbutton', { name: 'parallel agents cap' });
       await page.locator('[data-fleet-parallel-increment]').click();
       await expect.poll(() => spin.getAttribute('aria-valuenow')).toBe('4');
       await page.locator('[data-fleet-parallel-decrement]').click();
@@ -161,7 +161,7 @@ describe('the two fleet controls (real browser renders the shipped artifact)', (
   it('the stepper refuses to go below 1', async () => {
     const { page, posts } = await open(fleet({ autoDispatch: false, parallelAgents: 1 }));
     try {
-      const spin = page.getByRole('spinbutton', { name: 'parallel agents' });
+      const spin = page.getByRole('spinbutton', { name: 'parallel agents cap' });
       expect(await spin.getAttribute('aria-valuenow')).toBe('1');
       // At the floor the decrement is disabled, and clicking it changes nothing
       // and posts nothing — a cap of zero is what the switch says, not the cap.
@@ -207,7 +207,7 @@ describe('the two fleet controls (real browser renders the shipped artifact)', (
       // The spinbutton is focusable, and ArrowUp/ArrowDown are its own
       // interaction — a reader who Tabs onto it changes the value without the
       // two buttons.
-      const spin = page.getByRole('spinbutton', { name: 'parallel agents' });
+      const spin = page.getByRole('spinbutton', { name: 'parallel agents cap' });
       await spin.focus();
       expect(await spin.evaluate((el) => el === document.activeElement)).toBe(true);
       await page.keyboard.press('ArrowUp');
