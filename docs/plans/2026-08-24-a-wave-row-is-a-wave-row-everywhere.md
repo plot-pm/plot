@@ -6,9 +6,9 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
-- **Sprint:** <!-- not a member of the-board-tells-the-truth-in-every-section -->
+- **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
@@ -16,6 +16,7 @@
 - **Approved:** 2026-08-24, Jan Wloka, in-session
 - **Started:** 2026-08-24, Jan Wloka, `bug/a-wave-renders-as-a-wave-in-every-section`
 - **Started:** 2026-08-24, Jan Wloka, `bug/the-blocked-mark-finds-a-worker`
+- **Delivered:** 2026-08-25
 
 ## Changelog
 

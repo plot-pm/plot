@@ -6,15 +6,16 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
-- **Sprint:** <!-- not a member of the-board-tells-the-truth-in-every-section -->
+- **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-24, Jan Wloka, in-session
 - **Started:** 2026-08-24, Jan Wloka, `bug/a-wave-row-speaks-its-own-verdict`
+- **Delivered:** 2026-08-25
 
 ## Changelog
 

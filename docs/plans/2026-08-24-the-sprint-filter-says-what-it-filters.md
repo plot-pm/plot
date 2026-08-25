@@ -7,7 +7,7 @@
 
 - **Phase:** Approved
 - **Type:** bug
-- **Sprint:** <!-- not a member of the-board-tells-the-truth-in-every-section -->
+- **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session

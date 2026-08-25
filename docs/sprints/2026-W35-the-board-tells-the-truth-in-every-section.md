@@ -155,6 +155,19 @@ in practice, promote it rather than letting the rules go untested.
 - [ ] [the-page-is-as-tall-as-the-screen] Every board scrolls by 13px whatever it contains
 - [ ] [loose-checks-what-it-promises] `--loose` verifies green rather than not-draft
 
+<!-- ADDED 2026-08-25, mid-sprint. These six plans were WRITTEN during the
+     sprint, each in response to a defect found while working on it — reported
+     from screenshots of the running board, not from CI. They serve the sprint's
+     goal directly ("a valid board state, shown honestly, in every section") and
+     were never added to this file, so the board filtered them out of every
+     section under `Sprint only` while their work was landing. -->
+- [x] [a-wave-row-is-a-wave-row-everywhere] A wave renders as a wave row in every section — the same wave read as a wave in NOT STARTED and as a branch in WORKING <!-- status: delivered, pr: #392, branches: 2/2 -->
+- [x] [one-wave-row-two-contents] One wave row, two contents — the row's slots disagreed between sections <!-- status: delivered, branches: 2/2 -->
+- [x] [the-board-says-how-many-workers-are-free] The control says how many workers are free, and counts only the busy ones <!-- status: delivered, pr: #375, branches: 1/1 -->
+- [ ] [the-sprint-filter-says-what-it-filters] The Agents tab filters on sprint MEMBERSHIP — the old predicate admitted 53 plan rows with empty sprint fields beside the 2 genuine plan-less ones <!-- status: in progress, branches: 4/5 -->
+- [ ] [a-worker-asks-for-the-next-wave] A worker asks for the next wave rather than stopping at its own <!-- status: in progress, branches: 2/4 -->
+- [ ] [the-working-section-shows-every-worker] WORKING renders one row per registry entry — 23 registry entries against 0 rows rendered, 6 agents whose branch the pulse never produced <!-- status: in progress, pr: #398, branches: 0/5 -->
+
 ### Out of scope, and why — 27 open plans, 20 not in this sprint
 
 Reviewed on 2026-08-23 against the release goal. **Scoped by plan, not by
