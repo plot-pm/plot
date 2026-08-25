@@ -242,7 +242,7 @@ means.
 - `Open / WIP / Done` over exactly the members, summing to a printed total; the
   four `status` buckets give way to three exhaustive ones
 
-### Compared (Branch: feature/the-filter-shows-what-it-excludes)
+### Compared (Branch: feature/the-filter-shows-what-it-excludes, PR: #401)
 - estate totals while off, sprint numbers while on, from one derivation
 
 ## Done when
