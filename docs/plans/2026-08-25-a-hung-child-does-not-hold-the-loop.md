@@ -215,7 +215,7 @@ entries no longer correspond to anything?* A worker deleting its own manifest as
 it exits answers a different, cheaper question: *I am leaving.* The sweep stays;
 it is what catches a worker that was killed outright and never ran its trap.
 
-### Counted (Branch: bug/a-landed-branch-still-holds-a-slot)
+### Counted (Branch: bug/a-landed-branch-still-holds-a-slot, PR: #430)
 
 `liveAgentCount` counts every live agent, landed or not, so auto-dispatch cannot
 start work beside workers that have not exited.
