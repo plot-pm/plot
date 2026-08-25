@@ -209,7 +209,7 @@ is what stops the worker disappearing when it does.
 - a running worker keeps its branch row only while the PR is a DRAFT; a PR
   marked ready reaches WAITING ON YOU whatever the worker is doing
 
-### Reconciled (Branch: bug/the-registry-drops-a-settled-worker)
+### Reconciled (Branch: bug/the-registry-drops-a-settled-worker, PR: #407)
 - an entry is dropped only when the worktree is clean and the session has ended;
   either outstanding and it stays
 
