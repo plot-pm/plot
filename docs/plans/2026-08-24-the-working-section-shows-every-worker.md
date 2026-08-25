@@ -199,7 +199,7 @@ is what stops the worker disappearing when it does.
 ### Counted (Branch: bug/the-working-count-is-the-rows, PR: #403)
 - `working` derives from the set WORKING renders; the cap is labelled as a cap
 
-### Named (Branch: feature/a-busy-worker-names-its-wave)
+### Named (Branch: feature/a-busy-worker-names-its-wave, PR: #405)
 - a running worker's row names its wave, joined from `fleet.waves`; silent where
   the branch belongs to none
 
