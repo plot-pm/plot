@@ -11,6 +11,7 @@ import { CommissionDesignButton } from '../../components/CommissionDesignButton.
 import { CreatePlanButton } from '../../components/CreatePlanButton.js';
 import { ResliceButton } from '../../components/ResliceButton.js';
 import { DeliverButton } from '../../components/DeliverButton.js';
+import { DropAgentButton } from '../../components/DropAgentButton.js';
 import { ImplementButton } from '../../components/ImplementButton.js';
 import { isDraft, isApproved } from '../../components/PlanCard.js';
 import { StartWorkButton } from '../../components/StartWorkButton.js';
@@ -1668,6 +1669,90 @@ export function IssueRowActions(
               </a>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The menu for a BROKEN agent row — one in `stalled` or `unknown` state,
+ * rendered in WAITING ON YOU as a problem report.
+ *
+ * THE ONE ACTION IT OFFERS IS DROP. A broken agent has no PR to open, no work
+ * to start, no story to create — the worker stopped and the entry remains. The
+ * drop action removes the manifest so the row disappears, the board's manual
+ * reconciliation for entries the automatic resolver cannot clear.
+ *
+ * The endpoint refuses a live worker regardless of what this menu says, so the
+ * control renders even for `unknown` — asking gives a clear answer, and a
+ * refusal names the reason.
+ *
+ * RENDERS NOTHING WHERE THE ENTRY HAS NO SESSION. A manifest without a session
+ * id has no file to remove; the row is a synthesized worktree with no dispatch,
+ * and it drains when the worktree does.
+ */
+export function BrokenAgentMenu({
+  agent,
+  drop,
+  onActing,
+  onDropped,
+}: {
+  /** The broken agent entry. */
+  agent: import('../../../contract/schema.js').AgentEntry;
+  /** Whether this server will act on Drop, and why not. */
+  drop?: import('../../../contract/schema.js').DispatchInfo;
+  /** Reports that a click is outstanding (true) or has settled (false). */
+  onActing?: (active: boolean) => void;
+  /** Called when the drop succeeds — the row can remove itself from the list. */
+  onDropped?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  // No session = no manifest = nothing to drop. The row should not get a menu
+  // at all; this gate is the second line, and it is the one that fires where
+  // the caller forgot the first.
+  if (!agent.session) return null;
+
+  // No drop availability means the server never told us — hide the menu rather
+  // than show one whose only item is unavailable.
+  if (!drop) return null;
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-label="Agent actions"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+      >
+        <svg className="h-4 w-4" viewBox="0 0 16 16" fill="currentColor">
+          <circle cx="8" cy="3" r="1.5" />
+          <circle cx="8" cy="8" r="1.5" />
+          <circle cx="8" cy="13" r="1.5" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          role="menu"
+          aria-label="Agent actions"
+          className="absolute right-0 z-10 mt-1 min-w-[160px] rounded border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800"
+          onBlur={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false);
+          }}
+        >
+          <div role="menuitem" className="px-2 py-1 text-left">
+            <DropAgentButton
+              agent={agent}
+              drop={drop}
+              onActing={onActing}
+              onDropped={() => {
+                setOpen(false);
+                onDropped?.();
+              }}
+            />
+          </div>
         </div>
       )}
     </div>

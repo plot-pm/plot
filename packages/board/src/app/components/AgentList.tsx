@@ -235,6 +235,7 @@ export function AgentList({
   reslice,
   deliver,
   implement,
+  drop,
   continueWith,
   idea,
   pulse = 0,
@@ -471,6 +472,26 @@ export function AgentList({
   // Issue rows have no sprint field, so they always pass.
   const filteredIssues = fleet.issues;
 
+  // HOW MANY WORKERS THE FILTER HIDES — `the-filter-does-not-hide-a-worker`,
+  // wave Named. The WORKING section deliberately shows ALL live workers (a
+  // worker is a fact about the fleet, not about a reader's focus), but the
+  // control should name when a filter WOULD hide workers if applied. This
+  // count is passed to `ParallelAgentsStepper` to show "(N hidden by filter)".
+  //
+  // A worker's plan comes from the joined row — `row?.plan`. A worker with no
+  // joined row (e.g. on `main`, on a scratch branch, or between branches) has
+  // no plan to filter by and is never hidden. Only workers whose plan exists
+  // and would NOT pass the sprint filter are counted.
+  const workersHiddenByFilter = useMemo(() => {
+    if (sprintFilter.size === 0) return 0;
+    return workingRows.filter(({ row }) => {
+      // No plan → not hidden (would pass any filter)
+      if (!row?.plan) return false;
+      // Check if this plan FAILS the sprint filter
+      return !slugPassesSprintFilter(row.plan, selectedSprints, membership);
+    }).length;
+  }, [workingRows, sprintFilter, selectedSprints, membership]);
+
   // Degrade, do not hide: before the first scan lands this says so rather than
   // showing an empty list, which would read as "no agents are working".
   //
@@ -597,6 +618,54 @@ export function AgentList({
         estateTotals={fleet.estateTotals}
       />
 
+      {/* THE MASTER AGENT ROW — the branch the main checkout is on.
+
+          Placed above the sections because it answers "where am I", which is
+          context for the rows that follow rather than one of them. It is NOT a
+          row in any section — it has no PR, no worker, no wave — and placing
+          it inside one would make it look like it belongs there.
+
+          ONLY when non-empty. An empty `masterAgentBranch` means detached HEAD,
+          not a git repo, or unresolvable main checkout — all three produce no
+          element rather than a placeholder or a fabricated SHA. The label and
+          the line go together: a label beside nothing is worse than nothing.
+
+          The link uses `branchUrlBase + masterAgentBranch`, the same composition
+          the server applies to each row's `branchUrl`. Empty base renders as
+          plain text — the rule every row follows for an unrecognised host.
+      */}
+      {fleet.masterAgentBranch && (
+        <div className="flex items-center gap-2 px-3 py-2 text-sm" data-master-agent>
+          <span className="text-slate-500 dark:text-slate-400">Master Agent:</span>
+          <span className="flex items-center gap-1.5">
+            {/* The branch icon — same ⎇ glyph the tuple rows use for branches,
+                in the same muted style. A branch name alone reads as a label
+                rather than a kind of thing; the icon is what makes it clear. */}
+            <span
+              className="text-slate-400 dark:text-slate-500"
+              title="Branch"
+              aria-label="Branch"
+            >
+              ⎇
+            </span>
+            {fleet.branchUrlBase ? (
+              <a
+                href={`${fleet.branchUrlBase}${encodeURIComponent(fleet.masterAgentBranch)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-mono text-sm text-blue-600 hover:underline dark:text-blue-400"
+              >
+                {fleet.masterAgentBranch}
+              </a>
+            ) : (
+              <span className="font-mono text-sm text-slate-700 dark:text-slate-300">
+                {fleet.masterAgentBranch}
+              </span>
+            )}
+          </span>
+        </div>
+      )}
+
       {/* THE SECTIONS, spaced apart from each other and from nothing else.
 
           Their own container so the gap between two sections is a number this
@@ -605,6 +674,14 @@ export function AgentList({
           row break (35–36 px rows, `py-2`), and 16 px was not it. */}
       <div data-sections className="space-y-8">
       {(() => { const sectionedRows = rowsBySection(filteredRows);
+        // THE UNFILTERED ROWS, for computing how many each section hides. A
+        // section that says `(3)` while hiding 5 looks complete when it is
+        // not — the spec says a filtered section must say what it withheld.
+        // ONLY COMPUTED WHEN A FILTER IS ACTIVE: when no filter applies, every
+        // row is shown and no section hides anything to report.
+        const unfilteredSectionedRows = sprintFilter.size > 0
+          ? rowsBySection(fleet.rows)
+          : sectionedRows;
         // THE SERVER-DERIVED WAVES, bound once beside the rows so every
         // `waveGroupsFor`/`ungroupedRows` call below asks the same list rather
         // than re-reading `fleet.waves` seven times. `undefined` on a cast
@@ -630,6 +707,15 @@ export function AgentList({
         const rows = key === 'waiting-on-machine'
           ? sectionedRows.filter(inMachineSection)
           : sectionedRows.filter((r) => r.group === key);
+        // HOW MANY ROWS THE FILTER WITHHELD from this section. The spec says
+        // `none` is never the whole answer when rows exist, and a section
+        // showing 13 of 46 looks complete — both cases need the hidden count.
+        // ONLY COMPUTED WHEN A FILTER IS ACTIVE: `unfilteredSectionedRows ===
+        // sectionedRows` otherwise, so `hiddenCount` is zero by construction.
+        const unfilteredRows = key === 'waiting-on-machine'
+          ? unfilteredSectionedRows.filter(inMachineSection)
+          : unfilteredSectionedRows.filter((r) => r.group === key);
+        const hiddenCount = unfilteredRows.length - rows.length;
         // WORKING RENDERS FROM THE REGISTRY, so its body, its count and its fold
         // are the AGENTS, not the branch rows `rows` holds for it. Every other
         // section is untouched: `workingSection` gates only WORKING, and the
@@ -771,9 +857,16 @@ export function AgentList({
         const shownLabel = tallyOf.differ
           ? `(${tallyOf.plans} plan${tallyOf.plans === 1 ? '' : 's'} · ${tallyOf.waves} wave${tallyOf.waves === 1 ? '' : 's'})`
           : `(${tallyOf.plans})`;
+        // THE HIDDEN SUFFIX. A filtered section says what it withheld, so
+        // `none` is never the whole answer when rows exist and the reader has
+        // forgotten the toggle is on. ONLY PRINTED WHERE HIDING HAPPENED:
+        // printing `0 hidden` on an unfiltered section fails (Done when #5).
+        const hiddenSuffix = hiddenCount > 0
+          ? ` — ${hiddenCount} hidden by Sprint only`
+          : '';
         const tally = (
           <span className="font-normal normal-case tracking-normal text-slate-400 dark:text-slate-600">
-            {countOf + issues.length > 0 ? shownLabel : emptyHint}
+            {countOf + issues.length > 0 ? shownLabel : emptyHint}{hiddenSuffix}
           </span>
         );
         // Whether anything in this section is moving — and at which pace. The
@@ -916,7 +1009,7 @@ export function AgentList({
                 <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
               )}
               {key === 'working' && (
-                <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} working={fleetControlsOf(fleet).working} />
+                <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} working={fleetControlsOf(fleet).working} hiddenByFilter={workersHiddenByFilter} />
               )}
             </h2>
             {/* The body goes, the header stays — including its count. Removed
@@ -1813,6 +1906,7 @@ export function AgentList({
                   card={row ? cardForPlanFile?.(row.planFile) ?? null : null}
                   dispatch={dispatch}
                   continueWith={continueWith}
+                  drop={drop}
                   pulse={pulse}
                   onStarting={onStarting}
                   marked={row ? marked.has(rowKey(row)) : false}

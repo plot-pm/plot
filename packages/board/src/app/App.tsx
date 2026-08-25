@@ -447,6 +447,23 @@ export function App() {
     : board?.implement ?? { available: false, reason: '' };
 
   /**
+   * The SAME treatment for Drop — the ninth write, which removes a registry
+   * manifest. Unlike the eight above this does NOT spawn an agent: the endpoint
+   * removes the file synchronously. Dimmed on a frozen page for the reason the
+   * ones above are: it writes to this disk, and a page that cannot re-read the
+   * registry cannot know the entry has already been dropped.
+   *
+   * `board?.drop` may be `undefined` even off a frozen page — the board CASTS
+   * its payload rather than parsing it, so the schema `.default` never runs
+   * client-side, and a pulse produced before this field existed carries no
+   * `drop`. `DropAgentButton` reads `drop.available`, so the coalesce here is
+   * what makes a stale payload refuse rather than throw.
+   */
+  const dropInfo = dimmed
+    ? { available: false, reason: BLOCKED_REASON }
+    : board?.drop ?? { available: false, reason: '' };
+
+  /**
    * Coming back to a hidden tab RE-CHECKS instead of counting.
    *
    * Browsers throttle timers in hidden tabs, so a minimised window would
@@ -827,24 +844,21 @@ export function App() {
     <div className="mx-auto min-h-screen max-w-[1600px] px-4 py-4">
       <header className="mb-4 flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-bold tracking-tight">Plot</h1>
-        {/* The branch this server is serving from. This repo has 22+ worktrees
-            and `pnpm board` serves whichever one it was started in, so a reader
-            who sees a layout they changed needs to know which branch's artifact
-            they are looking at before concluding the fix did or did not land.
+        {/* The branch chip that used to live here (lines 830–847 before this
+            change) has been REMOVED, not moved or relabelled.
 
-            Rendered ONLY when non-empty: a detached HEAD (several here are) or an
-            unreadable repo reports '', and the header shows no element rather
-            than a chip saying `unknown` or a fabricated SHA. Muted secondary
-            weight — a branch name is context, not one of the two states a reader
-            acts on, so it does not compete with the row states below. */}
-        {board?.server.branch && (
-          <span
-            className="font-mono text-xs text-slate-500 dark:text-slate-400"
-            title="The branch this board is serving from"
-          >
-            {board.server.branch}
-          </span>
-        )}
+            The chip accurately named the SERVER's checkout — which one of this
+            repo's 22+ worktrees `pnpm board` was started in. An operator on
+            `bug/a-head-counts-its-own-waves` read the header, saw `main`, and
+            asked why: the chip was answering *which worktree is the server in*
+            while looking like it answered *where am I*. Two branch names in one
+            header is worse than either alone, and the question *where is the
+            reader* now has an answer on the Agents tab (fleet.masterAgentBranch)
+            while the server's own checkout (`server.branch`) has ZERO render
+            sites — the field stays in the payload and simply stops being drawn.
+            UnreachableOverlay receives the whole ServerInfo but reads only
+            `restartCommand` and `port`, so this deletion adds no new dead code.
+        */}
         <nav className="mr-auto flex gap-1" aria-label="Views">
           {([
             ['board', 'Board'],
@@ -943,6 +957,10 @@ export function App() {
               // reaches the same PLAN rows Approve, Commission and Deliver do,
               // in the row menu, gated on the card having eligible work.
               implement={implementInfo}
+              // The ninth act, and the only one belonging to a BROKEN agent
+              // rather than a plan or branch: Drop removes a registry manifest.
+              // It reaches the agent rows in WAITING ON YOU.
+              drop={dropInfo}
               pulse={pulse}
               onStarting={onStarting}
               // The agent panel's BRANCH and PLAN facts are destinations.

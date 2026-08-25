@@ -137,7 +137,7 @@ defect traded for a cosmetic one.
 The fleet control reports how many live workers the current filter is hiding, so
 its number and the section beneath it stop contradicting each other.
 
-### Counted (Branch: bug/a-filtered-section-says-what-it-hid)
+### Counted (Branch: bug/a-filtered-section-says-what-it-hid, PR: #417)
 
 Each filtered section reports how many rows the filter withheld, so `none` is
 never the whole answer when rows exist.

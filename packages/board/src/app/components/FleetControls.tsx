@@ -130,7 +130,7 @@ export function AutoDispatchSwitch({ value }: { value: boolean }) {
  * expected interaction — a reader who lands on it with Tab can change it without
  * reaching for the two buttons.
  */
-export function ParallelAgentsStepper({ value, working }: { value: number; working?: number }) {
+export function ParallelAgentsStepper({ value, working, hiddenByFilter }: { value: number; working?: number; hiddenByFilter?: number }) {
   const [count, setCount] = useState(value);
   const [busy, setBusy] = useState(false);
   const writing = useRef(false);
@@ -228,6 +228,24 @@ export function ParallelAgentsStepper({ value, working }: { value: number; worki
           title={`${working} workers in the registry — all states, including finished and stalled`}
         >
           · {working} working
+        </span>
+      )}
+      {/*
+        THE GAP A FILTER HIDES — `the-filter-does-not-hide-a-worker`, wave
+        Named. The WORKING section shows workers regardless of sprint filter
+        (a worker is a fact about the fleet, not about a reader's focus), but
+        the control should name when a filter WOULD hide workers if it were
+        applied. This stops the control from contradicting the section's intent
+        even when the section deliberately shows more than the filter would
+        admit.
+      */}
+      {typeof hiddenByFilter === 'number' && hiddenByFilter > 0 && (
+        <span
+          data-fleet-hidden-by-filter
+          className="ml-1.5 text-amber-600 dark:text-amber-500 tabular-nums"
+          title={`${hiddenByFilter} live workers on plans outside the selected sprint filter`}
+        >
+          ({hiddenByFilter} hidden by filter)
         </span>
       )}
     </span>
