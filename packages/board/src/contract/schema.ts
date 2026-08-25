@@ -3001,6 +3001,44 @@ export const AgentEntrySchema = z.object({
 export type AgentEntry = z.infer<typeof AgentEntrySchema>;
 
 /**
+ * Metadata about the registry the board read — the facts that make a
+ * synthesized fleet legible rather than silent.
+ *
+ * The bug this exists for: a board started in a worktree with no
+ * `.plot/agents/` of its own synthesizes the entire fleet from
+ * `git worktree list`, and nothing on screen says so. The rows render, the
+ * agents carry no sessions, the drop menu vanishes, and the operator has no
+ * way to tell a synthesized fleet from one that happens to have nothing to
+ * offer. Reporting the directory and the counts makes the state visible.
+ *
+ * WHY THREE COUNTS. The manifest count alone does not say enough: `0 manifests`
+ * could mean "no dispatch has ever run" or "the board is reading an empty
+ * directory while the manifests sit elsewhere". The synthesized count is what
+ * distinguishes them — `12 synthesized` says the fleet is NOT empty, just
+ * identity-less.
+ */
+export const RegistryInfoSchema = z.object({
+  /**
+   * The resolved absolute path where the board read manifests — what
+   * `resolveManifestDir` returned, so an operator seeing `0 manifests` can
+   * verify the directory themselves.
+   */
+  directory: z.string(),
+  /**
+   * How many `.json` files were read and successfully parsed as manifests.
+   * A manifest that failed to parse (invalid JSON, missing session) is NOT
+   * counted — the board is reporting what it SAW, not what the directory held.
+   */
+  manifestCount: z.number().int(),
+  /**
+   * How many entries were synthesized from worktrees the registry had no
+   * manifest for. A synthesized entry has `session: ''` and no drop action.
+   */
+  synthesizedCount: z.number().int(),
+});
+export type RegistryInfo = z.infer<typeof RegistryInfoSchema>;
+
+/**
  * The fleet controls a payload is READ AS when it carries none.
  *
  * Exported, and read by the client rather than only defaulted by Zod. The
@@ -3285,6 +3323,17 @@ export const FleetSchema = z.object({
    * a failure to obtain one.
    */
   agents: z.array(AgentEntrySchema).default([]),
+  /**
+   * Metadata about the registry the board read — directory, manifest count, and
+   * how many entries were synthesized. Makes a synthesized fleet legible: a
+   * reader seeing `0 manifests, 12 synthesized` knows immediately that the
+   * fleet on screen has no identities and no drop actions.
+   *
+   * Optional so a client talking to an older server still validates. The client
+   * must guard for the absent case — a missing `registry` renders as nothing
+   * rather than as zeroes. The server emits this field unconditionally.
+   */
+  registry: RegistryInfoSchema.optional(),
   /**
    * Whether the tracker could be asked. Defaults to `unsupported`, which is the
    * only safe default: an older server sends no issues and no answer, and
