@@ -27,6 +27,15 @@
 #   Project board | Branch prefixes | Plan directory | Active index |
 #   Delivered index | Sprint directory | Story directory | Story index |
 #   Plan template | Main branch | Board command
+#   Agent registry      the directory the dispatcher writes agent manifests to,
+#                       read by the board's registry. Default `.plot/agents`
+#                       (repo-relative, gitignored, hence per-worktree). A board
+#                       served from a worktree the dispatcher never wrote to
+#                       reads an empty directory and synthesizes the whole fleet
+#                       with no session ids; point this at a shared location so
+#                       the board finds the registry wherever it was started.
+#                       Absent = the default, so a single-checkout project is
+#                       unaffected.
 # Agent-runner keys (optional; Plot hardcodes no agent tooling, Principle 5):
 #   Worker command      how /plot-dispatch runs an agent headless on a worktree.
 #                       `none` = asked, and this repo starts workers by hand —
