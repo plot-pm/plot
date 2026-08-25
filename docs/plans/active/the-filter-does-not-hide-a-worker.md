@@ -1,1 +1,0 @@
-../2026-08-25-the-filter-does-not-hide-a-worker.md
