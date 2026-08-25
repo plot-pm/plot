@@ -739,32 +739,60 @@ Additionally, self-imposed for this plan:
       to `.gitignore` on the tracer branch. Noted rather than done: this plan
       makes no edits.
 
-## Branches
+## Waves
 
-<!-- Change 1 is the tracer: it touches the skill, the runner script, and the
-     config accessor — every layer this plan spans — and it is the highest-priority
-     change on its own merits. If bounding the loop works end to end, the smaller
-     text-only changes carry little risk. This is the plan's own instance of
-     Change 5. -->
+<!-- RECOVERED 2026-08-25. The six branches below were opened on 2026-07-25 and
+     their PRs (#49, #51, #52, #53, #54, #55) were closed the same day, each
+     with the note "Consolidated into #57 — all commits from this branch are
+     preserved there." #57 then sat open for four weeks and fell 1738 commits
+     behind main.
 
-### Tracer
+     A rebase was rejected: the Juli contributions are 1–11 lines per file
+     against 45–218 lines of subsequent work on main, so a rebase would risk
+     four weeks of development to land additions that do not conflict at all.
+     Measured per conflicted file instead — see below. -->
 
-- `feature/opus5-hardening-ralph-bounds` — Wall-clock budget, deliverable checkpoint, ship-partial fallback, and heartbeat for `ralph-plot-sprint` → #49
-  Layers: `## Plot Config` → `plot-config.sh` → `ralph-sprint.sh` → `ralph-plot-sprint/SKILL.md`
-  Proves: A config-driven budget can bound an unattended loop, be observed from outside the run, and ship partial work — without new tooling
-  Also lands: `.ralph-state/` added to `.gitignore` (see Open Questions)
-  Status: Not started
+### Superseded — reached main by other routes
 
-### Implementation
+Four of the six changes **already reached main by other routes** in the four
+weeks #57 was open. Verified 2026-08-25 by grepping main for each change's own
+subject rather than by reading the diff:
 
-- `feature/opus5-hardening-challenge-budget` — Question budget, material-vs-marginal filter, and falsifiable stopping rule for `challenge-the-plan` → #51
-- `feature/opus5-hardening-deliver-gates` — Subagent evidence citation in `plot-deliver` Step 5; re-query rule in Step 4 → #52
-- `docs/opus5-hardening-invariants` — `plot-reconcile` read-only invariant; `MANIFESTO.md` Principle 10 → #53
-- `feature/opus5-hardening-approve-tracer` — Tracer bullets as default recommendation in `plot-approve` Step 2b → #54
-- `docs/opus5-hardening-model-provenance` — the new docs/model-provenance.md file and the intro-to-using-plot.md section → #55
+- **approve-tracer** — the tracer-bullet recommendation is on main in the
+  plot-approve skill, developed further than this branch had it
+- **deliver-gates** — the subagent refutation pass is on main in the plot-deliver
+  skill, including the *"EXECUTED versus what you only READ"* wording verbatim
+- **invariants** — its plot-reconcile change was +1/−1 line and is subsumed by
+  main's seven-section scan
+- **challenge-budget** — the question-budget shape reached challenge-the-plan
+  independently
 
-Every branch needs a `.changeset/*.md` with a `bumps: skills:` block. Six branches,
-five of them small text edits gated behind one tracer.
+### Recovered (Branch: infra/recover-opus5-hardening)
+
+The four things measurably still missing from main, taken from #57 onto a fresh
+branch cut from current main — no rebase, no conflict:
+
+- the manifesto — **Principle 13**, *An agent that has gone quiet
+  has failed, not finished*. Renumbered from 10: main gained two principles
+  while #57 waited. Its 2026-08-25 measurement is appended, because the estate
+  produced exactly the failure the principle predicted.
+- the model-provenance doc — the whole file, absent from main
+- the ralph-plot-sprint deliverable rubric — the whole file, absent
+- the ignore file — the runner's scratch directory
+
+### Not recovered, deliberately
+
+The ralph-sprint runner script is 156 lines longer on #57 than on
+main — the wall-clock budget and ship-partial machinery this plan's tracer was
+built to prove. It is **not** in the recovery branch, because it is code rather
+than prose and its interaction with four weeks of runner changes was not
+measured. It stays on the consolidated branch, which is left on the remote.
+
+**That makes this plan's tracer question still open**, and the honest reading is
+that the plan is delivered in its documentation and undelivered in its
+mechanism. The plan *a-hung-child-does-not-hold-the-loop* (2026-08-25) now covers the same
+ground for the worker loop, measured on a live failure.
+
 
 ## Backlog — surfaced, deliberately deferred
 

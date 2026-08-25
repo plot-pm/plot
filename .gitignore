@@ -56,3 +56,6 @@ node_modules/
 .plot-worker.wrapper.pid
 .plot-worker.exit
 .plot-worker.log
+
+# ralph-plot-sprint runner scratch (iteration logs, heartbeat, handover)
+.ralph-state/
