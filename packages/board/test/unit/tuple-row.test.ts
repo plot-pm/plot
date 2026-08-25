@@ -867,6 +867,26 @@ describe('every kind fills all six slots', () => {
     expect(t.status).not.toBe('open');
   });
 
+  it('says WHICH kind of running — a working child reads apart from an idle one', () => {
+    // ITEM 5 at the render layer. `running` is honest and coarse; the activity
+    // cue splits a worker mid-work from one whose child crashed while the loop
+    // waited on it. A cue that never fires and one that always fires are equally
+    // useless, so BOTH arms are asserted and asserted to DIFFER.
+    const busy = tupleFromRow(row({ kind: 'agent', worker: 'running', worker_activity: 'working' }));
+    const idle = tupleFromRow(row({ kind: 'agent', worker: 'running', worker_activity: 'idle' }));
+    expect(busy.status).toBe('working');
+    expect(idle.status).toBe('idle');
+    expect(idle.status).not.toBe(busy.status);
+
+    // A NOT A SIXTH STATE. `worker` is still `running` on both — the cue is a
+    // secondary word on one state, never a new one. And where the cue is "" (an
+    // older pulse, or a platform that could not sample CPU), a running worker
+    // still reads `working`: absence of the measurement never HIDES a live
+    // worker behind `idle`.
+    const unmeasured = tupleFromRow(row({ kind: 'agent', worker: 'running', worker_activity: '' }));
+    expect(unmeasured.status).toBe('working');
+  });
+
   it('falls back to the branch state where the worker state says nothing', () => {
     // `none` and `elsewhere` are not activity — the first means no worker, the
     // second that this machine has nowhere to look. Printing a word about a

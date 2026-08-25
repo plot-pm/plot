@@ -19,7 +19,7 @@
 // STATE agrees, not that the bytes match.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -607,4 +607,57 @@ test('worker-state: a PR outranks a non-zero exit, but only about the TASK', () 
     `the exit code is still reported alongside the state:\n${triple}`);
 
   f.cleanup();
+});
+
+test('worker-state: a running worker whose child works reads apart from one whose child is idle', () => {
+  // ITEM 5 OF THE PLAN, and the assertion a naive implementation fails. A cue
+  // that never fires and one that always fires are equally useless, so BOTH
+  // arms are asserted — and the trap is the discriminator: the loop SHELL is
+  // near-zero CPU in every case (it waits on its child), so an implementation
+  // reading the shell's own CPU reads identical in both and passes neither.
+  //
+  // `plot_worker_activity` is driven directly, the one input a consumer cannot
+  // vary for you — the scan only calls it beside a `running` verdict, which
+  // needs a live pid this test would otherwise have to fake with `process.pid`.
+  //
+  // A SHORT INTERVAL keeps the test honest and quick: `PLOT_ACTIVITY_INTERVAL`
+  // overrides the sample gap. A child burning a busy loop moves its CPU clock
+  // within it; a sleeping child does not.
+  const activity = (pid) => execFileSync('bash', ['-c',
+    `. ${JSON.stringify(shared)}; PLOT_ACTIVITY_INTERVAL=0.3 plot_worker_activity ${pid}`,
+    ], { encoding: 'utf8', timeout: 30_000 }).trim();
+
+  // A shell with a BUSY grandchild — the child's clock advances across the
+  // sample. Spawned detached so we hold its pid and reap it afterwards.
+  const busy = spawn('sh', ['-c', 'sh -c "while :; do :; done"'], { stdio: 'ignore' });
+  // A shell with an IDLE child — it sleeps, so its clock is frozen.
+  const idle = spawn('sh', ['-c', 'sleep 30'], { stdio: 'ignore' });
+  try {
+    assert.equal(activity(busy.pid), 'working',
+      'a worker whose descendant burns CPU across the interval reads `working`');
+    assert.equal(activity(idle.pid), 'idle',
+      'a worker whose descendants hold a frozen clock reads `idle`');
+    // THE TWO DIFFER — the property item 5 pins, stated as a property so a
+    // future edit that makes both read the same word fails here directly.
+    assert.notEqual(activity(busy.pid), activity(idle.pid),
+      'the cue MUST fire differently for a working child than for an idle one');
+  } finally {
+    busy.kill('SIGKILL');
+    idle.kill('SIGKILL');
+  }
+});
+
+test('worker-state: a pid with nothing to measure gets no cue, not a false idle', () => {
+  // ITEM 7's companion. A cue is only ever read beside a `running` verdict,
+  // where a live pid is already established — but a pid that names no process
+  // with a CPU clock at all (a dead pid, or a bare pid with no descendants)
+  // must say NOTHING rather than invent `idle`. The absence of a child is not
+  // the presence of an idle one.
+  const activity = (pid) => execFileSync('bash', ['-c',
+    `. ${JSON.stringify(shared)}; PLOT_ACTIVITY_INTERVAL=0.1 plot_worker_activity ${pid}`,
+    ], { encoding: 'utf8', timeout: 30_000 });
+
+  assert.equal(activity(DEAD), '', 'a dead pid yields no cue');
+  assert.equal(activity('x1'), '', 'a non-numeric pid yields no cue');
+  assert.equal(activity(''), '', 'an empty pid yields no cue');
 });
