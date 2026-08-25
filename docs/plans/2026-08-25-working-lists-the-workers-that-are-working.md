@@ -50,6 +50,56 @@ be. Twelve of the sixteen rows are sessions that have ended:
 
 Verified against the machine: four processes were alive.
 
+### What the rendered section looks like
+
+Screenshotted 2026-08-25, the same pulse as the numbers above:
+
+```
+WORKING (16)   (−) 10 (+) parallel agents (cap)  ·  16 working
+
+  AGENT  1d4fa4ff   …bug/the-registry-drops-a-settled-worker   someone is on it   SESSION 1h
+  AGENT  a942b78e   …bug/a-ready-pr-asks-for-you               someone is on it   SESSION 1h
+  AGENT  5f854840   …feature/a-busy-worker-names-its-wave      someone is on it   SESSION 2h
+  AGENT  1cfd6add   …feature/the-registry-follows-a-hopping…   someone is on it   SESSION 3h
+  AGENT  f2d2ec2a   …feature/the-filter-shows-what-it-excludes unknown            SESSION 3h
+  AGENT  b414ba01   …feature/a-sprint-counts-every-member      unknown            SESSION 12h
+  AGENT  228ca03b   …feature/the-sprint-control-names-its-state unknown           SESSION 12h
+  AGENT  68727e2a   …bug/the-working-section-renders-the-registry stalled         SESSION 15h
+  AGENT  5bba987a   …feature/the-board-filter-reads-the-sprint-file unknown       SESSION 19h
+  AGENT  bug/a-wave-renders-as-a-wave-in-every-section …        stalled
+  AGENT  test/a-row-moves-between-sections …                    unknown
+  AGENT  bug/done-holds-finished-plans-only …                   stalled
+  … 4 more
+```
+
+**The status column is already right.** Each row names its own state —
+`someone is on it` for the four live ones, `unknown` and `stalled` for the
+twelve that are not. Nothing here is lying about an individual row.
+
+**It is the SECTION and its COUNT that are wrong.** A reader is told sixteen
+agents are working, in a section whose subject is *who is working*, and must
+then read twelve status cells to discover that only four are. The per-row
+honesty makes the header's claim worse, not better: the board contradicts
+itself within one screen.
+
+Sessions up to **19h old** are listed as working.
+
+### A second finding: seven rows have no session id
+
+Of the sixteen entries, **nine carry a session id and seven do not**. A row with
+no session renders its BRANCH in the identity slot, so the section splits
+visually into two shapes — `AGENT 1d4fa4ff` above, `AGENT bug/done-holds-
+finished-plans-only` below — and the second shape has no `SESSION` age either.
+
+Every one of the seven is `stalled` or `unknown`. That is not a coincidence: an
+entry loses its session when the process it named is gone. So *no session id* is
+close to a synonym for *not a live worker*, and filtering to `LIVE_STATES`
+removes all seven as a side effect.
+
+It is recorded because the two shapes are the visible symptom a reader notices
+first, and a fix that produced a uniform section without fixing the count would
+look like it had worked.
+
 ### Why this is not a regression in #403
 
 `the-working-count-is-the-rows` (#403) changed `working` from
