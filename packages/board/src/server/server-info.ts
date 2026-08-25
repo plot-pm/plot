@@ -42,14 +42,14 @@ export const BOARD_COMMAND_KEY = 'Board command';
 const NO_COMMAND = '';
 
 /**
- * The branch this process serves, read ONCE for the life of the server.
+ * The branch this process serves, re-read on a short TTL.
  *
  * `serverInfo()` runs on every /api/board response, and this repo spent
  * measured effort taking a per-request `git` fork off that path
  * (`no-network.test.ts`). A process serves exactly one worktree for its whole
- * life, so the branch is a startup fact, not a per-request one — memoised here,
- * behind a null sentinel, so the fork happens on the first call and never
- * again.
+ * life — but that worktree can change BRANCH, so this is not a startup fact.
+ * Cached for `BRANCH_TTL_MS` rather than forever: the fork stays off the
+ * per-request path, and a checkout shows up within seconds.
  *
  * `git branch --show-current` prints the branch, or NOTHING for a detached
  * HEAD — several worktrees here are detached. Empty is the honest answer for
@@ -60,8 +60,33 @@ const NO_COMMAND = '';
  * *detached* — show nothing.
  */
 let cachedBranch: string | null = null;
+let cachedAt = 0;
+
+/**
+ * How long a read stands. Long enough that the per-request fork this file was
+ * written to avoid stays avoided — a board polls /api/board every few seconds —
+ * and short enough that a reader who switches branch sees it before deciding
+ * the board is broken.
+ */
+const BRANCH_TTL_MS = 5_000;
+
 function currentBranch(opts: BuildBoardOptions): string {
-  if (cachedBranch === null) {
+  // A PROCESS SERVES ONE WORKTREE, BUT A WORKTREE CHANGES BRANCH. The original
+  // memo read once for the life of the server on the first half of that
+  // sentence, which is true; the second half is what broke it.
+  //
+  // Measured 2026-08-25: clicking *Create plan* spawned an agent in the board's
+  // own checkout, `/plot-idea` ran `git checkout -b idea/<slug>` there, and the
+  // header went on reading `main` for the rest of the process's life. That is
+  // the worst possible failure for THIS field — the checklist tells a reader to
+  // trust the header when a row looks stale, so the one display kept as ground
+  // truth was the one that had gone stale.
+  //
+  // The spawn is fixed in `idea.ts` (its own worktree), and this stays as well:
+  // that fix stops the board's own agent from moving it, not a person running
+  // `git checkout` in the same tree.
+  const now = Date.now();
+  if (cachedBranch === null || now - cachedAt > BRANCH_TTL_MS) {
     try {
       cachedBranch = execFileSync('git', ['branch', '--show-current'], {
         cwd: opts.repoRoot,
@@ -70,6 +95,7 @@ function currentBranch(opts: BuildBoardOptions): string {
     } catch {
       cachedBranch = '';
     }
+    cachedAt = now;
   }
   return cachedBranch;
 }

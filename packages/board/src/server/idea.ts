@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { execFile, spawn } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { readConfig, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
 
@@ -652,11 +652,93 @@ export async function handleIdea(
   // repo as a file, and its PATH travels in the environment. The prompt is
   // passed as ONE argument via `"$@"` — already the shape `approve.ts` uses,
   // and here it carries only a path this server itself composed.
+  // ITS OWN WORKTREE, because `/plot-idea` CHECKS OUT the branch it creates
+  // (`git checkout -b idea/<slug>`, SKILL.md:250). Run in the board's own
+  // checkout — which is what `cwd: opts.repoRoot` meant — that checkout is the
+  // one that moves, and the board then serves a branch it did not choose.
+  //
+  // Measured 2026-08-25: clicking *Create plan* on issue #333 left the board's
+  // worktree on `idea/the-pr-list-join-is-silently` with NO worktree anywhere on
+  // `main`. The header still read `main` — it is computed once at startup — so
+  // the one display a reader is told to trust when a row looks wrong was the
+  // display that had gone stale. A row then inherited that branch's PR and
+  // offered *Review* for a PR the agent had not opened.
+  //
+  // The other spawning routes keep `opts.repoRoot` and are right to: approve,
+  // deliver and reslice edit plan files on the default branch and change no
+  // checkout. `idea` is the one that moves HEAD, so it is the one that needs
+  // somewhere else to stand.
+  //
+  // FAILING TO MAKE ONE IS A REFUSAL, not a fallback to the board's checkout.
+  // Spawning into `repoRoot` is exactly the defect above; doing it silently
+  // when a worktree could not be made would reintroduce it on the rarer path,
+  // which is the path nobody watches.
+  // THE DEFAULT BRANCH by the chain `board.ts` already settled on — configured
+  // `Main branch` first, then origin's symbolic ref, then `main`. Not
+  // `origin/HEAD` directly: that ref is unset in a fresh clone, and not
+  // `plot-host.sh default-branch`, which shells out to `gh repo view`.
+  const configured = readConfig(opts, 'Main branch', '');
+  const base = configured || (() => {
+    try {
+      return execFileSync('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
+        { cwd: opts.repoRoot, encoding: 'utf8' }).trim().replace(/^origin\//, '') || 'main';
+    } catch { return 'main'; }
+  })();
+
+  // ONLY WHERE THERE IS A WORKTREE TO MOVE. `git worktree add` needs a git
+  // repository; a caller whose repoRoot is a plain directory — every unit test
+  // here builds one — has no checkout for `/plot-idea` to displace, so there is
+  // nothing to protect it from. Spawning in place is then correct rather than
+  // a fallback, and the distinction is measurable: `rev-parse --git-dir`
+  // answers it without a network or a remote.
+  const isGitRepo = (() => {
+    try {
+      execFileSync('git', ['rev-parse', '--git-dir'],
+        { cwd: opts.repoRoot, stdio: 'ignore' });
+      return true;
+    } catch { return false; }
+  })();
+
+  const ideaTree = isGitRepo
+    ? path.join(path.resolve(opts.repoRoot, '..'), `plot-idea-issue-${number}`)
+    : opts.repoRoot;
+  if (isGitRepo) try {
+    // Detached, so the tree holds no branch of its own — `/plot-idea` creates
+    // and checks out `idea/<slug>` here, and a detached start leaves it free to.
+    fs.rmSync(ideaTree, { recursive: true, force: true });
+    execFileSync('git', ['worktree', 'prune'], { cwd: opts.repoRoot });
+    // `origin/<base>` where the remote is there, HEAD otherwise. A repo with no
+    // remote is an ordinary case — a fresh `git init`, an offline clone — and
+    // `origin/main` is simply an invalid reference there, not a signal of
+    // trouble. HEAD gives the new tree the same commit the board is already
+    // serving, which is what `origin/<base>` approximates when a remote exists.
+    const start = (() => {
+      try {
+        execFileSync('git', ['rev-parse', '--verify', `origin/${base}`],
+          { cwd: opts.repoRoot, stdio: 'ignore' });
+        return `origin/${base}`;
+      } catch { return 'HEAD'; }
+    })();
+    execFileSync('git', ['worktree', 'add', '--detach', ideaTree, start], {
+      cwd: opts.repoRoot,
+      stdio: 'ignore',
+    });
+  } catch (err) {
+    // A REFUSAL, not a fallback to the board's checkout. Spawning into
+    // `repoRoot` in a real repo is precisely the defect this exists to stop;
+    // doing it silently when the worktree could not be made would reintroduce
+    // it on the rarer path — the one nobody watches.
+    json(500, {
+      error: `cannot make a worktree for the idea: ${err instanceof Error ? err.message : String(err)}`,
+    });
+    return;
+  }
+
   const child = spawn(
     'sh',
     ['-c', `${usable} "$@"`, 'plot-idea', `Read ${promptPath} and follow it.`],
     {
-      cwd: opts.repoRoot,
+      cwd: ideaTree,
       detached: true,
       stdio: ['ignore', out, out],
       env: {

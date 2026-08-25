@@ -462,3 +462,59 @@ describe('the round trip: the plan removes the row that produced it', () => {
     assert.ok(!fs.existsSync(ideaPromptPath(dir, 228)));
   });
 });
+
+describe('the idea does not move the board', () => {
+  // THE DEFECT, pinned. `/plot-idea` runs `git checkout -b idea/<slug>`
+  // (SKILL.md:250). Spawned with `cwd: repoRoot` — the board's own checkout —
+  // that checkout is the one that moves, and the board then serves a branch
+  // nobody chose. Measured 2026-08-25: clicking Create plan on issue #333 left
+  // the board's worktree on `idea/the-pr-list-join-is-silently` with NO
+  // worktree anywhere on main, while the header still read `main`.
+  //
+  // ASSERTED ON THE FILESYSTEM, because the spawn is not injectable: `IdeaDeps`
+  // carries `config`, `issue` and `referenced` and no `spawn`. The worktree the
+  // route creates is the observable consequence, and `git worktree list` is a
+  // stronger witness than a stubbed argument anyway — it says the checkout
+  // really exists and really is somewhere else.
+  it('creates a worktree of its own, leaving the board checkout where it was', async () => {
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-idea-git-'));
+    made.push(parent);
+    const dir = path.join(parent, 'repo');
+    fs.mkdirSync(path.join(dir, 'docs/plans'), { recursive: true });
+    // A REAL repository: the guard turns on `rev-parse --git-dir`, and a plain
+    // directory has no checkout to displace, so it spawns in place — the path
+    // every other test in this file takes.
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
+    git('init', '-q');
+    git('config', 'user.email', 't@e.st');
+    git('config', 'user.name', 'T');
+    fs.writeFileSync(path.join(dir, 'README.md'), '# t\n');
+    git('add', '-A');
+    git('commit', '-qm', 'init');
+    const before = execFileSync('git', ['branch', '--show-current'],
+      { cwd: dir, encoding: 'utf8' }).trim();
+
+    // THE COMMAND IS `git checkout -b`, so the spawn's cwd is observable: the
+    // checkout that runs it is the one that moves. A stub cannot see this
+    // (IdeaDeps has no `spawn`), and asserting only that a worktree EXISTS
+    // passes even when the agent still runs in the board's checkout — verified
+    // by mutation. Making the command itself branch is what discriminates.
+    const got = await post({
+      repoRoot: dir,
+      command: 'git checkout -b idea/moved-here >/dev/null 2>&1 || true; true',
+    });
+    assert.equal(got.status, 202, JSON.stringify(got.body));
+    // The spawn is detached; give it a moment to run its one command.
+    await new Promise((r) => setTimeout(r, 700));
+
+    const trees = execFileSync('git', ['worktree', 'list'], { cwd: dir, encoding: 'utf8' });
+    assert.match(trees, /plot-idea-issue-228/,
+      'the route must add a worktree for the idea');
+    assert.equal(
+      execFileSync('git', ['branch', '--show-current'], { cwd: dir, encoding: 'utf8' }).trim(),
+      before,
+      'the board checkout must still be on the branch it started on — if the '
+      + 'agent ran here, `git checkout -b` moved it',
+    );
+  });
+});
