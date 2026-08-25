@@ -16,6 +16,7 @@
 - **Approved:** 2026-08-24, Jan Wloka, in-session
 - **Started:** 2026-08-24, Jan Wloka, `bug/the-working-section-renders-the-registry`
 - **Started:** 2026-08-25, Jan Wloka, `bug/the-working-count-is-the-rows`
+- **Started:** 2026-08-25, Jan Wloka, `feature/a-busy-worker-names-its-wave`
 
 ## Changelog
 
