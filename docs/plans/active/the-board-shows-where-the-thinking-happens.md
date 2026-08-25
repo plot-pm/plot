@@ -1,0 +1,1 @@
+../2026-08-25-the-board-shows-where-the-thinking-happens.md
