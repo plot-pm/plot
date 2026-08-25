@@ -139,6 +139,21 @@ unnecessary.
 The manifest directory is read through `plot-config.sh` with today's path as the
 default, so a board served from any worktree finds the dispatcher's registry.
 
+### Dropped (Branch: bug/the-drop-writes-where-the-registry-reads)
+
+`drop.ts` resolves the manifest directory the same way the reader does, so the
+Drop action removes the file the board is showing.
+
+**Found after wave `Named` merged**, 2026-08-25: the read path now honours the
+config key, but `drop.ts:85` and `drop.ts:187` still join the **constant**
+`AGENT_MANIFEST_DIR`. Dropping four entries whose manifests demonstrably exist
+returned `dropped=true` with `"no manifest found"` — the endpoint looked in the
+board worktree while the files sat in the dispatcher's checkout.
+
+A drop that reports success while removing nothing is worse than one that
+refuses: the row returns on the next pulse and the operator has no way to tell
+the action from a no-op.
+
 ### Counted (Branch: feature/the-board-says-which-registry-it-read)
 
 The board reports the directory it read and how many manifests it found, so a
@@ -160,7 +175,15 @@ synthesized fleet is legible instead of silent.
    found, so a synthesized fleet is legible rather than silent.
 6. A single-checkout project's behaviour is unchanged, asserted on a fixture with
    no config key set.
-7. `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board` green.
+7. **Dropping an entry removes the manifest the reader found.** Asserted with
+   the configured directory differing from the repo-relative default — the case
+   that measured `dropped=true` over a file that still existed. Both call sites
+   (`drop.ts:85`, `:187`) resolve the same way the reader does.
+8. **A drop that removes nothing does not report success.** The endpoint
+   distinguishes *there was no manifest* from *I looked in the wrong place*.
+   This is the assertion the current behaviour fails: it answered `dropped=true`
+   four times over four files that were still on disk.
+9. `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board` green.
 
 ## Notes
 
