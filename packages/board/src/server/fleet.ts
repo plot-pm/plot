@@ -31,6 +31,7 @@ import {
   type Wave,
   type WaveVerdict,
   type WorkerState,
+  type SprintCounts,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
 import { repairFor, startRepair } from './resolver.js';
@@ -5116,6 +5117,55 @@ export function activeSprints(opts: BuildBoardOptions, pulse: FleetPulse | null)
 }
 
 /**
+ * Estate-wide counts over ALL plans — the same three buckets the sprint counts
+ * use. Shown in the sprint control when the filter is OFF, so a reader sees the
+ * effect of turning it on: "21 members" versus "112 plans".
+ *
+ * Uses the SAME `planStatusBySlug` map as {@link activeSprints}, so the two
+ * derivations cannot disagree about what a bucket means — one map, two
+ * aggregation scopes. Calling `planStatusBySlug` twice is acceptable: it runs on
+ * the render clock, reads only working-tree plans, and caches nothing internally,
+ * so a second call on the same tick is just a repeated function call, not a
+ * redundant scan.
+ *
+ * The returned counts carry `total`, `open`, `wip`, `done` exactly as
+ * {@link SprintCountsSchema} specifies, and the invariant `total = open + wip +
+ * done` is maintained by construction.
+ */
+export function estateTotals(
+  opts: BuildBoardOptions,
+  pulse: FleetPulse | null,
+): SprintCounts {
+  const statusBySlug = planStatusBySlug(opts, pulse);
+  const counts: SprintCounts = { total: 0, open: 0, wip: 0, done: 0 };
+  for (const status of statusBySlug.values()) {
+    switch (status) {
+      // Open: committed, not started
+      case 'draft':
+      case 'open':
+      case 'approved':
+        counts.open += 1;
+        break;
+      // WIP: started, not delivered
+      case 'in-progress':
+      case 'deliverable':
+        counts.wip += 1;
+        break;
+      // Done: delivered (the Testing column)
+      case 'delivered':
+      case 'released':
+        counts.done += 1;
+        break;
+      // Unknown status: not counted, same as activeSprints
+      default:
+        continue;
+    }
+    counts.total += 1;
+  }
+  return counts;
+}
+
+/**
  * Read the cached pulse. Never runs the scan — that is the whole point.
  * `repoRoot` stays a parameter even while the UI shows one repo, so the second
  * one is an addition rather than a rebuild.
@@ -5234,5 +5284,11 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
     // plan-only counts) because the client casts this payload and a Zod
     // `.default([])` never fires client-side.
     sprints: activeSprints(opts, entry.pulse),
+    // Estate-wide counts over ALL plans, the same three buckets the sprint
+    // counts use. Shown in the sprint control when the filter is OFF, so a
+    // reader sees the effect of turning it on: "21 members" versus "112 plans".
+    // Computed on the render clock for the same reason as `sprints`: a plan
+    // whose status just moved shows on the next poll.
+    estateTotals: estateTotals(opts, entry.pulse),
   };
 }

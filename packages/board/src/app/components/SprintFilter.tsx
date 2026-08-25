@@ -8,7 +8,14 @@ import type { FleetSprint, SprintCounts } from '../../contract/schema.js';
  * **disabled but visible**, showing estate totals — a control that vanishes
  * teaches a reader it does not exist.
  *
- * ## What this wave implements
+ * ## What this wave implements (Compared)
+ *
+ * - Estate totals shown when filter is OFF; sprint numbers when ON
+ * - "Off: `Total — 112 plans · 9 open · 2 WIP · 101 done`"
+ * - "On: `Sprint — 21 members · 4 open · 0 WIP · 17 done`"
+ * - The effect of the toggle is visible BEFORE touching it
+ *
+ * ## What earlier waves implemented
  *
  * - Three exhaustive buckets: open (not started), WIP (in progress), done
  *   (delivered) — replacing the old four status buckets
@@ -24,6 +31,8 @@ import type { FleetSprint, SprintCounts } from '../../contract/schema.js';
  * - Every member lands in exactly one bucket — the sum is the total
  * - Draft members are counted (in "open"), unlike the old four buckets
  * - It reads `plan.status`, it does not compute it — tallied server-side
+ * - Estate totals and sprint numbers use the SAME bucket derivation, so they
+ *   cannot disagree about what a bucket means
  */
 
 interface SprintFilterProps {
@@ -34,26 +43,33 @@ interface SprintFilterProps {
   /** Toggle a sprint's filter state. */
   onToggle: (slug: string) => void;
   /**
-   * Estate-wide totals, for the disabled state when no sprint is Active.
-   * These are the same three counts, aggregated over all plans.
+   * Estate-wide totals, shown when the filter is OFF (no sprint selected).
+   * Lets a reader see the effect of turning the filter on before touching it:
+   * "112 plans" → "21 members".
    */
   estateTotals?: SprintCounts;
 }
 
 /**
- * Format a sprint's counts as a compact string.
+ * Format counts as a compact string for the sprint row.
  *
- * The format is `<total> members · <open> open · <wip> WIP · <done> done`.
+ * When `isEstate` is true, the format is `<total> plans · <open> open · ...`.
+ * When `isEstate` is false, the format is `<total> members · <open> open · ...`.
+ *
  * All three bucket counts are shown, even when zero — the shape is the point,
  * and hiding zeros would make the total harder to verify by eye.
  */
-function formatCounts(counts: SprintCounts): string {
-  return `${counts.total} members · ${counts.open} open · ${counts.wip} WIP · ${counts.done} done`;
+function formatCounts(counts: SprintCounts, isEstate: boolean): string {
+  const unit = isEstate ? 'plans' : 'members';
+  return `${counts.total} ${unit} · ${counts.open} open · ${counts.wip} WIP · ${counts.done} done`;
 }
 
 /**
  * The sprint filter for the Agents tab. One row per active sprint, each with
  * a toggle, release target, and three exhaustive counts.
+ *
+ * Shows estate totals when filter is OFF, sprint numbers when ON — the
+ * "Compared" wave of the-sprint-filter-says-what-it-filters plan.
  */
 export function SprintFilter({ sprints, selected, onToggle, estateTotals }: SprintFilterProps) {
   // No active sprints: show disabled state with estate totals
@@ -75,7 +91,7 @@ export function SprintFilter({ sprints, selected, onToggle, estateTotals }: Spri
         </div>
         {estateTotals && (
           <div className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-            Total — {formatCounts(estateTotals)}
+            Total — {formatCounts(estateTotals, true)}
           </div>
         )}
       </div>
@@ -87,6 +103,11 @@ export function SprintFilter({ sprints, selected, onToggle, estateTotals }: Spri
     <div data-sprint-filter className="space-y-1">
       {sprints.map((sprint) => {
         const isSelected = selected.has(sprint.slug);
+        // Show estate totals when OFF, sprint counts when ON — the effect of
+        // the toggle is visible BEFORE touching it.
+        const countsToShow = isSelected ? sprint.counts : estateTotals;
+        const isEstate = !isSelected;
+
         return (
           <label
             key={sprint.slug}
@@ -121,8 +142,25 @@ export function SprintFilter({ sprints, selected, onToggle, estateTotals }: Spri
                   </span>
                 )}
               </div>
+              {/* Show estate totals when OFF, sprint counts when ON.
+                  The prefix "Total —" vs "Sprint —" states the scope.
+                  If estateTotals is missing (older server), fall back to
+                  always showing sprint counts. */}
               <div className="text-xs text-slate-500 dark:text-slate-400">
-                {formatCounts(sprint.counts)}
+                {countsToShow ? (
+                  <>
+                    <span className="font-medium">{isEstate ? 'Total' : 'Sprint'}</span>
+                    {' — '}
+                    {formatCounts(countsToShow, isEstate)}
+                  </>
+                ) : (
+                  // Fallback: always show sprint counts if estateTotals missing
+                  <>
+                    <span className="font-medium">Sprint</span>
+                    {' — '}
+                    {formatCounts(sprint.counts, false)}
+                  </>
+                )}
               </div>
             </div>
           </label>
