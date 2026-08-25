@@ -3269,6 +3269,51 @@ export const FleetSchema = z.object({
    * *an empty estate*. The same rule the stuck counts already follow.
    */
   estateTotals: SprintCountsSchema.default({ total: 0, open: 0, wip: 0, done: 0 }),
+  /**
+   * The branch the MAIN CHECKOUT is on — where a person and the master agent
+   * do the concept work — derived from git, never recorded.
+   *
+   * NOT THE SERVER'S CHECKOUT. The board server may run from a linked worktree,
+   * or from the main checkout while the operator works in another. What this
+   * names is the first entry of `git worktree list`, which is the main checkout
+   * whether or not it is where the server started. Measured 2026-08-25: the
+   * first entry is `…/plot` at `bug/a-head-counts-its-own-waves`, the operator's
+   * branch, regardless of which worktree `pnpm board` ran in.
+   *
+   * READ ON A TTL, NOT ONCE. Unlike `server.branch`, which is the branch the
+   * server process serves and changes only when a new process starts, this can
+   * change WHILE THE SERVER RUNS: the operator `git checkout` in the main tree
+   * while the board stays open. The TTL shape from `server-info.ts` (#410) is
+   * copied, 5 s — the fork stays off the per-request path and a checkout shows
+   * up within seconds.
+   *
+   * EMPTY STRING FOR EVERY FAILURE. Detached HEAD, not a git repo, unresolvable
+   * main checkout — all three produce `''`, and `''` renders NO ROW AT ALL. Not
+   * the label alone, not a placeholder, not a short SHA. Absent is not false;
+   * the field is `''` and never absent. The schema's convention is that absent
+   * and empty answer different questions, and this is the empty one: the board
+   * asked and got no answer.
+   *
+   * Defaults to `''` so a client talking to an older server validates. `''` is
+   * also the signal to render nothing, so the default is the honest one.
+   */
+  masterAgentBranch: z.string().default(''),
+  /**
+   * The prefix for constructing branch URLs on this repo's host.
+   *
+   * `branchUrlBase(origin)` in `fleet.ts` — `https://github.com/org/repo/tree/`
+   * for GitHub, `https://bitbucket.org/org/repo/branch/` for Bitbucket Cloud,
+   * `''` for any host whose branch-page shape the board does not recognise.
+   *
+   * THE MASTER AGENT ROW needs it to link its branch. Every other row receives
+   * its `branchUrl` fully constructed server-side; this row is assembled
+   * client-side from `masterAgentBranch`, so the prefix must travel with it.
+   *
+   * `''` renders as plain text — the same rule `branchUrl` follows on rows.
+   * Defaults to `''` so a client talking to an older server validates; that
+   * default is also the "unknown host" answer, so the two are consistent.
+   */
+  branchUrlBase: z.string().default(''),
 });
 export type Fleet = z.infer<typeof FleetSchema>;
 

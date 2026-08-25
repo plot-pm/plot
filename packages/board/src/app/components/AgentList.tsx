@@ -592,6 +592,54 @@ export function AgentList({
         estateTotals={fleet.estateTotals}
       />
 
+      {/* THE MASTER AGENT ROW — the branch the main checkout is on.
+
+          Placed above the sections because it answers "where am I", which is
+          context for the rows that follow rather than one of them. It is NOT a
+          row in any section — it has no PR, no worker, no wave — and placing
+          it inside one would make it look like it belongs there.
+
+          ONLY when non-empty. An empty `masterAgentBranch` means detached HEAD,
+          not a git repo, or unresolvable main checkout — all three produce no
+          element rather than a placeholder or a fabricated SHA. The label and
+          the line go together: a label beside nothing is worse than nothing.
+
+          The link uses `branchUrlBase + masterAgentBranch`, the same composition
+          the server applies to each row's `branchUrl`. Empty base renders as
+          plain text — the rule every row follows for an unrecognised host.
+      */}
+      {fleet.masterAgentBranch && (
+        <div className="flex items-center gap-2 px-3 py-2 text-sm" data-master-agent>
+          <span className="text-slate-500 dark:text-slate-400">Master Agent:</span>
+          <span className="flex items-center gap-1.5">
+            {/* The branch icon — same ⎇ glyph the tuple rows use for branches,
+                in the same muted style. A branch name alone reads as a label
+                rather than a kind of thing; the icon is what makes it clear. */}
+            <span
+              className="text-slate-400 dark:text-slate-500"
+              title="Branch"
+              aria-label="Branch"
+            >
+              ⎇
+            </span>
+            {fleet.branchUrlBase ? (
+              <a
+                href={`${fleet.branchUrlBase}${encodeURIComponent(fleet.masterAgentBranch)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-mono text-sm text-blue-600 hover:underline dark:text-blue-400"
+              >
+                {fleet.masterAgentBranch}
+              </a>
+            ) : (
+              <span className="font-mono text-sm text-slate-700 dark:text-slate-300">
+                {fleet.masterAgentBranch}
+              </span>
+            )}
+          </span>
+        </div>
+      )}
+
       {/* THE SECTIONS, spaced apart from each other and from nothing else.
 
           Their own container so the gap between two sections is a number this
