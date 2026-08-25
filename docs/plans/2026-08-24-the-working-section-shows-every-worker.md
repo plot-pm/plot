@@ -204,7 +204,7 @@ is what stops the worker disappearing when it does.
 - a running worker's row names its wave, joined from `fleet.waves`; silent where
   the branch belongs to none
 
-### Ready (Branch: bug/a-ready-pr-asks-for-you)
+### Ready (Branch: bug/a-ready-pr-asks-for-you, PR: #406)
 - a running worker keeps its branch row only while the PR is a DRAFT; a PR
   marked ready reaches WAITING ON YOU whatever the worker is doing
 
