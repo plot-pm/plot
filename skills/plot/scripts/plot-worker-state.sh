@@ -371,6 +371,126 @@ plot_worker_dirty_filter() { # $1=`git status --porcelain` output → the real w
     | grep -vE "$PLOT_TOOL_SCRATCH" || true
 }
 
+# The total CPU time, in centiseconds, of a pid and every process descended from
+# it. Prints the number; prints `0` and returns non-zero when the pid names no
+# live process at all.
+#
+# THE CHILD IS WHERE THE WORK IS, NOT THE SHELL. The pid this fleet records is
+# the loop shell — `plot-worker-loop.sh` — and a shell that `wait`s on its child
+# burns almost no CPU of its own. Measured across the fleet 2026-08-25: 9 of 11
+# loop shells sat at 0.01s CPU over hours while their `claude` child held 1.5+
+# minutes. So the shell's own CPU distinguishes nothing; the DESCENDANT tree is
+# the only place a working worker differs from a dead one. This sums the whole
+# subtree — the loop may fork `claude`, which forks its own tools — so a worker
+# building in a grandchild reads as busy, not idle.
+#
+# ONE `ps` SNAPSHOT, WALKED IN awk. `ps -o pid=,ppid=,time= -ax` is the one
+# portable call that carries the parent link and the CPU clock together (macOS
+# and Linux both). We read it ONCE and walk the ppid graph in memory rather than
+# recursing with a `ps` per node: the alternative forks a process per descendant
+# on a scan the board polls every 5s.
+#
+# `time=` IS `[[HH:]MM:]SS.ss`. Parsed field by field from the right so a worker
+# past an hour of CPU still totals correctly — an absolute-seconds assumption
+# would wrap at 60 and read a busy worker as newly idle.
+plot_worker_cpu_centis() { # $1=pid → total CPU centiseconds of pid+descendants
+  local root="$1"
+  [ -n "$root" ] || { printf '0'; return 1; }
+  case "$root" in *[!0-9]*) printf '0'; return 1 ;; esac
+
+  # Snapshot the whole process table once. Each line: "<pid> <ppid> <time>".
+  # `time` may itself contain a space in no format we read, so pid and ppid are
+  # fields 1 and 2 and everything after is the clock.
+  ps -o pid=,ppid=,time= -ax 2>/dev/null | awk -v root="$root" '
+    # Convert a "[[HH:]MM:]SS.ss" clock to integer centiseconds.
+    function to_centis(t,   n, parts, i, mult, total, sec, frac) {
+      n = split(t, parts, ":")
+      # The last field is SS.ss; earlier fields are whole minutes/hours.
+      total = 0; mult = 1
+      for (i = n; i >= 1; i--) {
+        if (i == n) {
+          # seconds, possibly fractional
+          if (split(parts[i], sf, ".") == 2) { sec = sf[1]; frac = sf[2] }
+          else { sec = parts[i]; frac = 0 }
+          # Normalise fraction to hundredths (ps prints two digits).
+          frac = (frac "00"); frac = substr(frac, 1, 2)
+          total += (sec * 100) + (frac + 0)
+        } else {
+          total += parts[i] * 60 * 100 * mult
+        }
+        if (i < n) mult *= 60
+      }
+      return total
+    }
+    { pid[$1] = $1; ppid[$1] = $2; clk[$1] = $3 }
+    END {
+      if (!(root in pid)) { print 0; exit 1 }
+      # Collect the subtree rooted at `root` by repeated relaxation over the
+      # ppid map — a table this size settles in a couple of passes, and there is
+      # no deep recursion in a worker tree to make that costly.
+      inset[root] = 1
+      changed = 1
+      while (changed) {
+        changed = 0
+        for (p in ppid) {
+          if (!(p in inset) && (ppid[p] in inset)) { inset[p] = 1; changed = 1 }
+        }
+      }
+      total = 0; any = 0
+      for (p in inset) { if (p in clk) { total += to_centis(clk[p]); any = 1 } }
+      print total
+      exit (any ? 0 : 1)
+    }'
+}
+
+# Whether a RUNNING worker's child is doing work — `working`, `idle`, or "".
+#
+# A CUE, NOT A STATE. The row already reads `running`; this is the secondary
+# word beside it that says WHICH kind of running. `running` is honest and
+# coarse — measured across the fleet 2026-08-25 it covered a worker mid-thought,
+# a worker between waves, and a worker whose child had crashed hours earlier,
+# and 11 of 13 workers were in the worst of those. This tells the first from the
+# last WITHOUT adding a sixth state: `AgentStateSchema` stays five, and an idle
+# worker with a live child still IS running.
+#
+# THE SIGNAL IS CPU GROWTH OVER AN INTERVAL, never an absolute. A worker deep in
+# a long build and a worker whose child died both show a large accumulated CPU
+# number; only the DELTA separates them — the live one's clock keeps advancing,
+# the dead one's is frozen. So this samples the subtree's total CPU twice across
+# a short sleep and compares.
+#
+# "" WHEN THERE IS NOTHING TO MEASURE. A pid with no descendants that hold a CPU
+# clock (a bare shell, or a worker whose whole tree has already gone) yields no
+# cue rather than a false `idle`: the absence of a child is not the presence of
+# an idle one, and this cue is only ever read beside a `running` verdict, where
+# a live pid is already established. Item 7 of the plan: a worker with no live
+# child is `stalled`/`unknown` by the existing rules, untouched here.
+#
+# THE SAMPLE INTERVAL is short by default so the scan is not held up, and
+# overridable via `PLOT_ACTIVITY_INTERVAL` so a test can prove both arms without
+# waiting. A child doing real work moves its CPU clock within a fraction of a
+# second; the default is generous enough to clear scheduler jitter.
+: "${PLOT_ACTIVITY_INTERVAL:=0.4}"
+plot_worker_activity() { # $1=pid → working | idle | "" (empty = nothing to measure)
+  local pid="$1" first second
+  [ -n "$pid" ] || return 0
+  case "$pid" in *[!0-9]*) return 0 ;; esac
+
+  # First sample of the whole subtree. If the pid names no process with a CPU
+  # clock, there is nothing to say — emit "".
+  first=$(plot_worker_cpu_centis "$pid") || return 0
+  sleep "$PLOT_ACTIVITY_INTERVAL"
+  second=$(plot_worker_cpu_centis "$pid") || return 0
+
+  # A subtree that burned any CPU across the interval is working; one whose clock
+  # did not move is idle. `>` on integer centiseconds — equal means frozen.
+  if [ "$second" -gt "$first" ] 2>/dev/null; then
+    printf 'working'
+  else
+    printf 'idle'
+  fi
+}
+
 # Refine a clean exit into finished / waiting / stalled.
 #
 # THE ORDER IS LOAD-BEARING, and each step earns its place from a measured

@@ -98,7 +98,11 @@
 #         dispatcher took the branch; this says whether a worker was ever
 #         started. `none` means UNKNOWN (no pid was recorded here), never
 #         "nobody"; `elsewhere` means this machine has no worktree and so
-#         cannot answer at all.
+#         cannot answer at all. `worker_activity` rides beside them ONLY where
+#         `worker` is `running`: `working` when the worker's child is burning
+#         CPU, `idle` when its clock is frozen, "" everywhere else. A secondary
+#         cue, not a sixth state — `running` is honest and coarse, and this says
+#         which kind of running it is without the enum growing a member.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
 #
 # STATELESS AND READ-ONLY. This is the whole design (Manifesto Principle 1):
@@ -2934,6 +2938,27 @@ for i, w in enumerate(d.get("waves", [])):
         json_branches+=",\"worker\":\"$(printf '%s' "$worker_row" | cut -f1)\""
         json_branches+=",\"worker_pid\":\"$(json_str "$(printf '%s' "$worker_row" | cut -f2)")\""
         json_branches+=",\"worker_exit\":\"$(json_str "$(printf '%s' "$worker_row" | cut -f3)")\""
+        # WHETHER A RUNNING WORKER'S CHILD IS WORKING — the secondary cue, a
+        # SIBLING FIELD for the same reason `worker_dirty_paths` is one: the
+        # shared classifier's row is a load-bearing three-field tuple, and this
+        # is a fourth fact measured beside it, not woven into it.
+        #
+        # ONLY ON `running`, because only there does it answer anything. The cue
+        # is *which kind of running is this* — a child mid-work vs. a child that
+        # crashed while the loop waits on it — and every other worker state has
+        # its own word already. Beside `finished` or `stalled` a CPU sample says
+        # nothing a reader needs, so it is "" there, the one absent-value shape
+        # every sibling field uses.
+        #
+        # MEASURED FROM THE PID THE ROW ALREADY CARRIES, not re-derived: field 2
+        # of the same row. `plot_worker_activity` samples that pid's whole
+        # descendant tree twice — the shell is near-zero CPU in every case, so
+        # the CHILD's clock is the discriminator.
+        if [ "$(printf '%s' "$worker_row" | cut -f1)" = "running" ]; then
+          json_branches+=",\"worker_activity\":\"$(json_str "$(plot_worker_activity "$(printf '%s' "$worker_row" | cut -f2)")")\""
+        else
+          json_branches+=",\"worker_activity\":\"\""
+        fi
         # WHAT IS ON THE FLOOR, beside the verdict that named it.
         #
         # A COUNT WOULD HAVE BEEN CHEAPER AND IS NOT ENOUGH. `stalled` exists so

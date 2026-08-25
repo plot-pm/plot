@@ -3,6 +3,7 @@ import {
   FLEET_CONTROLS_DEFAULT,
   PlanMetaSchema, CardSchema, FleetBranchSchema, AgentRowSchema, AgentEntrySchema,
   FleetSchema, ServerInfoSchema,
+  AgentStateSchema, WorkerActivitySchema,
 } from '../../src/contract/schema';
 
 describe('ServerInfoSchema — the branch the server serves', () => {
@@ -207,6 +208,30 @@ describe('FleetBranchSchema — the worker', () => {
     // Empty rather than absent: one absent-value shape for every consumer, and
     // nothing on the floor is exactly what a scan that could not look reports.
     expect(b.worker_dirty_paths).toEqual([]);
+    // The activity cue defaults to "" for the same reason: a pulse that predates
+    // the field made no CPU measurement, and "" is *no cue*, never a false idle.
+    expect(b.worker_activity).toBe('');
+  });
+
+  it('carries the running-worker activity cue — `working` or `idle`', () => {
+    // The secondary cue beside `worker: 'running'`. It says WHICH kind of
+    // running — a child mid-work versus one whose clock is frozen — and the
+    // schema carries both plus the "" that means *not measured*.
+    for (const a of ['working', 'idle', ''] as const) {
+      expect(FleetBranchSchema.parse({ ...base, worker_activity: a }).worker_activity).toBe(a);
+    }
+  });
+
+  it('keeps the cue a cue — `idle` is NOT a sixth agent state', () => {
+    // ITEM 6 OF THE PLAN, stated against the cue directly. The naive fix adds
+    // `idle` as a sixth `AgentStateSchema` member; that would satisfy the
+    // render test and quietly change what `isLiveState`/`isBrokenState`
+    // classify. So this pins the enum at five AND asserts `idle` is not among
+    // them — the cue lives in its own `WorkerActivitySchema`, an attribute of
+    // `running`, never a peer state.
+    expect(AgentStateSchema.options).toHaveLength(5);
+    expect(AgentStateSchema.options).not.toContain('idle');
+    expect(WorkerActivitySchema.options).toEqual(['working', 'idle', '']);
   });
 
   it('keeps all eight values, so no two of them can collapse', () => {
