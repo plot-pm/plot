@@ -177,6 +177,7 @@ in practice, promote it rather than letting the rules go untested.
 - [x] [the-agents-tab-filters-to-the-sprint] The Agents tab gains the sprint filter and states the sprint's progress and target release — the control this sprint's filtering work builds on <!-- status: delivered, branches: 6/6 -->
 - [x] [the-derivations-leave-the-component] The row derivations leave `AgentList.tsx` for modules grouped by subject, so two branches on unrelated section rules stop editing one file <!-- status: delivered, branches: 2/2 -->
 - [x] [the-scan-asks-once-per-pulse-not-once-per-branch] An idle board stops exhausting the host's hourly budget — branch PR state resolves from the one repo-wide list the scan already fetches <!-- status: delivered, branches: 1/1 -->
+- [ ] [a-count-answers-to-its-section] A count answers to the section beneath it — DONE reads `33` in its header over 13 visible rows; the two count different units. Found walking the v2.9.0 endgame
 
 ### Out of scope, and why — 27 open plans, 20 not in this sprint
 

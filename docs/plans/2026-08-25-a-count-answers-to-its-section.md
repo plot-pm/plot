@@ -2,14 +2,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
-- **Sprint:** <!-- not a member of the-board-tells-the-truth-in-every-section -->
+- **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-08-25, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
@@ -67,6 +67,17 @@ as screenshots rather than CI failures. The rule is checkable and general; the
 
 ## Design
 
+### The header names both units where they differ
+
+`DONE (13 plans · 33 waves)` — the first matches what a reader can count, the
+second is the scope the bare `33` was reaching for. Where the two agree, one
+number only: `QUIET (0)`, never `QUIET (0 plans · 0 waves)`.
+
+Re-measured 2026-08-25, after the day's merges: DONE **33 against 13**, WAITING
+ON YOU 10 against 6, NOT STARTED 3 against 1. The gap widened as work landed —
+19 against 10 when this plan was written — which argues for fixing the rule
+rather than the number.
+
 ### The header counts what the section renders
 
 A grouped section renders plan heads; its header counts plan heads. An
@@ -116,8 +127,11 @@ never the whole answer when rows exist.
 4. `working` is left as #403 made it — `agents.length`, with the stepper
    labelled as the cap. A test pins that `liveAgentCount` still feeds
    `auto-dispatch.ts` and is NOT what the control renders.
-5. A filtered section with rows hidden says how many; a genuinely empty one
-   still says `none`, and the two stay distinguishable.
+5. A filtered section says how many rows it withheld **in its heading**,
+   whether or not the section is empty — a section showing 13 of 46 looks
+   complete, which is the harder case to notice. A genuinely empty one still
+   says `none`, and the two stay distinguishable, so printing `0 hidden` on an
+   unfiltered section fails.
 6. `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board` green.
 
 ## Notes
@@ -139,3 +153,47 @@ r.sprint)`) admitted 53 plan rows it should have excluded, so `Sprint only`
 barely narrowed anything and the counter agreed with the section by accident.
 Wave **Joined** made the join exact; the accident stopped, and the disagreement
 surfaced. A fix that reveals a second defect has not caused it.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {
+      "q": "DONE reads 33 over 13 visible rows \u2014 both true (33 waves in 13 plans). Which belongs in the bracket?",
+      "a": "Both, named: `DONE (13 plans \u00b7 33 waves)`. Where they agree \u2014 ungrouped or empty \u2014 one number only, so QUIET stays `(0)`",
+      "category": "ux"
+    },
+    {
+      "q": "Where does the hidden-row count go?",
+      "a": "Beside the section's own number in the heading, and not only where the section is empty: a section showing 13 of 46 looks complete, which is the harder case to notice",
+      "category": "ux"
+    },
+    {
+      "q": "The plan belongs to no sprint \u2014 what becomes of it?",
+      "a": "Into the sprint as a Could: same class of defect as the sprint goal, and a Could neither blocks a release nor prompts about one",
+      "category": "domain"
+    }
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {
+      "stack": false,
+      "architecture": true,
+      "implementation": false
+    },
+    "domain": true,
+    "ux": {
+      "happyPath": true,
+      "edgeCases": true,
+      "errors": false,
+      "accessibility": false
+    },
+    "nonFunctional": {
+      "security": false,
+      "performance": false,
+      "scalability": false
+    },
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
