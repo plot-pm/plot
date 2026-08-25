@@ -181,11 +181,43 @@ recently to be true.
 
 ## Design
 
-### WORKING renders the live states
+### WORKING renders what is working; the rest is a problem report
 
-`workingAgentRows` takes the registry and filters it to `LIVE_STATES` —
-`running` and `waiting` — importing the set rather than restating it, so the
-board and the dispatcher cannot drift on the definition of a worker.
+`every-section-has-one-subject` already wrote the rule this plan implements, and
+reading it settles two things the first draft guessed at:
+
+| section | subject | an agent appears |
+|---|---|---|
+| **WORKING** | the **agent** | **only here while it works** |
+| **WAITING ON YOU** | anything needing a person | **only when broken** — crashed, abandoned, out of context |
+
+> *an agent in WAITING ON YOU is by construction a problem report*
+
+So the split is not *live vs. dead* but **working vs. broken**, and every
+registry state answers to one of the two:
+
+| state | means (`plot-worker-state.sh:44-48`) | section |
+|---|---|---|
+| `running` | process alive | WORKING |
+| `waiting` | a person owes it an answer | WORKING — it is mid-task |
+| `stalled` | **work on the floor, no PR** | WAITING ON YOU — abandoned |
+| `unknown` | **the board cannot tell** | WAITING ON YOU — see below |
+| `finished` | the work reached review | neither; the PR carries it |
+
+**`unknown` goes to WAITING ON YOU, and that is the decision this round turned
+on.** It is not *broken* in the way `stalled` is — the pid is gone and no exit
+code was recorded, so nothing is provable either way. The first draft would have
+hidden it as *not live*.
+
+The operator's rule is better: **if the board does not know what happened, a
+person has to look.** That is precisely *out of context* in the table above, and
+it makes the row a problem report about the board's own blind spot rather than a
+claim about the worker. Seven of today's twelve non-live entries are `unknown`,
+and hiding them would be the board deciding it need not admit what it cannot see.
+
+`workingAgentRows` therefore filters on a rule imported from
+`auto-dispatch.ts`'s `LIVE_STATES` rather than restated, so the board and the
+dispatcher cannot drift on the definition of a worker.
 
 The count follows the rows, exactly as #403 established: `working` is the length
 of what WORKING renders. That property is preserved, not undone.
@@ -200,6 +232,24 @@ of what WORKING renders. That property is preserved, not undone.
 This is the same move `every-section-has-one-subject` made for an agent in
 WAITING ON A MACHINE: the row was not deleted, it was put where its subject
 belongs.
+
+### An unrecognised state is shown, not hidden
+
+Done-when #1 pins the size of `AgentStateSchema` so a sixth state cannot appear
+unnoticed. But a pinned enum is a build-time gate, and it says nothing about an
+OLDER server reading a NEWER registry file — the same widening-tolerant
+asymmetry `MachineProcessOriginSchema` already keeps for its wire contract.
+
+**So the filter is a denylist, not an allowlist**: WORKING excludes the states
+known to be finished, stalled or unknown, and anything it does not recognise is
+rendered with its state as the status word. A worker nobody can see is the worse
+failure — the one this plan exists to fix — and reproducing it for a future
+state would be the same defect with a newer name.
+
+The cost is stated plainly: `LIVE_STATES` then stops being the section's source
+of truth and becomes the complement it is derived from. That is a weaker
+guarantee than an allowlist, taken deliberately, because it fails toward
+visibility.
 
 ### Not chosen: filter the count, keep the rows
 
@@ -228,8 +278,10 @@ WORKING renders only `LIVE_STATES` entries, importing the set from
 
 ### Stalled (Branch: bug/a-stalled-worker-needs-a-person)
 
-A `stalled` entry reaches WAITING ON YOU, where *needs a person* is the
-section's subject.
+A `stalled` or `unknown` entry reaches WAITING ON YOU as a problem report —
+abandoned work in the first case, an unanswerable question in the second. Five
+and seven entries respectively today, against ten rows that section shows under
+`Sprint only`.
 
 ### Scratch (Branch: bug/the-scratch-filter-knows-the-fixture)
 
@@ -289,7 +341,7 @@ before the release rather than after.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {
       "q": "WORKING filters to LIVE_STATES \u2014 where does a `stalled` worker go?",
@@ -310,6 +362,26 @@ before the release rather than after.
       "q": "The 14 endgame items only a person can check \u2014 how?",
       "a": "Prepare each one: name the concrete row or plan on the board where it is checkable, so the walk is not a hunt",
       "category": "ux"
+    },
+    {
+      "q": "What should the section DO with an unrecognised sixth state \u2014 an old server reading a new registry?",
+      "a": "Show it and name it. A worker nobody can see is the worse failure. Consequence recorded: the filter becomes a DENYLIST, and LIVE_STATES stops being the source of truth and becomes the complement it derives from \u2014 a weaker guarantee, taken deliberately because it fails toward visibility",
+      "category": "errors"
+    },
+    {
+      "q": "Should stalled agents stay in WORKING, with WAITING ON YOU reserved for plan/wave/pr/branch/ticket?",
+      "a": "No \u2014 but the question found the real rule. every-section-has-one-subject already says WORKING is 'the agent, only here WHILE IT WORKS' and an agent reaches WAITING ON YOU 'only when broken \u2014 crashed, abandoned, out of context', where it is 'by construction a problem report'. plot-worker-state.sh:47 defines stalled as 'work on the floor, no PR', which is abandoned. So the split is working vs. broken, not live vs. dead",
+      "category": "domain"
+    },
+    {
+      "q": "Is `unknown` also broken? Seven of twelve non-live entries are unknown \u2014 neither provably working nor provably dead",
+      "a": "Yes, to WAITING ON YOU: if the board does not know what happened, a person has to look. That is 'out of context' in the existing table, and the row is a problem report about the BOARD's blind spot rather than a claim about the worker. Hiding it would be the board deciding it need not admit what it cannot see",
+      "category": "domain"
+    },
+    {
+      "q": "Does the sprint filter empty WORKING? (the first draft assumed so)",
+      "a": "No \u2014 refuted by reading AgentList.tsx:356: WORKING is built from fleet.agents UNFILTERED, with the comment 'a WORKER is a fact about the fleet, and hiding it because its plan is off-focus is the empty-section defect wearing a filter'. All four running workers are on sprint plans anyway. The question was withdrawn",
+      "category": "edgeCases"
     }
   ],
   "deferredItems": [],
@@ -322,8 +394,8 @@ before the release rather than after.
     "domain": true,
     "ux": {
       "happyPath": true,
-      "edgeCases": false,
-      "errors": false,
+      "edgeCases": true,
+      "errors": true,
       "accessibility": false
     },
     "nonFunctional": {
