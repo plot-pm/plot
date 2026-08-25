@@ -148,7 +148,7 @@ budget spent on a no-op.
 
 ## Waves
 
-### Spent (Branch: bug/auto-dispatch-skips-an-occupied-branch)
+### Spent (Branch: bug/auto-dispatch-skips-an-occupied-branch, PR: #427)
 
 `planAutoDispatch` counts a `wip` branch as startable only when a dispatch could
 act on it, and names the ones it skipped.
