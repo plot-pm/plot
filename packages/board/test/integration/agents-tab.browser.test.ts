@@ -1639,8 +1639,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // WORKING RENDERS THE AGENT NOW, so the information the motion decorates is
       // the worker's status and its plan — not the branch's last-commit note,
       // which is a branch row's. The claim is unchanged: what a moving row says,
-      // a still one says too. `someone is on it` is the running worker's word.
-      await expect.poll(() => li.textContent()).toContain('someone is on it');
+      // a still one says too. `running` is the running worker's word — it once
+      // read `someone is on it`, withdrawn by `a-state-is-a-word-not-a-sentence`.
+      await expect.poll(() => li.textContent()).toContain('running');
       expect(await li.textContent()).toContain('beans');
       // 200 minutes → 3h, the same age the moving row shows. Read from the AGE
       // SLOT by its own hook rather than from `span:last` — the row's last span

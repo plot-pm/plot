@@ -1103,22 +1103,29 @@ describe('statusTone colours what a reader acts on', () => {
 });
 
 describe('agentStateStatus — the registry state as a WORKING word', () => {
-  // `the-working-section-shows-every-worker`, Done when #5: only a genuinely
-  // running worker reads `someone is on it`. A row whose usual state is a lie
-  // teaches its reader to ignore the row, so an idle, stalled, finished or
-  // unrecognised worker each says its own condition instead.
+  // `a-state-is-a-word-not-a-sentence`, Done when #1–3: a `running` agent's row
+  // reads `running`, in the same one-word vocabulary its four siblings use. A
+  // row whose usual state is a lie teaches its reader to ignore the row, so
+  // every state says its own condition plainly.
+  //
+  // This once asserted `running` → `someone is on it`, a reassurance about a
+  // person rather than a state. It read identically on every WORKING row (11 of
+  // 11, measured 2026-08-25) and so described nothing; the plan withdrew the
+  // sentence. This describe block is the anti-contract: it asserts the state
+  // word IS `running`, and item 3 forbids `someone is on it` reappearing here.
 
-  it('narrows *someone is on it* to a running worker', () => {
-    // The one state that claims a person is at work. It is asserted alone
-    // because the whole defect is a status word that stays put while the worker
-    // has stopped.
-    expect(agentStateStatus('running')).toBe('someone is on it');
+  it('reads `running` for a running worker', () => {
+    // The state that once claimed a person is at work now names its own
+    // condition — the one word, not a sentence about who owns the row.
+    expect(agentStateStatus('running')).toBe('running');
   });
 
-  it('says every non-running state plainly, never *someone is on it*', () => {
-    // Each of the other four registry states carries its own word. The negative
-    // half is the point: none of them may borrow the running word.
-    const words: Record<Exclude<Parameters<typeof agentStateStatus>[0], 'running'>, string> = {
+  it('says every state plainly, one word per state', () => {
+    // All five registry states carry their own word. The negative half is the
+    // point: none of them, `running` included, may borrow the withdrawn
+    // sentence.
+    const words: Record<Parameters<typeof agentStateStatus>[0], string> = {
+      running: 'running',
       waiting: 'waiting on you',
       stalled: 'stalled',
       finished: 'finished',

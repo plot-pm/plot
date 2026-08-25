@@ -20,8 +20,8 @@ import {
  * it joins, so the section's subject (who is working) matches its contents.
  *
  * This suite settles the SELECTION and the JOIN, which are data. That every
- * live entry renders a discoverable DOM row, and that only a running worker
- * reads `someone is on it`, are claims about a page and live in
+ * live entry renders a discoverable DOM row, and that a running worker reads
+ * `running`, are claims about a page and live in
  * `test/integration/working-shows-every-agent`.
  */
 const agent = (over: Partial<AgentEntry> = {}): AgentEntry =>
