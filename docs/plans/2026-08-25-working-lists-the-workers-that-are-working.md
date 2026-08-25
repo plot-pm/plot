@@ -179,6 +179,25 @@ perfectly reconciled registry answers *which sessions exist*, and WORKING asks
 *which are working*. A section must not depend on a cleanup job having run
 recently to be true.
 
+### Filtering alone moves the heap, it does not clear it
+
+Asked while walking the endgame: *how does a user clean this up?*
+
+They cannot. There is no agent action anywhere — `menus.tsx` has `BranchMenu`,
+`RowActions`, `WaveActions`, `ResliceMenu`, `PlanActions` and
+`IssueRowActions`, none for an agent — and no drop route on the server. The `⋯`
+on a WORKING row belongs to the BRANCH half of that row.
+
+The only cleanup path is `git worktree remove` at a terminal, after which
+`dropSettledWorkers` reconciles on the next pulse. Measured 2026-08-25: **16 of
+17 worktrees still exist**, which is exactly why the reconciliation keeps their
+entries and is right to.
+
+So Wave `Live` makes WORKING honest and sends thirteen entries to WAITING ON
+YOU — the section a reader opens first, where each row is a problem report they
+are then unable to close. **A section that names work nobody can act on is the
+same defect one section over.**
+
 ## Design
 
 ### WORKING renders what is working; the rest is a problem report
@@ -251,6 +270,29 @@ of truth and becomes the complement it is derived from. That is a weaker
 guarantee than an allowlist, taken deliberately, because it fails toward
 visibility.
 
+### The row says why it stays, and offers to end it
+
+**A reason, not just a state.** `unknown` says the board could not tell; it does
+not say what to do. The row names the obstacle it can see — *worktree still
+present*, *uncommitted work* — the same fact `dropSettledWorkers` weighed when
+it declined to drop the entry. One derivation, shown rather than kept.
+
+**`Drop this agent`** for an entry whose session has ended. It removes the
+registry entry and nothing else: no worktree deleted, no branch touched, no
+process signalled. A registry entry is bookkeeping, and dropping it is a
+bookkeeping act — which is what makes it safe behind a button at all.
+
+It refuses a `running` entry. Not a nicety: the entry is how auto-dispatch
+counts its slots, and dropping a live one lets the fleet start work over its cap.
+
+### Not chosen: a *Remove worktree* button
+
+The obvious one-click answer, rejected. `git worktree remove` deletes a
+directory that may hold uncommitted work — this session rescued 192 lines from
+exactly such a worktree — and a destructive filesystem act does not belong
+beside a bookkeeping one. The row NAMES the worktree so a person can decide with
+the path in front of them.
+
 ### Not chosen: filter the count, keep the rows
 
 Sixteen rows under a header reading `4 working` reintroduces exactly the
@@ -282,6 +324,12 @@ A `stalled` or `unknown` entry reaches WAITING ON YOU as a problem report —
 abandoned work in the first case, an unanswerable question in the second. Five
 and seven entries respectively today, against ten rows that section shows under
 `Sprint only`.
+
+### Dropped (Branch: feature/an-agent-row-can-be-dropped)
+
+A row states why its entry survives reconciliation, and offers `Drop this
+agent` where the session has ended — the registry entry only, refusing a
+`running` one.
 
 ### Scratch (Branch: bug/the-scratch-filter-knows-the-fixture)
 
@@ -316,7 +364,17 @@ one line in a place the other two waves do not touch.
    forgetting the destination silently deletes the row that most needs a person.
 5. A worktree dirty *only* with the tiny-garden pulse fixture reconciles as
    clean; a worktree dirty with anything else does not.
-6. `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board` green.
+6. **`Drop this agent` removes the registry entry and NOTHING else.** Asserted
+   on the filesystem: the worktree still exists, the branch still exists, no
+   signal was sent.
+7. **It refuses a `running` entry**, and names why. The assertion a naive
+   implementation fails: that entry is how auto-dispatch counts its slots, so
+   dropping a live one lets the fleet start work over its cap.
+8. **`/api/registry/drop` is in `write-gate.test.ts`'s `WRITE_ROUTES`.** That
+   file says of itself why this is not a formality: a route added as a list
+   entry once *"merged cleanly, typechecked, and was the one ungated write
+   endpoint"*.
+9. `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board` green.
 
 ## Notes
 
