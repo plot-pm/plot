@@ -182,7 +182,7 @@ in practice, promote it rather than letting the rules go untested.
 - [ ] [the-registry-lives-where-the-dispatcher-writes-it] A board served from a worktree with no `.plot/agents/` reads the dispatcher’s manifests — all 12 agents were synthesized with no session, so no row could offer Drop
 - [ ] [a-state-is-a-word-not-a-sentence] The agent state column reads a state — four states render their own name, `running` rendered `someone is on it` on all 11 WORKING rows
 - [ ] [a-hung-child-does-not-hold-the-loop] A worker whose agent process hangs is ended rather than waited on forever — 11 of 13 workers sat at zero CPU for up to 10 hours after `No messages returned`, and auto-dispatch started 2 more against a cap of 3
-- [ ] [a-claimed-branch-is-not-startable] Auto-dispatch spends its budget on branches a dispatch would refuse — 3 of 4 branches it counted as startable were already claimed, and the July plan holding one starved every newer plan behind it
+- [ ] [a-wip-branch-nobody-is-on-is-not-startable] Auto-dispatch spends its budget on branches a dispatch would refuse — 3 of 4 branches it counted as startable were already claimed, and the July plan holding one starved every newer plan behind it
 
 ### Out of scope, and why — 27 open plans, 20 not in this sprint
 

@@ -1,4 +1,4 @@
-# A claimed branch is not startable
+# A wip branch nobody is on is not startable
 
 ## Status
 
@@ -52,9 +52,22 @@ entire locking mechanism.
 So every pulse plans a spawn the script immediately discards, spends the budget
 doing it, and repeats. Nothing changes state, so nothing breaks the cycle.
 
-### Why the pulse cannot see it
+### The pulse sees it, and `isStartable` accepts it anyway
 
-`isStartable` reads the branch's pulse state:
+The first draft of this plan blamed a blind pulse — *`open` says nothing about
+whether a ref exists*. **That was wrong, and the correction is the useful part.**
+
+The scan distinguishes both cases already (`plot-fleet-scan.sh:2528`): a branch
+whose only commits beyond main are empty claim markers is `claimed`; one
+carrying real work is `wip`. Measured on the live pulse:
+
+```
+feature/opus5-hardening-ralph-bounds            state=wip
+feature/the-board-says-which-registry-it-read   state=open
+```
+
+`wip` is the honest answer — that branch really does carry three commits of
+unlanded work. The defect is that `isStartable` accepts it:
 
 ```ts
 function isStartable(state: string): boolean {
@@ -62,19 +75,14 @@ function isStartable(state: string): boolean {
 }
 ```
 
-`open` means *no PR* — it says nothing about whether a ref exists. Measured
-across the estate the same day, of the four branches that `planAutoDispatch`
-considered startable:
+Accepting `wip` is deliberate and right for the case it was written for: a wave
+someone began and abandoned should be resumable. But it makes no distinction
+between *begun and abandoned* and *begun four weeks ago, consolidated into a PR,
+and left there on purpose*.
 
-| branch | pulse | claimed |
-|---|---|---|
-| `feature/opus5-hardening-ralph-bounds` | open | **yes** |
-| `bug/the-loop-bounds-its-child` | open | **yes** |
-| `feature/a-running-worker-says-if-it-is-idle` | open | **yes** |
-| `feature/the-board-says-which-registry-it-read` | open | no |
-
-**Three of four were not startable at all.** The one that was is the one that
-never got a turn.
+Of the four branches `planAutoDispatch` counted startable on 2026-08-25, **three
+were `wip`** and one was `open`. The `open` one is the only one a dispatch could
+have acted on, and it is the one that never got a turn.
 
 ### Order makes it permanent, not occasional
 
@@ -91,20 +99,22 @@ spent on an action that is refused before it does anything.
 
 ## Design
 
-### Startable means a dispatch could claim it
+### Startable means a dispatch would do something
 
-`isStartable` is a statement about the *branch's work*; whether a dispatch can
-proceed additionally requires that **no ref holds it**. The claim is the fact
-`plot-dispatch.sh` already checks, and the pulse already knows how to report
-branch facts — the scan reads refs to derive `merged` today.
+`isStartable` answers *is there work here?* Auto-dispatch needs a second
+question: *would spawning a dispatch change anything?* For a `wip` branch whose
+ref already exists, the answer is no — `plot-dispatch.sh` refuses a branch whose
+ref is present, which is Plot's whole locking mechanism.
 
-So the pulse carries whether a branch is claimed, and `planAutoDispatch` skips
-the claimed ones when counting `startable`.
+So `planAutoDispatch` treats `wip` as startable **only when no worker holds it
+and no ref blocks the claim**. `open` is unchanged: no ref, no work, nothing to
+refuse.
 
-**Read from the scan, not from a live `git ls-remote`.** `maybeAutoDispatch`
-runs inside the scan's success path and must stay off the request path; adding a
-network call per candidate branch would put host latency into the pulse. The
-scan already walks refs.
+The facts are already in hand. The scan derives `wip` by walking the branch's
+commits, so it knows the ref exists; the registry says whether a live worker is
+on it. **No new host call**, and none may be added — `maybeAutoDispatch` runs
+inside the scan's success path, and per-branch network latency there would be
+paid on every pulse.
 
 ### The refusal says which branch held the budget
 
@@ -149,13 +159,14 @@ claimed ones it skipped.
 
 ## Done when
 
-1. With one claimed and one unclaimed startable branch and a budget of 1, the
-   **unclaimed** one is dispatched. Asserted with the claimed branch belonging to
-   the earlier plan in file order — the measured shape, and the one a fix that
+1. With one `wip` branch whose ref exists and one `open` branch, and a budget of
+   1, the **`open`** one is dispatched. Asserted with the `wip` branch belonging
+   to the earlier plan in file order — the measured shape, and the one a fix that
    merely reorders plans would pass without.
-2. **A branch with no ref is still startable.** The ordinary case must not
-   regress: a fix that treats every branch as claimed stops the fleet entirely
-   and passes item 1.
+2. **An `open` branch is still startable, and so is a `wip` branch with no ref.**
+   The ordinary cases must not regress: a fix that rejects every `wip` branch
+   stops resumable waves entirely and passes item 1. This is the assertion that
+   keeps `isStartable`'s original purpose intact.
 3. `plot-dispatch.sh` is unchanged. Its ref-push claim stays the locking
    mechanism; this plan stops planning spawns it would refuse, and does not move
    the refusal.
