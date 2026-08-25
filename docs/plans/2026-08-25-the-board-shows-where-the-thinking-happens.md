@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
@@ -11,7 +11,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-25, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
-- **Delivered:** <!-- YYYY-MM-DD -->
+- **Delivered:** 2026-08-25
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-25, Jan Wloka, `feature/the-header-names-the-master-agent`
 
@@ -252,7 +252,7 @@ nothing has that moment for a session that was always there.
 
 ## Waves
 
-### Shown (Branch: feature/the-header-names-the-master-agent #415)
+### Shown (Branch: feature/the-header-names-the-master-agent, PR: #415)
 
 The fleet payload carries the main checkout's branch and its host link, derived
 from git on the poll's own clock; `AgentList` renders the `Master Agent:` row
