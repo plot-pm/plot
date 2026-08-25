@@ -27,6 +27,7 @@ import { commissionAvailability, commissionStatus, handleCommission } from './co
 import { handleReslice, resliceAvailability, resliceStatus } from './reslice.js';
 import { handleDeliver, deliverAvailability, deliverStatus } from './deliver.js';
 import { handleImplement, implementAvailability, implementStatus } from './implement.js';
+import { dropAvailability, handleDrop } from './drop.js';
 // Inlined at build time by esbuild's text loader — the artifact is a single
 // self-contained file, served from memory (no filesystem static serving, so no
 // path-traversal surface).
@@ -241,6 +242,18 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     // contract. This wave dispatches NOTHING: the switch records an intention
     // wave 3 reads, and turning it on here starts no agent.
     { path: '/api/fleet-controls', verb: 'setting fleet controls', handle: handleFleetControls },
+    // POST /api/registry/drop — remove a registry entry that is no longer running.
+    //
+    // The board's manual reconciliation: an agent whose manifest outlives its
+    // process, or whose worktree was removed manually, can be dropped from the
+    // registry so the WORKING section stops showing a row for it. It REFUSES to
+    // drop a live worker — the registry is a record, not a killswitch.
+    //
+    // Added here because the router dispatches from a TABLE and the loopback gate
+    // is inherited by construction — see write-gate.ts and the note in drop.ts
+    // for why a surviving per-handler copy would let the named opt-in mean
+    // different things on different routes.
+    { path: '/api/registry/drop', verb: 'dropping agent', handle: handleDrop },
   ] as const;
 
   const writeRoute = WRITE_ROUTES.find((r) => r.path === url.pathname);
@@ -336,6 +349,13 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         // card's `hasEligibleWork` by the row — the binding says whether this
         // BOARD can act, the card says whether the plan has work to start.
         implement: implementAvailability(HOST),
+        // A NINTH flag, and the SAME binding as the eight above today —
+        // dropping removes a manifest from this disk. It stays a field of its
+        // own for the reason every flag above it does: one flag for two
+        // capabilities is how they diverge when a later change makes only one
+        // of them local. The row reads it to decide whether *Drop this agent*
+        // acts or names its refusal.
+        drop: dropAvailability(HOST),
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(board));

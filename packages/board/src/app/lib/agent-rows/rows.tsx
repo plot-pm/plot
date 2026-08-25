@@ -12,6 +12,7 @@ import {
   type AgentEntry,
   UNNAMED_WAVE,
   isSpikeWave,
+  isBrokenState,
   RELEASE_BRANCH,
 } from '../../../contract/schema.js';
 import { tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave, planPrAggregate, statusTone, tupleAgeText, agentStateStatus, shortSessionId, worktreeName, KIND_LABEL } from '../tuple-row.js';
@@ -24,7 +25,7 @@ import { machineNote, noteWithoutPr } from './host-notes.js';
 import { briefGapNote, needsBrief, waitingTone } from './row-identity.js';
 import { type WaveGroup, groupedNote, waveDissent } from './waves.js';
 import { ActivityMark, BlockedByMark, ChangeMark, StuckCell, UnpushedMark } from './marks.js';
-import { BranchMenu, IssueRowActions, PlanActions, ResliceMenu, WaveActions } from './menus.js';
+import { BranchMenu, BrokenAgentMenu, IssueRowActions, PlanActions, ResliceMenu, WaveActions } from './menus.js';
 import { WorkerLogModal } from '../../components/WorkerLogModal.js';
 import { DispatchLogModal } from '../../components/DispatchLogModal.js';
 import { ChangedFilesModal } from '../../components/ChangedFilesModal.js';
@@ -241,6 +242,18 @@ export interface AgentListProps {
    * to start.
    */
   implement?: DispatchInfo;
+  /**
+   * Whether this server will act on `Drop this agent`, and why not — the ninth
+   * capability, reaching agent rows in WAITING ON YOU. Unlike the eight above,
+   * this removes a manifest rather than spawning an agent: it is the board's
+   * manual reconciliation for entries the automatic resolver cannot clear.
+   *
+   * Same binding as the eight above (a write to this disk), kept its own prop
+   * for the reason those are: one flag for two capabilities is how they diverge.
+   * The endpoint refuses a live worker regardless of this flag; this says the
+   * board CAN act, the endpoint says whether it SHOULD on a given entry.
+   */
+  drop?: DispatchInfo;
   /** Bumps once per BOARD refresh; the Start work button counts these. */
   pulse?: number;
   /** A Start work click became outstanding (true) or settled (false). */
@@ -2037,6 +2050,7 @@ export function RegistryRow({
   card = null,
   dispatch,
   continueWith,
+  drop,
   pulse = 0,
   onStarting,
   marked = false,
@@ -2064,6 +2078,12 @@ export function RegistryRow({
   dispatch?: DispatchInfo;
   /** Whether this server will act on Continue with an answer. */
   continueWith?: DispatchInfo;
+  /**
+   * Whether this server will act on Drop, and why not — the BROKEN agent's one
+   * action, removing its manifest so the row disappears. Passed only to broken
+   * agents (those in WAITING ON YOU), never to live ones (those in WORKING).
+   */
+  drop?: DispatchInfo;
   /** The pulse counter. */
   pulse?: number;
   /** A click is outstanding (true) or has settled (false). */
@@ -2255,11 +2275,19 @@ export function RegistryRow({
             </span>
           ) : null
         }
-        // THE MENU IS THE BRANCH'S, where a branch row exists to carry it: its
-        // log, its dispatch, its reveal. A worker with no row has no branch
-        // record to act on, so it offers none.
+        // THE MENU DEPENDS ON WHAT THE AGENT IS. A broken agent (`stalled`,
+        // `unknown`) gets `BrokenAgentMenu` with a Drop action — the board's
+        // manual reconciliation for entries the automatic resolver cannot clear.
+        // A live agent (`running`, `waiting`) gets `BranchMenu` where a branch
+        // row exists. A worker with no row and no `drop` capability has no menu.
         menu={
-          row ? (
+          isBrokenState(agent.state) ? (
+            <BrokenAgentMenu
+              agent={agent}
+              drop={drop}
+              onActing={onStarting}
+            />
+          ) : row ? (
             <BranchMenu
               row={row}
               card={card ?? null}

@@ -447,6 +447,23 @@ export function App() {
     : board?.implement ?? { available: false, reason: '' };
 
   /**
+   * The SAME treatment for Drop — the ninth write, which removes a registry
+   * manifest. Unlike the eight above this does NOT spawn an agent: the endpoint
+   * removes the file synchronously. Dimmed on a frozen page for the reason the
+   * ones above are: it writes to this disk, and a page that cannot re-read the
+   * registry cannot know the entry has already been dropped.
+   *
+   * `board?.drop` may be `undefined` even off a frozen page — the board CASTS
+   * its payload rather than parsing it, so the schema `.default` never runs
+   * client-side, and a pulse produced before this field existed carries no
+   * `drop`. `DropAgentButton` reads `drop.available`, so the coalesce here is
+   * what makes a stale payload refuse rather than throw.
+   */
+  const dropInfo = dimmed
+    ? { available: false, reason: BLOCKED_REASON }
+    : board?.drop ?? { available: false, reason: '' };
+
+  /**
    * Coming back to a hidden tab RE-CHECKS instead of counting.
    *
    * Browsers throttle timers in hidden tabs, so a minimised window would
@@ -943,6 +960,10 @@ export function App() {
               // reaches the same PLAN rows Approve, Commission and Deliver do,
               // in the row menu, gated on the card having eligible work.
               implement={implementInfo}
+              // The ninth act, and the only one belonging to a BROKEN agent
+              // rather than a plan or branch: Drop removes a registry manifest.
+              // It reaches the agent rows in WAITING ON YOU.
+              drop={dropInfo}
               pulse={pulse}
               onStarting={onStarting}
               // The agent panel's BRANCH and PLAN facts are destinations.
