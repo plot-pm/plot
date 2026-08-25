@@ -15,6 +15,7 @@
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-25, Jan Wloka, `bug/the-loop-bounds-its-child`
 - **Started:** 2026-08-25, Jan Wloka, `bug/the-loop-clears-its-manifest`
+- **Started:** 2026-08-25, Jan Wloka, `bug/a-landed-branch-still-holds-a-slot`
 
 ## Changelog
 
