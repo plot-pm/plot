@@ -2237,25 +2237,25 @@ export function rowPhase(planPhase: string, state: BranchState): Phase | null {
 /**
  * Does this PR ask NOTHING of a person right now?
  *
- * The question a live worker's row needs answered, and it is narrower than
- * "is the PR fine": `green` and `pending` are states in which nobody is
- * blocked — the checks passed, or a machine is still running them. Everything
- * else in the enum is somebody's errand: `conflicts` wants a rebase, `failing`
- * wants a look, `none` wants a click, `unknown` wants asking again.
+ * **A draft is still the author's.** A draft PR says "I am not finished" — it
+ * is the clearest possible WORKING row.
  *
- * An ALLOWLIST, deliberately, and the same shape `prState` itself uses: a
- * blocklist of errand-states would silently start claiming "nobody is blocked"
- * the first time a new state is added, which is the direction that goes quiet
- * rather than loud.
+ * **Pending is waiting on CI, not on review.** A pending PR's checks are still
+ * running — no person can review it yet.
  *
- * A DRAFT never qualifies. A draft is still its author's, and here the author
- * is the agent — so a green draft with a live worker is the clearest WORKING
- * row there is, and must not be diverted by this predicate's caller.
+ * **A green non-draft PR needs review.** This is the #389/#390/#391 fix: three
+ * ready green PRs sat reviewable and invisible because they were treated as
+ * "asking nobody" while their workers ran. A green non-draft PR says "I am
+ * finished and need review" — it IS somebody's errand.
+ *
+ * The 2026-08-17 fix that added `green || pending` here was scoped one notch
+ * too wide for GREEN: that defect was an agent whose DRAFT PR went green,
+ * still the author's, still WORKING. Green non-draft is now excluded.
  */
 export function prAsksNobody(pr: PrRecord): boolean {
   if (pr.draft) return true;
   const s = prState(pr);
-  return s === 'green' || s === 'pending';
+  return s === 'pending';
 }
 
 export function waitingOnFor(
@@ -2826,21 +2826,19 @@ function classifyGroup(
   // A PR outranks the git state for work in flight: once a branch has one,
   // what it waits for is decided there, not by commit age. Merged and
   // not-yet-pushed branches keep their git answer.
-  // A LIVE WORKER OVERTAKES A PR THAT NEEDS NOTHING.
   //
-  // This arm answers before any worker question, and that is right for a PR
-  // that is a person's errand — conflicts, failing checks, no checks, a state
-  // the host cannot read. Those want you even while an agent is mid-run.
+  // A DRAFT IS STILL THE AUTHOR'S — A READY PR IS NOT.
   //
-  // It was NOT right for the rest. An agent that opened its PR and kept working
-  // was pulled into `waiting-on-you` by a green or pending PR that asks nothing
-  // of anybody, and WORKING went empty while two agents ran — measured
-  // 2026-08-17. So a running worker skips this arm exactly where the PR has no
-  // errand in it, and nowhere else.
+  // A running worker skips this arm only where the PR is a draft. The 2026-08-17
+  // fix that also skipped green and pending PRs was scoped one notch too wide —
+  // that defect was an agent whose DRAFT PR went green, still the author's,
+  // still WORKING. Three ready green PRs (#389/#390/#391) then sat reviewable
+  // and invisible because they were treated as "asking nobody".
   //
-  // Drafts are excluded from the skip on purpose: a draft is still the author's
-  // and the author here is the agent, so a green draft with a live worker is
-  // the clearest possible WORKING row.
+  // The partition that matters is draft versus ready, not green versus failing:
+  // a draft says "I am not finished", a ready PR says "I am finished and need
+  // review". So a running worker keeps its branch row only while the PR is a
+  // draft, and loses it the moment the PR is marked ready.
   if (pr && state !== 'merged' && state !== 'open' && !(worker === 'running' && prAsksNobody(pr))) {
     const note = reviewNote(pr);
     // THE CONFLICT OUTRANKS THE CHECKS, and it has to be said before the switch

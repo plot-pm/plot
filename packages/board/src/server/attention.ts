@@ -136,18 +136,15 @@ export function readingFor(row: AgentRow): Reading | null {
   // A LIVE WORKER NEEDS NOBODY — *unless its PR is a person's errand*, and
   // that exception is the board's own, copied rather than invented.
   //
-  // `classify` skips its PR arm for a running worker on exactly one condition:
-  // `worker === 'running' && prAsksNobody(pr)`. A green or pending PR asks
-  // nobody, so an agent that opened its PR and kept working stays in WORKING —
-  // the defect measured 2026-08-17, where WORKING went empty while two agents
-  // ran. But a CONFLICTING or FAILING PR is a person's errand even while an
-  // agent is mid-run, and `classify` still sends those to `waiting-on-you`.
+  // `classify` skips its PR arm for a running worker only where the PR is a
+  // DRAFT. A draft says "I am not finished" so the agent keeps working; a
+  // ready (non-draft) PR says "I am finished" so it IS somebody's errand even
+  // mid-run. CONFLICTING and FAILING PRs are somebody's errand too.
   //
   // So this returns early only where the row has no PR to speak for it. A
   // running worker WITH a PR falls through to the arm below, which answers from
-  // `pr.state` and returns null for the two states that ask nobody — the same
-  // partition `prAsksNobody` draws, reached from the value rather than by
-  // importing the predicate.
+  // `pr.state` — ready green PRs earn the 'review' verdict, drafts fall through
+  // to the worker verdicts.
   //
   // The alternative — returning null for every running worker — was written
   // first and is wrong in one direction that matters: it would drop a
@@ -185,19 +182,17 @@ export function readingFor(row: AgentRow): Reading | null {
           list: 'needsHuman',
         };
       case 'green':
-        // GREEN AND NOT A DRAFT IS A REVIEW — unless an agent is still running
-        // on the branch, in which case the PR is not finished being written.
+        // GREEN AND NOT A DRAFT IS A REVIEW.
         //
-        // The `worker === 'running'` test is the same partition `classify`
-        // draws with `prAsksNobody`: a green PR asks nobody, so a live worker
-        // keeps the row in WORKING there and out of every list here. Asking it
-        // at this arm rather than at the top is what lets `conflicts` and
-        // `failing` above still reach a person mid-run.
+        // A draft is still its author's — it says "I am not finished" — so a
+        // green draft falls through to the worker verdicts below. A ready
+        // (non-draft) PR says "I am finished and need review", so it IS
+        // somebody's errand whether or not the worker is still running.
         //
-        // A draft is still its author's — the rule `prAsksNobody` states — so a
-        // green draft asks nobody either, and falls through to the worker
-        // verdicts below, where a `finished` worker may still ask for a look.
-        if (!row.pr.draft && row.worker !== 'running') {
+        // `classify` now sends a ready green PR to `waiting-on-you` even with
+        // a live worker, and this arm matches: the row reaches here with
+        // `pr.draft === false` and earns verdict 'review'.
+        if (!row.pr.draft) {
           return {
             verdict: 'review',
             action: 'review and merge it',
@@ -279,12 +274,14 @@ export function readingFor(row: AgentRow): Reading | null {
         list: 'needsHuman',
       };
     case 'running':
-      // A LIVE WORKER, reaching here only because it has a PR that asks nobody
-      // — the fall-through the `green` arm above deliberately allows. Nothing
-      // below it applies: `unpushed` in particular is finished work sitting
-      // still, and an agent mid-run is the one case where commits not yet
-      // pushed mean the opposite of that. Returning here rather than breaking
-      // is what keeps that arm from claiming a live branch is stalled.
+      // A LIVE WORKER, reaching here only because it has a DRAFT PR — the
+      // fall-through the `green` arm above deliberately allows for drafts.
+      // A ready (non-draft) PR is answered in the PR arm and never reaches
+      // here. Nothing below applies: `unpushed` in particular is finished
+      // work sitting still, and an agent mid-run is the one case where
+      // commits not yet pushed mean the opposite of that. Returning here
+      // rather than breaking is what keeps that arm from claiming a live
+      // branch is stalled.
       return null;
     default:
       // `none` and `elsewhere` — UNKNOWN, NEVER "NOBODY". `plot-dispatch`

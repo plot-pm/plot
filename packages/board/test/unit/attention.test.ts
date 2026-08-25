@@ -227,12 +227,9 @@ describe('an open PR outranks local mess', () => {
 });
 
 describe('a live worker does not hide its PR\'s errand', () => {
-  // The exception the board itself draws, copied rather than invented.
-  // `classify` skips its PR arm for a running worker on ONE condition —
-  // `worker === 'running' && prAsksNobody(pr)` — so a green or pending PR keeps
-  // the row in WORKING, and a conflicting or failing one still reaches a
-  // person. Reading "a running worker needs nobody" as unconditional drops the
-  // row a person most needs to see, for as long as its agent keeps running.
+  // `classify` skips its PR arm for a running worker only where the PR is a
+  // DRAFT. A ready (non-draft) PR — green, pending, conflicting, failing — IS
+  // somebody's errand even while the worker runs.
   const runningWith = (checks: string, mergeable = 'mergeable', draft = false) => {
     const pulse = workerPulse();
     const prs = new Map([['feature/is-running', {
@@ -254,19 +251,23 @@ describe('a live worker does not hide its PR\'s errand', () => {
     expect(runningWith('failing')!.verdict).toBe('ci-failing');
   });
 
-  it('stays silent on a GREEN PR under a live worker', () => {
-    // The other half, and the defect measured 2026-08-17: an agent that opened
-    // its PR and kept working was pulled out of WORKING by a PR asking nobody,
-    // and WORKING went empty while two agents ran. A green PR asks nobody.
-    expect(runningWith('green')).toBe(null);
+  it('reports a ready GREEN PR as needing review, even while the agent runs', () => {
+    // THE #389/#390/#391 FIX. A ready (non-draft) green PR says "I am finished
+    // and need review". The row goes to WAITING ON YOU so a reviewer can see it
+    // — whatever the worker is doing.
+    const r = runningWith('green')!;
+    expect(r.verdict).toBe('review');
+    expect(r.list).toBe('needsHuman');
   });
 
   it('stays silent on a pending PR under a live worker', () => {
+    // A machine is the blocker — nobody is waiting on a person. The row goes to
+    // WAITING ON MACHINE rather than WAITING ON YOU.
     expect(runningWith('pending')).toBe(null);
   });
 
   it('stays silent on a green DRAFT under a live worker', () => {
-    // Falls past the PR arm — a draft is still its author's — and then past the
+    // A draft is still its author's. Falls past the PR arm and then past the
     // worker verdicts, where `running` returns rather than breaking. The return
     // is what stops the `unpushed` arm below from claiming a live branch is
     // finished work sitting still.
