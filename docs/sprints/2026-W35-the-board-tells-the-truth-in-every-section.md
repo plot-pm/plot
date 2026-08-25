@@ -144,6 +144,13 @@ in practice, promote it rather than letting the rules go untested.
 
 - [x] [a-plan-has-a-phase-and-a-status] A plan carries a phase AND a status — the board derives seven statuses the plan format cannot state, so `Approved` covers everything from nothing-started to every-wave-merged <!-- status: delivered, pr: #374, branches: 1/1 -->
 - [x] [the-row-says-whether-you-can-start-it] The row says whether you can start it — a reader cannot tell an eligible branch from a blocked one without opening the plan
+<!-- MOVED FROM COULD TO SHOULD 2026-08-25, after the v2.9.0 endgame walk.
+     Stop 4 measures it directly — 'M matches the agents you can actually
+     see running, not the registry's size' — and it reads 16 working over
+     4 live processes. A Could neither blocks a release nor prompts about
+     one; a Should prompts, which is the treatment a checklist item that
+     FAILED deserves. -->
+- [ ] [working-lists-the-workers-that-are-working] WORKING lists the agents actually working — the header reads `16 working` over 16 rows while 4 processes are alive; 12 are `stalled` or `unknown`. Found walking the v2.9.0 endgame, Stop 4
 
 ### Could Have
 
@@ -167,7 +174,6 @@ in practice, promote it rather than letting the rules go untested.
 - [x] [the-sprint-filter-says-what-it-filters] The Agents tab filters on sprint MEMBERSHIP — the old predicate admitted 53 plan rows with empty sprint fields beside the 2 genuine plan-less ones <!-- status: delivered, pr: #401, branches: 5/5 -->
 - [x] [a-worker-asks-for-the-next-wave] A worker asks for the next wave rather than stopping at its own <!-- status: delivered, pr: #404, branches: 4/4 -->
 - [x] [the-working-section-shows-every-worker] WORKING renders one row per registry entry — 23 registry entries against 0 rows rendered, 6 agents whose branch the pulse never produced <!-- status: delivered, pr: #407, branches: 5/5 -->
-- [ ] [working-lists-the-workers-that-are-working] WORKING lists the agents actually working — the header reads `16 working` over 16 rows while 4 processes are alive; 12 are `stalled` or `unknown`. Found walking the v2.9.0 endgame, Stop 4
 - [x] [the-agents-tab-filters-to-the-sprint] The Agents tab gains the sprint filter and states the sprint's progress and target release — the control this sprint's filtering work builds on <!-- status: delivered, branches: 6/6 -->
 - [x] [the-derivations-leave-the-component] The row derivations leave `AgentList.tsx` for modules grouped by subject, so two branches on unrelated section rules stop editing one file <!-- status: delivered, branches: 2/2 -->
 - [x] [the-scan-asks-once-per-pulse-not-once-per-branch] An idle board stops exhausting the host's hourly budget — branch PR state resolves from the one repo-wide list the scan already fetches <!-- status: delivered, branches: 1/1 -->
