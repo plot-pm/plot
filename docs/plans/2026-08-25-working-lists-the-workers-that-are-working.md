@@ -286,3 +286,52 @@ Seven of this sprint's defects came from someone looking at a running board. Thi
 one came from someone reading the checklist *against* a running board, which is a
 cheaper way to find the same class of thing — and an argument for walking it
 before the release rather than after.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {
+      "q": "WORKING filters to LIVE_STATES \u2014 where does a `stalled` worker go?",
+      "a": "WAITING ON YOU. It means *you cannot proceed without a person*, which is what a worker stopped with uncommitted work is. QUIET asks 'still thinking, or dead?' \u2014 already answered. A seventh section would grow the domain model for a state the existing six can hold. Cost accepted: the section then mixes PRs and agents \u2014 a mixture of row KINDS, not of subjects",
+      "category": "domain"
+    },
+    {
+      "q": "Stop 6 also failed \u2014 241 GraphQL calls in 10 clean minutes (~1446/h) against a 'low hundreds' target. Plan it, or measure first?",
+      "a": "Measure first. Result: ~20 calls per refresh cycle, not one. refreshRuns is already capped to `failing`, so the fan-out is in pr-list --rich or refreshIssues. No plan until the source is named",
+      "category": "nonFunctional"
+    },
+    {
+      "q": "13 of 16 entries have a CLEAN worktree and still are not dropped \u2014 does that change the Scratch wave?",
+      "a": "Keep it, correct the reasoning. The fixture blocks four, not eight; '8 of 15' counted worktrees in the repo, not registry entries. The larger cause is `unknown` not being provably ended, which dropSettledWorkers refuses to guess from \u2014 correctly, and that refusal is the strongest argument for Wave Live",
+      "category": "technical"
+    },
+    {
+      "q": "The 14 endgame items only a person can check \u2014 how?",
+      "a": "Prepare each one: name the concrete row or plan on the board where it is checkable, so the walk is not a hunt",
+      "category": "ux"
+    }
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {
+      "stack": false,
+      "architecture": true,
+      "implementation": true
+    },
+    "domain": true,
+    "ux": {
+      "happyPath": true,
+      "edgeCases": false,
+      "errors": false,
+      "accessibility": false
+    },
+    "nonFunctional": {
+      "security": false,
+      "performance": true,
+      "scalability": false
+    },
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
