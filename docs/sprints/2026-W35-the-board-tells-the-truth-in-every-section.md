@@ -178,7 +178,7 @@ in practice, promote it rather than letting the rules go untested.
 - [x] [the-derivations-leave-the-component] The row derivations leave `AgentList.tsx` for modules grouped by subject, so two branches on unrelated section rules stop editing one file <!-- status: delivered, branches: 2/2 -->
 - [x] [the-scan-asks-once-per-pulse-not-once-per-branch] An idle board stops exhausting the host's hourly budget — branch PR state resolves from the one repo-wide list the scan already fetches <!-- status: delivered, branches: 1/1 -->
 - [ ] [a-count-answers-to-its-section] A count answers to the section beneath it — DONE reads `33` in its header over 13 visible rows; the two count different units. Found walking the v2.9.0 endgame
-- [ ] [the-board-shows-where-the-thinking-happens] The board shows the session a person works in — eight worktrees have no registry entry, the first being the main checkout where the concept work happens
+- [ ] [the-board-shows-where-the-thinking-happens] The Agents tab names the branch the master agent works on, and the header's unlabelled branch chip — which named the SERVER's checkout and was twice read as the operator's — is removed
 
 ### Out of scope, and why — 27 open plans, 20 not in this sprint
 
