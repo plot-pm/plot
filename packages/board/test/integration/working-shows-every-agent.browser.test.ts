@@ -187,8 +187,11 @@ describe('WORKING renders one row per LIVE registry entry', () => {
     }
   });
 
-  it('reads *someone is on it* for a running worker', async () => {
-    // A running worker names its own condition; the label is the live one.
+  it('reads `running` for a running worker', async () => {
+    // A running worker names its own condition, in one word. This case once
+    // asserted the row read `someone is on it`; `a-state-is-a-word-not-a-sentence`
+    // withdrew that sentence — it read the same on every WORKING row and so
+    // described nothing — so the running worker now reads the state word itself.
     const page = await openAgents();
     try {
       const working = group(page, 'Working');
@@ -196,7 +199,8 @@ describe('WORKING renders one row per LIVE registry entry', () => {
         working.locator('li').filter({ has: page.locator(`[data-branch="${branch}"]`) })
           .last().textContent();
 
-      await expect.poll(() => rowText('feature/running')).toContain('someone is on it');
+      await expect.poll(() => rowText('feature/running')).toContain('running');
+      await expect.poll(() => rowText('feature/running')).not.toContain('someone is on it');
     } finally {
       await page.close();
     }

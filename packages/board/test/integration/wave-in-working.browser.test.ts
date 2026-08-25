@@ -221,7 +221,7 @@ describe('a wave row is a wave row in every section', () => {
   // as the column headers plus `none`.
   //
   // `working-shows-every-agent.browser.test.ts` asserts it with a real registry
-  // (`reads *someone is on it* only for a running worker`), which is where the
+  // (`reads \`running\` for a running worker`), which is where the
   // claim can actually be observed. Duplicating it here against an empty section
   // would be a test that passes for the wrong reason, or fails for one.
 

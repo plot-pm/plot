@@ -2045,9 +2045,9 @@ export function Row({
  * In BOTH shapes the status comes from `agent.state`, not from the row's
  * `worker` field. `tupleFromRow` reads `worker` (the scan's view of the BRANCH);
  * the registry's five-way state is the view of the WORKTREE, and it is the one
- * that narrows `someone is on it` to a genuinely running worker. A row whose
- * usual state is a lie teaches its reader to ignore it, so an idle, stalled,
- * finished or unknown worker each says its own condition — Done when #5.
+ * that tells a genuinely running worker (`running`) from an idle, stalled,
+ * finished or unknown one. A row whose usual state is a lie teaches its reader
+ * to ignore it, so each of those says its own condition — Done when #5.
  *
  * The wave name a running worker's row will carry is a SEPARATE wave (`Named`);
  * here the wave arrives only as whatever a joined branch row already carries.
@@ -2110,7 +2110,7 @@ export function RegistryRow({
   const [logOpen, setLogOpen] = useState(false);
 
   // THE STATUS IS THE REGISTRY'S, always. `agent.state` is the worktree's
-  // liveness — the fact that narrows `someone is on it` to a running worker —
+  // liveness — the fact that tells a `running` worker from a stalled one —
   // where the row's `worker` field is the scan's view of the branch. This is
   // the whole point of rendering from the registry, so it overrides whatever a
   // joined row's projection would otherwise say.

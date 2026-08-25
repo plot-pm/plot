@@ -811,10 +811,13 @@ export function workerStatus(worker: AgentRow['worker']): string {
  * The display word for an agent's registry state.
  *
  * All FIVE registry states render with their own labels — the plan
- * `the-working-section-shows-every-worker` settles that. `running` is the
- * only state that says *someone is on it*; an idle, stalled, finished or
- * unrecognised worker says its own condition plainly, because a row whose
- * usual state is a lie teaches its reader to ignore the row.
+ * `the-working-section-shows-every-worker` settles that. `running` says
+ * `running`, in the same vocabulary its four siblings use; an idle, stalled,
+ * finished or unrecognised worker says its own condition plainly, because a row
+ * whose usual state is a lie teaches its reader to ignore the row. It once said
+ * *someone is on it* — a reassurance about a person, not a state — which read
+ * identically on every WORKING row and so described nothing;
+ * `a-state-is-a-word-not-a-sentence` withdrew it.
  *
  * This differs from `workerStatus`, which reads a ROW's `worker` field —
  * that field carries what the scan saw *on the branch*, while this reads
@@ -828,7 +831,7 @@ export function workerStatus(worker: AgentRow['worker']): string {
  */
 export function agentStateStatus(state: AgentEntry['state']): string {
   switch (state) {
-    case 'running': return 'someone is on it';
+    case 'running': return 'running';
     case 'waiting': return 'waiting on you';
     case 'stalled': return 'stalled';
     case 'finished': return 'finished';

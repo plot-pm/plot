@@ -328,8 +328,13 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       expect(box?.height ?? 0).toBeGreaterThan(0);
       // And the text itself is not blanked or replaced. `beans-a` is a WORKING
       // row, which renders from the registry now — its worker's status is the
-      // line a reader keeps, where a branch row would show its commit note.
-      expect(await page.getByText('someone is on it').first().count()).toBe(1);
+      // line a reader keeps, where a branch row would show its commit note. Its
+      // running worker reads `running`; `a-state-is-a-word-not-a-sentence`
+      // withdrew the old `someone is on it`, so the status is scoped to the row
+      // rather than matched as free text.
+      const beansRow = page.locator('li').filter({ has: page.getByText('feature/beans-a', { exact: true }) });
+      await expect.poll(() => beansRow.first().textContent()).toContain('running');
+      expect(await page.getByText('someone is on it').count()).toBe(0);
     } finally {
       await page.close();
     }
