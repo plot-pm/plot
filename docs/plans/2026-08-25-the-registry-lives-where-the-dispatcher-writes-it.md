@@ -140,7 +140,7 @@ unnecessary.
 The manifest directory is read through `plot-config.sh` with today's path as the
 default, so a board served from any worktree finds the dispatcher's registry.
 
-### Dropped (Branch: bug/the-drop-writes-where-the-registry-reads)
+### Dropped (Branch: bug/the-drop-writes-where-the-registry-reads, PR: #422)
 
 `drop.ts` resolves the manifest directory the same way the reader does, so the
 Drop action removes the file the board is showing.
