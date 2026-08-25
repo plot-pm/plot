@@ -128,7 +128,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 `))if(o.startsWith("worktree "))a(),i={path:o.slice(9),branch:""};else if(o.startsWith("branch ")&&i){let l=o.slice(7);i.branch=l.startsWith("refs/heads/")?l.slice(11):l}return a(),r}function Zx(e,n){let r=[],i=[];for(let o=0;o<e.length;o++){let l=e[o];l.state!=="running"&&l.worktree!==""&&(r.push(l),i.push(o))}if(r.length===0)return e;let t;try{t=n(r.map(o=>o.worktree))}catch{return e}if(t.length!==r.length)return e;let a=new Set;for(let o=0;o<r.length;o++)t[o]&&a.add(i[o]);return e.filter((o,l)=>!a.has(l))}function Kx(){return()=>[]}function mh(e){if(e.length===0)return[];let i=Gu("bash",["-c",`
     PLOT_WORKER_RECORD='\\.plot-worker\\.'
     PLOT_EDITOR_LEFTOVER='\\.(tmp[0-9]*|swp|orig|rej|bak)$'
-    PLOT_TOOL_SCRATCH='(^|/)\\.(playwright-mcp|plot/agents|omc/state)(/|$)'
+    PLOT_TOOL_SCRATCH='(^|/)\\.(playwright-mcp|plot/agents|plot/state|omc/state)(/|$)'
     for wt in "$@"; do
       if [ ! -d "$wt" ]; then
         printf 'dirty\\0'

@@ -249,7 +249,7 @@ PLOT_EDITOR_LEFTOVER='\.(tmp[0-9]*|swp|orig|rej|bak)$'
 # many words — *an untracked source file IS work and must reset the clock* — and
 # it is right. A new `new-module.ts` is the most interesting thing a worktree
 # can hold; what it is not is a directory nobody will ever commit.
-PLOT_TOOL_SCRATCH='(^|/)\.(playwright-mcp|plot/agents|omc/state)(/|$)'
+PLOT_TOOL_SCRATCH='(^|/)\.(playwright-mcp|plot/agents|plot/state|omc/state)(/|$)'
 
 # Where the worker's log lives in this worktree, when one is there at all.
 #
