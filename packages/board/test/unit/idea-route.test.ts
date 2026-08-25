@@ -50,8 +50,16 @@ afterEach(() => {
 
 /** A repo with a plan directory, and whatever plans a test wants in it. */
 function repo(plans: Record<string, string> = {}): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-idea-'));
-  made.push(dir);
+    // A NESTED DIR, the shape `implement-route.test.ts` established: a
+  // spawning command writes its prompt, log and state to
+  // `path.resolve(repoRoot, '..')`. With the repo AT the tmpdir root those
+  // land in the shared temp directory, survive `rmSync(dir)`, and the next
+  // run finds a file a refusal test asserts is absent. One level down puts
+  // them inside the tree afterEach removes.
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-idea-'));
+  made.push(parent);
+  const dir = path.join(parent, 'repo');
+  fs.mkdirSync(dir, { recursive: true });
   fs.mkdirSync(path.join(dir, 'docs/plans'), { recursive: true });
   for (const [name, body] of Object.entries(plans)) {
     fs.writeFileSync(path.join(dir, 'docs/plans', name), body, 'utf8');
